@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  ntp-server:
+    image: orangepi-ntp-server:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ntp-server
+    command: python3 ntp_sync_server.py
+    ports:
+      - "8123:8123"
+      - "123:123/udp"
+    networks:
+      - recorder-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8123/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  video-recorder:
+    image: orangepi-video-recorder:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: video-recorder
+    command: python3 video_recorder.py
+    depends_on:
+      - ntp-server
+    volumes:
+      - ./config:/config:ro
+      - recordings:/recordings
+      - /dev/dri:/dev/dri  # Hardware acceleration
+      - /dev/dma_heap:/dev/dma_heap
+    devices:
+      - /dev/video0
+      - /dev/video1
+      - /dev/mpp_service
+    privileged: true  # Required for hardware access
+    network_mode: host  # For RTSP access
+    restart: unless-stopped
+    environment:
+      - TZ=Europe/Moscow
+      - PYTHONUNBUFFERED=1
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  web-dashboard:
+    image: nginx:alpine
+    container_name: web-dashboard
+    ports:
+      - "8080:80"
+    volumes:
+      - ./dashboard:/usr/share/nginx/html:ro
+      - recordings:/recordings:ro
+    networks:
+      - recorder-network
+    restart: unless-stopped
+
+networks:
+  recorder-network:
+    driver: bridge
+
+volumes:
+  recordings:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/storage/recordings

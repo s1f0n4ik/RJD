@@ -1,0 +1,27 @@
+cameras:
+  - id: camera_01
+    name: "Front Entrance"
+    rtsp_url: "rtsp://192.168.1.100:554/stream1"
+    username: "admin"
+    password: "password123"
+    enabled: true
+    fps: 25
+    resolution: "1920x1080"
+
+  - id: camera_02
+    name: "Parking Lot"
+    rtsp_url: "rtsp://192.168.1.101:554/stream1"
+    username: "admin"
+    password: "password123"
+    enabled: true
+    fps: 25
+    resolution: "1920x1080"
+
+  - id: camera_03
+    name: "Back Exit"
+    rtsp_url: "rtsp://192.168.1.102:554/stream1"
+    username: "admin"
+    password: "password123"
+    enabled: true
+    fps: 25
+    resolution: "1280x720"

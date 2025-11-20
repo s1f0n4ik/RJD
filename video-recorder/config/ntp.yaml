@@ -1,0 +1,4 @@
+ntp:
+  server: "ntp-server"  # Docker service name
+  sync_interval: 300  # seconds
+  max_offset: 1.0  # seconds
