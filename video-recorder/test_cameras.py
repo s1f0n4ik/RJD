@@ -34,7 +34,7 @@ def test_rtsp_connection(camera: Dict) -> bool:
         'ffprobe',
         '-v', 'error',
         '-rtsp_transport', 'tcp',
-        '-timeout', '5000000',  # 5 seconds
+        '-stimeout', '5000000',  # 5 seconds
         '-show_entries', 'stream=codec_name,width,height,r_frame_rate',
         '-of', 'default=noprint_wrappers=1',
         rtsp_url
@@ -81,8 +81,6 @@ def test_stream_recording(camera: Dict, duration: int = 10) -> bool:
         '-rtsp_transport', 'tcp',
         '-i', rtsp_url,
         '-t', str(duration),
-        '-c', 'copy',
-        '-y',
         output_file
     ]
 
@@ -103,7 +101,7 @@ def test_stream_recording(camera: Dict, duration: int = 10) -> bool:
             print(f"Duration: {elapsed:.1f}s, Size: {file_size:.2f}MB")
 
             # Cleanup
-            Path(output_file).unlink()
+            # Path(output_file).unlink()
             return True
         else:
             print(f"✗ Recording failed")
