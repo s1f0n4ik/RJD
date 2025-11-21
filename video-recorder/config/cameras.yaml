@@ -1,27 +1,36 @@
 cameras:
   - id: camera_01
-    name: "Front Entrance"
-    rtsp_url: "rtsp://192.168.1.100:554/stream1"
+    name: "Front Eba"
+    rtsp_url: "rtsp://192.168.1.11:554/ISAPI/Streaming/Channels/101"
     username: "admin"
-    password: "password123"
+    password: "VniiTest"
     enabled: true
     fps: 25
-    resolution: "1920x1080"
+    resolution: "3040x1368"
 
   - id: camera_02
-    name: "Parking Lot"
-    rtsp_url: "rtsp://192.168.1.101:554/stream1"
+    name: "Front Hui"
+    rtsp_url: "rtsp://192.168.1.12:554/ISAPI/Streaming/Channels/101"
     username: "admin"
-    password: "password123"
+    password: "VniiTest"
     enabled: true
     fps: 25
-    resolution: "1920x1080"
+    resolution: "3040x1368"
 
   - id: camera_03
-    name: "Back Exit"
-    rtsp_url: "rtsp://192.168.1.102:554/stream1"
+    name: "Back Pizda"
+    rtsp_url: "rtsp://192.168.1.13:554/cam/realmonitor?channel=1&subtype=0"
     username: "admin"
-    password: "password123"
+    password: "VniiTest"
     enabled: true
     fps: 25
-    resolution: "1280x720"
+    resolution: "2560x1440"
+    
+  - id: camera_04
+    name: "Back Na Kiev"
+    rtsp_url: "rtsp://192.168.1.14:554/cam/realmonitor?channel=1&subtype=0"
+    username: "admin"
+    password: "VniiTest"
+    enabled: true
+    fps: 25
+    resolution: "2560x1440"
