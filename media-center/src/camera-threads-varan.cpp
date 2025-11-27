@@ -8,7 +8,7 @@ using namespace std;
 
 int main()
 {
-	auto center = varan::neural::UMediaCenter{25};
+	auto center = varan::neural::UMediaCenter{2};
 
 	std::vector<varan::neural::FCameraOptions> vector_options = {
 		varan::neural::FCameraOptions{
@@ -42,7 +42,7 @@ int main()
 	center.start_all();
 
 	while (true) {
-		center.print_status_line();
+		//center.print_status_line();
 		std::this_thread::sleep_for(std::chrono::milliseconds(33));
 	}
 

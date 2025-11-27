@@ -101,8 +101,8 @@
   "vendor": {
     "microsoft.com/VisualStudioRemoteSettings/CMake/1.0": {
       "remoteMachineName": "orangepi@192.168.1.2",
-      "remoteCMakeListsRoot": "/home/orangepi/.vs/camera-threads-varan/",
-      "remoteBuildRoot": "/home/orangepi/.vs/camera-threads-varan/out/build/linux-debug/",
+      "remoteCMakeListsRoot": "/home/orangepi/.vs/media-center/",
+      "remoteBuildRoot": "/home/orangepi/.vs/media-center/out/build/linux-debug/",
       "remoteCopySourcesMethod": "rsync",
       "remoteConnection": {
         "username": "orangepi",

@@ -95,12 +95,17 @@ namespace neural {
 
 		std::thread m_reading_thread;
 		std::thread m_decode_thread;
+		std::thread m_push_thread;
 
 		FMpegContexts m_mpeg_context;
 
-		// Ожидающая очередь для хранения фреймов
+		// Ожидающая очередь для хранения пакетов
 		using UniquePacket = std::unique_ptr<AVPacket, std::function<void(AVPacket*)>>;
-		USafeQueue<UniquePacket> m_buffer;
+		USafeQueue<UniquePacket> m_packets_buffer;
+
+		// Ожидающая очередь для хранения фреймов drm
+		// Хранит для потока, который отправляет в GStream pipeline
+		USafeQueue<std::unique_ptr<FDrmFrame>> m_frames_buffer;
 
 		// Поля для GStream
 		using TUniqueGst = std::unique_ptr<GstElement, decltype(&gst_object_unref)>;
@@ -119,6 +124,8 @@ namespace neural {
 		void read_frames(FMpegContexts& mpeg_context);
 
 		void decode_frames(FMpegContexts& mpeg_context);
+
+		void push_frames_to_gst_pipeline();
 
 	};
 

@@ -4,8 +4,8 @@
 namespace varan {
 namespace neural {
 
-UMediaCenter::UMediaCenter(int buffer_size) 
-    : m_buffer_size(buffer_size)
+UMediaCenter::UMediaCenter(int push_threads_count)
+    : m_threads_count(push_threads_count)
     , m_camera_initialization(false)
 {
 }
@@ -28,7 +28,6 @@ int UMediaCenter::remove_camera(const std::string& camera_unique) {
         it->second->stop();
         m_cameras.erase(it);
     }
-    m_buffers.erase(camera_unique);
     return 0;
 }
 
@@ -69,11 +68,12 @@ void UMediaCenter::start_all() {
     // Запуск камера и передача callback для забора кадров в буфер отображения
     std::lock_guard<std::mutex> lk(m_mutex);
     for (auto& [name, camera] : m_cameras) {
+        /*
         camera->set_frame_callback(
             [this](std::string name, std::unique_ptr<FDrmFrame> frame) {
                 this->on_frame_received(name, std::move(frame));
             }
-        );
+        );*/
         camera->start();
     }
     std::cout << color::yellow << "[Media Center] All camera streams are running!" << color::reset << std::endl;
@@ -91,29 +91,16 @@ void UMediaCenter::stop_all() {
     }
 }
 
-URingBuffer<UMediaCenter::FramePtr>& UMediaCenter::get_buffer_for_camera(const std::string& camera_name) {
-    std::unique_lock lock(m_mutex_buffers);
-    return m_buffers.try_emplace(camera_name, m_buffer_size).first->second;
-}
-
-void UMediaCenter::on_frame_received(const std::string& camera_name, std::unique_ptr<FDrmFrame> frame){
-    FramePtr shared_frame = std::move(frame);
-
-    auto& buffer = get_buffer_for_camera(camera_name);
-
-    buffer.push(std::move(shared_frame));
-}
-
+/*
 void UMediaCenter::print_status_line() {
     std::lock_guard<std::mutex> lk(m_mutex);
 
     std::ostringstream ss;
 
     for (auto& [name, buf] : m_buffers) {
-        auto last = buf.peek();
-        if (last.has_value()) {
-            const auto& frame = last.value().get();
-            ss << name << " " << frame->pts_ms << " ";
+        const auto& last = buf.peek();
+        if (last) {
+            ss << name << " " << last->pts << " ";
         }
         else {
             ss << name << " <empty> ";
@@ -123,6 +110,7 @@ void UMediaCenter::print_status_line() {
     std::string line = ss.str();
     std::cout << "\r" << line << std::string(40, ' ') << std::flush;
 }
+*/
 
 } // namespace neural
 } // namespace varan

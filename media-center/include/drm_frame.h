@@ -24,7 +24,7 @@ struct FDrmFrame {
     int offset[4];
     int pitch[4];
     int num_planes;
-	int64_t pts_ms;
+	int64_t pts;
 
     FDrmFrame() = default;
     FDrmFrame(
@@ -35,14 +35,14 @@ struct FDrmFrame {
         const int offset_[4] = nullptr,
         const int pitch_[4] = nullptr,
         int num_planes_ = 0,
-        int64_t pts = 0
+        int64_t pts_ = 0
     ) 
         : fd(fd_)
         , width(w)
         , height(h)
         , format(format_)
         , num_planes(num_planes_)
-        , pts_ms(pts) 
+        , pts(pts_) 
     {
         if (offset_) {
             for (int i = 0; i < 4; i++) offset[i] = offset_[i];
@@ -64,7 +64,7 @@ struct FDrmFrame {
         fd = other.fd;
         width = other.width;
         height = other.height;
-        pts_ms = other.pts_ms;
+        pts = other.pts;
         format = other.format;
         num_planes = other.num_planes;
 
@@ -77,7 +77,7 @@ struct FDrmFrame {
         other.fd = -1;
         other.width = 0;
         other.height = 0;
-        other.pts_ms = 0;
+        other.pts = 0;
         other.format = -1;
         other.num_planes = 0;
 
@@ -100,7 +100,7 @@ struct FDrmFrame {
             width = other.width;
             height = other.height;
             format = other.format;
-            pts_ms = other.pts_ms;
+            pts = other.pts;
             num_planes = other.num_planes;
 
             for (int i = 0; i < 4; i++) {
@@ -112,7 +112,7 @@ struct FDrmFrame {
             other.width = 0;
             other.height = 0;
             other.format = -1;
-            other.pts_ms = 0;
+            other.pts = 0;
             other.num_planes = 0;
             for (int i = 0; i < 4; i++) {
                 other.offset[i] = 0;

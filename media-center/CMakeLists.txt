@@ -9,7 +9,7 @@ if (POLICY CMP0141)
   set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<IF:$<AND:$<C_COMPILER_ID:MSVC>,$<CXX_COMPILER_ID:MSVC>>,$<$<CONFIG:Debug,RelWithDebInfo>:EditAndContinue>,$<$<CONFIG:Debug,RelWithDebInfo>:ProgramDatabase>>")
 endif()
 
-project ("camera-threads-varan")
+project ("media-center")
 
 file(
 	GLOB_RECURSE SRC_FILES 
@@ -33,7 +33,7 @@ pkg_check_modules(GST_ALL REQUIRED gstreamer-1.0 gstreamer-allocators-1.0 gstrea
 add_executable(${PROJECT_NAME} ${SRC_FILES})
 
 if (CMAKE_VERSION VERSION_GREATER 3.12)
-  set_property(TARGET camera-threads-varan PROPERTY CXX_STANDARD 20)
+  set_property(TARGET media-center PROPERTY CXX_STANDARD 20)
 endif()
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Linux")

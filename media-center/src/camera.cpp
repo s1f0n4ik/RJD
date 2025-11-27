@@ -1,6 +1,7 @@
 #include "camera.h"
 #include "console_utility.h"
 #include <libavutil/hwcontext_drm.h>
+#include <gst/allocators/allocators.h>
 
 #include <ranges>
 
@@ -47,7 +48,8 @@ namespace neural {
 		, m_error(false)
 		, m_initialized(false)
 		, m_gst_initialized(false)
-		, m_buffer(options.buff_reading_size)
+		, m_packets_buffer(options.buff_reading_size)
+		, m_frames_buffer(options.buff_reading_size)
 		, m_pipeline(nullptr, &gst_object_unref)
 		, m_appsrc(nullptr, &gst_object_unref)
 		, m_webrtc(nullptr, &gst_object_unref)
@@ -83,6 +85,7 @@ namespace neural {
 
 		m_reading_thread = std::thread(&UCamera::read_frames, this, std::ref(m_mpeg_context));
 		m_decode_thread = std::thread(&UCamera::decode_frames, this, std::ref(m_mpeg_context));
+		m_push_thread = std::thread(&UCamera::push_frames_to_gst_pipeline, this);
 
 		return true;
 	}
@@ -271,7 +274,7 @@ namespace neural {
 				}
 				av_packet_unref(rtp_packet.get());
 
-				m_buffer.push(std::move(copy));
+				m_packets_buffer.push(std::move(copy));
 			}
 			std::cerr << color::red << "[UCamera: read thread] Read thread has ended!" << color::reset << std::endl;
 			std::cerr << color::yellow << "[UCamera: read thread] Read thread resetting!" << color::reset << std::endl;
@@ -281,7 +284,7 @@ namespace neural {
 	void UCamera::decode_frames(FMpegContexts& mpeg_context) {
 		while (m_running) {
 			// Достаем из очереди пакет
-			auto rtp_packet = m_buffer.wait_and_pop();
+			auto rtp_packet = m_packets_buffer.wait_and_pop();
 
 			auto ret = avcodec_send_packet(mpeg_context.codec_ctx, rtp_packet.get());
 			if (ret < 0) {
@@ -327,12 +330,6 @@ namespace neural {
 					// Переводит pts в timestamp ms
 					AVRational time_base = mpeg_context.codec_ctx->time_base;
 					int64_t pts = src_frame.get()->pts;
-					int64_t pts_ms = 0;
-
-					if (pts != AV_NOPTS_VALUE) {
-						double seconds = pts * av_q2d(time_base);
-						int64_t pts_ms = static_cast<int64_t>(seconds * 1000);
-					}
 
 					// Создаем конечную структуру фрейма
 					auto drf_frame = FDrmFrame{
@@ -343,12 +340,14 @@ namespace neural {
 						offset,
 						pitch,
 						desc->nb_layers,
-						pts_ms
+						pts
 					};
 
-					if (m_frame_callback) {
-						m_frame_callback(m_options.name, std::make_unique<FDrmFrame>(std::move(drf_frame)));
-					}
+					m_frames_buffer.push(std::make_unique<FDrmFrame>(std::move(drf_frame)));
+
+					//if (m_frame_callback) {
+					//	m_frame_callback(m_options.name, std::make_unique<FDrmFrame>(std::move(drf_frame)));
+					//}
 				}
 				else {
 					continue;
@@ -408,7 +407,6 @@ namespace neural {
 		std::cerr << color::red << "Failed to get HW surface format.\n" << color::reset;
 		return AV_PIX_FMT_NONE;
 	}
-
 
 	// ======== GStreaming
 
@@ -487,6 +485,68 @@ namespace neural {
 
 		m_gst_initialized = true;
 		return m_gst_initialized;
+	}
+
+	void UCamera::push_frames_to_gst_pipeline()
+	{
+		if (!m_appsrc) {
+			std::ostringstream oss;
+			oss << color::red << "[UCamera push_thread] No appsrc initis!" << color::reset << std::endl;
+			throw std::runtime_error(oss.str());
+		}
+
+		while (m_running) {
+
+			GstBuffer* buffer = gst_buffer_new();
+			if (!buffer) {
+				std::this_thread::sleep_for(std::chrono::microseconds(1000));
+				continue;
+			}
+
+			GstAllocator* allocator = gst_dmabuf_allocator_new();
+
+			const auto frame = m_frames_buffer.wait_and_pop();
+
+			// Предположим один fd, один план и offset == 0
+			if (frame->num_planes == 1 && frame->offset[0] == 0) {
+				size_t size = frame->pitch[0] * frame->height;
+				GstMemory* mem = gst_dmabuf_allocator_alloc(allocator, frame->fd, size);
+				if (!mem) {
+					gst_buffer_unref(buffer);
+					continue;
+				}
+				gst_buffer_append_memory(buffer, mem);
+			}
+			else {
+				// Несколько планов с offset — используем gst_memory_new_wrapped
+				for (int i = 0; i < frame->num_planes; ++i) {
+					size_t plane_size = frame->pitch[i] * frame->height;
+					GstMemory* mem = gst_memory_new_wrapped(
+						GST_MEMORY_FLAG_READONLY,
+						nullptr,
+						plane_size,
+						frame->offset[i],
+						plane_size,
+						(gpointer)(intptr_t)frame->fd,
+						nullptr
+					);
+					if (!mem) {
+						gst_buffer_unref(buffer);
+						continue;
+					}
+					gst_buffer_append_memory(buffer, mem);
+				}
+			}
+
+			GST_BUFFER_PTS(buffer) = frame->pts;
+
+			GstFlowReturn ret = gst_app_src_push_buffer(GST_APP_SRC(m_appsrc.get()), buffer);
+
+			if (ret != GST_FLOW_OK) {
+				gst_buffer_unref(buffer);
+				continue;
+			}
+		}
 	}
 
 } // namespace neural
