@@ -1,0 +1,3 @@
+[submodule "media-center/3rdparty/uWebSockets"]
+	path = media-center/3rdparty/uWebSockets
+	url = https://github.com/uNetworking/uWebSockets.git
