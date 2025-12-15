@@ -1,0 +1,98 @@
+/* Темная тема */
+body {
+    font-family: Arial, sans-serif;
+    margin: 20px;
+    background-color: #121212;
+    color: #e0e0e0;
+    display: flex;
+    flex-direction: column;
+    align-items: center; /* Центрируем содержимое по горизонтали */
+    min-height: 100vh;
+}
+
+h1 {
+    margin-bottom: 20px;
+}
+
+label {
+    font-weight: bold;
+}
+
+input[type=text] {
+    width: 400px;
+    padding: 6px;
+    font-size: 16px;
+    border: 1px solid #444;
+    background-color: #222;
+    color: #eee;
+    border-radius: 4px;
+}
+
+input[type=text]::placeholder {
+    color: #888;
+}
+
+button {
+    padding: 6px 12px;
+    font-size: 16px;
+    cursor: pointer;
+    background-color: #333;
+    color: #eee;
+    border: 1px solid #555;
+    border-radius: 4px;
+    margin-left: 10px;
+    transition: background-color 0.3s ease;
+}
+
+button:hover {
+    background-color: #555;
+}
+
+/* Контейнер для управления input+button */
+.controls {
+    display: flex;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+/* Видео по центру */
+video#remoteVideo {
+    background: black;
+    width: 640px;
+    height: 480px;
+    border-radius: 8px;
+    box-shadow: 0 0 20px rgba(0, 0, 0, 0.7);
+    margin-bottom: 20px;
+    cursor: pointer; /* чтобы показать, что можно кликнуть */
+}
+
+/* Логи */
+#logs {
+    width: 680px; /* чуть шире видео */
+    height: 300px;
+    padding: 10px;
+    background: #1e1e1e;
+    border: 1px solid #333;
+    border-radius: 4px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    font-size: 14px;
+    color: #ccc;
+    margin-top: 10px;
+}
+
+/* Кнопка полноэкранного режима */
+#fullscreenBtn {
+    padding: 6px 12px;
+    font-size: 14px;
+    background-color: #333;
+    color: #eee;
+    border: 1px solid #555;
+    border-radius: 4px;
+    cursor: pointer;
+    margin: 5px 10px;
+}
+
+#fullscreenBtn:hover {
+    background-color: #555;
+}

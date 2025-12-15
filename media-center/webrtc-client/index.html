@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8" />
+    <title>WebRTC клиент с подключением к камере</title>
+    <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<h1>WebRTC клиент — подключение к камере</h1>
+
+<div class="controls">
+    <label style="margin-right: 5px;" for="signalingUrl">URL сигналинг сервера:</label>
+    <input type="text" id="signalingUrl" placeholder="wss://example.com/client/123" />
+    <button id="connectBtn">Подключиться</button>
+</div>
+
+<video id="remoteVideo" autoplay playsinline></video>
+<button id="fullscreenBtn">Включить полноэкранный режим</button>
+
+<div id="logs"></div>
+
+<script src="js/connection.js"></script>
+</body>
+</html>
