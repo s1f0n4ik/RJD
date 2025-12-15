@@ -6,10 +6,6 @@
 #include <queue>
 
 // ====================================
-// Ring Buffer
-// ====================================
-
-// ====================================
 // Safe Queue
 // ====================================
 
@@ -40,6 +36,17 @@ public:
     bool empty() {
         std::lock_guard lock(m_mutex);
         return m_queue.empty();
+    }
+
+    void clear() {
+        std::lock_guard lock(m_mutex);
+        std::queue<T> empty;
+        std::swap(m_queue, empty);
+    }
+
+    size_t size() {
+        std::lock_guard lock(m_mutex);
+        return m_queue.size();
     }
 
 private:

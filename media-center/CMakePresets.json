@@ -111,7 +111,11 @@
       },
       "remoteDebuggerCommand": "gdbserver :1234",
       "remoteDebuggerPath": "/usr/bin/gdb",
-      "targetArchitecture": "arm64"
+      "targetArchitecture": "arm64",
+      "remoteMachineIncludeDirectories": [
+        "/usr/include",
+        "/lib/aarch64-linux-gnu"
+      ]
     }
   }
 }
