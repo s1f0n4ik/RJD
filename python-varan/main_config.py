@@ -1,0 +1,13 @@
+
+
+MAX_LOADERS_COUNT = 3
+
+# Поля для загрузчика
+LOADER_NAME = "name"
+LOADER_WEIGHTS_PATH = "weights"
+LOADER_MATRIX = "matrix"
+LOADER_IMG_SIZE = "imgsz"
+
+YOLO_GRAY_RGB = 114
+YOLO_GRAY_Y = 114
+YOLO_GRAY_UV = 128
