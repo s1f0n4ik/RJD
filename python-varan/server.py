@@ -11,7 +11,7 @@ from main_config import SERVER_NEURAL_1, SERVER_NEURAL_2, SERVER_NEURAL_3, SERVE
 
 
 class MultiCameraServer:
-    def __init__(self, max_queue_size=25):
+    def __init__(self, max_queue_size=1):
         self.app = Flask(__name__)
         self.logger = get_logger("MultiCameraServer", level=logging.DEBUG)
 

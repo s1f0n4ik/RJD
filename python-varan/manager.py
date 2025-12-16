@@ -13,7 +13,7 @@ from neural_loader import NeuralLoader
 
 
 class CameraManager:
-    def __init__(self, neural_loaders: list[dict[str, Any]], max_queue_size: int = 25, delta_ms: int = 200):
+    def __init__(self, neural_loaders: list[dict[str, Any]], max_queue_size: int = 1, delta_ms: int = 200):
         # Проверяем на количество нейронных загрузчиков
         if len(neural_loaders) > main_config.MAX_LOADERS_COUNT:
             raise RuntimeError("[CameraManager] Too many neural loaders!")
@@ -42,7 +42,7 @@ class CameraManager:
         self.cameras : list[CameraStream] = []
 
         # Буферы для получения кадров
-        self.camera_images = {}
+        self.camera_images: dict[str, Queue[NV12Frame]] = {}
         self.max_queue_size = max_queue_size
         self.max_delta_ms = delta_ms
 
@@ -92,7 +92,7 @@ class CameraManager:
             raise RuntimeError("[CameraManager] The neural loader is running during its first initialization!")
 
         self.neural_push_thread = threading.Thread(
-            target=self.push_frames_to_neural,
+            target=self.push_latest_frames_to_neural,
             daemon=True
         )
         self.neural_push_thread.start()
@@ -129,11 +129,11 @@ class CameraManager:
             self.camera_images[camera_name] = Queue(maxsize=self.max_queue_size)
 
         if self.camera_images[camera_name].full():
-            self.camera_images[camera_name].get()
+            self.camera_images[camera_name].get_nowait()
 
-        self.camera_images[camera_name].put(frame)
+        self.camera_images[camera_name].put_nowait(frame)
 
-    def push_frames_to_neural(self):
+    def push_synchronized_frames_to_neural(self):
         while self.running:
             # Синхронизируем кадры
             synchronized_frames = self.synchronize_frames()
@@ -157,6 +157,29 @@ class CameraManager:
 
                 loader.move_batch(frame_matrix)
 
+    def push_synchronized_frames_to_neural(self):
+        while self.running:
+            # Синхронизируем кадры
+            synchronized_frames = self.synchronize_frames()
+            if synchronized_frames is None:
+                time.sleep(0.01)
+                self.logger.debug("[CameraManager] No frames synchronized got!")
+                continue
+
+            # Отправляем матрицу кадров
+            for loader in self.neural_loaders:
+                camera_matrix = loader.get_camera_matrix()
+                frame_matrix: list[list[NV12Frame | None]] = []
+
+                for row in camera_matrix:
+                    frame_row: list[NV12Frame | None] = []
+
+                    for camera_name in row:
+                        frame_row.append(synchronized_frames.get(camera_name))
+
+                    frame_matrix.append(frame_row)
+
+                loader.move_batch(frame_matrix)
 
     def synchronize_frames(self) -> Dict[str, Optional[NV12Frame]] | None:
         """
@@ -261,6 +284,56 @@ class CameraManager:
                 self.camera_images[camera_name].get()
 
         return current_frames
+
+    def push_latest_frames_to_neural(self):
+        while self.running:
+            frames = self.get_latest_frames()
+            if frames is None:
+                time.sleep(0.005)
+                continue
+
+            for loader in self.neural_loaders:
+                camera_matrix = loader.get_camera_matrix()
+                frame_matrix: list[list[NV12Frame | None]] = []
+
+                for row in camera_matrix:
+                    frame_row: list[NV12Frame | None] = []
+                    for camera_name in row:
+                        frame_row.append(frames.get(camera_name))  # Возьмём кадр или None, если нет
+                    frame_matrix.append(frame_row)
+
+                loader.move_batch(frame_matrix)
+
+    def get_latest_frames(self):
+        frames: dict[str, NV12Frame] = {}
+        while self.running:
+            all_frames_received = True
+            cameras_active = [camera for camera in self.cameras if camera.status is CameraStatus.RUNNING]
+
+            if not cameras_active:
+                return None
+
+            for camera in cameras_active:
+                q = self.camera_images.get(camera.camera_name)
+                if q is None:
+                    all_frames_received = False
+                    break
+                if q.empty():
+                    all_frames_received = False
+                    break
+                else:
+                    frames[camera.camera_name] = q.queue[-1] # Берем последний кадр
+                    q.queue.clear()
+
+            if all_frames_received:
+                for name, queue in self.camera_images.items():
+                    if name in frames:
+                        self.camera_images[name].queue.clear()
+                break
+            else:
+                time.sleep(0.005)
+
+        return frames
 
     def print_camera_queues(self):
         # Заголовок таблицы

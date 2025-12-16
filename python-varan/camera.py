@@ -117,7 +117,8 @@ class CameraStream(threading.Thread):
 
             process = (
                 ffmpeg
-                .input(self.rtsp_url, rtsp_transport='tcp', fflags='nobuffer', flags='low_delay')
+                .input(self.rtsp_url, rtsp_transport='tcp', fflags='nobuffer', flags='low_delay',
+                       analyzeduration='0', probesize='32', max_delay='1')
                 .output('pipe:', format='rawvideo',  pix_fmt='nv12')
                 .global_args('-hwaccel', 'rkmpp', '-c:v', codec, '-an')
                 .run_async(pipe_stdout=True, pipe_stderr=True)

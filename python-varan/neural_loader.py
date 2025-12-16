@@ -24,10 +24,12 @@ class NeuralLoader(threading.Thread):
             img_size: int,
             logger=None,
             server: Optional[MultiCameraServer]=None,
-            server_endpoint: str = ''
+            server_endpoint: str = '',
+            buffer_size: int = 1
     ):
         super().__init__(daemon=True)
-        self.queue : Queue[NV12Frame] = Queue(maxsize=25)
+        self.buffer_size = buffer_size
+        self.queue : Queue[NV12Frame] = Queue(maxsize=self.buffer_size)
 
         self.camera_matrix = camera_matrix
         self.img_size = img_size
@@ -134,10 +136,10 @@ class NeuralLoader(threading.Thread):
         )
 
         if self.queue.full():
-            self.queue.get()
+            self.queue.get_nowait()
             self.logger.warning("Queue full → dropping oldest batch")
 
-        self.queue.put(batch_frame)
+        self.queue.put_nowait(batch_frame)
 
         self.logger.info(
             f"Batch pushed: filled={filled}/{rows * cols}, "
@@ -230,7 +232,7 @@ class NeuralLoader(threading.Thread):
 
         while self.running:
             try:
-                frame = self.queue.get(timeout=1)
+                frame = self.queue.get(timeout=0.01)
                 self.logger.debug(f"Got frame from queue: timestamp={frame.timestamp_ms}")
             except Empty:
                 continue
