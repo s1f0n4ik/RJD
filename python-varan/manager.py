@@ -1,12 +1,14 @@
 import threading
 import time
+from logging import DEBUG
 from typing import Dict, Optional, Any
 
 import numpy as np
 from queue import Queue
 
-from camera import CameraStream, NV12Frame
+from camera import CameraStream, NV12Frame, CameraStatus
 import main_config
+from logger import get_logger, NullLogger
 from neural_loader import NeuralLoader
 
 
@@ -21,6 +23,8 @@ class CameraManager:
             main_config.LOADER_MATRIX,
             main_config.LOADER_IMG_SIZE,
             main_config.LOADER_WEIGHTS_PATH,
+            main_config.SERVER,
+            main_config.SERVER_ENDPOINT
         }
 
         for idx, loader in enumerate(neural_loaders):
@@ -35,7 +39,7 @@ class CameraManager:
                     f"[CameraManager] Loader #{idx} missing fields: {sorted(missing)}"
                 )
 
-        self.cameras = []
+        self.cameras : list[CameraStream] = []
 
         # Буферы для получения кадров
         self.camera_images = {}
@@ -56,17 +60,27 @@ class CameraManager:
                 camera_matrix=lin[main_config.LOADER_MATRIX],
                 img_size=lin[main_config.LOADER_IMG_SIZE],
                 weights_path=lin[main_config.LOADER_WEIGHTS_PATH],
+                server=lin[main_config.SERVER],
+                server_endpoint=lin[main_config.SERVER_ENDPOINT]
             )
             self.neural_loaders.append(loader)
+
+        log = True
+        if log:
+            self.logger = get_logger(__name__, DEBUG)
+        else:
+            self.logger = NullLogger()
 
     def add_camera(self, camera: CameraStream):
         """Добавить камеру в менеджер"""
         self.cameras.append(camera)
         self.camera_images[camera.name] = Queue(maxsize=self.max_queue_size)
+        self.logger.info(f"[CameraManager] Adding camera {camera.name}")
 
     def start_all(self):
         """Запустить все камеры параллельно"""
-        self. running = True
+        self.running = True
+        self.logger.info(f"[CameraManager] Starting all cameras")
 
         for cam in self.cameras:
             cam.start()
@@ -77,7 +91,10 @@ class CameraManager:
         if self.neural_push_thread is not None:
             raise RuntimeError("[CameraManager] The neural loader is running during its first initialization!")
 
-        self.neural_push_thread = threading.Thread(target=self.push_frames_to_neural())
+        self.neural_push_thread = threading.Thread(
+            target=self.push_frames_to_neural,
+            daemon=True
+        )
         self.neural_push_thread.start()
 
     def stop_all(self):
@@ -94,7 +111,11 @@ class CameraManager:
         for loader in self.neural_loaders:
             loader.stop()
 
+        for loader in self.neural_loaders:
+            loader.join()
+
         self.neural_push_thread.join()
+        self.logger.info(f"[CameraManager] Stopping all cameras")
 
     def list_status(self):
         """Посмотреть состояние потоков"""
@@ -118,6 +139,7 @@ class CameraManager:
             synchronized_frames = self.synchronize_frames()
             if synchronized_frames is None:
                 time.sleep(0.01)
+                self.logger.debug("[CameraManager] No frames synchronized got!")
                 continue
 
             # Отправляем матрицу кадров
@@ -141,55 +163,102 @@ class CameraManager:
         Синхронизация всех кадров в очередях, возвращает словарь синхронизированных кадров
         None - если нет никаких кадров вообще
         """
-        # Берем первые кадры очередей
-        current_frames: Dict[str, Optional[NV12Frame]] = {}
-        for camera, q in self.camera_images.items():
-            if q.empty():
-                current_frames[camera] = None
-            else:
-                current_frames[camera] = q.queue[0]
 
-        # Кадров нет
+        # Словарь для записи кадров
+        current_frames: Dict[str, Optional[NV12Frame]] = {}
+
+        while self.running:
+            frames_all = True
+            running_cameras = [camera for camera in self.cameras if camera.status is CameraStatus.RUNNING]
+            if not running_cameras:
+                self.logger.debug("[CameraManager] No running cameras to synchronize!")
+                return None
+
+            for camera in running_cameras:
+                temp_q = self.camera_images.get(camera.camera_name)
+                if temp_q is None:
+                    self.logger.warning(f"[CameraManager] Camera '{camera.camera_name}' queue does not exist!")
+                    frames_all = False
+                    break
+                if temp_q.empty():
+                    #self.logger.debug(
+                    #    f"[CameraManager] Queue for camera '{camera.camera_name}' is empty, waiting for frames...")
+                    frames_all = False
+                    break
+
+            if frames_all:
+                for camera in running_cameras:
+                    current_frames[camera.camera_name] = None
+                self.logger.debug(f"[CameraManager] All running cameras have frames ready for synchronization.")
+                break
+
+            #self.logger.debug("[CameraManager] Not enough frames to synchronize yet, sleeping shortly...")
+            time.sleep(0.01)
+
+        # Берем первые кадры очереди
+        for camera_name in current_frames.keys():
+            try:
+                frame = self.camera_images[camera_name].queue[0]
+                current_frames[camera_name] = frame
+                self.logger.debug(
+                    f"[CameraManager] Got frame from camera '{camera_name}' with timestamp {frame.timestamp_ms}.")
+            except IndexError:
+                current_frames[camera_name] = None
+                self.logger.warning(f"[CameraManager] Queue for camera '{camera_name}' became empty unexpectedly.")
+
+        # Проверяем, есть ли хоть один кадр
         if all(frame is None for frame in current_frames.values()):
+            self.logger.debug("[CameraManager] No frames found in any camera queues after waiting.")
             return None
 
         # Синхронизация
-        for _ in range(10):
+        for attempt in range(1, 11):
             valid_frames = [f for f in current_frames.values() if f is not None]
             if not valid_frames:
-                # Нет кадров для синхронизации
+                self.logger.debug(f"[CameraManager] No valid frames to synchronize on attempt {attempt}.")
                 break
 
             max_ts = max(f.timestamp_ms for f in valid_frames)
             min_ts = min(f.timestamp_ms for f in valid_frames)
 
+            self.logger.debug(f"[CameraManager] Attempt {attempt}: max timestamp = {max_ts}, min timestamp = {min_ts}")
+
             # Проверяем синхронизирован ли набор кадров
             if max_ts - min_ts <= self.max_delta_ms:
+                self.logger.debug(
+                    f"[CameraManager] Frames synchronized within delta {self.max_delta_ms}ms on attempt {attempt}.")
                 break
 
             # Сдвигаем очереди с кадрами, которые не удовлетворяют сравнению
-            for camera, frame in current_frames.items():
+            for camera_name, frame in current_frames.items():
                 if frame is None:
                     continue
                 if frame.timestamp_ms < max_ts - self.max_delta_ms:
-                    q = self.camera_images[camera]
+                    q = self.camera_images[camera_name]
                     if q.qsize() > 1:
-                        q.get()
+                        removed_frame = q.get()
+                        self.logger.debug(
+                            f"[CameraManager] Popped outdated frame from camera '{camera_name}' with timestamp {removed_frame.timestamp_ms}.")
                         if q.empty():
-                            current_frames[camera] = None
+                            current_frames[camera_name] = None
+                            self.logger.debug(
+                                f"[CameraManager] Queue for camera '{camera_name}' is now empty after popping.")
                         else:
-                            current_frames[camera] = q.queue[0]
+                            current_frames[camera_name] = q.queue[0]
+                            self.logger.debug(
+                                f"[CameraManager] New head frame for camera '{camera_name}' has timestamp {current_frames[camera_name].timestamp_ms}.")
                     else:
-                        # Нет новых кадров, заменяем на None
-                        current_frames[camera] = None
+                        current_frames[camera_name] = None
+                        self.logger.debug(
+                            f"[CameraManager] No new frames to pop from camera '{camera_name}', setting frame to None.")
         else:
-            # Если не удалось синхронизировать за 10 попыток — просто вернём текущее состояние
-            pass
+            self.logger.warning(
+                "[CameraManager] Failed to synchronize frames within 10 attempts; returning current frames.")
 
         # Забираем синхронизированные кадры из очереди
-        for camera, frame in current_frames.items():
+        for camera_name, frame in current_frames.items():
             if frame is not None:
-                self.camera_images[camera].get()
+                self.camera_images[camera_name].get()
 
         return current_frames
 

@@ -1,5 +1,8 @@
+import logging
 import threading
-from queue import Queue
+import time
+from queue import Queue, Empty
+from typing import Optional
 
 import cv2
 import numpy as np
@@ -7,25 +10,39 @@ import numpy as np
 from camera import NV12Frame
 from logger import get_logger
 from main_config import YOLO_GRAY_Y, YOLO_GRAY_UV
+from server import MultiCameraServer
+from utility import nv12_to_rgb
 
 
 class NeuralLoader(threading.Thread):
 
-    def __init__(self, name:str, weights_path:str, camera_matrix: list[list[str]], img_size: int, logger=None):
-        threading.Thread.__init__(self)
-        self.queue = Queue()
+    def __init__(
+            self,
+            name:str,
+            weights_path:str,
+            camera_matrix: list[list[str]],
+            img_size: int,
+            logger=None,
+            server: Optional[MultiCameraServer]=None,
+            server_endpoint: str = ''
+    ):
+        super().__init__(daemon=True)
+        self.queue : Queue[NV12Frame] = Queue(maxsize=25)
 
         self.camera_matrix = camera_matrix
         self.img_size = img_size
         self.name = name
         self.weights_path = weights_path
 
-        self.logger = logger or get_logger(f"NeuralLoader[{name}]")
+        self.logger = logger or get_logger(f"NeuralLoader[{name}]", logging.DEBUG)
 
         self.logger.info(
             f"Initialized: img_size={img_size}, "
             f"cameras={len(camera_matrix)}x{len(camera_matrix[0]) if camera_matrix else 0}"
         )
+
+        self.server = server
+        self.server_endpoint = server_endpoint
 
         self.running = False
 
@@ -71,7 +88,7 @@ class NeuralLoader(threading.Thread):
 
                 # Получаем позиции ячеек изображения
                 y0 = row * cell_h
-                x0 = col + cell_w
+                x0 = col * cell_w
 
                 y0_uv = y0 // 2
                 x0_uv = x0 // 2
@@ -124,7 +141,11 @@ class NeuralLoader(threading.Thread):
 
         self.logger.info(
             f"Batch pushed: filled={filled}/{rows * cols}, "
-            f"timestamp={batch_frame.timestamp_ms}"
+            f"timestamp={batch_frame.timestamp_ms}, "
+            f"Y shape={batch_frame.y.shape}, "
+            f"UV shape={batch_frame.uv.shape}, "
+            f"width={batch_frame.width}, "
+            f"height={batch_frame.height}, "
         )
 
     def letterbox_nv12(
@@ -195,6 +216,12 @@ class NeuralLoader(threading.Thread):
         uv_out[uv_start_y:uv_end_y, uv_start_x:uv_end_x] = \
             uv_resized[:uv_end_y - uv_start_y, :uv_end_x - uv_start_x]
 
+        self.logger.debug(
+            f"UV output 2D shape: {uv_out.shape}"
+        )
+
+        #uv_out_2d = uv_out.reshape(uv_out.shape[0], uv_out.shape[1] * 2)
+
         return y_out, uv_out
 
     def run(self):
@@ -202,9 +229,47 @@ class NeuralLoader(threading.Thread):
         self.running = True
 
         while self.running:
-            frame = self.queue.get()
+            try:
+                frame = self.queue.get(timeout=1)
+                self.logger.debug(f"Got frame from queue: timestamp={frame.timestamp_ms}")
+            except Empty:
+                continue
+            except Exception as e:
+                self.logger.action_error(f"Exception in queue.get(): {e}")
+                continue
 
+            try:
+                start_ts = time.perf_counter()
+                rgb_frame = self.preprocess(frame)
+                elapsed_ms = (time.perf_counter() - start_ts) * 1000
+                self.logger.info(
+                    f"Preprocess completed successfully in {elapsed_ms:.2f} ms. "
+                    f"Resulting RGB frame details: shape={rgb_frame.shape}, dtype={rgb_frame.dtype}, "
+                    f"min_pixel={rgb_frame.min()}, max_pixel={rgb_frame.max()}"
+                )
+            except Exception as e:
+                self.logger.action_error(f"Preprocess failed: {e}")
+                continue
 
+            if self.server:
+                try:
+                    self.server.push_frame(self.server_endpoint, rgb_frame)
+                    self.logger.info(f"Pushed frame to server endpoint {self.server_endpoint}")
+                except Exception as e:
+                    self.logger.action_error(f"Failed to push frame to server: {e}")
+
+        self.logger.info("Processing thread stopped")
+
+    def preprocess(self, frame: NV12Frame) -> np.ndarray:
+        return nv12_to_rgb(
+            frame.y,
+            frame.uv,
+            frame.width,
+            frame.height
+        )
+
+    def postprocess(self, frame: NV12Frame) -> np.ndarray:
+        return
 
     def stop(self):
         self.running = False

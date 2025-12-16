@@ -1,16 +1,27 @@
+import threading
 import time
 
 from camera import CameraStream
-from main_config import LOADER_NAME, LOADER_IMG_SIZE, LOADER_MATRIX, LOADER_WEIGHTS_PATH
+from main_config import LOADER_NAME, LOADER_IMG_SIZE, LOADER_MATRIX, LOADER_WEIGHTS_PATH, SERVER_ENDPOINT, \
+    SERVER_NEURAL_1, SERVER
 from manager import CameraManager
+from server import MultiCameraServer
+
 
 def main():
+    server = MultiCameraServer()
+
+    server_thread = threading.Thread(target=server.run, daemon=True)
+    server_thread.start()
+
     manager = CameraManager(
         [{
             LOADER_NAME : "loader_1",
             LOADER_WEIGHTS_PATH : "/home/test",
             LOADER_MATRIX: [["Camera_1"], ["Camera_2"]],
-            LOADER_IMG_SIZE : 1024
+            LOADER_IMG_SIZE : 1024,
+            SERVER: server,
+            SERVER_ENDPOINT: SERVER_NEURAL_1
         }]
     )
 
@@ -34,11 +45,11 @@ def main():
     try:
         while True:
             time.sleep(2)
-            manager.print_camera_queues()
 
     except KeyboardInterrupt:
         print("Stopping all cameras...")
         manager.stop_all()
+        server_thread.join(timeout=1)
         return
 
 if __name__ == "__main__":
