@@ -20,7 +20,7 @@ async def _make_request(
     Выполнить HTTP запрос к Flask серверу
 
     Args:
-        endpoint: Путь endpoint (например, /internal/cameras)
+        endpoint: Путь endpoint (например, /api/cameras)
         method: HTTP метод (GET, POST, DELETE)
         data: JSON данные для POST запросов
 
@@ -74,23 +74,23 @@ async def _make_request(
 
 async def get_all_cameras() -> List[Dict[str, Any]]:
     """Получить список всех камер из Flask"""
-    return await _make_request("/internal/cameras", method="GET")
+    return await _make_request("/api/cameras", method="GET")
 
 
 async def add_camera(camera_data: Dict[str, Any]) -> Dict[str, Any]:
     """Добавить камеру в Flask"""
-    return await _make_request("/internal/camera/add", method="POST", data=camera_data)
+    return await _make_request("/api/camera/add", method="POST", data=camera_data)
 
 
 async def get_camera_status(camera_name: str) -> Dict[str, Any]:
     """Получить статус камеры из Flask"""
-    return await _make_request(f"/internal/camera/status/{camera_name}", method="GET")
+    return await _make_request(f"/api/camera/status/{camera_name}", method="GET")
 
 
 async def update_camera(camera_name: str, camera_data: Dict[str, Any]) -> Dict[str, Any]:
     """Обновить камеру в Flask"""
     return await _make_request(
-        f"/internal/camera/update/{camera_name}",
+        f"/api/camera/update/{camera_name}",
         method="PUT",
         data=camera_data
     )
@@ -98,30 +98,30 @@ async def update_camera(camera_name: str, camera_data: Dict[str, Any]) -> Dict[s
 
 async def delete_camera(camera_name: str) -> Dict[str, Any]:
     """Удалить камеру из Flask"""
-    return await _make_request(f"/internal/camera/delete/{camera_name}", method="DELETE")
+    return await _make_request(f"/api/camera/delete/{camera_name}", method="DELETE")
 
 
 # ============ Loaders ============
 
 async def get_all_loaders() -> List[Dict[str, Any]]:
     """Получить список всех загрузчиков из Flask"""
-    return await _make_request("/internal/loaders", method="GET")
+    return await _make_request("/api/loaders", method="GET")
 
 
 async def create_loader(loader_data: Dict[str, Any]) -> Dict[str, Any]:
     """Создать загрузчик в Flask"""
-    return await _make_request("/internal/loader/create", method="POST", data=loader_data)
+    return await _make_request("/api/loader/create", method="POST", data=loader_data)
 
 
 async def get_loader_status(loader_name: str) -> Dict[str, Any]:
     """Получить статус загрузчика из Flask"""
-    return await _make_request(f"/internal/loader/status/{loader_name}", method="GET")
+    return await _make_request(f"/api/loader/status/{loader_name}", method="GET")
 
 
 async def update_loader(loader_name: str, loader_data: Dict[str, Any]) -> Dict[str, Any]:
     """Обновить загрузчик в Flask"""
     return await _make_request(
-        f"/internal/loader/update/{loader_name}",
+        f"/api/loader/update/{loader_name}",
         method="PUT",
         data=loader_data
     )
@@ -129,17 +129,17 @@ async def update_loader(loader_name: str, loader_data: Dict[str, Any]) -> Dict[s
 
 async def start_loader(loader_name: str) -> Dict[str, Any]:
     """Запустить загрузчик в Flask"""
-    return await _make_request(f"/internal/loader/start/{loader_name}", method="POST")
+    return await _make_request(f"/api/loader/start/{loader_name}", method="POST")
 
 
 async def stop_loader(loader_name: str) -> Dict[str, Any]:
     """Остановить загрузчик в Flask"""
-    return await _make_request(f"/internal/loader/stop/{loader_name}", method="POST")
+    return await _make_request(f"/api/loader/stop/{loader_name}", method="POST")
 
 
 async def delete_loader(loader_name: str) -> Dict[str, Any]:
     """Удалить загрузчик из Flask"""
-    return await _make_request(f"/internal/loader/delete/{loader_name}", method="DELETE")
+    return await _make_request(f"/api/loader/delete/{loader_name}", method="DELETE")
 
 
 # ============ Health Check ============

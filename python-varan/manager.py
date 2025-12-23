@@ -74,8 +74,8 @@ class CameraManager:
     def add_camera(self, camera: CameraStream):
         """Добавить камеру в менеджер"""
         self.cameras.append(camera)
-        self.camera_images[camera.name] = Queue(maxsize=self.max_queue_size)
-        self.logger.info(f"[CameraManager] Adding camera {camera.name}")
+        self.camera_images[camera.camera_name] = Queue(maxsize=self.max_queue_size)
+        self.logger.info(f"[CameraManager] Adding camera {camera.camera_name}")
 
     def start_all(self):
         """Запустить все камеры параллельно"""

@@ -6,7 +6,7 @@ import logging
 
 from app.config import settings
 from app.routers import cameras, loaders, status
-from app.services.websocket_manager import manager
+from app.services.websocket_manager import manager, websocket_endpoint
 
 # Настройка логирования
 logging.basicConfig(
@@ -54,8 +54,6 @@ app.include_router(loaders.router, prefix="/api", tags=["Loaders"])
 app.include_router(status.router, prefix="/api", tags=["Status"])
 
 # WebSocket endpoint
-from app.services.websocket_manager import websocket_endpoint
-
 app.add_websocket_route("/ws", websocket_endpoint)
 
 
@@ -82,6 +80,9 @@ async def health_check():
         "services": {
             "fastapi": "ok",
             "flask": "ok" if flask_status else "unavailable"
+        },
+        "websocket": {
+            "active_connections": len(manager.active_connections)
         }
     }
 
