@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  # Flask сервер (python-varan)
+  flask-server:
+    build:
+      context: ./python-varan/client
+      dockerfile: Dockerfile
+    container_name: vanya-flask
+    ports:
+      - "5000:5000"
+    environment:
+      - PYTHONUNBUFFERED=1
+    networks:
+      - vanya-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # FastAPI сервер (shit/backend)
+  fastapi-server:
+    build:
+      context: ./shit/backend
+      dockerfile: Dockerfile
+    container_name: vanya-fastapi
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - FLASK_BASE_URL=http://flask-server:5000
+      - DEBUG=true
+    depends_on:
+      - flask-server
+    networks:
+      - vanya-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+networks:
+  vanya-network:
+    driver: bridge
