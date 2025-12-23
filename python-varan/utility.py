@@ -3,9 +3,10 @@ import time
 import cv2
 import numpy as np
 
-from typing import Any
+from typing import Any, List, Dict
 
-from main_config import YOLO_GRAY_Y
+from main_config import YOLO_GRAY_Y, JSON_CLASSES_SERVER_ID, JSON_CLASSES_NAME, JSON_CLASSES_COLOR, \
+    JSON_CLASSES_SUPERCLASS
 
 
 def pretty_json(obj: Any) -> str:
@@ -63,3 +64,35 @@ def nv12_to_rgb(y: np.ndarray, uv: np.ndarray, width: int, height: int) -> np.nd
     np.clip(rgb, 0, 255, out=rgb)
 
     return rgb.astype(np.uint8)
+
+def load_classes_from_json(path: str) -> tuple[List[Dict[str, Any]], Any]:
+    """
+    Загружает список классов из JSON-файла.
+    Индекс в массиве соответствует порядку следования в JSON.
+    """
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    if not isinstance(data, list):
+        raise ValueError("JSON должен быть массивом объектов")
+
+    classes: List[Dict[str, Any]] = []
+
+    for idx, item in enumerate(data):
+        if not isinstance(item, dict):
+            raise ValueError(f"Элемент #{idx} не является объектом")
+
+        # Минимальная валидация структуры
+        required_keys = {JSON_CLASSES_SERVER_ID, JSON_CLASSES_NAME, JSON_CLASSES_COLOR, JSON_CLASSES_SUPERCLASS}
+        if not required_keys.issubset(item.keys()):
+            missing = required_keys - item.keys()
+            raise ValueError(f"Элемент #{idx} не содержит ключи: {missing}")
+
+        classes.append({
+            JSON_CLASSES_SERVER_ID: item[JSON_CLASSES_SERVER_ID],
+            JSON_CLASSES_NAME: item[JSON_CLASSES_NAME],
+            JSON_CLASSES_SUPERCLASS: item[JSON_CLASSES_SUPERCLASS],
+            JSON_CLASSES_COLOR: item[JSON_CLASSES_COLOR],
+        })
+
+    return classes, data

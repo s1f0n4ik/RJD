@@ -78,7 +78,7 @@ class ColoredLogger(logging.Logger):
 
 
 def get_logger(name: str,
-               level=logging.INFO,
+               level=logging.DEBUG,
                to_file=None,
                file_level=logging.DEBUG,
                use_color=True):

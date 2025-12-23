@@ -56,7 +56,9 @@ class MultiCameraServer:
         self.logger.debug(f"Push frame requested for camera {self.logger.c(cam_id, 'cyan')}")
 
         # Кодируем в JPEG
-        ret, jpeg = cv2.imencode('.jpg', image)
+        image_bgr = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+
+        ret, jpeg = cv2.imencode('.jpg', image_bgr)
         if not ret:
             self.logger.action_error(f"Failed to encode frame for camera {self.logger.c(cam_id, 'red')}")
             raise RuntimeError("Failed to encode frame")

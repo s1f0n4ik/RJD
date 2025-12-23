@@ -1,13 +1,15 @@
+import logging
 import threading
 from dataclasses import dataclass
 from enum import Enum
-from logging import DEBUG
 from typing import Callable, Any
 
 import ffmpeg
 import numpy as np
 import time
 import sys
+
+import select
 
 from logger import get_logger, NullLogger
 from utility import pretty_json, now_ms
@@ -37,7 +39,7 @@ class CameraStream(threading.Thread):
             height: int | None,
             on_frame: FrameCallback | None = None,
             reconnect_interval=5,
-            log: bool = False
+            log_level: int = logging.NOTSET,
     ):
         super().__init__(daemon=True)
         self.rtsp_url = rtsp_url
@@ -46,11 +48,7 @@ class CameraStream(threading.Thread):
         self.reconnect_interval = reconnect_interval
 
         self.on_frame = on_frame
-
-        if log:
-            self.logger = get_logger(__name__, DEBUG)
-        else:
-            self.logger = NullLogger()
+        self.logger = get_logger(__name__, log_level) if log_level != logging.NOTSET else NullLogger()
 
         self.video_info = {}
         self.width = width
@@ -98,67 +96,110 @@ class CameraStream(threading.Thread):
     def receive_frames(self):
         width = self.width or self.video_info['width']
         height = self.height or self.video_info['height']
-
         frame_size = width * height * 3 // 2  # NV12
 
-        self.logger.info(f"[{self.camera_name}] Starting stream from {self.rtsp_url} with resolution {width}x{height}")
+        self.logger.info(
+            f"[{self.camera_name}] Starting stream {width}x{height}"
+        )
+
+        codec_map = {
+            'h264': 'h264_rkmpp',
+            'hevc': 'hevc_rkmpp',
+        }
+
+        codec = codec_map.get(
+            self.video_info.get('codec_name'),
+            'h264_rkmpp'
+        )
 
         try:
-
-            codec_map = {
-                'h264': 'h264_rkmpp',
-                'hevc': 'hevc_rkmpp',
-            }
-
-            codec = codec_map.get(
-                self.video_info.get('codec_name'),
-                'h264_rkmpp'  # fallback по умолчанию
-            )
-
             process = (
                 ffmpeg
-                .input(self.rtsp_url, rtsp_transport='tcp', fflags='nobuffer', flags='low_delay',
-                       analyzeduration='0', probesize='32', max_delay='1')
-                .output('pipe:', format='rawvideo',  pix_fmt='nv12')
-                .global_args('-hwaccel', 'rkmpp', '-c:v', codec, '-an')
-                .run_async(pipe_stdout=True, pipe_stderr=True)
+                .input(
+                    self.rtsp_url,
+                    rtsp_transport='tcp',
+                    fflags='nobuffer',
+                    flags='low_delay',
+                    analyzeduration='0',
+                    probesize='32',
+                    max_delay=0,
+                )
+                .output(
+                    'pipe:',
+                    format='rawvideo',
+                    pix_fmt='nv12'
+                )
+                .global_args(
+                    '-loglevel', 'error',
+                    '-hwaccel', 'rkmpp',
+                    '-c:v', codec,
+                    '-an'
+                )
+                .run_async(
+                    pipe_stdout=True,
+                    pipe_stderr=False
+                )
             )
         except ffmpeg.Error as e:
-            self.logger.error(f"[{self.camera_name}] FFmpeg error on start: {e}")
+            self.logger.error(f"[{self.camera_name}] FFmpeg start error: {e}")
             return False
 
-        while self.running:
-            in_bytes = process.stdout.read(frame_size)
+        timeout_sec = 3.0  # сколько ждать кадр
 
-            if not self.running:
-                break
+        try:
+            while self.running:
+                rlist, _, _ = select.select(
+                    [process.stdout],
+                    [],
+                    [],
+                    timeout_sec
+                )
 
-            if not in_bytes or len(in_bytes) < frame_size:
-                self.logger.error(f"[{self.camera_name}] Stream lost or ended, reconnecting...")
+                if not rlist:
+                    self.logger.error(
+                        f"[{self.camera_name}] Frame timeout ({timeout_sec}s)"
+                    )
+                    return False
+
+                in_bytes = process.stdout.read(frame_size)
+
+                if not in_bytes or len(in_bytes) < frame_size:
+                    self.logger.error(
+                        f"[{self.camera_name}] Stream ended or broken"
+                    )
+                    return False
+
+                frame = np.frombuffer(in_bytes, np.uint8)
+
+                y = frame[:width * height].reshape((height, width))
+                uv = frame[width * height:].reshape((height // 2, width))
+
+                nv12_frame = NV12Frame(
+                    y=y,
+                    uv=uv,
+                    width=width,
+                    height=height,
+                    timestamp_ms=now_ms(),
+                )
+
+                self.logger.debug(
+                    f"[{self.camera_name}] Received frame: width={nv12_frame.width}, height={nv12_frame.height}, "
+                    f"Y shape={nv12_frame.y.shape}, UV shape={nv12_frame.uv.shape}, timestamp_ms={nv12_frame.timestamp_ms}"
+                )
+
+                if self.on_frame:
+                    self.on_frame(nv12_frame, self.camera_name)
+
+        finally:
+            self.logger.info(f"[{self.camera_name}] Stopping ffmpeg")
+            try:
                 process.terminate()
-                return False
+                process.wait(timeout=1)
+            except Exception as e:
+                self.logger.error(f"[{self.camera_name}] FFmpeg terminated with error: {e}")
+                process.kill()
 
-            self.logger.debug(f"[{self.camera_name}] Stream received: {len(in_bytes)} bytes")
-
-            frame = np.frombuffer(in_bytes, np.uint8)
-
-            y = frame[:width * height].reshape((height, width))
-            uv = frame[width * height:].reshape((height // 2, width))
-
-            nv12_frame = NV12Frame(
-                y=y,
-                uv=uv,
-                width=width,
-                height=height,
-                timestamp_ms=now_ms(),
-            )
-
-            if self.on_frame:
-                self.on_frame(nv12_frame, self.camera_name)
-
-        process.terminate()
-        process.wait()
-        return self.running
+        return False
 
     def run(self):
         """Main thread loop: probe → receive frames → repeat."""
@@ -176,15 +217,15 @@ class CameraStream(threading.Thread):
             self.status = CameraStatus.RUNNING
             ok = self.receive_frames()
 
-            if not self.running:
-                break
-
             if not ok:
                 self.status = CameraStatus.FAILED
                 self.logger.warning(
                     f"[{self.camera_name}] Reconnecting in {self.reconnect_interval}s..."
                 )
                 time.sleep(self.reconnect_interval)
+
+            if not self.running:
+                break
 
         self.logger.info(f"[{self.camera_name}] Thread stopped")
 
