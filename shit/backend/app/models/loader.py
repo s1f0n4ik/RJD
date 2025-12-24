@@ -7,7 +7,7 @@ class LoaderBase(BaseModel):
     """Базовая модель загрузчика"""
     loader_name: str = Field(..., min_length=1, max_length=50, description="Уникальное имя загрузчика")
     weights_path: str = Field(..., description="Путь к .rknn весам")
-    # classes_path: str = Field(..., description="Путь к .json классам")
+    classes_path: str = Field(..., description="Путь к .json классам")
     img_size: int = Field(..., description="Размер входного изображения")
     server_endpoint: str = Field(..., description="Endpoint для MJPEG: /neural_1, /neural_2, /neural_3")
     loader_matrix: List[List[str]] = Field(..., min_items=1, description="Матрица размещения камер")
