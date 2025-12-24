@@ -3,9 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
 
-from app.config import settings
-from app.api import cameras, loaders, status, streams
-from app.services.websocket_manager import manager
+from config import settings
+from api import cameras, loaders, status, streams
+from services.websocket_manager import manager
 
 # Настройка логирования
 logging.basicConfig(
