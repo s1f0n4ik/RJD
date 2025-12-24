@@ -16,32 +16,44 @@ import {
   Error as ErrorIcon,
 } from '@mui/icons-material';
 
-// Получаем URL из переменных окружения
-const WS_URL = import.meta.env.VITE_WS_URL || 'ws://192.168.1.2:8000/ws';
-const API_BASE = import.meta.env.VITE_API_URL || 'http://192.168.1.2:8000';
-
-// Debug: выводим в консоль что используем
-console.log('🔧 Config:', { WS_URL, API_BASE });
+const WS_URL = 'ws://192.168.1.2:8000/ws';
+const FASTAPI_BASE = 'http://192.168.1.2:8000';
+const FLASK_BASE = 'http://192.168.1.2:5000';  // ✅ Flask на порту 5000!
 
 interface Camera {
   camera_name: string;
   rtsp_url: string;
   status: string;
-  width?: number;
-  height?: number;
+  width?: number | null;
+  height?: number | null;
 }
 
 interface Loader {
   loader_name: string;
   status: string;
-  endpoint: string;
-  camera_matrix: string[][];
+  server_endpoint: string;
+  loader_matrix?: string[][];
+  img_size?: number;
+  weights_path?: string;
 }
 
 interface SystemState {
   cameras: Camera[];
   loaders: Loader[];
+  summary?: {
+    cameras_total: number;
+    cameras_running: number;
+    loaders_total: number;
+    loaders_running: number;
+  };
 }
+
+// Маппинг endpoint ID → Flask URL
+const ENDPOINT_MAP: Record<string, string> = {
+  'id_1': '/neural_1',
+  'id_2': '/neural_2',
+  'id_3': '/neural_3',
+};
 
 const App: React.FC = () => {
   const [wsConnected, setWsConnected] = useState(false);
@@ -51,42 +63,32 @@ const App: React.FC = () => {
   });
 
   useEffect(() => {
-    console.log('🔌 Connecting to WebSocket:', WS_URL);
-    
     const ws = new WebSocket(WS_URL);
 
     ws.onopen = () => {
-      console.log('✅ WebSocket CONNECTED to', WS_URL);
+      console.log('✅ WebSocket Connected');
       setWsConnected(true);
     };
 
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        console.log('📩 Received:', data.type, data);
         
         if (data.type === 'initial_state' || data.type === 'state_update') {
+          console.log('📦 State updated');
           setState(data.data);
         }
       } catch (err) {
-        console.error('❌ Failed to parse message:', err);
+        console.error('❌ Parse error:', err);
       }
     };
 
-    ws.onclose = (event) => {
-      console.log('🔌 WebSocket CLOSED:', event.code, event.reason);
+    ws.onclose = () => {
+      console.log('🔌 WebSocket Disconnected');
       setWsConnected(false);
     };
 
-    ws.onerror = (error) => {
-      console.error('❌ WebSocket ERROR:', error);
-      console.error('Was trying to connect to:', WS_URL);
-    };
-
-    return () => {
-      console.log('🧹 Cleaning up WebSocket connection');
-      ws.close();
-    };
+    return () => ws.close();
   }, []);
 
   const runningCameras = state.cameras.filter(c => c.status === 'running').length;
@@ -95,84 +97,93 @@ const App: React.FC = () => {
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: '#f5f5f5', py: 4 }}>
       <Container maxWidth="lg">
+        
         {/* Header */}
         <Paper sx={{ p: 3, mb: 3, bgcolor: '#1976d2', color: 'white' }}>
           <Box display="flex" alignItems="center" justifyContent="space-between">
             <Box display="flex" alignItems="center" gap={2}>
               <VideocamIcon fontSize="large" />
-              <Typography variant="h4" component="h1">
-                Video Processing System
+              <Typography variant="h4">
+                🚂 RJD Video Processing System
               </Typography>
             </Box>
             <Chip
               icon={wsConnected ? <CheckCircleIcon /> : <ErrorIcon />}
               label={wsConnected ? 'Connected' : 'Disconnected'}
               color={wsConnected ? 'success' : 'error'}
-              sx={{ color: 'white' }}
+              sx={{ color: 'white', fontSize: '1rem', px: 1 }}
             />
           </Box>
-          <Typography variant="caption" sx={{ display: 'block', mt: 1, opacity: 0.8 }}>
-            WS: {WS_URL} | API: {API_BASE}
-          </Typography>
         </Paper>
 
-        {/* Status Cards */}
-        <Grid container spacing={3} sx={{ mb: 3 }}>
+        {/* Summary Cards */}
+        <Grid container spacing={3} sx={{ mb: 4 }}>
           <Grid item xs={12} md={6}>
-            <Card>
+            <Card sx={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
               <CardContent>
-                <Box display="flex" alignItems="center" gap={2} mb={2}>
-                  <VideocamIcon color="primary" fontSize="large" />
-                  <Typography variant="h6">Cameras</Typography>
+                <Box display="flex" alignItems="center" gap={2} mb={1}>
+                  <VideocamIcon sx={{ color: 'white', fontSize: 40 }} />
+                  <Typography variant="h6" sx={{ color: 'white' }}>
+                    Cameras
+                  </Typography>
                 </Box>
-                <Typography variant="h3" color="primary">
+                <Typography variant="h2" sx={{ color: 'white', fontWeight: 'bold' }}>
                   {runningCameras}/{state.cameras.length}
                 </Typography>
-                <Typography color="text.secondary">Running</Typography>
+                <Typography sx={{ color: 'rgba(255,255,255,0.8)' }}>
+                  Running
+                </Typography>
               </CardContent>
             </Card>
           </Grid>
 
           <Grid item xs={12} md={6}>
-            <Card>
+            <Card sx={{ background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)' }}>
               <CardContent>
-                <Box display="flex" alignItems="center" gap={2} mb={2}>
-                  <MemoryIcon color="secondary" fontSize="large" />
-                  <Typography variant="h6">Loaders</Typography>
+                <Box display="flex" alignItems="center" gap={2} mb={1}>
+                  <MemoryIcon sx={{ color: 'white', fontSize: 40 }} />
+                  <Typography variant="h6" sx={{ color: 'white' }}>
+                    Neural Loaders
+                  </Typography>
                 </Box>
-                <Typography variant="h3" color="secondary">
+                <Typography variant="h2" sx={{ color: 'white', fontWeight: 'bold' }}>
                   {runningLoaders}/{state.loaders.length}
                 </Typography>
-                <Typography color="text.secondary">Running</Typography>
+                <Typography sx={{ color: 'rgba(255,255,255,0.8)' }}>
+                  Running
+                </Typography>
               </CardContent>
             </Card>
           </Grid>
         </Grid>
 
-        {/* Cameras List */}
+        {/* Cameras */}
         {state.cameras.length > 0 && (
-          <>
-            <Typography variant="h5" gutterBottom sx={{ mt: 4, mb: 2 }}>
-              Cameras
+          <Box sx={{ mb: 4 }}>
+            <Typography variant="h5" gutterBottom sx={{ mb: 2, fontWeight: 'bold' }}>
+              📹 Cameras
             </Typography>
             <Grid container spacing={2}>
               {state.cameras.map((camera) => (
-                <Grid item xs={12} key={camera.camera_name}>
+                <Grid item xs={12} md={6} key={camera.camera_name}>
                   <Card>
                     <CardContent>
-                      <Box display="flex" justifyContent="space-between" alignItems="center">
+                      <Box display="flex" justifyContent="space-between" alignItems="start">
                         <Box>
-                          <Typography variant="h6">{camera.camera_name}</Typography>
-                          <Typography variant="body2" color="text.secondary">
+                          <Typography variant="h6" gutterBottom>
+                            {camera.camera_name}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary" sx={{ mb: 1, fontSize: '0.75rem' }}>
                             {camera.rtsp_url}
                           </Typography>
-                          <Typography variant="caption">
-                            Resolution: {camera.width || 'N/A'} × {camera.height || 'N/A'}
+                          <Typography variant="caption" color="text.secondary">
+                            Resolution: {camera.width || 'auto'} × {camera.height || 'auto'}
                           </Typography>
                         </Box>
                         <Chip
                           label={camera.status}
-                          color={camera.status === 'running' ? 'success' : 'default'}
+                          color={camera.status === 'running' ? 'success' : 'warning'}
+                          size="small"
                         />
                       </Box>
                     </CardContent>
@@ -180,77 +191,114 @@ const App: React.FC = () => {
                 </Grid>
               ))}
             </Grid>
-          </>
+          </Box>
         )}
 
-        {/* Loaders List */}
+        {/* Neural Loaders with Video Streams */}
         {state.loaders.length > 0 && (
-          <>
-            <Typography variant="h5" gutterBottom sx={{ mt: 4, mb: 2 }}>
-              Loaders
+          <Box>
+            <Typography variant="h5" gutterBottom sx={{ mb: 2, fontWeight: 'bold' }}>
+              🧠 Neural Processing
             </Typography>
-            <Grid container spacing={2}>
-              {state.loaders.map((loader) => (
-                <Grid item xs={12} key={loader.loader_name}>
-                  <Card>
-                    <CardContent>
-                      <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-                        <Box>
-                          <Typography variant="h6">{loader.loader_name}</Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            Endpoint: {loader.endpoint}
-                          </Typography>
-                        </Box>
-                        <Chip
-                          label={loader.status}
-                          color={loader.status === 'running' ? 'success' : 'default'}
-                        />
-                      </Box>
-                      
-                      {/* Video Stream */}
-                      {loader.status === 'running' && (
-                        <Box sx={{ mt: 2, bgcolor: 'black', borderRadius: 1, overflow: 'hidden' }}>
-                          <img
-                            src={`${API_BASE}${loader.endpoint}`}
-                            alt={loader.loader_name}
-                            style={{
-                              width: '100%',
-                              height: 'auto',
-                              display: 'block'
-                            }}
-                            onError={(e) => {
-                              console.error(`❌ Failed to load stream: ${API_BASE}${loader.endpoint}`);
-                            }}
+            <Grid container spacing={3}>
+              {state.loaders.map((loader) => {
+                // ✅ ПРАВИЛЬНЫЙ МАППИНГ!
+                const flaskPath = ENDPOINT_MAP[loader.server_endpoint] || '/neural_1';
+                const streamUrl = `${FLASK_BASE}${flaskPath}`;
+                
+                console.log(`🎥 Stream URL for ${loader.loader_name}:`, streamUrl);
+                
+                return (
+                  <Grid item xs={12} key={loader.loader_name}>
+                    <Card>
+                      <CardContent>
+                        
+                        {/* Header */}
+                        <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+                          <Box>
+                            <Typography variant="h6">{loader.loader_name}</Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              Endpoint: {loader.server_endpoint} → {flaskPath}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              Model size: {loader.img_size}px | Stream: {streamUrl}
+                            </Typography>
+                          </Box>
+                          <Chip
+                            label={loader.status}
+                            color={loader.status === 'running' ? 'success' : 'default'}
                           />
                         </Box>
-                      )}
-                      
-                      {/* Camera Matrix */}
-                      <Box sx={{ mt: 2 }}>
-                        <Typography variant="subtitle2" gutterBottom>
-                          Camera Matrix:
-                        </Typography>
-                        <Box sx={{ fontFamily: 'monospace', fontSize: '0.875rem' }}>
-                          {loader.camera_matrix.map((row, i) => (
-                            <div key={i}>{row.join(', ')}</div>
-                          ))}
-                        </Box>
-                      </Box>
-                    </CardContent>
-                  </Card>
-                </Grid>
-              ))}
+                        
+                        {/* Video Stream */}
+                        {loader.status === 'running' && (
+                          <Box 
+                            sx={{ 
+                              mt: 2, 
+                              bgcolor: 'black', 
+                              borderRadius: 2, 
+                              overflow: 'hidden',
+                              border: '2px solid #1976d2'
+                            }}
+                          >
+                            <img
+                              src={streamUrl}
+                              alt={`${loader.loader_name} stream`}
+                              style={{
+                                width: '100%',
+                                height: 'auto',
+                                display: 'block'
+                              }}
+                              onLoad={() => {
+                                console.log('✅ Stream loaded:', streamUrl);
+                              }}
+                              onError={(e) => {
+                                console.error('❌ Stream failed:', streamUrl);
+                              }}
+                            />
+                          </Box>
+                        )}
+                        
+                        {/* Camera Matrix */}
+                        {loader.loader_matrix && loader.loader_matrix.length > 0 && (
+                          <Box sx={{ mt: 2 }}>
+                            <Typography variant="subtitle2" gutterBottom>
+                              📊 Camera Matrix:
+                            </Typography>
+                            <Box 
+                              sx={{ 
+                                fontFamily: 'monospace', 
+                                fontSize: '0.875rem', 
+                                bgcolor: '#f5f5f5', 
+                                p: 2, 
+                                borderRadius: 1,
+                                border: '1px solid #e0e0e0'
+                              }}
+                            >
+                              {loader.loader_matrix.map((row, i) => (
+                                <div key={i}>
+                                  [{row.map(cam => `"${cam}"`).join(', ')}]
+                                </div>
+                              ))}
+                            </Box>
+                          </Box>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                );
+              })}
             </Grid>
-          </>
+          </Box>
         )}
 
         {/* Empty State */}
-        {!wsConnected && state.cameras.length === 0 && (
-          <Paper sx={{ p: 4, textAlign: 'center' }}>
-            <Typography variant="h6" color="text.secondary" gutterBottom>
-              Connecting to system...
+        {!wsConnected && state.cameras.length === 0 && state.loaders.length === 0 && (
+          <Paper sx={{ p: 6, textAlign: 'center' }}>
+            <Typography variant="h5" color="text.secondary" gutterBottom>
+              🔌 Connecting to system...
             </Typography>
-            <Typography variant="body2" color="text.secondary">
+            <Typography variant="body1" color="text.secondary">
               Please wait while we establish connection
             </Typography>
           </Paper>
