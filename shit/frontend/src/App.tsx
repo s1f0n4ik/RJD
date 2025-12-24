@@ -1,218 +1,248 @@
-import { useState, useEffect } from 'react';
-import { 
-  AppBar, Toolbar, Typography, Container, Grid, Card, 
-  CardContent, Box, Chip, Button, CircularProgress 
+import React, { useEffect, useState } from 'react';
+import {
+  Container,
+  Paper,
+  Typography,
+  Box,
+  Chip,
+  Card,
+  CardContent,
+  Grid2 as Grid,
 } from '@mui/material';
-import { green, red, orange } from '@mui/material/colors';
+import {
+  Videocam as VideocamIcon,
+  Memory as MemoryIcon,
+  CheckCircle as CheckCircleIcon,
+  Error as ErrorIcon,
+} from '@mui/icons-material';
+
+const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws';
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 interface Camera {
   camera_name: string;
   rtsp_url: string;
   status: string;
-  width: number | null;
-  height: number | null;
+  width?: number;
+  height?: number;
 }
 
 interface Loader {
   loader_name: string;
-  img_size: number;
   status: string;
+  endpoint: string;
+  camera_matrix: string[][];
 }
 
-interface StatusData {
+interface SystemState {
   cameras: Camera[];
   loaders: Loader[];
-  summary: {
-    cameras_total: number;
-    cameras_running: number;
-    loaders_total: number;
-    loaders_running: number;
-  };
 }
 
-// Определяем URL API из переменных окружения или используем по умолчанию
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000';
-
-function App() {
-  const [data, setData] = useState<StatusData | null>(null);
-  const [wsStatus, setWsStatus] = useState<'connected' | 'disconnected'>('disconnected');
-  const [ws, setWs] = useState<WebSocket | null>(null);
+const App: React.FC = () => {
+  const [wsConnected, setWsConnected] = useState(false);
+  const [state, setState] = useState<SystemState>({
+    cameras: [],
+    loaders: [],
+  });
 
   useEffect(() => {
-    const connectWebSocket = () => {
-      console.log(`Attempting to connect to ${WS_URL}/ws`);
-      const websocket = new WebSocket(`${WS_URL}/ws`);
+    console.log('Attempting to connect to', WS_URL);
+    const ws = new WebSocket(WS_URL);
 
-      websocket.onopen = () => {
-        console.log('✅ WebSocket connected');
-        setWsStatus('connected');
-        websocket.send(JSON.stringify({ type: 'subscribe' }));
-      };
-
-      websocket.onmessage = (event) => {
-        const message = JSON.parse(event.data);
-        console.log('📩 Received:', message.type);
-        if (message.type === 'status_update' || message.type === 'initial_state') {
-          setData(message.data);
-        }
-      };
-
-      websocket.onerror = (error) => {
-        console.error('❌ WebSocket error:', error);
-      };
-
-      websocket.onclose = () => {
-        console.log('🔴 WebSocket disconnected');
-        setWsStatus('disconnected');
-        setTimeout(() => {
-          console.log('🔄 Reconnecting...');
-          connectWebSocket();
-        }, 3000);
-      };
-
-      setWs(websocket);
+    ws.onopen = () => {
+      console.log('✅ WebSocket connected');
+      setWsConnected(true);
     };
 
-    connectWebSocket();
+    ws.onmessage = (event) => {
+      console.log('📩 Received:', event.data);
+
+      try {
+        const message = JSON.parse(event.data);
+
+        if (message.type === 'initial_state' || message.type === 'update') {
+          setState({
+            cameras: message.data.cameras || [],
+            loaders: message.data.loaders || [],
+          });
+        }
+      } catch (err) {
+        console.error('Failed to parse WS message:', err);
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error('❌ WebSocket error:', error);
+    };
+
+    ws.onclose = () => {
+      console.log('🔌 WebSocket disconnected');
+      setWsConnected(false);
+    };
 
     return () => {
-      if (ws) {
-        ws.close();
-      }
+      ws.close();
     };
   }, []);
 
-  const getStatusColor = (status: string) => {
-    switch (status.toLowerCase()) {
-      case 'running': return green[500];
-      case 'stopped': return red[500];
-      case 'failed': return red[700];
-      default: return orange[500];
-    }
-  };
-
-  if (!data) {
-    return (
-      <Box display="flex" flexDirection="column" justifyContent="center" alignItems="center" minHeight="100vh">
-        <CircularProgress />
-        <Typography sx={{ mt: 2 }}>
-          {wsStatus === 'connected' ? 'Loading data...' : 'Connecting to server...'}
-        </Typography>
-        <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
-          WebSocket: {WS_URL}/ws
-        </Typography>
-      </Box>
-    );
-  }
+  const runningCameras = state.cameras.filter((c) => c.status === 'running').length;
+  const runningLoaders = state.loaders.filter((l) => l.status === 'running').length;
 
   return (
-    <Box sx={{ flexGrow: 1 }}>
-      <AppBar position="static">
-        <Toolbar>
-          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-            🎥 Video Processing System
-          </Typography>
-          <Chip 
-            label={wsStatus === 'connected' ? '🟢 Connected' : '🔴 Disconnected'}
-            color={wsStatus === 'connected' ? 'success' : 'error'}
-          />
-        </Toolbar>
-      </AppBar>
+    <Box sx={{ bgcolor: '#f5f5f5', minHeight: '100vh', py: 4 }}>
+      <Container maxWidth="xl">
+        {/* Header */}
+        <Paper
+          elevation={3}
+          sx={{
+            p: 3,
+            mb: 4,
+            background: 'linear-gradient(135deg, #1976d2 0%, #2196f3 100%)',
+            color: 'white',
+          }}
+        >
+          <Box display="flex" justifyContent="space-between" alignItems="center">
+            <Typography variant="h4" fontWeight="bold">
+              🎥 Video Processing System
+            </Typography>
+            <Chip
+              icon={wsConnected ? <CheckCircleIcon /> : <ErrorIcon />}
+              label={wsConnected ? 'Connected' : 'Disconnected'}
+              color={wsConnected ? 'success' : 'error'}
+              sx={{ fontWeight: 'bold' }}
+            />
+          </Box>
+        </Paper>
 
-      <Container maxWidth="xl" sx={{ mt: 4 }}>
-        {/* Summary */}
-        <Grid container spacing={2} sx={{ mb: 4 }}>
-          <Grid item xs={12} md={6}>
+        {/* Stats */}
+        <Grid container spacing={3} sx={{ mb: 4 }}>
+          <Grid size={{ xs: 12, md: 6 }}>
             <Card>
               <CardContent>
-                <Typography variant="h6">📹 Cameras</Typography>
-                <Typography variant="h3">
-                  {data.summary.cameras_running}/{data.summary.cameras_total}
-                </Typography>
-                <Typography color="text.secondary">Running</Typography>
+                <Box display="flex" alignItems="center" gap={2}>
+                  <VideocamIcon fontSize="large" color="primary" />
+                  <Box>
+                    <Typography variant="h6" color="text.secondary">
+                      📹 Cameras
+                    </Typography>
+                    <Typography variant="h3" fontWeight="bold">
+                      {runningCameras}/{state.cameras.length}
+                    </Typography>
+                    <Typography variant="body2" color="success.main">
+                      Running
+                    </Typography>
+                  </Box>
+                </Box>
               </CardContent>
             </Card>
           </Grid>
-          <Grid item xs={12} md={6}>
+
+          <Grid size={{ xs: 12, md: 6 }}>
             <Card>
               <CardContent>
-                <Typography variant="h6">🧠 Loaders</Typography>
-                <Typography variant="h3">
-                  {data.summary.loaders_running}/{data.summary.loaders_total}
-                </Typography>
-                <Typography color="text.secondary">Running</Typography>
+                <Box display="flex" alignItems="center" gap={2}>
+                  <MemoryIcon fontSize="large" color="secondary" />
+                  <Box>
+                    <Typography variant="h6" color="text.secondary">
+                      🧠 Loaders
+                    </Typography>
+                    <Typography variant="h3" fontWeight="bold">
+                      {runningLoaders}/{state.loaders.length}
+                    </Typography>
+                    <Typography variant="body2" color="success.main">
+                      Running
+                    </Typography>
+                  </Box>
+                </Box>
               </CardContent>
             </Card>
           </Grid>
         </Grid>
 
         {/* Cameras */}
-        <Typography variant="h5" sx={{ mb: 2 }}>Cameras</Typography>
-        <Grid container spacing={2} sx={{ mb: 4 }}>
-          {data.cameras.map((camera) => (
-            <Grid item xs={12} md={6} key={camera.camera_name}>
-              <Card>
-                <CardContent>
-                  <Box display="flex" justifyContent="space-between" alignItems="center">
+        <Paper sx={{ p: 3, mb: 4 }}>
+          <Typography variant="h5" fontWeight="bold" mb={2}>
+            Cameras
+          </Typography>
+          {state.cameras.map((camera) => (
+            <Card key={camera.camera_name} sx={{ mb: 2 }}>
+              <CardContent>
+                <Box display="flex" justifyContent="space-between" alignItems="center">
+                  <Box>
                     <Typography variant="h6">{camera.camera_name}</Typography>
-                    <Chip 
-                      label={camera.status}
-                      sx={{ bgcolor: getStatusColor(camera.status), color: 'white' }}
-                    />
+                    <Typography variant="body2" color="text.secondary">
+                      {camera.rtsp_url}
+                    </Typography>
+                    <Typography variant="caption">
+                      Resolution: {camera.width || 'N/A'} × {camera.height || 'N/A'}
+                    </Typography>
                   </Box>
-                  <Typography color="text.secondary" sx={{ mt: 1, fontSize: '0.875rem' }}>
-                    {camera.rtsp_url}
-                  </Typography>
-                  <Typography variant="body2" sx={{ mt: 1 }}>
-                    Resolution: {camera.width || 'N/A'} × {camera.height || 'N/A'}
-                  </Typography>
-                  
-                  {/* Video Stream */}
-                  {camera.status === 'running' && (
-                    <Box sx={{ mt: 2 }}>
-                      <img 
-                        src={`${API_URL}/neural_1`}
-                        alt={camera.camera_name}
-                        style={{ width: '100%', borderRadius: 4 }}
-                        onError={(e) => {
-                          console.error('Failed to load image');
-                          e.currentTarget.style.display = 'none';
-                        }}
-                      />
-                    </Box>
-                  )}
-                </CardContent>
-              </Card>
-            </Grid>
+                  <Chip
+                    label={camera.status}
+                    color={camera.status === 'running' ? 'success' : 'default'}
+                  />
+                </Box>
+              </CardContent>
+            </Card>
           ))}
-        </Grid>
+        </Paper>
 
-        {/* Loaders */}
-        <Typography variant="h5" sx={{ mb: 2 }}>Neural Loaders</Typography>
-        <Grid container spacing={2}>
-          {data.loaders.map((loader) => (
-            <Grid item xs={12} md={4} key={loader.loader_name}>
-              <Card>
-                <CardContent>
-                  <Box display="flex" justifyContent="space-between" alignItems="center">
+        {/* Loaders with MJPEG Streams */}
+        <Paper sx={{ p: 3 }}>
+          <Typography variant="h5" fontWeight="bold" mb={2}>
+            Neural Loaders
+          </Typography>
+          {state.loaders.map((loader) => (
+            <Card key={loader.loader_name} sx={{ mb: 3 }}>
+              <CardContent>
+                <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+                  <Box>
                     <Typography variant="h6">{loader.loader_name}</Typography>
-                    <Chip 
-                      label={loader.status}
-                      sx={{ bgcolor: getStatusColor(loader.status), color: 'white' }}
-                    />
+                    <Typography variant="body2" color="text.secondary">
+                      Endpoint: {loader.endpoint}
+                    </Typography>
                   </Box>
-                  <Typography variant="body2" sx={{ mt: 1 }}>
-                    Image Size: {loader.img_size}×{loader.img_size}
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
+                  <Chip
+                    label={loader.status}
+                    color={loader.status === 'running' ? 'success' : 'default'}
+                  />
+                </Box>
+
+                {/* MJPEG Stream */}
+                <Box
+                  sx={{
+                    width: '100%',
+                    maxHeight: 600,
+                    bgcolor: '#000',
+                    borderRadius: 1,
+                    overflow: 'hidden',
+                    display: 'flex',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                  }}
+                >
+                  <img
+                    src={`${API_BASE}${loader.endpoint}`}
+                    alt={`${loader.loader_name} stream`}
+                    style={{
+                      width: '100%',
+                      height: 'auto',
+                      objectFit: 'contain',
+                    }}
+                    onError={(e) => {
+                      console.error('Failed to load image');
+                      e.currentTarget.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"/>';
+                    }}
+                  />
+                </Box>
+              </CardContent>
+            </Card>
           ))}
-        </Grid>
+        </Paper>
       </Container>
     </Box>
   );
-}
+};
 
 export default App;

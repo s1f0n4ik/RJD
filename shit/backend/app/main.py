@@ -1,12 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import logging
 
 from app.config import settings
-from app.routers import cameras, loaders, status
-from app.services.websocket_manager import manager, websocket_endpoint
+from app.api import cameras, loaders, status, streams
+from app.services.websocket_manager import manager
 
 # Настройка логирования
 logging.basicConfig(
@@ -18,28 +17,26 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Lifecycle events"""
-    logger.info(f"Starting {settings.APP_NAME}")
+    """Управление жизненным циклом приложения"""
+    logger.info("🚀 Starting FastAPI server")
 
-    # Startup: запуск WebSocket broadcast
-    await manager.start_broadcast()
+    # Запуск WebSocket broadcaster
+    manager.start_broadcasting()
 
     yield
 
-    # Shutdown: остановка WebSocket broadcast
-    await manager.stop_broadcast()
-    logger.info("Application shutdown complete")
+    # Остановка WebSocket broadcaster
+    manager.stop_broadcasting()
+    logger.info("👋 Shutting down FastAPI server")
 
 
-# Создание FastAPI приложения
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
-    description="API для управления RTSP камерами и нейронными загрузчиками",
     lifespan=lifespan
 )
 
-# CORS middleware
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
@@ -48,65 +45,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Подключение роутеров
-app.include_router(cameras.router, prefix="/api", tags=["Cameras"])
-app.include_router(loaders.router, prefix="/api", tags=["Loaders"])
-app.include_router(status.router, prefix="/api", tags=["Status"])
+# Роутеры
+app.include_router(cameras.router, prefix="/api", tags=["cameras"])
+app.include_router(loaders.router, prefix="/api", tags=["loaders"])
+app.include_router(status.router, prefix="/api", tags=["status"])
+app.include_router(streams.router, tags=["streams"])
 
-# WebSocket endpoint
-app.add_websocket_route("/ws", websocket_endpoint)
+# WebSocket
+from app.api.websocket import router as ws_router
+
+app.include_router(ws_router)
 
 
-# Health check
-@app.get("/", tags=["Health"])
+@app.get("/")
 async def root():
-    """Health check endpoint"""
     return {
-        "status": "ok",
-        "app": settings.APP_NAME,
-        "version": settings.APP_VERSION
+        "service": settings.APP_NAME,
+        "version": settings.APP_VERSION,
+        "status": "running"
     }
 
 
-@app.get("/health", tags=["Health"])
-async def health_check():
-    """Detailed health check"""
-    from app.services.flask_client import check_flask_health
-
-    flask_status = await check_flask_health()
-
-    return {
-        "status": "ok",
-        "services": {
-            "fastapi": "ok",
-            "flask": "ok" if flask_status else "unavailable"
-        },
-        "websocket": {
-            "active_connections": len(manager.active_connections)
-        }
-    }
-
-
-# Global exception handler
-@app.exception_handler(Exception)
-async def global_exception_handler(request, exc):
-    logger.error(f"Global exception: {exc}", exc_info=True)
-    return JSONResponse(
-        status_code=500,
-        content={
-            "detail": "Internal server error",
-            "error": str(exc) if settings.DEBUG else "An error occurred"
-        }
-    )
-
-
-if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run(
-        "app.main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=settings.DEBUG,
-        log_level="debug" if settings.DEBUG else "info"
-    )
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
