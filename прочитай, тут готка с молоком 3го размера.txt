@@ -75,13 +75,13 @@ cd <directory>
 cp .env.example .env
 
 3. Запуск всей системы:
-docker-compose up --build
+docker compose up --build
 
 Или в фоновом режиме:
-docker-compose up -d --build
+docker compose up -d --build
 
 4. Проверка статуса:
-docker-compose ps
+docker compose ps
 
 Ожидаемый вывод:
 NAME                IMAGE               STATUS
@@ -144,24 +144,24 @@ http://localhost:8000/docs
 Здесь можно протестировать все API endpoints интерактивно.
 📊 Логи
 Просмотр логов всех сервисов
-docker-compose logs -f
+docker compose logs -f
 
 Логи конкретного сервиса
-docker-compose logs -f flask-server
-docker-compose logs -f fastapi-server
+docker compose logs -f flask-server
+docker compose logs -f fastapi-server
 
 🛠️ Управление
 Остановка системы
-docker-compose down
+docker compose down
 
 Остановка + удаление volumes
-docker-compose down -v
+docker compose down -v
 
 Перезапуск одного сервиса
-docker-compose restart flask-server
+docker compose restart flask-server
 
 Пересборка после изменений кода
-docker-compose up --build
+docker compose up --build
 
 📁 Структура проекта
 Vanya/

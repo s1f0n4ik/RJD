@@ -28,7 +28,7 @@ services:
     networks:
       - varan-network
     environment:
-      - FLASK_URL=http://flask-server:5000
+      - FLASK_BASE_URL=http://flask-server:5000
 
   frontend:
     build:
