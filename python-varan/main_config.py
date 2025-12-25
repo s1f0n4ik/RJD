@@ -1,4 +1,4 @@
-
+SAVE_FILE = 'save/dump.json'
 
 MAX_LOADERS_COUNT = 3
 

@@ -1,3 +1,6 @@
 out/
 .vs/
 3rdparty/
+__pycache__/
+.venv/
+.idea/

@@ -1,10 +1,12 @@
+import json
 import threading
 import time
 from logging import DEBUG
-from typing import Dict, Optional, Any
+from pathlib import Path
+from typing import Optional
 
-import numpy as np
 from queue import Queue
+
 
 from camera import CameraStream, NV12Frame, CameraStatus
 import main_config
@@ -13,37 +15,13 @@ from neural_loader import NeuralLoader
 
 
 class CameraManager:
-    def __init__(self, neural_loaders: list[dict[str, Any]], max_queue_size: int = 1, delta_ms: int = 200):
-        """
+    def __init__(self, save_file: str, max_queue_size: int = 1, delta_ms: int = 200):
 
-        :rtype: None
-        """
-        # Проверяем на количество нейронных загрузчиков
-        if len(neural_loaders) > main_config.MAX_LOADERS_COUNT:
-            raise RuntimeError("[CameraManager] Too many neural loaders!")
+        self.save_file = save_file
 
-        required_keys = {
-            main_config.LOADER_NAME,
-            main_config.LOADER_MATRIX,
-            main_config.LOADER_IMG_SIZE,
-            main_config.LOADER_WEIGHTS_PATH,
-            main_config.SERVER,
-            main_config.SERVER_ENDPOINT
-        }
-
-        for idx, loader in enumerate(neural_loaders):
-            if not isinstance(loader, dict):
-                raise TypeError(
-                    f"[CameraManager] Loader #{idx} must be dict, got {type(loader)}"
-                )
-
-            missing = required_keys - loader.keys()
-            if missing:
-                raise KeyError(
-                    f"[CameraManager] Loader #{idx} missing fields: {sorted(missing)}"
-                )
-
-        self.cameras : list[CameraStream] = []
+        self.cameras : dict[str, CameraStream] = {}
+        # Создаем загрузчики
+        self.neural_loaders: dict[str, NeuralLoader] = {}
 
         # Буферы для получения кадров
         self.camera_images: dict[str, Queue[NV12Frame]] = {}
@@ -53,22 +31,9 @@ class CameraManager:
         # Поток пуша кадров в нейронные модули
         self.neural_push_thread : Optional[threading.Thread] = None
 
+        self.server = None
+
         self.running = False
-
-        # Создаем загрузчики
-        self.neural_loaders: list[NeuralLoader] = list()
-
-        for lin in neural_loaders:
-            loader = NeuralLoader(
-                name=lin[main_config.LOADER_NAME],
-                camera_matrix=lin[main_config.LOADER_MATRIX],
-                img_size=lin[main_config.LOADER_IMG_SIZE],
-                weights_path=lin[main_config.LOADER_WEIGHTS_PATH],
-                classes_path=lin[main_config.LOADER_CLASSES_PATH],
-                server=lin[main_config.SERVER],
-                server_endpoint=lin[main_config.SERVER_ENDPOINT]
-            )
-            self.neural_loaders.append(loader)
 
         log = True
         if log:
@@ -76,26 +41,23 @@ class CameraManager:
         else:
             self.logger = NullLogger()
 
-    def add_camera(self, camera: CameraStream):
-        """Добавить камеру в менеджер"""
-        self.cameras.append(camera)
-        self.camera_images[camera.name] = Queue(maxsize=self.max_queue_size)
-        self.logger.info(f"[CameraManager] Adding camera {camera.name}")
+    def set_server(self, server):
+        self.server = server
 
     def start_all(self):
         """Запустить все камеры параллельно"""
         self.running = True
         self.logger.info(f"[CameraManager] Starting all cameras")
 
-        for cam in self.cameras:
+        for name, cam in self.cameras.items():
             cam.start()
 
-        for index, loader in enumerate(self.neural_loaders):
+        for index, n_loader in enumerate(self.neural_loaders.values()):
             if index >= main_config.MAX_NEURAL:
                 break
 
-            if loader.init_model_runtime(2^index):
-                loader.start()
+            if n_loader.init_model_runtime(2^index):
+                n_loader.start()
 
         if self.neural_push_thread is not None:
             raise RuntimeError("[CameraManager] The neural loader is running during its first initialization!")
@@ -110,18 +72,13 @@ class CameraManager:
         """Остановить все камеры"""
         self.running = False
 
-        for cam in self.cameras:
+        for name, cam in self.cameras.items():
             cam.stop()
-
-        # Дождаться их завершения
-        for cam in self.cameras:
             cam.join(timeout=1)
 
-        for loader in self.neural_loaders:
-            loader.stop()
-
-        for loader in self.neural_loaders:
-            loader.join(timeout=1)
+        for name, n_loader in self.neural_loaders.items():
+            n_loader.stop()
+            n_loader.join(timeout=1)
 
         self.neural_push_thread.join(timeout=1)
         self.logger.info(f"[CameraManager] Stopping all cameras")
@@ -129,8 +86,8 @@ class CameraManager:
     def list_status(self):
         """Посмотреть состояние потоков"""
         statuses = {}
-        for cam in self.cameras:
-            statuses[cam.camera_name] = cam.is_alive()
+        for name, cam in self.cameras.items():
+            statuses[cam.camera_name] = cam.status
         return statuses
 
     def on_frame(self, frame: NV12Frame, camera_name: str):
@@ -149,8 +106,8 @@ class CameraManager:
                 time.sleep(0.005)
                 continue
 
-            for loader in self.neural_loaders:
-                camera_matrix = loader.get_camera_matrix()
+            for name, n_loader in self.neural_loaders.items():
+                camera_matrix = n_loader.camera_matrix
                 frame_matrix: list[list[NV12Frame | None]] = []
 
                 for row in camera_matrix:
@@ -159,13 +116,13 @@ class CameraManager:
                         frame_row.append(frames.get(camera_name))  # Возьмём кадр или None, если нет
                     frame_matrix.append(frame_row)
 
-                loader.move_batch(frame_matrix)
+                n_loader.move_batch(frame_matrix)
 
     def get_latest_frames(self):
         frames: dict[str, NV12Frame] = {}
         while self.running:
             all_frames_received = True
-            cameras_active = [camera for camera in self.cameras if camera.status is CameraStatus.RUNNING]
+            cameras_active = [camera for camera in self.cameras.values() if camera.status is CameraStatus.RUNNING]
 
             if not cameras_active:
                 return None
@@ -191,3 +148,452 @@ class CameraManager:
                 time.sleep(0.005)
 
         return frames
+
+    def load_from_file(self) -> dict:
+        path = Path(self.save_file)
+
+        if not path.exists():
+            return {"status": "error", "message": f"Config file not found: {path}"}
+
+        with path.open("r", encoding="utf-8") as f:
+            cfg = json.load(f)
+
+        created = {
+            "cameras": [],
+            "loaders": []
+        }
+
+        for cam_data in cfg.get("cameras", []):
+            try:
+                res = self.handle_command("camera.add", cam_data)
+                if res.get("status") == "ok":
+                    created["cameras"].append(cam_data["camera_name"])
+            except Exception as e:
+                self.logger.error(e)
+
+        for loader_data in cfg.get("loaders", []):
+            try:
+                res = self._loader_create(loader_data)
+                if res.get("status") == "ok":
+                    created["loaders"].append(loader_data["loader_name"])
+            except Exception as e:
+                self.logger.error(e)
+
+        self.logger.info(
+            f"Loaded from {path}: "
+            f"{len(created['cameras'])} cameras, "
+            f"{len(created['loaders'])} loaders"
+        )
+
+        self.running = True
+
+        self.neural_push_thread = threading.Thread(target=self.push_latest_frames_to_neural, daemon=True)
+        self.neural_push_thread.start()
+
+        return {
+            "status": "ok",
+            "created": created
+        }
+
+    def save_to_file(self) -> dict:
+        path = Path(self.save_file)
+
+        data = {
+            "cameras": [],
+            "loaders": []
+        }
+
+        # ---------- CAMERAS ----------
+        for name, cam in self.cameras.items():
+            data["cameras"].append({
+                "camera_name": name,
+                "rtsp_url": cam.rtsp_url,
+                "width": cam.imgsz[0],
+                "height": cam.imgsz[1],
+                "reconnect_interval": cam.reconnect_interval
+            })
+
+        # ---------- LOADERS ----------
+        for name, n_loader in self.neural_loaders.items():
+            data["loaders"].append({
+                "loader_name": name,
+                "camera_matrix": n_loader.camera_matrix,
+                "img_size": n_loader.imgsz,
+                "weights_path": n_loader.weights_path,
+                "classes_path": n_loader.classes_path,
+                "server_endpoint": n_loader.server_endpoint,
+                "confidence_threshold": n_loader.confidence,
+                "iou_threshold": n_loader.iou,
+                "log_level": n_loader.logging
+            })
+
+        with path.open("w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+
+        self.logger.info(f"Configuration saved to {path}")
+
+        return {
+            "status": "ok",
+            "path": str(path)
+        }
+
+    def handle_command(self, command: str, data: dict) -> dict | list[dict]:
+        try:
+            if command == "camera.add":
+                return self._camera_add(data)
+
+            if command == "camera.delete":
+                return self._camera_delete(data)
+
+            if command == "camera.update":
+                return self._camera_update(data)
+
+            if command == "camera.status":
+                return self._camera_status(data)
+
+            if command == "camera.list":
+                return self._camera_list()
+
+            if command == "camera.start":
+                return self._camera_start(data)
+
+            if command == "camera.stop":
+                return self._camera_stop(data)
+
+            if command == "loader.create":
+                return self._loader_create(data)
+
+            if command == "loader.delete":
+                return self._loader_delete(data)
+
+            if command == "loader.start":
+                return self._loader_start(data)
+
+            if command == "loader.stop":
+                return self._loader_stop(data)
+
+            if command == "loader.status":
+                return self._loader_status(data)
+
+            if command == "loader.list":
+                return self._loader_list()
+
+            raise ValueError(f"Unknown command: {command}")
+
+        except Exception as e:
+            self.logger.error(e)
+            return {"status": "error", "message": str(e)}
+
+    def _camera_add(self, data: dict) -> dict:
+        name = data.get("camera_name")
+
+        if name in self.cameras:
+            self.logger.error(f"Camera {name} already exists")
+            return {"status": "error", "message": f"Camera {name} already exists"}
+
+        cam = CameraStream(
+            rtsp_url=data.get("rtsp_url", ""),
+            camera_name=name,
+            width=data.get("width", None),
+            height=data.get("height", None),
+            reconnect_interval=data.get("reconnect_interval", 5),
+            on_frame=self.on_frame,
+            log_level=data.get("log_level", 10)
+        )
+
+        self.cameras[name] = cam
+        self.camera_images[cam.camera_name] = Queue(maxsize=self.max_queue_size)
+        cam.start()
+        self.logger.info(f"Camera {name} added and started")
+
+        #self.save_to_file()
+
+        return {"status": "success", "message": f"Camera {name} added and started"}
+
+    def _camera_delete(self, data: dict) -> dict:
+        name = data["camera_name"]
+
+        try :
+            cam = self.cameras.pop(name)
+            cam.stop()
+            cam.join(timeout=1)
+        except IndexError as index_error:
+            self.logger.error(f"Camera {name} not found")
+            return {"status": "error", "message": f"Camera {name} not found"}
+        except Exception as runtime_error:
+            self.logger.error(runtime_error)
+            return {"status": "error", "message": f"Unknown error: {runtime_error}"}
+
+        self.camera_images.pop(name, None)
+        self.logger.info(f"Camera {name} deleted!")
+
+        self.save_to_file()
+
+        return {"status": "success", "message": f"Camera {name} deleted"}
+
+    def _camera_start(self, data: dict) -> dict:
+        name = data.get("camera_name")
+
+        if name not in self.cameras:
+            self.logger.error(f"Camera {name} not found")
+            return {"status": "error", "message": f"Camera {name} not found"}
+
+        camera = self.cameras[name]
+        if not camera.is_alive():
+            camera.start()
+            self.logger.info(f"Camera {name} started")
+        else:
+            self.logger.info(f"Camera {name} has already started!")
+
+        return {"status": "success", "message": f"Camera {name} started"}
+
+    def _camera_stop(self, data: dict) -> dict:
+        name = data.get("camera_name")
+
+        if name not in self.cameras:
+            self.logger.error(f"Camera {name} not found")
+            return {"status": "error", "message": f"Camera {name} not found"}
+
+        camera = self.cameras[name]
+        if not camera.is_alive():
+            camera.stop()
+            camera.join(timeout=1)
+            self.logger.info(f"Camera {name} stopped!")
+        else:
+            self.logger.info(f"Camera {name} has already stopped!")
+
+        return {"status": "success", "camera_name": f"Camera {name} stopped"}
+
+    def _camera_update(self, data: dict) -> dict:
+        name = data["camera_name"]
+
+        if name not in self.cameras:
+            self.logger.error(f"Camera {name} not found")
+            return {"status": "error", "message": f"Camera {name} not found"}
+
+        cam = self.cameras[name]
+
+        if cam.status != CameraStatus.RUNNING:
+            cam.stop()
+            cam.join(timeout=1)
+            self.logger.debug(f"Camera {name} stopped to update camera data!")
+
+        if "rtsp_url" in data:
+            cam.rtsp_url = data.get("rtsp_url")
+        if "width" in data and "height" in data:
+            cam.imgsz = (data.get("width"), data.get("height"))
+        if "reconnect_interval" in data:
+            cam.reconnect_interval = data.get("reconnect_interval")
+        if "log_level" in data:
+            cam.logging = data.get("log_level")
+
+        cam.start()
+        self.logger.info(f"Camera {name} updated to {cam.status}")
+
+        self.save_to_file()
+
+        return {"status": "success", "message": f"Camera {name} updated and restarted!"}
+
+    def _camera_status(self, data: dict) -> dict:
+        name = data.get("camera_name")
+
+        if name not in self.cameras:
+            self.logger.error(f"Camera {name} not found")
+            return {"status": "error", "message": f"Camera {name} not found"}
+
+        cam = self.cameras[name]
+
+        return {
+            "camera_name": name,
+            "status": cam.status.name.lower() if hasattr(cam.status, 'name') else "unknown",
+            "is_alive": cam.is_alive(),
+            "rtsp_url": cam.rtsp_url,
+            "width": cam.imgsz[0],
+            "height": cam.imgsz[1],
+            "reconnect_interval": cam.reconnect_interval,
+            "log_level": cam.logging
+        }
+
+    def _camera_list(self) -> list[dict]:
+        return [
+            {
+                "camera_name": name,
+                "status": cam.status.name,
+                "rtsp_url": cam.rtsp_url,
+                "width": cam.imgsz[0],
+                "height": cam.imgsz[1],
+                "reconnect_interval": cam.reconnect_interval,
+                "log_level": cam.logging
+            }
+            for name, cam in self.cameras.items()
+        ]
+
+    def _loader_create(self, data: dict) -> dict:
+        name = data["loader_name"]
+
+        if name in self.neural_loaders:
+            self.logger.error(f"Loader {name} already exists")
+            return {"status": "error", "message": f"Loader {name} already exists"}
+
+        if len(self.neural_loaders) > main_config.MAX_LOADERS_COUNT:
+            self.logger.error(f"[CameraManager] Too many neural loaders!")
+            return {"status": "error", "message": f"Too many neural loaders!"}
+
+        n_loader = NeuralLoader(
+            name=name,
+            camera_matrix=data.get("camera_matrix"),
+            img_size=data.get("img_size"),
+            weights_path=data.get("weights_path"),
+            classes_path=data.get("classes_path"),
+            server=self.server,
+            server_endpoint=data.get("server_endpoint"),
+            confidence_threshold=data.get("confidence_threshold", 0.5),
+            iou_threshold=data.get("iou_threshold", 0.5),
+            log_level=data.get("log_level", 10),
+        )
+
+        self.logger.info(f"Loader {name} created!")
+        self.neural_loaders[name] = n_loader
+
+        index = len(self.neural_loaders) - 1
+        if n_loader.init_model_runtime(1 << index):
+            n_loader.start()
+            self.logger.info(f"Loader {name} started!")
+        else:
+            self.logger.info(f"Loader {name} cannot be started with mask {1 << index}!")
+
+        #self.save_to_file()
+
+        return {"status": "success", "message": f"Loader {name} created and started!"}
+
+    def _loader_start(self, data: dict) -> dict:
+        name = data["loader_name"]
+
+        if name not in self.neural_loaders:
+            self.logger.error(f"Loader {name} not found")
+            return {"status": "error", "message": f"Loader {name} not found"}
+
+        n_loader = self.neural_loaders[name]
+
+        if not n_loader.is_alive():
+            n_loader.start()
+
+        self.logger.info(f"Loader {name} started!")
+
+        return {"status": "success", "message": f"Loader {name} started!"}
+
+
+    def _loader_stop(self, data: dict) -> dict:
+        name = data["loader_name"]
+
+        if name not in self.neural_loaders:
+            self.logger.error(f"Loader {name} not found")
+            return {"status": "error", "message": f"Loader {name} not found"}
+
+        n_loader = self.neural_loaders[name]
+
+        if not n_loader.is_alive():
+            n_loader.start()
+
+        self.logger.info(f"Loader {name} stopped!")
+
+        return {"status": "success", "message": f"Loader {name} stopped!"}
+
+
+    def _loader_update(self, data: dict) -> dict:
+        name = data["loader_name"]
+
+        if name not in self.neural_loaders:
+            self.logger.error(f"Loader {name} not found")
+            return {"status": "error", "message": f"Loader {name} not found"}
+
+        n_loader = self.neural_loaders[name]
+        n_loader.stop()
+        n_loader.join(timeout=1)
+        self.logger.info(f"Loader {name} stopped to update loader data!")
+
+        if "weights_path" in data:
+            n_loader.weights_path = data.get("weights_path")
+        if "classes_path" in data:
+            n_loader.classes_path = data.get("classes_path")
+        if "server_endpoint" in data:
+            n_loader.server_endpoint = data.get("server_endpoint")
+        if "loader_matrix" in data:
+            n_loader.camera_matrix = data.get("loader_matrix")
+        if "img_size" in data:
+            n_loader.imgsz = data.get("img_size")
+        if "confidence_threshold" in data:
+            n_loader.confidence_threshold = data.get("confidence_threshold")
+        if "iou_threshold" in data:
+            n_loader.iou_threshold = data.get("iou_threshold")
+        if "log_level" in data:
+            n_loader.logging = data.get("log_level")
+
+        self.logger.info(f"Loader {name} updated!")
+
+        n_loader.start()
+        self.logger.info(f"Loader {name} started!")
+
+        self.save_to_file()
+
+        return {"status": "success", "message": f"Loader {name} updated and restarted!"}
+
+    def _loader_status(self, data: dict) -> dict:
+        name = data["loader_name"]
+
+        if name not in self.neural_loaders:
+            self.logger.error(f"Loader {name} not found")
+            return {"status": "error", "message": f"Loader {name} not found"}
+
+        n_loader = self.neural_loaders[name]
+
+        return {
+            "loader_name": n_loader.loader_name,
+            "status": "running" if n_loader.is_alive() else "stopped",
+            "is_alive": n_loader.is_alive(),
+            "img_size": n_loader.imgsz,
+            "loader_matrix": n_loader.camera_matrix,
+            "weights_path": n_loader.weights_path,
+            "classes_path": n_loader.classes_path,
+            "confidence_threshold": n_loader.confidence,
+            "iou_threshold": n_loader.iou,
+            "server_endpoint": n_loader.server_endpoint,
+        }
+
+    def _loader_list(self) -> list[dict]:
+         return  [
+             {
+                "loader_name": n_loader.loader_name,
+                "status": "running" if n_loader.is_alive() else "stopped",
+                "is_alive": n_loader.is_alive(),
+                "img_size": n_loader.imgsz,
+                "camera_matrix": n_loader.camera_matrix,
+                "weights_path": n_loader.weights_path,
+                "classes_path": n_loader.classes_path,
+                "confidence_threshold": n_loader.confidence,
+                "iou_threshold": n_loader.iou,
+                "server_endpoint": n_loader.server_endpoint,
+             }
+             for name, n_loader in self.neural_loaders.items()
+        ]
+
+    def _loader_delete(self, data):
+        name = data.get("loader_name")
+
+        if name not in self.neural_loaders:
+            self.logger.error(f"Loader {name} not found")
+            return {"status": "error", "message": f"Loader {name} not found"}
+
+        n_loader = self.neural_loaders.pop(name)
+        n_loader.stop()
+        n_loader.join(timeout=1)
+
+        self.logger.info(f"Loader {name} stopped and deleted!")
+
+        self.save_to_file()
+
+        return {"status": "success", "message": f"Loader {name} deleted!"}
+
+
+
+

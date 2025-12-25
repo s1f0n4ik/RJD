@@ -74,7 +74,7 @@ def postprocess_default_yolo(
 
     boxes_xyxy = np.stack([x1, y1, x2, y2], axis=1)
 
-    if not boxes:
+    if len(boxes) == 0:
         return []
 
     results = []

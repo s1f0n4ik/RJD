@@ -1,0 +1,52 @@
+{
+  "cameras": [
+    {
+      "camera_name": "Camera_1",
+      "rtsp_url": "rtsp://admin:VniiTest@192.168.1.11:554/ISAPI/Streaming/Channels/102",
+      "reconnect_interval": 5,
+      "log_level": 10
+    },
+    {
+      "camera_name": "Camera_2",
+      "rtsp_url": "rtsp://admin:VniiTest@192.168.1.12:554/ISAPI/Streaming/Channels/102",
+      "reconnect_interval": 5,
+      "log_level": 10
+    },
+    {
+      "camera_name": "Camera_3",
+      "rtsp_url": "rtsp://admin:VniiTest@192.168.1.13:554/cam/realmonitor?channel=1&subtype=0",
+      "reconnect_interval": 5,
+      "log_level": 10
+    },
+    {
+      "camera_name": "Camera_4",
+      "rtsp_url": "rtsp://admin:VniiTest@192.168.1.14:554/cam/realmonitor?channel=1&subtype=0",
+      "reconnect_interval": 5,
+      "log_level": 10
+    }
+  ],
+  "loaders": [
+    {
+      "loader_name": "yolo_1",
+      "camera_matrix": [["Camera_1"], ["Camera_2"]],
+      "img_size": 1024,
+      "weights_path": "/home/orangepi/python-varan-cameras/models/weights/yolo11n.rknn",
+      "classes_path": "/home/orangepi/python-varan-cameras/models/classes/classes-coco.json",
+      "server_endpoint": "/neural_1",
+      "confidence_threshold": 0.5,
+      "iou_threshold": 0.5,
+      "log_level": 10
+    },
+    {
+      "loader_name": "yolo_2",
+      "camera_matrix": [["Camera_3"], ["Camera_4"]],
+      "img_size": 1024,
+      "weights_path": "/home/orangepi/python-varan-cameras/models/weights/yolo11n.rknn",
+      "classes_path": "/home/orangepi/python-varan-cameras/models/classes/classes-coco.json",
+      "server_endpoint": "/neural_2",
+      "confidence_threshold": 0.5,
+      "iou_threshold": 0.5,
+      "log_level": 10
+    }
+  ]
+}

@@ -42,64 +42,97 @@ class CameraStream(threading.Thread):
             log_level: int = logging.NOTSET,
     ):
         super().__init__(daemon=True)
-        self.rtsp_url = rtsp_url
-        self.camera_name = camera_name
-        self.running = False
-        self.reconnect_interval = reconnect_interval
+        self._rtsp_url = rtsp_url
+        self._camera_name = camera_name
+        self._running = False
+        self._reconnect_interval = reconnect_interval
 
-        self.on_frame = on_frame
-        self.logger = get_logger(__name__, log_level) if log_level != logging.NOTSET else NullLogger()
+        self._on_frame = on_frame
+        self._log_level = log_level
+        self._logger = get_logger(__name__, log_level) if log_level != logging.NOTSET else NullLogger()
 
         self.video_info = {}
-        self.width = width
-        self.height = height
+        self._width = width
+        self._height = height
 
-        self.status = CameraStatus.READY
+        self._status = CameraStatus.READY
+
+    @property
+    def status(self): return self._status
+
+    @property
+    def imgsz(self):
+        return (
+            self._width or self.video_info.get(['width'], None),
+            self._height or self.video_info.get(['height'], None)
+        )
+    @imgsz.setter
+    def imgsz(self, value):
+        if not isinstance(value, (tuple, list)) or len(value) != 2:
+            raise ValueError("imgsz must be (width, height)")
+        self._width, self._height = value
+
+    @property
+    def reconnect_interval(self): return self._reconnect_interval
+    @reconnect_interval.setter
+    def reconnect_interval(self, value):
+        if value < 0:
+            raise ValueError("reconnect_interval must be >= 0")
+        self._reconnect_interval = value
+
+    @property
+    def rtsp_url(self): return self._rtsp_url
+    @rtsp_url.setter
+    def rtsp_url(self, value):
+        self._rtsp_url = value
+
+    @property
+    def camera_name(self): return self._camera_name
+    @camera_name.setter
+    def camera_name(self, value):
+        self._camera_name = value
+
+    @property
+    def logging(self): return self._log_level
+    @logging.setter
+    def logging(self, value):
+        self._log_level = value
 
     def probe_rtsp_stream(self):
-        """
-        Uses ffprobe via the ffmpeg-python library to get stream information.
-
-        Returns:
-            dict: A dictionary containing the video stream's properties or None if an error occurs.
-        """
         try:
-            # Define arguments for ffmpeg input for better RTSP handling
             args = {
-                "rtsp_transport": "tcp",  # Use TCP for reliability
-                "fflags": "nobuffer",  # Reduce buffer to lower latency
-                "flags": "low_delay"  # Further optimize for low delay
+                "rtsp_transport": "tcp",
+                "fflags": "nobuffer",
+                "flags": "low_delay"
             }
 
-            # Run ffprobe and capture the output
-            probe = ffmpeg.probe(self.rtsp_url, **args)
+            probe = ffmpeg.probe(self._rtsp_url, **args)
 
-            # Find the first video stream information
             self.video_info = next(x for x in probe['streams'] if x['codec_type'] == 'video')
 
-            self.logger.info(f"[{self.camera_name}]: FFprobe succeeded. Video info:\n {pretty_json(self.video_info)}")
+            self._logger.info(f"[{self._camera_name}]: FFprobe succeeded. Video info:\n {pretty_json(self.video_info)}")
 
             return True
 
         except ffmpeg.Error as e:
-            self.logger.error(f"[{self.camera_name}]: FFmpeg Error:: {e}")
-            self.logger.error("[%s]: FFprobe failed:\n%s", self.camera_name, e.stderr.decode("utf-8", errors="replace"))
+            self._logger.error(f"[{self._camera_name}]: FFmpeg Error:: {e}")
+            self._logger.error("[%s]: FFprobe failed:\n%s", self._camera_name, e.stderr.decode("utf-8", errors="replace"))
             return False
         except StopIteration:
-            self.logger.error(f"[{self.camera_name}]: No video stream found in the source URL.", file=sys.stderr)
+            self._logger.error(f"[{self._camera_name}]: No video stream found in the source URL.", file=sys.stderr)
             return False
         except Exception as e:
-            self.logger.error(f"[{self.camera_name}]: An unexpected error occurred: {e}", file=sys.stderr)
+            self._logger.error(f"[{self._camera_name}]: An unexpected error occurred: {e}", file=sys.stderr)
             return False
 
     # Функция, которая запускает ffmpeg
     def receive_frames(self):
-        width = self.width or self.video_info['width']
-        height = self.height or self.video_info['height']
+        width = self._width or self.video_info['width']
+        height = self._height or self.video_info['height']
         frame_size = width * height * 3 // 2  # NV12
 
-        self.logger.info(
-            f"[{self.camera_name}] Starting stream {width}x{height}"
+        self._logger.info(
+            f"[{self._camera_name}] Starting stream {width}x{height}"
         )
 
         codec_map = {
@@ -116,7 +149,7 @@ class CameraStream(threading.Thread):
             process = (
                 ffmpeg
                 .input(
-                    self.rtsp_url,
+                    self._rtsp_url,
                     rtsp_transport='tcp',
                     fflags='nobuffer',
                     flags='low_delay',
@@ -141,13 +174,13 @@ class CameraStream(threading.Thread):
                 )
             )
         except ffmpeg.Error as e:
-            self.logger.error(f"[{self.camera_name}] FFmpeg start error: {e}")
+            self._logger.error(f"[{self._camera_name}] FFmpeg start error: {e}")
             return False
 
         timeout_sec = 3.0  # сколько ждать кадр
 
         try:
-            while self.running:
+            while self._running:
                 rlist, _, _ = select.select(
                     [process.stdout],
                     [],
@@ -156,16 +189,16 @@ class CameraStream(threading.Thread):
                 )
 
                 if not rlist:
-                    self.logger.error(
-                        f"[{self.camera_name}] Frame timeout ({timeout_sec}s)"
+                    self._logger.error(
+                        f"[{self._camera_name}] Frame timeout ({timeout_sec}s)"
                     )
                     return False
 
                 in_bytes = process.stdout.read(frame_size)
 
                 if not in_bytes or len(in_bytes) < frame_size:
-                    self.logger.error(
-                        f"[{self.camera_name}] Stream ended or broken"
+                    self._logger.error(
+                        f"[{self._camera_name}] Stream ended or broken"
                     )
                     return False
 
@@ -182,53 +215,53 @@ class CameraStream(threading.Thread):
                     timestamp_ms=now_ms(),
                 )
 
-                self.logger.debug(
-                    f"[{self.camera_name}] Received frame: width={nv12_frame.width}, height={nv12_frame.height}, "
+                self._logger.debug(
+                    f"[{self._camera_name}] Received frame: width={nv12_frame.width}, height={nv12_frame.height}, "
                     f"Y shape={nv12_frame.y.shape}, UV shape={nv12_frame.uv.shape}, timestamp_ms={nv12_frame.timestamp_ms}"
                 )
 
-                if self.on_frame:
-                    self.on_frame(nv12_frame, self.camera_name)
+                if self._on_frame:
+                    self._on_frame(nv12_frame, self._camera_name)
 
         finally:
-            self.logger.info(f"[{self.camera_name}] Stopping ffmpeg")
+            self._logger.info(f"[{self._camera_name}] Stopping ffmpeg")
             try:
                 process.terminate()
                 process.wait(timeout=1)
             except Exception as e:
-                self.logger.error(f"[{self.camera_name}] FFmpeg terminated with error: {e}")
+                self._logger.error(f"[{self._camera_name}] FFmpeg terminated with error: {e}")
                 process.kill()
 
         return False
 
     def run(self):
         """Main thread loop: probe → receive frames → repeat."""
-        self.logger.info(f"[{self.camera_name}] Thread started")
-        self.running = True
-        while self.running:
-            self.logger.info(f"[{self.camera_name}] Probing stream...")
-            while self.running and not self.probe_rtsp_stream():
-                self.logger.warning(
-                    f"[{self.camera_name}] Probe failed. Retry in {self.reconnect_interval}s"
+        self._logger.info(f"[{self._camera_name}] Thread started")
+        self._running = True
+        while self._running:
+            self._logger.info(f"[{self._camera_name}] Probing stream...")
+            while self._running and not self.probe_rtsp_stream():
+                self._logger.warning(
+                    f"[{self._camera_name}] Probe failed. Retry in {self._reconnect_interval}s"
                 )
-                time.sleep(self.reconnect_interval)
+                time.sleep(self._reconnect_interval)
 
-            self.logger.info(f"[{self.camera_name}] Starting video receive loop")
-            self.status = CameraStatus.RUNNING
+            self._logger.info(f"[{self._camera_name}] Starting video receive loop")
+            self._status = CameraStatus.RUNNING
             ok = self.receive_frames()
 
             if not ok:
-                self.status = CameraStatus.FAILED
-                self.logger.warning(
-                    f"[{self.camera_name}] Reconnecting in {self.reconnect_interval}s..."
+                self._status = CameraStatus.FAILED
+                self._logger.warning(
+                    f"[{self._camera_name}] Reconnecting in {self._reconnect_interval}s..."
                 )
-                time.sleep(self.reconnect_interval)
+                time.sleep(self._reconnect_interval)
 
-            if not self.running:
+            if not self._running:
                 break
 
-        self.logger.info(f"[{self.camera_name}] Thread stopped")
+        self._logger.info(f"[{self._camera_name}] Thread stopped")
 
     def stop(self):
-        self.running = False
-        self.status = CameraStatus.STOPPED
+        self._running = False
+        self._status = CameraStatus.STOPPED
