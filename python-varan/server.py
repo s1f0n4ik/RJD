@@ -160,5 +160,5 @@ class MultiCameraServer:
             "loader.delete", {"loader_name": loader_name}
         ))
 
-    def run(self, host='0.0.0.0', port=5557):
+    def run(self, host='0.0.0.0', port=5000):
         self.app.run(host=host, port=port, threaded=True)

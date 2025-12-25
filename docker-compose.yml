@@ -10,6 +10,7 @@ services:
       - "5000:5000"
     volumes:
       - ./python-varan:/app
+      - /usr/lib/librknnrt.so:/usr/lib/librknnrt.so
     networks:
       - varan-network
     privileged: true
