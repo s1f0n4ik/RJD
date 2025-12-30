@@ -4,3 +4,4 @@ out/
 __pycache__/
 .venv/
 .idea/
+/python-varan/test_video
