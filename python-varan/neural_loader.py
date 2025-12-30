@@ -191,7 +191,7 @@ class NeuralLoader(threading.Thread):
                 preprocessed_frame = self.preprocess(frame)
 
                 input_tensor = np.expand_dims(preprocessed_frame, axis=0) # (1, H, W, C)
-                input_tensor = input_tensor.transpose(0, 3, 1, 2) # (1, C, H, W)
+                #input_tensor = input_tensor.transpose(0, 3, 1, 2) # (1, C, H, W)
 
                 outputs = self.inference(input_tensor)
 
@@ -269,7 +269,6 @@ class NeuralLoader(threading.Thread):
             outputs[0],
             self._confidence_threshold,
             self._iou_threshold,
-            (self._img_size, self._img_size),
         )
 
         elapsed_ms = (time.perf_counter() - start_ts) * 1000
@@ -284,7 +283,7 @@ class NeuralLoader(threading.Thread):
         self._logger.info(
             f"Postprocess completed in {elapsed_ms:.2f} ms. "
             f"Total detections: {len(results)}\n"
-            f"\tDetection results: {', '.join(results)}"
+            f"\tDetection results: {results}"
         )
 
         try:
@@ -313,7 +312,9 @@ class NeuralLoader(threading.Thread):
                 continue
 
             if not frames or not frames[0]:
-                return
+                continue
+
+            t_start = time.perf_counter()
 
             rows : int = len(frames)
             cols : int = len(frames[0])
@@ -340,6 +341,10 @@ class NeuralLoader(threading.Thread):
             )
 
             filled = 0
+            letterbox_time = 0.0
+
+            t_build_start = time.perf_counter()
+
             for row in range(rows):
                 for col in range(cols):
                     frame = frames[row][col]
@@ -356,6 +361,8 @@ class NeuralLoader(threading.Thread):
 
                     # Получаем подогнанное под ячейку изображение
                     try:
+                        t_lb_start = time.perf_counter()
+
                         y_cell, uv_cell = self.letterbox_nv12(
                             frame.y,
                             frame.uv,
@@ -364,6 +371,8 @@ class NeuralLoader(threading.Thread):
                             cell_w,
                             cell_h
                         )
+
+                        letterbox_time += time.perf_counter() - t_lb_start
 
                         # Складываем в единое изображение
                         y_final[y0:y0 + cell_h, x0:x0 + cell_w] = y_cell
@@ -379,9 +388,11 @@ class NeuralLoader(threading.Thread):
                             f"Letterbox failed at [{row},{col}]: {e}"
                         )
 
+            build_time = time.perf_counter() - t_build_start
+
             if filled == 0:
                 self._logger.warning("Batch created but no frames were filled")
-                return
+                continue
 
             # Получаем конечный кадр
             batch_frame = NV12Frame(
@@ -394,11 +405,13 @@ class NeuralLoader(threading.Thread):
                 )
             )
 
-            if self._queue_batch.full():
+            while not self._queue_batch.empty():
                 self._queue_batch.get_nowait()
                 self._logger.warning("Queue full → dropping oldest batch")
 
             self._queue_batch.put_nowait(batch_frame)
+
+            total_time = time.perf_counter() - t_start
 
             self._logger.info(
                 f"Batch pushed: filled={filled}/{rows * cols}, "
@@ -407,6 +420,9 @@ class NeuralLoader(threading.Thread):
                 f"UV shape={batch_frame.uv.shape}, "
                 f"width={batch_frame.width}, "
                 f"height={batch_frame.height}, "
+                f"total={total_time * 1000:.2f} ms, "
+                f"build={build_time * 1000:.2f} ms, "
+                f"letterbox={letterbox_time * 1000:.2f} ms, "
             )
 
     def letterbox_nv12(

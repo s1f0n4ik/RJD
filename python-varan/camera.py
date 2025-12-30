@@ -55,7 +55,7 @@ class CameraStream(threading.Thread):
         self._width = width
         self._height = height
 
-        self._status = CameraStatus.READY
+        self._status = CameraStatus.STOPPED
 
     @property
     def status(self): return self._status
@@ -63,8 +63,8 @@ class CameraStream(threading.Thread):
     @property
     def imgsz(self):
         return (
-            self._width or self.video_info.get(['width'], None),
-            self._height or self.video_info.get(['height'], None)
+            self._width or self.video_info.get('width', None),
+            self._height or self.video_info.get('height', None)
         )
     @imgsz.setter
     def imgsz(self, value):
@@ -111,7 +111,7 @@ class CameraStream(threading.Thread):
             self.video_info = next(x for x in probe['streams'] if x['codec_type'] == 'video')
 
             self._logger.info(f"[{self._camera_name}]: FFprobe succeeded. Video info:\n {pretty_json(self.video_info)}")
-
+            self._status = CameraStatus.READY
             return True
 
         except ffmpeg.Error as e:
@@ -174,10 +174,12 @@ class CameraStream(threading.Thread):
                 )
             )
         except ffmpeg.Error as e:
+            self._status = CameraStatus.FAILED
             self._logger.error(f"[{self._camera_name}] FFmpeg start error: {e}")
             return False
 
         timeout_sec = 3.0  # сколько ждать кадр
+        first_frame = True
 
         try:
             while self._running:
@@ -200,9 +202,13 @@ class CameraStream(threading.Thread):
                     self._logger.error(
                         f"[{self._camera_name}] Stream ended or broken"
                     )
+                    self._status = CameraStatus.FAILED
                     return False
 
                 frame = np.frombuffer(in_bytes, np.uint8)
+                if first_frame:
+                    first_frame = False
+                    self._status = CameraStatus.RUNNING
 
                 y = frame[:width * height].reshape((height, width))
                 uv = frame[width * height:].reshape((height // 2, width))
@@ -223,6 +229,11 @@ class CameraStream(threading.Thread):
                 if self._on_frame:
                     self._on_frame(nv12_frame, self._camera_name)
 
+        except Exception as e:
+            self._status = CameraStatus.FAILED
+            self._logger.error(f"[{self._camera_name}] Stream error: {e}")
+            return False
+
         finally:
             self._logger.info(f"[{self._camera_name}] Stopping ffmpeg")
             try:
@@ -238,6 +249,7 @@ class CameraStream(threading.Thread):
         """Main thread loop: probe → receive frames → repeat."""
         self._logger.info(f"[{self._camera_name}] Thread started")
         self._running = True
+
         while self._running:
             self._logger.info(f"[{self._camera_name}] Probing stream...")
             while self._running and not self.probe_rtsp_stream():
@@ -247,7 +259,6 @@ class CameraStream(threading.Thread):
                 time.sleep(self._reconnect_interval)
 
             self._logger.info(f"[{self._camera_name}] Starting video receive loop")
-            self._status = CameraStatus.RUNNING
             ok = self.receive_frames()
 
             if not ok:

@@ -45,9 +45,8 @@ def nms(boxes: list[list[int]], scores: list[float], iou_threshold: float):
 def postprocess_default_yolo(
         output: np.ndarray,
         confidence_threshold: float,
-        iou_threshold: float,
-        image_size: tuple[int, int],
-    ):
+        iou_threshold: float
+    ) -> list[dict[str, Any]]:
     predictions = output[0].transpose(1, 0)
 
     boxes = predictions[:, :4]
@@ -61,16 +60,15 @@ def postprocess_default_yolo(
         return []
 
     boxes = boxes[mask]
-    scores = scores[mask]
+    scores = confidences[mask]
     class_ids = class_ids[mask]
 
     cx, cy, w, h = boxes.T
-    img_w, img_h = image_size
 
-    x1 = (cx - w / 2) * img_w
-    y1 = (cy - h / 2) * img_h
-    x2 = (cx + w / 2) * img_w
-    y2 = (cy + h / 2) * img_h
+    x1 = cx - w / 2
+    y1 = cy - h / 2
+    x2 = cx + w / 2
+    y2 = cy + h / 2
 
     boxes_xyxy = np.stack([x1, y1, x2, y2], axis=1)
 
@@ -93,6 +91,13 @@ def postprocess_default_yolo(
 
     return results
 
+def hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
+    hex_color = hex_color.lstrip('#')
+    r = int(hex_color[:2], 16)
+    g = int(hex_color[2:4], 16)
+    b = int(hex_color[4:], 16)
+    return r, g, b
+
 def draw_yolo_boxes(
     frame: np.ndarray,
     detections: list[dict[str, Any]],
@@ -103,12 +108,12 @@ def draw_yolo_boxes(
         class_id = int(det[JSON_CLASSES_CLASS_ID])
         confidence = float(det[JSON_CLASSES_CONFIDENCE])
 
-        if class_id not in classes:
+        if not 0 <= class_id < len(classes):
             color = (127, 127, 127)
             label = str(class_id)
         else:
-            color = classes[class_id][JSON_CLASSES_COLOR]
-            label = f"{class_id}:{classes[class_id][JSON_CLASSES_NAME]}|{confidence:.2f}"
+            color = hex_to_rgb(classes[class_id][JSON_CLASSES_COLOR])
+            label = f"{class_id}: {classes[class_id][JSON_CLASSES_NAME]} | {confidence:.2f}"
 
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
 

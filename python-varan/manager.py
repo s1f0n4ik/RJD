@@ -3,6 +3,7 @@ import threading
 import time
 from logging import DEBUG
 from pathlib import Path
+from time import sleep
 from typing import Optional
 
 from queue import Queue
@@ -56,7 +57,7 @@ class CameraManager:
             if index >= main_config.MAX_NEURAL:
                 break
 
-            if n_loader.init_model_runtime(2^index):
+            if n_loader.init_model_runtime(1 >> index):
                 n_loader.start()
 
         if self.neural_push_thread is not None:
@@ -149,6 +150,7 @@ class CameraManager:
 
         return frames
 
+
     def load_from_file(self) -> dict:
         path = Path(self.save_file)
 
@@ -166,18 +168,18 @@ class CameraManager:
         for cam_data in cfg.get("cameras", []):
             try:
                 res = self.handle_command("camera.add", cam_data)
-                if res.get("status") == "ok":
+                if res.get("status") == "success":
                     created["cameras"].append(cam_data["camera_name"])
             except Exception as e:
-                self.logger.error(e)
+                self.logger.error(str(e))
 
         for loader_data in cfg.get("loaders", []):
             try:
                 res = self._loader_create(loader_data)
-                if res.get("status") == "ok":
+                if res.get("status") == "success":
                     created["loaders"].append(loader_data["loader_name"])
             except Exception as e:
-                self.logger.error(e)
+                self.logger.error(str(e))
 
         self.logger.info(
             f"Loaded from {path}: "
@@ -281,7 +283,7 @@ class CameraManager:
             raise ValueError(f"Unknown command: {command}")
 
         except Exception as e:
-            self.logger.error(e)
+            self.logger.error(str(e))
             return {"status": "error", "message": str(e)}
 
     def _camera_add(self, data: dict) -> dict:
@@ -301,7 +303,7 @@ class CameraManager:
             log_level=data.get("log_level", 10)
         )
 
-        self.cameras[name] = cam
+        self.cameras[str(name)] = cam
         self.camera_images[cam.camera_name] = Queue(maxsize=self.max_queue_size)
         cam.start()
         self.logger.info(f"Camera {name} added and started")
@@ -418,11 +420,11 @@ class CameraManager:
         return [
             {
                 "camera_name": name,
-                "status": cam.status.name,
                 "rtsp_url": cam.rtsp_url,
                 "width": cam.imgsz[0],
                 "height": cam.imgsz[1],
                 "reconnect_interval": cam.reconnect_interval,
+                "status": cam.status.name.lower(),
                 "log_level": cam.logging
             }
             for name, cam in self.cameras.items()
@@ -492,8 +494,8 @@ class CameraManager:
 
         n_loader = self.neural_loaders[name]
 
-        if not n_loader.is_alive():
-            n_loader.start()
+        if n_loader.is_alive():
+            n_loader.stop()
 
         self.logger.info(f"Loader {name} stopped!")
 
