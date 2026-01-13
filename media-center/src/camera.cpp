@@ -18,12 +18,6 @@ namespace neural {
 		return errbuf;
 	}
 
-	void FMpegContexts::free() {
-		if (!sws_ctx) sws_freeContext(sws_ctx);
-		if (!codec_ctx) avcodec_free_context(&codec_ctx);
-		if (!fmt_ctx) avformat_close_input(&fmt_ctx);
-	}
-
 	std::string get_pix_fmts_string(const enum AVPixelFormat* pix_fmts) {
 		if (!pix_fmts) return "null";
 
@@ -37,36 +31,24 @@ namespace neural {
 		return result;
 	}
 
-
-	void print_codec_params(const AVCodec* codec) {
-		if (codec) {
-			std::cout << color::green
-				<< "[UCamera] Using codec: " << codec->name << " (id: " << codec->id << "); formats: "
-				<< get_pix_fmts_string(codec->pix_fmts)
-				<< color::reset << std::endl;
-		}
-	}
-
 	UCamera::UCamera(const FCameraOptions& options) 
 		: m_running(false)
 		, m_error(false)
 		, m_initialized(false)
 		, m_gst_initialized(false)
-		, m_packets_buffer(options.buff_reading_size)
+		//, m_packets_buffer(options.buff_reading_size)
 		, m_frames_buffer(options.buff_reading_size)
-		, m_pipeline(nullptr, &gst_object_unref)
-		, m_appsrc(nullptr, &gst_object_unref)
-		, m_tee(nullptr, &gst_object_unref)
+		, m_reading_pipeline(nullptr, &gst_object_unref)
+		, m_webrtcbin_pipeline(nullptr, &gst_object_unref)
+		, m_webrtcbin_appsrc(nullptr, &gst_object_unref)
+		, m_webrtcbin_tee(nullptr, &gst_object_unref)
 		, m_io_context()
 		, m_work_guard(boost::asio::make_work_guard(m_io_context))
 		, m_websocket_client(nullptr)
+		, m_internal_options()
+		, m_options(options)
 	{
-		m_options = options;
-		static std::once_flag ffmpeg_init;
-		std::call_once(ffmpeg_init, []() {
-			av_log_set_level(AV_LOG_ERROR);
-			avformat_network_init();
-		});
+
 	};
 
 	UCamera::~UCamera() { 
@@ -78,13 +60,11 @@ namespace neural {
 		if (m_initialized) return true;
 
 		try {
-			contexts_init(m_mpeg_context);
 			m_initialized = true;
 			return true;
 		}
 		catch (const std::runtime_error& error) {
 			std::cerr << error.what();
-			m_mpeg_context.free();
 			return false;
 		}
 	}
@@ -102,9 +82,7 @@ namespace neural {
 		if (m_running) return false;
 		m_running = true;
 
-		m_reading_thread = std::thread(&UCamera::read_frames, this, std::ref(m_mpeg_context));
-		m_decode_thread = std::thread(&UCamera::decode_frames, this, std::ref(m_mpeg_context));
-		m_push_thread = std::thread(&UCamera::push_frames_to_gst_pipeline, this);
+		//m_reading_thread = std::thread(&UCamera::read_frames, this, std::ref(m_mpeg_context));
 
 		return true;
 	}
@@ -114,324 +92,270 @@ namespace neural {
 		m_running = false;
 
 		if (m_reading_thread.joinable()) m_reading_thread.join();
-		if (m_decode_thread.joinable()) m_decode_thread.join();
 		if (m_gst_loop_thread.joinable()) m_gst_loop_thread.join();
 		if (m_main_loop) g_main_loop_quit(m_main_loop);
 
 		stop_websocket_client();
-
-		m_mpeg_context.free();
 	}
 
 	void UCamera::set_frame_callback(CFrameCallback callback) {
 		m_frame_callback = std::move(callback);
 	}
+	
+	// ====================================
+	//     GStreaming Camera Probe
+	// ====================================
 
-	void UCamera::contexts_init(FMpegContexts& cam_contexts) {
-		AVDictionary* opts = nullptr;
+	// Статическая функция, которая срабатывает при получении автокапса
+	// Берем значения этого капса
+	void UCamera::on_rtsp_pad_added(GstElement* element, GstPad* pad, gpointer data)
+	{
+		FInternalCameraOpts* info = static_cast<FInternalCameraOpts*>(data);
 
-		// Устанавливаем флаги FFMpeg для уменьшении задержки потока
-		if (m_options.b_use_udp) {
-			av_dict_set(&opts, "rtsp_transport", "udp", 0);
-		}
-		else {
-			av_dict_set(&opts, "rtsp_transport", "tcp", 0);
-		}
-		if (m_options.b_use_buffer) av_dict_set(&opts, "fflags", "nobuffer", 0);
-		if (m_options.b_low_latency) av_dict_set(&opts, "flags", "low_delay", 0);
+		GstCaps* caps = gst_pad_query_caps(pad, nullptr);
+		if (!caps)
+			return;
 
-		// Быстрый старт 
-		{
-			char buf[32];
-			snprintf(buf, sizeof(buf), "%d", m_options.probe_size);
-			av_dict_set(&opts, "probesize", buf, 0);
-			snprintf(buf, sizeof(buf), "%d", m_options.analyze_duration);
-			av_dict_set(&opts, "analyzeduration", buf, 0);
-		}
+		GstStructure* s = gst_caps_get_structure(caps, 0);
+		const gchar* media = gst_structure_get_string(s, "media");
+		const gchar* encoding = gst_structure_get_string(s, "encoding-name");
 
-		int ret = avformat_open_input(&cam_contexts.fmt_ctx, m_options.rtsp_url.c_str(), nullptr, &opts);
-		if (ret < 0) {
-			char errbuf[256];
-			av_strerror(ret, errbuf, sizeof(errbuf));
-			av_dict_free(&opts);
-			throw std::runtime_error(errbuf);
-		}
-		av_dict_free(&opts);
-
-		if ((ret = avformat_find_stream_info(cam_contexts.fmt_ctx, nullptr)) < 0) {
-			throw std::runtime_error("avformat_find_stream_info failed\n");
+		if (media && encoding && g_strcmp0(media, "video") == 0) {
+			info->codec_name = encoding;
+			g_print("[SDP] codec: %s\n", encoding);
 		}
 
-		for (unsigned i = 0; i < cam_contexts.fmt_ctx->nb_streams; ++i) {
-			if (cam_contexts.fmt_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
-				cam_contexts.video_stream_index = i;
-				break;
+		gst_caps_unref(caps);
+	}
+
+	GstPadProbeReturn UCamera::on_parser_event(GstPad*, GstPadProbeInfo* probe_info, gpointer user_data)
+	{
+		if (!(GST_PAD_PROBE_INFO_TYPE(probe_info) & GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM)) {
+			return GST_PAD_PROBE_OK;
+		}
+
+		GstEvent* event = gst_pad_probe_info_get_event(probe_info);
+		if (!event || GST_EVENT_TYPE(event) != GST_EVENT_CAPS) {
+			return GST_PAD_PROBE_OK;
+		}
+
+		GstCaps* caps = nullptr;
+		gst_event_parse_caps(event, &caps);
+		if (!caps) {
+			return GST_PAD_PROBE_OK;
+		}
+
+		FInternalCameraOpts* camera_options = static_cast<FInternalCameraOpts*>(user_data);
+
+		GstStructure* s = gst_caps_get_structure(caps, 0);
+
+		gst_structure_get_int(s, "width", &camera_options->width);
+		gst_structure_get_int(s, "height", &camera_options->height);
+		gst_structure_get_fraction(s, "framerate", &camera_options->framerate_num, &camera_options->framerate_den);
+
+		const gchar* profile = gst_structure_get_string(s, "profile");
+		if (profile) {
+			camera_options->profile = profile;
+		}
+
+		if (camera_options->width && camera_options->height) {
+			g_print("[CAPS] %dx%d @ %d/%d fps\n",
+				camera_options->width, camera_options->height,
+				camera_options->framerate_num, camera_options->framerate_den);
+			camera_options->ready = true;
+		}
+
+		return GST_PAD_PROBE_OK;
+	}
+
+	bool UCamera::try_camera_probe(int timeout_sec, std::string& error_out)
+	{
+		error_out.clear();
+
+		TUniqueGst pipeline = TUniqueGst(gst_pipeline_new(nullptr), &gst_object_unref);
+		TUniqueGst src = TUniqueGst(gst_element_factory_make("rtspsrc", nullptr), &gst_object_unref);
+		TUniqueGst sink = TUniqueGst(gst_element_factory_make("fakesink", nullptr), &gst_object_unref);
+
+		auto cleanup = [&]() {
+			if (pipeline) {
+				gst_element_set_state(pipeline.get(), GST_STATE_NULL);
 			}
-		}
-		if (cam_contexts.video_stream_index < 0) {
-			throw std::runtime_error("no video stream\n");
-		}
+		};
 
-		AVCodecParameters* codecpar = cam_contexts.fmt_ctx->streams[cam_contexts.video_stream_index]->codecpar;
-		const AVCodec* codec = find_codec(codecpar->codec_id, cam_contexts.codec_ctx);
-		if (!codec) {
-			throw std::runtime_error("codec not found\n");
+		if (!pipeline || !src || !sink) {
+			error_out = "Failed to create GStreamer elements";
+			cleanup();
+			return false;
 		}
 
-		cam_contexts.codec_ctx = avcodec_alloc_context3(codec);
-		if (!cam_contexts.codec_ctx) {
-			throw std::runtime_error("avcodec_alloc_context3 failed\n");
-		}
+		g_object_set(src.get(),
+			"location", m_options.rtsp_url.c_str(),
+			"latency", 0,
+			"timeout", timeout_sec * GST_SECOND,
+			nullptr
+		);
 
-		if ((ret = avcodec_parameters_to_context(cam_contexts.codec_ctx, codecpar)) < 0) {
-			throw std::runtime_error("avcodec_parameters_to_context failed\n");
-		}
+		gst_bin_add_many(GST_BIN(pipeline.get()), src.get(), sink.get(), nullptr);
+		g_signal_connect(src.get(), "pad-added", G_CALLBACK(on_rtsp_pad_added), &m_internal_options);
 
-		cam_contexts.codec_ctx->thread_count = 1;
-		cam_contexts.codec_ctx->delay = 0;
+		gst_element_set_state(pipeline.get(), GST_STATE_PAUSED);
 
-		// Делаем кроп при использовании аппаратного кодека
-		auto hard_codec_names = {"h263_rkmpp", "h264_rkmpp", "hevc_rkmpp", "h263_v4l2m2m", "h264_v4l2m2m", "hevc_v4l2m2m"};
-		const char* codec_name = cam_contexts.codec_ctx->codec->name;
-		bool found = std::any_of(std::begin(hard_codec_names), std::end(hard_codec_names),
-			[codec_name](const char* name) {
-				return std::strcmp(name, codec_name) == 0;
-			});
-		if (found) {
-			crop_codec_context(cam_contexts.codec_ctx);
-			init_hw_device(cam_contexts.codec_ctx);
-		}
+		TUniqueBus bus = TUniqueBus(gst_element_get_bus(pipeline.get()), &gst_object_unref);
+		gint64 deadline = g_get_monotonic_time() + timeout_sec * G_TIME_SPAN_SECOND;
 
-		if ((ret = avcodec_open2(cam_contexts.codec_ctx, codec, nullptr)) < 0) {
-			throw std::runtime_error("avcodec_open2 failed\n");
-		}
-
-	}
-
-	void UCamera::init_hw_device(AVCodecContext* codec_ctx) {
-		if (!codec_ctx) {
-			std::ostringstream oss;
-			oss << color::red << "[UCamera] Error in init_hw_device: codec context is null!\n" << color::reset;
-			throw std::runtime_error(oss.str());
-		}
-
-		AVBufferRef* hw_device_ctx = nullptr;
-		const char* device_name = "/dev/dri/renderD128";
-		int ret = av_hwdevice_ctx_create(&hw_device_ctx, AV_HWDEVICE_TYPE_DRM, device_name, nullptr, 0);
-		if (ret < 0) {
-			char errbuf[256];
-			av_strerror(ret, errbuf, sizeof(errbuf));
-			std::ostringstream oss;
-			oss << color::red << "[UCamera] Failed to create DRM device for " << codec_ctx->codec->name
-				<< ": " << errbuf << color::reset << std::endl;
-			throw std::runtime_error(oss.str());
-		}
-		codec_ctx->hw_device_ctx = av_buffer_ref(hw_device_ctx);
-		av_buffer_unref(&hw_device_ctx);
-
-		// Создаем hwframe_ctx
-		AVHWFramesContext* frames_ctx = nullptr;
-		AVBufferRef* frames_ref = av_hwframe_ctx_alloc(codec_ctx->hw_device_ctx);
-		if (!frames_ref) {
-			std::ostringstream oss;
-			oss << color::red << "[UCamera] Cannot create av_hwframe_ctx_alloc!\n" << color::reset << std::endl;
-			throw std::runtime_error(oss.str());
-		}
-
-		frames_ctx = (AVHWFramesContext*)frames_ref->data;
-		frames_ctx->format = AV_PIX_FMT_DRM_PRIME;
-		frames_ctx->sw_format = AV_PIX_FMT_NV12;
-		frames_ctx->width = codec_ctx->width;
-		frames_ctx->height = codec_ctx->height;
-
-		m_internal_options.format = frames_ctx->sw_format;
-
-		// Создать контекст кадров
-		int err = av_hwframe_ctx_init(frames_ref);
-		if (err < 0) {
-			char errbuf[256];
-			av_strerror(err, errbuf, sizeof(errbuf));
-			std::ostringstream oss;
-			oss << color::red << "[UCamera] Error in creating hw_frames_ctx: " << errbuf << color::reset << std::endl;
-			throw std::runtime_error(oss.str());
-		}
-
-		// Назначить hw_frames_ctx
-		codec_ctx->hw_frames_ctx = av_buffer_ref(frames_ref);
-		av_buffer_unref(&frames_ref);
-
-		codec_ctx->get_format = UCamera::get_hw_format_callback;
-	}
-
-	void UCamera::read_frames(FMpegContexts& mpeg_context) {
-		while (m_running) {
-			auto rtp_packet = UniquePacket(
-				av_packet_alloc(), 
-				[](AVPacket* ptr) { av_packet_free(&ptr); }
-			);
-
-			while (m_running) {
-				auto ret = av_read_frame(mpeg_context.fmt_ctx, rtp_packet.get());
-				if (ret < 0) {
-					std::cerr << color::red << "[UCamera: read thread] Error with av_read_frame: "
-						      << get_ffmpeg_error(ret) << "; Reconnect!" << color::reset << std::endl;
-					break;
-				}
-
-				if (rtp_packet->stream_index != mpeg_context.video_stream_index) {
-					av_packet_unref(rtp_packet.get());
-					continue;
-				}
-
-				auto copy = UniquePacket(
-					av_packet_alloc(),
-					[](AVPacket* ptr) { av_packet_free(&ptr); }
-				);
-				ret = av_packet_ref(copy.get(), rtp_packet.get());
-				if (ret < 0) {
-					std::cerr << color::red << "[UCamera: read thread] Error with av_packet_ref: " 
-						      << get_ffmpeg_error(ret) << color::reset << std::endl;
-					continue;
-				}
-				av_packet_unref(rtp_packet.get());
-
-				m_packets_buffer.push(std::move(copy));
-			}
-			std::cerr << color::red << "[UCamera: read thread] Read thread has ended!" << color::reset << std::endl;
-			std::cerr << color::yellow << "[UCamera: read thread] Read thread resetting!" << color::reset << std::endl;
-		}
-	}
-
-	void UCamera::decode_frames(FMpegContexts& mpeg_context) {
-		while (m_running) {
-			// Достаем из очереди пакет
-			auto rtp_packet = m_packets_buffer.wait_and_pop();
-
-			auto ret = avcodec_send_packet(mpeg_context.codec_ctx, rtp_packet.get());
-			if (ret < 0) {
-				std::cerr << color::red << "[UCamera: decode thread] Error with avcodec_send_packet: " 
-					      << get_ffmpeg_error(ret) << color::reset << std::endl;
+		/* ==== wait SDP ==== */
+		while (m_internal_options.codec_name.empty() && g_get_monotonic_time() < deadline) {
+			GstMessage* msg = gst_bus_timed_pop(bus.get(), 200 * GST_MSECOND);
+			if (!msg) {
 				continue;
 			}
 
-			auto src_frame = std::unique_ptr<AVFrame, std::function<void(AVFrame*)>>(
-				av_frame_alloc(), 
-				[](AVFrame* f) { av_frame_free(&f); }
+			if (GST_MESSAGE_TYPE(msg) == GST_MESSAGE_ERROR) {
+				GError* err;
+				gchar* dbg;
+				gst_message_parse_error(msg, &err, &dbg);
+				error_out = err->message;
+				g_error_free(err);
+				g_free(dbg);
+				gst_message_unref(msg);
+				cleanup();
+				return false;
+			}
+			gst_message_unref(msg);
+		}
+
+		if (m_internal_options.codec_name.empty()) {
+			error_out = "SDP timeout (codec not detected)";
+			cleanup();
+			return false;
+		}
+
+
+		/* ==== depay + parser ==== */
+		TUniqueGst depay = TUniqueGst(nullptr, &gst_object_unref);
+		TUniqueGst parser = TUniqueGst(nullptr, &gst_object_unref);
+
+		if (m_internal_options.codec_name == "H264") {
+			depay.reset(
+				gst_element_factory_make("rtph264depay", nullptr)
 			);
+			parser.reset(
+				gst_element_factory_make("h264parse", nullptr)
+			);
+		}
+		else if (m_internal_options.codec_name == "H265") {
+			depay.reset(
+				gst_element_factory_make("rtph265depay", nullptr)
+			);
+			parser.reset(
+				gst_element_factory_make("h265parse", nullptr)
+			);
+		}
+		else {
+			error_out = "Unsupported codec: " + m_internal_options.codec_name;
+			cleanup();
+			return false;
+		}
 
-			while (ret >= 0) {
-				ret = avcodec_receive_frame(mpeg_context.codec_ctx, src_frame.get());
-				// Корректное завершение цикла
-				if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) break;
+		if (!depay || !parser) {
+			error_out = "Failed to create depay/parser";
+			cleanup();
+			return false;
+		}
 
-				if (ret < 0) {
-					std::cerr << color::red << "[UCamera: decode thread] Error with avcodec_receive_frame: "
-						      << get_ffmpeg_error(ret) << color::reset << std::endl;
-					break;
-				}
+		gst_bin_add_many(GST_BIN(pipeline.get()), depay.get(), parser.get(), nullptr);
+		if (!gst_element_link_many(depay.get(), parser.get(), sink.get(), nullptr)) {
+			error_out = "Failed to link depay -> parser -> sink";
+			cleanup();
+			return false;
+		}
 
-				// Проверка на то, какой буфер используется.
-				if (src_frame->format == AV_PIX_FMT_DRM_PRIME) {
-					auto* desc = (AVDRMFrameDescriptor*)src_frame->data[0];
+		GstPad* parser_src = gst_element_get_static_pad(parser.get(), "src");
+		gst_pad_add_probe(
+			parser_src,
+			GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM,
+			on_parser_event,
+			&m_internal_options,
+			nullptr
+		);
+		gst_object_unref(parser_src);
 
-					int offset[4] = {};
-					int pitch[4] = {};
-					int format;
+		GstPad* depay_sink = gst_element_get_static_pad(depay.get(), "sink");
+		g_signal_connect(
+			src.get(), 
+			"pad-added", 
+			G_CALLBACK(+[](
+				GstElement*, GstPad* pad, gpointer data) {
+					gst_pad_link(pad, GST_PAD(data));
+			}),
+			depay_sink
+		);
 
-					for (int i = 0; i < desc->nb_layers; i++) {
-						const auto& layer = desc->layers[i];
-						format = layer.format;
+		gst_element_set_state(pipeline.get(), GST_STATE_PLAYING);
 
-						for (int j = 0; j < layer.nb_planes; j++) {
-							offset[j] = layer.planes[j].offset;
-							pitch[j] = layer.planes[j].pitch;
-						}
-					}
+		/* ==== wait CAPS ==== */
+		while (!m_internal_options.ready && g_get_monotonic_time() < deadline) {
+			GstMessage* msg = gst_bus_timed_pop(bus.get(), 200 * GST_MSECOND);
+			if (!msg) {
+				continue;
+			}
 
-					// Переводит pts в timestamp ms
-					AVRational time_base = mpeg_context.codec_ctx->time_base;
-					int64_t pts = src_frame.get()->pts;
+			if (GST_MESSAGE_TYPE(msg) == GST_MESSAGE_ERROR) {
+				GError* err;
+				gchar* dbg;
+				gst_message_parse_error(msg, &err, &dbg);
+				error_out = err->message;
+				g_error_free(err);
+				g_free(dbg);
+				gst_message_unref(msg);
+				cleanup();
+				return false;
+			}
+			gst_message_unref(msg);
+		}
 
-					// Создаем конечную структуру фрейма
-					auto drf_frame = FDrmFrame{
-						dup(desc->objects[0].fd),
-						src_frame->width,
-						src_frame->height,
-						format,
-						offset,
-						pitch,
-						desc->nb_layers,
-						pts
-					};
+		if (!m_internal_options.ready) {
+			error_out = "CAPS timeout (no resolution)";
+			cleanup();
+			return false;
+		}
 
-					m_frames_buffer.push(std::make_unique<FDrmFrame>(std::move(drf_frame)));
+		cleanup();
+		return true;
+	}
 
-					//if (m_frame_callback) {
-					//	m_frame_callback(m_options.name, std::make_unique<FDrmFrame>(std::move(drf_frame)));
-					//}
-				}
-				else {
-					continue;
-				}
+	bool UCamera::probe_camera_with_reconnect(int attempts, int timeout_sec, int reconnect_delay_sec)
+	{
+		std::string error;
+
+		for (int i = 1; i <= attempts; ++i) {
+			std::cout << "[TRY " << i << "/" << attempts << "] connecting...\n";
+
+			if (try_camera_probe(timeout_sec, error)) {
+				std::cout << "[SUCCESS]\n";
+				return true;
+			}
+
+			std::cerr << "[ERROR] " << error << "\n";
+
+			if (i < attempts) {
+				std::this_thread::sleep_for(
+					std::chrono::seconds(reconnect_delay_sec));
 			}
 		}
+
+		throw std::runtime_error("Camera unreachable after retries");
 	}
 
-	void UCamera::crop_codec_context(AVCodecContext* codec_ctx) {
-		int cropped_width = codec_ctx->width & ~15;
-		int cropped_height = codec_ctx->height & ~15;
+	// ====================================
+	//     GStreaming Получение кадров с камер
+	// ====================================
 
-		int coded_cropped_width = (codec_ctx->width + 15) & ~15;
-		int coded_cropped_height = (codec_ctx->height + 15) & ~15;
+	// ====================================
+	//     GStreaming WebRtcBin
+	// ====================================
 
-		std::cout << color::green
-			<< "[FFmpeg Init] Cropping frame to " << cropped_width << "x" << cropped_height
-			<< " (original " << codec_ctx->width << "x" << codec_ctx->height << ")\n"
-			<< color::reset;
-
-		codec_ctx->width = cropped_width;
-		codec_ctx->height = cropped_height;
-
-		codec_ctx->coded_width = coded_cropped_width;
-		codec_ctx->coded_height = coded_cropped_height;
-	}
-
-	AVCodec* UCamera::find_codec(AVCodecID codec_id, AVCodecContext* codec_ctx) {
-		using entry = std::pair<std::string, AVHWDeviceType>;
-		std::map<AVCodecID, std::array<entry, 2>> codec_map {
-			{AV_CODEC_ID_H264, {entry{"h264_rkmpp", AV_HWDEVICE_TYPE_DRM}, entry{"h264_v4l2m2m", AV_HWDEVICE_TYPE_DRM}}},
-			{AV_CODEC_ID_HEVC, {entry{"hevc_rkmpp", AV_HWDEVICE_TYPE_DRM}, entry{"hevc_v4l2m2m", AV_HWDEVICE_TYPE_DRM}}},
-		};
-
-		AVCodec* codec = nullptr;
-		for (const auto& [key, types] : codec_map) {
-			if (key == codec_id) {
-				for (const auto& type : types) {
-					codec = avcodec_find_decoder_by_name(type.first.c_str());
-					if (codec) {
-						print_codec_params(codec);
-						return codec;
-					}
-				}
-			}
-		}
-		codec = avcodec_find_decoder(codec_id);
-		print_codec_params(codec);
-		return codec;
-	}
-
-	enum AVPixelFormat UCamera::get_hw_format_callback(AVCodecContext* ctx, const enum AVPixelFormat* pix_fmts) {
-		for (const enum AVPixelFormat* p = pix_fmts; *p != -1; p++) {
-			if (*p == AV_PIX_FMT_DRM_PRIME)
-				return *p;
-		}
-		std::cerr << color::red << "Failed to get HW surface format.\n" << color::reset;
-		return AV_PIX_FMT_NONE;
-	}
-
-	// ======== GStreaming
-
-	bool UCamera::create_gst_pipeline()
+	bool UCamera::create_gst_pipeline_webrtc()
 	{
 		if (m_gst_initialized) {
 			return true;
@@ -443,7 +367,7 @@ namespace neural {
 
 		std::ostringstream oss_error;
 		if (!m_mpeg_context.codec_ctx) {
-			oss_error << color::red << "[UCamera] Error in create_gst_pipeline(): no initialized codec!" << color::reset << std::endl;
+			oss_error << color::red << "[UCamera] Error in create_gst_pipeline_webrtc(): no initialized codec!" << color::reset << std::endl;
 			throw std::runtime_error(oss_error.str());
 		}
 
@@ -474,68 +398,12 @@ namespace neural {
 			encoder = "mpph264enc"; encoding_name = "H264"; parse = "h264parse"; pay = "rtph264pay";
 		}
 		else {
-			oss_error << color::red << "[UCamera] Error in create_gst_pipeline(): an unsupported codec is being used: " << codec_name << "!" << color::reset << std::endl;
+			oss_error << color::red << "[UCamera] Error in create_gst_pipeline_webrtc(): an unsupported codec is being used: " << codec_name << "!" << color::reset << std::endl;
 			throw std::runtime_error(oss_error.str());
 		}
-
-		/*
-		std::ostringstream oss_pipeline_desc;
-		oss_pipeline_desc << "appsrc name=src_" << m_options.name << " is-live=true format=time do-timestamp=true ! "
-			<< "video/x-raw(memory:DMABuf),format=" << format.c_str() << ",width=" << width << ",height=" << height << ",framerate=" << m_options.framerate << "/1 ! "
-			//<< "queue name=src_1_queue_" << m_options.name << " ! "
-			<< "videoconvert(memory:DMABuf) output-io-mode=dmabuf-import ! "
-			//<< "queue ! "
-			<< encoder << " extra-controls=\"encode,frame_level_rate_control_enable=1\" ! "
-			<< parse << " ! "
-			<< pay << " config-interval=1 pt=96 !"
-			<< "tee name=tee_" + m_options.name
-			//<< "application/x-rtp,media=video,encoding-name=" << encoding_name << ",payload=96 ! "
-			//<< "webrtcbin name=webrtc_" << m_options.name
-		;
-
-		GError* err = nullptr;
-		m_pipeline = TUniqueGst(gst_parse_launch(oss_pipeline_desc.str().c_str(), &err), &gst_object_unref);
-		if (!m_pipeline) {
-			std::cerr << "Failed to create pipeline: " << err->message << std::endl;
-			return false;
-		}
-
-		m_appsrc = TUniqueGst(gst_bin_get_by_name(GST_BIN(m_pipeline.get()), ("src_" + m_options.name).c_str()), &gst_object_unref);
-		//m_webrtc = TUniqueGst(gst_bin_get_by_name(GST_BIN(m_pipeline.get()), ("webrtc_" + m_options.name).c_str()), &gst_object_unref);
-		m_tee = TUniqueGst(gst_bin_get_by_name(GST_BIN(m_pipeline.get()), ("tee_" + m_options.name).c_str()), &gst_object_unref);
-
-		GstCaps* caps = gst_caps_new_full(
-			gst_structure_new(
-				"video/x-raw",
-				"format", G_TYPE_STRING, format,
-				"width", G_TYPE_INT, width,
-				"height", G_TYPE_INT, height,
-				"framerate", GST_TYPE_FRACTION, m_options.framerate, 1,
-				NULL
-			),
-			NULL
-		);
-		gst_caps_set_features(caps, 0, gst_caps_features_new("memory:DMABuf", NULL));
-
-		g_object_set(m_appsrc.get(), "caps", caps, NULL);
-
-		gst_caps_unref(caps);
-
-		//g_signal_connect(m_webrtc.get(), "on-negotiation-needed", G_CALLBACK(&UCamera::on_negotiation_needed), this);
-		//g_signal_connect(m_webrtc.get(), "on-ice-candidate", G_CALLBACK(&UCamera::on_ice_candidate), this);
-
-		gst_element_set_state(m_pipeline.get(), GST_STATE_PLAYING);
-
-		auto srcpad = gst_element_get_static_pad(m_appsrc.get(), "src");
-		if (!gst_pad_is_linked(srcpad)) {
-			std::cout << "appsrc is NOT linked!" << std::endl;
-			return false;
-		}
-		gst_object_unref(srcpad);
-		*/
 		
-		m_pipeline = TUniqueGst(gst_pipeline_new(("pipe_" + m_options.name).c_str()), &gst_object_unref);
-		if (!m_pipeline) {
+		m_webrtcbin_pipeline = TUniqueGst(gst_pipeline_new(("pipe_" + m_options.name).c_str()), &gst_object_unref);
+		if (!m_webrtcbin_pipeline) {
 			std::cerr << "Failed to create pipeline" << std::endl;
 			return false;
 		}
@@ -594,7 +462,7 @@ namespace neural {
 		g_object_set(appsrc, "caps", caps, NULL);
 
 		// 7. Добавляем элементы в pipeline
-		gst_bin_add_many(GST_BIN(m_pipeline.get()),
+		gst_bin_add_many(GST_BIN(m_webrtcbin_pipeline.get()),
 			appsrc, encoder_el, parse_el, pay_el, tee,
 			NULL);
 
@@ -625,8 +493,8 @@ namespace neural {
 		}
 
 		// 9. Сохраняем объекты
-		m_appsrc = TUniqueGst(appsrc, &gst_object_unref);
-		m_tee = TUniqueGst(tee, &gst_object_unref);
+		m_webrtcbin_appsrc = TUniqueGst(appsrc, &gst_object_unref);
+		m_webrtcbin_tee = TUniqueGst(tee, &gst_object_unref);
 
 		m_main_loop = g_main_loop_new(nullptr, FALSE);
 		m_gst_loop_thread = std::thread([this]() {
@@ -641,7 +509,7 @@ namespace neural {
 
 	void UCamera::push_frames_to_gst_pipeline()
 	{
-		if (!m_appsrc) {
+		if (!m_webrtcbin_appsrc) {
 			std::ostringstream oss;
 			oss << color::red << "[UCamera push_thread] No appsrc initis!" << color::reset << std::endl;
 			throw std::runtime_error(oss.str());
@@ -733,7 +601,7 @@ namespace neural {
 			}*/
 
 			if (m_has_sessions) {
-				GstFlowReturn ret = gst_app_src_push_buffer(GST_APP_SRC(m_appsrc.get()), buffer);
+				GstFlowReturn ret = gst_app_src_push_buffer(GST_APP_SRC(m_webrtcbin_appsrc.get()), buffer);
 
 				if (ret != GST_FLOW_OK) {
 					gst_buffer_unref(buffer);
@@ -944,10 +812,10 @@ namespace neural {
 	}
 
 	bool UCamera::set_streaming_pipeline_state(GstState state) {
-		gst_element_set_state(m_pipeline.get(), state);
+		gst_element_set_state(m_webrtcbin_pipeline.get(), state);
 
 		GstStateChangeReturn ret = gst_element_get_state(
-			m_pipeline.get(), NULL, NULL,
+			m_webrtcbin_pipeline.get(), NULL, NULL,
 			GST_SECOND // ждем 1 сек
 		);
 
@@ -971,7 +839,7 @@ namespace neural {
 			return;
 		}
 
-		if (!m_tee) {
+		if (!m_webrtcbin_tee) {
 			std::cout << color::red << "[UCamera " << m_options.name
 				<< "] Gst tee is nullptr when establish connection with " << client_id << color::reset << std::endl;
 			send_message(boost::json::serialize(
@@ -994,12 +862,12 @@ namespace neural {
 			return;
 		}
 
-		gst_bin_add_many(GST_BIN(m_pipeline.get()), session->queue.get(), session->webrtcbin.get(), nullptr);
+		gst_bin_add_many(GST_BIN(m_webrtcbin_pipeline.get()), session->queue.get(), session->webrtcbin.get(), nullptr);
 
 		using TGstUniqePad = std::unique_ptr<GstPad, decltype(&gst_object_unref)>;
 
 		// Получаем src пад (выходы) от tee для дальнейшего связывания по цепочке
-		auto tee_src_pad = TGstUniqePad(gst_element_request_pad_simple(m_tee.get(), "src_%u"), gst_object_unref);
+		auto tee_src_pad = TGstUniqePad(gst_element_request_pad_simple(m_webrtcbin_tee.get(), "src_%u"), gst_object_unref);
 		if (!tee_src_pad) {
 			std::cout << color::red << "[UCamera " << m_options.name
 				<< "] Error: tee has not any src pads!\n" << color::reset;
@@ -1084,8 +952,8 @@ namespace neural {
 		gst_element_set_state(session.get()->queue.get(), GST_STATE_NULL);
 
 		// Убираем элементы из основного pipeline:
-		gst_bin_remove(GST_BIN(m_pipeline.get()), session.get()->webrtcbin.get());
-		gst_bin_remove(GST_BIN(m_pipeline.get()), session.get()->queue.get());
+		gst_bin_remove(GST_BIN(m_webrtcbin_pipeline.get()), session.get()->webrtcbin.get());
+		gst_bin_remove(GST_BIN(m_webrtcbin_pipeline.get()), session.get()->queue.get());
 
 		{
 			std::lock_guard<std::mutex> lock(m_session_mutex);

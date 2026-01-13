@@ -50,28 +50,21 @@ namespace neural {
 		size_t buff_reading_size;
 	};
 
-	void print_codec_params(const AVCodec* codec);
-
-	struct FMpegContexts {
-		AVFormatContext* fmt_ctx = nullptr;
-		AVCodecContext* codec_ctx = nullptr;
-		SwsContext* sws_ctx = nullptr;
-		int video_stream_index = -1;
-
-		void free();
-	};
-
 	struct FInternalCameraOpts {
-		int framerate;
-		int width;
-		int height;
-		AVPixelFormat format;
+		std::string codec_name = "";
+		std::string profile = "";
+		int framerate_num = 0;
+		int framerate_den = 0;
+		int width = 0;
+		int height = 0;
+		bool ready = false;
 	};
 
 	class UCamera : public ICameraSignaling {
 	public:
 
 		using TUniqueGst = std::unique_ptr<GstElement, decltype(&gst_object_unref)>;
+		using TUniqueBus = std::unique_ptr<GstBus, decltype(&gst_object_unref)>;
 
 		struct FWebRtcSession {
 			CSignalingCallback send_callback;
@@ -116,13 +109,11 @@ namespace neural {
 
 		void stop_websocket_client();
 
-		void restart();
-
-		void contexts_init(FMpegContexts& cam_contexts);
-
 		void set_frame_callback(CFrameCallback callback);
 
-		bool create_gst_pipeline();
+		bool create_gst_pipeline_read_frames();
+
+		bool create_gst_pipeline_webrtc();
 
 		std::string get_name();
 
@@ -145,32 +136,34 @@ namespace neural {
 
 		std::atomic<bool> m_running;
 		std::atomic<bool> m_error;
+
 		bool m_initialized;
 		bool m_gst_initialized;
 
 		std::thread m_reading_thread;
-		std::thread m_decode_thread;
-		std::thread m_push_thread;
+		//std::thread m_decode_thread;
+		//std::thread m_push_thread;
 
 		GMainLoop* m_main_loop = nullptr;
 		std::thread m_gst_loop_thread;
 
 		std::mutex m_signal_mutex;
 
-		FMpegContexts m_mpeg_context;
+		// Поля Gstream для считывания кадров
+		TUniqueGst m_reading_pipeline;
 
 		// Ожидающая очередь для хранения пакетов
-		using UniquePacket = std::unique_ptr<AVPacket, std::function<void(AVPacket*)>>;
-		USafeQueue<UniquePacket> m_packets_buffer;
+		//using UniquePacket = std::unique_ptr<AVPacket, std::function<void(AVPacket*)>>;
+		//USafeQueue<UniquePacket> m_packets_buffer;
 
 		// Ожидающая очередь для хранения фреймов drm
 		// Хранит для потока, который отправляет в GStream pipeline
 		USafeQueue<std::unique_ptr<FDrmFrame>> m_frames_buffer;
 
 		// Поля для GStream
-		TUniqueGst m_pipeline;
-		TUniqueGst m_appsrc;
-		TUniqueGst m_tee;
+		TUniqueGst m_webrtcbin_pipeline;
+		TUniqueGst m_webrtcbin_appsrc;
+		TUniqueGst m_webrtcbin_tee;
 
 		std::map<std::string, std::unique_ptr<FWebRtcSession>> m_opened_sessions;
 		std::mutex m_session_mutex;
@@ -184,21 +177,19 @@ namespace neural {
 
 		std::thread m_websocket_thread;
 
-		AVCodec* find_codec(AVCodecID codec_id, AVCodecContext* codec_ctx);
+		// GStreamer Проверка кадров, получение инфы с камер
 
-		void crop_codec_context(AVCodecContext* codec_ctx);
+		static void on_rtsp_pad_added(GstElement* element, GstPad* pad, gpointer data);
 
-		void init_hw_device(AVCodecContext* codec_ctx);
+		static GstPadProbeReturn on_parser_event(GstPad* pad, GstPadProbeInfo* probe_info, gpointer data);
 
-		static enum AVPixelFormat get_hw_format_callback(AVCodecContext* ctx, const enum AVPixelFormat* pix_fmts);
+		bool try_camera_probe(int timeout_sec, std::string& error_out);
 
-		void read_frames(FMpegContexts& mpeg_context);
+		bool probe_camera_with_reconnect(int attempts = 10, int timeout = 2, int delay = 2);
 
-		void decode_frames(FMpegContexts& mpeg_context);
+		// GStreamer Считывание кадров с камеры
 
-		// ==================================================================
-		// GStreamer 
-		// ==================================================================
+		// GStreamer WebRTC
 
 		void push_frames_to_gst_pipeline();
 

@@ -52,7 +52,7 @@ void UMediaCenter::initialize_cameras() {
         for (const auto& camera : m_cameras) {
             bool initialized = camera.second->initialize();
             if (initialized) {
-                initialized = camera.second->create_gst_pipeline();
+                initialized = camera.second->create_gst_pipeline_webrtc();
             }
             if (initialized) {
                 cameras_ready++;
