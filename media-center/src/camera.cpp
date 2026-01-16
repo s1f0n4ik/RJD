@@ -9,6 +9,8 @@
 #include "video_utility.h"
 #include "signaling_definers.h"
 
+#include <gst/rtsp/gstrtsptransport.h>
+
 namespace varan {
 namespace neural {
 
@@ -31,7 +33,7 @@ namespace neural {
 		return result;
 	}
 
-	UCamera::UCamera(const FCameraOptions& options) 
+	UCamera::UCamera(const FCameraOptions& options, ULogger::ELoggerLevel level)
 		: m_running(false)
 		, m_error(false)
 		, m_initialized(false)
@@ -45,8 +47,9 @@ namespace neural {
 		, m_io_context()
 		, m_work_guard(boost::asio::make_work_guard(m_io_context))
 		, m_websocket_client(nullptr)
-		, m_internal_options()
+		, m_probe_result()
 		, m_options(options)
+		, m_logger(options.name, level)
 	{
 
 	};
@@ -59,12 +62,40 @@ namespace neural {
 	bool UCamera::initialize() {
 		if (m_initialized) return true;
 
+		auto start_g_loop = [&]() {
+			m_main_loop = g_main_loop_new(nullptr, FALSE);
+			m_gst_loop_thread = std::thread([&]() {
+				g_main_loop_run(m_main_loop);
+			});
+		};
+
+		auto stop_g_loop = [&]() {
+			if (m_main_loop) {
+				g_main_loop_quit(m_main_loop);
+			}
+			if (m_gst_loop_thread.joinable()) {
+				m_gst_loop_thread.join();
+			}
+			if (m_main_loop) {
+				g_main_loop_unref(m_main_loop);
+				m_main_loop = nullptr;
+			}
+		};
+
 		try {
+			start_g_loop();
+
+			if (probe_camera_with_reconnect() == false) {
+				m_logger.error("False to connect to camera " + m_options.name);
+				stop_g_loop();
+				return false;
+			}
 			m_initialized = true;
 			return true;
 		}
 		catch (const std::runtime_error& error) {
 			std::cerr << error.what();
+			stop_g_loop();
 			return false;
 		}
 	}
@@ -108,103 +139,163 @@ namespace neural {
 
 	// Статическая функция, которая срабатывает при получении автокапса
 	// Берем значения этого капса
-	void UCamera::on_rtsp_pad_added(GstElement* element, GstPad* pad, gpointer data)
+	
+	GstPadProbeReturn UCamera::on_caps_event(GstPad* pad, GstPadProbeInfo* info, gpointer user_data)
 	{
-		FInternalCameraOpts* info = static_cast<FInternalCameraOpts*>(data);
+		auto* result = static_cast<FProbeResult*>(user_data);
 
-		GstCaps* caps = gst_pad_query_caps(pad, nullptr);
-		if (!caps)
-			return;
-
-		GstStructure* s = gst_caps_get_structure(caps, 0);
-		const gchar* media = gst_structure_get_string(s, "media");
-		const gchar* encoding = gst_structure_get_string(s, "encoding-name");
-
-		if (media && encoding && g_strcmp0(media, "video") == 0) {
-			info->codec_name = encoding;
-			g_print("[SDP] codec: %s\n", encoding);
-		}
-
-		gst_caps_unref(caps);
-	}
-
-	GstPadProbeReturn UCamera::on_parser_event(GstPad*, GstPadProbeInfo* probe_info, gpointer user_data)
-	{
-		if (!(GST_PAD_PROBE_INFO_TYPE(probe_info) & GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM)) {
+		if (!(info->type & GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM)) {
 			return GST_PAD_PROBE_OK;
 		}
 
-		GstEvent* event = gst_pad_probe_info_get_event(probe_info);
-		if (!event || GST_EVENT_TYPE(event) != GST_EVENT_CAPS) {
+		GstEvent* event = gst_pad_probe_info_get_event(info);
+		if (GST_EVENT_TYPE(event) != GST_EVENT_CAPS) {
 			return GST_PAD_PROBE_OK;
 		}
 
 		GstCaps* caps = nullptr;
 		gst_event_parse_caps(event, &caps);
-		if (!caps) {
+		if (!caps || gst_caps_is_empty(caps)) {
 			return GST_PAD_PROBE_OK;
 		}
 
-		FInternalCameraOpts* camera_options = static_cast<FInternalCameraOpts*>(user_data);
+		gchar* caps_str = gst_caps_to_string(caps);
+		g_print("Caps: %s\n", caps_str);
+		g_free(caps_str);
 
-		GstStructure* s = gst_caps_get_structure(caps, 0);
+		const GstStructure* s = gst_caps_get_structure(caps, 0);
+		const char* name = gst_structure_get_name(s);
 
-		gst_structure_get_int(s, "width", &camera_options->width);
-		gst_structure_get_int(s, "height", &camera_options->height);
-		gst_structure_get_fraction(s, "framerate", &camera_options->framerate_num, &camera_options->framerate_den);
+		result->codec_name = name;
+		gst_structure_get_int(s, "width", &result->width);
+		gst_structure_get_int(s, "height", &result->height);
 
-		const gchar* profile = gst_structure_get_string(s, "profile");
-		if (profile) {
-			camera_options->profile = profile;
-		}
-
-		if (camera_options->width && camera_options->height) {
-			g_print("[CAPS] %dx%d @ %d/%d fps\n",
-				camera_options->width, camera_options->height,
-				camera_options->framerate_num, camera_options->framerate_den);
-			camera_options->ready = true;
-		}
-
+		result->ready = true;
 		return GST_PAD_PROBE_OK;
+	}
+
+	void UCamera::on_decodebin_pad_added(
+		GstElement* decodebin,
+		GstPad* pad,
+		gpointer user_data)
+	{
+		auto* result = static_cast<FProbeResult*>(user_data);
+
+		GstCaps* caps = gst_pad_get_current_caps(pad);
+		if (!caps) {
+			caps = gst_pad_query_caps(pad, nullptr);
+		}
+
+		if (!caps) {
+			return;
+		}
+
+		const GstStructure* s = gst_caps_get_structure(caps, 0);
+		const char* name = gst_structure_get_name(s);
+
+		if (g_str_has_prefix(name, "video/")) {
+			GstPad* sink_pad = gst_element_get_static_pad(result->sink_element, "sink");
+			if (sink_pad) {
+				if (!gst_pad_is_linked(sink_pad)) {
+					GstPadLinkReturn ret = gst_pad_link(pad, sink_pad);
+					if (ret != GST_PAD_LINK_OK) {
+					}
+				}
+				gst_object_unref(sink_pad);
+			}
+
+			//gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM, on_caps_event, result, nullptr);
+		}
+
+		gst_caps_unref(caps);
+	}
+
+	void UCamera::on_rtspsrc_pad_added(GstElement* src, GstPad* pad, gpointer user_data)
+	{
+		auto result = static_cast<FProbeResult*>(user_data);
+		GstElement* decodebin = result->decodebin_element;
+
+		GstPad* sink_pad = gst_element_get_static_pad(decodebin, "sink");
+		if (gst_pad_is_linked(sink_pad)) {
+			gst_object_unref(sink_pad);
+			return;
+		}
+
+		gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM, on_caps_event, result, nullptr);
+
+		gst_pad_link(pad, sink_pad);
+		gst_object_unref(sink_pad);
 	}
 
 	bool UCamera::try_camera_probe(int timeout_sec, std::string& error_out)
 	{
 		error_out.clear();
+		m_logger.info("Starting RTSP probe pipeline!");
 
-		TUniqueGst pipeline = TUniqueGst(gst_pipeline_new(nullptr), &gst_object_unref);
-		TUniqueGst src = TUniqueGst(gst_element_factory_make("rtspsrc", nullptr), &gst_object_unref);
-		TUniqueGst sink = TUniqueGst(gst_element_factory_make("fakesink", nullptr), &gst_object_unref);
+		TUniqueGst pipeline = TUniqueGst(gst_pipeline_new("probe-pipeline"), &gst_object_unref);
+		GstElement* src = gst_element_factory_make("rtspsrc", "src");
+		GstElement* decodebin = gst_element_factory_make("decodebin", "decode");
+		GstElement* sink = gst_element_factory_make("fakesink", "sink");
 
 		auto cleanup = [&]() {
-			if (pipeline) {
-				gst_element_set_state(pipeline.get(), GST_STATE_NULL);
-			}
+			if (src) gst_object_unref(src);
+			if (decodebin) gst_object_unref(decodebin);
+			if (sink) gst_object_unref(sink);
 		};
 
-		if (!pipeline || !src || !sink) {
-			error_out = "Failed to create GStreamer elements";
+		if (!pipeline || !src || !decodebin || !sink) {
+			std::ostringstream oss;
+			oss << "Failed to create elements: "
+				<< "\n\tpipeline=" << (pipeline ? "OK" : "NULL") << ","
+				<< "\n\tsrc=" << (src ? "OK" : "NULL") << ","
+				<< "\n\tdecodebin=" << (decodebin ? "OK" : "NULL") << ","
+				<< "\n\tsink=" << (sink ? "OK" : "NULL") << ",";
+			m_logger.error(oss.str());
 			cleanup();
+			error_out = "GStreamer elements creation failed";
 			return false;
 		}
 
-		g_object_set(src.get(),
+		m_logger.info("Elements at probe pipeline created successfully!");
+
+		g_object_set(src,
 			"location", m_options.rtsp_url.c_str(),
-			"latency", 0,
-			"timeout", timeout_sec * GST_SECOND,
+			"protocols", GST_RTSP_LOWER_TRANS_TCP,
+			"latency", 200,
 			nullptr
 		);
 
-		gst_bin_add_many(GST_BIN(pipeline.get()), src.get(), sink.get(), nullptr);
-		g_signal_connect(src.get(), "pad-added", G_CALLBACK(on_rtsp_pad_added), &m_internal_options);
+		//GstCaps* caps = gst_caps_from_string("video/x-h264; video/x-h265");
+		//if (!caps) {
+		//	m_logger.error("Failed to create caps");
+		//	return false;
+		//}
 
-		gst_element_set_state(pipeline.get(), GST_STATE_PAUSED);
+		// Выключение декодирования
+		//g_object_set(decodebin, "caps", caps, nullptr);
+		//gst_caps_unref(caps);
+
+		m_probe_result.sink_element = sink;
+		m_probe_result.decodebin_element = decodebin;
+
+		gst_bin_add_many(GST_BIN(pipeline.get()), src, decodebin, sink, nullptr);
+
+		// Сигнал для получения капса
+		g_signal_connect(src, "pad-added", G_CALLBACK(on_rtspsrc_pad_added), &m_probe_result);
+
+		// Сигнал для получения данных о потоке
+		g_signal_connect(decodebin, "pad-added", G_CALLBACK(on_decodebin_pad_added), &m_probe_result);
+
+		m_logger.debug("Elements added to pipeline");
+
+		// Запус пайплайна
+		gst_element_set_state(pipeline.get(), GST_STATE_PLAYING);
+		m_logger.debug("Probe pipeline set state playing!");
 
 		TUniqueBus bus = TUniqueBus(gst_element_get_bus(pipeline.get()), &gst_object_unref);
 		gint64 deadline = g_get_monotonic_time() + timeout_sec * G_TIME_SPAN_SECOND;
 
-		/* ==== wait SDP ==== */
-		while (m_internal_options.codec_name.empty() && g_get_monotonic_time() < deadline) {
+		while (!m_probe_result.ready && g_get_monotonic_time() < deadline) {
 			GstMessage* msg = gst_bus_timed_pop(bus.get(), 200 * GST_MSECOND);
 			if (!msg) {
 				continue;
@@ -214,113 +305,34 @@ namespace neural {
 				GError* err;
 				gchar* dbg;
 				gst_message_parse_error(msg, &err, &dbg);
-				error_out = err->message;
-				g_error_free(err);
-				g_free(dbg);
+
+				std::ostringstream oss;
+
+				oss << "GStreamer error from " << GST_OBJECT_NAME(msg->src) << ": " 
+					<< (err && err->message ? err->message : "unknown error") 
+					<< (dbg ? std::string(" | debug: ") + dbg : "");
+				m_logger.error(oss.str());
+
+				if (err) g_error_free(err);
+				if (dbg) g_free(dbg);
 				gst_message_unref(msg);
-				cleanup();
-				return false;
+
+				break;
 			}
+
 			gst_message_unref(msg);
 		}
 
-		if (m_internal_options.codec_name.empty()) {
-			error_out = "SDP timeout (codec not detected)";
-			cleanup();
-			return false;
-		}
+		gst_element_set_state(pipeline.get(), GST_STATE_NULL);
 
+		m_logger.info("Probe pipeline done!");
+		std::ostringstream oss;
+		oss << "Probe result"
+			<< "\n\tcodec: " << m_probe_result.codec_name
+			<< "\n\twidth: " << m_probe_result.width
+			<< "\n\theight: " << m_probe_result.height;
+		m_logger.info(oss.str());
 
-		/* ==== depay + parser ==== */
-		TUniqueGst depay = TUniqueGst(nullptr, &gst_object_unref);
-		TUniqueGst parser = TUniqueGst(nullptr, &gst_object_unref);
-
-		if (m_internal_options.codec_name == "H264") {
-			depay.reset(
-				gst_element_factory_make("rtph264depay", nullptr)
-			);
-			parser.reset(
-				gst_element_factory_make("h264parse", nullptr)
-			);
-		}
-		else if (m_internal_options.codec_name == "H265") {
-			depay.reset(
-				gst_element_factory_make("rtph265depay", nullptr)
-			);
-			parser.reset(
-				gst_element_factory_make("h265parse", nullptr)
-			);
-		}
-		else {
-			error_out = "Unsupported codec: " + m_internal_options.codec_name;
-			cleanup();
-			return false;
-		}
-
-		if (!depay || !parser) {
-			error_out = "Failed to create depay/parser";
-			cleanup();
-			return false;
-		}
-
-		gst_bin_add_many(GST_BIN(pipeline.get()), depay.get(), parser.get(), nullptr);
-		if (!gst_element_link_many(depay.get(), parser.get(), sink.get(), nullptr)) {
-			error_out = "Failed to link depay -> parser -> sink";
-			cleanup();
-			return false;
-		}
-
-		GstPad* parser_src = gst_element_get_static_pad(parser.get(), "src");
-		gst_pad_add_probe(
-			parser_src,
-			GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM,
-			on_parser_event,
-			&m_internal_options,
-			nullptr
-		);
-		gst_object_unref(parser_src);
-
-		GstPad* depay_sink = gst_element_get_static_pad(depay.get(), "sink");
-		g_signal_connect(
-			src.get(), 
-			"pad-added", 
-			G_CALLBACK(+[](
-				GstElement*, GstPad* pad, gpointer data) {
-					gst_pad_link(pad, GST_PAD(data));
-			}),
-			depay_sink
-		);
-
-		gst_element_set_state(pipeline.get(), GST_STATE_PLAYING);
-
-		/* ==== wait CAPS ==== */
-		while (!m_internal_options.ready && g_get_monotonic_time() < deadline) {
-			GstMessage* msg = gst_bus_timed_pop(bus.get(), 200 * GST_MSECOND);
-			if (!msg) {
-				continue;
-			}
-
-			if (GST_MESSAGE_TYPE(msg) == GST_MESSAGE_ERROR) {
-				GError* err;
-				gchar* dbg;
-				gst_message_parse_error(msg, &err, &dbg);
-				error_out = err->message;
-				g_error_free(err);
-				g_free(dbg);
-				gst_message_unref(msg);
-				cleanup();
-				return false;
-			}
-			gst_message_unref(msg);
-		}
-
-		if (!m_internal_options.ready) {
-			error_out = "CAPS timeout (no resolution)";
-			cleanup();
-			return false;
-		}
-
-		cleanup();
 		return true;
 	}
 
@@ -328,15 +340,17 @@ namespace neural {
 	{
 		std::string error;
 
+		m_logger.info("Probe camera stream!");
+
 		for (int i = 1; i <= attempts; ++i) {
-			std::cout << "[TRY " << i << "/" << attempts << "] connecting...\n";
+			std::ostringstream oss;
+			oss << "Try " << i << "/" << attempts << " connecting...";
+			m_logger.info(oss.str());
 
 			if (try_camera_probe(timeout_sec, error)) {
-				std::cout << "[SUCCESS]\n";
+				m_logger.info("Success camera probing!");
 				return true;
 			}
-
-			std::cerr << "[ERROR] " << error << "\n";
 
 			if (i < attempts) {
 				std::this_thread::sleep_for(
@@ -344,7 +358,8 @@ namespace neural {
 			}
 		}
 
-		throw std::runtime_error("Camera unreachable after retries");
+		m_logger.error("Camera unreachable after retries");
+		return false;
 	}
 
 	// ====================================
@@ -361,40 +376,20 @@ namespace neural {
 			return true;
 		}
 
-		gst_init(nullptr, nullptr);
-
 		std::cout << color::yellow << "[UCamera] Creating gst streaming for camera " << m_options.name << "..." << color::reset << std::endl;
 
 		std::ostringstream oss_error;
-		if (!m_mpeg_context.codec_ctx) {
-			oss_error << color::red << "[UCamera] Error in create_gst_pipeline_webrtc(): no initialized codec!" << color::reset << std::endl;
-			throw std::runtime_error(oss_error.str());
-		}
 
 		std::string format = "NV12";
-		switch (m_internal_options.format) {
-		case AVPixelFormat::AV_PIX_FMT_NV12:
-			format = "NV12";
-			break;
-		case AVPixelFormat::AV_PIX_FMT_NV21:
-			format = "NV21";
-			break;
-		case AVPixelFormat::AV_PIX_FMT_RGB24:
-			format = "RGB";
-			break;
-		case AVPixelFormat::AV_PIX_FMT_BGR24:
-			format = "BGR";
-			break;
-		}
-		int width = m_mpeg_context.codec_ctx->width;
-		int height = m_mpeg_context.codec_ctx->height;
+		int width = m_probe_result.width;
+		int height = m_probe_result.height;
 
-		auto codec_name = m_mpeg_context.codec_ctx->codec->name;
+		auto codec_name = m_probe_result.codec_name.c_str();
 		std::string encoder, encoding_name, parse, pay;
-		if (strcmp(codec_name, "h264_rkmpp") == 0) {
+		if (strcmp(codec_name, "H264") == 0) {
 			encoder = "mpph264enc"; encoding_name = "H264"; parse = "h264parse"; pay = "rtph264pay";
 		}
-		else if (strcmp(codec_name, "hevc_rkmpp") == 0) {
+		else if (strcmp(codec_name, "H265") == 0) {
 			encoder = "mpph264enc"; encoding_name = "H264"; parse = "h264parse"; pay = "rtph264pay";
 		}
 		else {
@@ -495,11 +490,6 @@ namespace neural {
 		// 9. Сохраняем объекты
 		m_webrtcbin_appsrc = TUniqueGst(appsrc, &gst_object_unref);
 		m_webrtcbin_tee = TUniqueGst(tee, &gst_object_unref);
-
-		m_main_loop = g_main_loop_new(nullptr, FALSE);
-		m_gst_loop_thread = std::thread([this]() {
-			g_main_loop_run(m_main_loop);
-		});
 
 		std::cout << color::green << "[UCamera] Creation gst streaming for camera " << m_options.name << " was successful!" << color::reset << std::endl;
 

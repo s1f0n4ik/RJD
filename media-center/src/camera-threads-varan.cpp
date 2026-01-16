@@ -36,7 +36,9 @@ int main()
 
 	t.detach();
 	*/
+	gst_init(nullptr, nullptr);
 	gst_debug_set_active(TRUE);
+	//gst_debug_set_default_threshold(GST_LEVEL_INFO);
 
 	auto media_setting = varan::neural::FMediaSettings{};
 	auto center = varan::neural::UMediaCenter{ media_setting };
@@ -71,7 +73,8 @@ int main()
 	}
 
 	center.initialize_cameras();
-
+	
+	/*
 	// Регистрируем комнаты в сервере для каждой доступной камеры
 	for (const auto& camera : center.get_camera_vector()) {
 		camera->start_websocket_client("192.168.1.254", "8765", "/camera/" + camera->get_name());
@@ -80,8 +83,7 @@ int main()
 
 	// Запуск камер
 	center.start_cameras();
-
-	namespace fs = std::filesystem;
+	*/
 
 	while (true) {
 		std::this_thread::sleep_for(std::chrono::seconds(33));

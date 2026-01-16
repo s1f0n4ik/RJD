@@ -31,6 +31,7 @@ extern "C" {
 #include "safe_buffers.h"
 #include "icamera_signaling.h"
 #include "iwebsocket_client.h"
+#include "logger.h"
 
 namespace varan {
 namespace neural {
@@ -50,14 +51,18 @@ namespace neural {
 		size_t buff_reading_size;
 	};
 
-	struct FInternalCameraOpts {
+	struct FProbeResult {
 		std::string codec_name = "";
 		std::string profile = "";
 		int framerate_num = 0;
 		int framerate_den = 0;
 		int width = 0;
 		int height = 0;
+
 		bool ready = false;
+
+		GstElement* sink_element = nullptr;
+		GstElement* decodebin_element = nullptr;
 	};
 
 	class UCamera : public ICameraSignaling {
@@ -73,7 +78,11 @@ namespace neural {
 			TUniqueGst webrtcbin;
 			TUniqueGst queue;
 
-			FWebRtcSession(const std::string& client_id_, const std::string& camera_name_, CSignalingCallback callback_)
+			FWebRtcSession(
+				const std::string& client_id_, 
+				const std::string& camera_name_, 
+				CSignalingCallback callback_
+			)
 				: client_id(client_id_)
 				, camera_name(camera_name_)
 				, webrtcbin(nullptr, gst_object_unref)
@@ -93,7 +102,7 @@ namespace neural {
 			void send_message(const std::string& message) { send_callback(message); }
 		};
 
-		explicit UCamera(const FCameraOptions& options);
+		explicit UCamera(const FCameraOptions& options, ULogger::ELoggerLevel level_ = ULogger::ELoggerLevel::DEBUG);
 
 		~UCamera();
 
@@ -129,7 +138,7 @@ namespace neural {
 
 	private:
 		FCameraOptions m_options;
-		FInternalCameraOpts m_internal_options;
+		FProbeResult m_probe_result;
 
 		CFrameCallback m_frame_callback;
 		CSignalingCallback m_signaling_callback;
@@ -177,11 +186,15 @@ namespace neural {
 
 		std::thread m_websocket_thread;
 
+		ULogger m_logger;
+
 		// GStreamer Проверка кадров, получение инфы с камер
 
-		static void on_rtsp_pad_added(GstElement* element, GstPad* pad, gpointer data);
+		static void on_rtspsrc_pad_added(GstElement* src, GstPad* pad, gpointer user_data);
 
-		static GstPadProbeReturn on_parser_event(GstPad* pad, GstPadProbeInfo* probe_info, gpointer data);
+		static void on_decodebin_pad_added(GstElement* decodebin, GstPad* pad, gpointer user_data);
+
+		static GstPadProbeReturn on_caps_event(GstPad* pad, GstPadProbeInfo* info, gpointer user_data);
 
 		bool try_camera_probe(int timeout_sec, std::string& error_out);
 
