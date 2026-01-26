@@ -22,7 +22,7 @@ public:
 
 	UMediaCenter(const FMediaSettings& settings);
 
-	int add_camera(const FCameraOptions& options);
+	int add_camera(const FCameraOptions& options, const FWebSocketOptions& socket_options);
 
 	int remove_camera(const std::string& camera_name);
 

@@ -11,12 +11,13 @@ UMediaCenter::UMediaCenter(const FMediaSettings& settings)
 {
 }
 
-int UMediaCenter::add_camera(const FCameraOptions& options) {
+int UMediaCenter::add_camera(const FCameraOptions& options, const FWebSocketOptions& socket_options) {
     std::lock_guard<std::mutex> lk(m_mutex);
-    if (m_cameras.count(options.name))
+    if (m_cameras.count(options.name)) {
         return -1;
+    }
 
-    auto cam = std::make_shared<UCamera>(options);
+    auto cam = std::make_shared<UCamera>(options, socket_options);
     m_cameras[options.name] = std::move(cam);
     return 0;
 }

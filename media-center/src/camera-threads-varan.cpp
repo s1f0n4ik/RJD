@@ -38,16 +38,19 @@ int main()
 	*/
 	gst_init(nullptr, nullptr);
 	gst_debug_set_active(TRUE);
-	//gst_debug_set_default_threshold(GST_LEVEL_INFO);
+	gst_debug_set_default_threshold(GST_LEVEL_INFO);
 
 	auto media_setting = varan::neural::FMediaSettings{};
 	auto center = varan::neural::UMediaCenter{ media_setting };
 
+	auto socket_options = varan::neural::FWebSocketOptions("192.168.1.254", "8765");
+
 	std::vector<varan::neural::FCameraOptions> vector_options = {
 		varan::neural::FCameraOptions{
 			"camera_1",
-			"rtsp://admin:VniiTest@192.168.1.11:554/ISAPI/Streaming/Channels/101",
-			true, false, true, 25, 32, 0, 1000, 25
+			"rtsp://admin:VniiTest@192.168.1.12:554/ISAPI/Streaming/Channels/101",
+			"/home/orangepi/records/camera_1", 10,
+			true, false, true, 25, 32, 1000, 25
 		},
 		/*varan::neural::FCameraOptions{
 			"camera_2",
@@ -69,21 +72,13 @@ int main()
 	// Создание камер
 	for (size_t i = 0; i < vector_options.size(); ++i) {
 
-		center.add_camera(vector_options[i]);
+		center.add_camera(vector_options[i], socket_options);
 	}
 
 	center.initialize_cameras();
-	
-	/*
-	// Регистрируем комнаты в сервере для каждой доступной камеры
-	for (const auto& camera : center.get_camera_vector()) {
-		camera->start_websocket_client("192.168.1.254", "8765", "/camera/" + camera->get_name());
-		//server->register_room_camera(camera);
-	}
 
 	// Запуск камер
 	center.start_cameras();
-	*/
 
 	while (true) {
 		std::this_thread::sleep_for(std::chrono::seconds(33));

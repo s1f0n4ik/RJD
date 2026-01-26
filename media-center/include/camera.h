@@ -9,6 +9,7 @@
 #include <vector>
 #include <atomic>
 #include <chrono>
+#include <filesystem>
 //#include <opencv2/opencv.hpp>
 
 #include <gst/gst.h>
@@ -40,15 +41,23 @@ namespace neural {
 
 	struct FCameraOptions {
 		std::string name;
-		std::string rtsp_url;
+		std::string rtsp_url; // полная ссылка с логином и паролем
+
+		std::filesystem::path record_path = ""; // путь абсолютный
+		int segment_duration = 600; // в секундах
+
 		bool b_use_udp;
 		bool b_use_buffer;
 		bool b_low_latency;
 		int framerate;
 		int probe_size;
 		int analyze_duration;
-		int reconnect_delay;
-		size_t buff_reading_size;
+		int reconnect_delay; // в секундах
+	};
+
+	struct FWebSocketOptions {
+		std::string ip_adress;
+		std::string port;
 	};
 
 	struct FProbeResult {
@@ -62,7 +71,7 @@ namespace neural {
 		bool ready = false;
 
 		GstElement* sink_element = nullptr;
-		GstElement* decodebin_element = nullptr;
+		GstElement* depay = nullptr;
 	};
 
 	class UCamera : public ICameraSignaling {
@@ -102,7 +111,11 @@ namespace neural {
 			void send_message(const std::string& message) { send_callback(message); }
 		};
 
-		explicit UCamera(const FCameraOptions& options, ULogger::ELoggerLevel level_ = ULogger::ELoggerLevel::DEBUG);
+		explicit UCamera(
+			const FCameraOptions& options, 
+			const FWebSocketOptions& socket_options, 
+			ULogger::ELoggerLevel level_ = ULogger::ELoggerLevel::DEBUG
+		);
 
 		~UCamera();
 
@@ -114,7 +127,7 @@ namespace neural {
 		void stop();
 
 		// Запуск клиента для обмена с сообщениями с сервером
-		void start_websocket_client(const std::string& ip_adress, const std::string& port, const std::string& url);
+		void start_websocket_client();
 
 		void stop_websocket_client();
 
@@ -149,12 +162,13 @@ namespace neural {
 		bool m_initialized;
 		bool m_gst_initialized;
 
-		std::thread m_reading_thread;
+		//std::thread m_reading_thread;
 		//std::thread m_decode_thread;
 		//std::thread m_push_thread;
 
 		GMainLoop* m_main_loop = nullptr;
 		std::thread m_gst_loop_thread;
+		std::atomic<bool> m_gst_loop_running{false};
 
 		std::mutex m_signal_mutex;
 
@@ -170,6 +184,8 @@ namespace neural {
 		USafeQueue<std::unique_ptr<FDrmFrame>> m_frames_buffer;
 
 		// Поля для GStream
+		FWebSocketOptions m_socket_options;
+
 		TUniqueGst m_webrtcbin_pipeline;
 		TUniqueGst m_webrtcbin_appsrc;
 		TUniqueGst m_webrtcbin_tee;
@@ -192,15 +208,23 @@ namespace neural {
 
 		static void on_rtspsrc_pad_added(GstElement* src, GstPad* pad, gpointer user_data);
 
-		static void on_decodebin_pad_added(GstElement* decodebin, GstPad* pad, gpointer user_data);
+		static void on_rtspsrc_pad_depay_added(GstElement* src, GstPad* pad, gpointer user_data);
 
-		static GstPadProbeReturn on_caps_event(GstPad* pad, GstPadProbeInfo* info, gpointer user_data);
+		static GstPadProbeReturn on_rtsp_caps_event(GstPad* pad, GstPadProbeInfo* info, gpointer user_data);
 
-		bool try_camera_probe(int timeout_sec, std::string& error_out);
+		static GstPadProbeReturn on_parse_caps_event(GstPad* pad, GstPadProbeInfo* info, gpointer user_data);
+
+		bool codec_check_probe(int timeout_sec);
+
+		bool camera_probe(int timeout_sec);
 
 		bool probe_camera_with_reconnect(int attempts = 10, int timeout = 2, int delay = 2);
 
 		// GStreamer Считывание кадров с камеры
+
+		bool initialize_reading_pipeline();
+
+		bool start_reading_pipeline();
 
 		// GStreamer WebRTC
 
@@ -238,6 +262,10 @@ namespace neural {
 			const std::string& type, 
 			const std::string& description
 		);
+
+		// Прочее
+
+		static std::string make_start_timestamp();
 	};
 
 } // namespace neural
