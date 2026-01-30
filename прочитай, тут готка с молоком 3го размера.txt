@@ -2,7 +2,7 @@
 
 ## Шаг 1: Запуск
 cd <directory>
-docker-compose up --build
+docker compose up --build
 
 Подожди 30-40 секунд, пока контейнеры инициализируются.
 
@@ -31,7 +31,7 @@ Health check: http://localhost:8000/health
 http://localhost:5000/neural_1
 
 Остановка
-docker-compose down
+docker compose down
 
 ---
 
