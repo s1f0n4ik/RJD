@@ -173,6 +173,95 @@ void UWebRTCSession::teardown() {
 	m_is_valid = false;
 }
 
+void UWebRTCSession::make_offer(const boost::json::object& message) {
+	auto sdp_v = message.if_contains("sdp");
+	if (!sdp_v || !sdp_v->is_string()) {
+		m_logger.error(get_session_name() + ": No SDP in recieved offer");
+		return;
+	}
+	else {
+		m_logger.info(get_session_name() + ": Received SDP offer");
+	}
+
+	std::string sdp_str = sdp_v->as_string().c_str();
+
+	GstSDPMessage* sdp = nullptr;
+	gst_sdp_message_new(&sdp);
+	gst_sdp_message_parse_buffer(reinterpret_cast<const guint8*>(sdp_str.c_str()), sdp_str.size(), sdp);
+
+	GstWebRTCSessionDescription* offer = gst_webrtc_session_description_new(GST_WEBRTC_SDP_TYPE_OFFER, sdp);
+
+	g_signal_emit_by_name(m_webrtcbin, "set-remote-description", offer, nullptr);
+	gst_webrtc_session_description_free(offer);
+
+	g_signal_emit_by_name(m_webrtcbin, "create-answer", nullptr);
+}
+
+void UWebRTCSession::create_answer(const boost::json::object& message) {
+	auto sdp_v = message.if_contains("sdp");
+	if (!sdp_v || !sdp_v->is_string()) {
+		m_logger.error(get_session_name() + ": No SDP in recieved offer");
+		return;
+	}
+	else {
+		m_logger.info(get_session_name() + ": Recieved SDP answer");
+	}
+
+	std::string sdp_str = sdp_v->as_string().c_str();
+
+	GstSDPMessage* sdp = nullptr;
+	gst_sdp_message_new(&sdp);
+	gst_sdp_message_parse_buffer(reinterpret_cast<const guint8*>(sdp_str.c_str()), sdp_str.size(), sdp);
+
+	GstWebRTCSessionDescription* answer = gst_webrtc_session_description_new(GST_WEBRTC_SDP_TYPE_ANSWER, sdp);
+
+	g_signal_emit_by_name(m_webrtcbin, "set-remote-description", answer, nullptr);
+	gst_webrtc_session_description_free(answer);
+}
+
+void UWebRTCSession::add_ice_candidate(const boost::json::object& message) {
+	auto cand_v = message.if_contains("candidate");
+	auto line_v = message.if_contains("sdpMLineIndex");
+	auto mid_v = message.if_contains("sdpMid");
+
+	std::string candidate;
+	std::string sdpMid;
+	int mline_index = 0;
+
+	bool fail = false;
+
+	if (cand_v && cand_v->is_string()) {
+		candidate = cand_v->as_string();
+	}
+	else {
+		fail = false;
+	}
+
+	if (line_v && line_v->is_int64()) {
+		mline_index = static_cast<int>(line_v->as_int64());
+	}
+	else {
+		fail = false;
+	}
+
+	if (mid_v && mid_v->is_string()) {
+		sdpMid = mid_v->as_string();
+	}
+
+	if (fail) {
+		m_logger.error(get_session_name() + ": Cannot add candidate!");
+		return;
+	}
+
+	if (candidate.find(".local") != std::string::npos) {
+		m_logger.warn(get_session_name() + ": Ignore mDNS candidate: " + candidate);
+	}
+	else {
+		g_signal_emit_by_name(m_webrtcbin, "add-ice-candidate", mline_index, candidate.c_str());
+		m_logger.info(get_session_name() + ": Added ICE candidate!");
+	}
+}
+
 GstElement* UWebRTCSession::get_webrtcbin_element() {
 	return m_webrtcbin;
 }

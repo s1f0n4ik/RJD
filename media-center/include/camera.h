@@ -33,6 +33,7 @@ extern "C" {
 #include "icamera_signaling.h"
 #include "iwebsocket_client.h"
 #include "logger.h"
+#include "webrtc_session.h"
 
 namespace varan {
 namespace neural {
@@ -80,6 +81,7 @@ namespace neural {
 		using TUniqueGst = std::unique_ptr<GstElement, decltype(&gst_object_unref)>;
 		using TUniqueBus = std::unique_ptr<GstBus, decltype(&gst_object_unref)>;
 
+		/*
 		struct FWebRtcSession {
 			CSignalingCallback send_callback;
 			std::string client_id;
@@ -110,6 +112,7 @@ namespace neural {
 
 			void send_message(const std::string& message) { send_callback(message); }
 		};
+		*/
 
 		explicit UCamera(
 			const FCameraOptions& options, 
@@ -190,7 +193,7 @@ namespace neural {
 		TUniqueGst m_webrtcbin_appsrc;
 		TUniqueGst m_webrtcbin_tee;
 
-		std::map<std::string, std::unique_ptr<FWebRtcSession>> m_opened_sessions;
+		std::map<std::string, std::unique_ptr<UWebRTCSession>> m_opened_sessions;
 		std::mutex m_session_mutex;
 		std::condition_variable m_session_cv;
 		bool m_has_sessions = false;
@@ -248,6 +251,7 @@ namespace neural {
 		// json сообщений
 		// ==================================================================
 
+		/*
 		static boost::json::object json(
 			const FWebRtcSession* session, 
 			bool successed, 
@@ -262,6 +266,7 @@ namespace neural {
 			const std::string& type, 
 			const std::string& description
 		);
+		*/
 
 		// Прочее
 

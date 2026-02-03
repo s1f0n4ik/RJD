@@ -976,11 +976,11 @@ namespace neural {
 	void UCamera::on_signaling_message(const std::string& msg) {
 		try {
 			boost::json::value parsed = boost::json::parse(msg);
-			boost::json::object& obj = parsed.as_object();
+			boost::json::object& json_object = parsed.as_object();
 
 			// Узнаем идентификатор клиента
 			std::string client_id;
-			if (auto* v = obj.if_contains("client_id"); v && v->is_string()) {
+			if (auto* v = json_object.if_contains("client_id"); v && v->is_string()) {
 				client_id = v->as_string().c_str();
 			}
 			else {
@@ -990,18 +990,42 @@ namespace neural {
 
 			// Проверяем тип сообщения
 			std::string type;
-			if (auto* v = obj.if_contains("type"); v && v->is_string()) {
+			if (auto* v = json_object.if_contains("type"); v && v->is_string()) {
 				type = v->as_string().c_str();
 			}
 			else {
-				m_logger.error("Error with recieving message: missing type!");
-				std::cout << color::red << "[UCamera " << m_options.name
-					<< "] Error with recieving message: missing type!\n" << color::reset;
+				m_logger.error("Error while receiving message: missing type!");
 				return;
 			}
+
+			// Запрос на соединение
+			if (type == "connection") {
+				open_new_session(client_id);
+				return;
+			}
+
+			auto it = m_opened_sessions.find(client_id);
+			if (it == m_opened_sessions.end()) {
+				m_logger.error("Message handler received a non-existent client ID in open sessions!");
+				return;
+			}
+			auto session = it->second.get();
+
+			if (type == "offer") {
+				session->make_offer(json_object);
+			}
+			else if (type == "answer") {
+				session->create_answer(json_object);
+			}
+			else if (type == "ice") {
+				session->add_ice_candidate(json_object);
+			}
+			else {
+				m_logger.error("No supported type of recieved message!");
+			}
 		}
-		catch (...) {
-			
+		catch (const std::exception e) {
+			m_logger.error("Unexpected error: " + std::string(e.what()));
 		}
 	}
 

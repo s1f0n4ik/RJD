@@ -26,11 +26,18 @@ public:
 
 	bool create_branch(const std::string& codec);
 
+	void make_offer(const boost::json::object& message);
+
+	void create_answer(const boost::json::object& message);
+
+	void add_ice_candidate(const boost::json::object& message);
+
+	// Геттеры и сеттеры
+	void send_message(const std::string& msg);
+
 	GstElement* get_webrtcbin_element();
 
 	bool is_valid();
-
-	void send_message(const std::string& msg);
 
 	std::string get_session_name();
 
