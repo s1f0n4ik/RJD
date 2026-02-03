@@ -60,21 +60,13 @@
     {
       "name": "linux-debug",
       "displayName": "Linux Debug",
-      "generator": "Unix Makefiles",
+      "generator": "Ninja",
       "binaryDir": "${sourceDir}/out/build/${presetName}",
       "installDir": "${sourceDir}/out/install/${presetName}",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug"
-      },
-      "condition": {
-        "type": "equals",
-        "lhs": "${hostSystemName}",
-        "rhs": "Linux"
-      },
-      "vendor": {
-        "microsoft.com/VisualStudioRemoteSettings/CMake/1.0": {
-          "sourceDir": "$env{HOME}/.vs/$ms{projectDirName}"
-        }
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_VERBOSE_MAKEFILE": "ON"
+        //"PKG_CONFIG_PATH": "/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig:/usr/local/lib/pkgconfig/"
       }
     },
     {
@@ -101,8 +93,6 @@
   "vendor": {
     "microsoft.com/VisualStudioRemoteSettings/CMake/1.0": {
       "remoteMachineName": "orangepi@192.168.1.2",
-      "remoteCMakeListsRoot": "/home/orangepi/.vs/media-center/",
-      "remoteBuildRoot": "/home/orangepi/.vs/media-center/out/build/linux-debug/",
       "remoteCopySourcesMethod": "rsync",
       "remoteConnection": {
         "username": "orangepi",

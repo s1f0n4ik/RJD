@@ -973,6 +973,39 @@ namespace neural {
 		}
 	}
 
+	void UCamera::on_signaling_message(const std::string& msg) {
+		try {
+			boost::json::value parsed = boost::json::parse(msg);
+			boost::json::object& obj = parsed.as_object();
+
+			// Узнаем идентификатор клиента
+			std::string client_id;
+			if (auto* v = obj.if_contains("client_id"); v && v->is_string()) {
+				client_id = v->as_string().c_str();
+			}
+			else {
+				m_logger.error("Error with recieving message: missing client id!");
+				return;
+			}
+
+			// Проверяем тип сообщения
+			std::string type;
+			if (auto* v = obj.if_contains("type"); v && v->is_string()) {
+				type = v->as_string().c_str();
+			}
+			else {
+				m_logger.error("Error with recieving message: missing type!");
+				std::cout << color::red << "[UCamera " << m_options.name
+					<< "] Error with recieving message: missing type!\n" << color::reset;
+				return;
+			}
+		}
+		catch (...) {
+			
+		}
+	}
+
+	/*
 	void UCamera::on_signaling_message(const std::string& msg)
 	{
 		try {
@@ -1294,6 +1327,7 @@ namespace neural {
 		std::cout << color::yellow << "[UCamera " << m_options.name << "] Closed session with client " 
 			      << client_id << color::reset << std::endl;
 	}
+	*/
 
 	void UCamera::set_signaling_callback(CSignalingCallback callback) {
 		m_signaling_callback = std::move(callback);
@@ -1309,7 +1343,7 @@ namespace neural {
 			std::cout << color::red << "[UCamera " << m_options.name << "] Cannot send message because websocket client is nullptr!\n" << color::reset;
 		}
 	}
-
+	/*
 	void UCamera::on_negotiation_needed(GstElement* webrtcbin, gpointer data) {
 		auto session = static_cast<FWebRtcSession*>(data);
 		if (!session) {
@@ -1432,6 +1466,7 @@ namespace neural {
 		message[SIG_DECRIPTION] = description;
 		return message;
 	}
+	*/
 
 	std::string UCamera::make_start_timestamp() {
 		auto now = std::chrono::system_clock::now();
