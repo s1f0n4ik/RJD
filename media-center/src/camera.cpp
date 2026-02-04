@@ -41,6 +41,7 @@ namespace neural {
 		, m_frames_buffer(1)
 		, m_reading_pipeline(nullptr, &gst_object_unref)
 		, m_webrtcbin_pipeline(nullptr, &gst_object_unref)
+		, m_reading_tee(nullptr, &gst_object_unref)
 		, m_webrtcbin_appsrc(nullptr, &gst_object_unref)
 		, m_webrtcbin_tee(nullptr, &gst_object_unref)
 		, m_io_context()
@@ -494,6 +495,7 @@ namespace neural {
 			else {
 				// Запуска reading pipeline
 				gst_element_set_state(m_reading_pipeline.get(), GST_STATE_PLAYING);
+				return true;
 			}
 		}
 	}
@@ -520,7 +522,7 @@ namespace neural {
 		auto src = gst_element_factory_make("rtspsrc", "src");
 		auto depay = gst_element_factory_make(depay_str.c_str(), "depay");
 		auto parse = gst_element_factory_make(parse_str.c_str(), "parse");
-		auto tee = gst_element_factory_make("tee", "tee_branch");
+		m_reading_tee = TUniqueGst(gst_element_factory_make("tee", "tee_branch"), &gst_object_unref);
 		auto deconding_queue = gst_element_factory_make("queue", "deconding_queue");
 		auto decoder = gst_element_factory_make("mppvideodec", "decoder");
 		auto sink = gst_element_factory_make("appsink", "sink");
@@ -536,14 +538,14 @@ namespace neural {
 			if (sink) gst_object_unref(sink);
 		};
 
-		if (!m_reading_pipeline || !src || !depay || !parse || !tee || !deconding_queue || !decoder || !sink) {
+		if (!m_reading_pipeline || !src || !depay || !parse || !m_reading_tee || !deconding_queue || !decoder || !sink) {
 			std::ostringstream oss;
 			oss << "Failed to create elements at reading pipeline: "
 				<< "\n\tpipeline=" << (m_reading_pipeline ? "OK" : "NULL") << ","
 				<< "\n\tsrc=" << (src ? "OK" : "NULL") << ","
 				<< "\n\tdepay=" << (depay ? "OK" : "NULL") << ","
 				<< "\n\tparse=" << (parse ? "OK" : "NULL") << ","
-				<< "\n\ttee=" << (tee ? "OK" : "NULL") << ","
+				<< "\n\ttee=" << (m_reading_tee ? "OK" : "NULL") << ","
 				<< "\n\tdeconding_queue=" << (deconding_queue ? "OK" : "NULL") << ","
 				<< "\n\tdecoder=" << (decoder ? "OK" : "NULL") << ","
 				<< "\n\tsink=" << (sink ? "OK" : "NULL") << ",";
@@ -583,18 +585,19 @@ namespace neural {
 		);
 
 		gst_bin_add_many(GST_BIN(m_reading_pipeline.get()),
-			src, depay, parse, tee, deconding_queue, decoder, sink, nullptr
+			src, depay, parse, m_reading_tee.get(), deconding_queue, decoder, sink, nullptr
 		);
 
 		// Связывание основного потока
-		if (!gst_element_link_many(depay, parse, tee, nullptr)) {
+		if (!gst_element_link_many(depay, parse, m_reading_tee.get(), nullptr)) {
 			m_logger.error("Error with linking: src, depay, parse, tee!");
 			return false;
 		}
 
 		// Связывание ветки с декодером
 		// Связывание tee с decoding_queue
-		GstPad* tee_decode_pad = gst_element_get_request_pad(tee, "src_%u");
+		GstPad* tee_decode_pad = gst_element_request_pad_simple(m_reading_tee.get(), "src_%u");
+		//GstPad* tee_decode_pad = gst_element_get_request_pad(m_reading_tee.get(), "src_%u");
 		GstPad* queue_decode_pad = gst_element_get_static_pad(deconding_queue, "sink");
 
 		if (gst_pad_link(tee_decode_pad, queue_decode_pad) != GST_PAD_LINK_OK) {
@@ -676,7 +679,7 @@ namespace neural {
 			gst_bin_add_many(GST_BIN(m_reading_pipeline.get()), record_queue, splitmux, nullptr);
 
 			// Связывание падов tee
-			GstPad* tee_record_pad = gst_element_get_request_pad(tee, "src_%u");
+			GstPad* tee_record_pad = gst_element_request_pad_simple(m_reading_tee.get(), "src_%u");
 			GstPad* queue_record_pad = gst_element_get_static_pad(record_queue, "sink");
 
 			if (gst_pad_link(tee_record_pad, queue_record_pad) != GST_PAD_LINK_OK) {
@@ -1003,6 +1006,10 @@ namespace neural {
 				open_new_session(client_id);
 				return;
 			}
+			if (type == "close") {
+				close_session(client_id);
+				return;
+			}
 
 			auto it = m_opened_sessions.find(client_id);
 			if (it == m_opened_sessions.end()) {
@@ -1026,6 +1033,60 @@ namespace neural {
 		}
 		catch (const std::exception e) {
 			m_logger.error("Unexpected error: " + std::string(e.what()));
+		}
+	}
+
+	void UCamera::open_new_session(const std::string& client_id) {
+		if (m_probe_result.codec_name.empty()) {
+			std::string err_text = "Cannot create new session: failed to probe video!";
+			m_logger.error(err_text);
+			send_message(boost::json::serialize(
+				json(client_id, false, SIG_TYPE_CONNECT, err_text))
+			);
+		}
+
+		if (m_opened_sessions.find(client_id) != m_opened_sessions.end()) {
+			m_logger.warn("Session with client " + client_id + " has already created!");
+			send_message(boost::json::serialize(
+				json(client_id, false, SIG_TYPE_CONNECT, "Session with this client has already started!"))
+			);
+			return;
+		}
+
+		auto session = std::make_unique<UWebRTCSession>(
+			client_id, 
+			m_options.name, 
+			m_reading_pipeline.get(),
+			m_reading_tee.get(),
+			[this](const std::string& message) {this->send_message(message); },
+			m_logger
+		);
+
+		if (!session) {
+			m_logger.error("Error creation new session!");
+			return;
+		}
+
+		auto [it, inserted] = m_opened_sessions.emplace(client_id, std::move(session));
+
+		it->second->create_branch(m_probe_result.codec_name);
+	}
+
+	void UCamera::close_session(const std::string& client_id) {
+		auto it = m_opened_sessions.find(client_id);
+		if (it == m_opened_sessions.end()) {
+			send_message(boost::json::serialize(
+				json("unknown", false, SIG_TYPE_CONNECT, "There are no one opened sessions!")
+			));
+			m_logger.error("Error closing session: session with client " + client_id + " doesn't exist!");
+			return;
+		}
+		try {
+			m_opened_sessions.erase(client_id);
+			m_logger.info("Seccessfully removed session with " + client_id);
+		}
+		catch (const std::exception& e) {
+			m_logger.error("Error with closing session client " + client_id + ": " + std::string(e.what()));
 		}
 	}
 
@@ -1472,9 +1533,9 @@ namespace neural {
 		}
 		return message;
 	}
+	*/
 
 	boost::json::object UCamera::json(
-		const std::string& camera,
 		const std::string& client,
 		bool successed,
 		const std::string& type,
@@ -1486,11 +1547,10 @@ namespace neural {
 		message[SIG_SENDER] = SIG_SENDER_CAMERA;
 		message[SIG_RET] = successed ? SIG_RET_SUCCESS : SIG_RET_FAULT;
 		message[SIG_CLIENT] = client;
-		message[SIG_CAMERA] = camera;
+		message[SIG_CAMERA] = m_options.name;
 		message[SIG_DECRIPTION] = description;
 		return message;
 	}
-	*/
 
 	std::string UCamera::make_start_timestamp() {
 		auto now = std::chrono::system_clock::now();

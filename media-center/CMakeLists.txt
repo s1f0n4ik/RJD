@@ -40,8 +40,6 @@ pkg_check_modules(GST_ALL REQUIRED
     gstreamer-sdp-1.0
 )
 
-find_package(nlohmann_json REQUIRED)
-
 find_package(OpenSSL REQUIRED)
 find_package(ZLIB REQUIRED)
 
@@ -80,7 +78,6 @@ target_link_libraries(${PROJECT_NAME}
     opencv_highgui
     ${FFMPEG_LIBRARIES}
     ${GST_ALL_LIBRARIES}
-    nlohmann_json::nlohmann_json
     Threads::Threads
     ${BOOST_LIBRARYDIR}/libboost_json.a
     ${BOOST_LIBRARYDIR}/libboost_filesystem.a

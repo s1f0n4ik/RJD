@@ -20,8 +20,6 @@ public:
 	UWebRTCSession(const UWebRTCSession&) = delete;
 	UWebRTCSession& operator=(const UWebRTCSession&) = delete;
 
-	GstElement* get_webrtcbin_element();
-
 	void teardown();
 
 	bool create_branch(const std::string& codec);
@@ -31,6 +29,8 @@ public:
 	void create_answer(const boost::json::object& message);
 
 	void add_ice_candidate(const boost::json::object& message);
+
+	boost::json::object make_json(bool successed, const std::string& type, const std::string& description);
 
 	// Геттеры и сеттеры
 	void send_message(const std::string& msg);
@@ -67,6 +67,4 @@ private:
 	static void on_offer_created(GstPromise* promise, gpointer data);
 
 	static void on_ice_candidate(GstElement* webrtcbin, guint mlineindex, gchar* candidate, gpointer data);
-
-	boost::json::object make_json(bool successed, const std::string& type, const std::string& description);
 };

@@ -177,6 +177,7 @@ namespace neural {
 
 		// Поля Gstream для считывания кадров
 		TUniqueGst m_reading_pipeline;
+		TUniqueGst m_reading_tee;
 
 		// Ожидающая очередь для хранения пакетов
 		//using UniquePacket = std::unique_ptr<AVPacket, std::function<void(AVPacket*)>>;
@@ -258,15 +259,14 @@ namespace neural {
 			const std::string& type, 
 			const std::string& description
 		);
+		*/
 
-		static boost::json::object json(
-			const std::string& camera, 
-			const std::string& client, 
-			bool successed, 
-			const std::string& type, 
+		boost::json::object json(
+			const std::string& client,
+			bool successed,
+			const std::string& type,
 			const std::string& description
 		);
-		*/
 
 		// Прочее
 

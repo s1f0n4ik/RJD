@@ -62,7 +62,7 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 		std::ostringstream oss;
 		oss << "Cannot create branch for session " + get_session_name() << ": Error with creation gst elements!"
 			<< "\n\tQueue: " << (!m_queue ? "NULL" : "EXISTING")
-			<< "\n\Rtph pay: " << (!m_pay ? "NULL" : "EXISTING")
+			<< "\n\tRtph pay: " << (!m_pay ? "NULL" : "EXISTING")
 			<< "\n\tWebrtcbin: " << (!m_webrtcbin ? "NULL" : "EXISTING");
 		m_logger.error(oss.str());
 		m_is_valid = false;
@@ -126,7 +126,7 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 	gst_object_unref(queue_sink_pad);
 
 	// Линк созданных объектов друг с другом
-	if (!gst_element_link_many(m_queue, m_pay, m_webrtcbin)) {
+	if (!gst_element_link_many(m_queue, m_pay, m_webrtcbin, nullptr)) {
 		m_logger.error("Cannot create session " + get_session_name() + " branch: there is no link with queue and webrtcbin!");
 		m_send_callback(boost::json::serialize(
 			make_json(false, SIG_TYPE_CONNECT, "Internal error!"))
@@ -148,6 +148,8 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 	boost::json::object opened_msg = UWebRTCSession::make_json(true, SIG_TYPE_CONNECT, message);
 	m_send_callback(boost::json::serialize(opened_msg));
 	m_logger.info(message);
+
+	return true;
 }
 
 void UWebRTCSession::teardown() {
