@@ -36,9 +36,10 @@ int main()
 
 	t.detach();
 	*/
+	setenv("GST_DEBUG", "h264parse:6,rtph264pay:6,webrtcbin:5", 1);
 	gst_init(nullptr, nullptr);
 	gst_debug_set_active(TRUE);
-	gst_debug_set_default_threshold(GST_LEVEL_INFO);
+	//gst_debug_set_default_threshold(GST_LEVEL_INFO);
 
 	auto media_setting = varan::neural::FMediaSettings{};
 	auto center = varan::neural::UMediaCenter{ media_setting };
@@ -48,25 +49,28 @@ int main()
 	std::vector<varan::neural::FCameraOptions> vector_options = {
 		varan::neural::FCameraOptions{
 			"camera_1",
-			"rtsp://admin:VniiTest@192.168.1.12:554/ISAPI/Streaming/Channels/101",
+			"rtsp://admin:VniiTest@192.168.1.11:554/ISAPI/Streaming/Channels/101",
 			"/home/orangepi/records/camera_1", 10,
 			true, false, true, 25, 32, 1000, 25
 		},
-		/*varan::neural::FCameraOptions{
+		varan::neural::FCameraOptions{
 			"camera_2",
 			"rtsp://admin:VniiTest@192.168.1.12:554/ISAPI/Streaming/Channels/101",
-			true, false, true, 25, 32, 0, 1000, 10
+			"/home/orangepi/records/camera_2", 10,
+			false, false, true, 25, 32, 1000, 25
 		},
 		varan::neural::FCameraOptions{
 			"camera_3",
 			"rtsp://admin:VniiTest@192.168.1.13:554/cam/realmonitor?channel=1&subtype=0",
-			true, false, true, 25, 32, 0, 1000, 10
+			"/home/orangepi/records/camera_3", 10,
+			true, false, true, 25, 32, 1000, 25
 		},
 		varan::neural::FCameraOptions{
 			"camera_4",
 			"rtsp://admin:VniiTest@192.168.1.14:554/cam/realmonitor?channel=1&subtype=0",
-			true, false, true, 25, 32, 0, 1000, 10
-		}*/
+			"/home/orangepi/records/camera_4", 10,
+			false, false, true, 25, 32, 1000, 25
+		}
 	};
 
 	// Создание камер

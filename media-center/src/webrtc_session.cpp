@@ -79,7 +79,12 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 	// настройки pay для webrtcbin
 	g_object_set(m_pay,
 		"pt", 96,
-		"config-interval", 1,
+		"config-interval", -1,
+		nullptr
+	);
+
+	g_object_set(m_webrtcbin,
+		"bundle-policy", GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE,
 		nullptr
 	);
 
@@ -358,7 +363,7 @@ void UWebRTCSession::on_ice_candidate(GstElement* webrtcbin, guint mlineindex, g
 
 	std::string serialized_ice_message = boost::json::serialize(ice_msg);
 	session->send_message(serialized_ice_message);
-	session->get_logger().info(session->get_session_name() + ": sended ICE candidate\n\t" + serialized_ice_message);
+	session->get_logger().debug(session->get_session_name() + ": sended ICE candidate!");
 }
 
 boost::json::object UWebRTCSession::make_json(

@@ -81,39 +81,6 @@ namespace neural {
 		using TUniqueGst = std::unique_ptr<GstElement, decltype(&gst_object_unref)>;
 		using TUniqueBus = std::unique_ptr<GstBus, decltype(&gst_object_unref)>;
 
-		/*
-		struct FWebRtcSession {
-			CSignalingCallback send_callback;
-			std::string client_id;
-			std::string camera_name;
-			TUniqueGst webrtcbin;
-			TUniqueGst queue;
-
-			FWebRtcSession(
-				const std::string& client_id_, 
-				const std::string& camera_name_, 
-				CSignalingCallback callback_
-			)
-				: client_id(client_id_)
-				, camera_name(camera_name_)
-				, webrtcbin(nullptr, gst_object_unref)
-				, queue(nullptr, gst_object_unref) 
-				, send_callback(std::move(callback_))
-			{}
-
-			~FWebRtcSession() {
-				if (webrtcbin) {
-					gst_element_set_state(webrtcbin.get(), GST_STATE_NULL);
-				}
-				if (queue) {
-					gst_element_set_state(queue.get(), GST_STATE_NULL);
-				}
-			}
-
-			void send_message(const std::string& message) { send_callback(message); }
-		};
-		*/
-
 		explicit UCamera(
 			const FCameraOptions& options, 
 			const FWebSocketOptions& socket_options, 
@@ -135,10 +102,6 @@ namespace neural {
 		void stop_websocket_client();
 
 		void set_frame_callback(CFrameCallback callback);
-
-		bool create_gst_pipeline_read_frames();
-
-		bool create_gst_pipeline_webrtc();
 
 		std::string get_name();
 
@@ -164,10 +127,6 @@ namespace neural {
 
 		bool m_initialized;
 		bool m_gst_initialized;
-
-		//std::thread m_reading_thread;
-		//std::thread m_decode_thread;
-		//std::thread m_push_thread;
 
 		GMainLoop* m_main_loop = nullptr;
 		std::thread m_gst_loop_thread;
@@ -232,34 +191,13 @@ namespace neural {
 
 		// GStreamer WebRTC
 
-		void push_frames_to_gst_pipeline();
-
-		bool set_streaming_pipeline_state(GstState state);
-
 		void open_new_session(const std::string& client_id);
 
 		void close_session(const std::string& client_id);
 
-		static void on_negotiation_needed(GstElement* webrtcbin, gpointer data);
-
-		static void on_offer_created(GstPromise* promise, gpointer data);
-
-		static void on_ice_candidate(GstElement* webrtcbin, guint mlineindex, gchar* candidate, gpointer data);
-
-		static void on_ice_connection_state(GstElement* session, GstWebRTCICEConnectionState state, gpointer data);
-
 		// ==================================================================
 		// json сообщений
 		// ==================================================================
-
-		/*
-		static boost::json::object json(
-			const FWebRtcSession* session, 
-			bool successed, 
-			const std::string& type, 
-			const std::string& description
-		);
-		*/
 
 		boost::json::object json(
 			const std::string& client,

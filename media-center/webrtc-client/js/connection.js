@@ -21,18 +21,6 @@ function extractCameraId(url) {
     return parts[parts.length - 1];
 }
 
-function forceH264(sdp) {
-    // 1. Разрешаем PT 96 в медиалинии
-    sdp = sdp.replace(/m=video \d+ UDP\/TLS\/RTP\/SAVPF .+/,
-        "m=video 9 UDP/TLS/RTP/SAVPF 96");
-
-    // 2. Подменяем профиль на совместимый с Chrome
-    sdp = sdp.replace(/profile-level-id=[0-9A-Fa-f]+/,
-        "profile-level-id=42e01f");
-
-    return sdp;
-}
-
 async function getClientIP() {
     try {
         const res = await fetch("https://api.ipify.org?format=json");
@@ -59,6 +47,8 @@ function createPeerConnection(clientId, cameraId) {
     pc = new RTCPeerConnection({
         //iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
     });
+
+    pc.addTransceiver("video", { direction: "recvonly" });
 
     pc.onicecandidate = event => {
         if (event.candidate) {
@@ -136,11 +126,8 @@ async function startConnection(url) {
 
             const offer = {
                 type: "offer",
-                //sdp: forceH264(msg.sdp)
                 sdp: msg.sdp
             };
-
-            pc.addTransceiver("video", { direction: "recvonly" });
 
             await pc.setRemoteDescription(new RTCSessionDescription(offer));
 
@@ -153,7 +140,7 @@ async function startConnection(url) {
                 client_id: clientId,
                 camera: cameraId,
                 description: "SDP answer from client",
-                sdp: answer.sdp   // <-- важный момент: просто строка SDP
+                sdp: answer.sdp
             };
 
             log("Отправляю ответ:", response);
@@ -174,8 +161,11 @@ async function startConnection(url) {
                 const iceCandidateInit = {
                     candidate: msg.candidate,
                     sdpMLineIndex: msg.sdpMLineIndex,
-                    sdpMid: msg.sdpMid || "video0"  // если sdpMid нет, задаём "video0" по умолчанию
                 };
+
+                if (msg.sdpMid !== undefined) {
+                    iceCandidateInit.sdpMid = msg.sdpMid;
+                }
 
                 await pc.addIceCandidate(new RTCIceCandidate(iceCandidateInit));
                 //log("Добавлен ICE кандидат от камеры");

@@ -58,8 +58,8 @@ button:hover {
 /* Видео по центру */
 video#remoteVideo {
     background: black;
-    width: 640px;
-    height: 480px;
+    width: 1280px;
+    height: 720px;
     border-radius: 8px;
     box-shadow: 0 0 20px rgba(0, 0, 0, 0.7);
     margin-bottom: 20px;
