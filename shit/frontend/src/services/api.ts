@@ -1,5 +1,5 @@
 import { FASTAPI_BASE } from '../utils/constants';
-import { Camera, Loader, CameraFormData } from '../types';
+import type {Camera, Loader, CameraFormData} from '../types';
 
 class ApiClient {
   private baseUrl: string;
