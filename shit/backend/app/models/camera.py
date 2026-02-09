@@ -49,7 +49,8 @@ class CameraUpdate(BaseModel):
     height: Optional[int] = Field(None, ge=240, le=2160)
     reconnect_interval: Optional[int] = Field(None, ge=1, le=60)
 
-    @validator('rtsp_url')
+    @field_validator('rtsp_url')  # ✅ ПРАВИЛЬНО
+    @classmethod
     def validate_rtsp_url(cls, v):
         if v is not None and not v.startswith('rtsp://'):
             raise ValueError('URL должен начинаться с rtsp://')
