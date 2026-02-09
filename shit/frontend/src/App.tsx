@@ -5,8 +5,8 @@ import Dashboard from './components/Dashboard';
 import CameraSettings from './components/CameraSettings';
 import LoaderSettings from './components/LoaderSettings';
 import SystemStatus from './components/SystemStatus';
-import { wsService } from './services/websocket.ts';
-import { SystemState } from './types/index.ts';
+import { wsService } from './services/websocket';
+import { SystemState } from './types';
 
 const App: React.FC = () => {
   const [currentTab, setCurrentTab] = useState(0);

@@ -13,8 +13,8 @@ import {
   Videocam as VideocamIcon,
   Memory as MemoryIcon,
 } from '@mui/icons-material';
-import { SystemState } from '../types/index.ts';
-import { FLASK_BASE, ENDPOINT_MAP } from '../utils/constants.ts';
+import { SystemState } from '../types';
+import { FLASK_BASE, ENDPOINT_MAP } from '../utils/constants';
 
 interface DashboardProps {
   state: SystemState;

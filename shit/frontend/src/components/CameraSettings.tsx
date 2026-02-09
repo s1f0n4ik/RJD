@@ -27,8 +27,8 @@ import {
   Delete as DeleteIcon,
   Refresh as RefreshIcon,
 } from '@mui/icons-material';
-import { api } from '../services/api.ts';
-import { Camera, CameraFormData } from '../types/index.ts';
+import { api } from '../services/api';
+import { Camera, CameraFormData } from '../types';
 
 const CameraSettings: React.FC = () => {
   const [cameras, setCameras] = useState<Camera[]>([]);
