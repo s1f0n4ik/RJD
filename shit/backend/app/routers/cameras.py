@@ -1,6 +1,5 @@
 from fastapi import APIRouter, HTTPException, status, Request
-from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+
 from typing import List
 import logging
 
@@ -15,17 +14,6 @@ from app.services.flask_client import FlaskClientError
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-
-@router.exception_handler(RequestValidationError)
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    """Логирование ошибок валидации"""
-    logger.error(f"Validation error: {exc.errors()}")
-    logger.error(f"Request body: {await request.body()}")
-    return JSONResponse(
-        status_code=422,
-        content={"detail": exc.errors(), "body": exc.body},
-    )
 
 
 @router.get("/cameras", response_model=List[CameraResponse])
