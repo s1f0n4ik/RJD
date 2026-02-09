@@ -28,7 +28,7 @@ import {
   Refresh as RefreshIcon,
 } from '@mui/icons-material';
 import { api } from '../services/api';
-import { Camera, CameraFormData } from '../types';
+import type {Camera, CameraFormData} from '../types';
 
 const CameraSettings: React.FC = () => {
   const [cameras, setCameras] = useState<Camera[]>([]);
