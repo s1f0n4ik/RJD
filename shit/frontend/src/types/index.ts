@@ -1,3 +1,4 @@
+// src/types/index.ts
 export interface Camera {
   camera_name: string;
   rtsp_url: string;
