@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     CORS_ORIGINS: list = [
         "http://localhost:3000",
         "http://localhost",
+        "http://192.168.1.2:3000",
+        "http://192.168.1.2",
     ]
 
     class Config:

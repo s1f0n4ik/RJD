@@ -95,20 +95,32 @@ const CameraSettings: React.FC = () => {
 
   const handleSave = async () => {
     try {
+      // Подготовка данных для отправки
+      const payload = {
+        camera_name: formData.camera_name.trim(),
+        rtsp_url: formData.rtsp_url.trim(),
+        width: formData.width || null,  // Явно преобразуем в null
+        height: formData.height || null,
+        reconnect_interval: formData.reconnect_interval || 5
+      };
+
+      console.log('Sending camera data:', payload);  // ❗ Для отладки
+
       if (editingCamera) {
         // Обновление
-        const { camera_name, ...updateData } = formData;
+        const { camera_name, ...updateData } = payload;
         await api.updateCamera(editingCamera, updateData);
         showSnackbar('Камера обновлена', 'success');
       } else {
         // Создание
-        await api.createCamera(formData);
+        await api.createCamera(payload);
         showSnackbar('Камера добавлена', 'success');
       }
       handleCloseDialog();
       loadCameras();
     } catch (error: any) {
-      showSnackbar(error.message, 'error');
+      console.error('Save error:', error);  // ❗ Для отладки
+      showSnackbar(error.message || 'Ошибка сохранения', 'error');
     }
   };
 

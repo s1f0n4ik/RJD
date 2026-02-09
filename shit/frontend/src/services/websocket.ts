@@ -1,5 +1,5 @@
 import { WS_URL } from '../utils/constants.ts';
-import type {SystemState, WebSocketMessage} from '../types/index.ts';
+import type {SystemState, WebSocketMessage} from '../types';
 
 export class WebSocketService {
   private ws: WebSocket | null = null;
