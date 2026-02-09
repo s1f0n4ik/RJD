@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional
 from datetime import datetime
 
@@ -12,33 +12,33 @@ class LoaderBase(BaseModel):
     server_endpoint: str = Field(..., description="Endpoint для MJPEG: /neural_1, /neural_2, /neural_3")
     loader_matrix: List[List[str]] = Field(..., min_items=1, description="Матрица размещения камер")
 
-    @validator('weights_path')
+    @field_validator('weights_path')
     def validate_weights_path(cls, v):
         if not v.endswith('.rknn'):
             raise ValueError('weights_path должен заканчиваться на .rknn')
         return v
 
-    @validator('classes_path')
+    @field_validator('classes_path')
     def validate_classes_path(cls, v):
         if not v.endswith('.json'):
             raise ValueError('classes_path должен заканчиваться на .json')
         return v
 
-    @validator('img_size')
+    @field_validator('img_size')
     def validate_img_size(cls, v):
         allowed_sizes = [320, 416, 640, 1280]
         if v not in allowed_sizes:
             raise ValueError(f'img_size должен быть одним из {allowed_sizes}')
         return v
 
-    @validator('server_endpoint')
+    @field_validator('server_endpoint')
     def validate_endpoint(cls, v):
         from app.config import settings
         if v not in settings.AVAILABLE_ENDPOINTS:
             raise ValueError(f'endpoint должен быть одним из {settings.AVAILABLE_ENDPOINTS}')
         return v
 
-    @validator('loader_matrix')
+    @field_validator('loader_matrix')
     def validate_matrix(cls, v):
         if not v or not any(v):
             raise ValueError('loader_matrix не может быть пустой')
@@ -63,13 +63,13 @@ class LoaderUpdate(BaseModel):
     server_endpoint: Optional[str] = None
     loader_matrix: Optional[List[List[str]]] = None
 
-    @validator('weights_path')
+    @field_validator('weights_path')
     def validate_weights_path(cls, v):
         if v is not None and not v.endswith('.rknn'):
             raise ValueError('weights_path должен заканчиваться на .rknn')
         return v
 
-    @validator('classes_path')
+    @field_validator('classes_path')
     def validate_classes_path(cls, v):
         if v is not None and not v.endswith('.json'):
             raise ValueError('classes_path должен заканчиваться на .json')
