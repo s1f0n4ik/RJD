@@ -7,6 +7,7 @@
 UWebRTCSession::UWebRTCSession(
 	std::string client, 
 	std::string camera, 
+	bool is_sub,
 	GstElement* pipeline, 
 	GstElement* tee,
 	CSendMessage send_callback,
@@ -14,6 +15,7 @@ UWebRTCSession::UWebRTCSession(
 )
 	: m_client_id(client)
 	, m_camera_name(camera)
+	, m_is_sub(is_sub)
 	, m_pipeline(pipeline)
 	, m_tee(tee)
 	, m_send_callback(std::move(send_callback))
@@ -55,10 +57,10 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 
 	// Создание всех необходимых элементов
 	m_queue = gst_element_factory_make("queue", nullptr);
-	m_pay = gst_element_factory_make(codec == std::string("H264") ? "rtph264pay" : "rtph265pay", nullptr);
+	if (m_is_sub) m_pay = gst_element_factory_make(codec == std::string("H264") ? "rtph264pay" : "rtph265pay", nullptr);
 	m_webrtcbin = gst_element_factory_make("webrtcbin", nullptr);
 
-	if (!m_queue || !m_pay || !m_webrtcbin) {
+	if (!m_queue || ((!m_pay) && m_is_sub) || !m_webrtcbin) {
 		std::ostringstream oss;
 		oss << "Cannot create branch for session " + get_session_name() << ": Error with creation gst elements!"
 			<< "\n\tQueue: " << (!m_queue ? "NULL" : "EXISTING")
@@ -77,18 +79,25 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 	);
 
 	// настройки pay для webrtcbin
-	g_object_set(m_pay,
-		"pt", 96,
-		"config-interval", -1,
-		nullptr
-	);
+	if (m_pay) {
+		g_object_set(m_pay,
+			"pt", 96,
+			"config-interval", 1,
+			nullptr
+		);
+	}
 
 	g_object_set(m_webrtcbin,
 		"bundle-policy", GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE,
 		nullptr
 	);
 
-	gst_bin_add_many(GST_BIN(m_pipeline), m_queue, m_pay, m_webrtcbin, nullptr);
+	if (m_pay) {
+		gst_bin_add_many(GST_BIN(m_pipeline), m_queue, m_pay, m_webrtcbin, nullptr);
+	}
+	else {
+		gst_bin_add_many(GST_BIN(m_pipeline), m_queue, m_webrtcbin, nullptr);
+	}
 
 	using TGstUniqePad = std::unique_ptr<GstPad, decltype(&gst_object_unref)>;
 
@@ -131,7 +140,8 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 	gst_object_unref(queue_sink_pad);
 
 	// Линк созданных объектов друг с другом
-	if (!gst_element_link_many(m_queue, m_pay, m_webrtcbin, nullptr)) {
+	auto link_result = m_pay ? gst_element_link_many(m_queue, m_pay, m_webrtcbin, nullptr) : gst_element_link_many(m_queue, m_webrtcbin, nullptr);
+	if (!link_result) {
 		m_logger.error("Cannot create session " + get_session_name() + " branch: there is no link with queue and webrtcbin!");
 		m_send_callback(boost::json::serialize(
 			make_json(false, SIG_TYPE_CONNECT, "Internal error!"))
@@ -146,7 +156,7 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 
 	// Синхронихируем состояние с основным пайплайном
 	gst_element_sync_state_with_parent(m_queue);
-	gst_element_sync_state_with_parent(m_pay);
+	if (m_pay) gst_element_sync_state_with_parent(m_pay);
 	gst_element_sync_state_with_parent(m_webrtcbin);
 
 	std::string message = "Branch session " + get_session_name() + " has been created!";
@@ -162,7 +172,7 @@ void UWebRTCSession::teardown() {
 	gst_pad_add_probe(m_tee_pad_src, GST_PAD_PROBE_TYPE_BLOCK_DOWNSTREAM, nullptr, nullptr, nullptr);
 
 	gst_element_set_state(m_webrtcbin, GST_STATE_NULL);
-	gst_element_set_state(m_pay, GST_STATE_NULL);
+	if (m_pay) gst_element_set_state(m_pay, GST_STATE_NULL);
 	gst_element_set_state(m_queue, GST_STATE_NULL);
 
 	GstPad* queue_sink = gst_element_get_static_pad(m_queue, "sink");
@@ -176,7 +186,12 @@ void UWebRTCSession::teardown() {
 	gst_object_unref(m_tee_pad_src);
 	m_tee_pad_src = nullptr;
 
-	gst_bin_remove_many(GST_BIN(m_pipeline), m_webrtcbin, m_pay, m_queue, nullptr);
+	if (m_pay) {
+		gst_bin_remove_many(GST_BIN(m_pipeline), m_webrtcbin, m_pay, m_queue, nullptr);
+	}
+	else {
+		gst_bin_remove_many(GST_BIN(m_pipeline), m_webrtcbin, m_queue, nullptr);
+	}
 	m_is_valid = false;
 }
 

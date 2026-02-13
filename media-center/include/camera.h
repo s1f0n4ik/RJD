@@ -41,19 +41,22 @@ namespace neural {
 	using CFrameCallback = std::function<void(std::string& name, std::unique_ptr<FDrmFrame>)>;
 
 	struct FCameraOptions {
-		std::string name;
-		std::string rtsp_url; // полная ссылка с логином и паролем
+		std::string name = "unnamed";
+		std::string description = "description";
 
+		// Основной поток
+		std::string main_rtsp_url = ""; // полная ссылка с логином и паролем
 		std::filesystem::path record_path = ""; // путь абсолютный
 		int segment_duration = 600; // в секундах
+		int main_latency = 0;
+		bool b_main_udp = false;
 
-		bool b_use_udp;
-		bool b_use_buffer;
-		bool b_low_latency;
-		int framerate;
-		int probe_size;
-		int analyze_duration;
-		int reconnect_delay; // в секундах
+		// Дополнительный поток
+		std::string sub_rtsp_url;
+		int sub_latency = 0;
+		bool b_sub_udp = true;
+
+		int reconnect_delay = 10; // в секундах
 	};
 
 	struct FWebSocketOptions {
@@ -73,6 +76,16 @@ namespace neural {
 
 		GstElement* sink_element = nullptr;
 		GstElement* depay = nullptr;
+	};
+
+	struct FPipeline {
+		// Сам пайплайн
+		GstElement* pipeline;
+		// Список разветвлений
+		std::map<std::string, GstElement*> tees;
+
+		// Данные потока
+		FProbeResult data;
 	};
 
 	class UCamera : public ICameraSignaling {
@@ -135,8 +148,11 @@ namespace neural {
 		std::mutex m_signal_mutex;
 
 		// Поля Gstream для считывания кадров
-		TUniqueGst m_reading_pipeline;
-		TUniqueGst m_reading_tee;
+		TUniqueGst m_main_pipeline;
+		TUniqueGst m_main_split_tee;
+
+		TUniqueGst m_sub_pipeline;
+		TUniqueGst m_sub_tee;
 
 		// Ожидающая очередь для хранения пакетов
 		//using UniquePacket = std::unique_ptr<AVPacket, std::function<void(AVPacket*)>>;
@@ -148,10 +164,6 @@ namespace neural {
 
 		// Поля для GStream
 		FWebSocketOptions m_socket_options;
-
-		TUniqueGst m_webrtcbin_pipeline;
-		TUniqueGst m_webrtcbin_appsrc;
-		TUniqueGst m_webrtcbin_tee;
 
 		std::map<std::string, std::unique_ptr<UWebRTCSession>> m_opened_sessions;
 		std::mutex m_session_mutex;
@@ -168,7 +180,7 @@ namespace neural {
 		ULogger m_logger;
 
 		// GStreamer Проверка кадров, получение инфы с камер
-
+		/*
 		static void on_rtspsrc_pad_added(GstElement* src, GstPad* pad, gpointer user_data);
 
 		static void on_rtspsrc_pad_depay_added(GstElement* src, GstPad* pad, gpointer user_data);
@@ -183,18 +195,24 @@ namespace neural {
 
 		bool probe_camera_with_reconnect(int attempts = 10, int timeout = 2, int delay = 2);
 
+		// Запуск конкретного пайплайна
+		// pipeline: "main", "sub"
+		bool start_pipeline(std::string pipeline_str);
+
 		// GStreamer Считывание кадров с камеры
 
-		bool initialize_reading_pipeline();
+		bool initialize_main_pipeline();
 
 		bool start_reading_pipeline();
 
 		// GStreamer WebRTC
 
+		bool initialize_sub_pipeline();
+
 		void open_new_session(const std::string& client_id);
 
 		void close_session(const std::string& client_id);
-
+		*/
 		// ==================================================================
 		// json сообщений
 		// ==================================================================
@@ -208,7 +226,7 @@ namespace neural {
 
 		// Прочее
 
-		static std::string make_start_timestamp();
+		//static std::string make_start_timestamp();
 	};
 
 } // namespace neural

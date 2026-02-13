@@ -79,3 +79,15 @@ inline GstVideoFormat drm_to_gst_video_format(uint32_t fourcc)
         return GST_VIDEO_FORMAT_UNKNOWN;
     }
 }
+
+static std::string make_start_timestamp() {
+    auto now = std::chrono::system_clock::now();
+    std::time_t t = std::chrono::system_clock::to_time_t(now);
+
+    std::tm tm{};
+    localtime_r(&t, &tm);
+
+    std::ostringstream oss;
+    oss << std::put_time(&tm, "%Y-%m-%d_%H-%M-%S");
+    return oss.str();
+}

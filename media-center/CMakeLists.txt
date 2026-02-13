@@ -15,6 +15,8 @@ file(
 	GLOB_RECURSE SRC_FILES 
 	${CMAKE_CURRENT_SOURCE_DIR}/src/*.cc 
 	${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/pipelines/*.cc 
+	${CMAKE_CURRENT_SOURCE_DIR}/src/pipelines/*.cpp
 )
 
 find_package(OpenCV REQUIRED)
@@ -43,7 +45,7 @@ pkg_check_modules(GST_ALL REQUIRED
 find_package(OpenSSL REQUIRED)
 find_package(ZLIB REQUIRED)
 
-add_executable(${PROJECT_NAME} ${SRC_FILES})
+add_executable(${PROJECT_NAME} ${SRC_FILES} "src/pipelines/sub_pipeline.cpp")
 
 if (CMAKE_VERSION VERSION_GREATER 3.12)
   set_property(TARGET media-center PROPERTY CXX_STANDARD 20)

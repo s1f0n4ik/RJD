@@ -39,11 +39,10 @@ namespace neural {
 		, m_initialized(false)
 		, m_gst_initialized(false)
 		, m_frames_buffer(1)
-		, m_reading_pipeline(nullptr, &gst_object_unref)
-		, m_webrtcbin_pipeline(nullptr, &gst_object_unref)
-		, m_reading_tee(nullptr, &gst_object_unref)
-		, m_webrtcbin_appsrc(nullptr, &gst_object_unref)
-		, m_webrtcbin_tee(nullptr, &gst_object_unref)
+		, m_main_pipeline(nullptr, &gst_object_unref)
+		, m_main_split_tee(nullptr, &gst_object_unref)
+		, m_sub_pipeline(nullptr, &gst_object_unref)
+		, m_sub_tee(nullptr, &gst_object_unref)
 		, m_io_context()
 		, m_work_guard(boost::asio::make_work_guard(m_io_context))
 		, m_websocket_client(nullptr)
@@ -85,13 +84,13 @@ namespace neural {
 
 		try {
 			start_g_loop();
-
+			
 			if (probe_camera_with_reconnect() == false) {
 				m_logger.error("False to connect to camera " + m_options.name);
 				stop_g_loop();
 				return false;
 			}
-			if (initialize_reading_pipeline() == false) {
+			if (initialize_main_pipeline() == false) {
 				m_logger.error("False to initialize reading pipeline!");
 				stop_g_loop();
 				return false;
@@ -120,7 +119,11 @@ namespace neural {
 
 		start_websocket_client();
 
-		if (!start_reading_pipeline()) {
+		if (!start_pipeline("main")) {
+			return false;
+		}
+
+		if (!start_pipeline("sub")) {
 			return false;
 		}
 
@@ -148,7 +151,7 @@ namespace neural {
 
 	// Статическая функция, которая срабатывает при получении автокапса
 	// Берем значения этого капса
-	
+	/*
 	GstPadProbeReturn UCamera::on_rtsp_caps_event(GstPad* pad, GstPadProbeInfo* info, gpointer user_data)
 	{
 		auto* result = static_cast<FProbeResult*>(user_data);
@@ -279,7 +282,7 @@ namespace neural {
 		m_logger.info("Elements at probe pipeline created successfully!");
 
 		g_object_set(src,
-			"location", m_options.rtsp_url.c_str(),
+			"location", m_options.main_rtsp_url.c_str(),
 			"protocols", GST_RTSP_LOWER_TRANS_TCP,
 			"latency", 0,
 			nullptr
@@ -376,8 +379,8 @@ namespace neural {
 		}
 
 		g_object_set(src,
-			"location", m_options.rtsp_url.c_str(),
-			"protocols", m_options.b_use_udp ? GST_RTSP_LOWER_TRANS_UDP : GST_RTSP_LOWER_TRANS_TCP,
+			"location", m_options.main_rtsp_url.c_str(),
+			"protocols", GST_RTSP_LOWER_TRANS_TCP,
 			"latency", 0,
 			nullptr
 		);
@@ -482,32 +485,52 @@ namespace neural {
 	// ====================================
 
 	bool UCamera::start_reading_pipeline() {
-		if (!m_reading_pipeline) {
+		if (!m_main_pipeline) {
 			m_logger.error("Reading pipeline is not existing! Failed to start");
 			m_probe_result.ready = false;
 			return false;
 		}
 		else {
-			if (m_reading_pipeline.get()->current_state == GST_STATE_PLAYING) {
+			if (m_main_pipeline.get()->current_state == GST_STATE_PLAYING) {
 				m_logger.warn("Reading pipeline already playing! Warning at start!");
 				return true;
 			}
 			else {
 				// Запуска reading pipeline
-				gst_element_set_state(m_reading_pipeline.get(), GST_STATE_PLAYING);
+				gst_element_set_state(m_main_pipeline.get(), GST_STATE_PLAYING);
 				return true;
 			}
 		}
 	}
 
-	bool UCamera::initialize_reading_pipeline() {
+	bool UCamera::start_pipeline(std::string pipeline_str) {
+		TUniqueGst& pipeline = pipeline_str == std::string("main") ? m_main_pipeline : m_sub_pipeline;
+		if (!pipeline) {
+			m_logger.error(std::string(gst_element_get_name(pipeline.get())) + " is not existing! Failed to start!");
+			return false;
+		}
+		else {
+			if (pipeline.get()->current_state == GST_STATE_PLAYING) {
+				m_logger.warn(std::string(gst_element_get_name(pipeline.get())) + " pipeline already playing!Warning at start!");
+				return true;
+			}
+			else {
+				// Запуска reading pipeline
+				gst_element_set_state(m_main_pipeline.get(), GST_STATE_PLAYING);
+				m_logger.info(std::string(gst_element_get_name(pipeline.get())) + " successfully started!");
+				return true;
+			}
+		}
+	}
+
+	bool UCamera::initialize_main_pipeline() {
 
 		if (m_probe_result.ready == false) {
 			m_logger.error("Failed to initialize reading gst pipeline due to failed probing!");
 			return false;
 		}
 
-		m_reading_pipeline = TUniqueGst(gst_pipeline_new("reading_pipeline"), &gst_object_unref);
+		m_main_pipeline = TUniqueGst(gst_pipeline_new("reading_pipeline"), &gst_object_unref);
 
 		std::string depay_str, parse_str;
 		if (m_probe_result.codec_name == std::string("H264")) {
@@ -522,13 +545,13 @@ namespace neural {
 		auto src = gst_element_factory_make("rtspsrc", "src");
 		auto depay = gst_element_factory_make(depay_str.c_str(), "depay");
 		auto parse = gst_element_factory_make(parse_str.c_str(), "parse");
-		m_reading_tee = TUniqueGst(gst_element_factory_make("tee", "tee_branch"), &gst_object_unref);
+		m_main_split_tee = TUniqueGst(gst_element_factory_make("tee", "tee_branch"), &gst_object_unref);
 		auto deconding_queue = gst_element_factory_make("queue", "deconding_queue");
 		auto decoder = gst_element_factory_make("mppvideodec", "decoder");
 		auto sink = gst_element_factory_make("appsink", "sink");
 
 		auto clean_up = [&]() {
-			m_reading_pipeline.reset();
+			m_main_pipeline.reset();
 
 			if (src) gst_object_unref(src);
 			if (depay) gst_object_unref(depay);
@@ -538,14 +561,14 @@ namespace neural {
 			if (sink) gst_object_unref(sink);
 		};
 
-		if (!m_reading_pipeline || !src || !depay || !parse || !m_reading_tee || !deconding_queue || !decoder || !sink) {
+		if (!m_main_pipeline || !src || !depay || !parse || !m_main_split_tee || !deconding_queue || !decoder || !sink) {
 			std::ostringstream oss;
 			oss << "Failed to create elements at reading pipeline: "
-				<< "\n\tpipeline=" << (m_reading_pipeline ? "OK" : "NULL") << ","
+				<< "\n\tpipeline=" << (m_main_pipeline ? "OK" : "NULL") << ","
 				<< "\n\tsrc=" << (src ? "OK" : "NULL") << ","
 				<< "\n\tdepay=" << (depay ? "OK" : "NULL") << ","
 				<< "\n\tparse=" << (parse ? "OK" : "NULL") << ","
-				<< "\n\ttee=" << (m_reading_tee ? "OK" : "NULL") << ","
+				<< "\n\ttee=" << (m_main_split_tee ? "OK" : "NULL") << ","
 				<< "\n\tdeconding_queue=" << (deconding_queue ? "OK" : "NULL") << ","
 				<< "\n\tdecoder=" << (decoder ? "OK" : "NULL") << ","
 				<< "\n\tsink=" << (sink ? "OK" : "NULL") << ",";
@@ -556,9 +579,9 @@ namespace neural {
 
 		g_object_set(
 			src,
-			"location", m_options.rtsp_url.c_str(),
-			"latency", 200,
-			"protocols", m_options.b_use_udp ? GST_RTSP_LOWER_TRANS_UDP : GST_RTSP_LOWER_TRANS_TCP,
+			"location", m_options.main_rtsp_url.c_str(),
+			"latency", m_options.main_latency,
+			"protocols", m_options.b_main_udp ? GST_RTSP_LOWER_TRANS_UDP : GST_RTSP_LOWER_TRANS_TCP,
 			nullptr
 		);
 
@@ -584,19 +607,19 @@ namespace neural {
 			nullptr
 		);
 
-		gst_bin_add_many(GST_BIN(m_reading_pipeline.get()),
-			src, depay, parse, m_reading_tee.get(), deconding_queue, decoder, sink, nullptr
+		gst_bin_add_many(GST_BIN(m_main_pipeline.get()),
+			src, depay, parse, m_main_split_tee.get(), deconding_queue, decoder, sink, nullptr
 		);
 
 		// Связывание основного потока
-		if (!gst_element_link_many(depay, parse, m_reading_tee.get(), nullptr)) {
+		if (!gst_element_link_many(depay, parse, m_main_split_tee.get(), nullptr)) {
 			m_logger.error("Error with linking: src, depay, parse, tee!");
 			return false;
 		}
 
 		// Связывание ветки с декодером
 		// Связывание tee с decoding_queue
-		GstPad* tee_decode_pad = gst_element_request_pad_simple(m_reading_tee.get(), "src_%u");
+		GstPad* tee_decode_pad = gst_element_request_pad_simple(m_main_split_tee.get(), "src_%u");
 		//GstPad* tee_decode_pad = gst_element_get_request_pad(m_reading_tee.get(), "src_%u");
 		GstPad* queue_decode_pad = gst_element_get_static_pad(deconding_queue, "sink");
 
@@ -676,10 +699,10 @@ namespace neural {
 				nullptr
 			);
 
-			gst_bin_add_many(GST_BIN(m_reading_pipeline.get()), record_queue, splitmux, nullptr);
+			gst_bin_add_many(GST_BIN(m_main_pipeline.get()), record_queue, splitmux, nullptr);
 
 			// Связывание падов tee
-			GstPad* tee_record_pad = gst_element_request_pad_simple(m_reading_tee.get(), "src_%u");
+			GstPad* tee_record_pad = gst_element_request_pad_simple(m_main_split_tee.get(), "src_%u");
 			GstPad* queue_record_pad = gst_element_get_static_pad(record_queue, "sink");
 
 			if (gst_pad_link(tee_record_pad, queue_record_pad) != GST_PAD_LINK_OK) {
@@ -700,7 +723,139 @@ namespace neural {
 		return true;
 	}
 
+	bool UCamera::initialize_sub_pipeline() {
+		if (m_probe_result.ready == false) {
+			m_logger.error("Failed to initialize reading gst pipeline due to failed probing!");
+			return false;
+		}
 
+		m_main_pipeline = TUniqueGst(gst_pipeline_new("sub"), &gst_object_unref);
+
+		std::string depay_str, parse_str, pay_str;
+		if (m_probe_result.codec_name == std::string("H264")) {
+			depay_str = "rtph264depay";
+			parse_str = "h264parse";
+			pay_str = "rtph264pay";
+		}
+		else {
+			depay_str = "rtph265depay";
+			parse_str = "h265parse";
+			pay_str = "rtph265pay";
+		}
+
+		auto src = gst_element_factory_make("rtspsrc", "src");
+		auto depay = gst_element_factory_make(depay_str.c_str(), "depay");
+		auto parse = gst_element_factory_make(parse_str.c_str(), "parse");
+		auto pay = gst_element_factory_make(pay_str.c_str(), "pay");
+		m_sub_tee = TUniqueGst(gst_element_factory_make("tee", "tee"), &gst_object_unref);
+		auto queue = gst_element_factory_make("queue", "fake_queue");
+		auto sink = gst_element_factory_make("fakesink", "fake");
+
+		auto clean_up = [&]() {
+			m_main_pipeline.reset();
+
+			if (src) gst_object_unref(src);
+			if (depay) gst_object_unref(depay);
+			if (parse) gst_object_unref(parse);
+			if (pay) gst_object_unref(pay);
+			if (queue) gst_object_unref(queue);
+			if (sink) gst_object_unref(sink);
+		};
+
+		if (!m_main_pipeline || !src || !depay || !parse || !pay || !m_main_split_tee || !queue || !sink) {
+			std::ostringstream oss;
+			oss << "Failed to create elements at reading pipeline: "
+				<< "\n\tpipeline=" << (m_sub_pipeline ? "OK" : "NULL") << ","
+				<< "\n\tsrc=" << (src ? "OK" : "NULL") << ","
+				<< "\n\tdepay=" << (depay ? "OK" : "NULL") << ","
+				<< "\n\tparse=" << (parse ? "OK" : "NULL") << ","
+				<< "\n\tpay=" << (pay ? "OK" : "NULL") << ","
+				<< "\n\ttee=" << (m_sub_tee ? "OK" : "NULL") << ","
+				<< "\n\tqueue=" << (queue ? "OK" : "NULL") << ","
+				<< "\n\tsink=" << (sink ? "OK" : "NULL") << ",";
+
+			m_logger.error(oss.str());
+			clean_up();
+			return false;
+		}
+
+		g_object_set(
+			src,
+			"location", m_options.main_rtsp_url.c_str(),
+			"latency", m_options.sub_latency,
+			"protocols", m_options.b_sub_udp ? GST_RTSP_LOWER_TRANS_UDP : GST_RTSP_LOWER_TRANS_TCP,
+			nullptr
+		);
+
+		g_object_set(sink,
+			"sync", FALSE,
+			nullptr
+		);
+
+		g_object_set(
+			parse,
+			"config-interval", 1,
+			nullptr
+		);
+
+		g_object_set(queue,
+			"max-size-buffers", 0,
+			"max-size-bytes", 0,
+			"max-size-time", 0,
+			"leaky", 2,
+			nullptr
+		);
+
+		gst_bin_add_many(GST_BIN(m_sub_pipeline.get()),
+			src, depay, parse, pay, m_sub_tee.get(), queue, sink, nullptr
+		);
+
+		// Связывание основного потока
+		if (!gst_element_link_many(depay, parse, pay, m_sub_pipeline.get(), nullptr)) {
+			m_logger.error("Error with linking: src, depay, parse, tee!");
+			return false;
+		}
+
+		// Связывание ветки с декодером
+		// Связывание tee с decoding_queue
+		GstPad* tee_sub_pad = gst_element_request_pad_simple(m_sub_tee.get(), "src_%u");
+		//GstPad* tee_decode_pad = gst_element_get_request_pad(m_reading_tee.get(), "src_%u");
+		GstPad* queue_pad = gst_element_get_static_pad(queue, "sink");
+
+		if (gst_pad_link(tee_sub_pad, queue_pad) != GST_PAD_LINK_OK) {
+			m_logger.error("Failed to link tee to decoding queue");
+			return false;
+		}
+
+		gst_object_unref(queue_pad);
+
+		if (!gst_element_link(queue, sink)) {
+			m_logger.error("Error with linking sub pipeline: queue, sink!");
+			return false;
+		}
+
+		// Динамическое связывание падов src с depay
+		g_signal_connect(src, "pad-added", G_CALLBACK(+[](
+			GstElement* src,
+			GstPad* pad,
+			gpointer data
+			) {
+				GstElement* depay = static_cast<GstElement*>(data);
+				GstPad* sink_pad = gst_element_get_static_pad(depay, "sink");
+
+				if (gst_pad_is_linked(sink_pad)) {
+					gst_object_unref(sink_pad);
+					return;
+				}
+
+				if (gst_pad_link(pad, sink_pad) != GST_PAD_LINK_OK) {
+					g_printerr("Failed to link rtspsrc to jitterbuffer\n");
+				}
+
+				gst_object_unref(sink_pad);
+			}), depay);
+	}
+	*/
 	// ===========================================================
 	// Релиазация обмена сообщений SDP и ICE
 	// ===========================================================
@@ -800,6 +955,7 @@ namespace neural {
 		}
 	}
 
+	/*
 	void UCamera::open_new_session(const std::string& client_id) {
 		if (m_probe_result.codec_name.empty()) {
 			std::string err_text = "Cannot create new session: failed to probe video!";
@@ -807,6 +963,7 @@ namespace neural {
 			send_message(boost::json::serialize(
 				json(client_id, false, SIG_TYPE_CONNECT, err_text))
 			);
+			return;
 		}
 
 		if (m_opened_sessions.find(client_id) != m_opened_sessions.end()) {
@@ -820,8 +977,9 @@ namespace neural {
 		auto session = std::make_unique<UWebRTCSession>(
 			client_id, 
 			m_options.name, 
-			m_reading_pipeline.get(),
-			m_reading_tee.get(),
+			true,
+			m_sub_pipeline.get(),
+			m_sub_tee.get(),
 			[this](const std::string& message) {this->send_message(message); },
 			m_logger
 		);
@@ -853,6 +1011,7 @@ namespace neural {
 			m_logger.error("Error with closing session client " + client_id + ": " + std::string(e.what()));
 		}
 	}
+	*/
 
 
 	void UCamera::set_signaling_callback(CSignalingCallback callback) {
@@ -885,18 +1044,6 @@ namespace neural {
 		message[SIG_CAMERA] = m_options.name;
 		message[SIG_DECRIPTION] = description;
 		return message;
-	}
-
-	std::string UCamera::make_start_timestamp() {
-		auto now = std::chrono::system_clock::now();
-		std::time_t t = std::chrono::system_clock::to_time_t(now);
-
-		std::tm tm{};
-		localtime_r(&t, &tm);
-
-		std::ostringstream oss;
-		oss << std::put_time(&tm, "%Y-%m-%d_%H-%M-%S");
-		return oss.str();
 	}
 
 } // namespace neural

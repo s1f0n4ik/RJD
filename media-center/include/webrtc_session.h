@@ -13,7 +13,7 @@ class UWebRTCSession {
 	using CSendMessage = std::function<void(const std::string& msg)>;
 
 public:
-	UWebRTCSession(std::string client, std::string camera, GstElement* pipeline, GstElement* tee, CSendMessage send_callback, ULogger& logger);
+	UWebRTCSession(std::string client, std::string camera, bool is_sub, GstElement* pipeline, GstElement* tee, CSendMessage send_callback, ULogger& logger);
 
 	~UWebRTCSession();
 
@@ -61,6 +61,7 @@ private:
 	ULogger& m_logger;
 
 	bool m_is_valid;
+	bool m_is_sub;
 
 	static void on_negotiation_needed(GstElement* webrtcbin, gpointer data);
 

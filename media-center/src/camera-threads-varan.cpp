@@ -12,31 +12,9 @@ using namespace std;
 const std::string IP_ADDRESS = "0.0.0.0";
 const int PORT = 1111;
 
-void start_server(std::shared_ptr<varan::neural::USignalingServer> server, std::string adress = IP_ADDRESS, int port = PORT);
-
 int main()
 {
-	/*
-	// Инициализация сервера
-	boost::asio::io_context ioc;
-
-	// Удерживаем io_context живым, пока не скажем стоп
-	auto work_guard = boost::asio::make_work_guard(ioc);
-
-	// Сервер — shared_ptr, чтобы иметь доступ к нему в другом месте
-	auto server = std::make_shared<varan::neural::USignalingServer>(ioc);
-	start_server(server);
-
-	// Поток с вызовом run()
-	std::thread t([&]() {
-
-		ioc.run();
-		std::cout << "[asio] io_context finished\n";
-	});
-
-	t.detach();
-	*/
-	setenv("GST_DEBUG", "h264parse:6,rtph264pay:6,webrtcbin:5", 1);
+	//setenv("GST_DEBUG", "queue:6", 1);
 	gst_init(nullptr, nullptr);
 	gst_debug_set_active(TRUE);
 	//gst_debug_set_default_threshold(GST_LEVEL_INFO);
@@ -47,35 +25,79 @@ int main()
 	auto socket_options = varan::neural::FWebSocketOptions("192.168.1.254", "8765");
 
 	std::vector<varan::neural::FCameraOptions> vector_options = {
+		/*
 		varan::neural::FCameraOptions{
 			"camera_1",
 			"rtsp://admin:VniiTest@192.168.1.11:554/ISAPI/Streaming/Channels/101",
-			"/home/orangepi/records/camera_1", 10,
+			"/home/orangepi/records/camera_01", 10,
 			true, false, true, 25, 32, 1000, 25
 		},
 		varan::neural::FCameraOptions{
 			"camera_2",
 			"rtsp://admin:VniiTest@192.168.1.12:554/ISAPI/Streaming/Channels/101",
-			"/home/orangepi/records/camera_2", 10,
-			false, false, true, 25, 32, 1000, 25
+			"/home/orangepi/records/camera_02", 10,
+			true, false, true, 25, 32, 1000, 25
 		},
 		varan::neural::FCameraOptions{
 			"camera_3",
 			"rtsp://admin:VniiTest@192.168.1.13:554/cam/realmonitor?channel=1&subtype=0",
-			"/home/orangepi/records/camera_3", 10,
+			"/home/orangepi/records/camera_03", 10,
 			true, false, true, 25, 32, 1000, 25
 		},
 		varan::neural::FCameraOptions{
 			"camera_4",
 			"rtsp://admin:VniiTest@192.168.1.14:554/cam/realmonitor?channel=1&subtype=0",
-			"/home/orangepi/records/camera_4", 10,
-			false, false, true, 25, 32, 1000, 25
+			"/home/orangepi/records/camera_04", 10,
+			true, false, true, 25, 32, 1000, 25
+		},
+		varan::neural::FCameraOptions{
+			"camera_5",
+			"rtsp://admin:VniiTest@192.168.1.15:554/cam/realmonitor?channel=1&subtype=0",
+			"/home/orangepi/records/camera_05", 10,
+			true, false, true, 25, 32, 1000, 25
+		},
+		varan::neural::FCameraOptions{
+			"camera_6",
+			"rtsp://admin:VniiTest@192.168.1.16:554/ISAPI/Streaming/Channels/101",
+			"/home/orangepi/records/camera_06", 10,
+			true, false, true, 25, 32, 1000, 25
+		},
+		varan::neural::FCameraOptions{
+			"camera_7",
+			"rtsp://admin:VniiTest@192.168.1.17:554/cam/realmonitor?channel=1&subtype=0",
+			"/home/orangepi/records/camera_07", 10,
+			true, false, true, 25, 32, 1000, 25
+		},
+		varan::neural::FCameraOptions{
+			"camera_8",
+			"rtsp://admin:VniiTest@192.168.1.18:554/cam/realmonitor?channel=1&subtype=0",
+			"/home/orangepi/records/camera_08", 10,
+			true, false, true, 25, 32, 1000, 25
+		},
+		*/
+		varan::neural::FCameraOptions{
+			"camera_9", "Test camera",
+			"rtsp://admin:$Admin12345@192.168.1.19:554/ISAPI/Streaming/Channels/101", "/home/orangepi/records/camera_09", 10, 200, false,
+			"rtsp://admin:$Admin12345@192.168.1.19:554/ISAPI/Streaming/Channels/102", 0, true,
+			10
+		},
+		// ACE камеры
+		varan::neural::FCameraOptions{
+			"camera_10", "Test camera",
+			"rtsp://admin:$Admin12345@192.168.1.31:554/Streaming/Channels/1", "/home/orangepi/records/camera_10", 10, 200, false,
+			"rtsp://admin:$Admin12345@192.168.1.31:554/Streaming/Channels/2", 0, true,
+			10
+		},
+		varan::neural::FCameraOptions{
+			"camera_11", "Test camera",
+			"rtsp://admin:$Admin12345@192.168.1.32:554/Streaming/Channels/1", "/home/orangepi/records/camera_11", 10, 200, false,
+			"rtsp://admin:$Admin12345@192.168.1.32:554/Streaming/Channels/2", 0, true,
+			10
 		}
 	};
 
 	// Создание камер
 	for (size_t i = 0; i < vector_options.size(); ++i) {
-
 		center.add_camera(vector_options[i], socket_options);
 	}
 
@@ -91,15 +113,4 @@ int main()
 	center.stop_cameras();
 
 	return 0;
-}
-
-void start_server(std::shared_ptr<varan::neural::USignalingServer> server, std::string adress, int port) {
-	std::cout << color::yellow << "[Media Center] Attempt to start server at "
-		<< adress << ":" << port << color::reset << std::endl;
-	while (server->start(adress, port) == false) {
-		std::cout << color::red << "[Media Center] Attempt failure! Retry in 1 second!\n" << color::reset;
-		std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-	}
-	std::cout << color::green << "[Media Center] Server succesfully started at "
-		<< adress << ":" << port << color::reset << '\n' << std::endl;
 }
