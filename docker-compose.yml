@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  flask-server:
+    build:
+      context: ./python-varan
+      dockerfile: Dockerfile
+    container_name: vanya-flask
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./python-varan:/app
+    networks:
+      - varan-network
+    privileged: true
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  fastapi-server:
+    build:
+      context: ./shit/backend
+      dockerfile: Dockerfile
+    container_name: vanya-fastapi
+    ports:
+      - "8000:8000"
+    depends_on:
+      - flask-server
+    networks:
+      - varan-network
+    environment:
+      - FLASK_BASE_URL=http://flask-server:5000
+
+  frontend:
+    build:
+      context: ./shit/frontend
+      dockerfile: Dockerfile
+    container_name: vanya-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - fastapi-server
+    networks:
+      - varan-network
+    volumes:
+      - ./shit/frontend:/app
+      - /app/node_modules
+    environment:
+      - VITE_API_URL=http://localhost:8000
+      - VITE_WS_URL=ws://localhost:8000
+
+networks:
+  varan-network:
+    driver: bridge
