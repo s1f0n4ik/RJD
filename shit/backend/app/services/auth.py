@@ -12,6 +12,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 480
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
 
+
 USERS_DB = {
     "admin": {
         "username": "admin",
@@ -20,7 +21,9 @@ USERS_DB = {
     },
     "user": {
         "username": "user",
+
         "password_hash": "$2b$12$b/4n2FJenBziRNJGQRir7O1lgAogDGTzkVVXnBpmEG8mzhdYKDdH.",
+      # Пароль: user123
         "role": "viewer"
     }
 }
