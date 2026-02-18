@@ -5,24 +5,22 @@ from passlib.context import CryptContext
 from fastapi import HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
-# Настройки JWT
-SECRET_KEY = "your-secret-key-change-in-production-!!!!"  # ❗ ПОМЕНЯЙТЕ В ПРОДАКШЕНЕ
+SECRET_KEY = "Aboba228822"
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 480  # 8 часов
+ACCESS_TOKEN_EXPIRE_MINUTES = 480
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
 
-# Фейковая БД пользователей (замените на реальную)
 USERS_DB = {
     "admin": {
         "username": "admin",
-        "password_hash": pwd_context.hash("admin123"),  # Пароль: admin123
+        "password_hash": "$2b$12$Bhb0VwJZkVVeYC7thL3yGegcTaHr7MIyqBej2Hw55i8KGICp3OA.e",
         "role": "admin"
     },
     "user": {
         "username": "user",
-        "password_hash": pwd_context.hash("user123"),  # Пароль: user123
+        "password_hash": "$2b$12$b/4n2FJenBziRNJGQRir7O1lgAogDGTzkVVXnBpmEG8mzhdYKDdH.",
         "role": "viewer"
     }
 }
@@ -60,7 +58,6 @@ def decode_token(token: str):
         return None
 
 
-# Dependency для проверки токена
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     token = credentials.credentials
     payload = decode_token(token)
@@ -82,7 +79,6 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     return user
 
 
-# Dependency для проверки роли admin
 async def require_admin(user: dict = Depends(get_current_user)):
     if user["role"] != "admin":
         raise HTTPException(
