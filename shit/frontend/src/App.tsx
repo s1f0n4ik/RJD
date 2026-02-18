@@ -5,8 +5,9 @@ import Dashboard from './components/Dashboard';
 import CameraSettings from './components/CameraSettings';
 import LoaderSettings from './components/LoaderSettings';
 import SystemStatus from './components/SystemStatus';
+import Login from './components/Login';
 import { wsService } from './services/websocket';
-import type {SystemState} from './types';
+import type { SystemState } from './types';
 
 const App: React.FC = () => {
   const [currentTab, setCurrentTab] = useState(0);
@@ -16,25 +17,55 @@ const App: React.FC = () => {
     loaders: [],
   });
 
+  // ✅ ДОБАВЛЕНО: Auth state
+  const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
+  const [role, setRole] = useState<string | null>(localStorage.getItem('role'));
+  const [username, setUsername] = useState<string | null>(localStorage.getItem('username'));
+
+  const handleLogin = (newToken: string, newRole: string, newUsername: string) => {
+    localStorage.setItem('token', newToken);
+    localStorage.setItem('role', newRole);
+    localStorage.setItem('username', newUsername);
+    setToken(newToken);
+    setRole(newRole);
+    setUsername(newUsername);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('role');
+    localStorage.removeItem('username');
+    setToken(null);
+    setRole(null);
+    setUsername(null);
+  };
+
   useEffect(() => {
-    wsService.connect(
-      (newState) => setState(newState),
-      (connected) => setWsConnected(connected)
-    );
+    if (token) {
+      wsService.connect(
+        (newState) => setState(newState),
+        (connected) => setWsConnected(connected)
+      );
+    }
 
     return () => {
       wsService.disconnect();
     };
-  }, []);
+  }, [token]);
+
+  // ✅ Показать Login, если не авторизован
+  if (!token) {
+    return <Login onLogin={handleLogin} />;
+  }
 
   const renderContent = () => {
     switch (currentTab) {
       case 0:
         return <Dashboard state={state} />;
       case 1:
-        return <CameraSettings />;
+        return role === 'admin' ? <CameraSettings /> : <div>Доступ запрещён</div>;
       case 2:
-        return <LoaderSettings />;
+        return role === 'admin' ? <LoaderSettings /> : <div>Доступ запрещён</div>;
       case 3:
         return <SystemStatus />;
       default:
@@ -48,10 +79,11 @@ const App: React.FC = () => {
         currentTab={currentTab}
         onTabChange={setCurrentTab}
         wsConnected={wsConnected}
+        role={role || 'viewer'}
+        username={username || ''}
+        onLogout={handleLogout}
       />
-      <Box sx={{ py: 4 }}>
-        {renderContent()}
-      </Box>
+      <Box sx={{ py: 4 }}>{renderContent()}</Box>
     </Box>
   );
 };
