@@ -1,5 +1,5 @@
-from fastapi import APIRouter, HTTPException, status, Request
-
+from fastapi import APIRouter, HTTPException, status, Request, Depends
+from app.services.auth import require_admin
 from typing import List
 import logging
 
@@ -31,7 +31,7 @@ async def get_all_cameras():
 
 
 @router.post("/camera", response_model=CameraResponse, status_code=status.HTTP_201_CREATED)
-async def create_camera(camera: CameraCreate):
+async def create_camera(camera: CameraCreate, user: dict = Depends(require_admin)):
     """Добавить новую камеру"""
     try:
         result = await flask_client.add_camera(camera.dict())
@@ -67,7 +67,7 @@ async def get_camera_status(camera_name: str):
 
 
 @router.put("/camera/{camera_name}", response_model=CameraResponse)
-async def update_camera(camera_name: str, camera_update: CameraUpdate):
+async def update_camera(camera_name: str, camera_update: CameraUpdate, user: dict = Depends(require_admin)):
     """Обновить параметры камеры"""
     try:
         # Фильтруем только заполненные поля
@@ -98,7 +98,7 @@ async def update_camera(camera_name: str, camera_update: CameraUpdate):
 
 
 @router.delete("/camera/{camera_name}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_camera(camera_name: str):
+async def delete_camera(camera_name: str, user: dict = Depends(require_admin)):
     """Удалить камеру"""
     try:
         await flask_client.delete_camera(camera_name)
