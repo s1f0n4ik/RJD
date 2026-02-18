@@ -59,17 +59,15 @@ const Header: React.FC<HeaderProps> = ({
 
   return (
     <AppBar position="static" sx={{ bgcolor: RZD_COLORS.primary, mb: 3 }}>
-      <Toolbar sx={{ minHeight: 70 }}>
-        {/* ✅ PNG логотип */}
+      <Toolbar sx={{ minHeight: 70, gap: 2 }}>
+        {/* ✅ 1. Логотип БЕЗ фильтра (чтобы сохранить цвета) */}
         <Box
           component="img"
           src="/src/assets/logo.png"
           alt="РЖД"
           sx={{
             height: 40,
-            mr: 2,
             objectFit: 'contain',
-            filter: 'brightness(0) invert(1)', // Белый цвет (если логотип темный)
           }}
           onError={(e: any) => {
             e.target.style.display = 'none';
@@ -79,75 +77,96 @@ const Header: React.FC<HeaderProps> = ({
         <Typography
           variant="h6"
           sx={{
-            flexGrow: 0,
-            mr: 4,
             fontWeight: 700,
-            fontSize: '1.1rem',
+            fontSize: '1rem',
+            whiteSpace: 'nowrap',
           }}
         >
           РЖД · Система видеоаналитики
         </Typography>
 
+        {/* ✅ 2. Вкладки с контрастным фоном для активной */}
         <Tabs
           value={currentTab}
           onChange={(_, newValue) => onTabChange(newValue)}
           sx={{
             flexGrow: 1,
+            minWidth: 0,
             '& .MuiTab-root': {
-              color: 'rgba(255,255,255,0.75)',
+              color: 'rgba(255,255,255,0.7)',
               fontWeight: 500,
+              minWidth: 100,
+              fontSize: '0.9rem',
+              transition: 'all 0.2s',
+              '&:hover': {
+                color: 'white',
+                bgcolor: 'rgba(255,255,255,0.1)',
+              },
             },
             '& .Mui-selected': {
-              color: 'white',
-              fontWeight: 600,
+              color: 'white !important',
+              fontWeight: 700,
+              bgcolor: 'rgba(255,255,255,0.15)', // ✅ Контрастный фон
+              borderRadius: '8px 8px 0 0',
             },
             '& .MuiTabs-indicator': {
               backgroundColor: 'white',
-              height: 3,
+              height: 4,
+              borderRadius: '4px 4px 0 0',
             },
           }}
         >
           <Tab label="Главная" />
           <Tab label="Камеры" />
           <Tab label="Загрузчики" />
-          <Tab label="Статус системы" />
+          <Tab label="Статус" />
         </Tabs>
 
-        {/* WebSocket Status */}
-        <Chip
-          icon={wsConnected ? <CheckCircleIcon /> : <ErrorIcon />}
-          label={wsConnected ? 'Подключено' : 'Отключено'}
-          size="small"
-          sx={{
-            bgcolor: wsConnected ? RZD_COLORS.success : RZD_COLORS.warning,
-            color: 'white',
-            mr: 2,
-            fontWeight: 600,
-          }}
-        />
-
-        {/* User Menu */}
-        <Box display="flex" alignItems="center" gap={1}>
+        {/* ✅ 3. Компактная правая панель */}
+        <Box display="flex" alignItems="center" gap={1} sx={{ flexShrink: 0 }}>
+          {/* WebSocket Status - компактный */}
           <Chip
-            icon={role === 'admin' ? <AdminIcon /> : <ViewerIcon />}
-            label={role === 'admin' ? 'Администратор' : 'Наблюдатель'}
+            icon={wsConnected ? <CheckCircleIcon sx={{ fontSize: 16 }} /> : <ErrorIcon sx={{ fontSize: 16 }} />}
+            label={wsConnected ? 'Онлайн' : 'Офлайн'}
+            size="small"
+            sx={{
+              bgcolor: wsConnected ? RZD_COLORS.success : RZD_COLORS.warning,
+              color: 'white',
+              fontWeight: 600,
+              fontSize: '0.75rem',
+              height: 28,
+              '& .MuiChip-icon': { color: 'white' },
+            }}
+          />
+
+          {/* Role Chip - компактный */}
+          <Chip
+            icon={role === 'admin' ? <AdminIcon sx={{ fontSize: 16 }} /> : <ViewerIcon sx={{ fontSize: 16 }} />}
+            label={role === 'admin' ? 'Админ' : 'Наблюдатель'}
             size="small"
             sx={{
               bgcolor: 'rgba(255,255,255,0.2)',
               color: 'white',
               fontWeight: 600,
+              fontSize: '0.75rem',
+              height: 28,
               '& .MuiChip-icon': { color: 'white' },
             }}
           />
+
+          {/* User Icon */}
           <IconButton
             onClick={handleMenuOpen}
+            size="small"
             sx={{
               color: 'white',
-              bgcolor: 'rgba(255,255,255,0.1)',
-              '&:hover': { bgcolor: 'rgba(255,255,255,0.2)' },
+              bgcolor: 'rgba(255,255,255,0.15)',
+              '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' },
+              width: 36,
+              height: 36,
             }}
           >
-            <AccountCircleIcon sx={{ fontSize: 28 }} />
+            <AccountCircleIcon sx={{ fontSize: 24 }} />
           </IconButton>
         </Box>
 
@@ -173,7 +192,7 @@ const Header: React.FC<HeaderProps> = ({
             <ListItemIcon>
               <LogoutIcon fontSize="small" color="error" />
             </ListItemIcon>
-            <ListItemText>Выйти из системы</ListItemText>
+            <ListItemText>Выйти</ListItemText>
           </MenuItem>
         </Menu>
       </Toolbar>

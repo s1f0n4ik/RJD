@@ -89,22 +89,44 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
               <Grid item xs={12} md={6} key={camera.camera_name}>
                 <Card sx={{ borderLeft: `4px solid ${RZD_COLORS.primary}` }}>
                   <CardContent>
-                    <Box display="flex" justifyContent="space-between" alignItems="start">
-                      <Box>
-                        <Typography variant="h6" gutterBottom fontWeight={600}>
+                    <Box display="flex" justifyContent="space-between" alignItems="start" gap={2}>
+                      <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+                        <Typography variant="h6" gutterBottom fontWeight={600} noWrap>
                           {camera.camera_name}
                         </Typography>
-                        <Typography variant="body2" color="text.secondary" sx={{ mb: 1, fontSize: '0.8rem' }}>
+                        <Typography
+                          variant="body2"
+                          color="text.secondary"
+                          sx={{
+                            mb: 1,
+                            fontSize: '0.8rem',
+                            wordBreak: 'break-all',
+                          }}
+                        >
                           {camera.rtsp_url}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
                           Разрешение: {camera.width || 'auto'} × {camera.height || 'auto'}
                         </Typography>
                       </Box>
+
+                      {/* ✅ 4. Chip с правильными размерами */}
                       <Chip
                         label={camera.status === 'running' ? 'Активна' : 'Остановлена'}
                         color={camera.status === 'running' ? 'success' : 'default'}
                         size="small"
+                        sx={{
+                          flexShrink: 0,
+                          fontWeight: 600,
+                          fontSize: '0.75rem',
+                          height: 'auto',
+                          minHeight: 24,
+                          '& .MuiChip-label': {
+                            px: 1.5,
+                            py: 0.5,
+                            whiteSpace: 'nowrap',
+                          },
+                        }}
                       />
                     </Box>
                   </CardContent>
@@ -130,8 +152,8 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
                 <Grid item xs={12} key={loader.loader_name}>
                   <Card sx={{ borderLeft: `4px solid ${RZD_COLORS.secondary}` }}>
                     <CardContent>
-                      <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-                        <Box>
+                      <Box display="flex" justifyContent="space-between" alignItems="center" mb={2} gap={2}>
+                        <Box sx={{ flexGrow: 1, minWidth: 0 }}>
                           <Typography variant="h6" fontWeight={600}>
                             {loader.loader_name}
                           </Typography>
@@ -142,9 +164,23 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
                             Размер модели: {loader.img_size}px
                           </Typography>
                         </Box>
+
+                        {/* ✅ Chip для загрузчиков тоже */}
                         <Chip
                           label={loader.status === 'running' ? 'Активен' : 'Остановлен'}
                           color={loader.status === 'running' ? 'success' : 'default'}
+                          sx={{
+                            flexShrink: 0,
+                            fontWeight: 600,
+                            fontSize: '0.75rem',
+                            height: 'auto',
+                            minHeight: 24,
+                            '& .MuiChip-label': {
+                              px: 1.5,
+                              py: 0.5,
+                              whiteSpace: 'nowrap',
+                            },
+                          }}
                         />
                       </Box>
 
