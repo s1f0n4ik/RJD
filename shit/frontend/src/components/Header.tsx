@@ -60,6 +60,7 @@ const Header: React.FC<HeaderProps> = ({
   return (
     <AppBar position="static" sx={{ bgcolor: RZD_COLORS.primary, mb: 3 }}>
       <Toolbar sx={{ minHeight: 70 }}>
+        {/* ✅ PNG логотип */}
         <Box
           component="img"
           src="/src/assets/logo.png"
@@ -67,10 +68,10 @@ const Header: React.FC<HeaderProps> = ({
           sx={{
             height: 40,
             mr: 2,
-            filter: 'brightness(0) invert(1)', // Белый цвет для SVG
+            objectFit: 'contain',
+            filter: 'brightness(0) invert(1)', // Белый цвет (если логотип темный)
           }}
           onError={(e: any) => {
-            // Если логотипа нет, показываем эмодзи
             e.target.style.display = 'none';
           }}
         />

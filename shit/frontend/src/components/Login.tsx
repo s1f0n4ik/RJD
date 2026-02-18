@@ -7,6 +7,7 @@ import {
   Typography,
   Box,
   Alert,
+  Chip,  // ✅ ДОБАВЛЕНО
 } from '@mui/material';
 import { Lock as LockIcon } from '@mui/icons-material';
 import { RZD_COLORS } from '../theme';
@@ -66,7 +67,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
           }}
         >
           <Box display="flex" flexDirection="column" alignItems="center" mb={4}>
-            {/* Логотип РЖД */}
+            {/* ✅ PNG логотип */}
             <Box
               component="img"
               src="/src/assets/logo.png"
@@ -74,7 +75,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
               sx={{
                 height: 60,
                 mb: 2,
-                filter: `brightness(0) saturate(100%) invert(14%) sepia(93%) saturate(6829%) hue-rotate(357deg) brightness(91%) contrast(102%)`,
+                objectFit: 'contain',
               }}
               onError={(e: any) => {
                 e.target.style.display = 'none';
@@ -144,10 +145,12 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
               Тестовые аккаунты:
             </Typography>
             <Typography variant="body2" sx={{ mt: 1 }}>
-              <strong>admin</strong> / admin123 <Chip label="Администратор" size="small" sx={{ ml: 1 }} />
+              <strong>admin</strong> / admin123{' '}
+              <Chip label="Администратор" size="small" color="primary" sx={{ ml: 1 }} />
             </Typography>
             <Typography variant="body2">
-              <strong>user</strong> / user123 <Chip label="Наблюдатель" size="small" sx={{ ml: 1 }} />
+              <strong>user</strong> / user123{' '}
+              <Chip label="Наблюдатель" size="small" color="default" sx={{ ml: 1 }} />
             </Typography>
           </Box>
         </Paper>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Box } from '@mui/material';
+import { Box, Typography } from '@mui/material';
 import Header from './components/Header';
 import Dashboard from './components/Dashboard';
 import CameraSettings from './components/CameraSettings';
