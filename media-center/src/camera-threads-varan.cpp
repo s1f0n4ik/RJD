@@ -78,20 +78,20 @@ int main()
 		varan::neural::FCameraOptions{
 			"camera_9", "Test camera",
 			"rtsp://admin:$Admin12345@192.168.1.19:554/ISAPI/Streaming/Channels/101", "/home/orangepi/records/camera_09", 10, 200, false,
-			"rtsp://admin:$Admin12345@192.168.1.19:554/ISAPI/Streaming/Channels/102", 0, true,
+			"rtsp://admin:$Admin12345@192.168.1.19:554/ISAPI/Streaming/Channels/102", 0, false,
 			10
 		},
 		// ACE камеры
 		varan::neural::FCameraOptions{
 			"camera_10", "Test camera",
 			"rtsp://admin:$Admin12345@192.168.1.31:554/Streaming/Channels/1", "/home/orangepi/records/camera_10", 10, 200, false,
-			"rtsp://admin:$Admin12345@192.168.1.31:554/Streaming/Channels/2", 0, true,
+			"rtsp://192.168.1.31:554/user=admin_password=$Admin12345_channel=0_stream=1&onvif=0.sdp?real_stream", 0, false,
 			10
 		},
 		varan::neural::FCameraOptions{
 			"camera_11", "Test camera",
 			"rtsp://admin:$Admin12345@192.168.1.32:554/Streaming/Channels/1", "/home/orangepi/records/camera_11", 10, 200, false,
-			"rtsp://admin:$Admin12345@192.168.1.32:554/Streaming/Channels/2", 0, true,
+			"rtsp://192.168.1.32:554/user=admin_password=$Admin12345_channel=0_stream=1&onvif=0.sdp?real_stream", 0, false,
 			10
 		}
 	};

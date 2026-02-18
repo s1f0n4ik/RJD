@@ -39,10 +39,6 @@ namespace neural {
 		, m_initialized(false)
 		, m_gst_initialized(false)
 		, m_frames_buffer(1)
-		, m_main_pipeline(nullptr, &gst_object_unref)
-		, m_main_split_tee(nullptr, &gst_object_unref)
-		, m_sub_pipeline(nullptr, &gst_object_unref)
-		, m_sub_tee(nullptr, &gst_object_unref)
 		, m_io_context()
 		, m_work_guard(boost::asio::make_work_guard(m_io_context))
 		, m_websocket_client(nullptr)
@@ -51,7 +47,29 @@ namespace neural {
 		, m_options(options)
 		, m_logger(options.name, level)
 	{
+		// Основной пайплайн
+		auto main_settings = FPipelineParameters{
+			"Main Pipeline", 
+			options.main_rtsp_url, options.main_latency, options.b_main_udp, options.reconnect_delay,
+			options.record_path, options.segment_duration, 
+			options.name, level, 
+			[this](std::string msg) {
+				this->send_message(std::move(msg));
+			}
+		};
+		m_main = std::make_unique<UCameraMainPipeline>(main_settings);
 
+		// Дополнительный пайплайн
+		auto sub_settings = FPipelineParameters{
+			"Sub Pipeline",
+			options.sub_rtsp_url, options.sub_latency, options.b_sub_udp, options.reconnect_delay,
+			"", 0,
+			options.name, level,
+			[this](std::string msg) {
+				this->send_message(std::move(msg));
+			}
+		};
+		m_sub = std::make_unique<UCameraSubPipeline>(sub_settings);
 	};
 
 	UCamera::~UCamera() { 
@@ -85,13 +103,13 @@ namespace neural {
 		try {
 			start_g_loop();
 			
-			if (probe_camera_with_reconnect() == false) {
-				m_logger.error("False to connect to camera " + m_options.name);
+			if (m_main->initialize() == false) {
+				m_logger.error("False to initialize main pipeline!");
 				stop_g_loop();
 				return false;
 			}
-			if (initialize_main_pipeline() == false) {
-				m_logger.error("False to initialize reading pipeline!");
+			if (m_sub->initialize() == false) {
+				m_logger.error("False to initialize sub pipeline!");
 				stop_g_loop();
 				return false;
 			}
@@ -119,11 +137,13 @@ namespace neural {
 
 		start_websocket_client();
 
-		if (!start_pipeline("main")) {
+		if (!m_main.get()->start()) {
+			m_logger.error("Error start main pipeline!");
 			return false;
 		}
 
-		if (!start_pipeline("sub")) {
+		if (!m_sub->start()) {
+			m_logger.error("Error start sub pipeline!");
 			return false;
 		}
 
@@ -920,38 +940,41 @@ namespace neural {
 				return;
 			}
 
+			std::string description;
 			// Запрос на соединение
-			if (type == "connection") {
-				open_new_session(client_id);
-				return;
-			}
-			if (type == "close") {
-				close_session(client_id);
-				return;
-			}
+			if (type == "connection" || type == "close") {
+				const bool ret = (type == "connection")
+					? m_sub->create_webrtc_session(client_id, description)
+					: m_sub->close_webrtc_session(client_id, description);
 
-			auto it = m_opened_sessions.find(client_id);
-			if (it == m_opened_sessions.end()) {
-				m_logger.error("Message handler received a non-existent client ID in open sessions!");
-				return;
-			}
-			auto session = it->second.get();
+				ret ? m_logger.info(description) : m_logger.error(description);
 
-			if (type == "offer") {
-				session->make_offer(json_object);
-			}
-			else if (type == "answer") {
-				session->create_answer(json_object);
-			}
-			else if (type == "ice") {
-				session->add_ice_candidate(json_object);
+				send_message(
+					boost::json::serialize(
+						json(client_id, ret, type, description)
+					)
+				);
+
+				return;
 			}
 			else {
-				m_logger.error("No supported type of recieved message!");
+				auto ret = m_sub->process_webrtc_session(client_id, json_object, type, description);
+				ret ? m_logger.info(description) : m_logger.error(description);
+				//send_message(
+				//	boost::json::serialize(
+				//		json(client_id, ret, type, description)
+				//	)
+				//);
 			}
 		}
 		catch (const std::exception e) {
-			m_logger.error("Unexpected error: " + std::string(e.what()));
+			std::string err_text = "Unexpected error: " + std::string(e.what());
+			m_logger.error(err_text);
+			send_message(
+				boost::json::serialize(
+					json("", false, "fault", err_text)
+				)
+			);
 		}
 	}
 

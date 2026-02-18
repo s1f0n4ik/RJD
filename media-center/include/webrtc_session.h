@@ -24,11 +24,11 @@ public:
 
 	bool create_branch(const std::string& codec);
 
-	void make_offer(const boost::json::object& message);
+	bool make_offer(const boost::json::object& message, std::string& description);
 
-	void create_answer(const boost::json::object& message);
+	bool create_answer(const boost::json::object& message, std::string& description);
 
-	void add_ice_candidate(const boost::json::object& message);
+	bool add_ice_candidate(const boost::json::object& message, std::string& description);
 
 	boost::json::object make_json(bool successed, const std::string& type, const std::string& description);
 

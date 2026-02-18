@@ -35,6 +35,8 @@ extern "C" {
 #include "logger.h"
 #include "webrtc_session.h"
 
+#include "video_pipeline.h"
+
 namespace varan {
 namespace neural {
 
@@ -148,11 +150,15 @@ namespace neural {
 		std::mutex m_signal_mutex;
 
 		// Поля Gstream для считывания кадров
+		std::unique_ptr<UCameraPipeline> m_main;
+		std::unique_ptr<UCameraPipeline> m_sub;
+		/*
 		TUniqueGst m_main_pipeline;
 		TUniqueGst m_main_split_tee;
 
 		TUniqueGst m_sub_pipeline;
 		TUniqueGst m_sub_tee;
+		*/
 
 		// Ожидающая очередь для хранения пакетов
 		//using UniquePacket = std::unique_ptr<AVPacket, std::function<void(AVPacket*)>>;
@@ -163,14 +169,15 @@ namespace neural {
 		USafeQueue<std::unique_ptr<FDrmFrame>> m_frames_buffer;
 
 		// Поля для GStream
-		FWebSocketOptions m_socket_options;
 
-		std::map<std::string, std::unique_ptr<UWebRTCSession>> m_opened_sessions;
-		std::mutex m_session_mutex;
-		std::condition_variable m_session_cv;
-		bool m_has_sessions = false;
+		//std::map<std::string, std::unique_ptr<UWebRTCSession>> m_opened_sessions;
+		//std::mutex m_session_mutex;
+		//std::condition_variable m_session_cv;
+		//bool m_has_sessions = false;
 
 		// Клиент websocket
+		FWebSocketOptions m_socket_options;
+
 		std::shared_ptr<UWebSocketClient> m_websocket_client;
 		boost::asio::io_context m_io_context;
 		boost::asio::executor_work_guard<boost::asio::io_context::executor_type> m_work_guard;

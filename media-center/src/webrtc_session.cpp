@@ -57,10 +57,10 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 
 	// Создание всех необходимых элементов
 	m_queue = gst_element_factory_make("queue", nullptr);
-	if (m_is_sub) m_pay = gst_element_factory_make(codec == std::string("H264") ? "rtph264pay" : "rtph265pay", nullptr);
+	if (!m_is_sub) m_pay = gst_element_factory_make(codec == std::string("H264") ? "rtph264pay" : "rtph265pay", nullptr);
 	m_webrtcbin = gst_element_factory_make("webrtcbin", nullptr);
 
-	if (!m_queue || ((!m_pay) && m_is_sub) || !m_webrtcbin) {
+	if (!m_queue || ((!m_pay) && !m_is_sub) || !m_webrtcbin) {
 		std::ostringstream oss;
 		oss << "Cannot create branch for session " + get_session_name() << ": Error with creation gst elements!"
 			<< "\n\tQueue: " << (!m_queue ? "NULL" : "EXISTING")
@@ -73,8 +73,10 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 
 	// Все настройки на минимальную задержку
 	g_object_set(m_queue,
-		"leaky", 2,
-		"max-size-buffers", 2,
+		"leaky", 2,                  
+		"max-size-time", 200000000,  // 200 ms
+		"max-size-buffers", 0,
+		"max-size-bytes", 0,
 		nullptr
 	);
 
@@ -82,13 +84,15 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 	if (m_pay) {
 		g_object_set(m_pay,
 			"pt", 96,
-			"config-interval", 1,
+			"config-interval", -1,
 			nullptr
 		);
 	}
 
 	g_object_set(m_webrtcbin,
+		"latency", 0,
 		"bundle-policy", GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE,
+		"do-nack", TRUE,
 		nullptr
 	);
 
@@ -107,9 +111,6 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 		std::ostringstream oss;
 		oss << "Cannot create session branch: tee has not any src pads!";
 		m_logger.error(oss.str());
-		m_send_callback(boost::json::serialize(
-			make_json(false, SIG_TYPE_CONNECT, "Internal error!"))
-		);
 		m_is_valid = false;
 		return m_is_valid;
 	}
@@ -120,9 +121,6 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 		std::ostringstream oss;
 		oss << "Cannot create session " + get_session_name() + " branch: queue has not any sink pads!";
 		m_logger.error(oss.str());
-		m_send_callback(boost::json::serialize(
-			make_json(false, SIG_TYPE_CONNECT, "Internal error!"))
-		);
 		m_is_valid = false;
 		return false;
 	}
@@ -131,21 +129,15 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 	auto tee_queue_link = gst_pad_link(m_tee_pad_src, queue_sink_pad);
 	if (tee_queue_link != GST_PAD_LINK_OK) {
 		m_logger.error("Cannot create session " + get_session_name() + " branch: tee cannot link with queue!");
-		m_send_callback(boost::json::serialize(
-			make_json(false, SIG_TYPE_CONNECT, "Internal error!"))
-		);
 		m_is_valid = false;
 		return m_is_valid;
 	}
 	gst_object_unref(queue_sink_pad);
 
 	// Линк созданных объектов друг с другом
-	auto link_result = m_pay ? gst_element_link_many(m_queue, m_pay, m_webrtcbin, nullptr) : gst_element_link_many(m_queue, m_webrtcbin, nullptr);
+	auto link_result = m_pay ? gst_element_link_many(m_queue, m_pay, m_webrtcbin, nullptr) : gst_element_link(m_queue, m_webrtcbin);
 	if (!link_result) {
 		m_logger.error("Cannot create session " + get_session_name() + " branch: there is no link with queue and webrtcbin!");
-		m_send_callback(boost::json::serialize(
-			make_json(false, SIG_TYPE_CONNECT, "Internal error!"))
-		);
 		m_is_valid = false;
 		return m_is_valid;
 	}
@@ -161,7 +153,6 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 
 	std::string message = "Branch session " + get_session_name() + " has been created!";
 	boost::json::object opened_msg = UWebRTCSession::make_json(true, SIG_TYPE_CONNECT, message);
-	m_send_callback(boost::json::serialize(opened_msg));
 	m_logger.info(message);
 
 	return true;
@@ -195,14 +186,14 @@ void UWebRTCSession::teardown() {
 	m_is_valid = false;
 }
 
-void UWebRTCSession::make_offer(const boost::json::object& message) {
+bool UWebRTCSession::make_offer(const boost::json::object& message, std::string& description) {
 	auto sdp_v = message.if_contains("sdp");
 	if (!sdp_v || !sdp_v->is_string()) {
-		m_logger.error(get_session_name() + ": No SDP in recieved offer");
-		return;
+		description = get_session_name() + ": No SDP in recieved offer";
+		return false;
 	}
 	else {
-		m_logger.info(get_session_name() + ": Received SDP offer");
+		m_logger.receive(get_session_name() + ": Received SDP offer:\n\t" + sdp_v->as_string().data());
 	}
 
 	std::string sdp_str = sdp_v->as_string().c_str();
@@ -217,16 +208,18 @@ void UWebRTCSession::make_offer(const boost::json::object& message) {
 	gst_webrtc_session_description_free(offer);
 
 	g_signal_emit_by_name(m_webrtcbin, "create-answer", nullptr);
+	description = "Successfully created offer!";
+	return true;
 }
 
-void UWebRTCSession::create_answer(const boost::json::object& message) {
+bool UWebRTCSession::create_answer(const boost::json::object& message, std::string& description) {
 	auto sdp_v = message.if_contains("sdp");
 	if (!sdp_v || !sdp_v->is_string()) {
-		m_logger.error(get_session_name() + ": No SDP in recieved offer");
-		return;
+		description = get_session_name() + ": No SDP in recieved offer";
+		return false;
 	}
 	else {
-		m_logger.info(get_session_name() + ": Recieved SDP answer");
+		m_logger.receive(get_session_name() + ": Recieved SDP answer:\n\t" + sdp_v->as_string().data());
 	}
 
 	std::string sdp_str = sdp_v->as_string().c_str();
@@ -239,9 +232,11 @@ void UWebRTCSession::create_answer(const boost::json::object& message) {
 
 	g_signal_emit_by_name(m_webrtcbin, "set-remote-description", answer, nullptr);
 	gst_webrtc_session_description_free(answer);
+	description = "Successfully created answer!";
+	return true;
 }
 
-void UWebRTCSession::add_ice_candidate(const boost::json::object& message) {
+bool UWebRTCSession::add_ice_candidate(const boost::json::object& message, std::string& description) {
 	auto cand_v = message.if_contains("candidate");
 	auto line_v = message.if_contains("sdpMLineIndex");
 	auto mid_v = message.if_contains("sdpMid");
@@ -271,16 +266,27 @@ void UWebRTCSession::add_ice_candidate(const boost::json::object& message) {
 	}
 
 	if (fail) {
-		m_logger.error(get_session_name() + ": Cannot add candidate!");
-		return;
+		description = get_session_name() + ": Cannot add candidate!";
+		return false;
+	}
+	else {
+		std::ostringstream oss;
+		oss << "Recieve ICE candidate:"
+			<< "\n\tcandidate:" << candidate
+			<< "\n\tmline_index:" << mline_index
+			<< "\n\tsdpMid:" << sdpMid.empty() ? "NONE" : sdpMid;
+		m_logger.receive(oss.str());
 	}
 
 	if (candidate.find(".local") != std::string::npos) {
-		m_logger.warn(get_session_name() + ": Ignore mDNS candidate: " + candidate);
+		description = get_session_name() + ": Ignore mDNS candidate: " + candidate;
+		m_logger.warn(description);
+		return true;
 	}
 	else {
 		g_signal_emit_by_name(m_webrtcbin, "add-ice-candidate", mline_index, candidate.c_str());
-		m_logger.info(get_session_name() + ": Added ICE candidate!");
+		description = get_session_name() + ": Added ICE candidate!";
+		return true;
 	}
 }
 

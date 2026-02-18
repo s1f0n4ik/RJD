@@ -11,6 +11,11 @@ UCameraPipeline::UCameraPipeline(const FPipelineParameters& parameters)
 }
 
 UCameraPipeline::~UCameraPipeline() {
+    // Если запущен поток - завершаем
+    if (m_restart_thread.joinable()) {
+        m_restart_thread.join();
+    }
+
     destroy();
 }
 
@@ -22,6 +27,8 @@ EPipelineStatus UCameraPipeline::get_status() {
 
     switch (state) {
     case GST_STATE_NULL:
+        if (m_has_initialized) return EPipelineStatus::INITIALIZED;
+        if (m_is_restarting) return EPipelineStatus::RESTARTING;
         return EPipelineStatus::NONE;
     case GST_STATE_READY:
         return EPipelineStatus::READY;
@@ -35,7 +42,7 @@ EPipelineStatus UCameraPipeline::get_status() {
 }
 
 bool UCameraPipeline::initialize() {
-    if (is_initialized) {
+    if (m_has_initialized) {
         m_logger.info("inititalize(): Pipeline already initialized!");
         return true;
     }
@@ -98,15 +105,19 @@ bool UCameraPipeline::stop() {
 
 bool UCameraPipeline::destroy()
 {
-    std::lock_guard<std::mutex> lock(m_branch_mutex);
-    is_initialized = false;
+    if (m_is_destroying) {
+        m_logger.warn("stop(): function destroy already called!");
+        return true;
+    }
 
     if (!m_pipeline) {
         m_logger.warn("Pipeline already destroyed or null.");
+        m_is_destroying = false;
         return true;
     }
 
     m_logger.info("Destroying pipeline (graceful shutdown)...");
+    m_is_destroying = true;
 
     // Отправка eos, чтобы корректно остановить критичные элементы пайплайна
     m_logger.debug("Sending EOS event...");
@@ -161,6 +172,7 @@ bool UCameraPipeline::destroy()
 
     if (ret == GST_STATE_CHANGE_FAILURE) {
         m_logger.error("Failed to initiate state change to NULL.");
+        m_is_destroying = false;
         return false;
     }
 
@@ -176,15 +188,18 @@ bool UCameraPipeline::destroy()
 
     if (ret == GST_STATE_CHANGE_ASYNC) {
         m_logger.error("Timeout waiting for pipeline to reach NULL.");
+        m_is_destroying = false;
         return false;
     }
     if (ret == GST_STATE_CHANGE_FAILURE) {
         m_logger.error("State change to NULL failed.");
+        m_is_destroying = false;
         return false;
     }
     if (current != GST_STATE_NULL) {
         m_logger.error("Pipeline did not reach NULL state. Current state: " +
             std::string(gst_element_state_get_name(current)));
+        m_is_destroying = false;
         return false;
     }
 
@@ -196,10 +211,73 @@ bool UCameraPipeline::destroy()
 
     gst_object_unref(m_pipeline);
     m_pipeline = nullptr;
+    m_has_initialized = false;
 
     m_logger.info("Pipeline destroyed successfully.");
+    m_is_destroying = false;
 
     return true;
+}
+
+void UCameraPipeline::restart_loop() {
+    m_logger.info("restart_loop(): Starting restart loop for " + m_parameters.name);
+
+    while (m_is_restarting) {
+        m_logger.info("restart_loop(): Attempt restart #" + std::to_string(m_restart_attempts + 1));
+
+        bool success = true;
+
+        if (!destroy()) {
+            m_logger.error("restart_loop(): destroy() pipeline failed");
+            success = false;
+        }
+
+        if (success && !initialize()) {
+            m_logger.error("restart_loop(): initialize() pipeline failed");
+            success = false;
+        }
+
+        if (success && !start()) {
+            m_logger.error("restart_loop(): start() pipeline failed");
+            success = false;
+        }
+
+        if (success)
+        {
+            m_logger.info("restart_loop(): Pipeline restarted successfully");
+
+            // сброс backoff
+            m_restart_attempts = 0;
+            m_backoff_ms = 1000;
+            m_is_restarting = false;
+
+            return;
+        }
+
+        m_restart_attempts++;
+
+        m_logger.warn("restart_loop(): Retry in " + std::to_string(m_backoff_ms) + " ms");
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(m_backoff_ms));
+
+        m_backoff_ms = std::min(m_backoff_ms * 2, m_max_backoff_ms);
+    }
+
+    m_logger.info("restart_loop(): Restart loop stopped");
+    m_is_restarting = false;
+}
+
+void UCameraPipeline::restart_async() {
+    if (m_is_restarting.exchange(true)) {
+        m_logger.warn("restart_async(): Restart already in progress");
+        return;
+    }
+
+    m_restart_thread = std::thread(&UCameraPipeline::restart_loop, this);
+}
+
+void UCameraPipeline::stop_restart_thread() {
+    m_is_restarting = false;
 }
 
 bool UCameraPipeline::probe_video_stream(int timeout_sec) {
@@ -285,7 +363,7 @@ bool UCameraPipeline::probe_video_stream(int timeout_sec) {
     }
 
     std::ostringstream oss;
-    oss << "Probe succeeded:\n\tcodec=" << m_probe.codec_name << "\n\width=" << m_probe.width << "\n\theight=" << m_probe.height;
+    oss << "Probe succeeded:\n\tcodec=" << m_probe.codec_name << "\n\twidth=" << m_probe.width << "\n\theight=" << m_probe.height;
     m_logger.info(oss.str());
     return true;
 }
@@ -367,6 +445,7 @@ void UCameraPipeline::on_rtsp_pad_added(GstElement*, GstPad* pad, gpointer user_
     }
 
     const GstStructure* s = gst_caps_get_structure(caps, 0);
+
     const gchar* encoding = gst_structure_get_string(s, "encoding-name");
 
     if (!encoding) {
@@ -377,9 +456,6 @@ void UCameraPipeline::on_rtsp_pad_added(GstElement*, GstPad* pad, gpointer user_
 
     logger->debug(std::string("Detected encoding: ") + encoding);
 
-    result->codec_name = encoding;
-    result->got_codec = true;
-
     bool is_h264 = g_strcmp0(encoding, "H264") == 0;
     bool is_h265 = g_strcmp0(encoding, "H265") == 0;
 
@@ -388,6 +464,9 @@ void UCameraPipeline::on_rtsp_pad_added(GstElement*, GstPad* pad, gpointer user_
         gst_caps_unref(caps);
         return;
     }
+
+    result->codec_name = encoding;
+    result->got_codec = true;
 
     const char* depay_name = is_h264 ? "rtph264depay" : "rtph265depay";
     const char* parse_name = is_h264 ? "h264parse" : "h265parse";
@@ -469,4 +548,36 @@ bool UCameraPipeline::close_webrtc_session(const std::string& client_id, std::st
         description = oss_error.str();
         return false;
     }
+}
+
+bool UCameraPipeline::process_webrtc_session(
+    const std::string& client_id, 
+    const boost::json::object& message,
+    const std::string& type,
+    std::string& description
+) {
+    // Проверяем есть ли сессия
+    auto it_client = m_webrtc_sessions.find(client_id);
+    if (it_client == m_webrtc_sessions.end()) {
+        description = "Cannot process message: session with client " + client_id + " doesn't exist!";
+        return false;
+    }
+    // Сессия существует
+    auto session = it_client->second.get();
+
+    if (type == "offer") {
+        return session->make_offer(message, description);
+    }
+    else if (type == "answer") {
+        return session->create_answer(message, description);
+    }
+    else if (type == "ice") {
+        return session->add_ice_candidate(message, description);
+    }
+    else {
+        description = "No supported type of recieved message!";
+        return false;
+    }
+
+    return true;
 }
