@@ -13,8 +13,9 @@ import {
   Videocam as VideocamIcon,
   Memory as MemoryIcon,
 } from '@mui/icons-material';
-import type {SystemState} from '../types';
+import type { SystemState } from '../types';
 import { FLASK_BASE, ENDPOINT_MAP } from '../utils/constants';
+import { RZD_COLORS } from '../theme';
 
 interface DashboardProps {
   state: SystemState;
@@ -29,38 +30,48 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
       {/* Summary Cards */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
         <Grid item xs={12} md={6}>
-          <Card sx={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
-            <CardContent>
-              <Box display="flex" alignItems="center" gap={2} mb={1}>
-                <VideocamIcon sx={{ color: 'white', fontSize: 40 }} />
-                <Typography variant="h6" sx={{ color: 'white' }}>
-                  Камеры
+          <Card
+            sx={{
+              background: `linear-gradient(135deg, ${RZD_COLORS.primary} 0%, ${RZD_COLORS.primaryDark} 100%)`,
+              color: 'white',
+            }}
+          >
+            <CardContent sx={{ py: 3 }}>
+              <Box display="flex" alignItems="center" gap={2} mb={2}>
+                <VideocamIcon sx={{ fontSize: 48 }} />
+                <Typography variant="h6" fontWeight={600}>
+                  Камеры видеонаблюдения
                 </Typography>
               </Box>
-              <Typography variant="h2" sx={{ color: 'white', fontWeight: 'bold' }}>
+              <Typography variant="h2" fontWeight="bold" sx={{ mb: 1 }}>
                 {runningCameras}/{state.cameras.length}
               </Typography>
-              <Typography sx={{ color: 'rgba(255,255,255,0.8)' }}>
-                Активны
+              <Typography sx={{ opacity: 0.9 }}>
+                Активных камер
               </Typography>
             </CardContent>
           </Card>
         </Grid>
 
         <Grid item xs={12} md={6}>
-          <Card sx={{ background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)' }}>
-            <CardContent>
-              <Box display="flex" alignItems="center" gap={2} mb={1}>
-                <MemoryIcon sx={{ color: 'white', fontSize: 40 }} />
-                <Typography variant="h6" sx={{ color: 'white' }}>
+          <Card
+            sx={{
+              background: `linear-gradient(135deg, ${RZD_COLORS.secondary} 0%, ${RZD_COLORS.secondaryLight} 100%)`,
+              color: 'white',
+            }}
+          >
+            <CardContent sx={{ py: 3 }}>
+              <Box display="flex" alignItems="center" gap={2} mb={2}>
+                <MemoryIcon sx={{ fontSize: 48 }} />
+                <Typography variant="h6" fontWeight={600}>
                   Нейронные загрузчики
                 </Typography>
               </Box>
-              <Typography variant="h2" sx={{ color: 'white', fontWeight: 'bold' }}>
+              <Typography variant="h2" fontWeight="bold" sx={{ mb: 1 }}>
                 {runningLoaders}/{state.loaders.length}
               </Typography>
-              <Typography sx={{ color: 'rgba(255,255,255,0.8)' }}>
-                Активны
+              <Typography sx={{ opacity: 0.9 }}>
+                Активных загрузчиков
               </Typography>
             </CardContent>
           </Card>
@@ -70,20 +81,20 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
       {/* Cameras List */}
       {state.cameras.length > 0 && (
         <Box sx={{ mb: 4 }}>
-          <Typography variant="h5" gutterBottom sx={{ mb: 2, fontWeight: 'bold' }}>
-            📹 Камеры
+          <Typography variant="h5" gutterBottom sx={{ mb: 2, fontWeight: 600 }}>
+            📹 Камеры видеонаблюдения
           </Typography>
           <Grid container spacing={2}>
             {state.cameras.map((camera) => (
               <Grid item xs={12} md={6} key={camera.camera_name}>
-                <Card>
+                <Card sx={{ borderLeft: `4px solid ${RZD_COLORS.primary}` }}>
                   <CardContent>
                     <Box display="flex" justifyContent="space-between" alignItems="start">
                       <Box>
-                        <Typography variant="h6" gutterBottom>
+                        <Typography variant="h6" gutterBottom fontWeight={600}>
                           {camera.camera_name}
                         </Typography>
-                        <Typography variant="body2" color="text.secondary" sx={{ mb: 1, fontSize: '0.75rem' }}>
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 1, fontSize: '0.8rem' }}>
                           {camera.rtsp_url}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
@@ -91,8 +102,8 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
                         </Typography>
                       </Box>
                       <Chip
-                        label={camera.status}
-                        color={camera.status === 'running' ? 'success' : 'warning'}
+                        label={camera.status === 'running' ? 'Активна' : 'Остановлена'}
+                        color={camera.status === 'running' ? 'success' : 'default'}
                         size="small"
                       />
                     </Box>
@@ -104,10 +115,10 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
         </Box>
       )}
 
-      {/* Neural Loaders with Streams */}
+      {/* Neural Loaders */}
       {state.loaders.length > 0 && (
         <Box>
-          <Typography variant="h5" gutterBottom sx={{ mb: 2, fontWeight: 'bold' }}>
+          <Typography variant="h5" gutterBottom sx={{ mb: 2, fontWeight: 600 }}>
             🧠 Нейронная обработка
           </Typography>
           <Grid container spacing={3}>
@@ -117,11 +128,13 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
 
               return (
                 <Grid item xs={12} key={loader.loader_name}>
-                  <Card>
+                  <Card sx={{ borderLeft: `4px solid ${RZD_COLORS.secondary}` }}>
                     <CardContent>
                       <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
                         <Box>
-                          <Typography variant="h6">{loader.loader_name}</Typography>
+                          <Typography variant="h6" fontWeight={600}>
+                            {loader.loader_name}
+                          </Typography>
                           <Typography variant="body2" color="text.secondary">
                             Endpoint: {loader.server_endpoint} → {flaskPath}
                           </Typography>
@@ -130,7 +143,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
                           </Typography>
                         </Box>
                         <Chip
-                          label={loader.status}
+                          label={loader.status === 'running' ? 'Активен' : 'Остановлен'}
                           color={loader.status === 'running' ? 'success' : 'default'}
                         />
                       </Box>
@@ -142,7 +155,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
                             bgcolor: 'black',
                             borderRadius: 2,
                             overflow: 'hidden',
-                            border: '2px solid #1976d2'
+                            border: `3px solid ${RZD_COLORS.primary}`,
                           }}
                         >
                           <img
@@ -155,17 +168,17 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
 
                       {loader.loader_matrix && loader.loader_matrix.length > 0 && (
                         <Box sx={{ mt: 2 }}>
-                          <Typography variant="subtitle2" gutterBottom>
+                          <Typography variant="subtitle2" gutterBottom fontWeight={600}>
                             📊 Матрица камер:
                           </Typography>
                           <Box
                             sx={{
                               fontFamily: 'monospace',
                               fontSize: '0.875rem',
-                              bgcolor: '#f5f5f5',
+                              bgcolor: RZD_COLORS.grey[100],
                               p: 2,
-                              borderRadius: 1,
-                              border: '1px solid #e0e0e0'
+                              borderRadius: 2,
+                              border: `1px solid ${RZD_COLORS.grey[200]}`,
                             }}
                           >
                             {loader.loader_matrix.map((row, i) => (
@@ -187,9 +200,9 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
 
       {/* Empty State */}
       {state.cameras.length === 0 && state.loaders.length === 0 && (
-        <Paper sx={{ p: 6, textAlign: 'center' }}>
-          <Typography variant="h5" color="text.secondary" gutterBottom>
-            🔌 Нет данных
+        <Paper sx={{ p: 8, textAlign: 'center' }}>
+          <Typography variant="h5" color="text.secondary" gutterBottom fontWeight={600}>
+            Нет активных устройств
           </Typography>
           <Typography variant="body1" color="text.secondary">
             Система не содержит камер или загрузчиков

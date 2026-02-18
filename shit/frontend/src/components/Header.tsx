@@ -15,7 +15,6 @@ import {
   ListItemText,
 } from '@mui/material';
 import {
-  Videocam as VideocamIcon,
   CheckCircle as CheckCircleIcon,
   Error as ErrorIcon,
   AccountCircle as AccountCircleIcon,
@@ -23,6 +22,7 @@ import {
   AdminPanelSettings as AdminIcon,
   Visibility as ViewerIcon,
 } from '@mui/icons-material';
+import { RZD_COLORS } from '../theme';
 
 interface HeaderProps {
   currentTab: number;
@@ -58,11 +58,33 @@ const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <AppBar position="static" sx={{ bgcolor: '#1976d2', mb: 3 }}>
-      <Toolbar>
-        <VideocamIcon sx={{ mr: 2, fontSize: 32 }} />
-        <Typography variant="h5" sx={{ flexGrow: 0, mr: 4 }}>
-          🚂 RJD Video Processing System
+    <AppBar position="static" sx={{ bgcolor: RZD_COLORS.primary, mb: 3 }}>
+      <Toolbar sx={{ minHeight: 70 }}>
+        <Box
+          component="img"
+          src="/src/assets/logo.png"
+          alt="РЖД"
+          sx={{
+            height: 40,
+            mr: 2,
+            filter: 'brightness(0) invert(1)', // Белый цвет для SVG
+          }}
+          onError={(e: any) => {
+            // Если логотипа нет, показываем эмодзи
+            e.target.style.display = 'none';
+          }}
+        />
+
+        <Typography
+          variant="h6"
+          sx={{
+            flexGrow: 0,
+            mr: 4,
+            fontWeight: 700,
+            fontSize: '1.1rem',
+          }}
+        >
+          РЖД · Система видеоаналитики
         </Typography>
 
         <Tabs
@@ -70,40 +92,61 @@ const Header: React.FC<HeaderProps> = ({
           onChange={(_, newValue) => onTabChange(newValue)}
           sx={{
             flexGrow: 1,
-            '& .MuiTab-root': { color: 'rgba(255,255,255,0.7)' },
-            '& .Mui-selected': { color: 'white' },
-            '& .MuiTabs-indicator': { backgroundColor: 'white' },
+            '& .MuiTab-root': {
+              color: 'rgba(255,255,255,0.75)',
+              fontWeight: 500,
+            },
+            '& .Mui-selected': {
+              color: 'white',
+              fontWeight: 600,
+            },
+            '& .MuiTabs-indicator': {
+              backgroundColor: 'white',
+              height: 3,
+            },
           }}
         >
-          <Tab label="Дашборд" />
+          <Tab label="Главная" />
           <Tab label="Камеры" />
           <Tab label="Загрузчики" />
-          <Tab label="Система" />
+          <Tab label="Статус системы" />
         </Tabs>
 
         {/* WebSocket Status */}
         <Chip
           icon={wsConnected ? <CheckCircleIcon /> : <ErrorIcon />}
           label={wsConnected ? 'Подключено' : 'Отключено'}
-          color={wsConnected ? 'success' : 'error'}
-          sx={{ color: 'white', mr: 2 }}
+          size="small"
+          sx={{
+            bgcolor: wsConnected ? RZD_COLORS.success : RZD_COLORS.warning,
+            color: 'white',
+            mr: 2,
+            fontWeight: 600,
+          }}
         />
 
         {/* User Menu */}
-        <Box display="flex" alignItems="center">
+        <Box display="flex" alignItems="center" gap={1}>
           <Chip
             icon={role === 'admin' ? <AdminIcon /> : <ViewerIcon />}
             label={role === 'admin' ? 'Администратор' : 'Наблюдатель'}
-            color={role === 'admin' ? 'warning' : 'info'}
             size="small"
-            sx={{ mr: 1 }}
+            sx={{
+              bgcolor: 'rgba(255,255,255,0.2)',
+              color: 'white',
+              fontWeight: 600,
+              '& .MuiChip-icon': { color: 'white' },
+            }}
           />
           <IconButton
             onClick={handleMenuOpen}
-            sx={{ color: 'white' }}
-            aria-label="user menu"
+            sx={{
+              color: 'white',
+              bgcolor: 'rgba(255,255,255,0.1)',
+              '&:hover': { bgcolor: 'rgba(255,255,255,0.2)' },
+            }}
           >
-            <AccountCircleIcon sx={{ fontSize: 32 }} />
+            <AccountCircleIcon sx={{ fontSize: 28 }} />
           </IconButton>
         </Box>
 
@@ -112,16 +155,11 @@ const Header: React.FC<HeaderProps> = ({
           anchorEl={anchorEl}
           open={menuOpen}
           onClose={handleMenuClose}
-          anchorOrigin={{
-            vertical: 'bottom',
-            horizontal: 'right',
-          }}
-          transformOrigin={{
-            vertical: 'top',
-            horizontal: 'right',
-          }}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+          transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+          sx={{ mt: 1 }}
         >
-          <Box sx={{ px: 2, py: 1 }}>
+          <Box sx={{ px: 2, py: 1.5, minWidth: 200 }}>
             <Typography variant="subtitle2" fontWeight="bold">
               {username}
             </Typography>
@@ -130,11 +168,11 @@ const Header: React.FC<HeaderProps> = ({
             </Typography>
           </Box>
           <Divider />
-          <MenuItem onClick={handleLogout}>
+          <MenuItem onClick={handleLogout} sx={{ py: 1.5 }}>
             <ListItemIcon>
-              <LogoutIcon fontSize="small" />
+              <LogoutIcon fontSize="small" color="error" />
             </ListItemIcon>
-            <ListItemText>Выйти</ListItemText>
+            <ListItemText>Выйти из системы</ListItemText>
           </MenuItem>
         </Menu>
       </Toolbar>

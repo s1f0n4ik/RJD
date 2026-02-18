@@ -8,6 +8,7 @@ import SystemStatus from './components/SystemStatus';
 import Login from './components/Login';
 import { wsService } from './services/websocket';
 import type { SystemState } from './types';
+import { RZD_COLORS } from './theme';
 
 const App: React.FC = () => {
   const [currentTab, setCurrentTab] = useState(0);
@@ -17,7 +18,6 @@ const App: React.FC = () => {
     loaders: [],
   });
 
-  // ✅ ДОБАВЛЕНО: Auth state
   const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
   const [role, setRole] = useState<string | null>(localStorage.getItem('role'));
   const [username, setUsername] = useState<string | null>(localStorage.getItem('username'));
@@ -53,7 +53,6 @@ const App: React.FC = () => {
     };
   }, [token]);
 
-  // ✅ Показать Login, если не авторизован
   if (!token) {
     return <Login onLogin={handleLogin} />;
   }
@@ -63,9 +62,27 @@ const App: React.FC = () => {
       case 0:
         return <Dashboard state={state} />;
       case 1:
-        return role === 'admin' ? <CameraSettings /> : <div>Доступ запрещён</div>;
+        return role === 'admin' ? <CameraSettings /> : (
+          <Box textAlign="center" py={8}>
+            <Typography variant="h5" color="text.secondary">
+              Доступ запрещён
+            </Typography>
+            <Typography color="text.secondary">
+              Требуются права администратора
+            </Typography>
+          </Box>
+        );
       case 2:
-        return role === 'admin' ? <LoaderSettings /> : <div>Доступ запрещён</div>;
+        return role === 'admin' ? <LoaderSettings /> : (
+          <Box textAlign="center" py={8}>
+            <Typography variant="h5" color="text.secondary">
+              Доступ запрещён
+            </Typography>
+            <Typography color="text.secondary">
+              Требуются права администратора
+            </Typography>
+          </Box>
+        );
       case 3:
         return <SystemStatus />;
       default:
@@ -74,7 +91,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <Box sx={{ minHeight: '100vh', bgcolor: '#f5f5f5' }}>
+    <Box sx={{ minHeight: '100vh', bgcolor: RZD_COLORS.grey[100] }}>
       <Header
         currentTab={currentTab}
         onTabChange={setCurrentTab}
