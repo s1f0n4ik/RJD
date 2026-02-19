@@ -1,7 +1,5 @@
 #include "webrtc_session.h"
 
-#include <gst/webrtc/webrtc.h>
-
 #include "signaling_definers.h"
 
 UWebRTCSession::UWebRTCSession(
@@ -56,8 +54,14 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 	}
 
 	// Создание всех необходимых элементов
+	if (!m_is_sub) {
+		m_pay = gst_element_factory_make(codec == std::string("H264") ? "rtph264pay" : "rtph265pay", nullptr);
+	}
+	else {
+		m_pay = nullptr;
+	}
+
 	m_queue = gst_element_factory_make("queue", nullptr);
-	if (!m_is_sub) m_pay = gst_element_factory_make(codec == std::string("H264") ? "rtph264pay" : "rtph265pay", nullptr);
 	m_webrtcbin = gst_element_factory_make("webrtcbin", nullptr);
 
 	if (!m_queue || ((!m_pay) && !m_is_sub) || !m_webrtcbin) {
@@ -375,6 +379,14 @@ void UWebRTCSession::send_message(const std::string& msg) {
 	m_send_callback(msg);
 }
 
+void UWebRTCSession::close_session(const std::string& msg, std::string& description) {
+	if (!m_remove_callback) {
+		description = "Internal error, there is no callback to remove session!";
+		return;
+	}
+	m_remove_callback(msg, description);
+}
+
 void UWebRTCSession::on_ice_candidate(GstElement* webrtcbin, guint mlineindex, gchar* candidate, gpointer data) {
 	auto session = static_cast<UWebRTCSession*>(data);
 
@@ -386,6 +398,71 @@ void UWebRTCSession::on_ice_candidate(GstElement* webrtcbin, guint mlineindex, g
 	session->send_message(serialized_ice_message);
 	session->get_logger().debug(session->get_session_name() + ": sended ICE candidate!");
 }
+
+void UWebRTCSession::on_connection_state_changed(GObject* obj, GParamSpec*, gpointer user_data)
+{
+	auto self = static_cast<UWebRTCSession*>(user_data);
+
+	GstWebRTCPeerConnectionState state;
+	g_object_get(obj, "connection-state", &state, nullptr);
+
+	switch (state)
+	{
+	case GST_WEBRTC_PEER_CONNECTION_STATE_FAILED:
+	case GST_WEBRTC_PEER_CONNECTION_STATE_CLOSED: {
+		std::string desc = "webrtc connection with" + m_client_id + " was closed!";
+		self->close_session(m_client_id, desc);
+		m_logger.debug(desc);
+		break;
+	}
+	case GST_WEBRTC_PEER_CONNECTION_STATE_CONNECTED:
+		m_logger.debug("webrtc connection established!");
+		break;
+	case GST_WEBRTC_PEER_CONNECTION_STATE_NEW:
+		m_logger.debug("new webrtc connection with " + m_client_id + " requested!");
+		break;
+	case GST_WEBRTC_PEER_CONNECTION_STATE_CONNECTING:
+		m_logger.debug("connecting with " + m_client_id);
+		break;
+	default:
+		break;
+	}
+}
+
+void UWebRTCSession::on_ice_state_changed(GObject* obj,
+	GParamSpec*,
+	gpointer user_data)
+{
+	auto self = static_cast<UWebRTCSession*>(user_data);
+
+	GstWebRTCICEConnectionState state;
+	g_object_get(obj, "ice-connection-state", &state, nullptr);
+
+	switch (state) {
+		case GST_WEBRTC_ICE_CONNECTION_STATE_CLOSED:
+		case GST_WEBRTC_ICE_CONNECTION_STATE_FAILED: {
+			std::string desc = "closed ICE connection with " + m_client_id + "!";
+			self->close_session(m_client_id, desc);
+			m_logger.error(desc);
+			break;
+		}
+		case GST_WEBRTC_ICE_CONNECTION_STATE_DISCONNECTED:
+			m_logger.debug("ICE disconnected from " + m_client_id);
+			break;
+		case GST_WEBRTC_ICE_CONNECTION_STATE_CHECKING:
+			m_logger.debug("ICE changed state to checking with " + m_client_id);
+			break;
+		case GST_WEBRTC_ICE_CONNECTION_STATE_COMPLETED:
+			m_logger.debug("ICE changed state to completed with " + m_client_id);
+			break;
+		case GST_WEBRTC_ICE_CONNECTION_STATE_CONNECTED:
+			m_logger.info("ICE successfully connected to " + m_client_id);
+			break;
+		default:
+			break;
+	}
+}
+
 
 boost::json::object UWebRTCSession::make_json(
 	bool successed,

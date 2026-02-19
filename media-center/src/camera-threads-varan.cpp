@@ -14,7 +14,7 @@ const int PORT = 1111;
 
 int main()
 {
-	//setenv("GST_DEBUG", "queue:6", 1);
+	//setenv("GST_DEBUG", "rtspsrc:5,pipeline:7", 1);
 	gst_init(nullptr, nullptr);
 	gst_debug_set_active(TRUE);
 	//gst_debug_set_default_threshold(GST_LEVEL_INFO);
@@ -92,6 +92,12 @@ int main()
 			"camera_11", "Test camera",
 			"rtsp://admin:$Admin12345@192.168.1.32:554/Streaming/Channels/1", "/home/orangepi/records/camera_11", 10, 200, false,
 			"rtsp://192.168.1.32:554/user=admin_password=$Admin12345_channel=0_stream=1&onvif=0.sdp?real_stream", 0, false,
+			10
+		},
+		varan::neural::FCameraOptions{
+			"camera_12", "Test Analog camera",
+			"rtsp://admin:admin1234@192.168.1.108:554/cam/realmonitor?channel=1&subtype=0", "/home/orangepi/records/camera_12", 10, 200, false,
+			"rtsp://admin:admin1234@192.168.1.108:554/cam/realmonitor?channel=1&subtype=1", 0, false,
 			10
 		}
 	};

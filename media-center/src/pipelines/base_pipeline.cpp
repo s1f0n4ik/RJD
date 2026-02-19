@@ -106,68 +106,24 @@ bool UCameraPipeline::stop() {
 bool UCameraPipeline::destroy()
 {
     if (m_is_destroying) {
-        m_logger.warn("stop(): function destroy already called!");
+        m_logger.warn("destroy(): function already called!");
         return true;
     }
 
     if (!m_pipeline) {
-        m_logger.warn("Pipeline already destroyed or null.");
+        m_logger.warn("destroy(): pipeline already destroyed or null.");
         m_is_destroying = false;
         return true;
     }
 
-    m_logger.info("Destroying pipeline (graceful shutdown)...");
+    m_logger.info("Destroying pipeline (direct NULL shutdown)...");
     m_is_destroying = true;
 
-    // Отправка eos, чтобы корректно остановить критичные элементы пайплайна
-    m_logger.debug("Sending EOS event...");
-    if (!gst_element_send_event(m_pipeline, gst_event_new_eos())) {
-        m_logger.warn("Failed to send EOS event.");
-    }
+    // Удаляем все сессии
+    m_webrtc_sessions.clear();
 
-    GstBus* bus = gst_element_get_bus(m_pipeline);
-
-    constexpr GstClockTime eos_timeout = 5 * GST_SECOND;
-    GstMessage* msg = gst_bus_timed_pop_filtered(
-        bus,
-        eos_timeout,
-        static_cast<GstMessageType>(GST_MESSAGE_EOS | GST_MESSAGE_ERROR)
-    );
-
-    if (!msg) {
-        m_logger.warn("Timeout waiting for EOS message.");
-    }
-    else {
-        switch (GST_MESSAGE_TYPE(msg)) {
-            case GST_MESSAGE_EOS:
-                m_logger.info("EOS received successfully.");
-                break;
-            case GST_MESSAGE_ERROR: {
-                GError* err = nullptr;
-                gchar* debug_info = nullptr;
-                gst_message_parse_error(msg, &err, &debug_info);
-
-                m_logger.error(std::string("Error during EOS wait: ") + (err ? err->message : "unknown"));
-
-                if (debug_info) {
-                    m_logger.debug(std::string("Debug info: ") + debug_info);
-                }
-
-                if (err) g_error_free(err);
-                if (debug_info) g_free(debug_info);
-                break;
-            }
-            default:
-                break;
-        }
-
-        gst_message_unref(msg);
-    }
-    gst_object_unref(bus);
-
+    // Переводим pipeline в NULL
     m_logger.debug("Setting pipeline state to NULL...");
-
-    // Первевод в null с ожиданием перевода
     GstStateChangeReturn ret = gst_element_set_state(m_pipeline, GST_STATE_NULL);
 
     if (ret == GST_STATE_CHANGE_FAILURE) {
@@ -176,15 +132,11 @@ bool UCameraPipeline::destroy()
         return false;
     }
 
+    // Ждём пока pipeline достигнет состояния NULL
     constexpr GstClockTime null_timeout = 5 * GST_SECOND;
     GstState current = GST_STATE_VOID_PENDING;
     GstState pending = GST_STATE_VOID_PENDING;
-    ret = gst_element_get_state(
-        m_pipeline,
-        &current,
-        &pending,
-        null_timeout
-    );
+    ret = gst_element_get_state(m_pipeline, &current, &pending, null_timeout);
 
     if (ret == GST_STATE_CHANGE_ASYNC) {
         m_logger.error("Timeout waiting for pipeline to reach NULL.");
@@ -203,17 +155,18 @@ bool UCameraPipeline::destroy()
         return false;
     }
 
-    m_logger.info("Pipeline reached NULL state.");
+    m_logger.info("Pipeline reached NULL state successfully.");
 
-    // очистка полей
+    // Очистка локальных структур
     m_tees.clear();
-    m_webrtc_sessions.clear();
+    m_probe.got_codec = false;
+    m_probe.got_video_info = false;
 
     gst_object_unref(m_pipeline);
     m_pipeline = nullptr;
     m_has_initialized = false;
 
-    m_logger.info("Pipeline destroyed successfully.");
+    m_logger.info("Pipeline destroyed successfully (without EOS).");
     m_is_destroying = false;
 
     return true;
@@ -273,7 +226,13 @@ void UCameraPipeline::restart_async() {
         return;
     }
 
-    m_restart_thread = std::thread(&UCameraPipeline::restart_loop, this);
+    if (m_restart_thread.joinable()) {
+        m_restart_thread.join();
+    }
+
+    m_restart_thread = std::thread([this] {
+        this->restart_loop();
+    });
 }
 
 void UCameraPipeline::stop_restart_thread() {
@@ -540,10 +499,11 @@ bool UCameraPipeline::close_webrtc_session(const std::string& client_id, std::st
     }
     try {
         m_webrtc_sessions.erase(client_id);
+        description = "Session with " + client_id + " successfully closed!";
         return true;
     }
     catch (const std::exception& e) {
-        oss_error << "Error when delete session with " << client_id 
+        oss_error << "Error deleting session with " << client_id 
                   << " at " << m_parameters.name << " pipeline: " << e.what();
         description = oss_error.str();
         return false;

@@ -4,6 +4,7 @@
 #include <functional>
 
 #include <gst/gst.h>
+#include <gst/webrtc/webrtc.h>
 #include <boost/json.hpp>
 
 #include "logger.h"
@@ -11,6 +12,7 @@
 class UWebRTCSession {
 
 	using CSendMessage = std::function<void(const std::string& msg)>;
+	using CRemoveSession = std::function<void(const std::string& client_id, std::string& description)>;
 
 public:
 	UWebRTCSession(std::string client, std::string camera, bool is_sub, GstElement* pipeline, GstElement* tee, CSendMessage send_callback, ULogger& logger);
@@ -35,6 +37,8 @@ public:
 	// Геттеры и сеттеры
 	void send_message(const std::string& msg);
 
+	void close_session(const std::string& msg, std::string& description);
+
 	GstElement* get_webrtcbin_element();
 
 	bool is_valid();
@@ -57,15 +61,22 @@ private:
 	GstElement* m_webrtcbin;
 
 	CSendMessage m_send_callback;
+	CRemoveSession m_remove_callback;
 
 	ULogger& m_logger;
 
 	bool m_is_valid;
 	bool m_is_sub;
 
+	std::atomic<bool> m_is_connected{ false };
+
 	static void on_negotiation_needed(GstElement* webrtcbin, gpointer data);
 
 	static void on_offer_created(GstPromise* promise, gpointer data);
 
 	static void on_ice_candidate(GstElement* webrtcbin, guint mlineindex, gchar* candidate, gpointer data);
+
+	void UWebRTCSession::on_connection_state_changed(GObject* obj, GParamSpec*, gpointer user_data);
+
+	void UWebRTCSession::on_ice_state_changed(GObject* obj, GParamSpec*, gpointer user_data);
 };

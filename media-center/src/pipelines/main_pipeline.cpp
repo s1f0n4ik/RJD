@@ -60,13 +60,13 @@ bool UCameraMainPipeline::initialize() {
 				if (debug) g_free(debug);
 
 				
-				self->restart_async();
+				//self->restart_async();
 				break;
 			}
 
 			case GST_MESSAGE_EOS: {
 				self->m_logger.warn("GStreamer EOS received");
-				self->destroy();
+				//self->destroy();
 				break;
 			}
 			case GST_MESSAGE_ELEMENT: {
@@ -222,62 +222,6 @@ bool UCameraMainPipeline::initialize() {
 	// В случае, если передан путь для сохранения файлов
 	if (!m_parameters.record_path.empty()) {
 		create_record_branch(tee);
-		/*
-		m_logger.info("A path for recording segments has been found: " + m_parameters.record_path.string());
-		m_logger.info("Creating brach to record segments...");
-		if (!std::filesystem::exists(m_parameters.record_path)) {
-			try {
-				std::filesystem::create_directories(m_parameters.record_path);
-			}
-			catch (...) {
-				m_logger.error("Cannot create directories at path: " + m_parameters.record_path.string());
-				return false;
-			}
-		}
-
-		auto record_queue = gst_element_factory_make("queue", "record_queue");
-		auto splitmux = gst_element_factory_make("splitmuxsink", "splitmux");
-
-		if (!record_queue || !splitmux) {
-			std::ostringstream oss;
-			oss << "Failed to create elements at record tee: "
-				<< "\n\rrecord_queue=" << (record_queue ? "OK" : "NULL") << ","
-				<< "\n\tsplitmux=" << (splitmux ? "OK" : "NULL") << ",";
-			m_logger.error(oss.str());
-			return false;
-		}
-
-		std::string filename = "segment_" + make_start_timestamp() + "_n_%05d.mp4";
-		std::filesystem::path mp4_path =std::filesystem::path(m_parameters.record_path) / filename;
-
-		g_object_set(
-			splitmux,
-			"location", mp4_path.string().c_str(),
-			"max-size-time", static_cast<guint64>(m_parameters.segment_length) * GST_SECOND,
-			"muxer-factory", "mp4mux",
-			"async-finalize", TRUE,
-			nullptr
-		);
-
-		gst_bin_add_many(GST_BIN(m_pipeline), record_queue, splitmux, nullptr);
-
-		// Связывание падов tee
-		GstPad* tee_record_pad = gst_element_request_pad_simple(tee, "src_%u");
-		GstPad* queue_record_pad = gst_element_get_static_pad(record_queue, "sink");
-
-		if (gst_pad_link(tee_record_pad, queue_record_pad) != GST_PAD_LINK_OK) {
-			m_logger.error("Failed to link tee to record queue");
-			return false;
-		}
-
-		gst_object_unref(queue_record_pad);
-
-		// Связывание остальные элеентов
-		if (!gst_element_link_many(record_queue, splitmux, nullptr)) {
-			m_logger.error("Failed to link file record tee: tee, record_queue, splitmux");
-			return false;
-		}
-		*/
 	}
 
 	m_tees[tee_str] = tee;
@@ -314,7 +258,6 @@ bool UCameraMainPipeline::create_record_branch(GstElement* tee)
 	}
 
 	auto record_queue = gst_element_factory_make("queue", "record_queue");
-	//auto parse = gst_element_factory_make("");
 	auto splitmux = gst_element_factory_make("splitmuxsink", "splitmux");
 
 	if (!record_queue || !splitmux) {
@@ -327,9 +270,8 @@ bool UCameraMainPipeline::create_record_branch(GstElement* tee)
 	}
 
 	g_object_set(record_queue,
-		"leaky", 2,
 		"max-size-buffers", 0,
-		"max-size-time", (guint64)2 * GST_SECOND,
+		"max-size-time", 0,
 		"max-size-bytes", 0,
 		nullptr
 	);
@@ -354,7 +296,8 @@ bool UCameraMainPipeline::create_record_branch(GstElement* tee)
 		splitmux,
 		"max-size-time", static_cast<guint64>(m_parameters.segment_length) * GST_SECOND,
 		"muxer-factory", "mp4mux",
-		"async-finalize", TRUE,
+		"send-keyframe-requests", TRUE,
+		//"async-finalize", TRUE,
 		nullptr
 	);
 
@@ -391,6 +334,7 @@ bool UCameraMainPipeline::create_record_branch(GstElement* tee)
 
 bool UCameraMainPipeline::destroy_record_branch() 
 {
+	m_logger.info("destroy_record_branch(): initialized destroying of record branch!");
 	std::lock_guard<std::mutex> lock(m_branch_mutex);
 	if (!m_record_branch.is_deployed) {
 		m_logger.warn("destroy_record_branch(): trying to destroy record branch that already destroyed!");
@@ -417,6 +361,7 @@ bool UCameraMainPipeline::destroy_record_branch()
 	m_record_branch.splitmux = nullptr;
 
 	m_record_branch.is_deployed = false;
+	m_logger.info("destroy_record_branch(): record branch was deleted!");
 	return true;
 }
 
