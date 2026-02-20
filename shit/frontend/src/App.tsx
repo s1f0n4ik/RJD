@@ -9,6 +9,7 @@ import Login from './components/Login';
 import { wsService } from './services/websocket';
 import type { SystemState } from './types';
 import { RZD_COLORS } from './theme';
+import Observation from './components/Observation';
 
 const App: React.FC = () => {
   const [currentTab, setCurrentTab] = useState(0);
@@ -73,6 +74,8 @@ const App: React.FC = () => {
           </Box>
         );
       case 2:
+        return <Observation />;
+      case 3:
         return role === 'admin' ? <LoaderSettings /> : (
           <Box textAlign="center" py={8}>
             <Typography variant="h5" color="text.secondary">
@@ -83,7 +86,7 @@ const App: React.FC = () => {
             </Typography>
           </Box>
         );
-      case 3:
+      case 4:
         return <SystemStatus />;
       default:
         return <Dashboard state={state} />;

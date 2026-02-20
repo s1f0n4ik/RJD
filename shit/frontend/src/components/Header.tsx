@@ -118,6 +118,7 @@ const Header: React.FC<HeaderProps> = ({
         >
           <Tab label="Главная" />
           <Tab label="Камеры" />
+          <Tab label="Наблюдение" />
           <Tab label="Загрузчики" />
           <Tab label="Статус" />
         </Tabs>
