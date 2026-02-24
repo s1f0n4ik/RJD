@@ -70,7 +70,7 @@ services:
   # WebRTC Signaling Server
   signaling-server:
     build:
-      context: ./server
+      context: ./media-center/server
       dockerfile: Dockerfile
     container_name: vanya-signaling
     ports:
