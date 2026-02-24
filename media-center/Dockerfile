@@ -30,6 +30,7 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     libboost-all-dev \
     zlib1g-dev \
+    nlohmann-json3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Копируем Boost (если используете свою версию)
