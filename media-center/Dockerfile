@@ -1,12 +1,10 @@
-# Базовый образ с GStreamer и необходимыми зависимостями
 FROM ubuntu:22.04
 
-# Отключаем интерактивные запросы
 ENV DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /app
 
-# Установка системных зависимостей
+# Установка системных зависимостей + Rockchip MPP
 RUN apt-get update && apt-get install -y \
     build-essential \
     cmake \
@@ -31,9 +29,14 @@ RUN apt-get update && apt-get install -y \
     libboost-all-dev \
     zlib1g-dev \
     nlohmann-json3-dev \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
-# Копируем Boost (если используете свою версию)
+# Установка gstreamer-rockchip (если доступен в репозитории)
+RUN apt-get update && apt-get install -y \
+    gstreamer1.0-rockchip1 || echo "Rockchip plugins not available in apt"
+
+# Копируем Boost
 COPY 3rdparty/boost /app/3rdparty/boost
 
 # Копируем исходники
@@ -47,8 +50,6 @@ RUN mkdir -p /app/build && cd /app/build && \
     cmake -G Ninja -DCMAKE_BUILD_TYPE=Release .. && \
     ninja
 
-# Открываем порт (если нужен для управления)
 EXPOSE 8765
 
-# Запуск
 CMD ["/app/build/media-center"]

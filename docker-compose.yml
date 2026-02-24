@@ -48,26 +48,26 @@ services:
       - VITE_API_URL=http://localhost:8000
       - VITE_WS_URL=ws://localhost:8000
 
-  # C++ Media Center с GStreamer
   media-center:
     build:
       context: ./media-center
       dockerfile: Dockerfile
     container_name: vanya-media-center
     privileged: true
-    networks:
-      - varan-network
-    depends_on:
-      - signaling-server
+    network_mode: "host"
     environment:
-      - GST_DEBUG=3
-      - SIGNALING_URL=ws://signaling-server:8765
+      - GST_DEBUG=2
+      - SIGNALING_URL=ws://localhost:8765
     devices:
-      - /dev/video0:/dev/video0  # если нужен доступ к камере
+      - /dev/dri:/dev/dri  # GPU для аппаратного декодирования
+      - /dev/video0:/dev/video0
+    cap_add:
+      - SYS_ADMIN
+      - NET_ADMIN
     volumes:
-      - ./media-center/src:/app/src  # для hot-reload (опционально)
+      - ./media-center/src:/app/src
+      - /dev/shm:/dev/shm  # Для IPC
 
-  # WebRTC Signaling Server
   signaling-server:
     build:
       context: ./media-center/server
