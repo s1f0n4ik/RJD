@@ -8,14 +8,15 @@ services:
     restart: unless-stopped
     volumes:
       - /opt/gstreamer-1.28:/opt/gstreamer-1.28:ro
+      - /usr/lib/aarch64-linux-gnu:/usr/lib/aarch64-linux-gnu:ro  # ← ДОБАВИТЬ
       - ./media-center/config:/app/config
       - ./media-center/recordings:/app/recordings
     environment:
       - GST_PLUGIN_PATH=/opt/gstreamer-1.28/lib/aarch64-linux-gnu/gstreamer-1.0
-      - LD_LIBRARY_PATH=/opt/gstreamer-1.28/lib/aarch64-linux-gnu:/opt/gstreamer-1.28/lib
+      - LD_LIBRARY_PATH=/opt/gstreamer-1.28/lib/aarch64-linux-gnu:/opt/gstreamer-1.28/lib:/usr/lib/aarch64-linux-gnu  # ← ОБНОВИТЬ
       - PATH=/opt/gstreamer-1.28/bin:$PATH
     ports:
-      - "8888:8888"  # REST API C++
+      - "8888:8888"
     networks:
       - vanya-network
 

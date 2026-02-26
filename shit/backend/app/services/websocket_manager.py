@@ -76,3 +76,17 @@ class ConnectionManager:
 
 
 manager = ConnectionManager()
+
+from fastapi import WebSocket, WebSocketDisconnect
+
+async def websocket_endpoint(websocket: WebSocket):
+    """WebSocket endpoint для подключения клиентов"""
+    await manager.connect(websocket)
+    try:
+        while True:
+            # Ожидаем сообщения от клиента
+            data = await websocket.receive_json()
+            # Пока просто логируем, можно добавить обработку
+            print(f"Received WS message: {data}")
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)

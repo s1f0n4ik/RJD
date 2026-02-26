@@ -14,7 +14,7 @@ import {
   Memory as MemoryIcon,
 } from '@mui/icons-material';
 import type { SystemState } from '../types';
-import { FLASK_BASE, ENDPOINT_MAP } from '../utils/constants';
+import { ENDPOINT_MAP, FASTAPI_BASE } from '../utils/constants';
 import { RZD_COLORS } from '../theme';
 
 interface DashboardProps {
@@ -146,7 +146,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
           <Grid container spacing={3}>
             {state.loaders.map((loader) => {
               const flaskPath = ENDPOINT_MAP[loader.server_endpoint] || '/neural_1';
-              const streamUrl = `${FLASK_BASE}${flaskPath}`;
+              const streamUrl = `${FASTAPI_BASE}${flaskPath}`;
 
               return (
                 <Grid item xs={12} key={loader.loader_name}>
