@@ -1,20 +1,20 @@
 version: '3.8'
 
 services:
-  flask-server:
-    build:
-      context: ./python-varan
-      dockerfile: Dockerfile
-    container_name: vanya-flask
-    ports:
-      - "5000:5000"
-    volumes:
-      - ./python-varan:/app
-    networks:
-      - varan-network
-    privileged: true
-    environment:
-      - PYTHONUNBUFFERED=1
+#  flask-server:
+#    build:
+#      context: ./python-varan
+#      dockerfile: Dockerfile
+#    container_name: vanya-flask
+#    ports:
+#      - "5000:5000"
+#    volumes:
+#      - ./python-varan:/app
+#    networks:
+#      - varan-network
+#    privileged: true
+#    environment:
+#      - PYTHONUNBUFFERED=1
 
   fastapi-server:
     build:
@@ -58,6 +58,7 @@ services:
     environment:
       - GST_DEBUG=2
       - SIGNALING_URL=ws://localhost:8765
+      - GST_PLUGIN_PATH=/opt/gstreamer-1.28/lib/aarch64-linux-gnu/gstreamer-1.0
     devices:
       - /dev/dri:/dev/dri  # GPU для аппаратного декодирования
       - /dev/video0:/dev/video0
@@ -67,6 +68,7 @@ services:
     volumes:
       - ./media-center/src:/app/src
       - /dev/shm:/dev/shm  # Для IPC
+      - /opt/gstreamer-1.28:/opt/gstreamer-1.28:ro
 
   signaling-server:
     build:

@@ -6,7 +6,7 @@ from datetime import datetime
 from fastapi import WebSocket, WebSocketDisconnect
 
 from app.services import flask_client
-from app.services.flask_client import FlaskClientError
+from app.services.camera_state import camera_state
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -83,8 +83,8 @@ class ConnectionManager:
         """Получить статус из Flask и разослать всем клиентам"""
         try:
             # Получаем данные из Flask
-            cameras = await flask_client.get_all_cameras()
-            loaders = await flask_client.get_all_loaders()
+            cameras = await camera_state.get_all_cameras()
+            loaders = await camera_state.get_all_loaders()
 
             # Формируем сообщение
             status_data = {
