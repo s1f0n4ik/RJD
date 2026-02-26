@@ -33,7 +33,7 @@ services:
 
   fastapi:
     build:
-      context: ./shit/fastapi
+      context: ./shit/backend
       dockerfile: Dockerfile
     container_name: vanya-fastapi
     restart: unless-stopped
