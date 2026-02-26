@@ -38,17 +38,21 @@ const Observation: React.FC = () => {
   }, []);
 
   const loadCameras = async () => {
-    try {
-      const data = await api.getCameras();
-      setCameras(data);
+  try {
+    const data: CPPCamera[] = await api.getCameras();
+    setCameras(data);
 
-      // По умолчанию выбираем первые N камер
-      const defaultSelected = data.slice(0, gridSize).map(c => c.camera_name);
-      setSelectedCameras(defaultSelected);
-    } catch (error) {
-      console.error('Failed to load cameras:', error);
-    }
-  };
+    // По умолчанию выбираем камеры статусом 3 (running)
+    const runningCameras = data
+      .filter(c => c.main.status === 3)
+      .slice(0, gridSize)
+      .map(c => c.name);
+
+    setSelectedCameras(runningCameras);
+  } catch (error) {
+    console.error('Failed to load cameras:', error);
+  }
+};
 
   const handleGridSizeChange = (_: any, newSize: GridSize | null) => {
     if (newSize) {

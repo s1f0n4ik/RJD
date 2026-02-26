@@ -1,86 +1,64 @@
 version: '3.8'
 
 services:
-#  flask-server:
-#    build:
-#      context: ./python-varan
-#      dockerfile: Dockerfile
-#    container_name: vanya-flask
-#    ports:
-#      - "5000:5000"
-#    volumes:
-#      - ./python-varan:/app
-#    networks:
-#      - varan-network
-#    privileged: true
-#    environment:
-#      - PYTHONUNBUFFERED=1
-
-  fastapi-server:
-    build:
-      context: ./shit/backend
-      dockerfile: Dockerfile
-    container_name: vanya-fastapi
-    ports:
-      - "8000:8000"
-    depends_on:
-      - flask-server
-    networks:
-      - varan-network
-    environment:
-      - FLASK_BASE_URL=http://flask-server:5000
-
-  frontend:
-    build:
-      context: ./shit/frontend
-      dockerfile: Dockerfile
-    container_name: vanya-frontend
-    ports:
-      - "3000:3000"
-    depends_on:
-      - fastapi-server
-    networks:
-      - varan-network
-    volumes:
-      - ./shit/frontend:/app
-      - /app/node_modules
-    environment:
-      - VITE_API_URL=http://localhost:8000
-      - VITE_WS_URL=ws://localhost:8000
-
   media-center:
     build:
       context: ./media-center
       dockerfile: Dockerfile
     container_name: vanya-media-center
-    privileged: true
-    network_mode: "host"
-    environment:
-      - GST_DEBUG=2
-      - SIGNALING_URL=ws://localhost:8765
-      - GST_PLUGIN_PATH=/opt/gstreamer-1.28/lib/aarch64-linux-gnu/gstreamer-1.0
-    devices:
-      - /dev/dri:/dev/dri  # GPU для аппаратного декодирования
-      - /dev/video0:/dev/video0
-    cap_add:
-      - SYS_ADMIN
-      - NET_ADMIN
+    restart: unless-stopped
     volumes:
-      - ./media-center/src:/app/src
-      - /dev/shm:/dev/shm  # Для IPC
       - /opt/gstreamer-1.28:/opt/gstreamer-1.28:ro
+      - ./media-center/config:/app/config
+      - ./media-center/recordings:/app/recordings
+    environment:
+      - GST_PLUGIN_PATH=/opt/gstreamer-1.28/lib/aarch64-linux-gnu/gstreamer-1.0
+      - LD_LIBRARY_PATH=/opt/gstreamer-1.28/lib/aarch64-linux-gnu:/opt/gstreamer-1.28/lib
+      - PATH=/opt/gstreamer-1.28/bin:$PATH
+    ports:
+      - "8888:8888"  # REST API C++
+    networks:
+      - vanya-network
 
   signaling-server:
     build:
-      context: ./media-center/server
+      context: ./signaling-server
       dockerfile: Dockerfile
     container_name: vanya-signaling
+    restart: unless-stopped
     ports:
       - "8765:8765"
     networks:
-      - varan-network
+      - vanya-network
+
+  fastapi:
+    build:
+      context: ./fastapi
+      dockerfile: Dockerfile
+    container_name: vanya-fastapi
     restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - MEDIA_CENTER_URL=http://media-center:8888
+    depends_on:
+      - media-center
+    networks:
+      - vanya-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: vanya-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - fastapi
+    networks:
+      - vanya-network
 
 networks:
-  varan-network:
+  vanya-network:
     driver: bridge

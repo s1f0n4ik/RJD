@@ -1,5 +1,23 @@
 import { FASTAPI_BASE } from '../utils/constants';
-import type {Camera, Loader, CameraFormData} from '../types';
+
+export interface CPPCameraStream {
+  type_url: number;
+  username: string;
+  password: string;
+  record_path?: string;
+  length?: number;
+  delete_delay?: number;
+  use_udp: boolean;
+  status?: number; // 0-нет, 1-готов, 2-остановлен, 3-в работе
+}
+
+export interface CPPCamera {
+  name: string;
+  description: string;
+  main: CPPCameraStream;
+  sub: CPPCameraStream;
+  reconnect: number;
+}
 
 class ApiClient {
   private baseUrl: string;
@@ -8,15 +26,19 @@ class ApiClient {
     this.baseUrl = baseUrl;
   }
 
-  // ========== Cameras ==========
-
-  async getCameras(): Promise<Camera[]> {
+  async getCameras(): Promise<CPPCamera[]> {
     const response = await fetch(`${this.baseUrl}/api/cameras`);
     if (!response.ok) throw new Error('Failed to fetch cameras');
     return response.json();
   }
 
-  async createCamera(camera: CameraFormData): Promise<Camera> {
+  async getCamera(cameraName: string): Promise<CPPCamera> {
+    const response = await fetch(`${this.baseUrl}/api/camera/${cameraName}`);
+    if (!response.ok) throw new Error('Camera not found');
+    return response.json();
+  }
+
+  async createCamera(camera: CPPCamera): Promise<any> {
     const response = await fetch(`${this.baseUrl}/api/camera`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -29,11 +51,11 @@ class ApiClient {
     return response.json();
   }
 
-  async updateCamera(cameraName: string, data: Partial<CameraFormData>): Promise<Camera> {
+  async updateCamera(cameraName: string, updates: Partial<CPPCamera>): Promise<any> {
     const response = await fetch(`${this.baseUrl}/api/camera/${cameraName}`, {
-      method: 'PUT',
+      method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
+      body: JSON.stringify(updates),
     });
     if (!response.ok) {
       const error = await response.json();
@@ -46,40 +68,7 @@ class ApiClient {
     const response = await fetch(`${this.baseUrl}/api/camera/${cameraName}`, {
       method: 'DELETE',
     });
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || 'Failed to delete camera');
-    }
-  }
-
-  async getCameraStatus(cameraName: string): Promise<Camera> {
-    const response = await fetch(`${this.baseUrl}/api/camera/${cameraName}`);
-    if (!response.ok) throw new Error('Failed to fetch camera status');
-    return response.json();
-  }
-
-  // ========== Loaders ==========
-
-  async getLoaders(): Promise<Loader[]> {
-    const response = await fetch(`${this.baseUrl}/api/loaders`);
-    if (!response.ok) throw new Error('Failed to fetch loaders');
-    return response.json();
-  }
-
-  async startLoader(loaderName: string): Promise<any> {
-    const response = await fetch(`${this.baseUrl}/api/loader/${loaderName}/start`, {
-      method: 'POST',
-    });
-    if (!response.ok) throw new Error('Failed to start loader');
-    return response.json();
-  }
-
-  async stopLoader(loaderName: string): Promise<any> {
-    const response = await fetch(`${this.baseUrl}/api/loader/${loaderName}/stop`, {
-      method: 'POST',
-    });
-    if (!response.ok) throw new Error('Failed to stop loader');
-    return response.json();
+    if (!response.ok) throw new Error('Failed to delete camera');
   }
 }
 
