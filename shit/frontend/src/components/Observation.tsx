@@ -19,45 +19,42 @@ import {
 } from '@mui/material';
 import { ViewModule, ViewQuilt, GridView, Settings } from '@mui/icons-material';
 import WebRTCPlayer from './WebRTCPlayer';
-import { api } from '../services/api';
-import type { Camera } from '../types';
+import { api, type CPPCamera } from '../services/api';
 
 type GridSize = 1 | 4 | 6 | 9;
 
 const Observation: React.FC = () => {
-  const [cameras, setCameras] = useState<Camera[]>([]);
+  const [cameras, setCameras] = useState<CPPCamera[]>([]);
   const [selectedCameras, setSelectedCameras] = useState<string[]>([]);
   const [gridSize, setGridSize] = useState<GridSize>(4);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  // URL сигналинг сервера (настройте свой)
-  const SIGNALING_SERVER = 'ws://192.168.1.2:8765'; // ← ваш сервер из server.py
+  const SIGNALING_SERVER = 'ws://192.168.1.2:8765';
 
   useEffect(() => {
     loadCameras();
   }, []);
 
   const loadCameras = async () => {
-  try {
-    const data: CPPCamera[] = await api.getCameras();
-    setCameras(data);
+    try {
+      const data = await api.getCameras();
+      setCameras(data);
 
-    // По умолчанию выбираем камеры статусом 3 (running)
-    const runningCameras = data
-      .filter(c => c.main.status === 3)
-      .slice(0, gridSize)
-      .map(c => c.name);
+      // По умолчанию выбираем камеры со статусом 3 (running)
+      const runningCameras = data
+        .filter(c => c.main.status === 3)
+        .slice(0, gridSize)
+        .map(c => c.name);
 
-    setSelectedCameras(runningCameras);
-  } catch (error) {
-    console.error('Failed to load cameras:', error);
-  }
-};
+      setSelectedCameras(runningCameras);
+    } catch (error) {
+      console.error('Failed to load cameras:', error);
+    }
+  };
 
   const handleGridSizeChange = (_: any, newSize: GridSize | null) => {
     if (newSize) {
       setGridSize(newSize);
-      // Обрезаем выбранные камеры если нужно
       if (selectedCameras.length > newSize) {
         setSelectedCameras(selectedCameras.slice(0, newSize));
       }
@@ -71,7 +68,7 @@ const Observation: React.FC = () => {
       } else if (prev.length < gridSize) {
         return [...prev, cameraName];
       } else {
-        return prev; // Лимит достигнут
+        return prev;
       }
     });
   };
@@ -88,7 +85,6 @@ const Observation: React.FC = () => {
 
   return (
     <Container maxWidth="xl">
-      {/* Панель управления */}
       <Paper sx={{ p: 2, mb: 3 }}>
         <Box display="flex" justifyContent="space-between" alignItems="center">
           <Typography variant="h6" fontWeight="bold">
@@ -96,7 +92,6 @@ const Observation: React.FC = () => {
           </Typography>
 
           <Box display="flex" gap={2} alignItems="center">
-            {/* Выбор размера сетки */}
             <ToggleButtonGroup
               value={gridSize}
               exclusive
@@ -117,7 +112,6 @@ const Observation: React.FC = () => {
               </ToggleButton>
             </ToggleButtonGroup>
 
-            {/* Кнопка настроек */}
             <Button
               variant="outlined"
               startIcon={<Settings />}
@@ -129,7 +123,6 @@ const Observation: React.FC = () => {
         </Box>
       </Paper>
 
-      {/* Сетка камер */}
       {selectedCameras.length === 0 ? (
         <Paper sx={{ p: 8, textAlign: 'center' }}>
           <Typography variant="h5" color="text.secondary" gutterBottom>
@@ -168,20 +161,21 @@ const Observation: React.FC = () => {
           <List>
             {cameras.map((camera) => (
               <ListItem
-                key={camera.camera_name}
+                key={camera.name}
                 button
-                onClick={() => handleToggleCamera(camera.camera_name)}
-                disabled={!selectedCameras.includes(camera.camera_name) && selectedCameras.length >= gridSize}
+                onClick={() => handleToggleCamera(camera.name)}
+                disabled={!selectedCameras.includes(camera.name) && selectedCameras.length >= gridSize}
               >
                 <ListItemIcon>
                   <Checkbox
-                    checked={selectedCameras.includes(camera.camera_name)}
-                    disabled={!selectedCameras.includes(camera.camera_name) && selectedCameras.length >= gridSize}
+                    checked={selectedCameras.includes(camera.name)}
+                    disabled={!selectedCameras.includes(camera.name) && selectedCameras.length >= gridSize}
                   />
                 </ListItemIcon>
+                {/* ВОТ ЗДЕСЬ ИЗМЕНЕНИЕ: */}
                 <ListItemText
-                  primary={camera.camera_name}
-                  secondary={camera.status === 'running' ? 'Активна' : 'Остановлена'}
+                  primary={camera.name}
+                  secondary={camera.main.status === 3 ? '🟢 Активна' : '🔴 Остановлена'}
                 />
               </ListItem>
             ))}
