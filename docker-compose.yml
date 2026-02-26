@@ -21,7 +21,7 @@ services:
 
   signaling-server:
     build:
-      context: ./signaling-server
+      context: ./media-center/server
       dockerfile: Dockerfile
     container_name: vanya-signaling
     restart: unless-stopped
