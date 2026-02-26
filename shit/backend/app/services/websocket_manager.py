@@ -1,8 +1,7 @@
-from fastapi import WebSocket
+from fastapi import WebSocket, WebSocketDisconnect
 from typing import List
 import asyncio
 from app.services.cpp_client import cpp_client
-
 
 class ConnectionManager:
     def __init__(self):
@@ -17,11 +16,12 @@ class ConnectionManager:
         await self.send_initial_state(websocket)
 
         # Запускаем фоновое обновление, если еще не запущено
-        if not self._update_task:
+        if not self._update_task or self._update_task.done():
             self._update_task = asyncio.create_task(self.background_updater())
 
     def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
 
     async def send_initial_state(self, websocket: WebSocket):
         """Отправить начальное состояние"""
@@ -66,27 +66,27 @@ class ConnectionManager:
 
         # Удаляем отключившихся
         for conn in disconnected:
-            self.active_connections.remove(conn)
+            if conn in self.active_connections:
+                self.active_connections.remove(conn)
 
     async def background_updater(self):
         """Фоновая задача для периодического обновления"""
-        while True:
-            await asyncio.sleep(2)  # Обновление каждые 2 секунды
-            await self.broadcast_status_update()
-
+        try:
+            while self.active_connections:
+                await asyncio.sleep(2)
+                await self.broadcast_status_update()
+        except asyncio.CancelledError:
+            pass
 
 manager = ConnectionManager()
-
-from fastapi import WebSocket, WebSocketDisconnect
 
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint для подключения клиентов"""
     await manager.connect(websocket)
     try:
         while True:
-            # Ожидаем сообщения от клиента
             data = await websocket.receive_json()
-            # Пока просто логируем, можно добавить обработку
-            print(f"Received WS message: {data}")
+            if data.get("type") == "subscribe":
+                continue
     except WebSocketDisconnect:
         manager.disconnect(websocket)

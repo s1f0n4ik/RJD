@@ -15,21 +15,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifecycle events"""
     logger.info(f"🚀 Starting {settings.APP_NAME}")
-
-    # Startup: запуск WebSocket broadcast
-    await manager.start_broadcast()
-
     yield
-
-    # Shutdown: остановка WebSocket broadcast
-    await manager.stop_broadcast()
     logger.info("👋 Application shutdown complete")
-
 
 # Создание FastAPI приложения
 app = FastAPI(
@@ -42,7 +33,6 @@ app = FastAPI(
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    #allow_origins=settings.CORS_ORIGINS,
     allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
@@ -59,8 +49,6 @@ app.include_router(streams.router, tags=["Streams"])
 # WebSocket endpoint
 app.add_websocket_route("/ws", websocket_endpoint)
 
-
-# Health check
 @app.get("/", tags=["Health"])
 async def root():
     """Health check endpoint"""
@@ -69,7 +57,6 @@ async def root():
         "app": settings.APP_NAME,
         "version": settings.APP_VERSION
     }
-
 
 @app.get("/health", tags=["Health"])
 async def health_check():
@@ -89,8 +76,6 @@ async def health_check():
         }
     }
 
-
-# Global exception handler
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
     logger.error(f"Global exception: {exc}", exc_info=True)
@@ -101,7 +86,6 @@ async def global_exception_handler(request, exc):
             "error": str(exc) if settings.DEBUG else "An error occurred"
         }
     )
-
 
 if __name__ == "__main__":
     import uvicorn
