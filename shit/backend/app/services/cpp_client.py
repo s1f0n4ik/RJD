@@ -3,7 +3,7 @@ import os
 from typing import List, Optional
 from app.models.cpp_camera import CPPCamera, CPPCameraResponse, CPPCamerasResponse
 
-MEDIA_CENTER_URL = os.getenv("MEDIA_CENTER_URL", "http://media-center:8888")
+MEDIA_CENTER_URL = os.getenv("MEDIA_CENTER_URL", "http://localhost:8888")
 
 
 class MediaCenterClient:
