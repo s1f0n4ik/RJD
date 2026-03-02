@@ -1,11 +1,14 @@
-export const WS_URL = 'ws://192.168.1.2:8000/ws';
-export const FASTAPI_BASE = 'http://192.168.1.2:8000';
-export const SIGNALING_SERVER = 'ws://192.168.1.2:8765';
+// Читаем из переменных окружения (Vite)
+export const WS_URL = import.meta.env.VITE_WS_URL || 'ws://192.168.1.2:8000/ws';
+export const FASTAPI_BASE = import.meta.env.VITE_FASTAPI_BASE || 'http://192.168.1.2:8000';
+export const SIGNALING_SERVER = import.meta.env.VITE_SIGNALING_SERVER || 'ws://192.168.1.2:8765';
+
 export const ENDPOINT_MAP: Record<string, string> = {
   'id_1': '/neural_1',
   'id_2': '/neural_2',
   'id_3': '/neural_3',
 };
+
 export const CAMERA_TYPE_URLS = {
   HIKVISION: 1,
   DAHUA: 2,

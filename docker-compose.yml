@@ -1,5 +1,22 @@
-
 services:
+  # ========== WebSocket Signaling Server (Python) ==========
+  signaling-server:
+    build:
+      context: ./signaling-server
+      dockerfile: Dockerfile
+    container_name: vanya-signaling
+    restart: unless-stopped
+    ports:
+      - "8765:8765"
+    networks:
+      - vanya-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.connect(('localhost',8765)); s.close()"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ========== C++ Media Center ==========
   media-center:
     build:
       context: ./media-center
@@ -8,29 +25,26 @@ services:
     restart: unless-stopped
     volumes:
       - /opt/gstreamer-1.28:/opt/gstreamer-1.28:ro
-      - /usr/lib/aarch64-linux-gnu:/usr/lib/aarch64-linux-gnu:ro  # ← ДОБАВИТЬ
+      - /usr/lib/aarch64-linux-gnu:/usr/lib/aarch64-linux-gnu:ro
       - ./media-center/config:/app/config
       - ./media-center/recordings:/app/recordings
     environment:
       - GST_PLUGIN_PATH=/opt/gstreamer-1.28/lib/aarch64-linux-gnu/gstreamer-1.0
-      - LD_LIBRARY_PATH=/opt/gstreamer-1.28/lib/aarch64-linux-gnu:/opt/gstreamer-1.28/lib:/usr/lib/aarch64-linux-gnu  # ← ОБНОВИТЬ
+      - LD_LIBRARY_PATH=/opt/gstreamer-1.28/lib/aarch64-linux-gnu:/opt/gstreamer-1.28/lib:/usr/lib/aarch64-linux-gnu
       - PATH=/opt/gstreamer-1.28/bin:$PATH
+      # ✅ Адрес signaling сервера
+      - SIGNALING_SERVER=ws://signaling-server:8765
+      - SIGNALING_HOST=signaling-server
+      - SIGNALING_PORT=8765
     ports:
       - "8888:8888"
+    depends_on:
+      signaling-server:
+        condition: service_healthy
     networks:
       - vanya-network
 
-  signaling-server:
-    build:
-      context: ./media-center/server
-      dockerfile: Dockerfile
-    container_name: vanya-signaling
-    restart: unless-stopped
-    ports:
-      - "8765:8765"
-    networks:
-      - vanya-network
-
+  # ========== FastAPI Backend ==========
   fastapi:
     build:
       context: ./shit/backend
@@ -41,11 +55,13 @@ services:
       - "8000:8000"
     environment:
       - MEDIA_CENTER_URL=http://media-center:8888
+      - SIGNALING_URL=ws://signaling-server:8765
     depends_on:
       - media-center
     networks:
       - vanya-network
 
+  # ========== React Frontend (Production) ==========
   frontend:
     build:
       context: ./shit/frontend
@@ -54,8 +70,13 @@ services:
     restart: unless-stopped
     ports:
       - "3000:80"
+    environment:
+      # ✅ Передаём адреса через ENV
+      - VITE_SIGNALING_SERVER=ws://192.168.1.2:8765
+      - VITE_FASTAPI_BASE=http://192.168.1.2:8000
     depends_on:
       - fastapi
+      - signaling-server
     networks:
       - vanya-network
 
