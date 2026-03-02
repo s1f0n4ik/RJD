@@ -28,14 +28,13 @@ RUN apt-get update && apt-get install -y \
     gstreamer1.0-plugins-ugly \
     gstreamer1.0-libav \
     gstreamer1.0-tools \
-    # GStreamer WebRTC
     gstreamer1.0-nice \
-    libgstwebrtc-1.0-0 \
+    # WebRTC support (через plugins-bad)
     libnice-dev \
     # OpenSSL и ZLIB
     libssl-dev \
     zlib1g-dev \
-    # Дополнительные утилиты
+    # JSON parser
     nlohmann-json3-dev \
     && rm -rf /var/lib/apt/lists/*
 
