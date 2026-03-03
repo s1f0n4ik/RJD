@@ -4,12 +4,13 @@
 #include <gst/rtsp/gstrtsptransport.h>
 
 #include "video_utility.h"
+#include "utility/json-definers.h"
 
 #define MAIN_TEE "tee_main"
 
 bool UCameraMainPipeline::destroy() {
 	if (!destroy_record_branch()) {
-		m_logger.warn("destroy(): record branch didn't destroy properly!");
+		m_logger->warn("destroy(): record branch didn't destroy properly!");
 	}
 
 	std::lock_guard<std::mutex> lock(m_branch_mutex);
@@ -42,7 +43,7 @@ bool UCameraMainPipeline::initialize() {
 				// обработка ошибки записи
 				if (self->m_record_branch.is_deployed &&
 					(GST_MESSAGE_SRC(msg) == GST_OBJECT(self->m_record_branch.splitmux))) {
-					self->m_logger.error("splitmux error detected, restarting record branch");
+					self->m_logger->error("splitmux error detected, restarting record branch");
 					self->destroy_record_branch();
 					self->create_record_branch(self->m_tees[MAIN_TEE]);
 					return TRUE;
@@ -52,7 +53,7 @@ bool UCameraMainPipeline::initialize() {
 				gchar* debug = nullptr;
 				gst_message_parse_error(msg, &err, &debug);
 
-				self->m_logger.error(
+				self->m_logger->error(
 					"GStreamer ERROR: " + std::string(err ? err->message : "unknown")
 				);
 
@@ -65,7 +66,7 @@ bool UCameraMainPipeline::initialize() {
 			}
 
 			case GST_MESSAGE_EOS: {
-				self->m_logger.warn("GStreamer EOS received");
+				self->m_logger->warn("GStreamer EOS received");
 				//self->destroy();
 				break;
 			}
@@ -73,7 +74,7 @@ bool UCameraMainPipeline::initialize() {
 				const GstStructure* s = gst_message_get_structure(msg);
 				if (s && gst_structure_has_name(s, "GstRTSPSrcTimeout"))
 				{
-					self->m_logger.warn("RTSP timeout detected");
+					self->m_logger->warn("RTSP timeout detected");
 					self->restart_async();
 				}
 				break;
@@ -98,7 +99,7 @@ bool UCameraMainPipeline::initialize() {
 
 	std::string tee_str = MAIN_TEE;
 	if (m_tees.find(tee_str) != m_tees.end()) {
-		m_logger.error("Cannot create pipeline, context still exists!");
+		m_logger->error("Cannot create pipeline, context still exists!");
 		return false;
 	}
 	auto tee = gst_element_factory_make("tee", MAIN_TEE);
@@ -129,7 +130,7 @@ bool UCameraMainPipeline::initialize() {
 			<< "\n\tdeconding_queue=" << (deconding_queue ? "OK" : "NULL") << ","
 			<< "\n\tdecoder=" << (decoder ? "OK" : "NULL") << ","
 			<< "\n\tsink=" << (sink ? "OK" : "NULL") << ",";
-		m_logger.error(oss.str());
+		m_logger->error(oss.str());
 		clean_up();
 		return false;
 	}
@@ -171,7 +172,7 @@ bool UCameraMainPipeline::initialize() {
 
 	// Связывание основного потока
 	if (!gst_element_link_many(depay, parse, tee, nullptr)) {
-		m_logger.error("Error with linking: src, depay, parse, tee!");
+		m_logger->error("Error with linking: src, depay, parse, tee!");
 		return false;
 	}
 
@@ -182,7 +183,7 @@ bool UCameraMainPipeline::initialize() {
 	GstPad* queue_decode_pad = gst_element_get_static_pad(deconding_queue, "sink");
 
 	if (gst_pad_link(tee_decode_pad, queue_decode_pad) != GST_PAD_LINK_OK) {
-		m_logger.error("Failed to link tee to decoding queue");
+		m_logger->error("Failed to link tee to decoding queue");
 		return false;
 	}
 
@@ -190,7 +191,7 @@ bool UCameraMainPipeline::initialize() {
 
 	// Связывание остальных элементов
 	if (!gst_element_link_many(deconding_queue, decoder, sink, nullptr)) {
-		m_logger.error("Error with linking: tee, deconding_queue, decoder, sink!");
+		m_logger->error("Error with linking: tee, deconding_queue, decoder, sink!");
 		return false;
 	}
 
@@ -227,7 +228,7 @@ bool UCameraMainPipeline::initialize() {
 	m_tees[tee_str] = tee;
 
 	m_has_initialized = true;
-	m_logger.info("Recording brach successfully creatad!");
+	m_logger->info("Recording brach successfully creatad!");
 
 	return true;
 }
@@ -235,24 +236,24 @@ bool UCameraMainPipeline::initialize() {
 bool UCameraMainPipeline::create_record_branch(GstElement* tee)
 {
 	if (!m_probe.ready()) {
-		m_logger.error("create_record_branch(): cannot create branch probe doesn't ready!");
+		m_logger->error("create_record_branch(): cannot create branch probe doesn't ready!");
 		return false;
 	}
 
 	if (m_record_branch.is_deployed) {
-		m_logger.warn("create_record_branch(): trying to create record brach that already exists!");
+		m_logger->warn("create_record_branch(): trying to create record brach that already exists!");
 		return true;
 	}
 
-	m_logger.info("Creating brach to record segments...");
-	m_logger.debug("A path for recording segments has been found: " + m_parameters.record_path.string());
+	m_logger->info("Creating brach to record segments...");
+	m_logger->debug("A path for recording segments has been found: " + m_parameters.record_path.string());
 	if (!std::filesystem::exists(m_parameters.record_path)) {
 		try {
 			std::filesystem::create_directories(m_parameters.record_path);
-			m_logger.debug("create_record_branch(): Directory " + m_parameters.record_path.string() + " sucessfully created!");
+			m_logger->debug("create_record_branch(): Directory " + m_parameters.record_path.string() + " sucessfully created!");
 		}
 		catch (...) {
-			m_logger.error("create_record_branch(): Cannot create directories at path: " + m_parameters.record_path.string());
+			m_logger->error("create_record_branch(): Cannot create directories at path: " + m_parameters.record_path.string());
 			return false;
 		}
 	}
@@ -265,7 +266,7 @@ bool UCameraMainPipeline::create_record_branch(GstElement* tee)
 		oss << "Failed to create elements at record tee: "
 			<< "\n\rrecord_queue=" << (record_queue ? "OK" : "NULL") << ","
 			<< "\n\tsplitmux=" << (splitmux ? "OK" : "NULL") << ",";
-		m_logger.error(oss.str());
+		m_logger->error(oss.str());
 		return false;
 	}
 
@@ -308,7 +309,7 @@ bool UCameraMainPipeline::create_record_branch(GstElement* tee)
 	GstPad* queue_record_pad = gst_element_get_static_pad(record_queue, "sink");
 
 	if (gst_pad_link(tee_record_pad, queue_record_pad) != GST_PAD_LINK_OK) {
-		m_logger.error("Failed to link tee to record queue");
+		m_logger->error("Failed to link tee to record queue");
 		return false;
 	}
 
@@ -316,7 +317,7 @@ bool UCameraMainPipeline::create_record_branch(GstElement* tee)
 
 	// Связывание остальные элеентов
 	if (!gst_element_link(record_queue, splitmux)) {
-		m_logger.error("Failed to link file record tee: tee, record_queue, splitmux");
+		m_logger->error("Failed to link file record tee: tee, record_queue, splitmux");
 		return false;
 	}
 
@@ -334,10 +335,10 @@ bool UCameraMainPipeline::create_record_branch(GstElement* tee)
 
 bool UCameraMainPipeline::destroy_record_branch() 
 {
-	m_logger.info("destroy_record_branch(): initialized destroying of record branch!");
+	m_logger->info("destroy_record_branch(): initialized destroying of record branch!");
 	std::lock_guard<std::mutex> lock(m_branch_mutex);
 	if (!m_record_branch.is_deployed) {
-		m_logger.warn("destroy_record_branch(): trying to destroy record branch that already destroyed!");
+		m_logger->warn("destroy_record_branch(): trying to destroy record branch that already destroyed!");
 		return true;
 	}
 
@@ -361,7 +362,7 @@ bool UCameraMainPipeline::destroy_record_branch()
 	m_record_branch.splitmux = nullptr;
 
 	m_record_branch.is_deployed = false;
-	m_logger.info("destroy_record_branch(): record branch was deleted!");
+	m_logger->info("destroy_record_branch(): record branch was deleted!");
 	return true;
 }
 
@@ -377,8 +378,13 @@ bool UCameraMainPipeline::create_webrtc_session(const std::string& client_id, st
 		false,
 		m_pipeline,
 		m_tees[std::string(MAIN_TEE)],
-		std::move(m_parameters.send_callback),
-		m_logger
+		m_send_callback,
+		std::move(
+			[this](const std::string& client_id, std::string& description) {
+				return this->close_webrtc_session(client_id, description);
+			}
+		),
+		m_logger.get()
 	);
 
 	if (!session) {
@@ -390,12 +396,39 @@ bool UCameraMainPipeline::create_webrtc_session(const std::string& client_id, st
 
 	auto ret = it->second->create_branch(m_probe.codec_name);
 	if (ret) {
-		m_logger.info("Successfully created webrtc session branch with client " + client_id);
+		m_logger->info("Successfully created webrtc session branch with client " + client_id);
 		description = "Connection resolved!";
 	}
 	else {
-		m_logger.info("Error creation webrtc session branch with client " + client_id);
+		m_logger->info("Error creation webrtc session branch with client " + client_id);
 		description = "Connection doesn't resolved!";
 	}
 	return ret;
+}
+
+FPipelineData UCameraMainPipeline::get_pipeline_data() {
+	FPipelineData data;
+
+	data.name = m_parameters.name;
+	data.status = get_status();
+	data.type = EPilelineType::MAIN;
+
+	data.width = m_probe.ready() ? m_probe.width : 0;
+	data.height = m_probe.ready() ? m_probe.height : 0;
+	data.fps = m_probe.ready() ? 25 : 0;
+	data.codec = m_probe.ready() ? m_probe.codec_name : "";
+
+	data.rtsp_url = m_parameters.rtsp_url;
+	data.use_udp = m_parameters.use_udp;
+	data.reconnect_time = m_parameters.reconnect_delay;
+	data.latency = m_parameters.latency;
+
+	data.record_path = m_parameters.record_path;
+	data.segment_length = m_parameters.segment_length;
+
+	return data;
+}
+
+EPilelineType UCameraMainPipeline::get_type() {
+	return EPilelineType::MAIN;
 }

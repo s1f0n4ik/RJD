@@ -27,6 +27,10 @@ public:
     {
     }
 
+    ELoggerLevel get_level() {
+        return m_level;
+    }
+
     void set_level(ELoggerLevel level) {
         m_level = level;
     }

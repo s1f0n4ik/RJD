@@ -37,57 +37,16 @@ extern "C" {
 
 #include "video_pipeline.h"
 
+using namespace varan::nvr;
+
 namespace varan {
 namespace neural {
 
 	using CFrameCallback = std::function<void(std::string& name, std::unique_ptr<FDrmFrame>)>;
 
-	struct FCameraOptions {
-		std::string name = "unnamed";
-		std::string description = "description";
-
-		// Основной поток
-		std::string main_rtsp_url = ""; // полная ссылка с логином и паролем
-		std::filesystem::path record_path = ""; // путь абсолютный
-		int segment_duration = 600; // в секундах
-		int main_latency = 0;
-		bool b_main_udp = false;
-
-		// Дополнительный поток
-		std::string sub_rtsp_url;
-		int sub_latency = 0;
-		bool b_sub_udp = true;
-
-		int reconnect_delay = 10; // в секундах
-	};
-
 	struct FWebSocketOptions {
 		std::string ip_adress;
 		std::string port;
-	};
-
-	struct FProbeResult {
-		std::string codec_name = "";
-		std::string profile = "";
-		int framerate_num = 0;
-		int framerate_den = 0;
-		int width = 0;
-		int height = 0;
-
-		bool ready = false;
-
-		GstElement* sink_element = nullptr;
-		GstElement* depay = nullptr;
-	};
-
-	struct FPipeline {
-		// Сам пайплайн
-		GstElement* pipeline;
-		// Список разветвлений
-		std::map<std::string, GstElement*> tees;
-
-		// Данные потока
-		FProbeResult data;
 	};
 
 	class UCamera : public ICameraSignaling {
@@ -97,7 +56,7 @@ namespace neural {
 		using TUniqueBus = std::unique_ptr<GstBus, decltype(&gst_object_unref)>;
 
 		explicit UCamera(
-			const FCameraOptions& options, 
+			const FCameraData& options, 
 			const FWebSocketOptions& socket_options, 
 			ULogger::ELoggerLevel level_ = ULogger::ELoggerLevel::DEBUG
 		);
@@ -108,6 +67,10 @@ namespace neural {
 
 		// Запуск потоков обработки кадров
 		bool start();
+
+		void start_async();
+
+		void worker();
 
 		void stop();
 
@@ -130,14 +93,22 @@ namespace neural {
 
 		void set_signaling_callback(CSignalingCallback callback) override;
 
+		FCameraData get_data();
+
 	private:
-		FCameraOptions m_options;
-		FProbeResult m_probe_result;
+		std::string m_name;
+		std::string m_description;
+
+		std::string m_ip_adress;
+		std::string m_port;
+		std::string m_user;
 
 		CFrameCallback m_frame_callback;
 		CSignalingCallback m_signaling_callback;
 
 		std::atomic<bool> m_running;
+		std::atomic<bool> m_stop_requested;
+		std::atomic<bool> m_is_initializing;
 		std::atomic<bool> m_error;
 
 		bool m_initialized;
@@ -147,18 +118,13 @@ namespace neural {
 		std::thread m_gst_loop_thread;
 		std::atomic<bool> m_gst_loop_running{false};
 
+		std::mutex m_init_mutex;
+		std::thread m_init_thread;
+
 		std::mutex m_signal_mutex;
 
 		// Поля Gstream для считывания кадров
-		std::unique_ptr<UCameraPipeline> m_main;
-		std::unique_ptr<UCameraPipeline> m_sub;
-		/*
-		TUniqueGst m_main_pipeline;
-		TUniqueGst m_main_split_tee;
-
-		TUniqueGst m_sub_pipeline;
-		TUniqueGst m_sub_tee;
-		*/
+		std::map<std::string, std::unique_ptr<UCameraPipeline>> m_streams;
 
 		// Ожидающая очередь для хранения пакетов
 		//using UniquePacket = std::unique_ptr<AVPacket, std::function<void(AVPacket*)>>;
@@ -167,13 +133,6 @@ namespace neural {
 		// Ожидающая очередь для хранения фреймов drm
 		// Хранит для потока, который отправляет в GStream pipeline
 		USafeQueue<std::unique_ptr<FDrmFrame>> m_frames_buffer;
-
-		// Поля для GStream
-
-		//std::map<std::string, std::unique_ptr<UWebRTCSession>> m_opened_sessions;
-		//std::mutex m_session_mutex;
-		//std::condition_variable m_session_cv;
-		//bool m_has_sessions = false;
 
 		// Клиент websocket
 		FWebSocketOptions m_socket_options;
@@ -186,53 +145,17 @@ namespace neural {
 
 		ULogger m_logger;
 
-		// GStreamer Проверка кадров, получение инфы с камер
-		/*
-		static void on_rtspsrc_pad_added(GstElement* src, GstPad* pad, gpointer user_data);
-
-		static void on_rtspsrc_pad_depay_added(GstElement* src, GstPad* pad, gpointer user_data);
-
-		static GstPadProbeReturn on_rtsp_caps_event(GstPad* pad, GstPadProbeInfo* info, gpointer user_data);
-
-		static GstPadProbeReturn on_parse_caps_event(GstPad* pad, GstPadProbeInfo* info, gpointer user_data);
-
-		bool codec_check_probe(int timeout_sec);
-
-		bool camera_probe(int timeout_sec);
-
-		bool probe_camera_with_reconnect(int attempts = 10, int timeout = 2, int delay = 2);
-
-		// Запуск конкретного пайплайна
-		// pipeline: "main", "sub"
-		bool start_pipeline(std::string pipeline_str);
-
-		// GStreamer Считывание кадров с камеры
-
-		bool initialize_main_pipeline();
-
-		bool start_reading_pipeline();
-
-		// GStreamer WebRTC
-
-		bool initialize_sub_pipeline();
-
-		void open_new_session(const std::string& client_id);
-
-		void close_session(const std::string& client_id);
-		*/
 		// ==================================================================
 		// json сообщений
 		// ==================================================================
 
-		boost::json::object json(
+		boost::json::object make_json_message(
 			const std::string& client,
 			bool successed,
 			const std::string& type,
 			const std::string& description
 		);
-
 		// Прочее
-
 		//static std::string make_start_timestamp();
 	};
 

@@ -11,7 +11,7 @@ UMediaCenter::UMediaCenter(const FMediaSettings& settings)
 {
 }
 
-int UMediaCenter::add_camera(const FCameraOptions& options, const FWebSocketOptions& socket_options) {
+int UMediaCenter::add_camera(const FCameraData& options, const FWebSocketOptions& socket_options) {
     std::lock_guard<std::mutex> lk(m_mutex);
     if (m_cameras.count(options.name)) {
         return -1;
@@ -22,6 +22,20 @@ int UMediaCenter::add_camera(const FCameraOptions& options, const FWebSocketOpti
     return 0;
 }
 
+bool UMediaCenter::add_camera_async(const FCameraData& options, const FWebSocketOptions& socket_options) {
+    std::lock_guard<std::mutex> lk(m_mutex);
+
+    if (m_cameras.count(options.name)) {
+        return false;
+    }
+
+    auto camera = std::make_shared<UCamera>(options, socket_options);
+    camera->start_async();
+    m_cameras[options.name] = std::move(camera);
+
+    return true;
+}
+
 // Удалить камеру (остановить и убрать)
 int UMediaCenter::remove_camera(const std::string& camera_unique) {
     std::lock_guard<std::mutex> lk(m_mutex);
@@ -30,18 +44,25 @@ int UMediaCenter::remove_camera(const std::string& camera_unique) {
         it->second->stop();
         m_cameras.erase(it);
     }
-    return 0;
+    return 1;
 }
 
-std::vector<std::shared_ptr<UCamera>> UMediaCenter::get_camera_vector() {
-    std::vector<std::shared_ptr<UCamera>> out;
-    out.reserve(m_cameras.size());
-
-    for (auto& [name, cam] : m_cameras) {
-        out.push_back(cam);
+void UMediaCenter::remove_camera_async(const std::string& camera_name) {
+    auto it = m_cameras.find(camera_name);
+    if (it == m_cameras.end()) {
+        return;
     }
 
-    return out;
+    auto camera = std::move(it->second);
+    m_cameras.erase(it);
+
+    std::thread([cam = std::move(camera)]() mutable {
+        cam->stop();
+    }).detach();
+}
+
+bool UMediaCenter::camera_exists(std::string name) {
+    return m_cameras.find(name) == m_cameras.end() ? false : true;
 }
 
 void UMediaCenter::initialize_cameras() {
@@ -99,6 +120,14 @@ void UMediaCenter::stop_cameras() {
     for (auto& [id, cam] : m_cameras) {
         cam->stop();
     }
+}
+
+std::vector<FCameraData> UMediaCenter::get_cameras() {
+    std::vector<FCameraData> data;
+    for (const auto& [name, camera] : m_cameras) {
+        data.push_back(camera->get_data());
+    }
+    return data;
 }
 
 } // namespace neural
