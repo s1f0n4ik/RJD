@@ -2,6 +2,8 @@
 //
 #include <iostream>
 #include <filesystem>
+#include <charconv>
+#include <cstring>
 
 #include <sys/resource.h>
 
@@ -9,28 +11,102 @@
 #include "main-server/rest_server.h"
 
 using namespace std;
-const std::string IP_ADDRESS = "0.0.0.0";
-const int PORT = 1111;
 
-int main()
+bool is_valid_ipv4(const std::string& ip)
 {
-	setenv("GST_DEBUG", "webrtcbin:7", 1);
+	std::istringstream ss(ip);
+	std::string token;
+	int count = 0;
+
+	while (std::getline(ss, token, '.')) {
+		if (token.empty() || token.size() > 3) {
+			return false;
+		}
+
+		for (char c : token) {
+			if (!std::isdigit(c)) {
+				return false;
+			}
+		}
+
+		int num = std::stoi(token);
+		if (num < 0 || num > 255) {
+			return false;
+		}
+
+		count++;
+	}
+
+	return count == 4;
+}
+
+bool parse_port(const char* str, uint16_t& port_out)
+{
+	int value = 0;
+	auto [ptr, ec] = std::from_chars(str, str + std::strlen(str), value);
+
+	if (ec != std::errc() || ptr != str + std::strlen(str)) {
+		return false;
+	}
+
+	if (value <= 0 || value > 65535) {
+		return false;
+	}
+
+	port_out = static_cast<uint16_t>(value);
+	return true;
+}
+
+int main(int argc, char* argv[])
+{
+	if (argc != 4) {
+		std::cerr << "Usage: " << argv[0]
+			      << " <rest_server_port> <signaling_ip> <signaling_port>\n";
+		return EXIT_FAILURE;
+	}
+
+	uint16_t rest_port;
+	uint16_t signaling_port;
+
+	if (!parse_port(argv[1], rest_port))
+	{
+		std::cerr << "Invalid REST server port\n";
+		return EXIT_FAILURE;
+	}
+
+	std::string signaling_ip = argv[2];
+	if (!is_valid_ipv4(signaling_ip))
+	{
+		std::cerr << "Invalid signaling IP address\n";
+		return EXIT_FAILURE;
+	}
+
+	if (!parse_port(argv[3], signaling_port))
+	{
+		std::cerr << "Invalid signaling port\n";
+		return EXIT_FAILURE;
+	}
+
+	//setenv("GST_DEBUG", "webrtcbin:7", 1);
 	gst_init(nullptr, nullptr);
 	gst_debug_set_active(TRUE);
 	//gst_debug_set_default_threshold(GST_LEVEL_INFO);
 
 	std::cout << "GStreamer version: "
-		<< GST_VERSION_MAJOR << "."
-		<< GST_VERSION_MINOR << "."
-		<< GST_VERSION_MICRO << std::endl;
+		      << GST_VERSION_MAJOR << "."
+		      << GST_VERSION_MINOR << "."
+		      << GST_VERSION_MICRO << std::endl;
+
+	std::cout << "REST port: " << rest_port << "\n";
+	std::cout << "Signaling: " << signaling_ip << ":" << signaling_port << "\n";
 
 	auto media_setting = varan::neural::FMediaSettings{};
 	auto center = std::make_shared<varan::neural::UMediaCenter>( media_setting );
 
-	auto rest_server = URestServer{ 7777, center };
+	auto rest_server = URestServer{ rest_port, center };
 	rest_server.async_start();
 
-	auto socket_options = varan::neural::FWebSocketOptions("192.168.1.254", "8765");
+	auto socket_options = varan::neural::FWebSocketOptions(signaling_ip, std::to_string(signaling_port));
 
 	// camera 1
 	FPipelineData main_1;
