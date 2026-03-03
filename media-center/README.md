@@ -38,3 +38,7 @@
 `error`
 `room_created`
 `client_added`
+
+## 5. ќписание API, которые использует rest сервер дл€ управлени€ камерами
+
+ѕодробные примеры запросов к камерам см. в [camera_api_examples.md](./camera_api_examples.md)
