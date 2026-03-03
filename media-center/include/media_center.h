@@ -5,7 +5,9 @@
 #include <mutex>
 #include <optional>
 
-#include "signaling.h"
+#include "camera.h"
+
+using namespace varan::nvr;
 
 namespace varan {
 namespace neural {
@@ -22,11 +24,15 @@ public:
 
 	UMediaCenter(const FMediaSettings& settings);
 
-	int add_camera(const FCameraOptions& options, const FWebSocketOptions& socket_options);
+	int add_camera(const FCameraData& options, const FWebSocketOptions& socket_options);
+
+	bool add_camera_async(const FCameraData& options, const FWebSocketOptions& socket_options);
 
 	int remove_camera(const std::string& camera_name);
 
-	//void print_status_line();
+	void remove_camera_async(const std::string& camera_name);
+
+	bool camera_exists(std::string name);
 
 	void initialize_cameras();
 
@@ -34,7 +40,9 @@ public:
 
 	void stop_cameras();
 
-	std::vector<std::shared_ptr<UCamera>> get_camera_vector();
+public:
+	// Методы для серверной части
+	std::vector<FCameraData> get_cameras();
 
 private:
 	FMediaSettings m_settings;

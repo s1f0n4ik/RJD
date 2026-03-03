@@ -10,6 +10,9 @@ console.log(caps);
 let ws = null;
 let pc = null;
 
+let currentClientId = null;
+let currentCameraId = null;
+
 function log(msg) {
     console.log(msg);
     logsElem.textContent += msg + '\n';
@@ -31,12 +34,35 @@ async function getClientIP() {
     }
 }
 
+function closeConnection(clientId, cameraId) {
+    // Если peer существует — значит есть активная WebRTC сессия
+    if (pc) {
+
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            const closeMsg = {
+                type: "close",
+                client_id: clientId,
+                camera: cameraId,
+                description: "client disconnect"
+            };
+
+            ws.send(JSON.stringify(closeMsg));
+            log("Отправлен close: " + JSON.stringify(closeMsg));
+        }
+
+        pc.close();
+        pc = null;
+        log("RTCPeerConnection закрыт");
+    }
+}
+
 connectBtn.onclick = async () => {
     const url = signalingUrlInput.value.trim();
     if (!url) return alert("Введите URL");
 
-    if (ws) ws.close();
-    if (pc) { pc.close(); pc = null; }
+    if (pc || ws) {
+        closeConnection(currentClientId, currentCameraId);
+    }
 
     startConnection(url);
 };
@@ -68,8 +94,8 @@ function createPeerConnection(clientId, cameraId) {
     };
 
     pc.oniceconnectionstatechange = () => {
-        log("ICE connection state: ", pc.iceConnectionState);
-    };
+    log("ICE connection state: " + pc.iceConnectionState);
+};
 
     pc.ontrack = event => {
         log("Получен медиапоток");
@@ -82,11 +108,11 @@ function createPeerConnection(clientId, cameraId) {
 }
 
 async function startConnection(url) {
-    const cameraId = extractCameraId(url);
-    const clientId = await getClientIP();
+    currentCameraId = extractCameraId(url);
+    currentClientId = await getClientIP();
 
     log(`Подключение к сигналинг серверу: ${url}`);
-    log(`camera_id = ${cameraId}`);
+    log(`camera_id = ${currentCameraId}`);
 
     ws = new WebSocket(url);
 
@@ -95,8 +121,8 @@ async function startConnection(url) {
 
         const hello = {
             type: "connection",
-            client_id: clientId,
-            camera: cameraId,
+            client_id: currentClientId,
+            camera: currentCameraId,
             description: "connect_request from client",
             ret: "none"
         };
@@ -113,7 +139,7 @@ async function startConnection(url) {
         if (msg.type === "connection") {
             if (msg.ret === "success") {
                 log("Камера приняла соединение, начинаем WebRTC");
-                createPeerConnection(clientId, cameraId);
+                createPeerConnection(currentClientId, currentCameraId);
             } else {
                 log("Камера отказала: ret=fault");
             }
@@ -137,8 +163,8 @@ async function startConnection(url) {
 
             const response = {
                 type: "answer",
-                client_id: clientId,
-                camera: cameraId,
+                client_id: currentClientId,
+                camera: currentCameraId,
                 description: "SDP answer from client",
                 sdp: answer.sdp
             };
@@ -199,3 +225,9 @@ fullscreenBtn.onclick = () => {
         }
     }
 };
+
+window.addEventListener("beforeunload", () => {
+    if (pc || ws) {
+        closeConnection(currentClientId, currentCameraId);
+    }
+});

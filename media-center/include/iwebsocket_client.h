@@ -52,9 +52,37 @@ public:
             });
     }
 
-private:
-    // ------------------ LOGGING ------------------
+    void stop() {
+        bool expected = false;
+        if (!m_stopping.compare_exchange_strong(expected, true)) {
+            return;
+        }
 
+        asio::post(m_ws.get_executor(),
+            [self = shared_from_this()]()
+            {
+                boost::beast::error_code ec;
+
+                self->m_timer.cancel();
+
+                self->m_resolver.cancel();
+
+                if (self->m_ws.is_open())
+                {
+                    self->m_ws.close(websocket::close_code::normal, ec);
+                }
+
+                self->m_ws.next_layer().shutdown(asio::ip::tcp::socket::shutdown_both, ec);
+                self->m_ws.next_layer().close(ec);
+
+                self->m_send_queue.clear();
+                self->m_sending = false;
+
+                self->m_message_callback = nullptr;
+            });
+    }
+
+private:
     void log_connect(const std::string& msg) {
         std::cout << color::yellow << "[WebSocket " << m_camera_name << "] "
             << msg << color::reset << std::endl;
@@ -75,9 +103,11 @@ private:
             << msg << color::reset << std::endl;
     }
 
-    // ------------------ RECONNECT ------------------
-
     void schedule_reconnect() {
+        if (m_stopping) {
+            return;
+        }
+
         log_error("Will retry connection in 10 seconds...");
 
         m_timer.expires_after(std::chrono::seconds(10));
@@ -88,8 +118,6 @@ private:
             }
             });
     }
-
-    // ------------------ CONNECT PIPELINE ------------------
 
     void start_resolve() {
         m_resolver.async_resolve(m_host, m_port,
@@ -131,9 +159,11 @@ private:
         do_read();
     }
 
-    // ------------------ READ LOOP ------------------
-
     void do_read() {
+        if (m_stopping) {
+            return;
+        }
+
         m_ws.async_read(m_buffer,
             [self = shared_from_this()](auto ec, std::size_t bytes) {
                 if (ec) {
@@ -156,6 +186,10 @@ private:
     }
 
     void do_write() {
+        if (m_stopping) {
+            return;
+        }
+
         m_sending = true;
 
         // Ћогируем отправл€емое сообщение (предполагаетс€, что m_send_queue.front() Ч это std::string или подобное)
@@ -180,6 +214,8 @@ private:
             });
     }
 
+private:
+
     asio::io_context& m_ioc;
     asio::steady_timer m_timer;
 
@@ -189,6 +225,8 @@ private:
 
     std::deque<std::string> m_send_queue;
     bool m_sending = false;
+
+    std::atomic_bool m_stopping{ false };
 
     std::string m_host;
     std::string m_port;

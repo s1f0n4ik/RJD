@@ -1,6 +1,6 @@
 #include "webrtc_session.h"
 
-#include <gst/webrtc/webrtc.h>
+#include <thread>
 
 #include "signaling_definers.h"
 
@@ -11,7 +11,8 @@ UWebRTCSession::UWebRTCSession(
 	GstElement* pipeline, 
 	GstElement* tee,
 	CSendMessage send_callback,
-	ULogger& logger
+	CRemoveSession remove_callback,
+	ULogger* logger
 )
 	: m_client_id(client)
 	, m_camera_name(camera)
@@ -19,54 +20,53 @@ UWebRTCSession::UWebRTCSession(
 	, m_pipeline(pipeline)
 	, m_tee(tee)
 	, m_send_callback(std::move(send_callback))
+	, m_remove_callback(std::move(remove_callback))
 	, m_logger(logger)
 	, m_is_valid(false)
 {
 	std::ostringstream oss;
-	oss << "Successfull created pending new webrtc session:"
+	oss << "Successfull created pending new webrtc self:"
 		<< "\n\tClient: " << client << "\n\t"
 		<< "\n\tCamera: " << camera << "\n\t";
-	m_logger.info(oss.str());
-}
-
-UWebRTCSession::~UWebRTCSession() {
-	if (!m_is_valid) {
-		return;
-	}
-
-	teardown();
+	m_logger->info(oss.str());
 }
 
 bool UWebRTCSession::create_branch(const std::string& codec) {
 	if (!m_pipeline || !m_tee) {
 		std::ostringstream oss;
-		oss << "Cannot create branch for the session \"" << m_client_id << "<->" << m_camera_name << "\":"
+		oss << "Cannot create branch for the self \"" << m_client_id << "<->" << m_camera_name << "\":"
 			<< " Error with building pipeline!"
 			<< "\n\tPipeline: " << (!m_pipeline ? "NULL" : "EXISTING")
 			<< "\n\tTee: " << (!m_tee ? "NULL" : "EXISTING");
-		m_logger.error(oss.str());
+		m_logger->error(oss.str());
 		m_is_valid = false;
 		return m_is_valid;
 	}
 
 	if (!m_send_callback) {
-		m_logger.error("Session " + get_session_name() + "cannot be runned, send callback is empty!");
+		m_logger->error("Session " + get_session_name() + "cannot be runned, send callback is empty!");
 		m_is_valid = false;
 		return m_is_valid;
 	}
 
 	// Создание всех необходимых элементов
+	if (!m_is_sub) {
+		m_pay = gst_element_factory_make(codec == std::string("H264") ? "rtph264pay" : "rtph265pay", nullptr);
+	}
+	else {
+		m_pay = nullptr;
+	}
+
 	m_queue = gst_element_factory_make("queue", nullptr);
-	if (!m_is_sub) m_pay = gst_element_factory_make(codec == std::string("H264") ? "rtph264pay" : "rtph265pay", nullptr);
 	m_webrtcbin = gst_element_factory_make("webrtcbin", nullptr);
 
 	if (!m_queue || ((!m_pay) && !m_is_sub) || !m_webrtcbin) {
 		std::ostringstream oss;
-		oss << "Cannot create branch for session " + get_session_name() << ": Error with creation gst elements!"
+		oss << "Cannot create branch for self " + get_session_name() << ": Error with creation gst elements!"
 			<< "\n\tQueue: " << (!m_queue ? "NULL" : "EXISTING")
 			<< "\n\tRtph pay: " << (!m_pay ? "NULL" : "EXISTING")
 			<< "\n\tWebrtcbin: " << (!m_webrtcbin ? "NULL" : "EXISTING");
-		m_logger.error(oss.str());
+		m_logger->error(oss.str());
 		m_is_valid = false;
 		return m_is_valid;
 	}
@@ -92,7 +92,6 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 	g_object_set(m_webrtcbin,
 		"latency", 0,
 		"bundle-policy", GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE,
-		"do-nack", TRUE,
 		nullptr
 	);
 
@@ -109,8 +108,8 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 	m_tee_pad_src = gst_element_request_pad_simple(m_tee, "src_%u");
 	if (!m_tee_pad_src) {
 		std::ostringstream oss;
-		oss << "Cannot create session branch: tee has not any src pads!";
-		m_logger.error(oss.str());
+		oss << "Cannot create self branch: tee has not any src pads!";
+		m_logger->error(oss.str());
 		m_is_valid = false;
 		return m_is_valid;
 	}
@@ -119,8 +118,8 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 	auto queue_sink_pad = gst_element_get_static_pad(m_queue, "sink");
 	if (!queue_sink_pad) {
 		std::ostringstream oss;
-		oss << "Cannot create session " + get_session_name() + " branch: queue has not any sink pads!";
-		m_logger.error(oss.str());
+		oss << "Cannot create self " + get_session_name() + " branch: queue has not any sink pads!";
+		m_logger->error(oss.str());
 		m_is_valid = false;
 		return false;
 	}
@@ -128,7 +127,7 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 	// Связываем tee с queue
 	auto tee_queue_link = gst_pad_link(m_tee_pad_src, queue_sink_pad);
 	if (tee_queue_link != GST_PAD_LINK_OK) {
-		m_logger.error("Cannot create session " + get_session_name() + " branch: tee cannot link with queue!");
+		m_logger->error("Cannot create self " + get_session_name() + " branch: tee cannot link with queue!");
 		m_is_valid = false;
 		return m_is_valid;
 	}
@@ -137,7 +136,7 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 	// Линк созданных объектов друг с другом
 	auto link_result = m_pay ? gst_element_link_many(m_queue, m_pay, m_webrtcbin, nullptr) : gst_element_link(m_queue, m_webrtcbin);
 	if (!link_result) {
-		m_logger.error("Cannot create session " + get_session_name() + " branch: there is no link with queue and webrtcbin!");
+		m_logger->error("Cannot create self " + get_session_name() + " branch: there is no link with queue and webrtcbin!");
 		m_is_valid = false;
 		return m_is_valid;
 	}
@@ -146,45 +145,117 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 	g_signal_connect(m_webrtcbin, "on-negotiation-needed", G_CALLBACK(&UWebRTCSession::on_negotiation_needed), this);
 	g_signal_connect(m_webrtcbin, "on-ice-candidate", G_CALLBACK(&UWebRTCSession::on_ice_candidate), this);
 
+	g_signal_connect(m_webrtcbin, "notify::connection-state", G_CALLBACK(&UWebRTCSession::on_connection_state_changed), this);
+	g_signal_connect(m_webrtcbin, "notify::ice-connection-state", G_CALLBACK(&UWebRTCSession::on_ice_state_changed), this);
+
 	// Синхронихируем состояние с основным пайплайном
 	gst_element_sync_state_with_parent(m_queue);
 	if (m_pay) gst_element_sync_state_with_parent(m_pay);
 	gst_element_sync_state_with_parent(m_webrtcbin);
 
-	std::string message = "Branch session " + get_session_name() + " has been created!";
+	std::string message = "Branch webrtc session " + get_session_name() + " has been created!";
 	boost::json::object opened_msg = UWebRTCSession::make_json(true, SIG_TYPE_CONNECT, message);
-	m_logger.info(message);
+	m_logger->info(message);
 
-	return true;
+	m_is_valid = true;
+	return m_is_valid;
 }
 
 void UWebRTCSession::teardown() {
-	// Блокировка ветки
-	gst_pad_add_probe(m_tee_pad_src, GST_PAD_PROBE_TYPE_BLOCK_DOWNSTREAM, nullptr, nullptr, nullptr);
+	m_logger->debug("Destroying session: " + m_client_id);
 
-	gst_element_set_state(m_webrtcbin, GST_STATE_NULL);
-	if (m_pay) gst_element_set_state(m_pay, GST_STATE_NULL);
-	gst_element_set_state(m_queue, GST_STATE_NULL);
-
-	GstPad* queue_sink = gst_element_get_static_pad(m_queue, "sink");
-	if (!gst_pad_unlink(m_tee_pad_src, queue_sink)) {
-		m_logger.warn(get_session_name() + ": cannot unlink tee and queue when teardown!");
+	if (!g_main_context_is_owner(nullptr)) {
+		m_logger->error("TEARDOWN NOT IN MAIN THREAD!");
 	}
-	gst_object_unref(queue_sink);
 
-	// Уничтожение src pad в этой херне
-	gst_element_release_request_pad(m_tee, m_tee_pad_src);
-	gst_object_unref(m_tee_pad_src);
-	m_tee_pad_src = nullptr;
+	if (!m_webrtcbin) {
+		return;
+	}
 
+	// отключение сигналов
+	g_signal_handlers_disconnect_by_data(m_webrtcbin, this);
+
+	// блокирование ветки
+	if (m_tee_pad_src) {
+		gst_pad_add_probe(m_tee_pad_src, GST_PAD_PROBE_TYPE_BLOCK_DOWNSTREAM,
+			[](GstPad*, GstPadProbeInfo*, gpointer) { return GST_PAD_PROBE_OK; }, nullptr, nullptr);
+
+		GstPad* queue_sink = gst_element_get_static_pad(m_queue, "sink");
+		if (queue_sink) {
+			gst_pad_unlink(m_tee_pad_src, queue_sink);
+			gst_object_unref(queue_sink);
+		}
+
+		gst_element_release_request_pad(m_tee, m_tee_pad_src);
+		gst_object_unref(m_tee_pad_src);
+		m_tee_pad_src = nullptr;
+	}
+
+	GstWebRTCICE* ice_agent = nullptr;
+	g_object_get(m_webrtcbin, "ice-agent", &ice_agent, nullptr);
+
+	if (ice_agent) {
+		// Создаём promise, чтобы дождаться завершения закрытия
+		gst_webrtc_ice_close(ice_agent, nullptr);
+		gst_object_unref(ice_agent);
+	}
+
+	// Удаление трансиверов
+	GArray* transceivers = nullptr;
+	g_signal_emit_by_name(m_webrtcbin, "get-transceivers", &transceivers);
+	if (transceivers) {
+		for (guint i = 0; i < transceivers->len; ++i) {
+
+			GstWebRTCRTPTransceiver* trans = g_array_index(transceivers, GstWebRTCRTPTransceiver*, i);
+			if (!trans) { continue; }
+
+			g_object_set(trans, "direction", GST_WEBRTC_RTP_TRANSCEIVER_DIRECTION_INACTIVE, NULL);
+		}
+
+		g_array_unref(transceivers);
+	}
+
+	// закрыватие сессии
+	gboolean closed = FALSE;
+	g_signal_connect(m_webrtcbin, "notify::connection-state", G_CALLBACK(on_connection_state_notify), &closed);
+
+	g_signal_emit_by_name(m_webrtcbin, "close", nullptr);
+
+	gint64 end_time = g_get_monotonic_time() + 2 * G_TIME_SPAN_SECOND;
+	while (!closed && g_get_monotonic_time() < end_time) {
+		g_main_context_iteration(nullptr, FALSE);
+		g_usleep(10000);
+	}
+
+	g_signal_handlers_disconnect_by_func(m_webrtcbin, (gpointer)on_connection_state_notify, &closed);
+
+	// убийство элементов
+	if (m_webrtcbin) {
+		gst_element_set_state(m_webrtcbin, GST_STATE_NULL);
+		gst_element_get_state(m_webrtcbin, nullptr, nullptr, GST_SECOND);
+	}
 	if (m_pay) {
-		gst_bin_remove_many(GST_BIN(m_pipeline), m_webrtcbin, m_pay, m_queue, nullptr);
+		gst_element_set_state(m_pay, GST_STATE_NULL);
+		gst_element_get_state(m_pay, nullptr, nullptr, GST_SECOND);
 	}
-	else {
-		gst_bin_remove_many(GST_BIN(m_pipeline), m_webrtcbin, m_queue, nullptr);
+	if (m_queue) {
+		gst_element_set_state(m_queue, GST_STATE_NULL);
+		gst_element_get_state(m_queue, nullptr, nullptr, GST_SECOND);
 	}
+
+	if (m_pipeline) {
+		if (m_pay) gst_bin_remove_many(GST_BIN(m_pipeline), m_webrtcbin, m_pay, m_queue, nullptr);
+		else gst_bin_remove_many(GST_BIN(m_pipeline), m_webrtcbin, m_queue, nullptr);
+	}
+
+	if (m_webrtcbin) { gst_object_unref(m_webrtcbin); m_webrtcbin = nullptr; }
+	if (m_pay) { gst_object_unref(m_pay); m_pay = nullptr; }
+	if (m_queue) { gst_object_unref(m_queue); m_queue = nullptr; }
+
 	m_is_valid = false;
+	m_logger->debug("Session " + m_client_id + " destroyed completely!");
 }
+
 
 bool UWebRTCSession::make_offer(const boost::json::object& message, std::string& description) {
 	auto sdp_v = message.if_contains("sdp");
@@ -193,7 +264,7 @@ bool UWebRTCSession::make_offer(const boost::json::object& message, std::string&
 		return false;
 	}
 	else {
-		m_logger.receive(get_session_name() + ": Received SDP offer:\n\t" + sdp_v->as_string().data());
+		m_logger->receive(get_session_name() + ": Received SDP offer:\n\t" + sdp_v->as_string().data());
 	}
 
 	std::string sdp_str = sdp_v->as_string().c_str();
@@ -219,7 +290,7 @@ bool UWebRTCSession::create_answer(const boost::json::object& message, std::stri
 		return false;
 	}
 	else {
-		m_logger.receive(get_session_name() + ": Recieved SDP answer:\n\t" + sdp_v->as_string().data());
+		m_logger->receive(get_session_name() + ": Recieved SDP answer:\n\t" + sdp_v->as_string().data());
 	}
 
 	std::string sdp_str = sdp_v->as_string().c_str();
@@ -275,12 +346,12 @@ bool UWebRTCSession::add_ice_candidate(const boost::json::object& message, std::
 			<< "\n\tcandidate:" << candidate
 			<< "\n\tmline_index:" << mline_index
 			<< "\n\tsdpMid:" << sdpMid.empty() ? "NONE" : sdpMid;
-		m_logger.receive(oss.str());
+		m_logger->receive(oss.str());
 	}
 
 	if (candidate.find(".local") != std::string::npos) {
 		description = get_session_name() + ": Ignore mDNS candidate: " + candidate;
-		m_logger.warn(description);
+		m_logger->warn(description);
 		return true;
 	}
 	else {
@@ -290,42 +361,34 @@ bool UWebRTCSession::add_ice_candidate(const boost::json::object& message, std::
 	}
 }
 
-GstElement* UWebRTCSession::get_webrtcbin_element() {
-	return m_webrtcbin;
-}
-
-bool UWebRTCSession::is_valid() {
-	return m_is_valid;
-}
-
-ULogger& UWebRTCSession::get_logger() {
-	return m_logger;
-}
-
 void UWebRTCSession::on_negotiation_needed(GstElement* webrtcbin, gpointer data) {
-	auto session = static_cast<UWebRTCSession*>(data);
-	if (!session) {
+	auto self = static_cast<UWebRTCSession*>(data);
+	if (!self) {
 		std::cout << color::red << "[No Logger Error] [UCamera] Negotiation needed - nullptr with camera!\n" << color::reset;
 		return;
 	}
 	if (!webrtcbin) {
-		session->get_logger().error("Negotioation needed: Session" + session->get_session_name() + " not valid webrtcbin!");
+		self->get_logger()->error("Negotioation needed: Session" + self->get_session_name() + " not valid webrtcbin!");
 		return;
 	}
-	session->get_logger().debug("Negotiation needed: Session " + session->get_session_name() + " - creating offer");
+	self->get_logger()->debug("Negotiation needed: Session " + self->get_session_name() + " - creating offer");
 
-	auto promise = gst_promise_new_with_change_func(&UWebRTCSession::on_offer_created, session, nullptr);
+	auto promise = gst_promise_new_with_change_func(&UWebRTCSession::on_offer_created, self, nullptr);
 	if (!promise) {
-		session->m_logger.error("Negotiation needed: Session " + session->get_session_name() + " - nullptr with promise!");
+		self->m_logger->error("Negotiation needed: Session " + self->get_session_name() + " - nullptr with promise!");
 		return;
 	}
 
 	g_signal_emit_by_name(webrtcbin, "create-offer", nullptr, promise);
 }
 
+void UWebRTCSession::start_offer_timeout() {
+	
+}
+
 void UWebRTCSession::on_offer_created(GstPromise* promise, gpointer data) {
-	auto session = static_cast<UWebRTCSession*>(data);
-	if (!session) {
+	auto self = static_cast<UWebRTCSession*>(data);
+	if (!self) {
 		std::cout << color::red << "[UCamera] on_offer_created - nullptr camera\n" << color::reset;
 		gst_promise_unref(promise);  // обязательно unref даже при ошибке
 		return;
@@ -333,40 +396,40 @@ void UWebRTCSession::on_offer_created(GstPromise* promise, gpointer data) {
 
 	const GstStructure* reply = gst_promise_get_reply(promise);
 	if (!reply) {
-		session->get_logger().error(session->get_session_name() + ": on_offer_created - cannot get reply");
+		self->get_logger()->error(self->get_session_name() + ": on_offer_created - cannot get reply");
 		gst_promise_unref(promise);
 		return;
 	}
 
 	GstWebRTCSessionDescription* offer = nullptr;
 	if (!gst_structure_get(reply, "offer", GST_TYPE_WEBRTC_SESSION_DESCRIPTION, &offer, nullptr) || !offer) {
-		session->get_logger().error(session->get_session_name() + ": on_offer_created - cannot get offer from reply");
+		self->get_logger()->error(self->get_session_name() + ": on_offer_created - cannot get offer from reply");
 		gst_promise_unref(promise);
 		return;
 	}
 
 	// Устанавливаем локальное описание (offer)
-	g_signal_emit_by_name(session->get_webrtcbin_element(), "set-local-description", offer, nullptr);
+	g_signal_emit_by_name(self->get_webrtcbin_element(), "set-local-description", offer, nullptr);
 
 	// Теперь можно unref промис, reply уже получен
 	gst_promise_unref(promise);
 
 	gchar* sdp_str = gst_sdp_message_as_text(offer->sdp);
 	if (!sdp_str) {
-		session->get_logger().error(session->get_session_name() + ": on_offer_created - cannot convert SDP to text");
+		self->get_logger()->error(self->get_session_name() + ": on_offer_created - cannot convert SDP to text");
 		gst_webrtc_session_description_free(offer);
 		return;
 	}
 
-	boost::json::object offer_msg = session->make_json(true, "offer", "Created sdp offer!");
+	boost::json::object offer_msg = self->make_json(true, "offer", "Created sdp offer!");
 	offer_msg[SIG_SDP] = std::string(sdp_str);
 
 	g_free(sdp_str);
 
 	std::string serialized_offer_msg = boost::json::serialize(offer_msg);
-	session->send_message(serialized_offer_msg);
+	self->send_message(serialized_offer_msg);
 
-	session->get_logger().info(session->get_session_name() + ": created and sent sdp offer!\n\t" + serialized_offer_msg);
+	self->get_logger()->info(self->get_session_name() + ": created and sent sdp offer!\n\t" + serialized_offer_msg);
 
 	gst_webrtc_session_description_free(offer);
 }
@@ -375,17 +438,113 @@ void UWebRTCSession::send_message(const std::string& msg) {
 	m_send_callback(msg);
 }
 
-void UWebRTCSession::on_ice_candidate(GstElement* webrtcbin, guint mlineindex, gchar* candidate, gpointer data) {
-	auto session = static_cast<UWebRTCSession*>(data);
+void UWebRTCSession::send_close_request(const std::string& client_id, std::string& description) {
+	if (m_close_requested.exchange(true)) {
+		return;
+	}
+	if (!m_remove_callback) {
+		description = "Internal error, there is no callback to remove self!";
+		return;
+	}
 
-	boost::json::object ice_msg = session->make_json(true, "ice", "Sending Ice candidate");
+	m_logger->warn("session with " + m_client_id + " closing...");
+
+	bool ret = m_remove_callback(client_id, description);
+	if (m_send_callback) {
+		auto msg = boost::json::serialize(make_json(ret, "connection", description));
+		m_send_callback(msg);
+	}
+}
+
+void UWebRTCSession::on_ice_candidate(GstElement* webrtcbin, guint mlineindex, gchar* candidate, gpointer data) {
+	auto self = static_cast<UWebRTCSession*>(data);
+
+	boost::json::object ice_msg = self->make_json(true, "ice", "Sending Ice candidate");
 	ice_msg[SIG_ICE_CANDIDATE] = std::string(candidate);
 	ice_msg[SIG_ICE_LINE_INDEX] = static_cast<int>(mlineindex);
 
 	std::string serialized_ice_message = boost::json::serialize(ice_msg);
-	session->send_message(serialized_ice_message);
-	session->get_logger().debug(session->get_session_name() + ": sended ICE candidate!");
+	self->send_message(serialized_ice_message);
+	self->get_logger()->debug(self->get_session_name() + ": sended ICE candidate!");
 }
+
+void UWebRTCSession::on_connection_state_changed(GObject* obj, GParamSpec*, gpointer user_data)
+{
+	auto self = static_cast<UWebRTCSession*>(user_data);
+
+	GstWebRTCPeerConnectionState state;
+	g_object_get(obj, "connection-state", &state, nullptr);
+
+	switch (state)
+	{
+	case GST_WEBRTC_PEER_CONNECTION_STATE_FAILED:
+	case GST_WEBRTC_PEER_CONNECTION_STATE_CLOSED: {
+		std::string desc = "webrtc connection with" + self->get_client_id() + " was closed!";
+		self->send_close_request(self->get_client_id(), desc);
+		self->get_logger()->debug(desc);
+		break;
+	}
+	case GST_WEBRTC_PEER_CONNECTION_STATE_CONNECTED:
+		self->set_connected(true);
+		self->get_logger()->debug("webrtc connection established!");
+		break;
+	case GST_WEBRTC_PEER_CONNECTION_STATE_NEW:
+		self->get_logger()->debug("new webrtc connection with " + self->get_client_id() + " requested!");
+		break;
+	case GST_WEBRTC_PEER_CONNECTION_STATE_CONNECTING:
+		self->get_logger()->debug("connecting with " + self->get_client_id());
+		break;
+	default:
+		break;
+	}
+}
+
+void UWebRTCSession::on_connection_state_notify(GObject* object, GParamSpec*, gpointer user_data)
+{
+	gboolean* closed_flag = static_cast<gboolean*>(user_data);
+
+	GstWebRTCPeerConnectionState state;
+	g_object_get(object, "connection-state", &state, NULL);
+
+	if (state == GST_WEBRTC_PEER_CONNECTION_STATE_CLOSED ||
+		state == GST_WEBRTC_PEER_CONNECTION_STATE_FAILED)
+	{
+		*closed_flag = TRUE;
+	}
+}
+
+void UWebRTCSession::on_ice_state_changed(GObject* obj, GParamSpec*, gpointer user_data)
+{
+	auto self = static_cast<UWebRTCSession*>(user_data);
+
+	GstWebRTCICEConnectionState state;
+	g_object_get(obj, "ice-connection-state", &state, nullptr);
+
+	switch (state) {
+		case GST_WEBRTC_ICE_CONNECTION_STATE_CLOSED:
+		case GST_WEBRTC_ICE_CONNECTION_STATE_FAILED: {
+			std::string desc = "closed ICE connection with " + self->get_client_id() + "!";
+			self->send_close_request(self->get_client_id(), desc);
+			self->get_logger()->error(desc);
+			break;
+		}
+		case GST_WEBRTC_ICE_CONNECTION_STATE_DISCONNECTED:
+			self->get_logger()->debug("ICE disconnected from " + self->get_client_id());
+			break;
+		case GST_WEBRTC_ICE_CONNECTION_STATE_CHECKING:
+			self->get_logger()->debug("ICE changed state to checking with " + self->get_client_id());
+			break;
+		case GST_WEBRTC_ICE_CONNECTION_STATE_COMPLETED:
+			self->get_logger()->debug("ICE changed state to completed with " + self->get_client_id());
+			break;
+		case GST_WEBRTC_ICE_CONNECTION_STATE_CONNECTED:
+			self->get_logger()->info("ICE successfully connected to " + self->get_client_id());
+			break;
+		default:
+			break;
+	}
+}
+
 
 boost::json::object UWebRTCSession::make_json(
 	bool successed,
@@ -406,4 +565,24 @@ std::string UWebRTCSession::get_session_name() {
 	std::ostringstream oss;
 	oss << "\"" << m_client_id << "<->" << m_camera_name << "\"";
 	return oss.str();
+}
+
+GstElement* UWebRTCSession::get_webrtcbin_element() {
+	return m_webrtcbin;
+}
+
+bool UWebRTCSession::is_valid() {
+	return m_is_valid;
+}
+
+std::string UWebRTCSession::get_client_id() {
+	return m_client_id;
+}
+
+ULogger* UWebRTCSession::get_logger() {
+	return m_logger;
+}
+
+void UWebRTCSession::set_connected(bool is_connected) {
+	m_is_connected = is_connected;
 }

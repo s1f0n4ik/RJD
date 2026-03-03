@@ -3,9 +3,14 @@
 
 #include <gst/rtsp/gstrtsptransport.h>
 
-UCameraPipeline::UCameraPipeline(const FPipelineParameters& parameters)
-	: m_logger(parameters.camera_name + ": " + parameters.name, parameters.debug_level)
+UCameraPipeline::UCameraPipeline(
+    const FInputPipelineParameters& parameters,
+    std::unique_ptr<ULogger> logger,
+    std::function<void(std::string)> send_callback
+)
+	: m_logger(std::move(logger))
 	, m_parameters(std::move(parameters))
+    , m_send_callback(std::move(send_callback))
 {
 	
 }
@@ -23,6 +28,9 @@ EPipelineStatus UCameraPipeline::get_status() {
     GstState state = GST_STATE_NULL;
     GstState pending = GST_STATE_NULL;
 
+    if (!m_has_initialized) {
+        return EPipelineStatus::NONE;
+    }
     gst_element_get_state(m_pipeline, &state, &pending, 0);
 
     switch (state) {
@@ -43,27 +51,27 @@ EPipelineStatus UCameraPipeline::get_status() {
 
 bool UCameraPipeline::initialize() {
     if (m_has_initialized) {
-        m_logger.info("inititalize(): Pipeline already initialized!");
+        m_logger->info("inititalize(): Pipeline already initialized!");
         return true;
     }
-    m_logger.info("Initializing " + m_parameters.name + " pipeline..");
+    m_logger->info("Initializing " + m_parameters.name + " pipeline..");
 
     const int probe_timeout = 5;   // timeout на каждый probe
     const int max_attempts = 10;   // сколько попыток сделать
     const int reconnect_delay_sec = 2; // задержка между попытками
 
     for (int attempt = 1; attempt <= max_attempts; ++attempt) {
-        m_logger.info("Probe attempt " + std::to_string(attempt) + "/" + std::to_string(max_attempts));
+        m_logger->info("Probe attempt " + std::to_string(attempt) + "/" + std::to_string(max_attempts));
 
         if (probe_video_stream(probe_timeout)) {
             return true;
         }
 
-        m_logger.warn("Camera stream not found, retrying in " + std::to_string(reconnect_delay_sec) + "s...");
+        m_logger->warn("Camera stream not found, retrying in " + std::to_string(reconnect_delay_sec) + "s...");
         std::this_thread::sleep_for(std::chrono::seconds(reconnect_delay_sec));
     }
 
-    m_logger.error("Failed to detect camera stream after " + std::to_string(max_attempts) + " attempts!");
+    m_logger->error("Failed to detect camera stream after " + std::to_string(max_attempts) + " attempts!");
     return false;
 }
 
@@ -71,17 +79,17 @@ bool UCameraPipeline::start() {
     std::lock_guard<std::mutex> lock(m_pipeline_mutex);
 
     if (!m_pipeline) {
-        m_logger.error("Cannot start pipeline: pipeline is null.");
+        m_logger->error("Cannot start pipeline: pipeline is null.");
         return false;
     }
 
     GstStateChangeReturn ret = gst_element_set_state(m_pipeline, GST_STATE_PLAYING);
     if (ret == GST_STATE_CHANGE_FAILURE) {
-        m_logger.error("Failed to set pipeline state to PLAYING.");
+        m_logger->error("Failed to set pipeline state to PLAYING.");
         return false;
     }
 
-    m_logger.info("Pipeline started successfully.");
+    m_logger->info("Pipeline started successfully.");
     return true;
 }
 
@@ -89,162 +97,118 @@ bool UCameraPipeline::stop() {
     std::lock_guard<std::mutex> lock(m_pipeline_mutex);
 
     if (!m_pipeline) {
-        m_logger.warn("Pipeline is null, nothing to stop.");
+        m_logger->warn("Pipeline is null, nothing to stop.");
         return true;
     }
 
     GstStateChangeReturn ret = gst_element_set_state(m_pipeline, GST_STATE_PAUSED);
     if (ret == GST_STATE_CHANGE_FAILURE) {
-        m_logger.error("Failed to set pipeline state to PAUSED.");
+        m_logger->error("Failed to set pipeline state to PAUSED.");
         return false;
     }
 
-    m_logger.info("Pipeline paused successfully.");
+    m_logger->info("Pipeline paused successfully.");
     return true;
 }
 
 bool UCameraPipeline::destroy()
 {
     if (m_is_destroying) {
-        m_logger.warn("stop(): function destroy already called!");
+        m_logger->warn("destroy(): function already called!");
         return true;
     }
 
     if (!m_pipeline) {
-        m_logger.warn("Pipeline already destroyed or null.");
+        m_logger->warn("destroy(): pipeline already destroyed or null.");
         m_is_destroying = false;
         return true;
     }
 
-    m_logger.info("Destroying pipeline (graceful shutdown)...");
+    m_logger->info("Destroying pipeline (direct NULL shutdown)...");
     m_is_destroying = true;
 
-    // Отправка eos, чтобы корректно остановить критичные элементы пайплайна
-    m_logger.debug("Sending EOS event...");
-    if (!gst_element_send_event(m_pipeline, gst_event_new_eos())) {
-        m_logger.warn("Failed to send EOS event.");
-    }
+    // Очищаем callback
+    m_send_callback = nullptr;
 
-    GstBus* bus = gst_element_get_bus(m_pipeline);
+    // Удаляем все сессии
+    m_webrtc_sessions.clear();
 
-    constexpr GstClockTime eos_timeout = 5 * GST_SECOND;
-    GstMessage* msg = gst_bus_timed_pop_filtered(
-        bus,
-        eos_timeout,
-        static_cast<GstMessageType>(GST_MESSAGE_EOS | GST_MESSAGE_ERROR)
-    );
-
-    if (!msg) {
-        m_logger.warn("Timeout waiting for EOS message.");
-    }
-    else {
-        switch (GST_MESSAGE_TYPE(msg)) {
-            case GST_MESSAGE_EOS:
-                m_logger.info("EOS received successfully.");
-                break;
-            case GST_MESSAGE_ERROR: {
-                GError* err = nullptr;
-                gchar* debug_info = nullptr;
-                gst_message_parse_error(msg, &err, &debug_info);
-
-                m_logger.error(std::string("Error during EOS wait: ") + (err ? err->message : "unknown"));
-
-                if (debug_info) {
-                    m_logger.debug(std::string("Debug info: ") + debug_info);
-                }
-
-                if (err) g_error_free(err);
-                if (debug_info) g_free(debug_info);
-                break;
-            }
-            default:
-                break;
-        }
-
-        gst_message_unref(msg);
-    }
-    gst_object_unref(bus);
-
-    m_logger.debug("Setting pipeline state to NULL...");
-
-    // Первевод в null с ожиданием перевода
+    // Переводим pipeline в NULL
+    m_logger->debug("Setting pipeline state to NULL...");
     GstStateChangeReturn ret = gst_element_set_state(m_pipeline, GST_STATE_NULL);
 
     if (ret == GST_STATE_CHANGE_FAILURE) {
-        m_logger.error("Failed to initiate state change to NULL.");
+        m_logger->error("Failed to initiate state change to NULL.");
         m_is_destroying = false;
         return false;
     }
 
+    // Ждём пока pipeline достигнет состояния NULL
     constexpr GstClockTime null_timeout = 5 * GST_SECOND;
     GstState current = GST_STATE_VOID_PENDING;
     GstState pending = GST_STATE_VOID_PENDING;
-    ret = gst_element_get_state(
-        m_pipeline,
-        &current,
-        &pending,
-        null_timeout
-    );
+    ret = gst_element_get_state(m_pipeline, &current, &pending, null_timeout);
 
     if (ret == GST_STATE_CHANGE_ASYNC) {
-        m_logger.error("Timeout waiting for pipeline to reach NULL.");
+        m_logger->error("Timeout waiting for pipeline to reach NULL.");
         m_is_destroying = false;
         return false;
     }
     if (ret == GST_STATE_CHANGE_FAILURE) {
-        m_logger.error("State change to NULL failed.");
+        m_logger->error("State change to NULL failed.");
         m_is_destroying = false;
         return false;
     }
     if (current != GST_STATE_NULL) {
-        m_logger.error("Pipeline did not reach NULL state. Current state: " +
+        m_logger->error("Pipeline did not reach NULL state. Current state: " +
             std::string(gst_element_state_get_name(current)));
         m_is_destroying = false;
         return false;
     }
 
-    m_logger.info("Pipeline reached NULL state.");
+    m_logger->info("Pipeline reached NULL state successfully.");
 
-    // очистка полей
+    // Очистка локальных структур
     m_tees.clear();
-    m_webrtc_sessions.clear();
+    m_probe.got_codec = false;
+    m_probe.got_video_info = false;
 
     gst_object_unref(m_pipeline);
     m_pipeline = nullptr;
     m_has_initialized = false;
 
-    m_logger.info("Pipeline destroyed successfully.");
+    m_logger->info("Pipeline destroyed successfully (without EOS).");
     m_is_destroying = false;
 
     return true;
 }
 
 void UCameraPipeline::restart_loop() {
-    m_logger.info("restart_loop(): Starting restart loop for " + m_parameters.name);
+    m_logger->info("restart_loop(): Starting restart loop for " + m_parameters.name);
 
     while (m_is_restarting) {
-        m_logger.info("restart_loop(): Attempt restart #" + std::to_string(m_restart_attempts + 1));
+        m_logger->info("restart_loop(): Attempt restart #" + std::to_string(m_restart_attempts + 1));
 
         bool success = true;
 
         if (!destroy()) {
-            m_logger.error("restart_loop(): destroy() pipeline failed");
+            m_logger->error("restart_loop(): destroy() pipeline failed");
             success = false;
         }
 
         if (success && !initialize()) {
-            m_logger.error("restart_loop(): initialize() pipeline failed");
+            m_logger->error("restart_loop(): initialize() pipeline failed");
             success = false;
         }
 
         if (success && !start()) {
-            m_logger.error("restart_loop(): start() pipeline failed");
+            m_logger->error("restart_loop(): start() pipeline failed");
             success = false;
         }
 
         if (success)
         {
-            m_logger.info("restart_loop(): Pipeline restarted successfully");
+            m_logger->info("restart_loop(): Pipeline restarted successfully");
 
             // сброс backoff
             m_restart_attempts = 0;
@@ -256,24 +220,30 @@ void UCameraPipeline::restart_loop() {
 
         m_restart_attempts++;
 
-        m_logger.warn("restart_loop(): Retry in " + std::to_string(m_backoff_ms) + " ms");
+        m_logger->warn("restart_loop(): Retry in " + std::to_string(m_backoff_ms) + " ms");
 
         std::this_thread::sleep_for(std::chrono::milliseconds(m_backoff_ms));
 
         m_backoff_ms = std::min(m_backoff_ms * 2, m_max_backoff_ms);
     }
 
-    m_logger.info("restart_loop(): Restart loop stopped");
+    m_logger->info("restart_loop(): Restart loop stopped");
     m_is_restarting = false;
 }
 
 void UCameraPipeline::restart_async() {
     if (m_is_restarting.exchange(true)) {
-        m_logger.warn("restart_async(): Restart already in progress");
+        m_logger->warn("restart_async(): Restart already in progress");
         return;
     }
 
-    m_restart_thread = std::thread(&UCameraPipeline::restart_loop, this);
+    if (m_restart_thread.joinable()) {
+        m_restart_thread.join();
+    }
+
+    m_restart_thread = std::thread([this] {
+        this->restart_loop();
+    });
 }
 
 void UCameraPipeline::stop_restart_thread() {
@@ -281,7 +251,7 @@ void UCameraPipeline::stop_restart_thread() {
 }
 
 bool UCameraPipeline::probe_video_stream(int timeout_sec) {
-    m_logger.debug("Initializing probe pipeline...");
+    m_logger->debug("Initializing probe pipeline...");
 
     auto pipeline = gst_pipeline_new("probe-pipeline");
     auto src = gst_element_factory_make("rtspsrc", nullptr);
@@ -289,7 +259,7 @@ bool UCameraPipeline::probe_video_stream(int timeout_sec) {
     auto sink = gst_element_factory_make("fakesink", nullptr);
 
     if (!pipeline || !src || !decoder || !sink) {
-        m_logger.error("Failed to create probe pipeline elements.");
+        m_logger->error("Failed to create probe pipeline elements.");
         return false;
     }
 
@@ -306,7 +276,7 @@ bool UCameraPipeline::probe_video_stream(int timeout_sec) {
         decoder,
         sink,
         &m_probe,
-        &m_logger
+        m_logger.get()
     };
 
     g_signal_connect(src, "pad-added", G_CALLBACK(on_rtsp_pad_added), &ctx);
@@ -317,7 +287,7 @@ bool UCameraPipeline::probe_video_stream(int timeout_sec) {
     gst_object_unref(dec_src);
 
     // Запуск пайплайна
-    m_logger.debug("Setting probe pipeline to PLAYING state...");
+    m_logger->debug("Setting probe pipeline to PLAYING state...");
     gst_element_set_state(pipeline, GST_STATE_PLAYING);
 
     GstBus* bus = gst_element_get_bus(pipeline);
@@ -340,7 +310,7 @@ bool UCameraPipeline::probe_video_stream(int timeout_sec) {
                 << "Error message: " << (err ? err->message : "unknown") << "\n"
                 << "Debug info: " << (debug_info ? debug_info : "none");
 
-            m_logger.error(oss.str());
+            m_logger->error(oss.str());
 
             if (err) g_error_free(err);
             if (debug_info) g_free(debug_info);
@@ -358,13 +328,13 @@ bool UCameraPipeline::probe_video_stream(int timeout_sec) {
     gst_object_unref(pipeline);
 
     if (!m_probe.ready()) {
-        m_logger.warn("Probe failed: stream not ready.");
+        m_logger->warn("Probe failed: stream not ready.");
         return false;
     }
 
     std::ostringstream oss;
     oss << "Probe succeeded:\n\tcodec=" << m_probe.codec_name << "\n\twidth=" << m_probe.width << "\n\theight=" << m_probe.height;
-    m_logger.info(oss.str());
+    m_logger->info(oss.str());
     return true;
 }
 
@@ -530,24 +500,35 @@ bool UCameraPipeline::create_webrtc_session(const std::string& client_id, std::s
 }
 
 bool UCameraPipeline::close_webrtc_session(const std::string& client_id, std::string& description) {
-    std::ostringstream oss_error;
+    auto it = m_webrtc_sessions.find(client_id);
+    if (it == m_webrtc_sessions.end()) {
+        description = "Cannot close session with " + client_id + ": session doesn't exist!";
+        return false;
+    }
 
-    auto ses_it = m_webrtc_sessions.find(client_id);
-    if (ses_it != m_webrtc_sessions.end()) {
-        oss_error << "Cannot close session with " << client_id << ": session doesn't exist!";
-        description = oss_error.str();
-        return false;
-    }
-    try {
-        m_webrtc_sessions.erase(client_id);
-        return true;
-    }
-    catch (const std::exception& e) {
-        oss_error << "Error when delete session with " << client_id 
-                  << " at " << m_parameters.name << " pipeline: " << e.what();
-        description = oss_error.str();
-        return false;
-    }
+    // Забираем владение
+    std::unique_ptr<UWebRTCSession> session = std::move(it->second);
+    m_webrtc_sessions.erase(it);
+
+    // Передаём владение в GLib main loop
+    g_main_context_invoke(nullptr,
+        [](gpointer data) -> gboolean {
+            // В data лежит уникальный указатель
+            std::unique_ptr<UWebRTCSession> session_ptr(
+                static_cast<UWebRTCSession*>(data)
+            );
+
+            // teardown будет вызван внутри main thread
+            session_ptr->teardown();
+
+            // session_ptr уничтожится после выхода из лямбды
+            return G_SOURCE_REMOVE;
+        },
+        session.release() // release передаёт владение
+    );
+
+    description = "Session with " + client_id + " successfully closed!";
+    return true;
 }
 
 bool UCameraPipeline::process_webrtc_session(

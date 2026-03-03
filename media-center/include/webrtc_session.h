@@ -4,18 +4,31 @@
 #include <functional>
 
 #include <gst/gst.h>
+#include <gst/webrtc/webrtc.h>
 #include <boost/json.hpp>
 
 #include "logger.h"
 
 class UWebRTCSession {
 
+	#define OFFER_TIMEOUT = 10; // Таймаут для организации соединенеия с клиентом
+
 	using CSendMessage = std::function<void(const std::string& msg)>;
+	using CRemoveSession = std::function<bool(const std::string& client_id, std::string& description)>;
 
 public:
-	UWebRTCSession(std::string client, std::string camera, bool is_sub, GstElement* pipeline, GstElement* tee, CSendMessage send_callback, ULogger& logger);
+	UWebRTCSession(
+		std::string client, 
+		std::string camera, 
+		bool is_sub, 
+		GstElement* pipeline, 
+		GstElement* tee, 
+		CSendMessage send_callback, 
+		CRemoveSession remove_callback, 
+		ULogger* logger
+	);
 
-	~UWebRTCSession();
+	~UWebRTCSession() = default;
 
 	UWebRTCSession(const UWebRTCSession&) = delete;
 	UWebRTCSession& operator=(const UWebRTCSession&) = delete;
@@ -35,13 +48,19 @@ public:
 	// Геттеры и сеттеры
 	void send_message(const std::string& msg);
 
+	void send_close_request(const std::string& msg, std::string& description);
+
 	GstElement* get_webrtcbin_element();
 
 	bool is_valid();
 
 	std::string get_session_name();
 
-	ULogger& get_logger();
+	std::string get_client_id();
+
+	void set_connected(bool is_connected);
+
+	ULogger* get_logger();
 
 private:
 	std::string m_client_id;
@@ -57,15 +76,27 @@ private:
 	GstElement* m_webrtcbin;
 
 	CSendMessage m_send_callback;
+	CRemoveSession m_remove_callback;
 
-	ULogger& m_logger;
+	ULogger* m_logger;
 
 	bool m_is_valid;
 	bool m_is_sub;
+
+	std::atomic<bool> m_is_connected{ false };
+	std::atomic<bool> m_close_requested{ false };
 
 	static void on_negotiation_needed(GstElement* webrtcbin, gpointer data);
 
 	static void on_offer_created(GstPromise* promise, gpointer data);
 
 	static void on_ice_candidate(GstElement* webrtcbin, guint mlineindex, gchar* candidate, gpointer data);
+
+	static void on_connection_state_changed(GObject* obj, GParamSpec*, gpointer user_data);
+
+	static void on_connection_state_notify(GObject* object, GParamSpec*, gpointer user_data);
+
+	static void on_ice_state_changed(GObject* obj, GParamSpec*, gpointer user_data);
+
+	void start_offer_timeout();
 };

@@ -3,6 +3,8 @@
 
 #include <gst/rtsp/gstrtsptransport.h>
 
+#include "utility/json-definers.h"
+
 #define SUB_TEE "tee_sub"
 
 bool UCameraSubPipeline::initialize() {
@@ -16,7 +18,7 @@ bool UCameraSubPipeline::initialize() {
 
 	std::string tee_str = SUB_TEE;
 	if (m_webrtc_sessions.find(tee_str) != m_webrtc_sessions.end()) {
-		m_logger.error("Cannot create pipeline, context still exists!");
+		m_logger->error("Cannot create pipeline, context still exists!");
 		return false;
 	}
 
@@ -61,7 +63,7 @@ bool UCameraSubPipeline::initialize() {
 			<< "\n\tqueue=" << (queue ? "OK" : "NULL") << ","
 			<< "\n\tsink=" << (sink ? "OK" : "NULL") << ",";
 
-		m_logger.error(oss.str());
+		m_logger->error(oss.str());
 		clean_up();
 		return false;
 	}
@@ -114,7 +116,7 @@ bool UCameraSubPipeline::initialize() {
 
 	// Связывание основного потока
 	if (!gst_element_link_many(depay, parse, pay, pay_queue, tee, nullptr)) {
-		m_logger.error("Error with linking: src, depay, parse, tee!");
+		m_logger->error("Error with linking: src, depay, parse, tee!");
 		return false;
 	}
 
@@ -125,14 +127,14 @@ bool UCameraSubPipeline::initialize() {
 	GstPad* queue_pad = gst_element_get_static_pad(queue, "sink");
 
 	if (gst_pad_link(tee_sub_pad, queue_pad) != GST_PAD_LINK_OK) {
-		m_logger.error("Failed to link tee to decoding queue");
+		m_logger->error("Failed to link tee to decoding queue");
 		return false;
 	}
 
 	gst_object_unref(queue_pad);
 
 	if (!gst_element_link(queue, sink)) {
-		m_logger.error("Error with linking sub pipeline: queue, sink!");
+		m_logger->error("Error with linking sub pipeline: queue, sink!");
 		return false;
 	}
 
@@ -162,7 +164,7 @@ bool UCameraSubPipeline::initialize() {
 	);
 
 	m_has_initialized = true;
-	m_logger.info("initialize(): pipeline successfully initialized!");
+	m_logger->info("initialize(): pipeline successfully initialized!");
 	return m_has_initialized;
 }
 
@@ -172,14 +174,19 @@ bool UCameraSubPipeline::create_webrtc_session(const std::string& client_id, std
 		return false;
 	}
 
+	auto remove_callback = [this](const std::string& client_id, std::string& description) {
+		return this->close_webrtc_session(client_id, description);
+	};
+
 	auto session = std::make_unique<UWebRTCSession>(
 		client_id,
 		m_parameters.camera_name,
 		true,
 		m_pipeline,
 		m_tees[std::string(SUB_TEE)],
-		std::move(m_parameters.send_callback),
-		m_logger
+		m_send_callback,
+		remove_callback,
+		m_logger.get()
 	);
 
 	if (!session) {
@@ -191,12 +198,39 @@ bool UCameraSubPipeline::create_webrtc_session(const std::string& client_id, std
 
 	auto ret = it->second->create_branch(m_probe.codec_name);
 	if (ret) {
-		m_logger.info("Successfully created webrtc session branch with client " + client_id);
+		m_logger->info("Successfully created webrtc session branch with client " + client_id);
 		description = "Connection resolved!";
 	}
 	else {
-		m_logger.info("Error creation webrtc session branch with client " + client_id);
+		m_logger->warn("Error creation webrtc session branch with client " + client_id);
 		description = "Connection doesn't resolved!";
 	}
 	return ret;
+}
+
+FPipelineData UCameraSubPipeline::get_pipeline_data() {
+	FPipelineData data;
+
+	data.name = m_parameters.name;
+	data.status = get_status();
+	data.type = EPilelineType::SUB;
+
+	data.width = m_probe.ready() ? m_probe.width : 0;
+	data.height = m_probe.ready() ? m_probe.height : 0;
+	data.fps = m_probe.ready() ? 25 : 0;
+	data.codec = m_probe.ready() ? m_probe.codec_name : "";
+
+	data.rtsp_url = m_parameters.rtsp_url;
+	data.use_udp = m_parameters.use_udp;
+	data.reconnect_time = m_parameters.reconnect_delay;
+	data.latency = m_parameters.latency;
+	
+	data.record_path = "";
+	data.segment_length = -1;
+
+	return data;
+}
+
+EPilelineType UCameraSubPipeline::get_type() {
+	return EPilelineType::SUB;
 }

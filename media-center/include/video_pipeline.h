@@ -14,31 +14,9 @@
 
 #include "webrtc_session.h"
 #include "logger.h"
+#include "utility/data-structs.h"
 
-enum class EPipelineStatus {
-	NONE = 0,
-	READY = 1,
-	STOPPED = 2,
-	PLAYING = 3,
-	RESTARTING = 4,
-	INITIALIZED = 5
-};
-
-struct FPipelineParameters {
-	std::string name = "unnamed";
-	std::string rtsp_url = ""; // полная ссылка с пользователем и паролем
-	int latency = 200; // в милисекундах
-	bool use_udp = false;
-	int reconnect_delay = 10; // в секундах
-
-	std::filesystem::path record_path = ""; // Путь для записи фрагментов
-	int segment_length = 600; // Длительность сегмента в секундах
-
-	std::string camera_name = "";
-	ULogger::ELoggerLevel debug_level = ULogger::ELoggerLevel::ERROR;
-
-	std::function<void(std::string)> send_callback;
-};
+using namespace varan::nvr;
 
 class UCameraPipeline {
 protected:
@@ -64,7 +42,11 @@ protected:
 	};
 
 public:
-	UCameraPipeline(const FPipelineParameters& parameters);
+	UCameraPipeline(
+		const FInputPipelineParameters& parameters,
+		std::unique_ptr<ULogger> logger,
+		std::function<void(std::string)> send_callback
+	);
 	virtual ~UCameraPipeline();
 
 	virtual bool initialize();
@@ -90,7 +72,11 @@ public:
 		std::string& description
 	);
 
+	virtual FPipelineData get_pipeline_data() = 0;
+
 	EPipelineStatus get_status();
+
+	virtual EPilelineType get_type() = 0;
 
 protected:
 	// Пробный запуск для получения основных данных по камере
@@ -111,9 +97,11 @@ protected:
 	std::map<std::string, std::unique_ptr<UWebRTCSession>> m_webrtc_sessions;
 
 	// параметры самого pipeline
-	FPipelineParameters m_parameters;
+	FInputPipelineParameters m_parameters;
 	// параметры каметры
 	FProbeResult m_probe;
+
+	std::function<void(std::string)> m_send_callback;
 
 	std::atomic<bool> m_has_initialized{false};
 	std::atomic<bool> m_is_destroying{false};
@@ -126,7 +114,7 @@ protected:
 	int m_backoff_ms{1000};        // стартовая задержка 1 сек
 	int m_max_backoff_ms{30000};   // максимум 30 сек
 
-	ULogger m_logger;
+	std::unique_ptr<ULogger> m_logger;
 
 private: 
 	// Получение капса из декодера
@@ -160,6 +148,10 @@ public:
 
 	virtual bool create_webrtc_session(const std::string& client_id, std::string& description) override;
 
+	virtual FPipelineData get_pipeline_data() override;
+
+	virtual EPilelineType get_type() override;
+
 private:
 
 	bool create_record_branch(GstElement* tee);
@@ -180,4 +172,8 @@ public:
 	virtual bool initialize() override;
 
 	virtual bool create_webrtc_session(const std::string& client_id, std::string& description) override;
+
+	virtual FPipelineData get_pipeline_data() override;
+
+	virtual EPilelineType get_type() override;
 };
