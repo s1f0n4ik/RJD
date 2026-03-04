@@ -1,84 +1,78 @@
+version: '3.8'
+
 services:
-  # ========== WebSocket Signaling Server (Python) ==========
+  # ========== Signaling Server (WebSocket для WebRTC) ==========
   signaling-server:
     build:
       context: ./media-center/server
       dockerfile: Dockerfile
-    container_name: vanya-signaling
-    restart: unless-stopped
+    container_name: signaling-server
     ports:
-      - "8765:8765"
+      - "8765:8765"  # WebSocket для WebRTC
     networks:
       - vanya-network
-    healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.connect(('localhost',8765)); s.close()"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  # ========== C++ Media Center ==========
+  # ========== Media Center (C++ + REST API) ==========
   media-center:
     build:
       context: ./media-center
       dockerfile: Dockerfile
-    container_name: vanya-media-center
-    restart: unless-stopped
-    volumes:
-      - /opt/gstreamer-1.28:/opt/gstreamer-1.28:ro
-      - /usr/lib/aarch64-linux-gnu:/usr/lib/aarch64-linux-gnu:ro
-      - ./media-center/config:/app/config
-      - ./media-center/recordings:/app/recordings
-    environment:
-      - GST_PLUGIN_PATH=/opt/gstreamer-1.28/lib/aarch64-linux-gnu/gstreamer-1.0
-      - LD_LIBRARY_PATH=/opt/gstreamer-1.28/lib/aarch64-linux-gnu:/opt/gstreamer-1.28/lib:/usr/lib/aarch64-linux-gnu
-      - PATH=/opt/gstreamer-1.28/bin:$PATH
-      # ✅ Адрес signaling сервера
-      - SIGNALING_SERVER=ws://signaling-server:8765
-      - SIGNALING_HOST=signaling-server
-      - SIGNALING_PORT=8765
+    container_name: media-center
     ports:
-      - "8888:8888"
-    depends_on:
-      signaling-server:
-        condition: service_healthy
+      - "7777:7777"  # REST API для управления камерами
+    environment:
+      - SIGNALING_SERVER=ws://signaling-server:8765
+    volumes:
+      - ./media-center/recordings:/app/recordings
+      - ./media-center/config:/app/config
     networks:
       - vanya-network
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  # ========== FastAPI Backend ==========
+  # ========== FastAPI (Управление через REST) ==========
   fastapi:
     build:
       context: ./shit/backend
       dockerfile: Dockerfile
-    container_name: vanya-fastapi
-    restart: unless-stopped
+    container_name: fastapi
     ports:
       - "8000:8000"
     environment:
-      - MEDIA_CENTER_URL=http://media-center:8888
-      - SIGNALING_URL=ws://signaling-server:8765
-    depends_on:
-      - media-center
+      - MEDIA_CENTER_URL=http://media-center:7777  # REST API Media Center
     networks:
       - vanya-network
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  # ========== React Frontend (Production) ==========
+  # ========== React Frontend ==========
   frontend:
     build:
       context: ./shit/frontend
       dockerfile: Dockerfile
-    container_name: vanya-frontend
-    restart: unless-stopped
+      args:
+        VITE_SIGNALING_SERVER: ws://192.168.1.2:8765  # Для WebRTC
+        VITE_FASTAPI_BASE: http://192.168.1.2:8000    # Для управления
+    container_name: frontend
     ports:
-      - "3000:80"
-    environment:
-      # ✅ Передаём адреса через ENV
-      - VITE_SIGNALING_SERVER=ws://192.168.1.2:8765
-      - VITE_FASTAPI_BASE=http://192.168.1.2:8000
-    depends_on:
-      - fastapi
-      - signaling-server
+      - "80:80"
     networks:
       - vanya-network
+    restart: unless-stopped
 
 networks:
   vanya-network:

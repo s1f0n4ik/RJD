@@ -1,16 +1,15 @@
 from fastapi import APIRouter, HTTPException
 from app.services.cpp_client import cpp_client
-from app.models.cpp_camera import CPPCamera
-from typing import List
+from typing import Dict, Any
 
 router = APIRouter()
 
 
-@router.get("/cameras", response_model=List[CPPCamera])
-async def get_cameras():
+@router.get("/cameras")
+async def get_cameras() -> Dict[str, Any]:
     """Получить все камеры"""
     cameras = await cpp_client.get_cameras()
-    return cameras
+    return {"cameras": cameras}
 
 
 @router.get("/camera/{camera_name}")
@@ -23,23 +22,12 @@ async def get_camera(camera_name: str):
 
 
 @router.post("/camera")
-async def create_camera(camera: CPPCamera):
+async def create_camera(camera_data: Dict[str, Any]):
     """Создать новую камеру"""
-    result = await cpp_client.create_camera(camera)
+    result = await cpp_client.create_camera(camera_data)
 
-    if result.get("ret") != 1:
-        raise HTTPException(status_code=400, detail=result.get("description"))
-
-    return result
-
-
-@router.patch("/camera/{camera_name}")
-async def update_camera(camera_name: str, updates: dict):
-    """Обновить камеру"""
-    result = await cpp_client.update_camera(camera_name, updates)
-
-    if result.get("ret") != 1:
-        raise HTTPException(status_code=400, detail=result.get("description"))
+    if result.get("error"):
+        raise HTTPException(status_code=400, detail=result["error"]["message"])
 
     return result
 
@@ -49,7 +37,7 @@ async def delete_camera(camera_name: str):
     """Удалить камеру"""
     result = await cpp_client.delete_camera(camera_name)
 
-    if result.get("ret") != 1:
-        raise HTTPException(status_code=400, detail=result.get("description"))
+    if result.get("error"):
+        raise HTTPException(status_code=400, detail=result["error"]["message"])
 
     return {"message": f"Camera {camera_name} deleted"}

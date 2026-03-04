@@ -1,83 +1,82 @@
 import httpx
 import os
-from typing import List, Optional
-from app.models.cpp_camera import CPPCamera, CPPCameraResponse, CPPCamerasResponse
+import logging
+from typing import Dict, Any
 
-MEDIA_CENTER_URL = os.getenv("MEDIA_CENTER_URL", "http://localhost:8888")
+logger = logging.getLogger(__name__)
+
+MEDIA_CENTER_URL = os.getenv("MEDIA_CENTER_URL", "http://media-center:7777")
 
 
 class MediaCenterClient:
+    """Клиент для REST API Media Center (только управление!)"""
+
     def __init__(self):
         self.base_url = MEDIA_CENTER_URL
         self.client = httpx.AsyncClient(timeout=10.0)
 
-    async def get_cameras(self) -> List[CPPCamera]:
-        """Получить все камеры"""
+    async def get_cameras(self) -> Dict[str, Any]:
+        """GET /camera - получить все камеры"""
         try:
-            response = await self.client.get(f"{self.base_url}/api/camera")
+            response = await self.client.get(f"{self.base_url}/camera")
+            response.raise_for_status()
             data = response.json()
 
-            if data.get("ret") == 1 and data.get("cameras"):
-                return data["cameras"]
-            return []
-        except Exception as e:
-            print(f"Error fetching cameras: {e}")
-            return []
+            if data.get("error"):
+                logger.error(f"Media Center error: {data['error']}")
+                return {}
 
-    async def get_camera(self, camera_name: str) -> Optional[CPPCamera]:
-        """Получить камеру по имени"""
+            return data.get("data", {}).get("cameras", {})
+
+        except Exception as e:
+            logger.error(f"❌ Error fetching cameras: {e}")
+            return {}
+
+    async def get_camera(self, camera_name: str) -> Dict[str, Any]:
+        """GET /camera?name=camera_X"""
         try:
-            response = await self.client.get(f"{self.base_url}/api/camera/{camera_name}")
+            response = await self.client.get(
+                f"{self.base_url}/camera",
+                params={"name": camera_name}
+            )
+            response.raise_for_status()
             data = response.json()
 
-            if data.get("ret") == 1 and data.get("camera"):
-                return CPPCamera(**data["camera"])
-            return None
+            if data.get("error"):
+                return None
+
+            cameras = data.get("data", {}).get("cameras", {})
+            return cameras.get(camera_name)
+
         except Exception as e:
-            print(f"Error fetching camera {camera_name}: {e}")
+            logger.error(f"❌ Error fetching camera {camera_name}: {e}")
             return None
 
-    async def create_camera(self, camera_data: CPPCamera) -> dict:
-        """Создать камеру"""
+    async def create_camera(self, camera_data: Dict[str, Any]) -> Dict[str, Any]:
+        """POST /camera"""
         try:
             response = await self.client.post(
                 f"{self.base_url}/camera",
-                json=camera_data.dict()
+                json=camera_data
             )
+            response.raise_for_status()
             return response.json()
         except Exception as e:
-            return {"ret": 0, "description": str(e)}
+            logger.error(f"❌ Error creating camera: {e}")
+            return {"data": None, "error": {"message": str(e)}}
 
-    async def update_camera(self, camera_name: str, updates: dict) -> dict:
-        """Обновить камеру"""
-        try:
-            response = await self.client.patch(
-                f"{self.base_url}/camera/{camera_name}",
-                json=updates
-            )
-            return response.json()
-        except Exception as e:
-            return {"ret": 0, "description": str(e)}
-
-    async def delete_camera(self, camera_name: str) -> dict:
-        """Удалить камеру"""
+    async def delete_camera(self, camera_name: str) -> Dict[str, Any]:
+        """DELETE /camera?name=camera_X"""
         try:
             response = await self.client.delete(
-                f"{self.base_url}/api/camera/{camera_name}"
+                f"{self.base_url}/camera",
+                params={"name": camera_name}
             )
+            response.raise_for_status()
             return response.json()
         except Exception as e:
-            return {"ret": 0, "description": str(e)}
-
-    async def get_camera_statuses(self) -> dict:
-        """Получить статусы всех камер (только main.status, sub.status)"""
-        try:
-            response = await self.client.get(
-                f"{self.base_url}/camera?fields=main.status,sub.status"
-            )
-            return response.json()
-        except Exception as e:
-            return {"ret": 0, "description": str(e), "result": []}
+            logger.error(f"❌ Error deleting camera: {e}")
+            return {"data": None, "error": {"message": str(e)}}
 
 
 cpp_client = MediaCenterClient()
