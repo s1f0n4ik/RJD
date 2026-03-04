@@ -32,13 +32,18 @@ class ApiClient {
 
     const data = await response.json();
 
-    // ✅ ДОБАВЛЕНО: Проверка что вернулся массив
-    if (!Array.isArray(data)) {
-      console.error('❌ getCameras() returned non-array:', data);
-      return [];
+    // ✅ ИСПРАВЛЕНО: Сервер возвращает { cameras: [...], total: N }
+    if (data.cameras && Array.isArray(data.cameras)) {
+      return data.cameras;
     }
 
-    return data;
+    // Если вернули массив напрямую (старый формат - на всякий случай)
+    if (Array.isArray(data)) {
+      return data;
+    }
+
+    console.error('❌ getCameras() returned unexpected format:', data);
+    return [];
   }
 
   async getCamera(cameraName: string): Promise<CPPCamera> {
