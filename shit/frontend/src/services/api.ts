@@ -8,7 +8,7 @@ export interface CPPCameraStream {
   length?: number;
   delete_delay?: number;
   use_udp: boolean;
-  status?: number; // 0-нет, 1-готов, 2-остановлен, 3-в работе
+  status?: number;
 }
 
 export interface CPPCamera {
@@ -29,7 +29,16 @@ class ApiClient {
   async getCameras(): Promise<CPPCamera[]> {
     const response = await fetch(`${this.baseUrl}/api/cameras`);
     if (!response.ok) throw new Error('Failed to fetch cameras');
-    return response.json();
+
+    const data = await response.json();
+
+    // ✅ ДОБАВЛЕНО: Проверка что вернулся массив
+    if (!Array.isArray(data)) {
+      console.error('❌ getCameras() returned non-array:', data);
+      return [];
+    }
+
+    return data;
   }
 
   async getCamera(cameraName: string): Promise<CPPCamera> {

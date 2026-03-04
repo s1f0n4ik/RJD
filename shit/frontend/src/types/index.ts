@@ -6,7 +6,7 @@ export interface CPPCameraStream {
   length?: number;
   delete_delay?: number;
   use_udp: boolean;
-  status?: number; // 0-нет, 1-готов, 2-остановлен, 3-в работе
+  status?: number; // 0-пїЅпїЅпїЅ, 1-пїЅпїЅпїЅпїЅпїЅ, 2-пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ, 3-пїЅ пїЅпїЅпїЅпїЅпїЅпїЅ
 }
 
 export interface CPPCamera {
@@ -17,7 +17,25 @@ export interface CPPCamera {
   reconnect: number;
 }
 
-// ? ДОБАВЛЯЕМ недостающие типы
+export interface NeuralLoader {
+  loader_name: string;
+  server_endpoint: string;
+  img_size: number;
+  status: 'running' | 'stopped';
+  loader_matrix?: string[][];
+}
+
+// вњ… Р”РћР‘РђР’Р›Р•РќРћ: РЎС‚Р°СЂС‹Рµ С‚РёРїС‹ РґР»СЏ СЃРѕРІРјРµСЃС‚РёРјРѕСЃС‚Рё (РёСЃРїРѕР»СЊР·СѓСЋС‚СЃСЏ РІ CameraSettings)
+export interface Camera {
+  camera_name: string;
+  rtsp_url: string;
+  width?: number | null;
+  height?: number | null;
+  reconnect_interval?: number;
+  status?: string;
+}
+
+// ? пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ
 export interface NeuralLoader {
   loader_name: string;
   server_endpoint: string;
@@ -28,7 +46,7 @@ export interface NeuralLoader {
 
 export interface SystemState {
   cameras: CPPCamera[];
-  loaders: NeuralLoader[]; // ? ДОБАВЛЕНО!
+  loaders: NeuralLoader[]; // ? пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ!
   summary?: {
     cameras_total: number;
     cameras_running: number;

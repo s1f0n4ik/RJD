@@ -16,6 +16,7 @@ import {
   ListItem,
   ListItemText,
   ListItemIcon,
+  Alert,
 } from '@mui/material';
 import { ViewModule, ViewQuilt, GridView, Settings } from '@mui/icons-material';
 import WebRTCPlayer from './WebRTCPlayer';
@@ -28,6 +29,7 @@ const Observation: React.FC = () => {
   const [selectedCameras, setSelectedCameras] = useState<string[]>([]);
   const [gridSize, setGridSize] = useState<GridSize>(4);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [loadError, setLoadError] = useState<string>(''); // ✅ ДОБАВЛЕНО
 
   const SIGNALING_SERVER = 'ws://192.168.1.2:8765';
 
@@ -38,17 +40,29 @@ const Observation: React.FC = () => {
   const loadCameras = async () => {
     try {
       const data = await api.getCameras();
+
+      // ✅ ДОБАВЛЕНО: Дополнительная проверка
+      if (!Array.isArray(data)) {
+        console.error('❌ Cameras data is not array:', data);
+        setLoadError('Получены некорректные данные с сервера');
+        setCameras([]);
+        return;
+      }
+
       setCameras(data);
+      setLoadError('');
 
       // По умолчанию выбираем камеры со статусом 3 (running)
       const runningCameras = data
-        .filter(c => c.main.status === 3)
+        .filter(c => c.main?.status === 3)
         .slice(0, gridSize)
         .map(c => c.name);
 
       setSelectedCameras(runningCameras);
     } catch (error) {
       console.error('Failed to load cameras:', error);
+      setLoadError(error instanceof Error ? error.message : 'Ошибка загрузки камер');
+      setCameras([]);
     }
   };
 
@@ -123,6 +137,13 @@ const Observation: React.FC = () => {
         </Box>
       </Paper>
 
+      {/* ✅ ДОБАВЛЕНО: Показываем ошибку загрузки */}
+      {loadError && (
+        <Alert severity="error" sx={{ mb: 3 }}>
+          {loadError}
+        </Alert>
+      )}
+
       {selectedCameras.length === 0 ? (
         <Paper sx={{ p: 8, textAlign: 'center' }}>
           <Typography variant="h5" color="text.secondary" gutterBottom>
@@ -158,28 +179,31 @@ const Observation: React.FC = () => {
           Выбор камер (макс. {gridSize})
         </DialogTitle>
         <DialogContent>
-          <List>
-            {cameras.map((camera) => (
-              <ListItem
-                key={camera.name}
-                button
-                onClick={() => handleToggleCamera(camera.name)}
-                disabled={!selectedCameras.includes(camera.name) && selectedCameras.length >= gridSize}
-              >
-                <ListItemIcon>
-                  <Checkbox
-                    checked={selectedCameras.includes(camera.name)}
-                    disabled={!selectedCameras.includes(camera.name) && selectedCameras.length >= gridSize}
+          {cameras.length === 0 ? (
+            <Alert severity="info">Нет доступных камер</Alert>
+          ) : (
+            <List>
+              {cameras.map((camera) => (
+                <ListItem
+                  key={camera.name}
+                  button
+                  onClick={() => handleToggleCamera(camera.name)}
+                  disabled={!selectedCameras.includes(camera.name) && selectedCameras.length >= gridSize}
+                >
+                  <ListItemIcon>
+                    <Checkbox
+                      checked={selectedCameras.includes(camera.name)}
+                      disabled={!selectedCameras.includes(camera.name) && selectedCameras.length >= gridSize}
+                    />
+                  </ListItemIcon>
+                  <ListItemText
+                    primary={camera.name}
+                    secondary={camera.main?.status === 3 ? '🟢 Активна' : '🔴 Остановлена'}
                   />
-                </ListItemIcon>
-                {/* ВОТ ЗДЕСЬ ИЗМЕНЕНИЕ: */}
-                <ListItemText
-                  primary={camera.name}
-                  secondary={camera.main.status === 3 ? '🟢 Активна' : '🔴 Остановлена'}
-                />
-              </ListItem>
-            ))}
-          </List>
+                </ListItem>
+              ))}
+            </List>
+          )}
         </DialogContent>
       </Dialog>
     </Container>
