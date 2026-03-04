@@ -22,8 +22,9 @@ interface DashboardProps {
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ state }) => {
-  const runningCameras = state.cameras.filter(c => c.status === 'running').length;
-  const runningLoaders = state.loaders.filter(l => l.status === 'running').length;
+  // ✅ ИСПРАВЛЕНО: проверяем main.status === 3
+  const runningCameras = state.cameras.filter(c => c.main?.status === 3).length;
+  const runningLoaders = state.loaders?.filter(l => l.status === 'running').length || 0;
 
   return (
     <Container maxWidth="lg">
@@ -68,7 +69,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
                 </Typography>
               </Box>
               <Typography variant="h2" fontWeight="bold" sx={{ mb: 1 }}>
-                {runningLoaders}/{state.loaders.length}
+                {runningLoaders}/{state.loaders?.length || 0}
               </Typography>
               <Typography sx={{ opacity: 0.9 }}>
                 Активных загрузчиков
@@ -86,13 +87,13 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
           </Typography>
           <Grid container spacing={2}>
             {state.cameras.map((camera) => (
-              <Grid item xs={12} md={6} key={camera.camera_name}>
+              <Grid item xs={12} md={6} key={camera.name}> {/* ✅ ИСПРАВЛЕНО */}
                 <Card sx={{ borderLeft: `4px solid ${RZD_COLORS.primary}` }}>
                   <CardContent>
                     <Box display="flex" justifyContent="space-between" alignItems="start" gap={2}>
                       <Box sx={{ flexGrow: 1, minWidth: 0 }}>
                         <Typography variant="h6" gutterBottom fontWeight={600} noWrap>
-                          {camera.camera_name}
+                          {camera.name} {/* ✅ ИСПРАВЛЕНО */}
                         </Typography>
                         <Typography
                           variant="body2"
@@ -103,17 +104,17 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
                             wordBreak: 'break-all',
                           }}
                         >
-                          {camera.rtsp_url}
+                          {camera.description} {/* ✅ ИСПРАВЛЕНО: показываем описание */}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
-                          Разрешение: {camera.width || 'auto'} × {camera.height || 'auto'}
+                          Main: status={camera.main?.status || 0}, Sub: status={camera.sub?.status || 0}
                         </Typography>
                       </Box>
 
-                      {/* ✅ 4. Chip с правильными размерами */}
+                      {/* ✅ ИСПРАВЛЕНО: проверяем main.status === 3 */}
                       <Chip
-                        label={camera.status === 'running' ? 'Активна' : 'Остановлена'}
-                        color={camera.status === 'running' ? 'success' : 'default'}
+                        label={camera.main?.status === 3 ? 'Активна' : 'Остановлена'}
+                        color={camera.main?.status === 3 ? 'success' : 'default'}
                         size="small"
                         sx={{
                           flexShrink: 0,
@@ -138,7 +139,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
       )}
 
       {/* Neural Loaders */}
-      {state.loaders.length > 0 && (
+      {state.loaders && state.loaders.length > 0 && (
         <Box>
           <Typography variant="h5" gutterBottom sx={{ mb: 2, fontWeight: 600 }}>
             🧠 Нейронная обработка
@@ -165,7 +166,6 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
                           </Typography>
                         </Box>
 
-                        {/* ✅ Chip для загрузчиков тоже */}
                         <Chip
                           label={loader.status === 'running' ? 'Активен' : 'Остановлен'}
                           color={loader.status === 'running' ? 'success' : 'default'}
@@ -235,7 +235,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
       )}
 
       {/* Empty State */}
-      {state.cameras.length === 0 && state.loaders.length === 0 && (
+      {state.cameras.length === 0 && (state.loaders?.length || 0) === 0 && (
         <Paper sx={{ p: 8, textAlign: 'center' }}>
           <Typography variant="h5" color="text.secondary" gutterBottom fontWeight={600}>
             Нет активных устройств
