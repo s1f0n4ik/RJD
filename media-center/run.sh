@@ -1,17 +1,20 @@
 #!/bin/bash
 
-# Указываем путь к кастомному GStreamer
+# РќР°СЃС‚СЂРѕР№РєР° РїСѓС‚РµР№ Рє Р±РёР±Р»РёРѕС‚РµРєР°Рј GStreamer
 export GST_ROOT=/opt/gstreamer-1.28
 export PATH=$GST_ROOT/bin:$PATH
 
-# Убираем libsoup3 из LD_LIBRARY_PATH, если есть
+# РЈР±РёСЂР°РµРј libsoup3 РёР· LD_LIBRARY_PATH, РµСЃР»Рё РЅСѓР¶РЅРѕ
 export LD_LIBRARY_PATH=$(echo $LD_LIBRARY_PATH | tr ':' '\n' | grep -v 'libsoup-3' | paste -sd:)
-export LD_LIBRARY_PATH=$GST_ROOT/lib/aarch64-linux-gnu:$GST_ROOT/lib:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=$GST_ROOT/lib/aarch64-linux-gnu:$GST_ROOT/lib:/home/orangepi/RJD/RJD/media-center/3rdparty/boost/lib:$LD_LIBRARY_PATH
 
-# PKG_CONFIG и плагины
+# PKG_CONFIG Рё РїР»Р°РіРёРЅС‹
 export PKG_CONFIG_PATH=$GST_ROOT/lib/aarch64-linux-gnu/pkgconfig:$GST_ROOT/lib/pkgconfig:$PKG_CONFIG_PATH
 export GST_PLUGIN_PATH=$GST_ROOT/lib/aarch64-linux-gnu/gstreamer-1.0
 export GST_PLUGIN_SCANNER=$GST_ROOT/libexec/gstreamer-1.0/gst-plugin-scanner
 
-# Запускаем бинарник с аргументами
-exec /home/orangepi/.vs/media-center/out/build/linux-debug/media-center "$@"
+# Signaling Server
+export SIGNALING_SERVER=ws://localhost:8765
+
+# Р—Р°РїСѓСЃРєР°РµРј РїСЂРёР»РѕР¶РµРЅРёРµ
+exec /home/orangepi/RJD/RJD/media-center/build/media-center "$@"

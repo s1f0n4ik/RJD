@@ -7,32 +7,7 @@ services:
       context: ./media-center/server
       dockerfile: Dockerfile
     container_name: signaling-server
-    ports:
-      - "8765:8765"  # WebSocket для WebRTC
-    networks:
-      - vanya-network
-    restart: unless-stopped
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-  # ========== Media Center (C++ + REST API) ==========
-  media-center:
-    build:
-      context: ./media-center
-      dockerfile: Dockerfile
-    container_name: media-center
-    ports:
-      - "7777:7777"  # REST API для управления камерами
-    environment:
-      - SIGNALING_SERVER=ws://signaling-server:8765
-    volumes:
-      - ./media-center/recordings:/app/recordings
-      - ./media-center/config:/app/config
-    networks:
-      - vanya-network
+    network_mode: host  # Используем host network
     restart: unless-stopped
     logging:
       driver: "json-file"
@@ -46,12 +21,9 @@ services:
       context: ./shit/backend
       dockerfile: Dockerfile
     container_name: fastapi
-    ports:
-      - "8000:8000"
+    network_mode: host  # Используем host network
     environment:
-      - MEDIA_CENTER_URL=http://media-center:7777  # REST API Media Center
-    networks:
-      - vanya-network
+      - MEDIA_CENTER_URL=http://localhost:7777  # Media Center на хосте
     restart: unless-stopped
     logging:
       driver: "json-file"
@@ -65,15 +37,9 @@ services:
       context: ./shit/frontend
       dockerfile: Dockerfile
       args:
-        VITE_SIGNALING_SERVER: ws://192.168.1.2:8765  # Для WebRTC
-        VITE_FASTAPI_BASE: http://192.168.1.2:8000    # Для управления
+        VITE_SIGNALING_SERVER: ws://192.168.1.2:8765
+        VITE_FASTAPI_BASE: http://192.168.1.2:8000
     container_name: frontend
     ports:
       - "80:80"
-    networks:
-      - vanya-network
     restart: unless-stopped
-
-networks:
-  vanya-network:
-    driver: bridge
