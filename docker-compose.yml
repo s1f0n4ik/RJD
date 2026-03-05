@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  # ========== Signaling Server (WebSocket для WebRTC) ==========
+  signaling-server:
+    build:
+      context: ./media-center/server
+      dockerfile: Dockerfile
+    container_name: signaling-server
+    network_mode: host  # Используем host network
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ========== FastAPI (Управление через REST) ==========
+  fastapi:
+    build:
+      context: ./shit/backend
+      dockerfile: Dockerfile
+    container_name: fastapi
+    network_mode: host  # Используем host network
+    environment:
+      - MEDIA_CENTER_URL=http://localhost:7777  # Media Center на хосте
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ========== React Frontend ==========
+  frontend:
+    build:
+      context: ./shit/frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_SIGNALING_SERVER: ws://192.168.1.2:8765
+        VITE_FASTAPI_BASE: http://192.168.1.2:8000
+    container_name: frontend
+    ports:
+      - "80:80"
+    restart: unless-stopped

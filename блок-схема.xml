@@ -1,0 +1,86 @@
+<mxfile host="app.diagrams.net">
+    <diagram name="Страница 1" id="u5M_uiOWmmO3FmyHXyQW">
+        <mxGraphModel dx="1662" dy="902" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <!-- УРОВЕНЬ 1: Камеры и датчики -->
+                <!-- Группа общих камер -->
+                <mxCell id="cam1" value="<b>Camera_1</b><br><font size=\"1\">Hikvision 4MP, IP67, -40°C...+60°C</font><br>💧 ❄️<br><font size=\"1\">ИК-подсветка 30м</font>" style="shape=ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#f5f5f5;strokeColor=#666666;" parent="1" vertex="1">
+                    <mxGeometry x="100" y="40" width="80" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="line_cam1_down" value="PoE 802.3af (24V + Ethernet)" style="endArrow=classic;html=1;rounded=0;exitX=0.5;exitY=1;entryX=0.5;entryY=0;strokeColor=#0000FF;strokeWidth=2;" parent="1" source="cam1" target="switch" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <!-- Аналогичные блоки для cam2, cam3, cam4 (x=200, 300, 400) -->
+                <mxCell id="cam_p1" value="<b>Camera_Panorama_1</b><br><font size=\"1\">Dahua 8MP, 180°, Dewarping</font><br>💧 ❄️ 180°" style="shape=ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#f5f5f5;strokeColor=#666666;" parent="1" vertex="1">
+                    <mxGeometry x="600" y="40" width="80" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="line_camp1_down" value="PoE + RTSP H.265" style="endArrow=classic;html=1;rounded=0;exitX=0.5;exitY=1;entryX=0.5;entryY=0;strokeColor=#FF0000;strokeWidth=1;dashed=1;" parent="1" source="cam_p1" target="switch" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <!-- Аналогичные блоки для panorama 2-6 -->
+
+                <!-- УРОВЕНЬ 2: Сетевая инфраструктура -->
+                <mxCell id="switch" value="<b>Промышленный коммутатор<br>головной части</b><br><font size=\"1\">16 портов PoE (802.3af)<br>Ethernet Switch, IP40<br>Управляемый</font>" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#c9daf8;strokeColor=#1155cc;" parent="1" vertex="1">
+                    <mxGeometry x="300" y="180" width="200" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="power" value="<b>Блок резервного питания<br>24V, 60A</b><br><font size=\"1\">Mean Well RSP-1000-24<br>ИБП 4 часа автономной работы</font>" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#f9cb9c;strokeColor=#e69138;" parent="1" vertex="1">
+                    <mxGeometry x="550" y="180" width="150" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="line_power_to_switch" value="24V DC" style="endArrow=classic;html=1;rounded=0;strokeColor=#FF9900;strokeWidth=3;" parent="1" source="power" target="switch" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+
+                <!-- УРОВЕНЬ 3: Вычислительное ядро -->
+                <mxCell id="nvr" value="<b>Видеорегистратор NVR</b><br><font size=\"1\">NVR Hikvision 16-канальный<br>4× HDD 8TB RAID1<br>Запись H.265, 30+ дней</font>" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d9ead3;strokeColor=#38761d;" parent="1" vertex="1">
+                    <mxGeometry x="50" y="320" width="150" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="flask" value="<b>Блок обработки данных<br>(Flask Server)</b><br><font size=\"1\">Python 3.10 / Manager<br>MJPEG Endpoints: /neural_1/2/3<br>PORT 5000</font>" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#b6d7a8;strokeColor=#274e13;" parent="1" vertex="1">
+                    <mxGeometry x="250" y="320" width="160" height="120" as="geometry"/>
+                </mxCell>
+                <mxCell id="ai" value="<b>AI-сервер<br>(Neural Processing Unit)</b><br><font size=\"1\">NVIDIA Jetson AGX Orin<br>275 TOPS, 64GB RAM<br>3× NeuralLoader (YOLO)</font><br>❗ Критический компонент<br>🔥 Пассивное охлаждение" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#a2c4c9;strokeColor=#0c343d;" parent="1" vertex="1">
+                    <mxGeometry x="450" y="320" width="180" height="150" as="geometry"/>
+                </mxCell>
+                <!-- Связи между серверами -->
+                <mxCell id="line_switch_to_flask" value="Ethernet, RTSP" style="endArrow=classic;html=1;rounded=0;strokeColor=#0000FF;strokeWidth=2;" parent="1" source="switch" target="flask" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="line_switch_to_nvr" value="RTSP + Управление" style="endArrow=classic;html=1;rounded=0;strokeColor=#FF0000;strokeWidth=1;dashed=1;" parent="1" source="switch" target="nvr" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="line_flask_to_ai" value="Raw NV12 frames" style="endArrow=classic;html=1;rounded=0;strokeColor=#6aa84f;strokeWidth=2;" parent="1" source="flask" target="ai" edge="1"/>
+                <mxCell id="line_ai_to_flask" value="Processed RGB frames" style="endArrow=classic;html=1;rounded=0;strokeColor=#6aa84f;strokeWidth=2;" parent="1" source="ai" target="flask" edge="1"/>
+                <mxCell id="line_nvr_to_ai" value="Архив видео" style="endArrow=classic;html=1;rounded=0;strokeColor=#999999;strokeWidth=1;" parent="1" source="nvr" target="ai" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+
+                <!-- УРОВЕНЬ 4: Интерфейсы и внешние системы -->
+                <mxCell id="monitor" value="<b>Монитор оператора</b><br><font size=\"1\">Advantech 15.6\" Touch, Full HD<br>[ Видеонаблюдение | Панорама 360° | FOD ]<br>🔊 Звуковая сигнализация</font>" style="shape=display;whiteSpace=wrap;html=1;fillColor=#ffe599;strokeColor=#bf9000;" parent="1" vertex="1">
+                    <mxGeometry x="250" y="520" width="180" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="bius" value="<b>БИУС</b><br><font size=\"1\">PCM 2000 (бортовой контроллер)<br>Получает признаки FOD<br>Управление торможением</font><br>⚡ Аварийное торможение" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d9d2e9;strokeColor=#674ea7;" parent="1" vertex="1">
+                    <mxGeometry x="480" y="520" width="150" height="100" as="geometry"/>
+                </mxCell>
+                <!-- Связи к интерфейсам -->
+                <mxCell id="line_flask_to_monitor" value="MJPEG Stream HTTP" style="endArrow=classic;html=1;rounded=0;strokeColor=#e69138;strokeWidth=2;" parent="1" source="flask" target="monitor" edge="1"/>
+                <mxCell id="line_ai_to_bius_can" value="CAN-сообщения (100 мс)" style="endArrow=classic;html=1;rounded=0;strokeColor=#38761d;strokeWidth=3;dashed=0;" parent="1" source="ai" target="bius" edge="1"/>
+                <mxCell id="line_ai_to_bius_udp" value="UDP JPEG ROI" style="endArrow=classic;html=1;rounded=0;strokeColor=#1155cc;strokeWidth=1;dashed=1;" parent="1" source="ai" target="bius" edge="1">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <!-- Хвостовые камеры -->
+                <mxCell id="tail_cam_l" value="Камера круговой панорамы (Л)" style="shape=ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#f5f5f5;strokeColor=#666666;" parent="1" vertex="1">
+                    <mxGeometry x="100" y="520" width="60" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="tail_cam_r" value="Камера круговой панорамы (П)" style="shape=ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#f5f5f5;strokeColor=#666666;" parent="1" vertex="1">
+                    <mxGeometry x="670" y="520" width="60" height="60" as="geometry"/>
+                </mxCell>
+                <!-- Облако -->
+                <mxCell id="cloud" value="Удаленный сервер (Облако)" style="shape=cloud;whiteSpace=wrap;html=1;fillColor=#d9d2e9;strokeColor=#674ea7;" parent="1" vertex="1">
+                    <mxGeometry x="650" y="550" width="100" height="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="line_bius_to_cloud" value="GSM/4G (События FOD)" style="endArrow=classic;html=1;rounded=0;strokeColor=#674ea7;strokeWidth=2;curved=1;" parent="1" source="bius" target="cloud" edge="1"/>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>
