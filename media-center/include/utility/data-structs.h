@@ -1,9 +1,14 @@
+#pragma once
+
 #include <iostream>
 #include <vector>
+#include <map>
+#include <string>
+#include <filesystem>
 
 namespace varan {
 namespace nvr {
-	// Перечисления
+	// РџРµСЂРµС‡РёСЃР»РµРЅРёСЏ
 
 	enum class EPipelineStatus {
 		NONE = 0,
@@ -19,9 +24,15 @@ namespace nvr {
 		NONE = 0,
 		MAIN = 1,
 		SUB = 2,
-		NEURAL = 3,
-		BIRD_VIEW = 4,
-		COUNT = 5
+		COUNT = 3
+	};
+
+	enum class ECameraType {
+		NONE = 0,
+		GENERAL = 1,
+		NEURAL = 2,
+		BIRDVIEW = 3,
+		COUNT = 4
 	};
 
 	template <typename T>
@@ -37,7 +48,7 @@ namespace nvr {
 		return static_cast<T>(value);
 	}
 
-	// Общие данные пайплайна
+	// РћР±С‰РёРµ РґР°РЅРЅС‹Рµ РїР°Р№РїР»Р°Р№РЅР°
 	struct FPipelineData {
 		std::string name;
 		EPipelineStatus status;
@@ -57,7 +68,7 @@ namespace nvr {
 		int segment_length;
 	};
 
-	// Стурктуры ждля камер
+	// РЎС‚СѓСЂРєС‚СѓСЂС‹ Р¶РґР»СЏ РєР°РјРµСЂ
 	struct FCameraData {
 		std::string name;
 		std::string description;
@@ -66,23 +77,30 @@ namespace nvr {
 		std::string port;
 		std::string user;
 
+		ECameraType type;
+
 		std::map<std::string, FPipelineData> pipelines;
 	};
 
-	// Структуры для пайпалнов
+	// РЎС‚СЂСѓРєС‚СѓСЂС‹ РґР»СЏ РїР°Р№РїР°Р»РЅРѕРІ
 
-	// Входные данные для пайплайна
+	// Р’С…РѕРґРЅС‹Рµ РґР°РЅРЅС‹Рµ РґР»СЏ РїР°Р№РїР»Р°Р№РЅР°
 	struct FInputPipelineParameters {
 		std::string name = "unnamed";
 		std::string camera_name = "";
 
-		std::string rtsp_url = ""; // полная ссылка с пользователем и паролем
-		int latency = 200; // в милисекундах
+		std::string rtsp_url = ""; // РїРѕР»РЅР°СЏ СЃСЃС‹Р»РєР° СЃ РїРѕР»СЊР·РѕРІР°С‚РµР»РµРј Рё РїР°СЂРѕР»РµРј
+		int latency = 200; // РІ РјРёР»РёСЃРµРєСѓРЅРґР°С…
 		bool use_udp = false;
-		int reconnect_delay = 10; // в секундах
+		int reconnect_delay = 10; // РІ СЃРµРєСѓРЅРґР°С…
 
-		std::filesystem::path record_path = ""; // Путь для записи фрагментов
-		int segment_length = 600; // Длительность сегмента в секундах
+		std::filesystem::path record_path = ""; // РџСѓС‚СЊ РґР»СЏ Р·Р°РїРёСЃРё С„СЂР°РіРјРµРЅС‚РѕРІ
+		int segment_length = 600; // Р”Р»РёС‚РµР»СЊРЅРѕСЃС‚СЊ СЃРµРіРјРµРЅС‚Р° РІ СЃРµРєСѓРЅРґР°С…
+	};
+
+	struct FWebSocketOptions {
+		std::string ip_adress;
+		std::string port;
 	};
 }// namespace nvr
 }// namespace varan

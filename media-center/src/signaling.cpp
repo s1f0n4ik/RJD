@@ -26,7 +26,7 @@ UWSSession::~UWSSession() {
 }
 
 void UWSSession::start() {
-    // Сначала асинхронно читаем HTTP запрос
+    // РЎРЅР°С‡Р°Р»Р° Р°СЃРёРЅС…СЂРѕРЅРЅРѕ С‡РёС‚Р°РµРј HTTP Р·Р°РїСЂРѕСЃ
     boost::asio::post(m_strand, [self = shared_from_this()]() {
         http::async_read(
             self->m_ws.next_layer(),
@@ -46,7 +46,7 @@ void UWSSession::on_http_read(beast::error_code ec, std::size_t bytes_transferre
         return;
     }
 
-    // Извлекаем room_id из URI запроса
+    // РР·РІР»РµРєР°РµРј room_id РёР· URI Р·Р°РїСЂРѕСЃР°
     std::string target = std::string(m_req.target());
     m_room_id = (target.empty() || target == "/") ? "default" :
                 (target.front() == '/' ? target.substr(1) : target);
@@ -56,13 +56,13 @@ void UWSSession::on_http_read(beast::error_code ec, std::size_t bytes_transferre
 
     if (!websocket::is_upgrade(m_req)) {
         std::cerr << "[WSSession " << id() << "] Not a WebSocket upgrade\n";
-        // Отправляем HTTP ошибку
+        // РћС‚РїСЂР°РІР»СЏРµРј HTTP РѕС€РёР±РєСѓ
         send_http_error();
         m_server.unregister_session(shared_from_this());
         return;
     }
 
-    // Принимаем WebSocket соединение с этим запросом
+    // РџСЂРёРЅРёРјР°РµРј WebSocket СЃРѕРµРґРёРЅРµРЅРёРµ СЃ СЌС‚РёРј Р·Р°РїСЂРѕСЃРѕРј
     boost::asio::post(m_strand, [self = shared_from_this()]() {
         self->m_ws.async_accept(
             self->m_req,
@@ -95,7 +95,7 @@ void UWSSession::on_accept(beast::error_code ec) {
         return;
     }
 
-    // Проверка, что m_req валиден — можно проверить target() на пустоту
+    // РџСЂРѕРІРµСЂРєР°, С‡С‚Рѕ m_req РІР°Р»РёРґРµРЅ вЂ” РјРѕР¶РЅРѕ РїСЂРѕРІРµСЂРёС‚СЊ target() РЅР° РїСѓСЃС‚РѕС‚Сѓ
     if (m_req.target().empty()) {
         std::cerr << "[WSSession " << id() << "] HTTP request target is empty, using default room\n";
         m_room_id = "default";
@@ -106,18 +106,18 @@ void UWSSession::on_accept(beast::error_code ec) {
             m_room_id = target.substr(1);
         }
         else {
-            m_room_id = target; // если нет начального '/', возьмем как есть
+            m_room_id = target; // РµСЃР»Рё РЅРµС‚ РЅР°С‡Р°Р»СЊРЅРѕРіРѕ '/', РІРѕР·СЊРјРµРј РєР°Рє РµСЃС‚СЊ
         }
     }
 
     std::cout << "[WSSession " << id() << "] Websocket accepted, room: " << m_room_id << "\n";
 
-    // Регистрируем сессию в комнате
+    // Р РµРіРёСЃС‚СЂРёСЂСѓРµРј СЃРµСЃСЃРёСЋ РІ РєРѕРјРЅР°С‚Рµ
     m_server.join_room(m_room_id, shared_from_this());
 
     m_http_buffer.consume(m_http_buffer.size());
 
-    // Начинаем читать сообщения от клиента
+    // РќР°С‡РёРЅР°РµРј С‡РёС‚Р°С‚СЊ СЃРѕРѕР±С‰РµРЅРёСЏ РѕС‚ РєР»РёРµРЅС‚Р°
     do_read();
 }
 
@@ -185,7 +185,7 @@ void UWSSession::on_read(beast::error_code ec, std::size_t bytes_transferred) {
 void UWSSession::send_text(std::string const& message) {
     if (m_closed.load()) return;
 
-    // Постим в strand, чтобы избежать гонок
+    // РџРѕСЃС‚РёРј РІ strand, С‡С‚РѕР±С‹ РёР·Р±РµР¶Р°С‚СЊ РіРѕРЅРѕРє
     boost::asio::post(m_strand, [self = shared_from_this(), message]() {
         bool write_in_progress = !self->m_write_queue.empty();
         self->m_write_queue.push_back(message);
@@ -292,7 +292,7 @@ void USignalingServer::run() {
 bool USignalingServer::start(const std::string& ip, int port) {
     boost::system::error_code ec;
 
-    // Определяем адрес
+    // РћРїСЂРµРґРµР»СЏРµРј Р°РґСЂРµСЃ
     boost::asio::ip::address addr;
     if (ip == "0.0.0.0") {
         addr = boost::asio::ip::address_v4::any();
@@ -384,13 +384,13 @@ void USignalingServer::unregister_session(session_ptr s) {
 }
 
 void USignalingServer::register_room_camera(std::shared_ptr<UCamera> camera) {
-    // Установка камеры 
+    // РЈСЃС‚Р°РЅРѕРІРєР° РєР°РјРµСЂС‹ 
     std::string room = camera->get_name();
     {
         std::lock_guard lock(m_cameras_mutex);
         m_cameras[room] = camera;
     }
-    // Установка рассылки на все сессии в комнате
+    // РЈСЃС‚Р°РЅРѕРІРєР° СЂР°СЃСЃС‹Р»РєРё РЅР° РІСЃРµ СЃРµСЃСЃРёРё РІ РєРѕРјРЅР°С‚Рµ
     camera->set_signaling_callback(
         [this, room](const std::string message) {
             this->broadcast_to_room(room, message, nullptr);
@@ -407,13 +407,13 @@ void USignalingServer::unregister_room_camera(const std::string& camera_name) {
                   << camera_name << " not found!" << color::reset << std::endl;
         return;
     }
-    // Уничтожаем колбэк и убираем камеру из сигналинг сервера
+    // РЈРЅРёС‡С‚РѕР¶Р°РµРј РєРѕР»Р±СЌРє Рё СѓР±РёСЂР°РµРј РєР°РјРµСЂСѓ РёР· СЃРёРіРЅР°Р»РёРЅРі СЃРµСЂРІРµСЂР°
     camera->second->set_signaling_callback(nullptr);
     m_cameras.erase(camera_name);
 }
 
 void USignalingServer::join_room(std::string const& room_id, session_ptr session) {
-    // Добавление сессии в комнату
+    // Р”РѕР±Р°РІР»РµРЅРёРµ СЃРµСЃСЃРёРё РІ РєРѕРјРЅР°С‚Сѓ
     {
         std::lock_guard<std::mutex> lock(m_rooms_mutex);
         m_rooms[room_id].insert(session);
@@ -437,7 +437,7 @@ void USignalingServer::leave_room(std::string const& room_id, session_ptr s) {
 }
 
 void USignalingServer::on_client_message(const std::string& room_id, const std::string& msg, session_ptr sender) {
-    // Найти камеру
+    // РќР°Р№С‚Рё РєР°РјРµСЂСѓ
     std::shared_ptr<UCamera> camera;
     {
         std::lock_guard lock(m_cameras_mutex);

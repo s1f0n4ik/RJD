@@ -1,4 +1,4 @@
-﻿# CMakeLists.txt для media-center с GStreamer 1.28
+# CMakeLists.txt для media-center с GStreamer 1.28
 
 cmake_minimum_required(VERSION 3.18)
 project(media-center VERSION 1.0 LANGUAGES C CXX)
@@ -16,6 +16,8 @@ file(GLOB_RECURSE SRC_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/pipelines/*.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/main-server/*.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/src/main-server/*.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/bird-view/*.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/bird-view/*.cpp
 )
 
 # OpenCV

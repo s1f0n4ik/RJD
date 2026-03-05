@@ -7,6 +7,10 @@
 
 #define SUB_TEE "tee_sub"
 
+UCameraSubPipeline::~UCameraSubPipeline() {
+	
+}
+
 bool UCameraSubPipeline::initialize() {
 	if (m_has_initialized == true) {
 		return true;
@@ -23,6 +27,53 @@ bool UCameraSubPipeline::initialize() {
 	}
 
 	m_pipeline = gst_pipeline_new(m_parameters.name.c_str());
+
+	// РџСЂРёРІСЏР·С‹РІР°РµРј СЂРµСЃС‚Р°СЂС‚ Рє РїР°Р№РїР»Р°Р№РЅСѓ
+	GstBus* bus = gst_element_get_bus(m_pipeline);
+	gst_bus_add_watch(bus,
+		+[](GstBus* bus, GstMessage* msg, gpointer data) -> gboolean
+		{
+			auto self = static_cast<UCameraSubPipeline*>(data);
+
+			switch (GST_MESSAGE_TYPE(msg)) {
+				case GST_MESSAGE_ERROR: {
+					// РѕР±СЂР°Р±РѕС‚РєР° РѕС€РёР±РєРё Р·Р°РїРёСЃРё
+					GError* err = nullptr;
+					gchar* debug = nullptr;
+					gst_message_parse_error(msg, &err, &debug);
+
+					self->m_logger->error(
+						"GStreamer ERROR: " + std::string(err ? err->message : "unknown")
+					);
+
+					if (err) g_error_free(err);
+					if (debug) g_free(debug);
+
+					//self->restart_async();
+					break;
+				}
+				case GST_MESSAGE_EOS: {
+					self->m_logger->warn("GStreamer EOS received");
+					//self->destroy();
+					break;
+				}
+				case GST_MESSAGE_ELEMENT: {
+					const GstStructure* s = gst_message_get_structure(msg);
+					if (s && gst_structure_has_name(s, "GstRTSPSrcTimeout"))
+					{
+						self->m_logger->warn("RTSP timeout detected");
+						self->restart_async();
+					}
+					break;
+				}
+				default:
+					break;
+			}
+			return TRUE;
+		},
+		this
+	);
+	gst_object_unref(bus);
 
 	std::string depay_str = m_probe.codec_name == std::string("H264") ? "rtph264depay" : "rtph265depay";
 	std::string parse_str = m_probe.codec_name == std::string("H264") ? "h264parse" : "h265parse";
@@ -114,14 +165,14 @@ bool UCameraSubPipeline::initialize() {
 		src, depay, parse, pay, pay_queue, tee, queue, sink, nullptr
 	);
 
-	// Связывание основного потока
+	// РЎРІСЏР·С‹РІР°РЅРёРµ РѕСЃРЅРѕРІРЅРѕРіРѕ РїРѕС‚РѕРєР°
 	if (!gst_element_link_many(depay, parse, pay, pay_queue, tee, nullptr)) {
 		m_logger->error("Error with linking: src, depay, parse, tee!");
 		return false;
 	}
 
-	// Связывание ветки с декодером
-	// Связывание tee с decoding_queue
+	// РЎРІСЏР·С‹РІР°РЅРёРµ РІРµС‚РєРё СЃ РґРµРєРѕРґРµСЂРѕРј
+	// РЎРІСЏР·С‹РІР°РЅРёРµ tee СЃ decoding_queue
 	GstPad* tee_sub_pad = gst_element_request_pad_simple(tee, "src_%u");
 	//GstPad* tee_decode_pad = gst_element_get_request_pad(m_reading_tee.get(), "src_%u");
 	GstPad* queue_pad = gst_element_get_static_pad(queue, "sink");
@@ -140,7 +191,7 @@ bool UCameraSubPipeline::initialize() {
 
 	m_tees.try_emplace(tee_str, tee);
 
-	// Динамическое связывание падов src с depay
+	// Р”РёРЅР°РјРёС‡РµСЃРєРѕРµ СЃРІСЏР·С‹РІР°РЅРёРµ РїР°РґРѕРІ src СЃ depay
 	g_signal_connect(src, "pad-added", G_CALLBACK(+[](
 		GstElement* src,
 		GstPad* pad,

@@ -165,6 +165,7 @@ POST http://192.168.1.2:7777/camera
     "user": "admin",
     "password": "VniiTest",
     "production": 2,
+    "type": 1,
     "streams": {
         "main pipeline": {
             "type": 1,

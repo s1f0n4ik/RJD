@@ -49,7 +49,7 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 		return m_is_valid;
 	}
 
-	// Создание всех необходимых элементов
+	// РЎРѕР·РґР°РЅРёРµ РІСЃРµС… РЅРµРѕР±С…РѕРґРёРјС‹С… СЌР»РµРјРµРЅС‚РѕРІ
 	if (!m_is_sub) {
 		m_pay = gst_element_factory_make(codec == std::string("H264") ? "rtph264pay" : "rtph265pay", nullptr);
 	}
@@ -71,7 +71,7 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 		return m_is_valid;
 	}
 
-	// Все настройки на минимальную задержку
+	// Р’СЃРµ РЅР°СЃС‚СЂРѕР№РєРё РЅР° РјРёРЅРёРјР°Р»СЊРЅСѓСЋ Р·Р°РґРµСЂР¶РєСѓ
 	g_object_set(m_queue,
 		"leaky", 2,                  
 		"max-size-time", 200000000,  // 200 ms
@@ -80,7 +80,7 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 		nullptr
 	);
 
-	// настройки pay для webrtcbin
+	// РЅР°СЃС‚СЂРѕР№РєРё pay РґР»СЏ webrtcbin
 	if (m_pay) {
 		g_object_set(m_pay,
 			"pt", 96,
@@ -104,7 +104,7 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 
 	using TGstUniqePad = std::unique_ptr<GstPad, decltype(&gst_object_unref)>;
 
-	// Получаем src пад (выходы) от tee для дальнейшего связывания по цепочке
+	// РџРѕР»СѓС‡Р°РµРј src РїР°Рґ (РІС‹С…РѕРґС‹) РѕС‚ tee РґР»СЏ РґР°Р»СЊРЅРµР№С€РµРіРѕ СЃРІСЏР·С‹РІР°РЅРёСЏ РїРѕ С†РµРїРѕС‡РєРµ
 	m_tee_pad_src = gst_element_request_pad_simple(m_tee, "src_%u");
 	if (!m_tee_pad_src) {
 		std::ostringstream oss;
@@ -114,7 +114,7 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 		return m_is_valid;
 	}
 
-	// Получаем входы от очереди
+	// РџРѕР»СѓС‡Р°РµРј РІС…РѕРґС‹ РѕС‚ РѕС‡РµСЂРµРґРё
 	auto queue_sink_pad = gst_element_get_static_pad(m_queue, "sink");
 	if (!queue_sink_pad) {
 		std::ostringstream oss;
@@ -124,7 +124,7 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 		return false;
 	}
 
-	// Связываем tee с queue
+	// РЎРІСЏР·С‹РІР°РµРј tee СЃ queue
 	auto tee_queue_link = gst_pad_link(m_tee_pad_src, queue_sink_pad);
 	if (tee_queue_link != GST_PAD_LINK_OK) {
 		m_logger->error("Cannot create self " + get_session_name() + " branch: tee cannot link with queue!");
@@ -133,7 +133,7 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 	}
 	gst_object_unref(queue_sink_pad);
 
-	// Линк созданных объектов друг с другом
+	// Р›РёРЅРє СЃРѕР·РґР°РЅРЅС‹С… РѕР±СЉРµРєС‚РѕРІ РґСЂСѓРі СЃ РґСЂСѓРіРѕРј
 	auto link_result = m_pay ? gst_element_link_many(m_queue, m_pay, m_webrtcbin, nullptr) : gst_element_link(m_queue, m_webrtcbin);
 	if (!link_result) {
 		m_logger->error("Cannot create self " + get_session_name() + " branch: there is no link with queue and webrtcbin!");
@@ -141,44 +141,66 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 		return m_is_valid;
 	}
 
-	// Привязываем сигналы протокола к только что созданной сессии
+	// РЎРёРЅС…СЂРѕРЅРёС…РёСЂСѓРµРј СЃРѕСЃС‚РѕСЏРЅРёРµ СЃ РѕСЃРЅРѕРІРЅС‹Рј РїР°Р№РїР»Р°Р№РЅРѕРј
+	gst_element_sync_state_with_parent(m_queue);
+	if (m_pay) gst_element_sync_state_with_parent(m_pay);
+	gst_element_sync_state_with_parent(m_webrtcbin);
+
+	// РџСЂРёРІСЏР·С‹РІР°РµРј СЃРёРіРЅР°Р»С‹ РїСЂРѕС‚РѕРєРѕР»Р° Рє С‚РѕР»СЊРєРѕ С‡С‚Рѕ СЃРѕР·РґР°РЅРЅРѕР№ СЃРµСЃСЃРёРё
+	g_signal_handlers_disconnect_by_data(m_webrtcbin, this);
 	g_signal_connect(m_webrtcbin, "on-negotiation-needed", G_CALLBACK(&UWebRTCSession::on_negotiation_needed), this);
 	g_signal_connect(m_webrtcbin, "on-ice-candidate", G_CALLBACK(&UWebRTCSession::on_ice_candidate), this);
 
 	g_signal_connect(m_webrtcbin, "notify::connection-state", G_CALLBACK(&UWebRTCSession::on_connection_state_changed), this);
 	g_signal_connect(m_webrtcbin, "notify::ice-connection-state", G_CALLBACK(&UWebRTCSession::on_ice_state_changed), this);
 
-	// Синхронихируем состояние с основным пайплайном
-	gst_element_sync_state_with_parent(m_queue);
-	if (m_pay) gst_element_sync_state_with_parent(m_pay);
-	gst_element_sync_state_with_parent(m_webrtcbin);
-
 	std::string message = "Branch webrtc session " + get_session_name() + " has been created!";
 	boost::json::object opened_msg = UWebRTCSession::make_json(true, SIG_TYPE_CONNECT, message);
 	m_logger->info(message);
+
+	// РџСЂРѕРІРµСЂСЏРµРј СЃРѕСЃС‚РѕСЏРЅРёРµ webrtcbin
+	GstState current, pending;
+	GstStateChangeReturn ret;
+	ret = gst_element_get_state(m_webrtcbin, &current, &pending, GST_SECOND);
+
+	switch (ret) {
+	case GST_STATE_CHANGE_SUCCESS:
+		m_logger->info("webrtcbin state: " + std::string(gst_element_state_get_name(current)));
+		break;
+	case GST_STATE_CHANGE_ASYNC:
+		m_logger->info("webrtcbin state change in progress, current: " + std::string(gst_element_state_get_name(current))
+			+ ", pending: " + std::string(gst_element_state_get_name(pending)));
+		break;
+	case GST_STATE_CHANGE_FAILURE:
+		m_logger->error("Failed to change webrtcbin state!");
+		break;
+	default:
+		m_logger->warn("Unknown state change return!");
+		break;
+	}
 
 	m_is_valid = true;
 	return m_is_valid;
 }
 
 void UWebRTCSession::teardown() {
-	m_logger->debug("Destroying session: " + m_client_id);
+	m_logger->debug("teardown(): destroying session: " + m_client_id);
 
 	if (!g_main_context_is_owner(nullptr)) {
-		m_logger->error("TEARDOWN NOT IN MAIN THREAD!");
+		m_logger->warn("teardown(): teardown execiting not in the main thread");
 	}
 
 	if (!m_webrtcbin) {
 		return;
 	}
 
-	// отключение сигналов
+	// РѕС‚РєР»СЋС‡РµРЅРёРµ СЃРёРіРЅР°Р»РѕРІ
 	g_signal_handlers_disconnect_by_data(m_webrtcbin, this);
 
-	// блокирование ветки
+	// Р±Р»РѕРєРёСЂРѕРІР°РЅРёРµ РІРµС‚РєРё
 	if (m_tee_pad_src) {
 		gst_pad_add_probe(m_tee_pad_src, GST_PAD_PROBE_TYPE_BLOCK_DOWNSTREAM,
-			[](GstPad*, GstPadProbeInfo*, gpointer) { return GST_PAD_PROBE_OK; }, nullptr, nullptr);
+			[](GstPad*, GstPadProbeInfo*, gpointer) { return GST_PAD_PROBE_REMOVE; }, nullptr, nullptr);
 
 		GstPad* queue_sink = gst_element_get_static_pad(m_queue, "sink");
 		if (queue_sink) {
@@ -191,16 +213,17 @@ void UWebRTCSession::teardown() {
 		m_tee_pad_src = nullptr;
 	}
 
+	
 	GstWebRTCICE* ice_agent = nullptr;
 	g_object_get(m_webrtcbin, "ice-agent", &ice_agent, nullptr);
 
 	if (ice_agent) {
-		// Создаём promise, чтобы дождаться завершения закрытия
+		// РЎРѕР·РґР°С‘Рј promise, С‡С‚РѕР±С‹ РґРѕР¶РґР°С‚СЊСЃСЏ Р·Р°РІРµСЂС€РµРЅРёСЏ Р·Р°РєСЂС‹С‚РёСЏ
 		gst_webrtc_ice_close(ice_agent, nullptr);
 		gst_object_unref(ice_agent);
 	}
 
-	// Удаление трансиверов
+	// РЈРґР°Р»РµРЅРёРµ С‚СЂР°РЅСЃРёРІРµСЂРѕРІ
 	GArray* transceivers = nullptr;
 	g_signal_emit_by_name(m_webrtcbin, "get-transceivers", &transceivers);
 	if (transceivers) {
@@ -215,7 +238,7 @@ void UWebRTCSession::teardown() {
 		g_array_unref(transceivers);
 	}
 
-	// закрыватие сессии
+	// Р·Р°РєСЂС‹РІР°С‚РёРµ СЃРµСЃСЃРёРё
 	gboolean closed = FALSE;
 	g_signal_connect(m_webrtcbin, "notify::connection-state", G_CALLBACK(on_connection_state_notify), &closed);
 
@@ -229,7 +252,7 @@ void UWebRTCSession::teardown() {
 
 	g_signal_handlers_disconnect_by_func(m_webrtcbin, (gpointer)on_connection_state_notify, &closed);
 
-	// убийство элементов
+	// СѓР±РёР№СЃС‚РІРѕ СЌР»РµРјРµРЅС‚РѕРІ
 	if (m_webrtcbin) {
 		gst_element_set_state(m_webrtcbin, GST_STATE_NULL);
 		gst_element_get_state(m_webrtcbin, nullptr, nullptr, GST_SECOND);
@@ -248,9 +271,9 @@ void UWebRTCSession::teardown() {
 		else gst_bin_remove_many(GST_BIN(m_pipeline), m_webrtcbin, m_queue, nullptr);
 	}
 
-	if (m_webrtcbin) { gst_object_unref(m_webrtcbin); m_webrtcbin = nullptr; }
-	if (m_pay) { gst_object_unref(m_pay); m_pay = nullptr; }
-	if (m_queue) { gst_object_unref(m_queue); m_queue = nullptr; }
+	m_webrtcbin = nullptr;
+	m_pay = nullptr;
+	m_queue = nullptr;
 
 	m_is_valid = false;
 	m_logger->debug("Session " + m_client_id + " destroyed completely!");
@@ -390,7 +413,7 @@ void UWebRTCSession::on_offer_created(GstPromise* promise, gpointer data) {
 	auto self = static_cast<UWebRTCSession*>(data);
 	if (!self) {
 		std::cout << color::red << "[UCamera] on_offer_created - nullptr camera\n" << color::reset;
-		gst_promise_unref(promise);  // обязательно unref даже при ошибке
+		gst_promise_unref(promise);  // РѕР±СЏР·Р°С‚РµР»СЊРЅРѕ unref РґР°Р¶Рµ РїСЂРё РѕС€РёР±РєРµ
 		return;
 	}
 
@@ -408,10 +431,10 @@ void UWebRTCSession::on_offer_created(GstPromise* promise, gpointer data) {
 		return;
 	}
 
-	// Устанавливаем локальное описание (offer)
+	// РЈСЃС‚Р°РЅР°РІР»РёРІР°РµРј Р»РѕРєР°Р»СЊРЅРѕРµ РѕРїРёСЃР°РЅРёРµ (offer)
 	g_signal_emit_by_name(self->get_webrtcbin_element(), "set-local-description", offer, nullptr);
 
-	// Теперь можно unref промис, reply уже получен
+	// РўРµРїРµСЂСЊ РјРѕР¶РЅРѕ unref РїСЂРѕРјРёСЃ, reply СѓР¶Рµ РїРѕР»СѓС‡РµРЅ
 	gst_promise_unref(promise);
 
 	gchar* sdp_str = gst_sdp_message_as_text(offer->sdp);

@@ -192,7 +192,7 @@ private:
 
         m_sending = true;
 
-        // Логируем отправляемое сообщение (предполагается, что m_send_queue.front() — это std::string или подобное)
+        // Р›РѕРіРёСЂСѓРµРј РѕС‚РїСЂР°РІР»СЏРµРјРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ (РїСЂРµРґРїРѕР»Р°РіР°РµС‚СЃСЏ, С‡С‚Рѕ m_send_queue.front() вЂ” СЌС‚Рѕ std::string РёР»Рё РїРѕРґРѕР±РЅРѕРµ)
         log_send("Sending message: " + m_send_queue.front());
 
         m_ws.async_write(asio::buffer(m_send_queue.front()),

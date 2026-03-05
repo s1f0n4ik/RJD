@@ -80,7 +80,7 @@ public:
         }
     }
 
-    // алиасы
+    // Р°Р»РёР°СЃС‹
     void debug(const std::string& msg) { log(ELoggerLevel::DEBUG, msg); }
     void info(const std::string& msg) { log(ELoggerLevel::INFO, msg); }
     void warn(const std::string& msg) { log(ELoggerLevel::WARNING, msg); }

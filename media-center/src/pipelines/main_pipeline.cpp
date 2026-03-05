@@ -3,18 +3,43 @@
 
 #include <gst/rtsp/gstrtsptransport.h>
 
+#include <gst/video/video.h>
+#include <gst/video/gstvideometa.h>
+#include <gst/allocators/gstdmabuf.h>
+
 #include "video_utility.h"
 #include "utility/json-definers.h"
 
 #define MAIN_TEE "tee_main"
 
-bool UCameraMainPipeline::destroy() {
-	if (!destroy_record_branch()) {
-		m_logger->warn("destroy(): record branch didn't destroy properly!");
+UCameraMainPipeline::UCameraMainPipeline(
+	const FInputPipelineParameters& parameters,
+	std::unique_ptr<ULogger> logger,
+	std::function<void(std::string)> send_callback,
+	CDmabufMover dma_callback
+)
+	: UCameraPipeline(parameters, std::move(logger), send_callback)
+	, m_dma_sender(std::move(dma_callback))
+	, m_record_branch(FPipelineBranch(EBranchType::RECORD, "record"))
+	, m_decoder_branch(FPipelineBranch(EBranchType::DECODER, "decoder"))
+{
+}
+
+UCameraMainPipeline::~UCameraMainPipeline() {
+	
+}
+
+bool UCameraMainPipeline::teardown() {
+	std::lock_guard<std::mutex> lock(m_branch_mutex);
+	if (!destroy_branch(m_record_branch)) {
+		m_logger->warn("teardown(): record branch didn't teardown properly!");
 	}
 
-	std::lock_guard<std::mutex> lock(m_branch_mutex);
-	return UCameraPipeline::destroy();
+	if (!destroy_branch(m_decoder_branch)) {
+		m_logger->warn("teardown(): decoder branch didn't teardown properly!");
+	}
+
+	return UCameraPipeline::teardown();
 }
 
 bool UCameraMainPipeline::initialize() {
@@ -26,10 +51,10 @@ bool UCameraMainPipeline::initialize() {
 		return false;
 	}
 
-	// —ÓÁ‰‡ÌËÂ ÓÒÌÓ‚ÌÓ„Ó Ô‡ÈÔÎ‡ÈÌ‡
+	// –°–æ–∑–¥–∞–Ω–∏–µ –æ—Å–Ω–æ–≤–Ω–æ–≥–æ –ø–∞–π–ø–ª–∞–π–Ω–∞
 	m_pipeline = gst_pipeline_new(m_parameters.name.c_str());
 
-	// œË‚ˇÁ˚‚‡ÂÏ ÂÒÚ‡Ú Í Ô‡ÈÔÎ‡ÈÌÛ
+	// –ü—Ä–∏–≤—è–∑—ã–≤–∞–µ–º —Ä–µ—Å—Ç–∞—Ä—Ç –∫ –ø–∞–π–ø–ª–∞–π–Ω—É
 	GstBus* bus = gst_element_get_bus(m_pipeline);
 
 	gst_bus_add_watch(bus,
@@ -40,11 +65,11 @@ bool UCameraMainPipeline::initialize() {
 			switch (GST_MESSAGE_TYPE(msg))
 			{
 			case GST_MESSAGE_ERROR: {
-				// Ó·‡·ÓÚÍ‡ Ó¯Ë·ÍË Á‡ÔËÒË
+				// –æ–±—Ä–∞–±–æ—Ç–∫–∞ –æ—à–∏–±–∫–∏ –∑–∞–ø–∏—Å–∏
 				if (self->m_record_branch.is_deployed &&
-					(GST_MESSAGE_SRC(msg) == GST_OBJECT(self->m_record_branch.splitmux))) {
+					(GST_MESSAGE_SRC(msg) == GST_OBJECT(self->m_record_branch.elem_1))) {
 					self->m_logger->error("splitmux error detected, restarting record branch");
-					self->destroy_record_branch();
+					self->destroy_branch(self->m_record_branch);
 					self->create_record_branch(self->m_tees[MAIN_TEE]);
 					return TRUE;
 				}
@@ -60,7 +85,7 @@ bool UCameraMainPipeline::initialize() {
 				if (err) g_error_free(err);
 				if (debug) g_free(debug);
 
-				
+
 				//self->restart_async();
 				break;
 			}
@@ -103,10 +128,8 @@ bool UCameraMainPipeline::initialize() {
 		return false;
 	}
 	auto tee = gst_element_factory_make("tee", MAIN_TEE);
-
-	auto deconding_queue = gst_element_factory_make("queue", "deconding_queue");
-	auto decoder = gst_element_factory_make("mppvideodec", "decoder");
-	auto sink = gst_element_factory_make("appsink", "sink");
+	auto fake_queue = gst_element_factory_make("queue", "sink_queue");
+	auto fakesink = gst_element_factory_make("fakesink", "sink");
 
 	auto clean_up = [&]() {
 		if (m_pipeline) gst_object_unref(m_pipeline);
@@ -114,12 +137,11 @@ bool UCameraMainPipeline::initialize() {
 		if (depay) gst_object_unref(depay);
 		if (parse) gst_object_unref(parse);
 		if (tee) gst_object_unref(tee);
-		if (deconding_queue) gst_object_unref(deconding_queue);
-		if (decoder) gst_object_unref(decoder);
-		if (sink) gst_object_unref(sink);
+		if (fake_queue) gst_object_unref(fake_queue);
+		if (fakesink) gst_object_unref(fakesink);
 	};
 
-	if (!m_pipeline || !src || !depay || !parse || !tee || !deconding_queue || !decoder || !sink) {
+	if (!m_pipeline || !src || !depay || !parse || !tee || !fake_queue || !fakesink) {
 		std::ostringstream oss;
 		oss << "Failed to create elements at reading pipeline: "
 			<< "\n\tpipeline=" << (m_pipeline ? "OK" : "NULL") << ","
@@ -127,9 +149,8 @@ bool UCameraMainPipeline::initialize() {
 			<< "\n\tdepay=" << (depay ? "OK" : "NULL") << ","
 			<< "\n\tparse=" << (parse ? "OK" : "NULL") << ","
 			<< "\n\ttee=" << (tee ? "OK" : "NULL") << ","
-			<< "\n\tdeconding_queue=" << (deconding_queue ? "OK" : "NULL") << ","
-			<< "\n\tdecoder=" << (decoder ? "OK" : "NULL") << ","
-			<< "\n\tsink=" << (sink ? "OK" : "NULL") << ",";
+			<< "\n\ttee=" << (fake_queue ? "OK" : "NULL") << ","
+			<< "\n\tsink=" << (fakesink ? "OK" : "NULL") << ",";
 		m_logger->error(oss.str());
 		clean_up();
 		return false;
@@ -144,11 +165,8 @@ bool UCameraMainPipeline::initialize() {
 		nullptr
 	);
 
-	g_object_set(sink,
-		"emit-signals", TRUE,
+	g_object_set(fakesink,
 		"sync", FALSE,
-		"max-buffers", 1,
-		"drop", TRUE,
 		nullptr
 	);
 
@@ -158,44 +176,33 @@ bool UCameraMainPipeline::initialize() {
 		nullptr
 	);
 
-	g_object_set(deconding_queue,
-		"max-size-buffers", 3,
-		"max-size-bytes", 0,
-		"max-size-time", (guint64)1 * GST_SECOND,
-		"leaky", 2,
-		nullptr
-	);
-
 	gst_bin_add_many(GST_BIN(m_pipeline),
-		src, depay, parse, tee, deconding_queue, decoder, sink, nullptr
+		src, depay, parse, tee, fake_queue, fakesink, nullptr
 	);
 
-	// —‚ˇÁ˚‚‡ÌËÂ ÓÒÌÓ‚ÌÓ„Ó ÔÓÚÓÍ‡
+	// –°–≤—è–∑—ã–≤–∞–Ω–∏–µ –æ—Å–Ω–æ–≤–Ω–æ–≥–æ –ø–æ—Ç–æ–∫–∞
 	if (!gst_element_link_many(depay, parse, tee, nullptr)) {
 		m_logger->error("Error with linking: src, depay, parse, tee!");
 		return false;
 	}
 
-	// —‚ˇÁ˚‚‡ÌËÂ ‚ÂÚÍË Ò ‰ÂÍÓ‰ÂÓÏ
-	// —‚ˇÁ˚‚‡ÌËÂ tee Ò decoding_queue
-	GstPad* tee_decode_pad = gst_element_request_pad_simple(tee, "src_%u");
-	//GstPad* tee_decode_pad = gst_element_get_request_pad(m_reading_tee.get(), "src_%u");
-	GstPad* queue_decode_pad = gst_element_get_static_pad(deconding_queue, "sink");
+	// –°–≤—è–∑—ã–≤–∞–Ω–∏–µ –≤–µ—Ç–∫–∏ —Å –¥–µ–∫–æ–¥–µ—Ä–æ–º
+	// –°–≤—è–∑—ã–≤–∞–Ω–∏–µ tee —Å decoding_queue
+	GstPad* tee_pad = gst_element_request_pad_simple(tee, "src_%u");
+	GstPad* queue_pad = gst_element_get_static_pad(fake_queue, "sink");
 
-	if (gst_pad_link(tee_decode_pad, queue_decode_pad) != GST_PAD_LINK_OK) {
+	if (gst_pad_link(tee_pad, queue_pad) != GST_PAD_LINK_OK) {
 		m_logger->error("Failed to link tee to decoding queue");
 		return false;
 	}
+	gst_object_unref(queue_pad);
 
-	gst_object_unref(queue_decode_pad);
-
-	// —‚ˇÁ˚‚‡ÌËÂ ÓÒÚ‡Î¸Ì˚ı ˝ÎÂÏÂÌÚÓ‚
-	if (!gst_element_link_many(deconding_queue, decoder, sink, nullptr)) {
-		m_logger->error("Error with linking: tee, deconding_queue, decoder, sink!");
+	if (!gst_element_link_many(fake_queue, fakesink, nullptr)) {
+		m_logger->error("Error with linking: queue, fakesink!");
 		return false;
 	}
 
-	// ƒËÌ‡ÏË˜ÂÒÍÓÂ Ò‚ˇÁ˚‚‡ÌËÂ Ô‡‰Ó‚ src Ò depay
+	// –î–∏–Ω–∞–º–∏—á–µ—Å–∫–æ–µ —Å–≤—è–∑—ã–≤–∞–Ω–∏–µ –ø–∞–¥–æ–≤ src —Å depay
 	g_signal_connect(src, "pad-added", G_CALLBACK(+[](
 		GstElement* src,
 		GstPad* pad,
@@ -216,36 +223,124 @@ bool UCameraMainPipeline::initialize() {
 			gst_object_unref(sink_pad);
 		}), depay);
 
-	// Œ·‡·ÓÚÍ‡ ÔÓÎÛ˜ÂÌÌ˚ı Í‡‰Ó‚
-	//g_signal_connect(sink, "new-sample",
-	//	G_CALLBACK(UCamera::on_new_sample), this);
-
-	// ¬ ÒÎÛ˜‡Â, ÂÒÎË ÔÂÂ‰‡Ì ÔÛÚ¸ ‰Îˇ ÒÓı‡ÌÂÌËˇ Ù‡ÈÎÓ‚
+	// –í —Å–ª—É—á–∞–µ, –µ—Å–ª–∏ –ø–µ—Ä–µ–¥–∞–Ω –ø—É—Ç—å –¥–ª—è —Å–æ—Ö—Ä–∞–Ω–µ–Ω–∏—è —Ñ–∞–π–ª–æ–≤
 	if (!m_parameters.record_path.empty()) {
 		create_record_branch(tee);
+	}
+	else {
+		m_logger->debug("inititalize(): record path not found. Record branch didn't create");
+	}
+
+	// –î–æ–±–∞–≤–∏—Ç—å –¥–µ–∫–æ–¥–∏—Ä–æ–≤—â–∏–∫
+	if (m_dma_sender) {
+		create_decoder_branch(tee);
+	}
+	else {
+		m_logger->debug("inititalize(): dmabuf mover callback not found. Decoder branch didn't create");
 	}
 
 	m_tees[tee_str] = tee;
 
 	m_has_initialized = true;
-	m_logger->info("Recording brach successfully creatad!");
+	m_logger->info("Pipeline type main successfully creatad!");
 
 	return true;
+}
+
+bool UCameraMainPipeline::create_decoder_branch(GstElement* tee) {
+	if (!m_probe.ready()) {
+		m_logger->error("create_decoder_branch(): cannot create decoder branch probe doesn't ready!");
+		return false;
+	}
+
+	if (m_decoder_branch.is_deployed) {
+		m_logger->warn("create_decoder_branch(): trying to create decode branch that already exists!");
+		return true;
+	}
+
+	m_logger->debug("Creating branch to decode frames");
+
+	m_decoder_branch.queue = gst_element_factory_make("queue", "decoding_queue");
+	m_decoder_branch.elem_1 = gst_element_factory_make("mppvideodec", "decoder");
+	m_decoder_branch.elem_2 = gst_element_factory_make("appsink", "appsink");
+
+	if (!m_decoder_branch.queue || !m_decoder_branch.elem_1 || !m_decoder_branch.elem_2) {
+		std::ostringstream oss;
+		oss << "Failed to create elements at decode tee: "
+			<< "\n\rdecode_queue=" << (m_decoder_branch.queue ? "OK" : "NULL") << ","
+			<< "\n\tmppvideodec=" << (m_decoder_branch.elem_1 ? "OK" : "NULL") << ","
+			<< "\n\tappsink=" << (m_decoder_branch.elem_2 ? "OK" : "NULL");
+		m_logger->error(oss.str());
+		return false;
+	}
+
+	g_object_set(m_decoder_branch.elem_2,
+		"emit-signals", TRUE,
+		"sync", FALSE,
+		"max-buffers", 1,
+		"drop", TRUE,
+		nullptr
+	);
+
+	g_object_set(m_decoder_branch.queue,
+		"max-size-buffers", 1,
+		"max-size-bytes", 0,
+		"max-size-time", 0,
+		"leaky", 2,
+		nullptr
+	);
+
+	g_object_set(m_decoder_branch.elem_1,
+		"dma-feature", true,
+		"discard-corrupted-frames", true,
+		"fast-mode", true,
+		"format", 23,  // NV12
+		nullptr
+	);
+
+	gst_bin_add_many(GST_BIN(m_pipeline),
+		m_decoder_branch.queue, m_decoder_branch.elem_1, m_decoder_branch.elem_2, nullptr
+	);
+
+	m_decoder_branch.tee_pad = gst_element_request_pad_simple(tee, "src_%u");
+	GstPad* queue_pad = gst_element_get_static_pad(m_decoder_branch.queue, "sink");
+	if (gst_pad_link(m_decoder_branch.tee_pad, queue_pad) != GST_PAD_LINK_OK) {
+		m_logger->error("Failed to link tee pad with decode branch!");
+		gst_object_unref(queue_pad);
+		return false;
+	}
+	gst_object_unref(queue_pad);
+
+	g_signal_connect(
+		m_decoder_branch.elem_2,
+		"new-sample",
+		G_CALLBACK(UCameraMainPipeline::on_new_sample_dma),
+		&m_dma_sender  // —ç—Ç–æ gpointer, –≤–Ω—É—Ç—Ä–∏ callback –ø—Ä–∏–≤–æ–¥–∏–º –∫ CDmaSender*
+	);
+
+	if (!gst_element_link_many(m_decoder_branch.queue, m_decoder_branch.elem_1, m_decoder_branch.elem_2, nullptr)) {
+		m_logger->error("Failed to link decoding elements in decode branch!");
+		return false;
+	}
+
+	m_decoder_branch.is_deployed = true;
+
+	return false;
 }
 
 bool UCameraMainPipeline::create_record_branch(GstElement* tee)
 {
 	if (!m_probe.ready()) {
-		m_logger->error("create_record_branch(): cannot create branch probe doesn't ready!");
+		m_logger->error("create_record_branch(): cannot create record branch probe doesn't ready!");
 		return false;
 	}
 
 	if (m_record_branch.is_deployed) {
-		m_logger->warn("create_record_branch(): trying to create record brach that already exists!");
+		m_logger->warn("create_record_branch(): trying to create record branch that already exists!");
 		return true;
 	}
 
-	m_logger->info("Creating brach to record segments...");
+	m_logger->debug("Creating branch to record segments...");
 	m_logger->debug("A path for recording segments has been found: " + m_parameters.record_path.string());
 	if (!std::filesystem::exists(m_parameters.record_path)) {
 		try {
@@ -271,13 +366,12 @@ bool UCameraMainPipeline::create_record_branch(GstElement* tee)
 	}
 
 	g_object_set(record_queue,
-		"max-size-buffers", 0,
-		"max-size-time", 0,
-		"max-size-bytes", 0,
+		"max-size-buffers", 50,
+		"leaky", 2,
 		nullptr
 	);
 
-	// œÂÂ·ÓÚÍ‡ Á‡ÔËÒË Ù‡„ÏÂÌÚ‡
+	// –ü–µ—Ä–µ–±–æ—Ç–∫–∞ –∑–∞–ø–∏—Å–∏ —Ñ—Ä–∞–≥–º–µ–Ω—Ç–∞
 	g_signal_connect(splitmux, "format-location",
 		G_CALLBACK(+[](GstElement*, guint, gpointer data) -> gchar* {
 			auto self = static_cast<UCameraMainPipeline*>(data);
@@ -304,7 +398,7 @@ bool UCameraMainPipeline::create_record_branch(GstElement* tee)
 
 	gst_bin_add_many(GST_BIN(m_pipeline), record_queue, splitmux, nullptr);
 
-	// —‚ˇÁ˚‚‡ÌËÂ Ô‡‰Ó‚ tee
+	// –°–≤—è–∑—ã–≤–∞–Ω–∏–µ –ø–∞–¥–æ–≤ tee
 	GstPad* tee_record_pad = gst_element_request_pad_simple(tee, "src_%u");
 	GstPad* queue_record_pad = gst_element_get_static_pad(record_queue, "sink");
 
@@ -315,54 +409,95 @@ bool UCameraMainPipeline::create_record_branch(GstElement* tee)
 
 	gst_object_unref(queue_record_pad);
 
-	// —‚ˇÁ˚‚‡ÌËÂ ÓÒÚ‡Î¸Ì˚Â ˝ÎÂÂÌÚÓ‚
+	// –°–≤—è–∑—ã–≤–∞–Ω–∏–µ –æ—Å—Ç–∞–ª—å–Ω—ã–µ —ç–ª–µ–µ–Ω—Ç–æ–≤
 	if (!gst_element_link(record_queue, splitmux)) {
 		m_logger->error("Failed to link file record tee: tee, record_queue, splitmux");
 		return false;
 	}
 
+	gst_element_sync_state_with_parent(record_queue);
+	gst_element_sync_state_with_parent(splitmux);
+
 	m_record_branch.queue = record_queue;
-	m_record_branch.splitmux = splitmux;
+	m_record_branch.elem_1 = splitmux;
 	m_record_branch.tee_pad = tee_record_pad;
 
 	m_record_branch.is_deployed = true;
 
-	gst_element_sync_state_with_parent(record_queue);
-	gst_element_sync_state_with_parent(splitmux);
-
 	return true;
 }
 
-bool UCameraMainPipeline::destroy_record_branch() 
+bool UCameraMainPipeline::destroy_branch(FPipelineBranch& branch) 
 {
-	m_logger->info("destroy_record_branch(): initialized destroying of record branch!");
-	std::lock_guard<std::mutex> lock(m_branch_mutex);
-	if (!m_record_branch.is_deployed) {
-		m_logger->warn("destroy_record_branch(): trying to destroy record branch that already destroyed!");
+	if (!m_pipeline) {
+		m_logger->error("destroy_branch(): broken pipeline!");
+		return false;
+	}
+	m_logger->debug("destroy_branch(): initialized destroying of " + branch.name + " branch!");
+	if (!branch.is_deployed) {
+		m_logger->warn("destroy_branch(): trying to teardown " + branch.name + " branch that already destroyed!");
 		return true;
 	}
 
-	// ÔÓÒ˚Î‡ÂÏ EOS ÚÓÎ¸ÍÓ ‚ ‚ÂÚÍÛ Á‡ÔËÒË
-	gst_element_send_event(m_record_branch.splitmux, gst_event_new_eos());
+	// –û—Å—Ç–∞–Ω–æ–≤–∫–∞ –æ—Ç–ø—Ä–∞–≤–∫–∏ –∏–∑–æ–±—Ä–∞–∂–µ–Ω–∏–π –≤ –¥—Ä—É–≥–∏–µ –º–æ–¥—É–ª–∏
+	if (branch.type == EBranchType::DECODER) {
+		g_signal_handlers_disconnect_by_data(branch.elem_2, this);
+		m_logger->debug("destroy_branch(): disconnect signals from decoder element!");
+	}
 
-	gst_element_set_state(m_record_branch.splitmux, GST_STATE_NULL);
-	gst_element_set_state(m_record_branch.queue, GST_STATE_NULL);
+	// –ë–ª–æ–∫–∏—Ä–æ–≤–∫–∞ –≤–µ—Ç–∫–∏
+	if (branch.tee_pad) {
+		gst_pad_add_probe(branch.tee_pad, GST_PAD_PROBE_TYPE_BLOCK_DOWNSTREAM,
+			[](GstPad*, GstPadProbeInfo*, gpointer) { return GST_PAD_PROBE_REMOVE; }, nullptr, nullptr);
 
-	gst_element_release_request_pad(m_tees[MAIN_TEE], m_record_branch.tee_pad);
+		GstPad* queue_sink = gst_element_get_static_pad(branch.queue, "sink");
+		if (queue_sink) {
+			m_logger->debug("destroy_branch(): unlink tee_pad with queue_pad!");
+			gst_pad_unlink(branch.tee_pad, queue_sink);
+			gst_object_unref(queue_sink);
+		}
 
-	gst_object_unref(m_record_branch.tee_pad);
-	m_record_branch.tee_pad = nullptr;
+		gst_element_release_request_pad(m_tees[MAIN_TEE], branch.tee_pad);
+		gst_object_unref(branch.tee_pad);
+		m_logger->debug("destroy_branch(): relese request tee pad from main pipeline!");
+		branch.tee_pad = nullptr;
+	}
 
-	gst_bin_remove_many(GST_BIN(m_pipeline), m_record_branch.queue, m_record_branch.splitmux, nullptr);
+	// –ø–æ—Å—ã–ª–∞–µ–º EOS —Ç–æ–ª—å–∫–æ –≤ –≤–µ—Ç–∫—É –∑–∞–ø–∏—Å–∏
+	if ((branch.type == EBranchType::RECORD) && branch.elem_1) {
+		m_logger->debug("destroy_branch(): send eos signal to record branch!");
+		gst_element_send_event(branch.queue, gst_event_new_eos());
+	}
 
-	gst_object_unref(m_record_branch.queue);
-	gst_object_unref(m_record_branch.splitmux);
+	// –û—Å—Ç–∞–Ω–æ–≤–∫–∞ —ç–ª–µ–º–µ–Ω—Ç–æ–≤
+	if (branch.queue) {
+		m_logger->debug("destroy_branch(): turn to NULL state element queue");
+		gst_element_set_state(branch.queue, GST_STATE_NULL);
+		gst_element_get_state(branch.queue, nullptr, nullptr, GST_CLOCK_TIME_NONE);
+	}
+	if (branch.elem_1) {
+		std::string elem_str = branch.type == EBranchType::DECODER ? "mppvideodec" : "";
+		m_logger->debug("destroy_branch(): turn to NULL state element " + elem_str);
+		gst_element_set_state(branch.elem_1, GST_STATE_NULL);
+		gst_element_get_state(branch.elem_1, nullptr, nullptr, GST_CLOCK_TIME_NONE);
+	}
+	if (branch.elem_2) {
+		std::string elem_str = branch.type == EBranchType::DECODER ? "appsink" : "";
+		m_logger->debug("destroy_branch(): turn to NULL state element " + elem_str);
+		gst_element_set_state(branch.elem_2, GST_STATE_NULL);
+		gst_element_get_state(branch.elem_2, nullptr, nullptr, GST_CLOCK_TIME_NONE);
+	}
 
-	m_record_branch.queue = nullptr;
-	m_record_branch.splitmux = nullptr;
+	if (branch.queue) gst_bin_remove(GST_BIN(m_pipeline), branch.queue);
+	if (branch.elem_1) gst_bin_remove(GST_BIN(m_pipeline), branch.elem_1);
+	if (branch.elem_2) gst_bin_remove(GST_BIN(m_pipeline), branch.elem_2);
 
-	m_record_branch.is_deployed = false;
-	m_logger->info("destroy_record_branch(): record branch was deleted!");
+	branch.queue = nullptr;
+	branch.elem_1 = nullptr;
+	branch.elem_2 = nullptr;
+
+	branch.is_deployed = false;
+	m_logger->info("destroy_branch(): " + branch.name + " branch was deleted!");
 	return true;
 }
 
@@ -406,6 +541,53 @@ bool UCameraMainPipeline::create_webrtc_session(const std::string& client_id, st
 	return ret;
 }
 
+void dump_video_info(GstVideoInfo* info) {
+	g_print("Video info:\n");
+	g_print("  Width: %d\n", info->width);
+	g_print("  Height: %d\n", info->height);
+	g_print("  Format: %s\n", gst_video_format_to_string(info->finfo->format));
+	g_print("  FPS: %d/%d\n", info->fps_n, info->fps_d);
+	g_print("  Pixel aspect ratio: %d/%d\n", info->par_n, info->par_d);
+
+	// –í—ã–≤–æ–¥ stride –∏ offset –¥–ª—è –∫–∞–∂–¥–æ–≥–æ –ø–ª–∞–Ω–∞
+	for (int p = 0; p < info->finfo->n_planes; p++) {
+		g_print("  Plane %d:\n", p);
+		g_print("    Stride: %d\n", info->stride[p]);
+		g_print("    Offset: %ld\n", info->offset[p]);
+		g_print("    Height (calculated): %ld\n", (info->stride[p] ? info->size / info->stride[p] : 0));
+	}
+
+	// –û–±—â–∏–π —Ä–∞–∑–º–µ—Ä –±—É—Ñ–µ—Ä–∞
+	g_print("  Total buffer size: %zu bytes\n", info->size);
+
+}
+
+GstFlowReturn UCameraMainPipeline::on_new_sample_dma(GstElement* sink, gpointer user_data) {
+	GstSample* sample = gst_app_sink_pull_sample(GST_APP_SINK(sink));
+	if (!sample) {
+		return GST_FLOW_OK;
+	}
+
+	GstBuffer* buffer = gst_sample_get_buffer(sample);
+	GstCaps* caps = gst_sample_get_caps(sample);
+	if (!buffer || !caps) {
+		gst_sample_unref(sample);
+		return GST_FLOW_OK;
+	}
+
+	// –ü–æ–ª—É—á–µ–Ω–∏–µ —Ä–∞–∑–º–µ—Ä–∞
+	GstVideoInfo info;
+	if (!gst_video_info_from_caps(&info, caps)) {
+		gst_sample_unref(sample);
+		return GST_FLOW_OK;
+	}
+
+	dump_video_info(&info);
+	gst_sample_unref(sample);
+
+	return GST_FLOW_OK;
+}
+
 FPipelineData UCameraMainPipeline::get_pipeline_data() {
 	FPipelineData data;
 
@@ -432,3 +614,4 @@ FPipelineData UCameraMainPipeline::get_pipeline_data() {
 EPilelineType UCameraMainPipeline::get_type() {
 	return EPilelineType::MAIN;
 }
+

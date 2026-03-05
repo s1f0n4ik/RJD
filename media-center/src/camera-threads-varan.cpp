@@ -1,14 +1,15 @@
-﻿// camera-threads-varan.cpp: определяет точку входа для приложения.
+// camera-threads-varan.cpp: определяет точку входа для приложения.
 //
 #include <iostream>
 #include <filesystem>
 #include <charconv>
 #include <cstring>
-
+#include <csignal>
 #include <sys/resource.h>
 
 #include "console_utility.h"
 #include "main-server/rest_server.h"
+#include "bird-view/linker.h"
 
 using namespace std;
 
@@ -57,8 +58,19 @@ bool parse_port(const char* str, uint16_t& port_out)
 	return true;
 }
 
+std::atomic<bool> RUNNING{ true };
+
+void signal_handler(int signal) {
+	if (signal == SIGINT) {
+		std::cout << "\nCtrl+C pressed, stopping application..." << std::endl;
+		RUNNING = false;
+	}
+}
+
 int main(int argc, char* argv[])
 {
+	std::signal(SIGINT, signal_handler);
+
 	if (argc != 4) {
 		std::cerr << "Usage: " << argv[0]
 			      << " <rest_server_port> <signaling_ip> <signaling_port>\n";
@@ -87,10 +99,10 @@ int main(int argc, char* argv[])
 		return EXIT_FAILURE;
 	}
 
-	//setenv("GST_DEBUG", "webrtcbin:7", 1);
+	//setenv("GST_DEBUG", "splitmuxsink:7,qtmux:7", 1);
 	gst_init(nullptr, nullptr);
 	gst_debug_set_active(TRUE);
-	//gst_debug_set_default_threshold(GST_LEVEL_INFO);
+	//gst_debug_set_default_threshold(GST_LEVEL_DEBUG);
 
 	std::cout << "GStreamer version: "
 		      << GST_VERSION_MAJOR << "."
@@ -100,13 +112,18 @@ int main(int argc, char* argv[])
 	std::cout << "REST port: " << rest_port << "\n";
 	std::cout << "Signaling: " << signaling_ip << ":" << signaling_port << "\n";
 
+	// Создание модуля 360
+	auto linker_360 = varan::birdview::ULinker({"192.168.1.254", "8765"});
+
 	auto media_setting = varan::neural::FMediaSettings{};
 	auto center = std::make_shared<varan::neural::UMediaCenter>( media_setting );
+	center->set_bird_view_callback(std::move(linker_360.get_dmabuf_frame_callback()));
+	//center->set_neural_callback(std::move(linker_360.get_dmabuf_frame_callback()));
 
 	auto rest_server = URestServer{ rest_port, center };
 	rest_server.async_start();
 
-	auto socket_options = varan::neural::FWebSocketOptions(signaling_ip, std::to_string(signaling_port));
+	auto socket_options = varan::nvr::FWebSocketOptions(signaling_ip, std::to_string(signaling_port));
 
 	// camera 1
 	FPipelineData main_1;
@@ -150,33 +167,33 @@ int main(int argc, char* argv[])
 
 	std::vector<varan::nvr::FCameraData> vector_options = {
 		varan::nvr::FCameraData{
-			"camera_1", "Test camera", "192.168.1.11", "554", "admin",
+			"camera_1", "Test camera", "192.168.1.11", "554", "admin", ECameraType::GENERAL,
 			{
 				{"main", main_1},
 				{"sub", sub_1}
 			}
 		},
 		varan::nvr::FCameraData{
-			"camera_2", "Test camera", "192.168.1.12", "554", "admin",
+			"camera_2", "Test camera", "192.168.1.12", "554", "admin", ECameraType::GENERAL,
 			{
 				{"main", main_2},
 				{"sub", sub_2}
 			}
 		},
 		varan::nvr::FCameraData{
-			"camera_3", "Test camera", "192.168.1.13", "554", "admin",
+			"camera_3", "Test camera", "192.168.1.13", "554", "admin", ECameraType::GENERAL,
 			{
 				{"main", main_3},
 				{"sub", sub_3}
 			}
 		},
 		varan::nvr::FCameraData{
-			"camera_4", "Test camera", "192.168.1.14", "554", "admin",
+			"camera_4", "Test camera", "192.168.1.14", "554", "admin", ECameraType::GENERAL,
 			{
 				{"main", main_4},
 				{"sub", sub_4}
 			}
-		},
+		}
 		/*
 		varan::neural::FCameraOptions{
 			"camera_4",
@@ -246,11 +263,11 @@ int main(int argc, char* argv[])
 	// Запуск камер
 	center->start_cameras();
 
-	while (true) {
-		std::this_thread::sleep_for(std::chrono::seconds(33));
+	while (RUNNING) {
+		std::this_thread::sleep_for(std::chrono::milliseconds(200));
 	}
 
-	center->stop_cameras();
+	center->run_eos();
 
 	return 0;
 }

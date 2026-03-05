@@ -7,7 +7,7 @@ namespace neural {
 
 std::string vn_error(int ret) {
 	switch (ret) {
-	// Ошибка существовании камеры
+	// РћС€РёР±РєР° СЃСѓС‰РµСЃС‚РІРѕРІР°РЅРёРё РєР°РјРµСЂС‹
 	case -1:
 		std::ostringstream oss;
 		oss << color::red << "Camera";

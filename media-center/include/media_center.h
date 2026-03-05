@@ -20,8 +20,6 @@ struct FMediaSettings {
 class UMediaCenter {
 public:
 
-	using FramePtr = std::unique_ptr<FDrmFrame>;
-
 	UMediaCenter(const FMediaSettings& settings);
 
 	int add_camera(const FCameraData& options, const FWebSocketOptions& socket_options);
@@ -40,9 +38,19 @@ public:
 
 	void stop_cameras();
 
+	void run_eos();
+
+	// Установка колбэеков
+	void set_bird_view_callback(CDmabufMover callback);
+
+	void set_neural_callback(CDmabufMover callback);
+
 public:
-	// ������ ��� ��������� �����
+	// Методы для серверной части
 	std::vector<FCameraData> get_cameras();
+
+private: 
+	CDmabufMover get_frame_callback_by_camera_type(ECameraType type);
 
 private:
 	FMediaSettings m_settings;
@@ -57,6 +65,10 @@ private:
 	std::vector<std::thread> m_pushers_threads;
 
 	bool m_camera_initialization;
+
+	// Колбэки для свящи с другими модулями
+	CDmabufMover m_bird_view_frame_mover = nullptr;
+	CDmabufMover m_neural_frame_mover = nullptr;
 };
 
 } // neural
