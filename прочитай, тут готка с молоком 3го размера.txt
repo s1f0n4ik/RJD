@@ -1,0 +1,252 @@
+# Быстрый старт для тестирования
+
+## Шаг 1: Запуск
+cd <directory>
+docker compose up --build
+
+Подожди 30-40 секунд, пока контейнеры инициализируются.
+
+Шаг 2: Проверка
+Откройте в браузере:
+Swagger UI: http://localhost:8000/docs
+WebSocket тест: открыть файл python-varan/client/test_websocket.html
+Health check: http://localhost:8000/health
+
+Шаг 3: Добавление камеры через Swagger
+Открыть http://localhost:8000/docs
+Найти POST /api/camera
+Нажать "Try it out"
+Вставить JSON:
+{
+     "camera_name": "TestCamera",
+     "rtsp_url": "rtsp://admin:password@192.168.1.100:554/stream",
+     "width": 1920,
+     "height": 1080,
+     "reconnect_interval": 5
+   }
+
+Нажать "Execute"
+Шаг 4: Просмотр MJPEG стрима
+После добавления камеры открой:
+http://localhost:5000/neural_1
+
+Остановка
+docker compose down
+
+---
+
+## ✅ Финальный чеклист
+
+- [ ] Создать все Dockerfile
+- [ ] Создать docker-compose.yml
+- [ ] Создать .dockerignore файлы
+- [ ] Создать requirements.txt для Flask
+- [ ] Обновить config.py с поддержкой ENV
+- [ ] Создать README.md
+- [ ] Создать QUICK_START.md
+- [ ] Создать .env.example
+
+---
+
+## 🚀 Запуск для тестирования
+cd <directory>
+docker-compose up --build
+
+
+Тута подробнее:
+
+# 🚀 Video Processing System
+
+Система обработки видео с RTSP камер с использованием Flask + FastAPI + WebSocket.
+
+## 📋 Требования
+- Docker >= 20.10
+- Docker Compose >= 2.0
+- Git
+
+## ⚡ Быстрый старт
+
+### 1. Клонирование репозитория
+```bash
+git clone &lt;your-repo-url&gt;
+cd <directory>
+
+2. Создание .env файла
+cp .env.example .env
+
+3. Запуск всей системы:
+docker compose up --build
+
+Или в фоновом режиме:
+docker compose up -d --build
+
+4. Проверка статуса:
+docker compose ps
+
+Ожидаемый вывод:
+NAME                IMAGE               STATUS
+vanya-flask         ...                 Up (healthy)
+vanya-fastapi       ...                 Up (healthy)
+
+🌐 Доступные эндпоинты
+Flask Server (порт 5000)
+EndpointОписание
+http://localhost:5000/healthHealth check
+http://localhost:5000/neural_1MJPEG стрим #1
+http://localhost:5000/neural_2MJPEG стрим #2
+http://localhost:5000/neural_3MJPEG стрим #3
+http://localhost:5000/api/camerasAPI камер
+http://localhost:5000/api/loadersAPI загрузчиков
+
+FastAPI Server (порт 8000)
+EndpointОписание
+http://localhost:8000/Health check
+http://localhost:8000/docsSwagger UI
+http://localhost:8000/redocReDoc
+ws://localhost:8000/wsWebSocket
+http://localhost:8000/api/camerasREST API камер
+http://localhost:8000/api/loadersREST API загрузчиков
+http://localhost:8000/api/statusОбщий статус системы
+
+🧪 Тестирование
+1. Проверка Flask сервера
+curl http://localhost:5000/health
+
+Ожидаемый ответ:
+{"status": "ok", "service": "flask-server"}
+
+2. Проверка FastAPI сервера
+curl http://localhost:8000/health
+
+Ожидаемый ответ:
+{
+  "status": "ok",
+  "services": {
+    "fastapi": "ok",
+    "flask": "ok"
+  },
+  "websocket": {
+    "active_connections": 0
+  }
+}
+
+3. Проверка WebSocket
+Открой в браузере:
+file:///path/to/Vanya/python-varan/client/test_websocket.html
+
+Или используй встроенный в FastAPI:
+http://localhost:8000/docs
+
+4. Swagger UI
+Открой:
+http://localhost:8000/docs
+
+Здесь можно протестировать все API endpoints интерактивно.
+📊 Логи
+Просмотр логов всех сервисов
+docker compose logs -f
+
+Логи конкретного сервиса
+docker compose logs -f flask-server
+docker compose logs -f fastapi-server
+
+🛠️ Управление
+Остановка системы
+docker compose down
+
+Остановка + удаление volumes
+docker compose down -v
+
+Перезапуск одного сервиса
+docker compose restart flask-server
+
+Пересборка после изменений кода
+docker compose up --build
+
+📁 Структура проекта
+Vanya/
+├── docker-compose.yml          # Orchestration
+├── .env                        # Environment variables
+│
+├── python-varan/# Flask сервер (обработка видео)
+│   ├──client/
+│   │   ├──client.html
+│   ├── Dockerfile
+│   ├── camera.py               # RTSP камеры
+│   ├── manager.py              # Менеджер камер
+│   ├── neural_loader.py        # Загрузчик для нейросетей
+│   ├── server.py               # Flask REST API + MJPEG
+│   ├── main.py                 # Entry point
+│   └── ...
+│
+└── shit/backend/               # FastAPI сервер (API Gateway)
+    ├── Dockerfile
+    └── app/
+        ├── main.py             # Entry point
+        ├── config.py           # Настройки
+        ├── models/             # Pydantic модели
+        ├── routers/            # API endpoints
+        └── services/           # Бизнес-логика
+            ├── flask_client.py     # HTTP клиент к Flask
+            └── websocket_manager.py # WebSocket broadcast
+
+🔧 Примеры использования API
+Добавить камеру
+curl -X POST http://localhost:8000/api/camera \
+  -H "Content-Type: application/json" \
+  -d '{
+    "camera_name": "Camera_1",
+    "rtsp_url": "rtsp://admin:password@192.168.1.100:554/stream",
+    "width": 1920,
+    "height": 1080,
+    "reconnect_interval": 5
+  }'
+
+Получить список камер
+curl http://localhost:8000/api/cameras
+
+Создать загрузчик
+curl -X POST http://localhost:8000/api/loader \
+  -H "Content-Type: application/json" \
+  -d '{
+    "loader_name": "Loader_1",
+    "weights_path": "/models/yolov5s.rknn",
+    "img_size": 1024,
+    "server_endpoint": "/neural_1",
+    "loader_matrix": [["Camera_1"], ["Camera_2"]]
+  }'
+
+Запустить загрузчик
+curl -X POST http://localhost:8000/api/loader/Loader_1/start
+
+Получить общий статус системы
+curl http://localhost:8000/api/status
+
+🐛 Troubleshooting
+Проблема: Flask недоступен из FastAPI
+Симптом:
+Flask server unavailable: Connection refused
+
+Решение:
+Убедитесь, что в .env указано:
+FLASK_BASE_URL=http://flask-server:5000
+
+Проблема: Контейнер падает сразу после старта
+Проверка логов:
+docker-compose logs flask-server
+docker-compose logs fastapi-server
+
+Возможные причины:
+Неверный синтаксис в Python коде
+Отсутствующие зависимости в requirements.txt
+Порт уже занят на хосте
+Проблема: MJPEG стрим не работает
+Проверка:
+Камеры запущены?
+curl http://localhost:8000/api/cameras
+
+Загрузчик работает?
+curl http://localhost:8000/api/loaders
+
+Проверь endpoint:
+curl -I http://localhost:5000/neural_1

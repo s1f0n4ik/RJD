@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Test Client</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .connected { background: #d4edda; color: #155724; }
+        .disconnected { background: #f8d7da; color: #721c24; }
+        .log {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 10px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .log-entry {
+            padding: 5px;
+            border-bottom: 1px solid #eee;
+        }
+        .log-entry.sent { color: blue; }
+        .log-entry.received { color: green; }
+        .log-entry.error { color: red; }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            background: #007bff;
+            color: white;
+        }
+        button:hover { background: #0056b3; }
+        button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        .data-display {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        pre {
+            background: #282c34;
+            color: #abb2bf;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>WebSocket Test Client</h1>
+
+        <div id="status" class="status disconnected">
+            Status: Disconnected
+        </div>
+
+        <div>
+            <button id="connectBtn" onclick="connect()">Connect</button>
+            <button id="disconnectBtn" onclick="disconnect()" disabled>Disconnect</button>
+            <button onclick="sendPing()" disabled id="pingBtn">Send Ping</button>
+            <button onclick="requestStatus()" disabled id="statusBtn">Request Status</button>
+            <button onclick="clearLog()">Clear Log</button>
+        </div>
+
+        <h2>Latest Data</h2>
+        <div id="dataDisplay" class="data-display">
+            No data received yet
+        </div>
+
+        <h2>Connection Log</h2>
+        <div id="log" class="log"></div>
+    </div>
+
+    <script>
+        let ws = null;
+        const WS_URL = 'ws://localhost:8000/ws';
+
+        function connect() {
+            if (ws) {
+                addLog('Already connected', 'error');
+                return;
+            }
+
+            addLog(`Connecting to ${WS_URL}...`, 'sent');
+            ws = new WebSocket(WS_URL);
+
+            ws.onopen = () => {
+                addLog('Connected!', 'received');
+                updateStatus(true);
+
+                // Автоматическая подписка
+                send({ type: 'subscribe' });
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    addLog(`Received: ${data.type}`, 'received');
+
+                    // Обновляем display
+                    if (data.type === 'status_update' || data.type === 'initial_state') {
+                        updateDataDisplay(data);
+                    }
+
+                    // Логируем полные данные
+                    console.log('WebSocket message:', data);
+
+                } catch (e) {
+                    addLog(`Parse error: ${e.message}`, 'error');
+                }
+            };
+
+            ws.onerror = (error) => {
+                addLog(`Error: ${error}`, 'error');
+            };
+
+            ws.onclose = () => {
+                addLog('Disconnected', 'error');
+                updateStatus(false);
+                ws = null;
+            };
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+        }
+
+        function send(data) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                addLog('Not connected!', 'error');
+                return;
+            }
+
+            const jsonData = JSON.stringify(data);
+            ws.send(jsonData);
+            addLog(`Sent: ${data.type}`, 'sent');
+        }
+
+        function sendPing() {
+            send({ type: 'ping' });
+        }
+
+        function requestStatus() {
+            send({ type: 'request_status' });
+        }
+
+        function updateStatus(connected) {
+            const statusEl = document.getElementById('status');
+            const connectBtn = document.getElementById('connectBtn');
+            const disconnectBtn = document.getElementById('disconnectBtn');
+            const pingBtn = document.getElementById('pingBtn');
+            const statusBtn = document.getElementById('statusBtn');
+
+            if (connected) {
+                statusEl.textContent = 'Status: Connected';
+                statusEl.className = 'status connected';
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+                pingBtn.disabled = false;
+                statusBtn.disabled = false;
+            } else {
+                statusEl.textContent = 'Status: Disconnected';
+                statusEl.className = 'status disconnected';
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+                pingBtn.disabled = true;
+                statusBtn.disabled = true;
+            }
+        }
+
+        function addLog(message, type = '') {
+            const logEl = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logEl.appendChild(entry);
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+
+        function updateDataDisplay(data) {
+            const displayEl = document.getElementById('dataDisplay');
+
+            if (data.data) {
+                const summary = data.data.summary || {};
+                const cameras = data.data.cameras || [];
+                const loaders = data.data.loaders || [];
+
+                displayEl.innerHTML = `
+                    <h3>Summary</h3>
+                    <p>Cameras: ${summary.cameras_running || 0}/${summary.cameras_total || 0} running</p>
+                    <p>Loaders: ${summary.loaders_running || 0}/${summary.loaders_total || 0} running</p>
+
+                    <h3>Full Data</h3>
+                    <pre>${JSON.stringify(data.data, null, 2)}</pre>
+                `;
+            }
+        }
+
+        // Автоподключение при загрузке
+        window.addEventListener('load', () => {
+            addLog('Page loaded. Click Connect to start.', '');
+        });
+    </script>
+</body>
+</html>
