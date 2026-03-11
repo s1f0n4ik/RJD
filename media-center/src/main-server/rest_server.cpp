@@ -18,7 +18,7 @@ URestServer::URestServer(uint16_t port,
 
     auto controller = std::make_shared<UController>(media_center);
     
-    // Ðåãèñòðèðóåì ìàðøðóòû
+    // Ð ÐµÐ³Ð¸ÑÑ‚Ñ€Ð¸Ñ€ÑƒÐµÐ¼ Ð¼Ð°Ñ€ÑˆÑ€ÑƒÑ‚Ñ‹
     m_router->add_route(http::verb::get, "/camera",
         [controller](const auto& req) { return controller->get_camera(req); });
     m_router->add_route(http::verb::post, "/camera",

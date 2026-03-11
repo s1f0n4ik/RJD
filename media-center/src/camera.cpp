@@ -1,4 +1,4 @@
-﻿#include "camera.h"
+#include "camera.h"
 #include <gst/gst.h>
 #include <gst/allocators/allocators.h>
 #include <gst/webrtc/webrtc.h>
@@ -17,7 +17,9 @@ namespace neural {
 	UCamera::UCamera(
 		const FCameraData& options,
 		const FWebSocketOptions& socket_options,
-		ULogger::ELoggerLevel level_)
+		CDmabufMover dmabuf_callback,
+		ULogger::ELoggerLevel level_
+	)
 		: m_name(options.name)
 		, m_description(options.description)
 		, m_ip_adress(options.ip_adress)
@@ -27,11 +29,11 @@ namespace neural {
 		, m_error(false)
 		, m_initialized(false)
 		, m_gst_initialized(false)
-		, m_frames_buffer(1)
 		, m_io_context()
 		, m_work_guard(boost::asio::make_work_guard(m_io_context))
 		, m_websocket_client(nullptr)
 		, m_socket_options(socket_options)
+		, m_frame_callback(dmabuf_callback)
 		, m_logger(options.name, level_)
 	{
 		for (const auto& [name, stream_data] : options.pipelines) {
@@ -49,7 +51,6 @@ namespace neural {
 
 			auto pipe_logger = std::make_unique<ULogger>(m_name + ": " + name, m_logger.get_level());
 			auto send_callback = [this](std::string msg) {this->send_message(std::move(msg)); };
-
 			switch (stream_data.type) {
 				case EPilelineType::SUB: {
 					m_streams[name] = std::make_unique<UCameraSubPipeline>(
@@ -59,11 +60,13 @@ namespace neural {
 					);
 					break;
 				}
+				case EPilelineType::MAIN: 
 				default: {
 					m_streams[name] = std::make_unique<UCameraMainPipeline>(
 						pipeline_setting,
 						std::move(pipe_logger),
-						std::move(send_callback)
+						std::move(send_callback),
+						m_frame_callback
 					);
 					break;
 				}
@@ -204,6 +207,11 @@ namespace neural {
 			m_init_thread.join();
 		}
 
+		// Убийство всех пайплайнов
+		//for (const auto& [name, stream] : m_streams) {
+		//	stream->teardown();
+		//}
+
 		// Остановка вебсокета
 		stop_websocket_client();
 
@@ -221,14 +229,12 @@ namespace neural {
 			g_main_loop_unref(m_main_loop);
 			m_main_loop = nullptr;
 		}
-
-		// Убийство всех пайплайнов
 		m_streams.clear();
 
 		m_running = false;
 	}
 
-	void UCamera::set_frame_callback(CFrameCallback callback) {
+	void UCamera::set_frame_callback(CDmabufMover callback) {
 		m_frame_callback = std::move(callback);
 	}
 
@@ -398,8 +404,11 @@ namespace neural {
 		data.name = m_name;
 		data.description = m_description;
 		data.user = m_user;
+
 		data.ip_adress = m_ip_adress;
 		data.port = m_port;
+
+		data.type = m_type;
 
 		return data;
 	}

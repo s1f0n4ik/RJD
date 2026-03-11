@@ -1,3 +1,5 @@
+#pragma once
+
 #include <boost/json.hpp>
 
 template<typename T>
@@ -6,7 +8,7 @@ static T get_json_value(const boost::json::value& val, const std::string& field)
 
     if constexpr (std::is_same_v<T, int64_t>) {
         if (!val.is_int64()) {
-            throw std::runtime_error("JSON value " + field + ": " + dumped + " is not int64");
+            throw std::runtime_error("JSON value error: <" + field + ": " + dumped + "> is not int64");
         }
         return val.as_int64();
     }

@@ -1,4 +1,4 @@
-﻿# CMakeLists.txt для media-center с GStreamer 1.28
+# CMakeLists.txt для media-center с GStreamer 1.28
 
 cmake_minimum_required(VERSION 3.18)
 project(media-center VERSION 1.0 LANGUAGES C CXX)
@@ -16,6 +16,8 @@ file(GLOB_RECURSE SRC_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/pipelines/*.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/main-server/*.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/src/main-server/*.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/bird-view/*.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/bird-view/*.cpp
 )
 
 # OpenCV
@@ -35,16 +37,11 @@ pkg_check_modules(GST_ALL REQUIRED
     gstreamer-allocators-1.0
     gstreamer-pbutils-1.0
     gstreamer-webrtc-1.0
-    gstreamer-plugins-good-1.0
-    gstreamer-plugins-bad-1.0
+    #gstreamer-plugins-bad-1.0
     gstreamer-sdp-1.0
 )
 
-link_directories(/opt/gstreamer-1.28/lib/aarch64-linux-gnu)
-
-# OpenSSL и ZLIB
-find_package(OpenSSL REQUIRED)
-find_package(ZLIB REQUIRED)
+link_directories(${GST_ALL_LIBRARY_DIRS})
 
 # Потоки
 if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -79,8 +76,6 @@ target_link_libraries(${PROJECT_NAME}
     ${BOOST_LIBRARYDIR}/libboost_json.a
     ${BOOST_LIBRARYDIR}/libboost_filesystem.a
     ${BOOST_LIBRARYDIR}/libboost_thread.a
-    OpenSSL::SSL
-    ZLIB::ZLIB
 )
 
 # Неустойчивая API GStreamer

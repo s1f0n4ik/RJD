@@ -9,8 +9,6 @@
 #include <boost/beast/websocket.hpp>
 #include <boost/beast/http.hpp>
 
-#include <nlohmann/json.hpp>
-
 #include <memory>
 #include <set>
 #include <unordered_map>
@@ -29,7 +27,6 @@ namespace beast = boost::beast;
 namespace websocket = beast::websocket;
 namespace http = beast::http;
 using tcp = asio::ip::tcp;
-using json = nlohmann::json;
 
 class USignalingServer; // forward
 
@@ -42,7 +39,7 @@ public:
     // Start handshake and reading, accept with HTTP request to parse room_id
     void start();
 
-    // Отправлояет сообщение
+    // РћС‚РїСЂР°РІР»РѕСЏРµС‚ СЃРѕРѕР±С‰РµРЅРёРµ
     void send_text(std::string const& message);
 
     void close();
@@ -70,8 +67,8 @@ private:
     std::mutex m_write_mutex;
     std::deque<std::string> m_write_queue;
 
-    beast::flat_buffer m_http_buffer;  // для http::async_read
-    beast::flat_buffer m_ws_buffer;    // для websocket::async_read
+    beast::flat_buffer m_http_buffer;  // РґР»СЏ http::async_read
+    beast::flat_buffer m_ws_buffer;    // РґР»СЏ websocket::async_read
     std::atomic<bool> m_closed{ false };
 
     std::string m_room_id;
@@ -88,26 +85,26 @@ class USignalingServer : public std::enable_shared_from_this<USignalingServer> {
 public:
     USignalingServer(asio::io_context& ioc);
 
-    // Запуск потока
+    // Р—Р°РїСѓСЃРє РїРѕС‚РѕРєР°
     bool start(const std::string& ip, int port);
 
     void stop();
 
-    // Взаимодействие с сессиями
+    // Р’Р·Р°РёРјРѕРґРµР№СЃС‚РІРёРµ СЃ СЃРµСЃСЃРёСЏРјРё
     void register_session(session_ptr s);
     void unregister_session(session_ptr s);
 
-    // Взаимодействия с камерами, которые определяют данные
+    // Р’Р·Р°РёРјРѕРґРµР№СЃС‚РІРёСЏ СЃ РєР°РјРµСЂР°РјРё, РєРѕС‚РѕСЂС‹Рµ РѕРїСЂРµРґРµР»СЏСЋС‚ РґР°РЅРЅС‹Рµ
     void register_room_camera(std::shared_ptr<UCamera> camera);
     void unregister_room_camera(const std::string& camera_name);
 
     void join_room(std::string const& room_id, session_ptr s);
     void leave_room(std::string const& room_id, session_ptr s);
 
-    // Функция обработчик при получении сообщений от клиента
+    // Р¤СѓРЅРєС†РёСЏ РѕР±СЂР°Р±РѕС‚С‡РёРє РїСЂРё РїРѕР»СѓС‡РµРЅРёРё СЃРѕРѕР±С‰РµРЅРёР№ РѕС‚ РєР»РёРµРЅС‚Р°
     void on_client_message(const std::string& room_id, const std::string& msg, session_ptr sender);
 
-    // Отправка сообщения во все сессии в комнате
+    // РћС‚РїСЂР°РІРєР° СЃРѕРѕР±С‰РµРЅРёСЏ РІРѕ РІСЃРµ СЃРµСЃСЃРёРё РІ РєРѕРјРЅР°С‚Рµ
     void broadcast_to_room(std::string const& room_id, std::string const& msg, session_ptr exclude);
 
 private:
@@ -124,11 +121,11 @@ private:
     std::set<session_ptr> m_sessions;
     std::mutex m_sessions_mutex;
 
-    // Ключ - название комнаты, Значение - набор сессий, которые закреплены за комнатой
+    // РљР»СЋС‡ - РЅР°Р·РІР°РЅРёРµ РєРѕРјРЅР°С‚С‹, Р—РЅР°С‡РµРЅРёРµ - РЅР°Р±РѕСЂ СЃРµСЃСЃРёР№, РєРѕС‚РѕСЂС‹Рµ Р·Р°РєСЂРµРїР»РµРЅС‹ Р·Р° РєРѕРјРЅР°С‚РѕР№
     std::unordered_map<std::string, std::set<session_ptr>> m_rooms;
     std::mutex m_rooms_mutex;
 
-    // Ключ - название комнаты, Значение - камера, которая закреплена за комнатой
+    // РљР»СЋС‡ - РЅР°Р·РІР°РЅРёРµ РєРѕРјРЅР°С‚С‹, Р—РЅР°С‡РµРЅРёРµ - РєР°РјРµСЂР°, РєРѕС‚РѕСЂР°СЏ Р·Р°РєСЂРµРїР»РµРЅР° Р·Р° РєРѕРјРЅР°С‚РѕР№
     std::unordered_map<std::string, std::shared_ptr<UCamera>> m_cameras;
     std::mutex m_cameras_mutex;
 

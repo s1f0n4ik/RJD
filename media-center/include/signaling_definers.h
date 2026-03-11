@@ -1,4 +1,4 @@
-// Определения для полей json, который используется для обмена сообщениями
+// РћРїСЂРµРґРµР»РµРЅРёСЏ РґР»СЏ РїРѕР»РµР№ json, РєРѕС‚РѕСЂС‹Р№ РёСЃРїРѕР»СЊР·СѓРµС‚СЃСЏ РґР»СЏ РѕР±РјРµРЅР° СЃРѕРѕР±С‰РµРЅРёСЏРјРё
 
 #define SIG_RET "ret"
 #define SIG_TYPE "type"
@@ -7,11 +7,11 @@
 #define SIG_DECRIPTION "description"
 #define SIG_SENDER "sender"
 
-// Варинты полей RET
+// Р’Р°СЂРёРЅС‚С‹ РїРѕР»РµР№ RET
 #define SIG_RET_FAULT "fault"
 #define SIG_RET_SUCCESS "success"
 
-// Варинты полея type
+// Р’Р°СЂРёРЅС‚С‹ РїРѕР»РµСЏ type
 #define SIG_TYPE_CONNECT "connection"
 #define SIG_TYPE_OPEN "open"
 #define SIG_TYPE_CLOSE "close"
@@ -19,13 +19,13 @@
 #define SIG_TYPE_OFFER "offer"
 #define SIG_TYPE_ANSWER "answer"
 
-// Варианты полей sender
+// Р’Р°СЂРёР°РЅС‚С‹ РїРѕР»РµР№ sender
 #define SIG_SENDER_CLIENT "client"
 #define SIG_SENDER_CAMERA "camera"
 
-// Дополнительные поля для ICE
+// Р”РѕРїРѕР»РЅРёС‚РµР»СЊРЅС‹Рµ РїРѕР»СЏ РґР»СЏ ICE
 #define SIG_ICE_CANDIDATE "candidate"
 #define SIG_ICE_LINE_INDEX "sdpMLineIndex"
 
-// Дополнительные поля для sdp
+// Р”РѕРїРѕР»РЅРёС‚РµР»СЊРЅС‹Рµ РїРѕР»СЏ РґР»СЏ sdp
 #define SIG_SDP "sdp"

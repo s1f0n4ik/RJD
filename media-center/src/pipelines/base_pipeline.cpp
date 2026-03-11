@@ -8,20 +8,23 @@ UCameraPipeline::UCameraPipeline(
     std::unique_ptr<ULogger> logger,
     std::function<void(std::string)> send_callback
 )
-	: m_logger(std::move(logger))
-	, m_parameters(std::move(parameters))
+    : m_logger(std::move(logger))
+    , m_parameters(std::move(parameters))
     , m_send_callback(std::move(send_callback))
 {
-	
+    
 }
 
 UCameraPipeline::~UCameraPipeline() {
-    // Если запущен поток - завершаем
+    // Р•СЃР»Рё Р·Р°РїСѓС‰РµРЅ РїРѕС‚РѕРє - Р·Р°РІРµСЂС€Р°РµРј
     if (m_restart_thread.joinable()) {
         m_restart_thread.join();
     }
 
-    destroy();
+    teardown();
+
+    // РћС‡РёС‰Р°РµРј callback
+    m_send_callback = nullptr;
 }
 
 EPipelineStatus UCameraPipeline::get_status() {
@@ -56,9 +59,9 @@ bool UCameraPipeline::initialize() {
     }
     m_logger->info("Initializing " + m_parameters.name + " pipeline..");
 
-    const int probe_timeout = 5;   // timeout на каждый probe
-    const int max_attempts = 10;   // сколько попыток сделать
-    const int reconnect_delay_sec = 2; // задержка между попытками
+    const int probe_timeout = 5;   // timeout РЅР° РєР°Р¶РґС‹Р№ probe
+    const int max_attempts = 10;   // СЃРєРѕР»СЊРєРѕ РїРѕРїС‹С‚РѕРє СЃРґРµР»Р°С‚СЊ
+    const int reconnect_delay_sec = 2; // Р·Р°РґРµСЂР¶РєР° РјРµР¶РґСѓ РїРѕРїС‹С‚РєР°РјРё
 
     for (int attempt = 1; attempt <= max_attempts; ++attempt) {
         m_logger->info("Probe attempt " + std::to_string(attempt) + "/" + std::to_string(max_attempts));
@@ -111,73 +114,51 @@ bool UCameraPipeline::stop() {
     return true;
 }
 
-bool UCameraPipeline::destroy()
+bool UCameraPipeline::teardown()
 {
     if (m_is_destroying) {
-        m_logger->warn("destroy(): function already called!");
+        m_logger->warn("teardown(): function already called!");
         return true;
     }
 
     if (!m_pipeline) {
-        m_logger->warn("destroy(): pipeline already destroyed or null.");
+        m_logger->warn("teardown(): pipeline already destroyed or null.");
         m_is_destroying = false;
         return true;
     }
 
-    m_logger->info("Destroying pipeline (direct NULL shutdown)...");
+    m_logger->info("teardown(): direct NULL shutdown pipeline...");
     m_is_destroying = true;
 
-    // Очищаем callback
-    m_send_callback = nullptr;
-
-    // Удаляем все сессии
+    // РЈРґР°Р»СЏРµРј РІСЃРµ СЃРµСЃСЃРёРё
+    for (const auto& [name, session] : m_webrtc_sessions) {
+        session->teardown();
+    }
     m_webrtc_sessions.clear();
-
-    // Переводим pipeline в NULL
-    m_logger->debug("Setting pipeline state to NULL...");
-    GstStateChangeReturn ret = gst_element_set_state(m_pipeline, GST_STATE_NULL);
-
-    if (ret == GST_STATE_CHANGE_FAILURE) {
-        m_logger->error("Failed to initiate state change to NULL.");
-        m_is_destroying = false;
-        return false;
-    }
-
-    // Ждём пока pipeline достигнет состояния NULL
-    constexpr GstClockTime null_timeout = 5 * GST_SECOND;
-    GstState current = GST_STATE_VOID_PENDING;
-    GstState pending = GST_STATE_VOID_PENDING;
-    ret = gst_element_get_state(m_pipeline, &current, &pending, null_timeout);
-
-    if (ret == GST_STATE_CHANGE_ASYNC) {
-        m_logger->error("Timeout waiting for pipeline to reach NULL.");
-        m_is_destroying = false;
-        return false;
-    }
-    if (ret == GST_STATE_CHANGE_FAILURE) {
-        m_logger->error("State change to NULL failed.");
-        m_is_destroying = false;
-        return false;
-    }
-    if (current != GST_STATE_NULL) {
-        m_logger->error("Pipeline did not reach NULL state. Current state: " +
-            std::string(gst_element_state_get_name(current)));
-        m_is_destroying = false;
-        return false;
-    }
-
-    m_logger->info("Pipeline reached NULL state successfully.");
-
-    // Очистка локальных структур
     m_tees.clear();
-    m_probe.got_codec = false;
-    m_probe.got_video_info = false;
+
+    // РћСЃС‚Р°РЅР°РІР»РёРІР°РµРј СЃРµС‚РµРІС‹Рµ РїРѕС‚РѕРєРё
+    gst_element_send_event(m_pipeline, gst_event_new_flush_start());
+    gst_element_send_event(m_pipeline, gst_event_new_flush_stop(TRUE));
+
+    // РџРµСЂРµРІРѕРґРёРј pipeline РІ NULL
+    GstStateChangeReturn ret = gst_element_set_state(m_pipeline, GST_STATE_NULL);
+    if (ret == GST_STATE_CHANGE_FAILURE) {
+        m_logger->error("teardown(): failed to initiate state change to NULL.");
+    }
+    else {
+        m_logger->info("teardown(): pipeline reached NULL state successfully.");
+    }
 
     gst_object_unref(m_pipeline);
     m_pipeline = nullptr;
+
+    // РћС‡РёСЃС‚РєР° Р»РѕРєР°Р»СЊРЅС‹С… СЃС‚СЂСѓРєС‚СѓСЂ
+    m_probe.got_codec = false;
+    m_probe.got_video_info = false;
     m_has_initialized = false;
 
-    m_logger->info("Pipeline destroyed successfully (without EOS).");
+    m_logger->info("teardown(): pipeline destroyed successfully");
     m_is_destroying = false;
 
     return true;
@@ -191,8 +172,8 @@ void UCameraPipeline::restart_loop() {
 
         bool success = true;
 
-        if (!destroy()) {
-            m_logger->error("restart_loop(): destroy() pipeline failed");
+        if (!teardown()) {
+            m_logger->error("restart_loop(): teardown() pipeline failed");
             success = false;
         }
 
@@ -210,7 +191,7 @@ void UCameraPipeline::restart_loop() {
         {
             m_logger->info("restart_loop(): Pipeline restarted successfully");
 
-            // сброс backoff
+            // СЃР±СЂРѕСЃ backoff
             m_restart_attempts = 0;
             m_backoff_ms = 1000;
             m_is_restarting = false;
@@ -286,7 +267,7 @@ bool UCameraPipeline::probe_video_stream(int timeout_sec) {
     gst_pad_add_probe(dec_src, GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM, on_decoder_caps, &ctx, nullptr);
     gst_object_unref(dec_src);
 
-    // Запуск пайплайна
+    // Р—Р°РїСѓСЃРє РїР°Р№РїР»Р°Р№РЅР°
     m_logger->debug("Setting probe pipeline to PLAYING state...");
     gst_element_set_state(pipeline, GST_STATE_PLAYING);
 
@@ -340,7 +321,7 @@ bool UCameraPipeline::probe_video_stream(int timeout_sec) {
 
 const GstStructure* UCameraPipeline::extract_caps_structure(GstPadProbeInfo* info, ULogger* logger)
 {
-    // Проверяем тип probe
+    // РџСЂРѕРІРµСЂСЏРµРј С‚РёРї probe
     if (!(info->type & GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM)) {
         return nullptr;
     }
@@ -506,25 +487,25 @@ bool UCameraPipeline::close_webrtc_session(const std::string& client_id, std::st
         return false;
     }
 
-    // Забираем владение
+    // Р—Р°Р±РёСЂР°РµРј РІР»Р°РґРµРЅРёРµ
     std::unique_ptr<UWebRTCSession> session = std::move(it->second);
     m_webrtc_sessions.erase(it);
 
-    // Передаём владение в GLib main loop
+    // РџРµСЂРµРґР°С‘Рј РІР»Р°РґРµРЅРёРµ РІ GLib main loop
     g_main_context_invoke(nullptr,
         [](gpointer data) -> gboolean {
-            // В data лежит уникальный указатель
+            // Р’ data Р»РµР¶РёС‚ СѓРЅРёРєР°Р»СЊРЅС‹Р№ СѓРєР°Р·Р°С‚РµР»СЊ
             std::unique_ptr<UWebRTCSession> session_ptr(
                 static_cast<UWebRTCSession*>(data)
             );
 
-            // teardown будет вызван внутри main thread
+            // teardown Р±СѓРґРµС‚ РІС‹Р·РІР°РЅ РІРЅСѓС‚СЂРё main thread
             session_ptr->teardown();
 
-            // session_ptr уничтожится после выхода из лямбды
+            // session_ptr СѓРЅРёС‡С‚РѕР¶РёС‚СЃСЏ РїРѕСЃР»Рµ РІС‹С…РѕРґР° РёР· Р»СЏРјР±РґС‹
             return G_SOURCE_REMOVE;
         },
-        session.release() // release передаёт владение
+        session.release() // release РїРµСЂРµРґР°С‘С‚ РІР»Р°РґРµРЅРёРµ
     );
 
     description = "Session with " + client_id + " successfully closed!";
@@ -537,13 +518,13 @@ bool UCameraPipeline::process_webrtc_session(
     const std::string& type,
     std::string& description
 ) {
-    // Проверяем есть ли сессия
+    // РџСЂРѕРІРµСЂСЏРµРј РµСЃС‚СЊ Р»Рё СЃРµСЃСЃРёСЏ
     auto it_client = m_webrtc_sessions.find(client_id);
     if (it_client == m_webrtc_sessions.end()) {
         description = "Cannot process message: session with client " + client_id + " doesn't exist!";
         return false;
     }
-    // Сессия существует
+    // РЎРµСЃСЃРёСЏ СЃСѓС‰РµСЃС‚РІСѓРµС‚
     auto session = it_client->second.get();
 
     if (type == "offer") {

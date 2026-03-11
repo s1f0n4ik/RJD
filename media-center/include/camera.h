@@ -20,15 +20,7 @@
 
 #include <boost/json.hpp>
 
-
-extern "C" {
-	#include <libavformat/avformat.h>
-	#include <libavcodec/avcodec.h>
-	#include <libswscale/swscale.h>
-	#include <libavutil/imgutils.h>
-}
-
-#include "drm_frame.h"
+#include "utility/dma-frame.h"
 #include "safe_buffers.h"
 #include "icamera_signaling.h"
 #include "iwebsocket_client.h"
@@ -42,13 +34,6 @@ using namespace varan::nvr;
 namespace varan {
 namespace neural {
 
-	using CFrameCallback = std::function<void(std::string& name, std::unique_ptr<FDrmFrame>)>;
-
-	struct FWebSocketOptions {
-		std::string ip_adress;
-		std::string port;
-	};
-
 	class UCamera : public ICameraSignaling {
 	public:
 
@@ -58,6 +43,7 @@ namespace neural {
 		explicit UCamera(
 			const FCameraData& options, 
 			const FWebSocketOptions& socket_options, 
+			CDmabufMover dmabuf_callback,
 			ULogger::ELoggerLevel level_ = ULogger::ELoggerLevel::DEBUG
 		);
 
@@ -65,7 +51,7 @@ namespace neural {
 
 		bool initialize();
 
-		// Запуск потоков обработки кадров
+		// Р—Р°РїСѓСЃРє РїРѕС‚РѕРєРѕРІ РѕР±СЂР°Р±РѕС‚РєРё РєР°РґСЂРѕРІ
 		bool start();
 
 		void start_async();
@@ -74,21 +60,21 @@ namespace neural {
 
 		void stop();
 
-		// Запуск клиента для обмена с сообщениями с сервером
+		// Р—Р°РїСѓСЃРє РєР»РёРµРЅС‚Р° РґР»СЏ РѕР±РјРµРЅР° СЃ СЃРѕРѕР±С‰РµРЅРёСЏРјРё СЃ СЃРµСЂРІРµСЂРѕРј
 		void start_websocket_client();
 
 		void stop_websocket_client();
 
-		void set_frame_callback(CFrameCallback callback);
+		void set_frame_callback(CDmabufMover callback);
 
 		std::string get_name();
 
-		// ================ Реализация интерфейса ICameraSignaling
+		// ================ Р РµР°Р»РёР·Р°С†РёСЏ РёРЅС‚РµСЂС„РµР№СЃР° ICameraSignaling
 
-		// Отправка сообщений клиентам
+		// РћС‚РїСЂР°РІРєР° СЃРѕРѕР±С‰РµРЅРёР№ РєР»РёРµРЅС‚Р°Рј
 		void send_message(const std::string& message) override;
 
-		// Обработка сообщений от клиентов
+		// РћР±СЂР°Р±РѕС‚РєР° СЃРѕРѕР±С‰РµРЅРёР№ РѕС‚ РєР»РёРµРЅС‚РѕРІ
 		void on_signaling_message(const std::string& msg) override;
 
 		void set_signaling_callback(CSignalingCallback callback) override;
@@ -103,7 +89,9 @@ namespace neural {
 		std::string m_port;
 		std::string m_user;
 
-		CFrameCallback m_frame_callback;
+		ECameraType m_type;
+
+		CDmabufMover m_frame_callback;
 		CSignalingCallback m_signaling_callback;
 
 		std::atomic<bool> m_running;
@@ -123,18 +111,14 @@ namespace neural {
 
 		std::mutex m_signal_mutex;
 
-		// Поля Gstream для считывания кадров
+		// РџРѕР»СЏ Gstream РґР»СЏ СЃС‡РёС‚С‹РІР°РЅРёСЏ РєР°РґСЂРѕРІ
 		std::map<std::string, std::unique_ptr<UCameraPipeline>> m_streams;
 
-		// Ожидающая очередь для хранения пакетов
+		// РћР¶РёРґР°СЋС‰Р°СЏ РѕС‡РµСЂРµРґСЊ РґР»СЏ С…СЂР°РЅРµРЅРёСЏ РїР°РєРµС‚РѕРІ
 		//using UniquePacket = std::unique_ptr<AVPacket, std::function<void(AVPacket*)>>;
 		//USafeQueue<UniquePacket> m_packets_buffer;
 
-		// Ожидающая очередь для хранения фреймов drm
-		// Хранит для потока, который отправляет в GStream pipeline
-		USafeQueue<std::unique_ptr<FDrmFrame>> m_frames_buffer;
-
-		// Клиент websocket
+		// РљР»РёРµРЅС‚ websocket
 		FWebSocketOptions m_socket_options;
 
 		std::shared_ptr<UWebSocketClient> m_websocket_client;
@@ -146,7 +130,7 @@ namespace neural {
 		ULogger m_logger;
 
 		// ==================================================================
-		// json сообщений
+		// json СЃРѕРѕР±С‰РµРЅРёР№
 		// ==================================================================
 
 		boost::json::object make_json_message(
@@ -155,7 +139,7 @@ namespace neural {
 			const std::string& type,
 			const std::string& description
 		);
-		// Прочее
+		// РџСЂРѕС‡РµРµ
 		//static std::string make_start_timestamp();
 	};
 

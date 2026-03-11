@@ -79,8 +79,8 @@ private:
     };
 
     const std::map<std::string, CStreamFieldWriter> m_pipeline_field_map = {
-        { fields::TYPE_STREAM, [](const FPipelineData& data, boost::json::object& obj) {
-            obj[fields::TYPE_STREAM] = static_cast<int>(data.type);
+        { fields::TYPE, [](const FPipelineData& data, boost::json::object& obj) {
+            obj[fields::TYPE] = static_cast<int>(data.type);
         }},
         { fields::STATUS, [](const FPipelineData& data, boost::json::object& obj) {
             obj[fields::STATUS] = static_cast<int>(data.status);
@@ -118,12 +118,12 @@ private:
     };
 
     const std::vector<std::string> m_post_camera_fields = {
-        fields::NAME, fields::DESCRIPTION, fields::IP_ADRESS, fields::PORT, 
+        fields::NAME, fields::DESCRIPTION, fields::IP_ADRESS, fields::PORT, fields::TYPE, 
         fields::USER, fields::PASSWORD, fields::PRODUCTION, fields::STREAMS
     };
 
     const std::vector<std::string> m_post_stream_fields = {
-        fields::TYPE_STREAM, fields::SUB_STREAM, fields::LATENCY, fields::USE_UDP, fields::RECONNECT,
-        fields::RECORD_PATH, fields::SEGMENT_LENGTH
+        fields::SUB_STREAM, fields::LATENCY, fields::USE_UDP, fields::RECONNECT,
+        fields::RECORD_PATH, fields::SEGMENT_LENGTH, fields::TYPE
     };
 };

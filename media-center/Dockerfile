@@ -1,43 +1,55 @@
-FROM ubuntu:22.04
+FROM ubuntu:26.04
 
 ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Etc/UTC
 
-# Установка зависимостей
-RUN apt-get update && apt-get install -y \
-    build-essential cmake ninja-build pkg-config git \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    git \
+    pkg-config \
+    wget \
+    ca-certificates \
+    libglib2.0-dev libgtk-3-dev \
+    zlib1g-dev libjpeg-dev libpng-dev libtiff-dev \
+    libdrm-dev libegl1-mesa-dev libgles2-mesa-dev \
+    libgl1-mesa-dev libglu1-mesa-dev mesa-utils \
+    # GStreamer 1.28 и плагины
+    gstreamer1.0-tools \
+    libgstreamer1.0-dev \
+    libgstreamer-plugins-base1.0-dev \
+    libgstreamer-plugins-good1.0-dev \
+    libgstreamer-plugins-bad1.0-dev \
+    gstreamer1.0-libav \
+    gstreamer1.0-plugins-base \
+    gstreamer1.0-plugins-good \
+    gstreamer1.0-plugins-bad \
+    gstreamer1.0-plugins-ugly \
+    # FFmpeg
+    ffmpeg \
+    # OpenCV
     libopencv-dev \
-    libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libavdevice-dev \
-    libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev \
-    gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
-    gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-tools gstreamer1.0-nice \
-    libnice-dev libssl-dev zlib1g-dev nlohmann-json3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Копируем исходники
 COPY . .
+COPY ./gstreamer-mpp/ /usr/
 
-# Boost
-ENV BOOST_ROOT=/app/3rdparty/boost
-ENV BOOST_INCLUDEDIR=/app/3rdparty/boost/include
-ENV BOOST_LIBRARYDIR=/app/3rdparty/boost/lib
+COPY ./gstreamer-mpp/fix.sh /usr/local/bin/fix.sh
+RUN chmod +x /usr/local/bin/fix.sh
 
-# Сборка
-RUN mkdir -p build && cd build && \
-    cmake -G Ninja \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DBOOST_ROOT=/app/3rdparty/boost \
-        -DBoost_NO_SYSTEM_PATHS=ON \
-        .. && \
-    ninja
+RUN /usr/local/bin/fix.sh
 
-ENV LD_LIBRARY_PATH=/app/3rdparty/boost/lib:/usr/local/lib:$LD_LIBRARY_PATH
+ENV LD_LIBRARY_PATH=/usr/lib/aarch64-linux-gnu:/usr/lib
+ENV GST_PLUGIN_PATH=/usr/lib/aarch64-linux-gnu/gstreamer-1.0
+ENV GST_PLUGIN_SCANNER=/usr/libexec/gstreamer-1.0/gst-plugin-scanner
 
-# Порт 7777 для REST API управления
-EXPOSE 7777
+RUN cmake -B build -S . \ 
+    -DCMAKE_BUILD_TYPE=Release
 
-# Запуск через run.sh (если есть) или напрямую
-#CMD ["/app/build/media-center"]
-RUN chmod +x /app/run.sh
-CMD ["/app/run.sh"]
+RUN cmake --build build -j
+
+WORKDIR /app/build
+
+ENTRYPOINT ["./media-center"]

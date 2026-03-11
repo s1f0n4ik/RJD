@@ -10,7 +10,7 @@ URouter::Response URouter::route(const Request& req)
 {
     std::string_view target = req.target();
 
-    // Îòäåëÿåì path îò query
+    // ĞÑ‚Ğ´ĞµĞ»ÑĞµĞ¼ path Ğ¾Ñ‚ query
     std::string_view path = target;
     if (auto pos = target.find('?'); pos != std::string_view::npos) {
         path = target.substr(0, pos);

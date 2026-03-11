@@ -17,7 +17,11 @@ int UMediaCenter::add_camera(const FCameraData& options, const FWebSocketOptions
         return -1;
     }
 
-    auto cam = std::make_shared<UCamera>(options, socket_options);
+    auto callback = get_frame_callback_by_camera_type(options.type);
+    auto cam = std::make_shared<UCamera>(options, socket_options, std::move(callback));
+
+    cam->set_frame_callback(std::move(callback));
+
     m_cameras[options.name] = std::move(cam);
     return 0;
 }
@@ -29,14 +33,16 @@ bool UMediaCenter::add_camera_async(const FCameraData& options, const FWebSocket
         return false;
     }
 
-    auto camera = std::make_shared<UCamera>(options, socket_options);
+    auto callback = get_frame_callback_by_camera_type(options.type);
+    auto camera = std::make_shared<UCamera>(options, socket_options, std::move(callback));
+
     camera->start_async();
     m_cameras[options.name] = std::move(camera);
 
     return true;
 }
 
-// Удалить камеру (остановить и убрать)
+// РЈРґР°Р»РёС‚СЊ РєР°РјРµСЂСѓ (РѕСЃС‚Р°РЅРѕРІРёС‚СЊ Рё СѓР±СЂР°С‚СЊ)
 int UMediaCenter::remove_camera(const std::string& camera_unique) {
     std::lock_guard<std::mutex> lk(m_mutex);
     auto it = m_cameras.find(camera_unique);
@@ -61,12 +67,19 @@ void UMediaCenter::remove_camera_async(const std::string& camera_name) {
     }).detach();
 }
 
+void UMediaCenter::run_eos() {
+    for (const auto& [name, camera] : m_cameras) {
+        camera->stop();
+    }
+    m_cameras.clear();
+}
+
 bool UMediaCenter::camera_exists(std::string name) {
     return m_cameras.find(name) == m_cameras.end() ? false : true;
 }
 
 void UMediaCenter::initialize_cameras() {
-    // Первичная инициализация камер
+    // РџРµСЂРІРёС‡РЅР°СЏ РёРЅРёС†РёР°Р»РёР·Р°С†РёСЏ РєР°РјРµСЂ
     size_t cameras_ready = 0;
     size_t camera_nums = m_cameras.size();
     std::cout << color::green << "[Media Center] Start to initializing cameras" << color::reset << std::endl;
@@ -96,7 +109,7 @@ void UMediaCenter::start_cameras() {
         return;
     }
 
-    // Запуск камера и передача callback для забора кадров в буфер отображения
+    // Р—Р°РїСѓСЃРє РєР°РјРµСЂР° Рё РїРµСЂРµРґР°С‡Р° callback РґР»СЏ Р·Р°Р±РѕСЂР° РєР°РґСЂРѕРІ РІ Р±СѓС„РµСЂ РѕС‚РѕР±СЂР°Р¶РµРЅРёСЏ
     std::lock_guard<std::mutex> lk(m_mutex);
     for (auto& [name, camera] : m_cameras) {
         /*
@@ -128,6 +141,28 @@ std::vector<FCameraData> UMediaCenter::get_cameras() {
         data.push_back(camera->get_data());
     }
     return data;
+}
+
+CDmabufMover UMediaCenter::get_frame_callback_by_camera_type(ECameraType type) {
+    switch (type) {
+    case ECameraType::BIRDVIEW:
+        return m_bird_view_frame_mover;
+    case ECameraType::NEURAL:
+        return m_neural_frame_mover;
+    case ECameraType::GENERAL:
+    case ECameraType::NONE:
+    case ECameraType::COUNT:
+    default:
+        return nullptr;
+    }
+}
+
+void UMediaCenter::set_bird_view_callback(CDmabufMover callback) {
+    m_bird_view_frame_mover = std::move(callback);
+}
+
+void UMediaCenter::set_neural_callback(CDmabufMover callback) {
+    m_neural_frame_mover = std::move(callback);
 }
 
 } // namespace neural

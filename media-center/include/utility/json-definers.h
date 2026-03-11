@@ -1,3 +1,5 @@
+#pragma once
+
 #include <string>
 
 namespace varan {
@@ -18,8 +20,8 @@ namespace fields {
 	const std::string CAMERAS = "cameras"; // "cameras"
 	const std::string FIELDS = "fields";         // "fields"
 
-	// Поля внутри пайплайнов при использовании get
-	const std::string TYPE_STREAM = "type";           // "type"
+	// РџРѕР»СЏ РІРЅСѓС‚СЂРё РїР°Р№РїР»Р°Р№РЅРѕРІ РїСЂРё РёСЃРїРѕР»СЊР·РѕРІР°РЅРёРё get
+	const std::string TYPE = "type";           // "type"
 	const std::string STATUS = "status";              // "status"
 	const std::string WIDTH = "width";                // "width"
 	const std::string HEIGHT = "height";              // "height"
@@ -38,12 +40,12 @@ namespace fields {
 	const std::string PASSWORD = "password";       // "password"
 	const std::string PRODUCTION = "production";   // "production"
 
-	// Общие поля
+	// РћР±С‰РёРµ РїРѕР»СЏ
 	const std::string DESCRIPTION = "description"; // "description"
 	const std::string NAME = "name";               // "name"
 	const std::string RET = "ret";                 // "ret"
 
-	// Для ошибки
+	// Р”Р»СЏ РѕС€РёР±РєРё
 	const std::string ERROR_CODE = "code";         // "code"
 	const std::string ERROR_MESSAGE = "message";   // "message"
 	const std::string ERROR_DETAILS = "details";   // "details"

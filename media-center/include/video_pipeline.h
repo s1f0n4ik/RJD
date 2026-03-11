@@ -15,6 +15,7 @@
 #include "webrtc_session.h"
 #include "logger.h"
 #include "utility/data-structs.h"
+#include "utility/dma-frame.h"
 
 using namespace varan::nvr;
 
@@ -55,7 +56,7 @@ public:
 
 	bool stop();
 
-	virtual bool destroy();
+	virtual bool teardown();
 
 	void stop_restart_thread();
 
@@ -79,26 +80,26 @@ public:
 	virtual EPilelineType get_type() = 0;
 
 protected:
-	// Пробный запуск для получения основных данных по камере
-	// timeout по секундам
+	// РџСЂРѕР±РЅС‹Р№ Р·Р°РїСѓСЃРє РґР»СЏ РїРѕР»СѓС‡РµРЅРёСЏ РѕСЃРЅРѕРІРЅС‹С… РґР°РЅРЅС‹С… РїРѕ РєР°РјРµСЂРµ
+	// timeout РїРѕ СЃРµРєСѓРЅРґР°Рј
 	bool probe_video_stream(int timeout = 5);
 
 	virtual void restart_loop();
 
 protected:
 	GstElement* m_pipeline;
-	// Словарь веток, которые есть в пайплайне
-	// Ключ - название ветки
+	// РЎР»РѕРІР°СЂСЊ РІРµС‚РѕРє, РєРѕС‚РѕСЂС‹Рµ РµСЃС‚СЊ РІ РїР°Р№РїР»Р°Р№РЅРµ
+	// РљР»СЋС‡ - РЅР°Р·РІР°РЅРёРµ РІРµС‚РєРё
 	std::map<std::string, GstElement*> m_tees;
 
 	std::mutex m_pipeline_mutex;
-	// Словарь сессий webrtcbin
-	// Ключ - клиент, с которым установлена сессия
+	// РЎР»РѕРІР°СЂСЊ СЃРµСЃСЃРёР№ webrtcbin
+	// РљР»СЋС‡ - РєР»РёРµРЅС‚, СЃ РєРѕС‚РѕСЂС‹Рј СѓСЃС‚Р°РЅРѕРІР»РµРЅР° СЃРµСЃСЃРёСЏ
 	std::map<std::string, std::unique_ptr<UWebRTCSession>> m_webrtc_sessions;
 
-	// параметры самого pipeline
+	// РїР°СЂР°РјРµС‚СЂС‹ СЃР°РјРѕРіРѕ pipeline
 	FInputPipelineParameters m_parameters;
-	// параметры каметры
+	// РїР°СЂР°РјРµС‚СЂС‹ РєР°РјРµС‚СЂС‹
 	FProbeResult m_probe;
 
 	std::function<void(std::string)> m_send_callback;
@@ -106,45 +107,57 @@ protected:
 	std::atomic<bool> m_has_initialized{false};
 	std::atomic<bool> m_is_destroying{false};
 
-	// Поток для рестарта
+	// РџРѕС‚РѕРє РґР»СЏ СЂРµСЃС‚Р°СЂС‚Р°
 	std::thread m_restart_thread;
 	std::atomic<bool> m_is_restarting{false};
 	int m_restart_attempts{0};
-	int m_max_restart_attempts{0}; // 0 = бесконечно
-	int m_backoff_ms{1000};        // стартовая задержка 1 сек
-	int m_max_backoff_ms{30000};   // максимум 30 сек
+	int m_max_restart_attempts{0}; // 0 = Р±РµСЃРєРѕРЅРµС‡РЅРѕ
+	int m_backoff_ms{1000};        // СЃС‚Р°СЂС‚РѕРІР°СЏ Р·Р°РґРµСЂР¶РєР° 1 СЃРµРє
+	int m_max_backoff_ms{30000};   // РјР°РєСЃРёРјСѓРј 30 СЃРµРє
 
 	std::unique_ptr<ULogger> m_logger;
 
 private: 
-	// Получение капса из декодера
+	// РџРѕР»СѓС‡РµРЅРёРµ РєР°РїСЃР° РёР· РґРµРєРѕРґРµСЂР°
 	static GstPadProbeReturn on_decoder_caps(GstPad*, GstPadProbeInfo* info, gpointer user_data);
 
-	// Поулчение Энкодера и динамическое добавление parse и depay 
+	// РџРѕСѓР»С‡РµРЅРёРµ Р­РЅРєРѕРґРµСЂР° Рё РґРёРЅР°РјРёС‡РµСЃРєРѕРµ РґРѕР±Р°РІР»РµРЅРёРµ parse Рё depay 
 	static void on_rtsp_pad_added(GstElement*, GstPad* pad, gpointer user_data);
 
-	// Извлечение caps
+	// РР·РІР»РµС‡РµРЅРёРµ caps
 	static const GstStructure* extract_caps_structure(GstPadProbeInfo* info, ULogger* logger);
 };
 
 class UCameraMainPipeline : public UCameraPipeline {
 
-	struct FRecordBranch {
-		GstElement* queue;
-		GstElement* parse;
-		GstElement* splitmux;
+	enum class EBranchType { DECODER, RECORD };
 
-		GstPad* tee_pad;
+	struct FPipelineBranch {
+		GstElement* queue = nullptr;
+		GstElement* elem_1 = nullptr;  // splimux РµСЃР»Рё RECORD; mppvideodec РµСЃР»Рё DECODER
+		GstElement* elem_2 = nullptr;  // nullptr РµСЃР»Рё RECORD; appsink РµСЃР»Рё DECODER
 
-		bool is_deployed;
+		GstPad* tee_pad = nullptr;
+		bool is_deployed = false;
+		EBranchType type;
+		std::string name;
+
+		FPipelineBranch(EBranchType t, std::string name_) : type(t), name(name_) {}
 	};
 
 public:
-	using UCameraPipeline::UCameraPipeline;
+	UCameraMainPipeline(
+		const FInputPipelineParameters& parameters,
+		std::unique_ptr<ULogger> logger,
+		std::function<void(std::string)> send_callback,
+		CDmabufMover dma_callback = nullptr
+	);
+
+	~UCameraMainPipeline() override;
 
 	virtual bool initialize() override;
 
-	virtual bool destroy() override;
+	virtual bool teardown() override;
 
 	virtual bool create_webrtc_session(const std::string& client_id, std::string& description) override;
 
@@ -154,13 +167,20 @@ public:
 
 private:
 
+	bool create_decoder_branch(GstElement* tee);
+
 	bool create_record_branch(GstElement* tee);
 
-	bool destroy_record_branch();
+	bool destroy_branch(FPipelineBranch& branch);
+
+	static GstFlowReturn on_new_sample_dma(GstElement* sink, gpointer user_data);
 
 private:
 
-	FRecordBranch m_record_branch;
+	FPipelineBranch m_record_branch;
+	FPipelineBranch m_decoder_branch;
+
+	CDmabufMover m_dma_sender;
 
 	std::mutex m_branch_mutex;
 };
@@ -168,6 +188,8 @@ private:
 class UCameraSubPipeline : public UCameraPipeline {
 public:
 	using UCameraPipeline::UCameraPipeline;
+
+	~UCameraSubPipeline() override;
 
 	virtual bool initialize() override;
 

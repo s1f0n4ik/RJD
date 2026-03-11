@@ -4,7 +4,7 @@
 
 namespace color {
 
-    // Базовые управляющие коды ANSI
+    // Р‘Р°Р·РѕРІС‹Рµ СѓРїСЂР°РІР»СЏСЋС‰РёРµ РєРѕРґС‹ ANSI
     inline constexpr std::string_view reset = "\033[0m";
     inline constexpr std::string_view bold = "\033[1m";
     inline constexpr std::string_view dim = "\033[2m";
@@ -12,7 +12,7 @@ namespace color {
     inline constexpr std::string_view underline = "\033[4m";
     inline constexpr std::string_view inverse = "\033[7m";
 
-    // Обычные цвета текста
+    // РћР±С‹С‡РЅС‹Рµ С†РІРµС‚Р° С‚РµРєСЃС‚Р°
     inline constexpr std::string_view black = "\033[30m";
     inline constexpr std::string_view red = "\033[31m";
     inline constexpr std::string_view green = "\033[32m";
@@ -22,7 +22,7 @@ namespace color {
     inline constexpr std::string_view cyan = "\033[36m";
     inline constexpr std::string_view white = "\033[37m";
 
-    // Яркие цвета текста
+    // РЇСЂРєРёРµ С†РІРµС‚Р° С‚РµРєСЃС‚Р°
     inline constexpr std::string_view bright_black = "\033[90m";
     inline constexpr std::string_view bright_red = "\033[91m";
     inline constexpr std::string_view bright_green = "\033[92m";
@@ -32,7 +32,7 @@ namespace color {
     inline constexpr std::string_view bright_cyan = "\033[96m";
     inline constexpr std::string_view bright_white = "\033[97m";
 
-    // Цвет фона
+    // Р¦РІРµС‚ С„РѕРЅР°
     inline constexpr std::string_view bg_black = "\033[40m";
     inline constexpr std::string_view bg_red = "\033[41m";
     inline constexpr std::string_view bg_green = "\033[42m";
@@ -42,7 +42,7 @@ namespace color {
     inline constexpr std::string_view bg_cyan = "\033[46m";
     inline constexpr std::string_view bg_white = "\033[47m";
 
-    // 256 цветов: foreground / background
+    // 256 С†РІРµС‚РѕРІ: foreground / background
     inline std::string fg256(int code) {
         return "\033[38;5;" + std::to_string(code) + "m";
     }
@@ -60,7 +60,7 @@ namespace color {
         return "\033[48;2;" + std::to_string(r) + ";" + std::to_string(g) + ";" + std::to_string(b) + "m";
     }
 
-    // Утилита для автоматического сброса цвета
+    // РЈС‚РёР»РёС‚Р° РґР»СЏ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРѕРіРѕ СЃР±СЂРѕСЃР° С†РІРµС‚Р°
     struct scoped {
         std::string_view code;
         scoped(std::string_view c) : code(c) { std::cout << c; }
