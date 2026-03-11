@@ -40,6 +40,5 @@ services:
         VITE_SIGNALING_SERVER: ws://192.168.1.2:8765
         VITE_FASTAPI_BASE: http://192.168.1.2:8000
     container_name: frontend
-    ports:
-      - "80:80"
+    network_mode: host
     restart: unless-stopped

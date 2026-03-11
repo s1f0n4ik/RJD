@@ -1,0 +1,3 @@
+/home/orangepi/RJD/RJD/media-center/build/CMakeFiles/media-center.dir
+/home/orangepi/RJD/RJD/media-center/build/CMakeFiles/edit_cache.dir
+/home/orangepi/RJD/RJD/media-center/build/CMakeFiles/rebuild_cache.dir
