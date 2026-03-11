@@ -8,7 +8,7 @@
 #include <unordered_map>
 #include <string>
 
-#include "drm-frame.h"
+#include "dma-frame.h"
 
 class FDmabufFrameStorage
 {

@@ -311,7 +311,6 @@ namespace neural {
 			std::string description;
 			UCameraPipeline* web_stream = nullptr;
 			for (const auto& [name, stream] : m_streams) {
-				std::cout << name << ": " << static_cast<int>(stream->get_type()) << std::endl;
 				if (stream->get_type() == EPilelineType::SUB) {
 					web_stream = stream.get();
 					break;

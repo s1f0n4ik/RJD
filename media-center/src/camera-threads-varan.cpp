@@ -99,10 +99,10 @@ int main(int argc, char* argv[])
 		return EXIT_FAILURE;
 	}
 
-	//setenv("GST_DEBUG", "splitmuxsink:7,qtmux:7", 1);
+	//setenv("GST_DEBUG", "*:5", 1);
 	gst_init(nullptr, nullptr);
 	gst_debug_set_active(TRUE);
-	//gst_debug_set_default_threshold(GST_LEVEL_DEBUG);
+	//gst_debug_set_default_threshold(GST_LEVEL_INFO);
 
 	std::cout << "GStreamer version: "
 		      << GST_VERSION_MAJOR << "."

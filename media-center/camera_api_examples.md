@@ -235,3 +235,235 @@ DELETE http://192.168.1.2:7777/camera?name=camera_6
 }
 ```
 
+# POST-запросы для добавления камер
+
+Все запросы отправляются на эндпоинт:
+
+```
+POST http://192.168.1.2:7778/camera
+```
+
+Тело запроса в формате JSON содержит данные о камере.
+
+---
+
+## Камера 6
+
+```json
+{
+    "name": "camera_6",
+    "description": "Test Camera",
+    "ip_adress": "192.168.1.16",
+    "port": "554",
+    "user": "admin",
+    "password": "VniiTest",
+    "production": 2,
+    "type": 3,
+    "streams": {
+        "main": {
+            "sub": 1,
+            "type": 1,
+            "latency": 0,
+            "use_udp": false,
+            "reconnect": 10,
+            "record_path": "/home/orangepi/records/camera_06",
+            "segment": 10
+        },
+        "sub": {
+            "sub": 2,
+            "type": 2,
+            "latency": 0,
+            "use_udp": false,
+            "reconnect": 10,
+            "record_path": "",
+            "segment": 0
+        }
+    }
+}
+```
+
+---
+
+## Камера 7
+
+```json
+{
+    "name": "camera_7",
+    "description": "Test Camera",
+    "ip_adress": "192.168.1.17",
+    "port": "554",
+    "user": "admin",
+    "password": "VniiTest",
+    "production": 1,
+    "type": 3,
+    "streams": {
+        "main": {
+            "sub": 0,
+            "type": 1,
+            "latency": 0,
+            "use_udp": false,
+            "reconnect": 10,
+            "record_path": "/home/orangepi/records/camera_07",
+            "segment": 10
+        },
+        "sub": {
+            "sub": 1,
+            "type": 2,
+            "latency": 0,
+            "use_udp": false,
+            "reconnect": 10,
+            "record_path": "",
+            "segment": 0
+        }
+    }
+}
+```
+
+---
+
+## Камера 8
+
+```json
+{
+    "name": "camera_8",
+    "description": "Test Camera",
+    "ip_adress": "192.168.1.18",
+    "port": "554",
+    "user": "admin",
+    "password": "VniiTest",
+    "production": 1,
+    "type": 3,
+    "streams": {
+        "main": {
+            "sub": 0,
+            "type": 1,
+            "latency": 0,
+            "use_udp": false,
+            "reconnect": 10,
+            "record_path": "/home/orangepi/records/camera_08",
+            "segment": 10
+        },
+        "sub": {
+            "sub": 1,
+            "type": 2,
+            "latency": 0,
+            "use_udp": false,
+            "reconnect": 10,
+            "record_path": "",
+            "segment": 0
+        }
+    }
+}
+```
+
+---
+
+## Камера 9
+
+```json
+{
+    "name": "camera_9",
+    "description": "Test Camera",
+    "ip_adress": "192.168.1.19",
+    "port": "554",
+    "user": "admin",
+    "password": "VniiTest",
+    "production": 2,
+    "type": 3,
+    "streams": {
+        "main": {
+            "sub": 1,
+            "type": 1,
+            "latency": 0,
+            "use_udp": false,
+            "reconnect": 10,
+            "record_path": "/home/orangepi/records/camera_09",
+            "segment": 10
+        },
+        "sub": {
+            "sub": 2,
+            "type": 2,
+            "latency": 0,
+            "use_udp": false,
+            "reconnect": 10,
+            "record_path": "",
+            "segment": 0
+        }
+    }
+}
+```
+
+---
+
+## Камера 10
+
+```json
+{
+    "name": "camera_10",
+    "description": "Test Camera",
+    "ip_adress": "192.168.1.31",
+    "port": "554",
+    "user": "admin",
+    "password": "VniiTest",
+    "production": 3,
+    "type": 3,
+    "streams": {
+        "main": {
+            "sub": 0,
+            "type": 1,
+            "latency": 0,
+            "use_udp": false,
+            "reconnect": 10,
+            "record_path": "/home/orangepi/records/camera_10",
+            "segment": 10
+        },
+        "sub": {
+            "sub": 1,
+            "type": 2,
+            "latency": 0,
+            "use_udp": false,
+            "reconnect": 10,
+            "record_path": "",
+            "segment": 0
+        }
+    }
+}
+```
+
+---
+
+## Камера 11
+
+```json
+{
+    "name": "camera_11",
+    "description": "Test Camera",
+    "ip_adress": "192.168.1.32",
+    "port": "554",
+    "user": "admin",
+    "password": "VniiTest",
+    "production": 3,
+    "type": 3,
+    "streams": {
+        "main": {
+            "sub": 0,
+            "type": 1,
+            "latency": 0,
+            "use_udp": false,
+            "reconnect": 10,
+            "record_path": "/home/orangepi/records/camera_11",
+            "segment": 10
+        },
+        "sub": {
+            "sub": 1,
+            "type": 2,
+            "latency": 0,
+            "use_udp": false,
+            "reconnect": 10,
+            "record_path": "",
+            "segment": 0
+        }
+    }
+}
+```
+

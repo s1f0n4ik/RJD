@@ -1,0 +1,48 @@
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    pkg-config \
+    git \
+    ffmpeg libavutil-dev libswscale-dev libswresample-dev libpostproc-dev flite \
+    libglib2.0-dev libunwind-dev libdw-dev libelf-dev liborc-0.4-dev libdrm-dev libmysofa1 libmysofa-dev \
+    libgl1-mesa-glx libgl1-mesa-dri libglu1-mesa mesa-utils \
+    libgles2-mesa libgles2-mesa-dev libegl1-mesa libegl1-mesa-dev \
+    libopus-dev libvorbis-dev libopus0 libvorbis0a \
+    libopencv-dev \
+    gstreamer1.0-plugins-good gstreamer1.0-libav rknn-toolkit2 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY . .
+COPY ./gstreamer-1.28 /opt/gstreamer-1.28
+
+RUN chmod +x /opt/gstreamer-1.28/fix.sh
+RUN /opt/gstreamer-1.28/fix.sh
+
+# Системное окружение
+ENV GST_ROOT=/opt/gstreamer-1.28
+ENV PATH=$GST_ROOT/bin:$PATH
+ENV LD_LIBRARY_PATH=$GST_ROOT/lib/aarch64-linux-gnu:$GST_ROOT/lib
+ENV PKG_CONFIG_PATH=$GST_ROOT/lib/aarch64-linux-gnu/pkgconfig:$GST_ROOT/lib/pkgconfig
+ENV GST_PLUGIN_PATH=$GST_ROOT/lib/aarch64-linux-gnu/gstreamer-1.0:/opt/gst-plugins-good/lib/aarch64-linux-gnu/gstreamer-1.0
+ENV GST_PLUGIN_SCANNER=$GST_ROOT/libexec/gstreamer-1.0/gst-plugin-scanner
+
+# cmake 
+ENV CMAKE_PREFIX_PATH=$GST_ROOT
+ENV CMAKE_LIBRARY_PATH=$GST_ROOT/lib:$GST_ROOT/lib/aarch64-linux-gnu
+ENV CMAKE_INCLUDE_PATH=$GST_ROOT/include
+
+RUN cmake -B build -S . \ 
+    -DCMAKE_BUILD_TYPE=Release
+
+RUN cmake --build build -j
+
+
+WORKDIR /app/build
+
+ENTRYPOINT ["./media-center"]

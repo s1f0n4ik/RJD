@@ -161,11 +161,10 @@ void UWSSession::on_read(beast::error_code ec, std::size_t bytes_transferred) {
 
     // Optional parse json for logging
     try {
-        auto parsed = json::parse(message);
-        if (parsed.is_object() && parsed.contains("type")) {
+        auto parsed = boost::json::parse(message);
+        if (parsed.is_object()) {
             try {
-                auto t = parsed.at("type").get<std::string>();
-                std::cout << color::bg_magenta << "[WSSession " << id() << "] message type: " << t 
+                std::cout << color::bg_magenta << "[WSSession " << id() << "] message type: "
                           << "; JSON: " << parsed << "\n" << color::reset;
             }
             catch (...) {}

@@ -9,8 +9,6 @@
 #include <boost/beast/websocket.hpp>
 #include <boost/beast/http.hpp>
 
-#include <nlohmann/json.hpp>
-
 #include <memory>
 #include <set>
 #include <unordered_map>
@@ -29,7 +27,6 @@ namespace beast = boost::beast;
 namespace websocket = beast::websocket;
 namespace http = beast::http;
 using tcp = asio::ip::tcp;
-using json = nlohmann::json;
 
 class USignalingServer; // forward
 

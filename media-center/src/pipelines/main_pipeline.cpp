@@ -563,6 +563,7 @@ void dump_video_info(GstVideoInfo* info) {
 }
 
 GstFlowReturn UCameraMainPipeline::on_new_sample_dma(GstElement* sink, gpointer user_data) {
+	auto mover =  static_cast<CDmabufMover*>(user_data);
 	GstSample* sample = gst_app_sink_pull_sample(GST_APP_SINK(sink));
 	if (!sample) {
 		return GST_FLOW_OK;
@@ -582,7 +583,7 @@ GstFlowReturn UCameraMainPipeline::on_new_sample_dma(GstElement* sink, gpointer 
 		return GST_FLOW_OK;
 	}
 
-	dump_video_info(&info);
+	//dump_video_info(&info);
 	gst_sample_unref(sample);
 
 	return GST_FLOW_OK;

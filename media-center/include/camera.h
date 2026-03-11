@@ -20,7 +20,7 @@
 
 #include <boost/json.hpp>
 
-#include "utility/drm-frame.h"
+#include "utility/dma-frame.h"
 #include "safe_buffers.h"
 #include "icamera_signaling.h"
 #include "iwebsocket_client.h"

@@ -15,7 +15,7 @@
 #include "webrtc_session.h"
 #include "logger.h"
 #include "utility/data-structs.h"
-#include "utility/drm-frame.h"
+#include "utility/dma-frame.h"
 
 using namespace varan::nvr;
 
