@@ -32,7 +32,6 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
       pcRef.current = null;
     }
     if (wsRef.current) {
-      // ✅ Отправляем close перед закрытием
       if (wsRef.current.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify({
           type: 'close',
@@ -56,7 +55,6 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
       ws.onopen = () => {
         console.log(`[${cameraId}] ✅ WebSocket connected`);
 
-        // ✅ ЭТАП 1: Отправляем connection запрос
         const connectionRequest = {
           type: 'connection',
           client_id: clientIdRef.current,
@@ -73,7 +71,6 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
         const msg = JSON.parse(event.data);
         console.log(`[${cameraId}] 📩 Received:`, msg.type);
 
-        // ✅ ЭТАП 2: Ответ камеры на connection
         if (msg.type === 'connection') {
           if (msg.ret === 'success') {
             console.log(`[${cameraId}] ✅ Camera accepted connection, creating PeerConnection`);
@@ -87,7 +84,6 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
           return;
         }
 
-        // ✅ ЭТАП 3: Обработка WebRTC сигналинга
         if (msg.type === 'offer') {
           await handleOffer(msg.sdp);
         }
@@ -121,16 +117,14 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
   const createPeerConnection = () => {
     console.log(`[${cameraId}] 🔧 Creating RTCPeerConnection...`);
 
-    const pc = new RTCPeerConnection({
-      // ✅ Можно добавить STUN сервер, если нужно
-      // iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-    });
+    // ✅ ИСПРАВЛЕНО: Без STUN, как в connection.js
+    const pc = new RTCPeerConnection();
     pcRef.current = pc;
 
-    // ✅ Добавляем transceiver для приёма видео
+    // ✅ КРИТИЧНО: Добавляем transceiver БЕЗ добавления треков
+    // Это говорит камере, что мы ТОЛЬКО принимаем видео
     pc.addTransceiver('video', { direction: 'recvonly' });
 
-    // ✅ Обработка ICE кандидатов
     pc.onicecandidate = (event) => {
       if (event.candidate && wsRef.current?.readyState === WebSocket.OPEN) {
         const msg = {
@@ -147,7 +141,6 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
       }
     };
 
-    // ✅ Получение видеопотока
     pc.ontrack = (event) => {
       console.log(`[${cameraId}] 🎥 Got video track`);
       if (videoRef.current) {
@@ -156,7 +149,6 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
       }
     };
 
-    // ✅ Отслеживание состояния соединения
     pc.oniceconnectionstatechange = () => {
       console.log(`[${cameraId}] ICE connection state:`, pc.iceConnectionState);
     };
@@ -177,25 +169,39 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
     }
 
     console.log(`[${cameraId}] 📩 Received SDP offer`);
+    console.log(`[${cameraId}] SDP preview:`, sdp.substring(0, 200) + '...');
 
-    await pcRef.current.setRemoteDescription(
-      new RTCSessionDescription({ type: 'offer', sdp })
-    );
-
-    console.log(`[${cameraId}] 🔧 Creating SDP answer...`);
-    const answer = await pcRef.current.createAnswer();
-    await pcRef.current.setLocalDescription(answer);
-
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      const msg = {
-        type: 'answer',
-        client_id: clientIdRef.current,
-        camera: cameraId,
-        description: 'SDP answer from client',
-        sdp: answer.sdp
+    try {
+      // ✅ ИСПРАВЛЕНО: Обработка ошибок + точная копия из connection.js
+      const offer = {
+        type: 'offer' as RTCSdpType,
+        sdp: sdp
       };
-      wsRef.current.send(JSON.stringify(msg));
-      console.log(`[${cameraId}] 📤 Sent SDP answer`);
+
+      await pcRef.current.setRemoteDescription(new RTCSessionDescription(offer));
+      console.log(`[${cameraId}] ✅ Remote description set`);
+
+      console.log(`[${cameraId}] 🔧 Creating SDP answer...`);
+      const answer = await pcRef.current.createAnswer();
+      await pcRef.current.setLocalDescription(answer);
+
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        const response = {
+          type: 'answer',
+          client_id: clientIdRef.current,
+          camera: cameraId,
+          description: 'SDP answer from client',
+          sdp: answer.sdp
+        };
+        wsRef.current.send(JSON.stringify(response));
+        console.log(`[${cameraId}] 📤 Sent SDP answer`);
+      }
+
+    } catch (err) {
+      console.error(`[${cameraId}] ❌ SDP Error:`, err);
+      setStatus('error');
+      setErrorMsg('Ошибка обработки SDP');
+      onError?.(`SDP error: ${err}`);
     }
   };
 
@@ -203,13 +209,17 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
     if (!pcRef.current) return;
 
     try {
-      const candidate = new RTCIceCandidate({
+      // ✅ ИСПРАВЛЕНО: Точная копия из connection.js
+      const iceCandidateInit: RTCIceCandidateInit = {
         candidate: msg.candidate,
         sdpMLineIndex: msg.sdpMLineIndex,
-        sdpMid: msg.sdpMid,
-      });
-      await pcRef.current.addIceCandidate(candidate);
-      // console.log(`[${cameraId}] ✅ Added ICE candidate`);
+      };
+
+      if (msg.sdpMid !== undefined) {
+        iceCandidateInit.sdpMid = msg.sdpMid;
+      }
+
+      await pcRef.current.addIceCandidate(new RTCIceCandidate(iceCandidateInit));
     } catch (err) {
       console.error(`[${cameraId}] ❌ ICE error:`, err);
     }
@@ -232,7 +242,6 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
         flexDirection: 'column',
       }}
     >
-      {/* Заголовок */}
       <Box
         sx={{
           position: 'absolute',
@@ -259,7 +268,6 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
         )}
       </Box>
 
-      {/* Видео */}
       <video
         ref={videoRef}
         autoPlay
@@ -273,7 +281,6 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
         }}
       />
 
-      {/* Статусы */}
       {status === 'connecting' && (
         <Box
           display="flex"
