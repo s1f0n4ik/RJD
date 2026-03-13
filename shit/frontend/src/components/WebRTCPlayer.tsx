@@ -163,46 +163,51 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
   };
 
   const handleOffer = async (sdp: string) => {
-  if (!pcRef.current) {
-    console.error(`[${cameraId}] ❌ PeerConnection not created yet`);
-    return;
-  }
-
-  console.log(`[${cameraId}] 📩 Received SDP offer`);
-  console.log(`[${cameraId}] 📄 FULL SDP:\n${sdp}`);  // ✅ ПОЛНЫЙ SDP!
-
-  try {
-    const offer = {
-      type: 'offer' as RTCSdpType,
-      sdp: sdp
-    };
-
-    await pcRef.current.setRemoteDescription(new RTCSessionDescription(offer));
-    console.log(`[${cameraId}] ✅ Remote description set`);
-
-    console.log(`[${cameraId}] 🔧 Creating SDP answer...`);
-    const answer = await pcRef.current.createAnswer();
-    await pcRef.current.setLocalDescription(answer);
-
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      const response = {
-        type: 'answer',
-        client_id: clientIdRef.current,
-        camera: cameraId,
-        description: 'SDP answer from client',
-        sdp: answer.sdp
-      };
-      wsRef.current.send(JSON.stringify(response));
-      console.log(`[${cameraId}] 📤 Sent SDP answer`);
+    if (!pcRef.current) {
+      console.error(`[${cameraId}] ❌ PeerConnection not created yet`);
+      return;
     }
 
-  } catch (err) {
-    console.error(`[${cameraId}] ❌ SDP Error:`, err);
-    setStatus('error');
-    setErrorMsg('Ошибка обработки SDP');
-    onError?.(`SDP error: ${err}`);
-  }
-};
+    console.log(`[${cameraId}] 📩 Received SDP offer`);
+    console.log(`[${cameraId}] 📄 Original SDP:\n${sdp}`);
+
+    try {
+      // ✅ МОДИФИЦИРУЕМ SDP: принудительно меняем sendrecv → recvonly
+      const modifiedSdp = sdp.replace(/a=sendrecv/g, 'a=recvonly');
+
+      console.log(`[${cameraId}] 🔧 Modified SDP (sendrecv → recvonly)`);
+
+      const offer = {
+        type: 'offer' as RTCSdpType,
+        sdp: modifiedSdp  // ✅ Используем модифицированный SDP!
+      };
+
+      await pcRef.current.setRemoteDescription(new RTCSessionDescription(offer));
+      console.log(`[${cameraId}] ✅ Remote description set`);
+
+      console.log(`[${cameraId}] 🔧 Creating SDP answer...`);
+      const answer = await pcRef.current.createAnswer();
+      await pcRef.current.setLocalDescription(answer);
+
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        const response = {
+          type: 'answer',
+          client_id: clientIdRef.current,
+          camera: cameraId,
+          description: 'SDP answer from client',
+          sdp: answer.sdp
+        };
+        wsRef.current.send(JSON.stringify(response));
+        console.log(`[${cameraId}] 📤 Sent SDP answer`);
+      }
+
+    } catch (err) {
+      console.error(`[${cameraId}] ❌ SDP Error:`, err);
+      setStatus('error');
+      setErrorMsg('Ошибка обработки SDP');
+      onError?.(`SDP error: ${err}`);
+    }
+  };
 
   const handleIceCandidate = async (msg: any) => {
     if (!pcRef.current) return;
