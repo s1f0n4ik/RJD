@@ -23,33 +23,45 @@ export class WebSocketService {
     };
 
     this.ws.onmessage = (event) => {
-  try {
-      const message: WebSocketMessage = JSON.parse(event.data);
+      try {
+        const message: WebSocketMessage = JSON.parse(event.data);
 
-      if (message.type === 'initial_state' || message.type === 'status_update') {
-        console.log('📦 State updated');
+        if (message.type === 'initial_state' || message.type === 'status_update') {
+          console.log('📦 State received');
 
-        // ✅ ДОБАВЛЕНО: Валидация данных
-        const stateData = message.data as SystemState;
+          const stateData = message.data as SystemState;
 
-        // Проверяем что cameras - массив
-        if (stateData && !Array.isArray(stateData.cameras)) {
-          console.warn('⚠️ cameras is not array, fixing...', stateData.cameras);
-          stateData.cameras = [];
+          // ✅ ИСПРАВЛЕНО: Преобразуем объект cameras в массив
+          if (stateData && stateData.cameras) {
+            if (!Array.isArray(stateData.cameras)) {
+              console.warn('⚠️ cameras is object, converting to array...');
+              stateData.cameras = Object.values(stateData.cameras);
+            }
+          } else {
+            stateData.cameras = [];
+          }
+
+          // ✅ ИСПРАВЛЕНО: Преобразуем объект loaders в массив
+          if (stateData && stateData.loaders) {
+            if (!Array.isArray(stateData.loaders)) {
+              console.warn('⚠️ loaders is object, converting to array...');
+              stateData.loaders = Object.values(stateData.loaders);
+            }
+          } else {
+            stateData.loaders = [];
+          }
+
+          console.log('📦 State updated:', {
+            cameras: stateData.cameras.length,
+            loaders: stateData.loaders.length
+          });
+
+          onStateUpdate(stateData);
         }
-
-        // Проверяем что loaders - массив
-        if (stateData && !Array.isArray(stateData.loaders)) {
-          console.warn('⚠️ loaders is not array, fixing...', stateData.loaders);
-          stateData.loaders = [];
-        }
-
-        onStateUpdate(stateData);
+      } catch (err) {
+        console.error('❌ Parse error:', err);
       }
-    } catch (err) {
-      console.error('❌ Parse error:', err);
-    }
-  };
+    };
 
     this.ws.onclose = () => {
       console.log('🔌 WebSocket Disconnected');
