@@ -118,49 +118,49 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
   console.log(`[${cameraId}] 🔧 Creating RTCPeerConnection...`);
 
   const pc = new RTCPeerConnection({
-    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]  // ✅ Добавим STUN для надёжности
-  });
-  pcRef.current = pc;
+    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+    });
+    pcRef.current = pc;
 
-  // ❌ УБРАЛИ: pc.addTransceiver('video', { direction: 'recvonly' });
-  // ✅ Браузер сам создаст transceiver при setRemoteDescription(offer)!
+    // ✅ ВЕРНУЛИ! Это КРИТИЧЕСКИ ВАЖНО для камер с sendrecv!
+    pc.addTransceiver('video', { direction: 'recvonly' });
 
-  pc.onicecandidate = (event) => {
-    if (event.candidate && wsRef.current?.readyState === WebSocket.OPEN) {
-      const msg = {
-        type: 'ice',
-        client_id: clientIdRef.current,
-        camera: cameraId,
-        candidate: event.candidate.candidate,
-        sdpMLineIndex: event.candidate.sdpMLineIndex,
-        sdpMid: event.candidate.sdpMid,
-        usernameFragment: event.candidate.usernameFragment,
-      };
-      wsRef.current.send(JSON.stringify(msg));
-      console.log(`[${cameraId}] 📤 Sent ICE candidate`);
-    }
+    pc.onicecandidate = (event) => {
+      if (event.candidate && wsRef.current?.readyState === WebSocket.OPEN) {
+        const msg = {
+          type: 'ice',
+          client_id: clientIdRef.current,
+          camera: cameraId,
+          candidate: event.candidate.candidate,
+          sdpMLineIndex: event.candidate.sdpMLineIndex,
+          sdpMid: event.candidate.sdpMid,
+          usernameFragment: event.candidate.usernameFragment,
+        };
+        wsRef.current.send(JSON.stringify(msg));
+        console.log(`[${cameraId}] 📤 Sent ICE candidate`);
+      }
+    };
+
+    pc.ontrack = (event) => {
+      console.log(`[${cameraId}] 🎥 Got video track`);
+      if (videoRef.current) {
+        videoRef.current.srcObject = event.streams[0];
+        setStatus('connected');
+      }
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      console.log(`[${cameraId}] ICE connection state:`, pc.iceConnectionState);
+    };
+
+    pc.onconnectionstatechange = () => {
+      console.log(`[${cameraId}] Connection state:`, pc.connectionState);
+      if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+        setStatus('error');
+        setErrorMsg('Соединение потеряно');
+      }
+    };
   };
-
-  pc.ontrack = (event) => {
-    console.log(`[${cameraId}] 🎥 Got video track`);
-    if (videoRef.current) {
-      videoRef.current.srcObject = event.streams[0];
-      setStatus('connected');
-    }
-  };
-
-  pc.oniceconnectionstatechange = () => {
-    console.log(`[${cameraId}] ICE connection state:`, pc.iceConnectionState);
-  };
-
-  pc.onconnectionstatechange = () => {
-    console.log(`[${cameraId}] Connection state:`, pc.connectionState);
-    if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-      setStatus('error');
-      setErrorMsg('Соединение потеряно');
-    }
-  };
-};
 
   const handleOffer = async (sdp: string) => {
   if (!pcRef.current) {
