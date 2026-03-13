@@ -115,50 +115,51 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
   };
 
   const createPeerConnection = () => {
-    console.log(`[${cameraId}] 🔧 Creating RTCPeerConnection...`);
+  console.log(`[${cameraId}] 🔧 Creating RTCPeerConnection...`);
 
-    const pc = new RTCPeerConnection();
-    pcRef.current = pc;
+  // ✅ ИСПРАВЛЕНО: Пустой объект как в connection.js
+  const pc = new RTCPeerConnection({});
+  pcRef.current = pc;
 
-    // ❌ УБИРАЕМ: pc.addTransceiver('video', { direction: 'recvonly' });
-    // Браузер сам создаст transceiver при получении offer от камеры
+  // ✅ ВЕРНУЛИ: Точно как в connection.js!
+  pc.addTransceiver('video', { direction: 'recvonly' });
 
-    pc.onicecandidate = (event) => {
-      if (event.candidate && wsRef.current?.readyState === WebSocket.OPEN) {
-        const msg = {
-          type: 'ice',
-          client_id: clientIdRef.current,
-          camera: cameraId,
-          candidate: event.candidate.candidate,
-          sdpMLineIndex: event.candidate.sdpMLineIndex,
-          sdpMid: event.candidate.sdpMid,
-          usernameFragment: event.candidate.usernameFragment,
-        };
-        wsRef.current.send(JSON.stringify(msg));
-        console.log(`[${cameraId}] 📤 Sent ICE candidate`);
-      }
-    };
-
-    pc.ontrack = (event) => {
-      console.log(`[${cameraId}] 🎥 Got video track`);
-      if (videoRef.current) {
-        videoRef.current.srcObject = event.streams[0];
-        setStatus('connected');
-      }
-    };
-
-    pc.oniceconnectionstatechange = () => {
-      console.log(`[${cameraId}] ICE connection state:`, pc.iceConnectionState);
-    };
-
-    pc.onconnectionstatechange = () => {
-      console.log(`[${cameraId}] Connection state:`, pc.connectionState);
-      if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-        setStatus('error');
-        setErrorMsg('Соединение потеряно');
-      }
-    };
+  pc.onicecandidate = (event) => {
+    if (event.candidate && wsRef.current?.readyState === WebSocket.OPEN) {
+      const msg = {
+        type: 'ice',
+        client_id: clientIdRef.current,
+        camera: cameraId,
+        candidate: event.candidate.candidate,
+        sdpMLineIndex: event.candidate.sdpMLineIndex,
+        sdpMid: event.candidate.sdpMid,
+        usernameFragment: event.candidate.usernameFragment,
+      };
+      wsRef.current.send(JSON.stringify(msg));
+      console.log(`[${cameraId}] 📤 Sent ICE candidate`);
+    }
   };
+
+  pc.ontrack = (event) => {
+    console.log(`[${cameraId}] 🎥 Got video track`);
+    if (videoRef.current) {
+      videoRef.current.srcObject = event.streams[0];
+      setStatus('connected');
+    }
+  };
+
+  pc.oniceconnectionstatechange = () => {
+    console.log(`[${cameraId}] ICE connection state:`, pc.iceConnectionState);
+  };
+
+  pc.onconnectionstatechange = () => {
+    console.log(`[${cameraId}] Connection state:`, pc.connectionState);
+    if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+      setStatus('error');
+      setErrorMsg('Соединение потеряно');
+    }
+  };
+};
 
   const handleOffer = async (sdp: string) => {
     if (!pcRef.current) {
