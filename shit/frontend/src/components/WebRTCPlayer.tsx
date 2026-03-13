@@ -27,13 +27,22 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
   }, [cameraId, signalingUrl]);
 
   const cleanup = () => {
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-    }
     if (pcRef.current) {
       pcRef.current.close();
       pcRef.current = null;
+    }
+    if (wsRef.current) {
+      // ✅ Отправляем close перед закрытием
+      if (wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({
+          type: 'close',
+          client_id: clientIdRef.current,
+          camera: cameraId,
+          description: 'client disconnect'
+        }));
+      }
+      wsRef.current.close();
+      wsRef.current = null;
     }
   };
 
@@ -45,26 +54,40 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
       wsRef.current = ws;
 
       ws.onopen = () => {
-        console.log(`[${cameraId}] WebSocket connected`);
+        console.log(`[${cameraId}] ✅ WebSocket connected`);
 
-        // Отправляем connection запрос
-        ws.send(JSON.stringify({
+        // ✅ ЭТАП 1: Отправляем connection запрос
+        const connectionRequest = {
           type: 'connection',
           client_id: clientIdRef.current,
           camera: cameraId,
           description: 'connect_request from client',
           ret: 'none'
-        }));
+        };
+
+        ws.send(JSON.stringify(connectionRequest));
+        console.log(`[${cameraId}] 📤 Sent connection request:`, connectionRequest);
       };
 
       ws.onmessage = async (event) => {
         const msg = JSON.parse(event.data);
-        console.log(`[${cameraId}] Message:`, msg.type);
+        console.log(`[${cameraId}] 📩 Received:`, msg.type);
 
-        if (msg.type === 'connection' && msg.ret === 'success') {
-          createPeerConnection();
+        // ✅ ЭТАП 2: Ответ камеры на connection
+        if (msg.type === 'connection') {
+          if (msg.ret === 'success') {
+            console.log(`[${cameraId}] ✅ Camera accepted connection, creating PeerConnection`);
+            createPeerConnection();
+          } else {
+            console.error(`[${cameraId}] ❌ Camera rejected connection: ret=${msg.ret}`);
+            setStatus('error');
+            setErrorMsg('Камера отклонила соединение');
+            onError?.('Camera rejected connection');
+          }
+          return;
         }
 
+        // ✅ ЭТАП 3: Обработка WebRTC сигналинга
         if (msg.type === 'offer') {
           await handleOffer(msg.sdp);
         }
@@ -75,20 +98,20 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
       };
 
       ws.onerror = (error) => {
-        console.error(`[${cameraId}] WebSocket error:`, error);
+        console.error(`[${cameraId}] ❌ WebSocket error:`, error);
         setStatus('error');
         setErrorMsg('Ошибка подключения');
         onError?.('WebSocket error');
       };
 
       ws.onclose = () => {
-        console.log(`[${cameraId}] WebSocket closed`);
+        console.log(`[${cameraId}] 🔌 WebSocket closed`);
         setStatus('error');
         setErrorMsg('Соединение закрыто');
       };
 
     } catch (err) {
-      console.error(`[${cameraId}] Connect error:`, err);
+      console.error(`[${cameraId}] ❌ Connect error:`, err);
       setStatus('error');
       setErrorMsg('Не удалось подключиться');
       onError?.(String(err));
@@ -96,14 +119,21 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
   };
 
   const createPeerConnection = () => {
-    const pc = new RTCPeerConnection();
+    console.log(`[${cameraId}] 🔧 Creating RTCPeerConnection...`);
+
+    const pc = new RTCPeerConnection({
+      // ✅ Можно добавить STUN сервер, если нужно
+      // iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+    });
     pcRef.current = pc;
 
+    // ✅ Добавляем transceiver для приёма видео
     pc.addTransceiver('video', { direction: 'recvonly' });
 
+    // ✅ Обработка ICE кандидатов
     pc.onicecandidate = (event) => {
       if (event.candidate && wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({
+        const msg = {
           type: 'ice',
           client_id: clientIdRef.current,
           camera: cameraId,
@@ -111,16 +141,24 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
           sdpMLineIndex: event.candidate.sdpMLineIndex,
           sdpMid: event.candidate.sdpMid,
           usernameFragment: event.candidate.usernameFragment,
-        }));
+        };
+        wsRef.current.send(JSON.stringify(msg));
+        console.log(`[${cameraId}] 📤 Sent ICE candidate`);
       }
     };
 
+    // ✅ Получение видеопотока
     pc.ontrack = (event) => {
-      console.log(`[${cameraId}] Got video track`);
+      console.log(`[${cameraId}] 🎥 Got video track`);
       if (videoRef.current) {
         videoRef.current.srcObject = event.streams[0];
         setStatus('connected');
       }
+    };
+
+    // ✅ Отслеживание состояния соединения
+    pc.oniceconnectionstatechange = () => {
+      console.log(`[${cameraId}] ICE connection state:`, pc.iceConnectionState);
     };
 
     pc.onconnectionstatechange = () => {
@@ -133,21 +171,31 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
   };
 
   const handleOffer = async (sdp: string) => {
-    if (!pcRef.current) return;
+    if (!pcRef.current) {
+      console.error(`[${cameraId}] ❌ PeerConnection not created yet`);
+      return;
+    }
 
-    await pcRef.current.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp }));
+    console.log(`[${cameraId}] 📩 Received SDP offer`);
 
+    await pcRef.current.setRemoteDescription(
+      new RTCSessionDescription({ type: 'offer', sdp })
+    );
+
+    console.log(`[${cameraId}] 🔧 Creating SDP answer...`);
     const answer = await pcRef.current.createAnswer();
     await pcRef.current.setLocalDescription(answer);
 
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
+      const msg = {
         type: 'answer',
         client_id: clientIdRef.current,
         camera: cameraId,
         description: 'SDP answer from client',
         sdp: answer.sdp
-      }));
+      };
+      wsRef.current.send(JSON.stringify(msg));
+      console.log(`[${cameraId}] 📤 Sent SDP answer`);
     }
   };
 
@@ -161,8 +209,9 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
         sdpMid: msg.sdpMid,
       });
       await pcRef.current.addIceCandidate(candidate);
+      // console.log(`[${cameraId}] ✅ Added ICE candidate`);
     } catch (err) {
-      console.error(`[${cameraId}] ICE error:`, err);
+      console.error(`[${cameraId}] ❌ ICE error:`, err);
     }
   };
 
