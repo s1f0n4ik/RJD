@@ -137,7 +137,6 @@ const Observation: React.FC = () => {
         </Box>
       </Paper>
 
-      {/* ✅ ДОБАВЛЕНО: Показываем ошибку загрузки */}
       {loadError && (
         <Alert severity="error" sx={{ mb: 3 }}>
           {loadError}

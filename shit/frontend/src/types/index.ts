@@ -6,7 +6,7 @@ export interface CPPCameraStream {
   length?: number;
   delete_delay?: number;
   use_udp: boolean;
-  status?: number; // 0-���, 1-�����, 2-����������, 3-� ������
+  status?: number; // 0-нет, 1-готов, 2-остановлен, 3-в работе
 }
 
 export interface CPPCamera {
@@ -25,7 +25,6 @@ export interface NeuralLoader {
   loader_matrix?: string[][];
 }
 
-// ✅ ДОБАВЛЕНО: Старые типы для совместимости (используются в CameraSettings)
 export interface Camera {
   camera_name: string;
   rtsp_url: string;
@@ -35,18 +34,17 @@ export interface Camera {
   status?: string;
 }
 
-// ? ��������� ����������� ����
-export interface NeuralLoader {
-  loader_name: string;
-  server_endpoint: string;
-  img_size: number;
-  status: 'running' | 'stopped';
-  loader_matrix?: string[][];
+export interface CameraFormData {
+  camera_name: string;
+  rtsp_url: string;
+  width: number | null;
+  height: number | null;
+  reconnect_interval: number;
 }
 
 export interface SystemState {
   cameras: CPPCamera[];
-  loaders: NeuralLoader[]; // ? ���������!
+  loaders: NeuralLoader[];
   summary?: {
     cameras_total: number;
     cameras_running: number;
