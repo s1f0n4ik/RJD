@@ -31,17 +31,22 @@ export class WebSocketService {
 
           const stateData = message.data as SystemState;
 
-          // ✅ ИСПРАВЛЕНО: Преобразуем объект cameras в массив
+          // ✅ ПРЕОБРАЗУЕМ объект cameras в массив + добавляем name
           if (stateData && stateData.cameras) {
             if (!Array.isArray(stateData.cameras)) {
-              console.warn('⚠️ cameras is object, converting to array...');
-              stateData.cameras = Object.values(stateData.cameras);
+              console.warn('⚠️ cameras is object, converting to array with names...');
+
+              const camerasObj = stateData.cameras as any;
+              stateData.cameras = Object.entries(camerasObj).map(([name, data]: [string, any]) => ({
+                name,  // ✅ Добавляем ключ как name
+                ...data
+              }));
             }
           } else {
             stateData.cameras = [];
           }
 
-          // ✅ ИСПРАВЛЕНО: Преобразуем объект loaders в массив
+          // ✅ ПРЕОБРАЗУЕМ loaders
           if (stateData && stateData.loaders) {
             if (!Array.isArray(stateData.loaders)) {
               console.warn('⚠️ loaders is object, converting to array...');

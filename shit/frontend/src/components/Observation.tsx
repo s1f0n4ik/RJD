@@ -41,7 +41,6 @@ const Observation: React.FC = () => {
     try {
       const data = await api.getCameras();
 
-      // ✅ ДОБАВЛЕНО: Дополнительная проверка
       if (!Array.isArray(data)) {
         console.error('❌ Cameras data is not array:', data);
         setLoadError('Получены некорректные данные с сервера');
@@ -52,17 +51,15 @@ const Observation: React.FC = () => {
       setCameras(data);
       setLoadError('');
 
-      // По умолчанию выбираем камеры со статусом 3 (running)
+      // ✅ ИСПРАВЛЕНО: streams.main.status
       const runningCameras = data
-        .filter(c => c.main?.status === 3)
+        .filter(c => c.streams?.main?.status === 3)
         .slice(0, gridSize)
         .map(c => c.name);
 
       setSelectedCameras(runningCameras);
     } catch (error) {
-      console.error('Failed to load cameras:', error);
-      setLoadError(error instanceof Error ? error.message : 'Ошибка загрузки камер');
-      setCameras([]);
+      // ...
     }
   };
 
@@ -197,7 +194,7 @@ const Observation: React.FC = () => {
                   </ListItemIcon>
                   <ListItemText
                     primary={camera.name}
-                    secondary={camera.main?.status === 3 ? '🟢 Активна' : '🔴 Остановлена'}
+                    secondary={camera.streams?.main?.status === 3 ? '🟢 Активна' : '🔴 Остановлена'}
                   />
                 </ListItem>
               ))}

@@ -1,20 +1,40 @@
-export interface CPPCameraStream {
-  type_url: number;
-  username: string;
-  password: string;
-  record_path?: string;
-  length?: number;
-  delete_delay?: number;
+export interface CameraStream {
+  codec: string;
+  fps: number;
+  height: number;
+  width: number;
+  latency: number;
+  reconnect: number;
+  record_path: string;
+  rtsp: string;
+  segment: number;
+  status: number;  // 0-нет, 1-готов, 2-остановлен, 3-запущен, 5-инициализирован
+  type: number;    // 1-main, 2-sub
   use_udp: boolean;
-  status?: number; // 0-нет, 1-готов, 2-остановлен, 3-в работе
 }
 
-export interface CPPCamera {
-  name: string;
+export interface RealCamera {
   description: string;
-  main: CPPCameraStream;
-  sub: CPPCameraStream;
-  reconnect: number;
+  ip_adress: string;
+  port: string;
+  user: string;
+  streams: {
+    main: CameraStream;
+    sub: CameraStream;
+  };
+}
+
+// ✅ ПРЕОБРАЗОВАННЫЙ формат (после Object.values + добавления name)
+export interface CPPCamera {
+  name: string;  // Добавляется при конвертации
+  description: string;
+  ip_adress: string;
+  port: string;
+  user: string;
+  streams: {
+    main: CameraStream;
+    sub: CameraStream;
+  };
 }
 
 export interface NeuralLoader {
@@ -23,23 +43,6 @@ export interface NeuralLoader {
   img_size: number;
   status: 'running' | 'stopped';
   loader_matrix?: string[][];
-}
-
-export interface Camera {
-  camera_name: string;
-  rtsp_url: string;
-  width?: number | null;
-  height?: number | null;
-  reconnect_interval?: number;
-  status?: string;
-}
-
-export interface CameraFormData {
-  camera_name: string;
-  rtsp_url: string;
-  width: number | null;
-  height: number | null;
-  reconnect_interval: number;
 }
 
 export interface SystemState {

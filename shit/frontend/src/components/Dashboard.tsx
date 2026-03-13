@@ -27,7 +27,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
   const loaders = Array.isArray(state.loaders) ? state.loaders : [];
 
   // ✅ ИСПРАВЛЕНО: используем безопасные массивы
-  const runningCameras = cameras.filter(c => c.main?.status === 3).length;
+  const runningCameras = cameras.filter(c => c.streams?.main?.status === 3).length;
   const runningLoaders = loaders.filter(l => l.status === 'running').length;
 
   return (
@@ -99,37 +99,21 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
                         <Typography variant="h6" gutterBottom fontWeight={600} noWrap>
                           {camera.name}
                         </Typography>
-                        <Typography
-                          variant="body2"
-                          color="text.secondary"
-                          sx={{
-                            mb: 1,
-                            fontSize: '0.8rem',
-                            wordBreak: 'break-all',
-                          }}
-                        >
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
                           {camera.description}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
-                          Main: status={camera.main?.status || 0}, Sub: status={camera.sub?.status || 0}
+                          {camera.ip_adress}:{camera.port} · Main: status={camera.streams?.main?.status || 0}
                         </Typography>
                       </Box>
 
                       <Chip
-                        label={camera.main?.status === 3 ? 'Активна' : 'Остановлена'}
-                        color={camera.main?.status === 3 ? 'success' : 'default'}
+                        label={camera.streams?.main?.status === 3 ? 'Активна' : 'Остановлена'}
+                        color={camera.streams?.main?.status === 3 ? 'success' : 'default'}
                         size="small"
                         sx={{
                           flexShrink: 0,
                           fontWeight: 600,
-                          fontSize: '0.75rem',
-                          height: 'auto',
-                          minHeight: 24,
-                          '& .MuiChip-label': {
-                            px: 1.5,
-                            py: 0.5,
-                            whiteSpace: 'nowrap',
-                          },
                         }}
                       />
                     </Box>
