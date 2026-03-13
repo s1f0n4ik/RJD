@@ -1,23 +1,5 @@
 import { FASTAPI_BASE } from '../utils/constants';
-
-export interface CPPCameraStream {
-  type_url: number;
-  username: string;
-  password: string;
-  record_path?: string;
-  length?: number;
-  delete_delay?: number;
-  use_udp: boolean;
-  status?: number;
-}
-
-export interface CPPCamera {
-  name: string;
-  description: string;
-  main: CPPCameraStream;
-  sub: CPPCameraStream;
-  reconnect: number;
-}
+import type { CPPCamera } from '../types';
 
 class ApiClient {
   private baseUrl: string;
@@ -32,12 +14,24 @@ class ApiClient {
 
     const data = await response.json();
 
-    // ✅ ИСПРАВЛЕНО: Сервер возвращает { cameras: [...], total: N }
-    if (data.cameras && Array.isArray(data.cameras)) {
-      return data.cameras;
+    // ✅ ИСПРАВЛЕНО: Сервер возвращает { cameras: {camera_1: {...}, camera_2: {...}} }
+    if (data.cameras) {
+      // Если это массив — возвращаем как есть
+      if (Array.isArray(data.cameras)) {
+        return data.cameras;
+      }
+
+      // Если это объект — конвертируем в массив + добавляем name
+      if (typeof data.cameras === 'object') {
+        console.log('📦 Converting cameras object to array...');
+        return Object.entries(data.cameras).map(([name, cameraData]: [string, any]) => ({
+          name,
+          ...cameraData
+        })) as CPPCamera[];
+      }
     }
 
-    // Если вернули массив напрямую (старый формат - на всякий случай)
+    // Если вернули массив напрямую (старый формат)
     if (Array.isArray(data)) {
       return data;
     }
@@ -46,10 +40,18 @@ class ApiClient {
     return [];
   }
 
-  async getCamera(cameraName: string): Promise<CPPCamera> {
+  async getCamera(cameraName: string): Promise<CPPCamera | null> {
     const response = await fetch(`${this.baseUrl}/api/camera/${cameraName}`);
     if (!response.ok) throw new Error('Camera not found');
-    return response.json();
+
+    const data = await response.json();
+
+    // Добавляем name, если его нет
+    if (data && !data.name) {
+      data.name = cameraName;
+    }
+
+    return data;
   }
 
   async createCamera(camera: CPPCamera): Promise<any> {
@@ -87,3 +89,4 @@ class ApiClient {
 }
 
 export const api = new ApiClient(FASTAPI_BASE);
+export type { CPPCamera };

@@ -41,6 +41,7 @@ const Observation: React.FC = () => {
     try {
       const data = await api.getCameras();
 
+      // ✅ ИСПРАВЛЕНО: теперь api.getCameras() всегда возвращает массив
       if (!Array.isArray(data)) {
         console.error('❌ Cameras data is not array:', data);
         setLoadError('Получены некорректные данные с сервера');
@@ -48,6 +49,7 @@ const Observation: React.FC = () => {
         return;
       }
 
+      console.log('✅ Loaded cameras:', data);
       setCameras(data);
       setLoadError('');
 
@@ -58,8 +60,11 @@ const Observation: React.FC = () => {
         .map(c => c.name);
 
       setSelectedCameras(runningCameras);
+
     } catch (error) {
-      // ...
+      console.error('❌ Failed to load cameras:', error);
+      setLoadError(error instanceof Error ? error.message : 'Ошибка загрузки камер');
+      setCameras([]);
     }
   };
 
