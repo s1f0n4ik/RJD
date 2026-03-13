@@ -117,13 +117,11 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
   const createPeerConnection = () => {
     console.log(`[${cameraId}] 🔧 Creating RTCPeerConnection...`);
 
-    // ✅ ИСПРАВЛЕНО: Без STUN, как в connection.js
     const pc = new RTCPeerConnection();
     pcRef.current = pc;
 
-    // ✅ КРИТИЧНО: Добавляем transceiver БЕЗ добавления треков
-    // Это говорит камере, что мы ТОЛЬКО принимаем видео
-    pc.addTransceiver('video', { direction: 'recvonly' });
+    // ❌ УБИРАЕМ: pc.addTransceiver('video', { direction: 'recvonly' });
+    // Браузер сам создаст transceiver при получении offer от камеры
 
     pc.onicecandidate = (event) => {
       if (event.candidate && wsRef.current?.readyState === WebSocket.OPEN) {
