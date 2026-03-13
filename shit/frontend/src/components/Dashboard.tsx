@@ -22,9 +22,13 @@ interface DashboardProps {
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ state }) => {
-  // ✅ ИСПРАВЛЕНО: проверяем main.status === 3
-  const runningCameras = state.cameras.filter(c => c.main?.status === 3).length;
-  const runningLoaders = state.loaders?.filter(l => l.status === 'running').length || 0;
+  // ✅ ЗАЩИТА: проверяем что cameras - массив
+  const cameras = Array.isArray(state.cameras) ? state.cameras : [];
+  const loaders = Array.isArray(state.loaders) ? state.loaders : [];
+
+  // ✅ ИСПРАВЛЕНО: используем безопасные массивы
+  const runningCameras = cameras.filter(c => c.main?.status === 3).length;
+  const runningLoaders = loaders.filter(l => l.status === 'running').length;
 
   return (
     <Container maxWidth="lg">
@@ -45,7 +49,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
                 </Typography>
               </Box>
               <Typography variant="h2" fontWeight="bold" sx={{ mb: 1 }}>
-                {runningCameras}/{state.cameras.length}
+                {runningCameras}/{cameras.length}
               </Typography>
               <Typography sx={{ opacity: 0.9 }}>
                 Активных камер
@@ -69,7 +73,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
                 </Typography>
               </Box>
               <Typography variant="h2" fontWeight="bold" sx={{ mb: 1 }}>
-                {runningLoaders}/{state.loaders?.length || 0}
+                {runningLoaders}/{loaders.length}
               </Typography>
               <Typography sx={{ opacity: 0.9 }}>
                 Активных загрузчиков
@@ -80,20 +84,20 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
       </Grid>
 
       {/* Cameras List */}
-      {state.cameras.length > 0 && (
+      {cameras.length > 0 && (
         <Box sx={{ mb: 4 }}>
           <Typography variant="h5" gutterBottom sx={{ mb: 2, fontWeight: 600 }}>
             📹 Камеры видеонаблюдения
           </Typography>
           <Grid container spacing={2}>
-            {state.cameras.map((camera) => (
-              <Grid item xs={12} md={6} key={camera.name}> {/* ✅ ИСПРАВЛЕНО */}
+            {cameras.map((camera) => (
+              <Grid item xs={12} md={6} key={camera.name}>
                 <Card sx={{ borderLeft: `4px solid ${RZD_COLORS.primary}` }}>
                   <CardContent>
                     <Box display="flex" justifyContent="space-between" alignItems="start" gap={2}>
                       <Box sx={{ flexGrow: 1, minWidth: 0 }}>
                         <Typography variant="h6" gutterBottom fontWeight={600} noWrap>
-                          {camera.name} {/* ✅ ИСПРАВЛЕНО */}
+                          {camera.name}
                         </Typography>
                         <Typography
                           variant="body2"
@@ -104,14 +108,13 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
                             wordBreak: 'break-all',
                           }}
                         >
-                          {camera.description} {/* ✅ ИСПРАВЛЕНО: показываем описание */}
+                          {camera.description}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
                           Main: status={camera.main?.status || 0}, Sub: status={camera.sub?.status || 0}
                         </Typography>
                       </Box>
 
-                      {/* ✅ ИСПРАВЛЕНО: проверяем main.status === 3 */}
                       <Chip
                         label={camera.main?.status === 3 ? 'Активна' : 'Остановлена'}
                         color={camera.main?.status === 3 ? 'success' : 'default'}
@@ -139,13 +142,13 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
       )}
 
       {/* Neural Loaders */}
-      {state.loaders && state.loaders.length > 0 && (
+      {loaders.length > 0 && (
         <Box>
           <Typography variant="h5" gutterBottom sx={{ mb: 2, fontWeight: 600 }}>
             🧠 Нейронная обработка
           </Typography>
           <Grid container spacing={3}>
-            {state.loaders.map((loader) => {
+            {loaders.map((loader) => {
               const flaskPath = ENDPOINT_MAP[loader.server_endpoint] || '/neural_1';
               const streamUrl = `${FASTAPI_BASE}${flaskPath}`;
 
@@ -235,7 +238,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
       )}
 
       {/* Empty State */}
-      {state.cameras.length === 0 && (state.loaders?.length || 0) === 0 && (
+      {cameras.length === 0 && loaders.length === 0 && (
         <Paper sx={{ p: 8, textAlign: 'center' }}>
           <Typography variant="h5" color="text.secondary" gutterBottom fontWeight={600}>
             Нет активных устройств

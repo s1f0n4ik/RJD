@@ -23,17 +23,33 @@ export class WebSocketService {
     };
 
     this.ws.onmessage = (event) => {
-      try {
-        const message: WebSocketMessage = JSON.parse(event.data);
+  try {
+      const message: WebSocketMessage = JSON.parse(event.data);
 
-        if (message.type === 'initial_state' || message.type === 'status_update') {
-          console.log('📦 State updated');
-          onStateUpdate(message.data as SystemState);
+      if (message.type === 'initial_state' || message.type === 'status_update') {
+        console.log('📦 State updated');
+
+        // ✅ ДОБАВЛЕНО: Валидация данных
+        const stateData = message.data as SystemState;
+
+        // Проверяем что cameras - массив
+        if (stateData && !Array.isArray(stateData.cameras)) {
+          console.warn('⚠️ cameras is not array, fixing...', stateData.cameras);
+          stateData.cameras = [];
         }
-      } catch (err) {
-        console.error('❌ Parse error:', err);
+
+        // Проверяем что loaders - массив
+        if (stateData && !Array.isArray(stateData.loaders)) {
+          console.warn('⚠️ loaders is not array, fixing...', stateData.loaders);
+          stateData.loaders = [];
+        }
+
+        onStateUpdate(stateData);
       }
-    };
+    } catch (err) {
+      console.error('❌ Parse error:', err);
+    }
+  };
 
     this.ws.onclose = () => {
       console.log('🔌 WebSocket Disconnected');
