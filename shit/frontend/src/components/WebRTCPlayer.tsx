@@ -172,15 +172,10 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
     console.log(`[${cameraId}] 📄 Original SDP:\n${sdp}`);
 
     try {
-      // ✅ МОДИФИЦИРУЕМ SDP: принудительно меняем sendrecv → recvonly
-      const modifiedSdp = sdp.replace(/a=sendrecv/g, 'a=recvonly');
-
-      console.log(`[${cameraId}] 🔧 Modified SDP (sendrecv → recvonly)`);
-
       const offer = {
-        type: 'offer' as RTCSdpType,
-        sdp: modifiedSdp  // ✅ Используем модифицированный SDP!
-      };
+          type: 'offer' as RTCSdpType,
+          sdp: sdp
+        };
 
       await pcRef.current.setRemoteDescription(new RTCSessionDescription(offer));
       console.log(`[${cameraId}] ✅ Remote description set`);

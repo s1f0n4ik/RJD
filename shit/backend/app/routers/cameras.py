@@ -12,13 +12,16 @@ async def get_cameras() -> Dict[str, Any]:
     return {"cameras": cameras}
 
 
-@router.get("/camera/{camera_name}")
-async def get_camera(camera_name: str):
-    """Получить камеру по имени"""
-    camera = await cpp_client.get_camera(camera_name)
-    if not camera:
-        raise HTTPException(status_code=404, detail="Camera not found")
-    return camera
+@router.get("/cameras")
+async def get_cameras() -> Dict[str, Any]:
+    """Получить все камеры"""
+    cameras = await cpp_client.get_cameras()
+    cameras_array = [
+        {"name": name, **data}
+        for name, data in cameras.items()
+    ] if isinstance(cameras, dict) else cameras
+
+    return {"cameras": cameras_array}
 
 
 @router.post("/camera")

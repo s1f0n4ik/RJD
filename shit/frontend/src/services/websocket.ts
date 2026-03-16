@@ -34,7 +34,6 @@ export class WebSocketService {
           // ✅ ПРЕОБРАЗУЕМ объект cameras в массив + добавляем name
           if (stateData && stateData.cameras) {
             if (!Array.isArray(stateData.cameras)) {
-              console.warn('⚠️ cameras is object, converting to array with names...');
 
               const camerasObj = stateData.cameras as any;
               stateData.cameras = Object.entries(camerasObj).map(([name, data]: [string, any]) => ({
