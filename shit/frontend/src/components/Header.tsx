@@ -60,7 +60,6 @@ const Header: React.FC<HeaderProps> = ({
   return (
     <AppBar position="static" sx={{ bgcolor: RZD_COLORS.primary, mb: 3 }}>
       <Toolbar sx={{ minHeight: 70, gap: 2 }}>
-        {/* ✅ 1. Логотип БЕЗ фильтра (чтобы сохранить цвета) */}
         <Box
           component="img"
           src="/src/assets/logo.png"
