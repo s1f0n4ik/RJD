@@ -25,6 +25,8 @@ services:
     environment:
       - MEDIA_CENTER_URL=http://localhost:7777  # Media Center на хосте
     restart: unless-stopped
+    volumes:
+      - /home/orangepi/records:/home/orangepi/records:ro
     logging:
       driver: "json-file"
       options:
