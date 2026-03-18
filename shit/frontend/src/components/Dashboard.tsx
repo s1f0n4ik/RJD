@@ -126,98 +126,35 @@ const Dashboard: React.FC<DashboardProps> = ({ state }) => {
       )}
 
       {/* Neural Loaders */}
-      {loaders.length > 0 && (
-        <Box>
-          <Typography variant="h5" gutterBottom sx={{ mb: 2, fontWeight: 600 }}>
-            🧠 Нейронная обработка
-          </Typography>
-          <Grid container spacing={3}>
-            {loaders.map((loader) => {
-              const flaskPath = ENDPOINT_MAP[loader.server_endpoint] || '/neural_1';
-              const streamUrl = `${FASTAPI_BASE}${flaskPath}`;
-
-              return (
-                <Grid item xs={12} key={loader.loader_name}>
-                  <Card sx={{ borderLeft: `4px solid ${RZD_COLORS.secondary}` }}>
-                    <CardContent>
-                      <Box display="flex" justifyContent="space-between" alignItems="center" mb={2} gap={2}>
-                        <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-                          <Typography variant="h6" fontWeight={600}>
-                            {loader.loader_name}
-                          </Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            Endpoint: {loader.server_endpoint} → {flaskPath}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            Размер модели: {loader.img_size}px
-                          </Typography>
-                        </Box>
-
-                        <Chip
-                          label={loader.status === 'running' ? 'Активен' : 'Остановлен'}
-                          color={loader.status === 'running' ? 'success' : 'default'}
-                          sx={{
-                            flexShrink: 0,
-                            fontWeight: 600,
-                            fontSize: '0.75rem',
-                            height: 'auto',
-                            minHeight: 24,
-                            '& .MuiChip-label': {
-                              px: 1.5,
-                              py: 0.5,
-                              whiteSpace: 'nowrap',
-                            },
-                          }}
-                        />
-                      </Box>
-
-                      {loader.status === 'running' && (
-                        <Box
-                          sx={{
-                            mt: 2,
-                            bgcolor: 'black',
-                            borderRadius: 2,
-                            overflow: 'hidden',
-                            border: `3px solid ${RZD_COLORS.primary}`,
-                          }}
-                        >
-                          <img
-                            src={streamUrl}
-                            alt={`${loader.loader_name} stream`}
-                            style={{ width: '100%', height: 'auto', display: 'block' }}
-                          />
-                        </Box>
-                      )}
-
-                      {loader.loader_matrix && loader.loader_matrix.length > 0 && (
-                        <Box sx={{ mt: 2 }}>
-                          <Typography variant="subtitle2" gutterBottom fontWeight={600}>
-                            📊 Матрица камер:
-                          </Typography>
-                          <Box
-                            sx={{
-                              fontFamily: 'monospace',
-                              fontSize: '0.875rem',
-                              bgcolor: RZD_COLORS.grey[100],
-                              p: 2,
-                              borderRadius: 2,
-                              border: `1px solid ${RZD_COLORS.grey[200]}`,
-                            }}
-                          >
-                            {loader.loader_matrix.map((row, i) => (
-                              <div key={i}>
-                                [{row.map(cam => `"${cam}"`).join(', ')}]
-                              </div>
-                            ))}
-                          </Box>
-                        </Box>
-                      )}
-                    </CardContent>
-                  </Card>
-                </Grid>
-              );
-            })}
-          </Grid>
+      {loader.status === 'running' && (
+        <Box
+          sx={{
+            mt: 2,
+            bgcolor: RZD_COLORS.grey[200],  // ✅ Светлый фон вместо чёрного
+            borderRadius: 2,
+            overflow: 'hidden',
+            border: `3px solid ${RZD_COLORS.primary}`,
+            minHeight: 200,  // ✅ Минимальная высота
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <img
+            src={streamUrl}
+            alt={`${loader.loader_name} stream`}
+            style={{
+              width: '100%',
+              height: 'auto',
+              display: 'block',
+              backgroundColor: 'transparent'  // ✅ Прозрачный фон картинки
+            }}
+            onError={(e: any) => {
+              // ✅ Если картинка не загрузилась - скрываем блок
+              e.target.style.display = 'none';
+              e.target.parentElement.innerHTML = '<p style="color: #666; text-align: center;">Поток недоступен</p>';
+            }}
+          />
         </Box>
       )}
 
