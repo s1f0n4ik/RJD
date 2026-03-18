@@ -1,8 +1,7 @@
-from fastapi import APIRouter, HTTPException, Response
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
 from pathlib import Path
-from typing import List, Dict
-import re
+from typing import Dict, Any
 from datetime import datetime
 import logging
 
@@ -13,39 +12,46 @@ RECORDS_PATH = Path("/home/orangepi/records")
 
 
 @router.get("/recordings")
-async def get_all_recordings() -> Dict[str, List[Dict]]:
+async def get_all_recordings() -> Dict[str, Any]:
     """Получить все записи, сгруппированные по камерам"""
     if not RECORDS_PATH.exists():
+        logger.warning(f"Records path does not exist: {RECORDS_PATH}")
         return {"recordings": {}}
 
     recordings = {}
 
-    for camera_dir in RECORDS_PATH.iterdir():
-        if not camera_dir.is_dir():
-            continue
+    try:
+        for camera_dir in RECORDS_PATH.iterdir():
+            if not camera_dir.is_dir():
+                continue
 
-        camera_name = camera_dir.name
-        files = []
+            camera_name = camera_dir.name
+            files = []
 
-        for video_file in camera_dir.glob("*"):
-            if video_file.is_file() and video_file.suffix.lower() in ['.mp4', '.mkv', '.avi', '.ts']:
-                stat = video_file.stat()
-                files.append({
-                    "filename": video_file.name,
-                    "size": stat.st_size,
-                    "created": datetime.fromtimestamp(stat.st_ctime).isoformat(),
-                    "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                })
+            for video_file in camera_dir.glob("*"):
+                if video_file.is_file() and video_file.suffix.lower() in ['.mp4', '.mkv', '.avi', '.ts']:
+                    stat = video_file.stat()
+                    files.append({
+                        "filename": video_file.name,
+                        "size": stat.st_size,
+                        "created": datetime.fromtimestamp(stat.st_ctime).isoformat(),
+                        "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                    })
 
-        # Сортируем по времени создания (новые сверху)
-        files.sort(key=lambda x: x['created'], reverse=True)
-        recordings[camera_name] = files
+            # Сортируем по времени создания (новые сверху)
+            files.sort(key=lambda x: x['created'], reverse=True)
+            recordings[camera_name] = files
 
-    return {"recordings": recordings}
+        logger.info(f"Found {len(recordings)} cameras with recordings")
+        return {"recordings": recordings}
+
+    except Exception as e:
+        logger.error(f"Error getting recordings: {e}")
+        return {"recordings": {}}
 
 
 @router.get("/recordings/{camera_name}")
-async def get_camera_recordings(camera_name: str) -> List[Dict]:
+async def get_camera_recordings(camera_name: str):
     """Получить записи конкретной камеры"""
     camera_path = RECORDS_PATH / camera_name
 
@@ -64,7 +70,7 @@ async def get_camera_recordings(camera_name: str) -> List[Dict]:
             })
 
     files.sort(key=lambda x: x['created'], reverse=True)
-    return files
+    return {"files": files}
 
 
 @router.get("/recordings/download/{camera_name}/{filename}")
