@@ -4,7 +4,7 @@ import Header from './components/Header';
 import Dashboard from './components/Dashboard';
 import CameraSettings from './components/CameraSettings';
 import LoaderSettings from './components/LoaderSettings';
-import SystemStatus from './components/SystemStatus';
+import Recordings from './components/Recordings';
 import Login from './components/Login';
 import { wsService } from './services/websocket';
 import type { SystemState } from './types';
@@ -87,7 +87,7 @@ const App: React.FC = () => {
           </Box>
         );
       case 4:
-        return <SystemStatus />;
+        return <Recordings />;
       default:
         return <Dashboard state={state} />;
     }

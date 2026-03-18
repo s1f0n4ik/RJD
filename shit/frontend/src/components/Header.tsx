@@ -63,7 +63,7 @@ const Header: React.FC<HeaderProps> = ({
         <Box
           component="img"
           src="/src/assets/logo1.png"
-          alt="РЖД"
+          alt="ВНИИЖТ"
           sx={{
             height: 40,
             objectFit: 'contain',
@@ -81,10 +81,9 @@ const Header: React.FC<HeaderProps> = ({
             whiteSpace: 'nowrap',
           }}
         >
-          РЖД · Система видеоаналитики
+          ВНИИЖТ · Система видеоаналитики
         </Typography>
 
-        {/* ✅ 2. Вкладки с контрастным фоном для активной */}
         <Tabs
           value={currentTab}
           onChange={(_, newValue) => onTabChange(newValue)}
@@ -105,7 +104,7 @@ const Header: React.FC<HeaderProps> = ({
             '& .Mui-selected': {
               color: 'white !important',
               fontWeight: 700,
-              bgcolor: 'rgba(255,255,255,0.15)', // ✅ Контрастный фон
+              bgcolor: 'rgba(255,255,255,0.15)',
               borderRadius: '8px 8px 0 0',
             },
             '& .MuiTabs-indicator': {
@@ -119,12 +118,10 @@ const Header: React.FC<HeaderProps> = ({
           <Tab label="Камеры" />
           <Tab label="Наблюдение" />
           <Tab label="Загрузчики" />
-          <Tab label="Статус" />
+          <Tab label="Архив" />
         </Tabs>
 
-        {/* ✅ 3. Компактная правая панель */}
         <Box display="flex" alignItems="center" gap={1} sx={{ flexShrink: 0 }}>
-          {/* WebSocket Status - компактный */}
           <Chip
             icon={wsConnected ? <CheckCircleIcon sx={{ fontSize: 16 }} /> : <ErrorIcon sx={{ fontSize: 16 }} />}
             label={wsConnected ? 'Онлайн' : 'Офлайн'}
@@ -139,7 +136,6 @@ const Header: React.FC<HeaderProps> = ({
             }}
           />
 
-          {/* Role Chip - компактный */}
           <Chip
             icon={role === 'admin' ? <AdminIcon sx={{ fontSize: 16 }} /> : <ViewerIcon sx={{ fontSize: 16 }} />}
             label={role === 'admin' ? 'Админ' : 'Наблюдатель'}
@@ -154,7 +150,6 @@ const Header: React.FC<HeaderProps> = ({
             }}
           />
 
-          {/* User Icon */}
           <IconButton
             onClick={handleMenuOpen}
             size="small"
@@ -170,7 +165,6 @@ const Header: React.FC<HeaderProps> = ({
           </IconButton>
         </Box>
 
-        {/* User Dropdown Menu */}
         <Menu
           anchorEl={anchorEl}
           open={menuOpen}
