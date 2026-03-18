@@ -62,7 +62,7 @@ const Header: React.FC<HeaderProps> = ({
       <Toolbar sx={{ minHeight: 70, gap: 2 }}>
         <Box
           component="img"
-          src="/src/assets/logo.png"
+          src="/src/assets/logo1.png"
           alt="РЖД"
           sx={{
             height: 40,
