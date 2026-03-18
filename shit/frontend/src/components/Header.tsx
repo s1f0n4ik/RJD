@@ -81,7 +81,7 @@ const Header: React.FC<HeaderProps> = ({
             whiteSpace: 'nowrap',
           }}
         >
-          ВНИИЖТ · Система видеоаналитики
+          Система видеоаналитики
         </Typography>
 
         <Tabs
