@@ -1,7 +1,6 @@
 from pydantic_settings import BaseSettings
 from typing import Optional
 
-
 class Settings(BaseSettings):
     """Конфигурация приложения"""
 
@@ -9,6 +8,10 @@ class Settings(BaseSettings):
     APP_NAME: str = "Video Processor API"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = True
+
+    # Media Center (C++)
+    MEDIA_CENTER_URL: str = "http://192.168.1.2:7777"
+    MEDIA_CENTER_TIMEOUT: int = 10
 
     # Flask integration
     FLASK_BASE_URL: str = "http://localhost:5000"
@@ -36,6 +39,5 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
-
 
 settings = Settings()
