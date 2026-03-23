@@ -481,6 +481,7 @@ const Observation: React.FC = () => {
             >
               {cameraName ? (
                 <WebRTCPlayer
+                  key={`player-${cell.id}-${cameraName}`}
                   cameraId={cameraName}
                   signalingUrl={`${SIGNALING_SERVER}/client/${cameraName}`}
                   onError={(err) => console.error(`Error in ${cameraName}:`, err)}
@@ -528,6 +529,7 @@ const Observation: React.FC = () => {
       >
         {cameraName ? (
           <WebRTCPlayer
+            key={`player-${cellId}-${cameraName}`}
             cameraId={cameraName}
             signalingUrl={`${SIGNALING_SERVER}/client/${cameraName}`}
             onError={(err) => console.error(`Error in ${cameraName}:`, err)}
