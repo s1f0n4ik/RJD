@@ -10,6 +10,7 @@ import { wsService } from './services/websocket';
 import type { SystemState } from './types';
 import { RZD_COLORS } from './theme';
 import Observation from './components/Observation';
+import RecordingsView from './components/RecordingsView';
 
 const App: React.FC = () => {
   const [currentTab, setCurrentTab] = useState(0);
@@ -87,7 +88,7 @@ const App: React.FC = () => {
           </Box>
         );
       case 4:
-        return <Recordings />;
+        return <RecordingsView />;
       default:
         return <Dashboard state={state} />;
     }
