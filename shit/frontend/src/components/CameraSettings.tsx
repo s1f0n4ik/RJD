@@ -4,34 +4,39 @@ import {
   Paper,
   Typography,
   Box,
-  Grid,
-  TextField,
   Button,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
-  Card,
-  CardContent,
-  CardActions,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  IconButton,
   Chip,
   Alert,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
+  TextField,
+  Grid,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
   FormControlLabel,
   Switch,
+  Tabs,
+  Tab,
   Divider,
-  IconButton,
+  CircularProgress,
 } from '@mui/material';
 import {
   Add as AddIcon,
   Delete as DeleteIcon,
-  Videocam as VideocamIcon,
+  Edit as EditIcon,
   Settings as SettingsIcon,
-  CheckCircle,
-  Error as ErrorIcon,
+  Videocam as VideocamIcon,
 } from '@mui/icons-material';
 import { FASTAPI_BASE } from '../utils/constants';
 import { RZD_COLORS } from '../theme';
@@ -61,23 +66,44 @@ interface CameraStream {
   status?: number;
 }
 
+interface CameraFormData {
+  name: string;
+  description: string;
+  ip_adress: string;
+  port: string;
+  user: string;
+  password: string;
+  production: number;
+  type: number;
+  main_sub: number;
+  main_latency: number;
+  main_use_udp: boolean;
+  main_reconnect: number;
+  main_segment: number;
+  sub_sub: number;
+  sub_latency: number;
+  sub_use_udp: boolean;
+  sub_reconnect: number;
+}
+
 const CameraSettings: React.FC = () => {
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [openDialog, setOpenDialog] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+  const [selectedTab, setSelectedTab] = useState(0);
 
-  // Форма добавления камеры
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<CameraFormData>({
     name: '',
     description: 'Test Camera',
     ip_adress: '',
     port: '554',
     user: 'admin',
     password: 'VniiTest',
-    production: 2, // 1-Dahua, 2-Hikvision, 3-ACE
-    type: 1, // 1-General, 2-Neural, 3-Birdview
+    production: 2,
+    type: 1,
     main_sub: 0,
     main_latency: 0,
     main_use_udp: false,
@@ -98,7 +124,6 @@ const CameraSettings: React.FC = () => {
     try {
       const response = await fetch(`${FASTAPI_BASE}/api/cameras`);
       if (!response.ok) throw new Error('Failed to load cameras');
-
       const data = await response.json();
       setCameras(data.cameras || []);
       setError('');
@@ -109,16 +134,65 @@ const CameraSettings: React.FC = () => {
     }
   };
 
-  const handleInputChange = (field: string, value: any) => {
+  const handleInputChange = (field: keyof CameraFormData, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const handleAddCamera = async () => {
+  const handleOpenAddDialog = () => {
+    setEditMode(false);
+    setFormData({
+      name: '',
+      description: 'Test Camera',
+      ip_adress: '',
+      port: '554',
+      user: 'admin',
+      password: 'VniiTest',
+      production: 2,
+      type: 1,
+      main_sub: 0,
+      main_latency: 0,
+      main_use_udp: false,
+      main_reconnect: 10,
+      main_segment: 10,
+      sub_sub: 1,
+      sub_latency: 0,
+      sub_use_udp: false,
+      sub_reconnect: 10,
+    });
+    setSelectedTab(0);
+    setOpenDialog(true);
+  };
+
+  const handleOpenEditDialog = (camera: Camera) => {
+    setEditMode(true);
+    setFormData({
+      name: camera.name,
+      description: camera.description,
+      ip_adress: camera.ip_adress,
+      port: camera.port,
+      user: camera.user,
+      password: '', // Не показываем пароль
+      production: camera.production,
+      type: camera.type,
+      main_sub: camera.streams.main.sub,
+      main_latency: camera.streams.main.latency,
+      main_use_udp: camera.streams.main.use_udp,
+      main_reconnect: camera.streams.main.reconnect,
+      main_segment: camera.streams.main.segment,
+      sub_sub: camera.streams.sub.sub,
+      sub_latency: camera.streams.sub.latency,
+      sub_use_udp: camera.streams.sub.use_udp,
+      sub_reconnect: camera.streams.sub.reconnect,
+    });
+    setSelectedTab(0);
+    setOpenDialog(true);
+  };
+
+  const handleSaveCamera = async () => {
     setLoading(true);
     setError('');
     setSuccess('');
 
-    // Генерируем автоматически camera_name если не указан
     const cameraName = formData.name || `camera_${cameras.length + 1}`;
     const recordPath = `/home/orangepi/records/${cameraName}`;
 
@@ -162,33 +236,12 @@ const CameraSettings: React.FC = () => {
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.detail || 'Failed to add camera');
+        throw new Error(errorData.detail || 'Failed to save camera');
       }
 
-      setSuccess(`Камера ${cameraName} успешно добавлена!`);
+      setSuccess(`Камера ${cameraName} успешно ${editMode ? 'обновлена' : 'добавлена'}!`);
       setOpenDialog(false);
       loadCameras();
-
-      // Сброс формы
-      setFormData({
-        name: '',
-        description: 'Test Camera',
-        ip_adress: '',
-        port: '554',
-        user: 'admin',
-        password: 'VniiTest',
-        production: 2,
-        type: 1,
-        main_sub: 0,
-        main_latency: 0,
-        main_use_udp: false,
-        main_reconnect: 10,
-        main_segment: 10,
-        sub_sub: 1,
-        sub_latency: 0,
-        sub_use_udp: false,
-        sub_reconnect: 10,
-      });
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -216,348 +269,386 @@ const CameraSettings: React.FC = () => {
     }
   };
 
-  const getStatusColor = (status?: number) => {
+  const getStatusColor = (status?: number): 'default' | 'success' | 'warning' | 'error' | 'info' => {
     switch (status) {
-      case 3: return 'success'; // PLAYING
-      case 5: return 'info'; // INITIALIZED
-      case 2: return 'warning'; // STOPPED
+      case 3: return 'success';
+      case 5: return 'info';
+      case 2: return 'warning';
+      case 0: return 'error';
       default: return 'default';
     }
   };
 
   const getStatusText = (status?: number) => {
-    switch (status) {
-      case 0: return 'Отсутствует';
-      case 1: return 'Готов';
-      case 2: return 'Остановлен';
-      case 3: return 'В работе';
-      case 4: return 'Перезапуск';
-      case 5: return 'Инициализирован';
-      default: return 'Неизвестно';
-    }
+    const statusMap: Record<number, string> = {
+      0: 'Отсутствует',
+      1: 'Готов',
+      2: 'Остановлен',
+      3: 'В работе',
+      4: 'Перезапуск',
+      5: 'Инициализирован',
+    };
+    return statusMap[status ?? 0] || 'Неизвестно';
   };
 
   const getProductionName = (prod: number) => {
-    switch (prod) {
-      case 1: return 'Dahua';
-      case 2: return 'Hikvision';
-      case 3: return 'ACE';
-      default: return 'Unknown';
-    }
-  };
-
-  const getTypeName = (type: number) => {
-    switch (type) {
-      case 1: return 'General';
-      case 2: return 'Neural';
-      case 3: return 'Birdview';
-      default: return 'Unknown';
-    }
+    const prodMap: Record<number, string> = { 1: 'Dahua', 2: 'Hikvision', 3: 'ACE' };
+    return prodMap[prod] || 'Unknown';
   };
 
   return (
     <Container maxWidth="xl">
-      {/* Заголовок */}
+      {/* Header */}
       <Paper sx={{ p: 3, mb: 3 }}>
         <Box display="flex" justifyContent="space-between" alignItems="center">
           <Box display="flex" alignItems="center" gap={2}>
             <SettingsIcon sx={{ fontSize: 40, color: RZD_COLORS.primary }} />
             <Box>
               <Typography variant="h5" fontWeight="bold">
-                ⚙️ Управление камерами
+                ⚙️ Camera Settings
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                Всего камер: {cameras.length}
+                Added Devices: {cameras.length}
               </Typography>
             </Box>
           </Box>
           <Button
             variant="contained"
             startIcon={<AddIcon />}
-            onClick={() => setOpenDialog(true)}
+            onClick={handleOpenAddDialog}
             sx={{ bgcolor: RZD_COLORS.primary }}
           >
-            Добавить камеру
+            Manual Add
           </Button>
         </Box>
       </Paper>
 
-      {/* Уведомления */}
+      {/* Alerts */}
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
       {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
 
-      {/* Список камер */}
-      <Grid container spacing={3}>
-        {cameras.map((camera) => (
-          <Grid item xs={12} md={6} lg={4} key={camera.name}>
-            <Card>
-              <CardContent>
-                <Box display="flex" justifyContent="space-between" alignItems="start" mb={2}>
-                  <Box display="flex" alignItems="center" gap={1}>
-                    <VideocamIcon color="primary" />
-                    <Typography variant="h6" fontWeight="bold">
+      {/* Table */}
+      <TableContainer component={Paper}>
+        <Table>
+          <TableHead sx={{ bgcolor: RZD_COLORS.grey[100] }}>
+            <TableRow>
+              <TableCell><strong>Channel</strong></TableCell>
+              <TableCell><strong>IP</strong></TableCell>
+              <TableCell><strong>Port</strong></TableCell>
+              <TableCell><strong>Manufacturer</strong></TableCell>
+              <TableCell><strong>Camera Name</strong></TableCell>
+              <TableCell><strong>Status</strong></TableCell>
+              <TableCell align="center"><strong>Modify</strong></TableCell>
+              <TableCell align="center"><strong>Delete</strong></TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {loading && cameras.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                  <CircularProgress />
+                </TableCell>
+              </TableRow>
+            ) : cameras.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                  <Typography color="text.secondary">No cameras added</Typography>
+                </TableCell>
+              </TableRow>
+            ) : (
+              cameras.map((camera, index) => (
+                <TableRow key={camera.name} hover>
+                  <TableCell>
+                    <Box display="flex" alignItems="center" gap={1}>
+                      <VideocamIcon sx={{ color: RZD_COLORS.primary, fontSize: 20 }} />
+                      <Typography variant="body2" fontWeight={600}>
+                        #{index + 1}
+                      </Typography>
+                    </Box>
+                  </TableCell>
+                  <TableCell>{camera.ip_adress}</TableCell>
+                  <TableCell>{camera.port}</TableCell>
+                  <TableCell>{getProductionName(camera.production)}</TableCell>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight={600}>
                       {camera.name}
                     </Typography>
-                  </Box>
-                  <Chip
-                    label={getStatusText(camera.streams?.main?.status)}
-                    color={getStatusColor(camera.streams?.main?.status)}
-                    size="small"
-                  />
-                </Box>
-
-                <Typography variant="body2" color="text.secondary" gutterBottom>
-                  {camera.description}
-                </Typography>
-
-                <Divider sx={{ my: 1.5 }} />
-
-                <Box sx={{ '& > div': { mb: 1 } }}>
-                  <Box display="flex" justifyContent="space-between">
-                    <Typography variant="caption" color="text.secondary">IP:</Typography>
-                    <Typography variant="caption">{camera.ip_adress}:{camera.port}</Typography>
-                  </Box>
-                  <Box display="flex" justifyContent="space-between">
-                    <Typography variant="caption" color="text.secondary">Производитель:</Typography>
-                    <Typography variant="caption">{getProductionName(camera.production)}</Typography>
-                  </Box>
-                  <Box display="flex" justifyContent="space-between">
-                    <Typography variant="caption" color="text.secondary">Тип:</Typography>
-                    <Typography variant="caption">{getTypeName(camera.type)}</Typography>
-                  </Box>
-                  <Box display="flex" justifyContent="space-between">
-                    <Typography variant="caption" color="text.secondary">Запись:</Typography>
-                    <Typography variant="caption">
-                      {camera.streams?.main?.segment > 0 ? `${camera.streams.main.segment} мин` : 'Выкл'}
+                    <Typography variant="caption" color="text.secondary">
+                      {camera.description}
                     </Typography>
-                  </Box>
-                </Box>
-              </CardContent>
-              <CardActions>
-                <Button
-                  fullWidth
-                  variant="outlined"
-                  color="error"
-                  startIcon={<DeleteIcon />}
-                  onClick={() => handleDeleteCamera(camera.name)}
-                  disabled={loading}
-                >
-                  Удалить
-                </Button>
-              </CardActions>
-            </Card>
-          </Grid>
-        ))}
-      </Grid>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={getStatusText(camera.streams?.main?.status)}
+                      color={getStatusColor(camera.streams?.main?.status)}
+                      size="small"
+                    />
+                  </TableCell>
+                  <TableCell align="center">
+                    <IconButton
+                      color="primary"
+                      onClick={() => handleOpenEditDialog(camera)}
+                      disabled={loading}
+                    >
+                      <EditIcon />
+                    </IconButton>
+                  </TableCell>
+                  <TableCell align="center">
+                    <IconButton
+                      color="error"
+                      onClick={() => handleDeleteCamera(camera.name)}
+                      disabled={loading}
+                    >
+                      <DeleteIcon />
+                    </IconButton>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </TableContainer>
 
-      {/* Диалог добавления камеры */}
+      {/* Add/Edit Dialog */}
       <Dialog open={openDialog} onClose={() => setOpenDialog(false)} maxWidth="md" fullWidth>
         <DialogTitle sx={{ bgcolor: RZD_COLORS.primary, color: 'white' }}>
-          Добавить новую камеру
+          {editMode ? '✏️ Modify Camera' : '➕ Add New Camera'}
         </DialogTitle>
         <DialogContent sx={{ mt: 2 }}>
-          <Grid container spacing={2}>
-            {/* Основные параметры */}
-            <Grid item xs={12}>
-              <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
-                📋 Основные параметры
-              </Typography>
-            </Grid>
+          <Tabs value={selectedTab} onChange={(_, v) => setSelectedTab(v)} sx={{ mb: 2 }}>
+            <Tab label="📋 Basic Info" />
+            <Tab label="📹 Streams" />
+            <Tab label="⏺️ Recording" />
+          </Tabs>
 
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Имя камеры"
-                placeholder={`camera_${cameras.length + 1}`}
-                value={formData.name}
-                onChange={(e) => handleInputChange('name', e.target.value)}
-                helperText="Оставьте пустым для автогенерации"
-              />
+          {/* Tab 0: Basic Info */}
+          {selectedTab === 0 && (
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="Camera Name"
+                  placeholder={`camera_${cameras.length + 1}`}
+                  value={formData.name}
+                  onChange={(e) => handleInputChange('name', e.target.value)}
+                  disabled={editMode}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="Description"
+                  value={formData.description}
+                  onChange={(e) => handleInputChange('description', e.target.value)}
+                />
+              </Grid>
+              <Grid item xs={12} sm={8}>
+                <TextField
+                  fullWidth
+                  required
+                  label="IP Address"
+                  placeholder="192.168.1.10"
+                  value={formData.ip_adress}
+                  onChange={(e) => handleInputChange('ip_adress', e.target.value)}
+                />
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <TextField
+                  fullWidth
+                  label="Port"
+                  value={formData.port}
+                  onChange={(e) => handleInputChange('port', e.target.value)}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="Login"
+                  value={formData.user}
+                  onChange={(e) => handleInputChange('user', e.target.value)}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  type="password"
+                  label="Password"
+                  value={formData.password}
+                  onChange={(e) => handleInputChange('password', e.target.value)}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <FormControl fullWidth>
+                  <InputLabel>Manufacturer</InputLabel>
+                  <Select
+                    value={formData.production}
+                    onChange={(e) => handleInputChange('production', e.target.value)}
+                    label="Manufacturer"
+                  >
+                    <MenuItem value={1}>Dahua</MenuItem>
+                    <MenuItem value={2}>Hikvision</MenuItem>
+                    <MenuItem value={3}>ACE</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <FormControl fullWidth>
+                  <InputLabel>Camera Type</InputLabel>
+                  <Select
+                    value={formData.type}
+                    onChange={(e) => handleInputChange('type', e.target.value)}
+                    label="Camera Type"
+                  >
+                    <MenuItem value={1}>General</MenuItem>
+                    <MenuItem value={2}>Neural</MenuItem>
+                    <MenuItem value={3}>Birdview</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
             </Grid>
+          )}
 
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Описание"
-                value={formData.description}
-                onChange={(e) => handleInputChange('description', e.target.value)}
-              />
-            </Grid>
+          {/* Tab 1: Streams */}
+          {selectedTab === 1 && (
+            <Grid container spacing={2}>
+              <Grid item xs={12}>
+                <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
+                  📹 Main Stream
+                </Typography>
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <TextField
+                  fullWidth
+                  label="Subtype"
+                  type="number"
+                  value={formData.main_sub}
+                  onChange={(e) => handleInputChange('main_sub', parseInt(e.target.value))}
+                />
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <TextField
+                  fullWidth
+                  label="Latency (ms)"
+                  type="number"
+                  value={formData.main_latency}
+                  onChange={(e) => handleInputChange('main_latency', parseInt(e.target.value))}
+                />
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <TextField
+                  fullWidth
+                  label="Reconnect (sec)"
+                  type="number"
+                  value={formData.main_reconnect}
+                  onChange={(e) => handleInputChange('main_reconnect', parseInt(e.target.value))}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formData.main_use_udp}
+                      onChange={(e) => handleInputChange('main_use_udp', e.target.checked)}
+                    />
+                  }
+                  label="Use UDP"
+                />
+              </Grid>
 
-            <Grid item xs={12} sm={8}>
-              <TextField
-                fullWidth
-                required
-                label="IP-адрес"
-                placeholder="192.168.1.10"
-                value={formData.ip_adress}
-                onChange={(e) => handleInputChange('ip_adress', e.target.value)}
-              />
+              <Grid item xs={12}>
+                <Divider sx={{ my: 1 }} />
+                <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
+                  📹 Sub Stream
+                </Typography>
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <TextField
+                  fullWidth
+                  label="Subtype"
+                  type="number"
+                  value={formData.sub_sub}
+                  onChange={(e) => handleInputChange('sub_sub', parseInt(e.target.value))}
+                />
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <TextField
+                  fullWidth
+                  label="Latency (ms)"
+                  type="number"
+                  value={formData.sub_latency}
+                  onChange={(e) => handleInputChange('sub_latency', parseInt(e.target.value))}
+                />
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <TextField
+                  fullWidth
+                  label="Reconnect (sec)"
+                  type="number"
+                  value={formData.sub_reconnect}
+                  onChange={(e) => handleInputChange('sub_reconnect', parseInt(e.target.value))}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={formData.sub_use_udp}
+                      onChange={(e) => handleInputChange('sub_use_udp', e.target.checked)}
+                    />
+                  }
+                  label="Use UDP"
+                />
+              </Grid>
             </Grid>
+          )}
 
-            <Grid item xs={12} sm={4}>
-              <TextField
-                fullWidth
-                label="Порт"
-                value={formData.port}
-                onChange={(e) => handleInputChange('port', e.target.value)}
-              />
+          {/* Tab 2: Recording */}
+          {selectedTab === 2 && (
+            <Grid container spacing={2}>
+              <Grid item xs={12}>
+                <Alert severity="info" sx={{ mb: 2 }}>
+                  Recording settings apply to Main Stream only
+                </Alert>
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  label="Segment Duration (minutes)"
+                  type="number"
+                  value={formData.main_segment}
+                  onChange={(e) => handleInputChange('main_segment', parseInt(e.target.value))}
+                  helperText="0 = recording disabled"
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  fullWidth
+                  disabled
+                  label="Record Path"
+                  value={`/home/orangepi/records/${formData.name || 'camera_X'}`}
+                  helperText="Auto-generated"
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <Typography variant="caption" color="text.secondary">
+                  💾 Recordings are saved as MP4 files in the specified directory.
+                  Each segment is {formData.main_segment} minutes long.
+                </Typography>
+              </Grid>
             </Grid>
-
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Логин"
-                value={formData.user}
-                onChange={(e) => handleInputChange('user', e.target.value)}
-              />
-            </Grid>
-
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                type="password"
-                label="Пароль"
-                value={formData.password}
-                onChange={(e) => handleInputChange('password', e.target.value)}
-              />
-            </Grid>
-
-            <Grid item xs={12} sm={6}>
-              <FormControl fullWidth>
-                <InputLabel>Производитель</InputLabel>
-                <Select
-                  value={formData.production}
-                  onChange={(e) => handleInputChange('production', e.target.value)}
-                  label="Производитель"
-                >
-                  <MenuItem value={1}>Dahua</MenuItem>
-                  <MenuItem value={2}>Hikvision</MenuItem>
-                  <MenuItem value={3}>ACE</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-
-            <Grid item xs={12} sm={6}>
-              <FormControl fullWidth>
-                <InputLabel>Тип камеры</InputLabel>
-                <Select
-                  value={formData.type}
-                  onChange={(e) => handleInputChange('type', e.target.value)}
-                  label="Тип камеры"
-                >
-                  <MenuItem value={1}>General</MenuItem>
-                  <MenuItem value={2}>Neural</MenuItem>
-                  <MenuItem value={3}>Birdview</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-
-            {/* Main Stream */}
-            <Grid item xs={12}>
-              <Divider sx={{ my: 1 }} />
-              <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
-                📹 Main Stream (основной поток)
-              </Typography>
-            </Grid>
-
-            <Grid item xs={12} sm={4}>
-              <TextField
-                fullWidth
-                label="Subtype"
-                type="number"
-                value={formData.main_sub}
-                onChange={(e) => handleInputChange('main_sub', parseInt(e.target.value))}
-                helperText="0 или 1"
-              />
-            </Grid>
-
-            <Grid item xs={12} sm={4}>
-              <TextField
-                fullWidth
-                label="Reconnect (сек)"
-                type="number"
-                value={formData.main_reconnect}
-                onChange={(e) => handleInputChange('main_reconnect', parseInt(e.target.value))}
-              />
-            </Grid>
-
-            <Grid item xs={12} sm={4}>
-              <TextField
-                fullWidth
-                label="Запись (мин)"
-                type="number"
-                value={formData.main_segment}
-                onChange={(e) => handleInputChange('main_segment', parseInt(e.target.value))}
-                helperText="0 = выкл"
-              />
-            </Grid>
-
-            <Grid item xs={12}>
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={formData.main_use_udp}
-                    onChange={(e) => handleInputChange('main_use_udp', e.target.checked)}
-                  />
-                }
-                label="Использовать UDP"
-              />
-            </Grid>
-
-            {/* Sub Stream */}
-            <Grid item xs={12}>
-              <Divider sx={{ my: 1 }} />
-              <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
-                📹 Sub Stream (вспомогательный поток)
-              </Typography>
-            </Grid>
-
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Subtype"
-                type="number"
-                value={formData.sub_sub}
-                onChange={(e) => handleInputChange('sub_sub', parseInt(e.target.value))}
-                helperText="1 или 2"
-              />
-            </Grid>
-
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Reconnect (сек)"
-                type="number"
-                value={formData.sub_reconnect}
-                onChange={(e) => handleInputChange('sub_reconnect', parseInt(e.target.value))}
-              />
-            </Grid>
-
-            <Grid item xs={12}>
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={formData.sub_use_udp}
-                    onChange={(e) => handleInputChange('sub_use_udp', e.target.checked)}
-                  />
-                }
-                label="Использовать UDP"
-              />
-            </Grid>
-          </Grid>
+          )}
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
           <Button onClick={() => setOpenDialog(false)} disabled={loading}>
-            Отмена
+            Cancel
           </Button>
           <Button
             variant="contained"
-            onClick={handleAddCamera}
+            onClick={handleSaveCamera}
             disabled={loading || !formData.ip_adress}
             sx={{ bgcolor: RZD_COLORS.primary }}
           >
-            Добавить
+            {loading ? <CircularProgress size={24} /> : editMode ? 'Update' : 'Add'}
           </Button>
         </DialogActions>
       </Dialog>
