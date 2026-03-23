@@ -46,35 +46,29 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
   }, [cameraId, signalingUrl]);
 
   const cleanup = () => {
-    console.log(`[${cameraId}] 🧹 Cleanup started`);
+      console.log(`[${cameraId}] 🧹 Cleanup started`);
 
-    // Close PeerConnection
-    if (pcRef.current) {
-      console.log(`[${cameraId}] 🔌 Closing PeerConnection (state: ${pcRef.current.connectionState})`);
-      pcRef.current.close();
-      pcRef.current = null;
-    }
+      // 1. Close PeerConnection
+      if (pcRef.current) {
+        console.log(`[${cameraId}] 🔌 Closing PeerConnection (state: ${pcRef.current.connectionState})`);
+        pcRef.current.close();
+        pcRef.current = null;
+      }
 
-    // Stop video playback
-    if (videoRef.current && videoRef.current.srcObject) {
-      const stream = videoRef.current.srcObject as MediaStream;
-      stream.getTracks().forEach(track => {
-        console.log(`[${cameraId}] ⏹️ Stopping track: ${track.kind}`);
-        track.stop();
-      });
-      videoRef.current.srcObject = null;
-    }
+      // 2. Stop video tracks
+      if (videoRef.current && videoRef.current.srcObject) {
+        const stream = videoRef.current.srcObject as MediaStream;
+        stream.getTracks().forEach(track => {
+          console.log(`[${cameraId}] ⏹️ Stopping track: ${track.kind}`);
+          track.stop();
+        });
+        videoRef.current.srcObject = null;
+      }
 
-    // Close WebSocket
-    if (wsRef.current) {
-      const ws = wsRef.current;
-      const readyState = ws.readyState;
-
-      console.log(`[${cameraId}] 🔌 Closing WebSocket (readyState: ${readyState})`);
-
-      if (readyState === WebSocket.OPEN) {
+      // 3. Send close message (но НЕ закрывать WebSocket!)
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         try {
-          ws.send(JSON.stringify({
+          wsRef.current.send(JSON.stringify({
             type: 'close',
             client_id: clientIdRef.current,
             camera: cameraId,
@@ -84,25 +78,21 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
         } catch (err) {
           console.error(`[${cameraId}] ❌ Error sending close message:`, err);
         }
+
+        // ✅ КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: НЕ закрываем WebSocket, просто очищаем обработчики
+        wsRef.current.onopen = null;
+        wsRef.current.onmessage = null;
+        wsRef.current.onerror = null;
+        wsRef.current.onclose = null;
+
+        // ❌ УДАЛИТЬ эту строку:
+        // wsRef.current.close(1000, 'Component unmounted');
+
+        wsRef.current = null;
       }
 
-      // Отключаем обработчики, чтобы избежать ошибок при закрытии
-      ws.onopen = null;
-      ws.onmessage = null;
-      ws.onerror = null;
-      ws.onclose = null;
-
-      try {
-        ws.close(1000, 'Component unmounted');
-      } catch (err) {
-        console.error(`[${cameraId}] ❌ Error closing WebSocket:`, err);
-      }
-
-      wsRef.current = null;
-    }
-
-    console.log(`[${cameraId}] ✅ Cleanup complete`);
-  };
+      console.log(`[${cameraId}] ✅ Cleanup complete`);
+    };
 
   const connectWebRTC = async () => {
     if (!isMountedRef.current) {
