@@ -30,7 +30,7 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
       if (isMountedRef.current) {
         connectWebRTC();
       }
-    }, 100);
+    }, 2000);
 
     return () => {
       console.log(`[${cameraId}] 🔴 Component unmounting, cleaning up...`);
