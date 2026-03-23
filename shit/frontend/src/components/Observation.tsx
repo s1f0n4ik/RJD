@@ -29,7 +29,7 @@ const Observation: React.FC = () => {
   const [selectedCameras, setSelectedCameras] = useState<string[]>([]);
   const [gridSize, setGridSize] = useState<GridSize>(4);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [loadError, setLoadError] = useState<string>(''); // ✅ ДОБАВЛЕНО
+  const [loadError, setLoadError] = useState<string>('');
 
   const SIGNALING_SERVER = 'ws://192.168.1.2:8765';
 
@@ -41,7 +41,6 @@ const Observation: React.FC = () => {
     try {
       const data = await api.getCameras();
 
-      // ✅ ИСПРАВЛЕНО: теперь api.getCameras() всегда возвращает массив
       if (!Array.isArray(data)) {
         console.error('❌ Cameras data is not array:', data);
         setLoadError('Получены некорректные данные с сервера');
@@ -53,7 +52,6 @@ const Observation: React.FC = () => {
       setCameras(data);
       setLoadError('');
 
-      // ✅ ИСПРАВЛЕНО: streams.main.status
       const runningCameras = data
         .filter(c => c.streams?.main?.status === 3)
         .slice(0, gridSize)
@@ -174,7 +172,6 @@ const Observation: React.FC = () => {
         </Grid>
       )}
 
-      {/* Диалог выбора камер */}
       <Dialog open={settingsOpen} onClose={() => setSettingsOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>
           Выбор камер (макс. {gridSize})

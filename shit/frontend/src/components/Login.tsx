@@ -7,7 +7,7 @@ import {
   Typography,
   Box,
   Alert,
-  Chip,  // ✅ ДОБАВЛЕНО
+  Chip,
 } from '@mui/material';
 import { Lock as LockIcon } from '@mui/icons-material';
 import { RZD_COLORS } from '../theme';
@@ -67,11 +67,10 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
           }}
         >
           <Box display="flex" flexDirection="column" alignItems="center" mb={4}>
-            {/* ✅ PNG логотип */}
             <Box
               component="img"
-              src="/src/assets/logo.png"
-              alt="РЖД"
+              src="/assets/logo1.png"
+              alt="ВНИИЖТ"
               sx={{
                 height: 60,
                 mb: 2,

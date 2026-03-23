@@ -61,7 +61,7 @@ const App: React.FC = () => {
   const renderContent = () => {
     switch (currentTab) {
       case 0:
-        return <Dashboard state={state} />;
+        return <Dashboard state={state} onNavigate={setCurrentTab}/>;
       case 1:
         return role === 'admin' ? <CameraSettings /> : (
           <Box textAlign="center" py={8}>

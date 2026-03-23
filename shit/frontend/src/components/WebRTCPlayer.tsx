@@ -122,7 +122,6 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
     });
     pcRef.current = pc;
 
-    // ✅ ВЕРНУЛИ! Это КРИТИЧЕСКИ ВАЖНО для камер с sendrecv!
     pc.addTransceiver('video', { direction: 'recvonly' });
 
     pc.onicecandidate = (event) => {
@@ -208,7 +207,6 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
     if (!pcRef.current) return;
 
     try {
-      // ✅ ИСПРАВЛЕНО: Точная копия из connection.js
       const iceCandidateInit: RTCIceCandidateInit = {
         candidate: msg.candidate,
         sdpMLineIndex: msg.sdpMLineIndex,
