@@ -2,19 +2,25 @@ import React, { useEffect, useRef } from 'react';
 import { Box, ButtonGroup, Button, Typography } from '@mui/material';
 import { RZD_COLORS } from '../theme';
 
+interface Recording {
+  filename: string;
+  created: string;
+}
+
 interface RecordingsTimelineProps {
   camera: string;
   date: Date;
+  files: Recording[];
   onSeek: (time: number) => void;
 }
 
-const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({ camera, date, onSeek }) => {
+const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({ camera, date, files, onSeek }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [zoom, setZoom] = React.useState(24); // hours
 
   useEffect(() => {
     drawTimeline();
-  }, [camera, date, zoom]);
+  }, [camera, date, zoom, files]);
 
   const drawTimeline = () => {
     const canvas = canvasRef.current;
@@ -33,30 +39,50 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({ camera, date, o
     // Draw hour markers
     ctx.strokeStyle = RZD_COLORS.grey[400];
     ctx.fillStyle = RZD_COLORS.grey[300];
-    ctx.font = '10px Arial';
+    ctx.font = '12px Arial';
 
     for (let i = 0; i <= zoom; i++) {
       const x = (i / zoom) * width;
       ctx.beginPath();
-      ctx.moveTo(x, 0);
+      ctx.moveTo(x, 20);
       ctx.lineTo(x, height);
       ctx.stroke();
 
-      ctx.fillText(`${i}:00`, x + 5, 15);
+      ctx.fillText(`${String(i).padStart(2, '0')}:00`, x + 5, 15);
     }
 
-    ctx.fillStyle = RZD_COLORS.primary;
-    ctx.fillRect(width * 0.2, height * 0.3, width * 0.3, height * 0.4);
+    // Draw recording segments
+    if (files.length > 0) {
+      ctx.fillStyle = RZD_COLORS.primary;
 
-    ctx.fillStyle = '#FFD700';
-    ctx.fillRect(width * 0.6, height * 0.3, width * 0.2, height * 0.4);
+      files.forEach(file => {
+        const fileDate = new Date(file.created);
+        const hours = fileDate.getHours();
+        const minutes = fileDate.getMinutes();
+        const totalMinutes = hours * 60 + minutes;
+
+        // Assume 10 min segments (adjust based on your config)
+        const startX = (totalMinutes / (zoom * 60)) * width;
+        const segmentWidth = (10 / (zoom * 60)) * width;
+
+        ctx.fillRect(startX, height * 0.3, segmentWidth, height * 0.4);
+      });
+    }
+
+    // No data message
+    if (files.length === 0) {
+      ctx.fillStyle = RZD_COLORS.grey[500];
+      ctx.font = '14px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText('Нет записей для выбранной даты', width / 2, height / 2);
+    }
   };
 
   return (
     <Box>
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
-        <Typography variant="caption" fontWeight="bold">
-          ⏱️ Timeline
+        <Typography variant="subtitle2" fontWeight="bold">
+          📊 Временная шкала
         </Typography>
         <ButtonGroup size="small">
           {[1, 2, 6, 12, 24].map(h => (
@@ -64,17 +90,18 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({ camera, date, o
               key={h}
               onClick={() => setZoom(h)}
               variant={zoom === h ? 'contained' : 'outlined'}
+              size="small"
             >
-              {h}h
+              {h}ч
             </Button>
           ))}
         </ButtonGroup>
       </Box>
       <canvas
         ref={canvasRef}
-        width={800}
+        width={900}
         height={80}
-        style={{ width: '100%', height: '80px', cursor: 'pointer' }}
+        style={{ width: '100%', height: '80px', cursor: 'pointer', borderRadius: '4px' }}
         onClick={(e) => {
           const rect = e.currentTarget.getBoundingClientRect();
           const x = e.clientX - rect.left;
@@ -82,6 +109,9 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({ camera, date, o
           onSeek(percent * zoom * 3600); // seconds
         }}
       />
+      <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+        💡 Подсказка: Кликните на шкале для быстрой перемотки
+      </Typography>
     </Box>
   );
 };
