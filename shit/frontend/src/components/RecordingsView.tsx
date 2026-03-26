@@ -11,14 +11,15 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemText,
   Chip,
-  IconButton,
+  Button,
 } from '@mui/material';
-import { VideoLibrary, PlayArrow, Download, FiberManualRecord } from '@mui/icons-material';
+import {
+  VideoLibrary,
+  FiberManualRecord,
+  CloudDownload,
+  ContentCut,
+} from '@mui/icons-material';
 import { FASTAPI_BASE } from '../utils/constants';
 import { RZD_COLORS } from '../theme';
 import RecordingsCalendar from './RecordingsCalendar';
@@ -36,7 +37,9 @@ const RecordingsView: React.FC = () => {
   const [recordings, setRecordings] = useState<Record<string, Recording[]>>({});
   const [selectedCamera, setSelectedCamera] = useState<string>('');
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-  const [selectedFile, setSelectedFile] = useState<Recording | null>(null);
+  const [currentFile, setCurrentFile] = useState<Recording | null>(null);
+  const [currentFileIndex, setCurrentFileIndex] = useState<number>(-1);
+  const [currentTime, setCurrentTime] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -45,11 +48,23 @@ const RecordingsView: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    // Auto-select first camera
+    // Auto-select first camera and start playback
     if (!selectedCamera && Object.keys(recordings).length > 0) {
-      setSelectedCamera(Object.keys(recordings)[0]);
+      const firstCamera = Object.keys(recordings)[0];
+      setSelectedCamera(firstCamera);
+      autoPlayLatestVideo(firstCamera);
     }
   }, [recordings]);
+
+  useEffect(() => {
+    // When camera or date changes, start from first video
+    if (selectedCamera && selectedDate) {
+      const files = getFilesForSelectedDate();
+      if (files.length > 0) {
+        playFile(files[files.length - 1], files.length - 1); // Start from latest
+      }
+    }
+  }, [selectedCamera, selectedDate]);
 
   const loadRecordings = async () => {
     setLoading(true);
@@ -67,18 +82,48 @@ const RecordingsView: React.FC = () => {
     }
   };
 
+  const autoPlayLatestVideo = (camera: string) => {
+    const files = recordings[camera];
+    if (files && files.length > 0) {
+      const latest = files[files.length - 1];
+      setCurrentFile(latest);
+      setCurrentFileIndex(files.length - 1);
+    }
+  };
+
   const handleCameraChange = (cameraName: string) => {
     setSelectedCamera(cameraName);
-    setSelectedFile(null); // Reset video
+    setCurrentFile(null);
   };
 
   const handleDateChange = (date: Date) => {
     setSelectedDate(date);
-    setSelectedFile(null); // Reset video
+    setCurrentFile(null);
   };
 
-  const handleFileSelect = (file: Recording) => {
-    setSelectedFile(file);
+  const playFile = (file: Recording, index: number) => {
+    setCurrentFile(file);
+    setCurrentFileIndex(index);
+  };
+
+  const handleVideoEnded = () => {
+    // Auto-play next video
+    const files = getFilesForSelectedDate();
+    const nextIndex = currentFileIndex + 1;
+
+    if (nextIndex < files.length) {
+      playFile(files[nextIndex], nextIndex);
+    } else {
+      console.log('🎬 Все видео воспроизведены');
+    }
+  };
+
+  const handleTimelineSeek = (file: Recording) => {
+    const files = getFilesForSelectedDate();
+    const index = files.findIndex(f => f.filename === file.filename);
+    if (index !== -1) {
+      playFile(file, index);
+    }
   };
 
   // Get dates with recordings for selected camera
@@ -92,21 +137,9 @@ const RecordingsView: React.FC = () => {
     if (!selectedCamera || !recordings[selectedCamera]) return [];
 
     const dateStr = selectedDate.toISOString().split('T')[0];
-    return recordings[selectedCamera].filter(f =>
-      f.created.startsWith(dateStr)
-    ).sort((a, b) => a.created.localeCompare(b.created));
-  };
-
-  const formatTime = (isoDate: string): string => {
-    return new Date(isoDate).toLocaleTimeString('ru-RU', {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    });
-  };
-
-  const formatBytes = (bytes: number): string => {
-    return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+    return recordings[selectedCamera]
+      .filter(f => f.created.startsWith(dateStr))
+      .sort((a, b) => a.created.localeCompare(b.created));
   };
 
   const filesForDate = getFilesForSelectedDate();
@@ -125,42 +158,42 @@ const RecordingsView: React.FC = () => {
   return (
     <Container maxWidth="xl">
       {/* Header */}
-      <Paper sx={{ p: 3, mb: 3 }}>
-        <Box display="flex" alignItems="center" justifyContent="space-between">
+      <Paper sx={{ p: 2, mb: 2 }}>
+        <Box display="flex" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={2}>
           <Box display="flex" alignItems="center" gap={2}>
             <VideoLibrary sx={{ fontSize: 40, color: RZD_COLORS.primary }} />
             <Box>
               <Typography variant="h5" fontWeight="bold">
                 📼 Архив записей
               </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Просмотр и поиск видеозаписей
+              <Typography variant="caption" color="text.secondary">
+                Непрерывное воспроизведение • Кликайте на Timeline для перехода
               </Typography>
             </Box>
           </Box>
 
           {/* Camera Selector */}
-          <FormControl sx={{ minWidth: 250 }}>
-            <InputLabel>Выберите камеру</InputLabel>
+          <FormControl sx={{ minWidth: 280 }}>
+            <InputLabel>📹 Выберите камеру</InputLabel>
             <Select
               value={selectedCamera}
               onChange={(e) => handleCameraChange(e.target.value)}
-              label="Выберите камеру"
+              label="📹 Выберите камеру"
             >
               {cameraList.map(camera => (
                 <MenuItem key={camera} value={camera}>
-                  <Box display="flex" alignItems="center" gap={1}>
+                  <Box display="flex" alignItems="center" gap={1} width="100%">
                     <FiberManualRecord
                       sx={{
                         fontSize: 12,
                         color: recordings[camera]?.length > 0 ? 'success.main' : 'grey.400'
                       }}
                     />
-                    {camera}
+                    <Typography flexGrow={1}>{camera}</Typography>
                     <Chip
-                      label={recordings[camera]?.length || 0}
+                      label={`${recordings[camera]?.length || 0} файлов`}
                       size="small"
-                      sx={{ ml: 1 }}
+                      color="primary"
                     />
                   </Box>
                 </MenuItem>
@@ -175,7 +208,7 @@ const RecordingsView: React.FC = () => {
       {cameraList.length === 0 ? (
         <Paper sx={{ p: 8, textAlign: 'center' }}>
           <Typography variant="h5" color="text.secondary" gutterBottom>
-            Нет записей
+            📹 Нет записей
           </Typography>
           <Typography color="text.secondary">
             Записи появятся после активации камер
@@ -186,112 +219,113 @@ const RecordingsView: React.FC = () => {
           {/* Left: Video Player + Timeline */}
           <Grid item xs={12} lg={9}>
             {/* Video Player */}
-            <Paper sx={{ mb: 2, height: '60vh', bgcolor: 'black', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
-              {selectedFile && selectedCamera ? (
+            <Paper sx={{ mb: 2, height: '65vh', bgcolor: 'black', overflow: 'hidden' }}>
+              {currentFile && selectedCamera ? (
                 <RecordingsPlayer
                   camera={selectedCamera}
-                  file={selectedFile}
+                  file={currentFile}
+                  onEnded={handleVideoEnded}
+                  onTimeUpdate={setCurrentTime}
                 />
               ) : (
-                <Box textAlign="center">
-                  <Typography variant="h6" color="grey.500" gutterBottom>
-                    Выберите запись для воспроизведения
-                  </Typography>
-                  <Typography variant="body2" color="grey.600">
-                    {!selectedCamera && 'Сначала выберите камеру'}
-                    {selectedCamera && filesForDate.length === 0 && 'Нет записей для выбранной даты'}
-                    {selectedCamera && filesForDate.length > 0 && 'Выберите время справа →'}
-                  </Typography>
+                <Box
+                  display="flex"
+                  alignItems="center"
+                  justifyContent="center"
+                  height="100%"
+                  textAlign="center"
+                  p={4}
+                >
+                  <Box>
+                    <Typography variant="h4" color="grey.600" gutterBottom>
+                      👋 Добро пожаловать в Архив
+                    </Typography>
+                    <Typography variant="h6" color="grey.700" gutterBottom>
+                      Выберите камеру вверху, затем кликните на Timeline
+                    </Typography>
+                    {!selectedCamera && (
+                      <Chip label="1️⃣ Выберите камеру" color="warning" sx={{ mt: 2, fontSize: '1.1rem' }} />
+                    )}
+                    {selectedCamera && filesForDate.length === 0 && (
+                      <Chip label="2️⃣ Выберите дату справа (синие дни = есть записи)" color="info" sx={{ mt: 2 }} />
+                    )}
+                  </Box>
                 </Box>
               )}
             </Paper>
 
             {/* Timeline */}
-            <Paper sx={{ p: 2, height: '140px' }}>
+            <Paper sx={{ p: 2 }}>
               <RecordingsTimeline
                 camera={selectedCamera}
                 date={selectedDate}
                 files={filesForDate}
-                onSeek={(time) => console.log('Seek to:', time)}
+                currentTime={currentTime}
+                onSeek={handleTimelineSeek}
               />
             </Paper>
           </Grid>
 
-          {/* Right: Calendar + Time List */}
+          {/* Right: Calendar */}
           <Grid item xs={12} lg={3}>
             {/* Calendar */}
             <Paper sx={{ p: 2, mb: 2 }}>
+              <Typography variant="subtitle1" fontWeight="bold" mb={2}>
+                📅 Выберите дату
+              </Typography>
               <RecordingsCalendar
                 selectedDate={selectedDate}
                 onDateChange={handleDateChange}
                 highlightDates={getDatesWithRecordings()}
               />
+              <Alert severity="info" sx={{ mt: 2 }} icon={false}>
+                <strong>Синие дни</strong> = есть записи
+              </Alert>
             </Paper>
 
-            {/* Time List */}
-            <Paper sx={{ p: 2, maxHeight: '400px', overflow: 'auto' }}>
+            {/* Stats */}
+            <Paper sx={{ p: 2, mb: 2 }}>
               <Typography variant="subtitle2" fontWeight="bold" mb={1}>
-                ⏰ Доступные записи
+                📊 Статистика
               </Typography>
-
-              {!selectedCamera ? (
-                <Typography variant="caption" color="text.secondary">
-                  Выберите камеру
+              <Typography variant="body2" color="text.secondary">
+                Камера: <strong>{selectedCamera || 'Не выбрана'}</strong>
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Дата: <strong>{selectedDate.toLocaleDateString('ru-RU')}</strong>
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Файлов: <strong>{filesForDate.length}</strong>
+              </Typography>
+              {currentFile && (
+                <Typography variant="body2" color="primary" sx={{ mt: 1 }}>
+                  ▶️ Воспроизводится: {currentFileIndex + 1}/{filesForDate.length}
                 </Typography>
-              ) : filesForDate.length === 0 ? (
-                <Typography variant="caption" color="text.secondary">
-                  Нет записей для {selectedDate.toLocaleDateString('ru-RU')}
-                </Typography>
-              ) : (
-                <List dense disablePadding>
-                  {filesForDate.map((file, index) => (
-                    <ListItem
-                      key={file.filename}
-                      disablePadding
-                      secondaryAction={
-                        <IconButton
-                          size="small"
-                          onClick={() =>
-                            window.open(`${FASTAPI_BASE}/api/recordings/download/${selectedCamera}/${file.filename}`)
-                          }
-                        >
-                          <Download fontSize="small" />
-                        </IconButton>
-                      }
-                    >
-                      <ListItemButton
-                        selected={selectedFile?.filename === file.filename}
-                        onClick={() => handleFileSelect(file)}
-                        sx={{
-                          borderRadius: 1,
-                          mb: 0.5,
-                          '&.Mui-selected': {
-                            bgcolor: RZD_COLORS.primary + '20',
-                            '&:hover': {
-                              bgcolor: RZD_COLORS.primary + '30',
-                            },
-                          },
-                        }}
-                      >
-                        <PlayArrow fontSize="small" sx={{ mr: 1, color: RZD_COLORS.primary }} />
-                        <ListItemText
-                          primary={
-                            <Typography variant="body2" fontWeight={600}>
-                              {formatTime(file.created)}
-                            </Typography>
-                          }
-                          secondary={
-                            <Typography variant="caption" color="text.secondary">
-                              {formatBytes(file.size)}
-                            </Typography>
-                          }
-                        />
-                      </ListItemButton>
-                    </ListItem>
-                  ))}
-                </List>
               )}
             </Paper>
+
+            {/* Download All */}
+            {filesForDate.length > 0 && (
+              <Paper sx={{ p: 2 }}>
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  startIcon={<CloudDownload />}
+                  onClick={() => alert('TODO: Скачать все видео за день')}
+                >
+                  Скачать все ({filesForDate.length})
+                </Button>
+                <Button
+                  fullWidth
+                  variant="contained"
+                  startIcon={<ContentCut />}
+                  sx={{ mt: 1 }}
+                  onClick={() => alert('TODO: Выбрать диапазон и склеить')}
+                >
+                  Склеить диапазон
+                </Button>
+              </Paper>
+            )}
           </Grid>
         </Grid>
       )}
