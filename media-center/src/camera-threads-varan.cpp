@@ -11,6 +11,10 @@
 #include "main-server/rest_server.h"
 #include "bird-view/linker.h"
 
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+#include <GLES2/gl2ext.h>
+
 using namespace std;
 
 bool is_valid_ipv4(const std::string& ip)
@@ -112,18 +116,21 @@ int main(int argc, char* argv[])
 	std::cout << "REST port: " << rest_port << "\n";
 	std::cout << "Signaling: " << signaling_ip << ":" << signaling_port << "\n";
 
-	// Создание модуля 360
-	auto linker_360 = varan::birdview::ULinker({"192.168.1.254", "8765"});
+	auto socket_options = varan::nvr::FWebSocketOptions(signaling_ip, std::to_string(signaling_port));
 
-	auto media_setting = varan::neural::FMediaSettings{};
-	auto center = std::make_shared<varan::neural::UMediaCenter>( media_setting );
-	center->set_bird_view_callback(std::move(linker_360.get_dmabuf_frame_callback()));
+	// Создание модуля 360
+	auto linker_360 = std::make_shared<varan::birdview::ULinker>(socket_options, ULogger::ELoggerLevel::TRACE);
+	linker_360->set_stitching_mode(varan::birdview::EBirdViewStitchingMode::SIX_CAMERAS);
+
+	// Создание центра видеонаблюдения
+	auto center = std::make_shared<varan::neural::UMediaCenter>(socket_options);
+	center->set_bird_view_callback(std::move(linker_360->get_dmabuf_frame_callback()));
 	//center->set_neural_callback(std::move(linker_360.get_dmabuf_frame_callback()));
 
 	auto rest_server = URestServer{ rest_port, center };
 	rest_server.async_start();
 
-	auto socket_options = varan::nvr::FWebSocketOptions(signaling_ip, std::to_string(signaling_port));
+	linker_360->async_start(25);
 
 	// camera 1
 	FPipelineData main_1;
@@ -167,7 +174,7 @@ int main(int argc, char* argv[])
 
 	std::vector<varan::nvr::FCameraData> vector_options = {
 		varan::nvr::FCameraData{
-			"camera_1", "Test camera", "192.168.1.11", "554", "admin", ECameraType::GENERAL,
+			"camera_1", "Test camera", "192.168.1.11", "554", "admin", ECameraType::BIRDVIEW,
 			{
 				{"main", main_1},
 				{"sub", sub_1}
@@ -255,10 +262,12 @@ int main(int argc, char* argv[])
 
 	// Создание камер
 	for (size_t i = 0; i < vector_options.size(); ++i) {
-		center->add_camera(vector_options[i], socket_options);
+		center->add_camera(vector_options[i]);
 	}
 
 	center->initialize_cameras();
+
+	linker_360->set_render_camera(varan::birdview::EBirdCameraType::FRONT, "camera_1");
 
 	// Запуск камер
 	center->start_cameras();

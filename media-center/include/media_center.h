@@ -1,4 +1,3 @@
-
 #include <unordered_map>
 #include <deque>
 #include <functional>
@@ -12,19 +11,14 @@ using namespace varan::nvr;
 namespace varan {
 namespace neural {
 
-struct FMediaSettings {
-	std::string ip_adress;
-	int port;
-};
-
 class UMediaCenter {
 public:
 
-	UMediaCenter(const FMediaSettings& settings);
+	UMediaCenter(const FWebSocketOptions& websocket);
 
-	int add_camera(const FCameraData& options, const FWebSocketOptions& socket_options);
+	int add_camera(const FCameraData& options);
 
-	bool add_camera_async(const FCameraData& options, const FWebSocketOptions& socket_options);
+	bool add_camera_async(const FCameraData& options);
 
 	int remove_camera(const std::string& camera_name);
 
@@ -53,7 +47,7 @@ private:
 	CDmabufMover get_frame_callback_by_camera_type(ECameraType type);
 
 private:
-	FMediaSettings m_settings;
+	FWebSocketOptions m_websocket;
 
 	std::mutex m_mutex;
 	std::mutex m_mutex_buffers;

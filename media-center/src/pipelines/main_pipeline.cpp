@@ -274,19 +274,17 @@ bool UCameraMainPipeline::create_decoder_branch(GstElement* tee) {
 		return false;
 	}
 
+	g_object_set(m_decoder_branch.queue,
+		"max-size-buffers", 0,
+		"leaky", 0,
+		nullptr
+	);
+
 	g_object_set(m_decoder_branch.elem_2,
 		"emit-signals", TRUE,
 		"sync", FALSE,
 		"max-buffers", 1,
 		"drop", TRUE,
-		nullptr
-	);
-
-	g_object_set(m_decoder_branch.queue,
-		"max-size-buffers", 1,
-		"max-size-bytes", 0,
-		"max-size-time", 0,
-		"leaky", 2,
 		nullptr
 	);
 
@@ -315,7 +313,7 @@ bool UCameraMainPipeline::create_decoder_branch(GstElement* tee) {
 		m_decoder_branch.elem_2,
 		"new-sample",
 		G_CALLBACK(UCameraMainPipeline::on_new_sample_dma),
-		&m_dma_sender  // это gpointer, внутри callback приводим к CDmaSender*
+		this
 	);
 
 	if (!gst_element_link_many(m_decoder_branch.queue, m_decoder_branch.elem_1, m_decoder_branch.elem_2, nullptr)) {
@@ -563,7 +561,11 @@ void dump_video_info(GstVideoInfo* info) {
 }
 
 GstFlowReturn UCameraMainPipeline::on_new_sample_dma(GstElement* sink, gpointer user_data) {
-	auto mover =  static_cast<CDmabufMover*>(user_data);
+	auto pipeline = static_cast<UCameraMainPipeline*>(user_data);
+	if (!pipeline) {
+		return GST_FLOW_OK;
+	}
+
 	GstSample* sample = gst_app_sink_pull_sample(GST_APP_SINK(sink));
 	if (!sample) {
 		return GST_FLOW_OK;
@@ -572,6 +574,7 @@ GstFlowReturn UCameraMainPipeline::on_new_sample_dma(GstElement* sink, gpointer 
 	GstBuffer* buffer = gst_sample_get_buffer(sample);
 	GstCaps* caps = gst_sample_get_caps(sample);
 	if (!buffer || !caps) {
+		if (pipeline->m_logger) pipeline->m_logger->debug("on_new_sample_dma(): There is not buffer or caps!");
 		gst_sample_unref(sample);
 		return GST_FLOW_OK;
 	}
@@ -579,11 +582,54 @@ GstFlowReturn UCameraMainPipeline::on_new_sample_dma(GstElement* sink, gpointer 
 	// Получение размера
 	GstVideoInfo info;
 	if (!gst_video_info_from_caps(&info, caps)) {
+		if (pipeline->m_logger) pipeline->m_logger->debug("on_new_sample_dma(): There is no video info!");
 		gst_sample_unref(sample);
 		return GST_FLOW_OK;
 	}
 
-	//dump_video_info(&info);
+	FDmabufFrame frame;
+	// Получние дескрипторов
+	guint n_mem = gst_buffer_n_memory(buffer);
+	guint num_planes = info.finfo->n_planes;
+	if (num_planes < n_mem) {
+		if (pipeline->m_logger) pipeline->m_logger->error("on_new_sample_dma(): Count of memory buffers greater then frame planes!");
+		gst_sample_unref(sample);
+		return GST_FLOW_OK;
+	}
+
+	for (guint i = 0; i < n_mem; i++) {
+		GstMemory* mem = gst_buffer_peek_memory(buffer, i);
+		int fd = dup(gst_dmabuf_memory_get_fd(mem));
+		if (fd >= 0) {
+			frame.fds.push_back(fd);
+		}
+	}
+
+	// Получение данных по кадру
+	frame.format = std::string(gst_video_format_to_string(info.finfo->format));
+	frame.width = info.width;
+	frame.height = info.height;
+	frame.size = info.size;
+	frame.pts = GST_BUFFER_PTS(buffer) / 1e6;
+	// Берем данные plane
+	for (guint i = 0; i < num_planes; i++) {
+		FDmabufPlane plane;
+		plane.stride = info.stride[i];
+		plane.offset = info.offset[i];
+		// Только для NV12
+		if (frame.format == "NV12") {
+			plane.height = (i == 0) ? info.height : info.height / 2;
+		}
+		else {
+			plane.height = frame.height;
+		}
+
+		frame.planes.push_back(std::move(plane));
+	}
+
+	// Передаем буфер кадров
+	if (pipeline->m_dma_sender) pipeline->m_dma_sender(pipeline->m_parameters.camera_name, std::move(frame));
+
 	gst_sample_unref(sample);
 
 	return GST_FLOW_OK;

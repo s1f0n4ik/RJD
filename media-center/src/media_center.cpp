@@ -4,29 +4,27 @@
 namespace varan {
 namespace neural {
 
-UMediaCenter::UMediaCenter(const FMediaSettings& settings)
+UMediaCenter::UMediaCenter(const FWebSocketOptions& socket)
     : m_threads_count(4)
     , m_camera_initialization(false)
-    , m_settings(settings)
+    , m_websocket(socket)
 {
 }
 
-int UMediaCenter::add_camera(const FCameraData& options, const FWebSocketOptions& socket_options) {
+int UMediaCenter::add_camera(const FCameraData& options) {
     std::lock_guard<std::mutex> lk(m_mutex);
     if (m_cameras.count(options.name)) {
         return -1;
     }
 
     auto callback = get_frame_callback_by_camera_type(options.type);
-    auto cam = std::make_shared<UCamera>(options, socket_options, std::move(callback));
-
-    cam->set_frame_callback(std::move(callback));
+    auto cam = std::make_shared<UCamera>(options, m_websocket, std::move(callback));
 
     m_cameras[options.name] = std::move(cam);
     return 0;
 }
 
-bool UMediaCenter::add_camera_async(const FCameraData& options, const FWebSocketOptions& socket_options) {
+bool UMediaCenter::add_camera_async(const FCameraData& options) {
     std::lock_guard<std::mutex> lk(m_mutex);
 
     if (m_cameras.count(options.name)) {
@@ -34,7 +32,7 @@ bool UMediaCenter::add_camera_async(const FCameraData& options, const FWebSocket
     }
 
     auto callback = get_frame_callback_by_camera_type(options.type);
-    auto camera = std::make_shared<UCamera>(options, socket_options, std::move(callback));
+    auto camera = std::make_shared<UCamera>(options, m_websocket, std::move(callback));
 
     camera->start_async();
     m_cameras[options.name] = std::move(camera);

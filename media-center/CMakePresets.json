@@ -1,4 +1,4 @@
-﻿{
+{
   "version": 3,
   "configurePresets": [
     {
@@ -101,11 +101,11 @@
       "remoteDebuggerCommand": "gdbserver :1234",
       "remoteDebuggerPath": "/usr/bin/gdb",
       "targetArchitecture": "arm64",
-      //"remoteMachineIncludeDirectories": [
-        //"/usr/include",
-        //"/lib/aarch64-linux-gnu",
-       // "/opt/gstreamer-1.28/include/"
-      //]
+      "remoteMachineIncludeDirectories": [
+        "/usr/include",
+        "/lib/aarch64-linux-gnu",
+        "/opt/gstreamer-1.28/include/"
+      ]
     }
   }
 }

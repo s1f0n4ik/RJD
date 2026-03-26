@@ -20,6 +20,7 @@ struct FDmabufFrame
 
     uint32_t width;
     uint32_t height;
+    uint64_t pts;
 
     size_t size = 0;
 
@@ -78,6 +79,7 @@ struct FDmabufFrame
         ss << "  Height: " << height << "\n";
         ss << "  Format: " << format << "\n";
         ss << "  Total size: " << size << " bytes\n";
+        ss << "  PTS: " << pts << "\n";
 
         ss << "  FDs (" << fds.size() << "): ";
         for (size_t i = 0; i < fds.size(); ++i) {

@@ -13,6 +13,7 @@
 class ULogger {
 public:
     enum class ELoggerLevel {
+        TRACE,
         DEBUG,
         INFO,
         WARNING,
@@ -49,8 +50,9 @@ public:
     }
 
     void log(ELoggerLevel level, const std::string& message) {
-        if (level < m_level)
+        if (level < m_level) {
             return;
+        }
 
         const std::string time = timestamp();
         const auto& level_name = level_to_string(level);
@@ -81,6 +83,7 @@ public:
     }
 
     // алиасы
+    void trace(const std::string& msg) { log(ELoggerLevel::TRACE, msg); }
     void debug(const std::string& msg) { log(ELoggerLevel::DEBUG, msg); }
     void info(const std::string& msg) { log(ELoggerLevel::INFO, msg); }
     void warn(const std::string& msg) { log(ELoggerLevel::WARNING, msg); }
@@ -113,6 +116,7 @@ private:
 
     static const char* level_to_string(ELoggerLevel level) {
         switch (level) {
+            case ELoggerLevel::TRACE:   return "TRACE";
             case ELoggerLevel::DEBUG:   return "DEBUG";
             case ELoggerLevel::INFO:    return "INFO";
             case ELoggerLevel::WARNING: return "WARN";
@@ -126,6 +130,7 @@ private:
     static std::string_view level_to_color(ELoggerLevel level) {
         using namespace color;
         switch (level) {
+            case ELoggerLevel::TRACE:   return bright_black;
             case ELoggerLevel::DEBUG:   return bright_black;
             case ELoggerLevel::INFO:    return bright_green;
             case ELoggerLevel::WARNING: return bright_yellow;

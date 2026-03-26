@@ -43,30 +43,40 @@ pkg_check_modules(GST_ALL REQUIRED
 
 link_directories(${GST_ALL_LIBRARY_DIRS})
 
+pkg_check_modules(GL REQUIRED glesv2 egl)
+
+include_directories(${GL_INCLUDE_DIRS})
+link_directories(${GL_LIBRARY_DIRS})
+
 # Потоки
 if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set(THREADS_PREFER_PTHREAD_FLAG ON)
     find_package(Threads REQUIRED)
 endif()
 
+# glm
+set(GLM ${CMAKE_SOURCE_DIR}/3rdparty/glm)
+
 # Boost (локальная папка 3rdparty/boost)
 set(BOOST_ROOT ${CMAKE_SOURCE_DIR}/3rdparty/boost)
 set(BOOST_INCLUDEDIR ${BOOST_ROOT}/include)
 set(BOOST_LIBRARYDIR ${BOOST_ROOT}/lib)
 
+# Создание исполняемого файла
+add_executable(${PROJECT_NAME} ${SRC_FILES})
+
 # Директории для include
-include_directories(
+target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${GST_ALL_INCLUDE_DIRS}
     ${BOOST_INCLUDEDIR}
+    ${GLM}
 )
-
-# Создание исполняемого файла
-add_executable(${PROJECT_NAME} ${SRC_FILES})
 
 # Линковка библиотек
 target_link_libraries(${PROJECT_NAME}
     ${GST_ALL_LIBRARIES}
+    ${GL_LIBRARIES}
     Threads::Threads
     opencv_core
     opencv_imgproc
@@ -77,6 +87,9 @@ target_link_libraries(${PROJECT_NAME}
     ${BOOST_LIBRARYDIR}/libboost_filesystem.a
     ${BOOST_LIBRARYDIR}/libboost_thread.a
 )
+
+# Копирование шейдеров в папку с билдом
+file(COPY ${CMAKE_SOURCE_DIR}/shaders DESTINATION ${CMAKE_BINARY_DIR})
 
 # Неустойчивая API GStreamer
 add_definitions(-DGST_USE_UNSTABLE_API)

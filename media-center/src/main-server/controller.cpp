@@ -183,8 +183,7 @@ UController::post_camera(const http::request<http::string_body>& req)
             // Добавление структуры в камеру
             camera_data.pipelines[name_stream] = std::move(pipeline_data);
         }
-        FWebSocketOptions websocket = FWebSocketOptions{"192.168.1.254", "8765"};
-        if (m_media_center->add_camera_async(camera_data, websocket)) {
+        if (m_media_center->add_camera_async(camera_data)) {
             body[fields::RESULT] = "success";
             body[fields::ERROR_DETAILS] = "Camera \"" + name + "\" successfully added to nvr!";
 
