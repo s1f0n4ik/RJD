@@ -5,7 +5,7 @@ import { FASTAPI_BASE } from '../utils/constants';
 interface RecordingsPlayerProps {
   camera: string;
   file: { filename: string; created: string };
-  onEnded?: () => void; // Callback при окончании видео
+  onEnded?: () => void;
   onTimeUpdate?: (currentTime: number) => void;
 }
 
@@ -38,13 +38,19 @@ const RecordingsPlayer: React.FC<RecordingsPlayerProps> = ({
 
   const handleTimeUpdate = () => {
     if (videoRef.current && onTimeUpdate) {
-    const fileDate = new Date(file.created);
-    const fileStartSeconds = fileDate.getTime() / 1000; // Local time in seconds
-    const currentSeconds = fileStartSeconds + videoRef.current.currentTime;
+      // File start time (UTC)
+      const fileStartTime = new Date(file.created).getTime() / 1000;
 
-    onTimeUpdate(currentSeconds);
-  }
-};
+      // Current playback position = file start + video position
+      const currentTimestamp = fileStartTime + videoRef.current.currentTime;
+
+      onTimeUpdate(currentTimestamp);
+
+      // Debug
+      const currentDate = new Date(currentTimestamp * 1000);
+      console.log(`⏰ Player time: ${currentDate.toLocaleTimeString()}, video offset: ${videoRef.current.currentTime.toFixed(1)}s`);
+    }
+  };
 
   return (
     <Box sx={{ width: '100%', height: '100%', bgcolor: 'black', position: 'relative' }}>
@@ -101,18 +107,19 @@ const RecordingsPlayer: React.FC<RecordingsPlayerProps> = ({
         onTimeUpdate={handleTimeUpdate}
       />
 
-      {/* Current video indicator */}
+      {/* File info overlay */}
       <Box
         sx={{
           position: 'absolute',
           bottom: 60,
           left: 10,
-          bgcolor: 'rgba(0,0,0,0.7)',
+          bgcolor: 'rgba(0,0,0,0.8)',
           color: 'white',
           px: 2,
           py: 1,
           borderRadius: 1,
-          fontSize: '0.875rem',
+          fontSize: '0.9rem',
+          fontWeight: 'bold',
         }}
       >
         📹 {camera} • ⏰ {new Date(file.created).toLocaleTimeString('ru-RU')}

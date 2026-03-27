@@ -11,9 +11,19 @@ interface RecordingsTimelineProps {
   camera: string;
   date: Date;
   files: Recording[];
-  currentTime?: number;
+  currentTime?: number; // Unix timestamp in seconds
   onSeek: (file: Recording) => void;
 }
+
+// Helper: Parse UTC string to local Date
+const parseUTC = (utcString: string): Date => {
+  return new Date(utcString);
+};
+
+// Helper: Get minutes from day start (local time)
+const getMinutesFromDayStart = (date: Date): number => {
+  return date.getHours() * 60 + date.getMinutes() + date.getSeconds() / 60;
+};
 
 const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
   camera,
@@ -24,17 +34,12 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [zoom, setZoom] = useState(24);
-  const [hoveredFile, setHoveredFile] = useState<Recording | null>(null);
+  const [hoveredTime, setHoveredTime] = useState<string | null>(null);
+  const [mouseX, setMouseX] = useState(0);
 
   useEffect(() => {
     drawTimeline();
   }, [camera, date, zoom, files, currentTime]);
-
-  const getLocalTimeInMinutes = (file: Recording): number => {
-    const fileDate = new Date(file.created);
-    // Используем локальное время (не UTC!)
-    return fileDate.getHours() * 60 + fileDate.getMinutes();
-  };
 
   const drawTimeline = () => {
     const canvas = canvasRef.current;
@@ -43,118 +48,141 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const width = canvas.width;
-    const height = canvas.height;
-    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    const width = rect.width;
+    const height = rect.height;
 
-    // Adjust for high DPI
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
-    ctx.scale(dpr, dpr);
+    // Set canvas size for sharp rendering
+    canvas.width = width * window.devicePixelRatio;
+    canvas.height = height * window.devicePixelRatio;
+    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
 
     // Background
     ctx.fillStyle = '#2a2a2a';
     ctx.fillRect(0, 0, width, height);
 
-    const topMargin = 25;
-    const segmentHeight = height - topMargin - 5;
+    const topMargin = 30;
+    const segmentHeight = height - topMargin - 10;
 
     // Draw hour grid
-    ctx.strokeStyle = '#444';
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 13px Arial';
+    ctx.font = 'bold 12px Arial';
     ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
 
-    for (let i = 0; i <= zoom; i++) {
-      const x = (i / zoom) * width;
+    for (let h = 0; h <= zoom; h++) {
+      const x = (h / zoom) * width;
 
-      // Major grid lines every 3 hours
-      if (i % 3 === 0) {
-        ctx.strokeStyle = '#666';
-        ctx.lineWidth = 2;
-      } else {
-        ctx.strokeStyle = '#444';
-        ctx.lineWidth = 1;
-      }
-
+      // Grid line
+      ctx.strokeStyle = h % 6 === 0 ? '#666' : '#444';
+      ctx.lineWidth = h % 6 === 0 ? 2 : 1;
       ctx.beginPath();
       ctx.moveTo(x, topMargin);
       ctx.lineTo(x, height);
       ctx.stroke();
 
-      // Time labels with background
-      if (zoom <= 12 || i % 2 === 0) {
-        const timeLabel = `${String(i).padStart(2, '0')}:00`;
-        const textWidth = ctx.measureText(timeLabel).width;
+      // Time label
+      if (zoom <= 12 || h % 2 === 0) {
+        const label = `${String(h).padStart(2, '0')}:00`;
 
-        // Background for text
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-        ctx.fillRect(x - textWidth / 2 - 4, 2, textWidth + 8, 18);
+        // Background
+        const metrics = ctx.measureText(label);
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+        ctx.fillRect(x - metrics.width / 2 - 4, 5, metrics.width + 8, 18);
 
         // Text
-        ctx.fillStyle = '#ffffff';
-        ctx.fillText(timeLabel, x, 15);
+        ctx.fillStyle = '#fff';
+        ctx.fillText(label, x, 8);
       }
     }
 
-    // Draw recording segments (BLUE BLOCKS)
+    // Draw recording ranges (BLUE CONTINUOUS BLOCK)
     if (files.length > 0) {
-      console.log(`Drawing ${files.length} segments`);
+      // Sort files by time
+      const sortedFiles = [...files].sort((a, b) =>
+        new Date(a.created).getTime() - new Date(b.created).getTime()
+      );
 
-      files.forEach((file, index) => {
-        const totalMinutes = getLocalTimeInMinutes(file);
-        const startX = (totalMinutes / (zoom * 60)) * width;
+      // Find continuous recording ranges
+      const ranges: { start: number; end: number }[] = [];
+      let currentRange: { start: number; end: number } | null = null;
 
-        // Segment width (10 min default)
-        const segmentDurationMin = 10;
-        const segmentWidth = Math.max((segmentDurationMin / (zoom * 60)) * width, 2);
+      sortedFiles.forEach(file => {
+        const fileTime = parseUTC(file.created);
+        const minutes = getMinutesFromDayStart(fileTime);
+        const segmentDuration = 10; // Each file = 10 minutes
 
-        // Different colors for different states
-        let color = '#2196F3'; // Blue for recordings
-
-        if (hoveredFile?.filename === file.filename) {
-          color = '#FFD700'; // Gold when hovered
-        }
-
-        // Draw segment
-        ctx.fillStyle = color;
-        ctx.fillRect(startX, topMargin, segmentWidth, segmentHeight);
-
-        // Border
-        ctx.strokeStyle = '#000';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(startX, topMargin, segmentWidth, segmentHeight);
-
-        // Debug log
-        if (index === 0) {
-          console.log(`First segment: time=${new Date(file.created).toLocaleTimeString()}, x=${startX}, width=${segmentWidth}`);
+        if (!currentRange) {
+          currentRange = { start: minutes, end: minutes + segmentDuration };
+        } else {
+          // If gap < 2 minutes, extend current range
+          if (minutes - currentRange.end < 2) {
+            currentRange.end = minutes + segmentDuration;
+          } else {
+            // Save current range and start new one
+            ranges.push(currentRange);
+            currentRange = { start: minutes, end: minutes + segmentDuration };
+          }
         }
       });
 
-      // Draw current playback position (RED LINE - THIN!)
-      if (currentTime !== undefined && currentTime > 0) {
-        const fileDate = new Date(currentTime * 1000);
-        const currentMinutes = fileDate.getHours() * 60 + fileDate.getMinutes();
-        const currentX = (currentMinutes / (zoom * 60)) * width;
+      if (currentRange) {
+        ranges.push(currentRange);
+      }
 
-        // Thin red line
-        ctx.strokeStyle = '#FF0000';
+      console.log(`📊 Recording ranges:`, ranges);
+
+      // Draw ranges
+      ranges.forEach(range => {
+        const startX = (range.start / (zoom * 60)) * width;
+        const endX = (range.end / (zoom * 60)) * width;
+        const rangeWidth = Math.max(endX - startX, 3);
+
+        // Blue fill
+        ctx.fillStyle = '#2196F3';
+        ctx.fillRect(startX, topMargin, rangeWidth, segmentHeight);
+
+        // Border
+        ctx.strokeStyle = '#64B5F6';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(startX, topMargin, rangeWidth, segmentHeight);
+      });
+
+      // Draw current playback marker (RED LINE)
+      if (currentTime && currentTime > 0) {
+        const currentDate = new Date(currentTime * 1000);
+        const currentMinutes = getMinutesFromDayStart(currentDate);
+        const markerX = (currentMinutes / (zoom * 60)) * width;
+
+        console.log(`🔴 Red marker: ${currentDate.toLocaleTimeString()} = ${currentMinutes} min = ${markerX}px`);
+
+        // Red line
+        ctx.strokeStyle = '#F44336';
         ctx.lineWidth = 2;
+        ctx.setLineDash([]);
         ctx.beginPath();
-        ctx.moveTo(currentX, topMargin - 5);
-        ctx.lineTo(currentX, height);
+        ctx.moveTo(markerX, topMargin - 8);
+        ctx.lineTo(markerX, height);
         ctx.stroke();
 
-        // Small red circle on top
-        ctx.fillStyle = '#FF0000';
+        // Red circle on top
+        ctx.fillStyle = '#F44336';
         ctx.beginPath();
-        ctx.arc(currentX, topMargin - 5, 4, 0, Math.PI * 2);
+        ctx.arc(markerX, topMargin - 8, 5, 0, Math.PI * 2);
         ctx.fill();
+
+        // Time label
+        ctx.fillStyle = '#F44336';
+        ctx.font = 'bold 11px Arial';
+        ctx.fillText(
+          currentDate.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+          markerX,
+          topMargin - 15
+        );
       }
     } else {
-      // No recordings message
+      // No recordings
       ctx.fillStyle = '#888';
-      ctx.font = 'bold 16px Arial';
+      ctx.font = 'bold 14px Arial';
       ctx.textAlign = 'center';
       ctx.fillText('Нет записей для выбранной даты', width / 2, height / 2);
     }
@@ -165,20 +193,18 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
 
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
-    const percent = x / rect.width;
-    const clickedMinutes = percent * zoom * 60;
+    const clickedMinutes = (x / rect.width) * zoom * 60;
 
-    console.log(`Clicked at ${clickedMinutes} minutes (${Math.floor(clickedMinutes/60)}:${Math.floor(clickedMinutes%60)})`);
+    console.log(`🖱 Clicked: ${Math.floor(clickedMinutes / 60)}:${Math.floor(clickedMinutes % 60).toString().padStart(2, '0')}`);
 
     // Find closest file
     let closestFile: Recording | null = null;
     let minDiff = Infinity;
 
     files.forEach(file => {
-      const fileMinutes = getLocalTimeInMinutes(file);
+      const fileDate = parseUTC(file.created);
+      const fileMinutes = getMinutesFromDayStart(fileDate);
       const diff = Math.abs(fileMinutes - clickedMinutes);
-
-      console.log(`File ${file.filename}: ${fileMinutes} min, diff=${diff}`);
 
       if (diff < minDiff) {
         minDiff = diff;
@@ -187,7 +213,7 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
     });
 
     if (closestFile) {
-      // console.log(`Playing file: ${closestFile.filename}`);
+      console.log(`▶️ Playing: ${closestFile.filename}`);
       onSeek(closestFile);
     }
   };
@@ -195,21 +221,13 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
   const handleCanvasHover = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
-    const percent = x / rect.width;
-    const hoveredMinutes = percent * zoom * 60;
+    const minutes = (x / rect.width) * zoom * 60;
 
-    let foundFile: Recording | null = null;
+    const hours = Math.floor(minutes / 60);
+    const mins = Math.floor(minutes % 60);
 
-    files.forEach(file => {
-      const fileMinutes = getLocalTimeInMinutes(file);
-      const segmentDuration = 10;
-
-      if (hoveredMinutes >= fileMinutes && hoveredMinutes <= fileMinutes + segmentDuration) {
-        foundFile = file;
-      }
-    });
-
-    setHoveredFile(foundFile);
+    setHoveredTime(`${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`);
+    setMouseX(e.clientX);
   };
 
   return (
@@ -224,7 +242,6 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
               key={h}
               onClick={() => setZoom(h)}
               variant={zoom === h ? 'contained' : 'outlined'}
-              size="small"
             >
               {h}ч
             </Button>
@@ -232,43 +249,47 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
         </ButtonGroup>
       </Box>
 
-      <Tooltip
-        open={!!hoveredFile}
-        title={
-          hoveredFile ? (
-            <Box>
-              <Typography variant="body2" fontWeight="bold">
-                ⏰ {new Date(hoveredFile.created).toLocaleTimeString('ru-RU')}
-              </Typography>
-              <Typography variant="caption">
-                📁 {hoveredFile.filename}
-              </Typography>
-            </Box>
-          ) : ''
-        }
-        placement="top"
-        followCursor
-      >
+      <Box position="relative">
         <canvas
           ref={canvasRef}
-          width={1200}
-          height={100}
           style={{
             width: '100%',
             height: '100px',
             cursor: 'pointer',
             borderRadius: '4px',
             border: '2px solid #444',
+            display: 'block',
           }}
           onClick={handleCanvasClick}
           onMouseMove={handleCanvasHover}
-          onMouseLeave={() => setHoveredFile(null)}
+          onMouseLeave={() => setHoveredTime(null)}
         />
-      </Tooltip>
+
+        {hoveredTime && (
+          <Box
+            sx={{
+              position: 'fixed',
+              left: mouseX + 10,
+              top: 'auto',
+              bgcolor: 'rgba(0, 0, 0, 0.9)',
+              color: 'white',
+              px: 1.5,
+              py: 0.5,
+              borderRadius: 1,
+              fontSize: '13px',
+              fontWeight: 'bold',
+              pointerEvents: 'none',
+              zIndex: 9999,
+            }}
+          >
+            ⏰ {hoveredTime}
+          </Box>
+        )}
+      </Box>
 
       <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-        💡 <strong style={{ color: '#2196F3' }}>Синие блоки</strong> = записи •
-        <strong style={{ color: '#FF0000' }}> Красная линия</strong> = текущее время воспроизведения
+        💡 <strong style={{ color: '#2196F3' }}>Синие блоки</strong> = непрерывные записи •
+        <strong style={{ color: '#F44336' }}> Красная линия</strong> = текущее воспроизведение
       </Typography>
     </Box>
   );
