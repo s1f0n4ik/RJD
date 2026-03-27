@@ -57,11 +57,12 @@ const RecordingsView: React.FC = () => {
   }, [recordings]);
 
   useEffect(() => {
-    // When camera or date changes, start from first video
     if (selectedCamera && selectedDate) {
       const files = getFilesForSelectedDate();
-      if (files.length > 0) {
-        playFile(files[files.length - 1], files.length - 1); // Start from latest
+      if (files.length > 1) {
+        playFile(files[files.length - 2], files.length - 2);
+      } else if (files.length === 1) {
+        playFile(files[0], 0);
       }
     }
   }, [selectedCamera, selectedDate]);
@@ -84,10 +85,14 @@ const RecordingsView: React.FC = () => {
 
   const autoPlayLatestVideo = (camera: string) => {
     const files = recordings[camera];
-    if (files && files.length > 0) {
-      const latest = files[files.length - 1];
-      setCurrentFile(latest);
-      setCurrentFileIndex(files.length - 1);
+    if (files && files.length > 1) {
+      const secondLast = files[files.length - 2];
+      setCurrentFile(secondLast);
+      setCurrentFileIndex(files.length - 2);
+      console.log('🎬 Auto-playing second-to-last video (last one might be recording)');
+    } else if (files && files.length === 1) {
+      setCurrentFile(files[0]);
+      setCurrentFileIndex(0);
     }
   };
 

@@ -38,10 +38,13 @@ const RecordingsPlayer: React.FC<RecordingsPlayerProps> = ({
 
   const handleTimeUpdate = () => {
     if (videoRef.current && onTimeUpdate) {
-      const fileTime = new Date(file.created).getTime() / 1000;
-      onTimeUpdate(fileTime + videoRef.current.currentTime);
-    }
-  };
+    const fileDate = new Date(file.created);
+    const fileStartSeconds = fileDate.getTime() / 1000; // Local time in seconds
+    const currentSeconds = fileStartSeconds + videoRef.current.currentTime;
+
+    onTimeUpdate(currentSeconds);
+  }
+};
 
   return (
     <Box sx={{ width: '100%', height: '100%', bgcolor: 'black', position: 'relative' }}>
