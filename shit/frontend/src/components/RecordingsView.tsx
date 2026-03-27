@@ -13,12 +13,18 @@ import {
   MenuItem,
   Chip,
   Button,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  LinearProgress,
 } from '@mui/material';
 import {
   VideoLibrary,
   FiberManualRecord,
   CloudDownload,
   ContentCut,
+  Cancel,
 } from '@mui/icons-material';
 import { FASTAPI_BASE } from '../utils/constants';
 import { RZD_COLORS } from '../theme';
@@ -43,12 +49,17 @@ const RecordingsView: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  // Range selection
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedRange, setSelectedRange] = useState<{ start: number; end: number } | null>(null);
+  const [merging, setMerging] = useState(false);
+  const [mergeProgress, setMergeProgress] = useState(0);
+
   useEffect(() => {
     loadRecordings();
   }, []);
 
   useEffect(() => {
-    // Auto-select first camera and start playback
     if (!selectedCamera && Object.keys(recordings).length > 0) {
       const firstCamera = Object.keys(recordings)[0];
       setSelectedCamera(firstCamera);
@@ -89,7 +100,6 @@ const RecordingsView: React.FC = () => {
       const secondLast = files[files.length - 2];
       setCurrentFile(secondLast);
       setCurrentFileIndex(files.length - 2);
-      console.log('🎬 Auto-playing second-to-last video (last one might be recording)');
     } else if (files && files.length === 1) {
       setCurrentFile(files[0]);
       setCurrentFileIndex(0);
@@ -99,11 +109,15 @@ const RecordingsView: React.FC = () => {
   const handleCameraChange = (cameraName: string) => {
     setSelectedCamera(cameraName);
     setCurrentFile(null);
+    setSelectedRange(null);
+    setSelectionMode(false);
   };
 
   const handleDateChange = (date: Date) => {
     setSelectedDate(date);
     setCurrentFile(null);
+    setSelectedRange(null);
+    setSelectionMode(false);
   };
 
   const playFile = (file: Recording, index: number) => {
@@ -112,14 +126,11 @@ const RecordingsView: React.FC = () => {
   };
 
   const handleVideoEnded = () => {
-    // Auto-play next video
     const files = getFilesForSelectedDate();
     const nextIndex = currentFileIndex + 1;
 
     if (nextIndex < files.length) {
       playFile(files[nextIndex], nextIndex);
-    } else {
-      console.log('🎬 Все видео воспроизведены');
     }
   };
 
@@ -131,13 +142,72 @@ const RecordingsView: React.FC = () => {
     }
   };
 
-  // Get dates with recordings for selected camera
+  const handleRangeSelected = (range: { start: number; end: number }) => {
+    setSelectedRange(range);
+    console.log(`Selected range: ${formatMinutes(range.start)} - ${formatMinutes(range.end)}`);
+  };
+
+  const formatMinutes = (minutes: number): string => {
+    const h = Math.floor(minutes / 60);
+    const m = Math.floor(minutes % 60);
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  };
+
+  const handleMergeVideos = async () => {
+    if (!selectedRange || !selectedCamera) return;
+
+    setMerging(true);
+    setMergeProgress(0);
+
+    try {
+      const dateStr = selectedDate.toISOString().split('T')[0];
+
+      const response = await fetch(`${FASTAPI_BASE}/api/recordings/merge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          camera: selectedCamera,
+          date: dateStr,
+          start_minutes: selectedRange.start,
+          end_minutes: selectedRange.end,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'Merge failed');
+      }
+
+      // Download the merged file
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${selectedCamera}_${dateStr}_${formatMinutes(selectedRange.start).replace(':', '')}-${formatMinutes(selectedRange.end).replace(':', '')}.mp4`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      setMergeProgress(100);
+
+      setTimeout(() => {
+        setMerging(false);
+        setSelectionMode(false);
+        setSelectedRange(null);
+      }, 1500);
+
+    } catch (err: any) {
+      alert(`Ошибка склейки: ${err.message}`);
+      setMerging(false);
+    }
+  };
+
   const getDatesWithRecordings = (): Date[] => {
     if (!selectedCamera || !recordings[selectedCamera]) return [];
     return recordings[selectedCamera].map(f => new Date(f.created));
   };
 
-  // Get files for selected camera and date
   const getFilesForSelectedDate = (): Recording[] => {
     if (!selectedCamera || !recordings[selectedCamera]) return [];
 
@@ -172,12 +242,13 @@ const RecordingsView: React.FC = () => {
                 📼 Архив записей
               </Typography>
               <Typography variant="caption" color="text.secondary">
-                Непрерывное воспроизведение • Кликайте на Timeline для перехода
+                {selectionMode
+                  ? '✂️ Режим выбора диапазона • Кликните начало и конец'
+                  : 'Непрерывное воспроизведение • Кликайте на Timeline для перехода'}
               </Typography>
             </Box>
           </Box>
 
-          {/* Camera Selector */}
           <FormControl sx={{ minWidth: 280 }}>
             <InputLabel>📹 Выберите камеру</InputLabel>
             <Select
@@ -221,11 +292,10 @@ const RecordingsView: React.FC = () => {
         </Paper>
       ) : (
         <Grid container spacing={2}>
-          {/* Left: Video Player + Timeline */}
           <Grid item xs={12} lg={9}>
             {/* Video Player */}
             <Paper sx={{ mb: 2, height: '65vh', bgcolor: 'black', overflow: 'hidden' }}>
-              {currentFile && selectedCamera ? (
+              {currentFile && selectedCamera && !selectionMode ? (
                 <RecordingsPlayer
                   camera={selectedCamera}
                   file={currentFile}
@@ -242,17 +312,31 @@ const RecordingsView: React.FC = () => {
                   p={4}
                 >
                   <Box>
-                    <Typography variant="h4" color="grey.600" gutterBottom>
-                      👋 Добро пожаловать в Архив
-                    </Typography>
-                    <Typography variant="h6" color="grey.700" gutterBottom>
-                      Выберите камеру вверху, затем кликните на Timeline
-                    </Typography>
-                    {!selectedCamera && (
-                      <Chip label="1️⃣ Выберите камеру" color="warning" sx={{ mt: 2, fontSize: '1.1rem' }} />
-                    )}
-                    {selectedCamera && filesForDate.length === 0 && (
-                      <Chip label="2️⃣ Выберите дату справа (синие дни = есть записи)" color="info" sx={{ mt: 2 }} />
+                    {selectionMode ? (
+                      <>
+                        <Typography variant="h4" color="success.main" gutterBottom>
+                          ✂️ Режим выбора диапазона
+                        </Typography>
+                        <Typography variant="h6" color="grey.600" gutterBottom>
+                          Кликните на Timeline: сначала начало, затем конец
+                        </Typography>
+                        {selectedRange && (
+                          <Chip
+                            label={`Выбрано: ${formatMinutes(selectedRange.start)} - ${formatMinutes(selectedRange.end)}`}
+                            color="success"
+                            sx={{ mt: 2, fontSize: '1.1rem' }}
+                          />
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <Typography variant="h4" color="grey.600" gutterBottom>
+                          👋 Добро пожаловать в Архив
+                        </Typography>
+                        <Typography variant="h6" color="grey.700" gutterBottom>
+                          Выберите камеру вверху, затем кликните на Timeline
+                        </Typography>
+                      </>
                     )}
                   </Box>
                 </Box>
@@ -265,13 +349,15 @@ const RecordingsView: React.FC = () => {
                 camera={selectedCamera}
                 date={selectedDate}
                 files={filesForDate}
-                currentTime={currentTime}
+                currentTime={selectionMode ? undefined : currentTime}
                 onSeek={handleTimelineSeek}
+                selectionMode={selectionMode}
+                selectedRange={selectedRange}
+                onRangeSelected={handleRangeSelected}
               />
             </Paper>
           </Grid>
 
-          {/* Right: Calendar */}
           <Grid item xs={12} lg={3}>
             {/* Calendar */}
             <Paper sx={{ p: 2, mb: 2 }}>
@@ -302,38 +388,92 @@ const RecordingsView: React.FC = () => {
               <Typography variant="body2" color="text.secondary">
                 Файлов: <strong>{filesForDate.length}</strong>
               </Typography>
-              {currentFile && (
+              {currentFile && !selectionMode && (
                 <Typography variant="body2" color="primary" sx={{ mt: 1 }}>
                   ▶️ Воспроизводится: {currentFileIndex + 1}/{filesForDate.length}
                 </Typography>
               )}
+              {selectedRange && (
+                <Alert severity="success" sx={{ mt: 1 }} icon={false}>
+                  <Typography variant="caption" fontWeight="bold">
+                    ✂️ Диапазон: {formatMinutes(selectedRange.start)} - {formatMinutes(selectedRange.end)}
+                  </Typography>
+                  <Typography variant="caption" display="block">
+                    ~{Math.round(selectedRange.end - selectedRange.start)} минут
+                  </Typography>
+                </Alert>
+              )}
             </Paper>
 
-            {/* Download All */}
+            {/* Actions */}
             {filesForDate.length > 0 && (
               <Paper sx={{ p: 2 }}>
-                <Button
-                  fullWidth
-                  variant="outlined"
-                  startIcon={<CloudDownload />}
-                  onClick={() => alert('TODO: Скачать все видео за день')}
-                >
-                  Скачать все ({filesForDate.length})
-                </Button>
-                <Button
-                  fullWidth
-                  variant="contained"
-                  startIcon={<ContentCut />}
-                  sx={{ mt: 1 }}
-                  onClick={() => alert('TODO: Выбрать диапазон и склеить')}
-                >
-                  Склеить диапазон
-                </Button>
+                {!selectionMode ? (
+                  <>
+                    <Button
+                      fullWidth
+                      variant="outlined"
+                      startIcon={<CloudDownload />}
+                      onClick={() => alert('TODO: Скачать все видео за день')}
+                      sx={{ mb: 1 }}
+                    >
+                      Скачать все ({filesForDate.length})
+                    </Button>
+                    <Button
+                      fullWidth
+                      variant="contained"
+                      startIcon={<ContentCut />}
+                      onClick={() => setSelectionMode(true)}
+                    >
+                      Склеить диапазон
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button
+                      fullWidth
+                      variant="contained"
+                      color="success"
+                      startIcon={<ContentCut />}
+                      disabled={!selectedRange || merging}
+                      onClick={handleMergeVideos}
+                      sx={{ mb: 1 }}
+                    >
+                      {merging ? 'Склеиваем...' : 'Склеить и скачать'}
+                    </Button>
+                    <Button
+                      fullWidth
+                      variant="outlined"
+                      color="error"
+                      startIcon={<Cancel />}
+                      onClick={() => {
+                        setSelectionMode(false);
+                        setSelectedRange(null);
+                      }}
+                    >
+                      Отменить
+                    </Button>
+                  </>
+                )}
               </Paper>
             )}
           </Grid>
         </Grid>
       )}
+
+      {/* Merging Dialog */}
+      <Dialog open={merging} maxWidth="sm" fullWidth>
+        <DialogTitle>⚙️ Склеивание видео</DialogTitle>
+        <DialogContent>
+          <Typography gutterBottom>
+            Обрабатываем видео с {selectedRange && formatMinutes(selectedRange.start)} до {selectedRange && formatMinutes(selectedRange.end)}...
+          </Typography>
+          <LinearProgress variant="indeterminate" sx={{ mt: 2 }} />
+          <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+            Это может занять несколько минут в зависимости от длительности
+          </Typography>
+        </DialogContent>
+      </Dialog>
     </Container>
   );
 };

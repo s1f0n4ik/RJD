@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Box, ButtonGroup, Button, Typography, Tooltip } from '@mui/material';
+import { Box, ButtonGroup, Button, Typography, Chip } from '@mui/material';
 import { RZD_COLORS } from '../theme';
 
 interface Recording {
@@ -11,18 +11,25 @@ interface RecordingsTimelineProps {
   camera: string;
   date: Date;
   files: Recording[];
-  currentTime?: number; // Unix timestamp in seconds
+  currentTime?: number;
   onSeek: (file: Recording) => void;
+  selectionMode?: boolean;
+  selectedRange?: { start: number; end: number } | null;
+  onRangeSelected?: (range: { start: number; end: number }) => void;
 }
 
-// Helper: Parse UTC string to local Date
 const parseUTC = (utcString: string): Date => {
   return new Date(utcString);
 };
 
-// Helper: Get minutes from day start (local time)
 const getMinutesFromDayStart = (date: Date): number => {
   return date.getHours() * 60 + date.getMinutes() + date.getSeconds() / 60;
+};
+
+const formatTime = (minutes: number): string => {
+  const h = Math.floor(minutes / 60);
+  const m = Math.floor(minutes % 60);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 };
 
 const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
@@ -30,16 +37,20 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
   date,
   files,
   currentTime,
-  onSeek
+  onSeek,
+  selectionMode = false,
+  selectedRange,
+  onRangeSelected
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [zoom, setZoom] = useState(24);
   const [hoveredTime, setHoveredTime] = useState<string | null>(null);
   const [mouseX, setMouseX] = useState(0);
+  const [tempStart, setTempStart] = useState<number | null>(null);
 
   useEffect(() => {
     drawTimeline();
-  }, [camera, date, zoom, files, currentTime]);
+  }, [camera, date, zoom, files, currentTime, selectionMode, selectedRange, tempStart]);
 
   const drawTimeline = () => {
     const canvas = canvasRef.current;
@@ -52,7 +63,6 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
     const width = rect.width;
     const height = rect.height;
 
-    // Set canvas size for sharp rendering
     canvas.width = width * window.devicePixelRatio;
     canvas.height = height * window.devicePixelRatio;
     ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
@@ -72,7 +82,6 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
     for (let h = 0; h <= zoom; h++) {
       const x = (h / zoom) * width;
 
-      // Grid line
       ctx.strokeStyle = h % 6 === 0 ? '#666' : '#444';
       ctx.lineWidth = h % 6 === 0 ? 2 : 1;
       ctx.beginPath();
@@ -80,45 +89,36 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
       ctx.lineTo(x, height);
       ctx.stroke();
 
-      // Time label
       if (zoom <= 12 || h % 2 === 0) {
         const label = `${String(h).padStart(2, '0')}:00`;
-
-        // Background
         const metrics = ctx.measureText(label);
         ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
         ctx.fillRect(x - metrics.width / 2 - 4, 5, metrics.width + 8, 18);
-
-        // Text
         ctx.fillStyle = '#fff';
         ctx.fillText(label, x, 8);
       }
     }
 
-    // Draw recording ranges (BLUE CONTINUOUS BLOCK)
+    // Draw recording ranges (BLUE)
     if (files.length > 0) {
-      // Sort files by time
       const sortedFiles = [...files].sort((a, b) =>
         new Date(a.created).getTime() - new Date(b.created).getTime()
       );
 
-      // Find continuous recording ranges
       const ranges: { start: number; end: number }[] = [];
       let currentRange: { start: number; end: number } | null = null;
 
       sortedFiles.forEach(file => {
         const fileTime = parseUTC(file.created);
         const minutes = getMinutesFromDayStart(fileTime);
-        const segmentDuration = 10; // Each file = 10 minutes
+        const segmentDuration = 10;
 
         if (!currentRange) {
           currentRange = { start: minutes, end: minutes + segmentDuration };
         } else {
-          // If gap < 2 minutes, extend current range
           if (minutes - currentRange.end < 2) {
             currentRange.end = minutes + segmentDuration;
           } else {
-            // Save current range and start new one
             ranges.push(currentRange);
             currentRange = { start: minutes, end: minutes + segmentDuration };
           }
@@ -129,48 +129,84 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
         ranges.push(currentRange);
       }
 
-      console.log(`📊 Recording ranges:`, ranges);
-
-      // Draw ranges
+      // Draw blue ranges
       ranges.forEach(range => {
         const startX = (range.start / (zoom * 60)) * width;
         const endX = (range.end / (zoom * 60)) * width;
         const rangeWidth = Math.max(endX - startX, 3);
 
-        // Blue fill
         ctx.fillStyle = '#2196F3';
         ctx.fillRect(startX, topMargin, rangeWidth, segmentHeight);
-
-        // Border
         ctx.strokeStyle = '#64B5F6';
         ctx.lineWidth = 1;
         ctx.strokeRect(startX, topMargin, rangeWidth, segmentHeight);
       });
 
-      // Draw current playback marker (RED LINE)
-      if (currentTime && currentTime > 0) {
+      // Draw SELECTED RANGE (GREEN overlay)
+      if (selectedRange) {
+        const startX = (selectedRange.start / (zoom * 60)) * width;
+        const endX = (selectedRange.end / (zoom * 60)) * width;
+        const rangeWidth = Math.max(endX - startX, 3);
+
+        // Semi-transparent green fill
+        ctx.fillStyle = 'rgba(76, 175, 80, 0.4)';
+        ctx.fillRect(startX, topMargin, rangeWidth, segmentHeight);
+
+        // Green borders
+        ctx.strokeStyle = '#4CAF50';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(startX, topMargin, rangeWidth, segmentHeight);
+
+        // Start marker
+        ctx.fillStyle = '#4CAF50';
+        ctx.fillRect(startX - 2, topMargin, 4, segmentHeight);
+
+        // End marker
+        ctx.fillRect(endX - 2, topMargin, 4, segmentHeight);
+
+        // Labels
+        ctx.fillStyle = '#4CAF50';
+        ctx.font = 'bold 11px Arial';
+        ctx.fillText(`🟢 ${formatTime(selectedRange.start)}`, startX, topMargin - 15);
+        ctx.fillText(`🟢 ${formatTime(selectedRange.end)}`, endX, topMargin - 15);
+      }
+
+      // Draw TEMP START marker (while selecting)
+      if (tempStart !== null) {
+        const startX = (tempStart / (zoom * 60)) * width;
+
+        ctx.strokeStyle = '#FFC107';
+        ctx.lineWidth = 3;
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        ctx.moveTo(startX, topMargin);
+        ctx.lineTo(startX, height);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.fillStyle = '#FFC107';
+        ctx.font = 'bold 11px Arial';
+        ctx.fillText(`⏱️ ${formatTime(tempStart)}`, startX, topMargin - 15);
+      }
+
+      // Draw current playback marker (RED)
+      if (currentTime && currentTime > 0 && !selectionMode) {
         const currentDate = new Date(currentTime * 1000);
         const currentMinutes = getMinutesFromDayStart(currentDate);
         const markerX = (currentMinutes / (zoom * 60)) * width;
 
-        console.log(`🔴 Red marker: ${currentDate.toLocaleTimeString()} = ${currentMinutes} min = ${markerX}px`);
-
-        // Red line
         ctx.strokeStyle = '#F44336';
         ctx.lineWidth = 2;
-        ctx.setLineDash([]);
         ctx.beginPath();
         ctx.moveTo(markerX, topMargin - 8);
         ctx.lineTo(markerX, height);
         ctx.stroke();
 
-        // Red circle on top
         ctx.fillStyle = '#F44336';
         ctx.beginPath();
         ctx.arc(markerX, topMargin - 8, 5, 0, Math.PI * 2);
         ctx.fill();
 
-        // Time label
         ctx.fillStyle = '#F44336';
         ctx.font = 'bold 11px Arial';
         ctx.fillText(
@@ -180,7 +216,6 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
         );
       }
     } else {
-      // No recordings
       ctx.fillStyle = '#888';
       ctx.font = 'bold 14px Arial';
       ctx.textAlign = 'center';
@@ -195,26 +230,44 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
     const x = e.clientX - rect.left;
     const clickedMinutes = (x / rect.width) * zoom * 60;
 
-    console.log(`🖱 Clicked: ${Math.floor(clickedMinutes / 60)}:${Math.floor(clickedMinutes % 60).toString().padStart(2, '0')}`);
+    if (selectionMode) {
+      // RANGE SELECTION MODE
+      if (tempStart === null) {
+        // First click = start
+        setTempStart(clickedMinutes);
+        console.log(`🟢 Range start: ${formatTime(clickedMinutes)}`);
+      } else {
+        // Second click = end
+        const start = Math.min(tempStart, clickedMinutes);
+        const end = Math.max(tempStart, clickedMinutes);
 
-    // Find closest file
-    let closestFile: Recording | null = null;
-    let minDiff = Infinity;
+        if (onRangeSelected) {
+          onRangeSelected({ start, end });
+        }
 
-    files.forEach(file => {
-      const fileDate = parseUTC(file.created);
-      const fileMinutes = getMinutesFromDayStart(fileDate);
-      const diff = Math.abs(fileMinutes - clickedMinutes);
-
-      if (diff < minDiff) {
-        minDiff = diff;
-        closestFile = file;
+        setTempStart(null);
+        console.log(`🟢 Range selected: ${formatTime(start)} - ${formatTime(end)}`);
       }
-    });
+    } else {
+      // NORMAL SEEK MODE
+      let closestFile: Recording | null = null;
+      let minDiff = Infinity;
 
-    if (closestFile) {
-      console.log(`▶️ Playing: ${closestFile.filename}`);
-      onSeek(closestFile);
+      files.forEach(file => {
+        const fileDate = parseUTC(file.created);
+        const fileMinutes = getMinutesFromDayStart(fileDate);
+        const diff = Math.abs(fileMinutes - clickedMinutes);
+
+        if (diff < minDiff) {
+          minDiff = diff;
+          closestFile = file;
+        }
+      });
+
+      if (closestFile) {
+        console.log(`▶️ Playing: ${closestFile.filename}`);
+        onSeek(closestFile);
+      }
     }
   };
 
@@ -223,19 +276,25 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
     const x = e.clientX - rect.left;
     const minutes = (x / rect.width) * zoom * 60;
 
-    const hours = Math.floor(minutes / 60);
-    const mins = Math.floor(minutes % 60);
-
-    setHoveredTime(`${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`);
+    setHoveredTime(formatTime(minutes));
     setMouseX(e.clientX);
   };
 
   return (
     <Box>
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
+      <Box display="flex" justifyContent="space-between" alignItems="center" mb={1} flexWrap="wrap" gap={1}>
         <Typography variant="subtitle2" fontWeight="bold">
           📊 Временная шкала {files.length > 0 && `(${files.length} сегментов)`}
         </Typography>
+
+        {selectionMode && (
+          <Chip
+            label={tempStart !== null ? "Выберите конец диапазона" : "Выберите начало диапазона"}
+            color={tempStart !== null ? "warning" : "success"}
+            size="small"
+          />
+        )}
+
         <ButtonGroup size="small">
           {[1, 2, 6, 12, 24].map(h => (
             <Button
@@ -255,9 +314,9 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
           style={{
             width: '100%',
             height: '100px',
-            cursor: 'pointer',
+            cursor: selectionMode ? 'crosshair' : 'pointer',
             borderRadius: '4px',
-            border: '2px solid #444',
+            border: selectionMode ? '2px solid #4CAF50' : '2px solid #444',
             display: 'block',
           }}
           onClick={handleCanvasClick}
@@ -288,8 +347,10 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
       </Box>
 
       <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-        💡 <strong style={{ color: '#2196F3' }}>Синие блоки</strong> = непрерывные записи •
-        <strong style={{ color: '#F44336' }}> Красная линия</strong> = текущее воспроизведение
+        💡 <strong style={{ color: '#2196F3' }}>Синие блоки</strong> = записи •
+        {!selectionMode && <><strong style={{ color: '#F44336' }}> Красная линия</strong> = воспроизведение • </>}
+        {selectionMode && <><strong style={{ color: '#4CAF50' }}> Зеленая область</strong> = выбранный диапазон • </>}
+        Кликайте для {selectionMode ? 'выбора' : 'перехода'}
       </Typography>
     </Box>
   );
