@@ -648,7 +648,7 @@ const CameraSettings: React.FC = () => {
             disabled={loading || !formData.ip_adress}
             sx={{ bgcolor: RZD_COLORS.primary }}
           >
-            {loading ? <CircularProgress size={24} /> : editMode ? 'Update' : 'Add'}
+            {loading ? <CircularProgress size={24} /> : editMode ? 'Обновить' : 'Добавить'}
           </Button>
         </DialogActions>
       </Dialog>
