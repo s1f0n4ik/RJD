@@ -632,7 +632,7 @@ const CameraSettings: React.FC = () => {
               <Grid item xs={12}>
                 <Typography variant="caption" color="text.secondary">
                   💾 Записи сохранены как MP4 файлы в указанный каталог.
-                  Каждый сегмент длится {formData.main_segment} минут
+                  Каждый сегмент длится {formData.main_segment} минут.
                 </Typography>
               </Grid>
             </Grid>
