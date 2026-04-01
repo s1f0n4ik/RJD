@@ -75,7 +75,7 @@ const modules: Module[] = [
   },
   {
     id: 'backup',
-    title: 'BACKUP',
+    title: 'Резерв',
     description: 'Резервное копирование',
     icon: BackupIcon,
     gradient: 'linear-gradient(135deg, #757575 0%, #424242 100%)',
