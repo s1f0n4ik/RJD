@@ -27,7 +27,7 @@ services:
     ports:
       - "8000:8000"  # ← Явный проброс порта
     environment:
-      - MEDIA_CENTER_URL=http://192.168.1.2:7777  # ⚠️ Может не работать из контейнера
+      - MEDIA_CENTER_URL=http://localhost:7777  # ⚠️ Может не работать из контейнера
     restart: unless-stopped
     volumes:
       - /home/orangepi/records:/home/orangepi/records:ro
