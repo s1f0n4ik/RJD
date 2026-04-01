@@ -212,7 +212,7 @@ const Dashboard: React.FC<DashboardProps> = ({ state, onNavigate }) => {
             Нет активных устройств
           </Typography>
           <Typography variant="body1" color="text.secondary">
-            Система не содержит камер или загрузчиков. Используйте модуль <strong>MAINTAIN</strong> для добавления камер.
+            Система не содержит камер или загрузчиков. Используйте модуль <strong>Настройки</strong> для добавления камер.
           </Typography>
         </Paper>
       )}
