@@ -318,7 +318,7 @@ const CameraSettings: React.FC = () => {
             onClick={handleOpenAddDialog}
             sx={{ bgcolor: RZD_COLORS.primary }}
           >
-            Manual Add
+            Добавить
           </Button>
         </Box>
       </Paper>
