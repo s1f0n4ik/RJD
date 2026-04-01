@@ -305,10 +305,10 @@ const CameraSettings: React.FC = () => {
             <SettingsIcon sx={{ fontSize: 40, color: RZD_COLORS.primary }} />
             <Box>
               <Typography variant="h5" fontWeight="bold">
-                ⚙️ Camera Settings
+                ⚙️ Настройки камер
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                Added Devices: {cameras.length}
+                Добавленные устройства: {cameras.length}
               </Typography>
             </Box>
           </Box>
@@ -332,14 +332,14 @@ const CameraSettings: React.FC = () => {
         <Table>
           <TableHead sx={{ bgcolor: RZD_COLORS.grey[100] }}>
             <TableRow>
-              <TableCell><strong>Channel</strong></TableCell>
+              <TableCell><strong>Канал</strong></TableCell>
               <TableCell><strong>IP</strong></TableCell>
-              <TableCell><strong>Port</strong></TableCell>
-              <TableCell><strong>Manufacturer</strong></TableCell>
-              <TableCell><strong>Camera Name</strong></TableCell>
-              <TableCell><strong>Status</strong></TableCell>
-              <TableCell align="center"><strong>Modify</strong></TableCell>
-              <TableCell align="center"><strong>Delete</strong></TableCell>
+              <TableCell><strong>Порт</strong></TableCell>
+              <TableCell><strong>Производитель</strong></TableCell>
+              <TableCell><strong>Имя камеры</strong></TableCell>
+              <TableCell><strong>Статус</strong></TableCell>
+              <TableCell align="center"><strong>Изменить</strong></TableCell>
+              <TableCell align="center"><strong>Удалить</strong></TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -352,7 +352,7 @@ const CameraSettings: React.FC = () => {
             ) : cameras.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
-                  <Typography color="text.secondary">No cameras added</Typography>
+                  <Typography color="text.secondary">Нет добавленных камер</Typography>
                 </TableCell>
               </TableRow>
             ) : (
@@ -412,13 +412,13 @@ const CameraSettings: React.FC = () => {
       {/* Add/Edit Dialog */}
       <Dialog open={openDialog} onClose={() => setOpenDialog(false)} maxWidth="md" fullWidth>
         <DialogTitle sx={{ bgcolor: RZD_COLORS.primary, color: 'white' }}>
-          {editMode ? '✏️ Modify Camera' : '➕ Add New Camera'}
+          {editMode ? '✏️ Изменить камеру' : '➕ Добавить новую камеру'}
         </DialogTitle>
         <DialogContent sx={{ mt: 2 }}>
           <Tabs value={selectedTab} onChange={(_, v) => setSelectedTab(v)} sx={{ mb: 2 }}>
-            <Tab label="📋 Basic Info" />
-            <Tab label="📹 Streams" />
-            <Tab label="⏺️ Recording" />
+            <Tab label="📋 Основная информация" />
+            <Tab label="📹 Потоки" />
+            <Tab label="⏺️ Запись" />
           </Tabs>
 
           {/* Tab 0: Basic Info */}
@@ -427,7 +427,7 @@ const CameraSettings: React.FC = () => {
               <Grid item xs={12} sm={6}>
                 <TextField
                   fullWidth
-                  label="Camera Name"
+                  label="Имя камеры"
                   placeholder={`camera_${cameras.length + 1}`}
                   value={formData.name}
                   onChange={(e) => handleInputChange('name', e.target.value)}
@@ -437,7 +437,7 @@ const CameraSettings: React.FC = () => {
               <Grid item xs={12} sm={6}>
                 <TextField
                   fullWidth
-                  label="Description"
+                  label="Описание"
                   value={formData.description}
                   onChange={(e) => handleInputChange('description', e.target.value)}
                 />
@@ -446,7 +446,7 @@ const CameraSettings: React.FC = () => {
                 <TextField
                   fullWidth
                   required
-                  label="IP Address"
+                  label="IP-адресс"
                   placeholder="192.168.1.10"
                   value={formData.ip_adress}
                   onChange={(e) => handleInputChange('ip_adress', e.target.value)}
@@ -455,7 +455,7 @@ const CameraSettings: React.FC = () => {
               <Grid item xs={12} sm={4}>
                 <TextField
                   fullWidth
-                  label="Port"
+                  label="Порт"
                   value={formData.port}
                   onChange={(e) => handleInputChange('port', e.target.value)}
                 />
@@ -463,7 +463,7 @@ const CameraSettings: React.FC = () => {
               <Grid item xs={12} sm={6}>
                 <TextField
                   fullWidth
-                  label="Login"
+                  label="Имя пользователя"
                   value={formData.user}
                   onChange={(e) => handleInputChange('user', e.target.value)}
                 />
@@ -472,18 +472,18 @@ const CameraSettings: React.FC = () => {
                 <TextField
                   fullWidth
                   type="password"
-                  label="Password"
+                  label="Пароль"
                   value={formData.password}
                   onChange={(e) => handleInputChange('password', e.target.value)}
                 />
               </Grid>
               <Grid item xs={12} sm={6}>
                 <FormControl fullWidth>
-                  <InputLabel>Manufacturer</InputLabel>
+                  <InputLabel>Производитель</InputLabel>
                   <Select
                     value={formData.production}
                     onChange={(e) => handleInputChange('production', e.target.value)}
-                    label="Manufacturer"
+                    label="Производитель"
                   >
                     <MenuItem value={1}>Dahua</MenuItem>
                     <MenuItem value={2}>Hikvision</MenuItem>
@@ -493,15 +493,15 @@ const CameraSettings: React.FC = () => {
               </Grid>
               <Grid item xs={12} sm={6}>
                 <FormControl fullWidth>
-                  <InputLabel>Camera Type</InputLabel>
+                  <InputLabel>Тип камеры</InputLabel>
                   <Select
                     value={formData.type}
                     onChange={(e) => handleInputChange('type', e.target.value)}
-                    label="Camera Type"
+                    label="Тип камеры"
                   >
-                    <MenuItem value={1}>General</MenuItem>
-                    <MenuItem value={2}>Neural</MenuItem>
-                    <MenuItem value={3}>Birdview</MenuItem>
+                    <MenuItem value={1}>Основная</MenuItem>
+                    <MenuItem value={2}>AI</MenuItem>
+                    <MenuItem value={3}>360°</MenuItem>
                   </Select>
                 </FormControl>
               </Grid>
@@ -513,13 +513,13 @@ const CameraSettings: React.FC = () => {
             <Grid container spacing={2}>
               <Grid item xs={12}>
                 <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
-                  📹 Main Stream
+                  📹 Главный поток
                 </Typography>
               </Grid>
               <Grid item xs={12} sm={4}>
                 <TextField
                   fullWidth
-                  label="Subtype"
+                  label="Подтип"
                   type="number"
                   value={formData.main_sub}
                   onChange={(e) => handleInputChange('main_sub', parseInt(e.target.value))}
@@ -528,7 +528,7 @@ const CameraSettings: React.FC = () => {
               <Grid item xs={12} sm={4}>
                 <TextField
                   fullWidth
-                  label="Latency (ms)"
+                  label="Задержка (мс)"
                   type="number"
                   value={formData.main_latency}
                   onChange={(e) => handleInputChange('main_latency', parseInt(e.target.value))}
@@ -537,7 +537,7 @@ const CameraSettings: React.FC = () => {
               <Grid item xs={12} sm={4}>
                 <TextField
                   fullWidth
-                  label="Reconnect (sec)"
+                  label="Переподключение (сек)"
                   type="number"
                   value={formData.main_reconnect}
                   onChange={(e) => handleInputChange('main_reconnect', parseInt(e.target.value))}
@@ -551,14 +551,14 @@ const CameraSettings: React.FC = () => {
                       onChange={(e) => handleInputChange('main_use_udp', e.target.checked)}
                     />
                   }
-                  label="Use UDP"
+                  label="Используйте UDP"
                 />
               </Grid>
 
               <Grid item xs={12}>
                 <Divider sx={{ my: 1 }} />
                 <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
-                  📹 Sub Stream
+                  📹 Второй поток
                 </Typography>
               </Grid>
               <Grid item xs={12} sm={4}>
@@ -573,7 +573,7 @@ const CameraSettings: React.FC = () => {
               <Grid item xs={12} sm={4}>
                 <TextField
                   fullWidth
-                  label="Latency (ms)"
+                  label="Задержка (мс)"
                   type="number"
                   value={formData.sub_latency}
                   onChange={(e) => handleInputChange('sub_latency', parseInt(e.target.value))}
@@ -582,7 +582,7 @@ const CameraSettings: React.FC = () => {
               <Grid item xs={12} sm={4}>
                 <TextField
                   fullWidth
-                  label="Reconnect (sec)"
+                  label="Переподключение (сек)"
                   type="number"
                   value={formData.sub_reconnect}
                   onChange={(e) => handleInputChange('sub_reconnect', parseInt(e.target.value))}
@@ -596,7 +596,7 @@ const CameraSettings: React.FC = () => {
                       onChange={(e) => handleInputChange('sub_use_udp', e.target.checked)}
                     />
                   }
-                  label="Use UDP"
+                  label="Используйте UDP"
                 />
               </Grid>
             </Grid>
@@ -607,13 +607,13 @@ const CameraSettings: React.FC = () => {
             <Grid container spacing={2}>
               <Grid item xs={12}>
                 <Alert severity="info" sx={{ mb: 2 }}>
-                  Recording settings apply to Main Stream only
+                  Настройки записи доступны только для основного потока
                 </Alert>
               </Grid>
               <Grid item xs={12} sm={6}>
                 <TextField
                   fullWidth
-                  label="Segment Duration (minutes)"
+                  label="Длительность сегмента"
                   type="number"
                   value={formData.main_segment}
                   onChange={(e) => handleInputChange('main_segment', parseInt(e.target.value))}
@@ -624,15 +624,15 @@ const CameraSettings: React.FC = () => {
                 <TextField
                   fullWidth
                   disabled
-                  label="Record Path"
+                  label="Местоположение записей"
                   value={`/home/orangepi/records/${formData.name || 'camera_X'}`}
                   helperText="Auto-generated"
                 />
               </Grid>
               <Grid item xs={12}>
                 <Typography variant="caption" color="text.secondary">
-                  💾 Recordings are saved as MP4 files in the specified directory.
-                  Each segment is {formData.main_segment} minutes long.
+                  💾 Записи сохранены как MP4 файлы в указанный каталог.
+                  Каждый сегмент длится {formData.main_segment} минут
                 </Typography>
               </Grid>
             </Grid>
@@ -640,7 +640,7 @@ const CameraSettings: React.FC = () => {
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
           <Button onClick={() => setOpenDialog(false)} disabled={loading}>
-            Cancel
+            Отменить
           </Button>
           <Button
             variant="contained"
