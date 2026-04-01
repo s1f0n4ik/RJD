@@ -35,7 +35,7 @@ interface Module {
 const modules: Module[] = [
   {
     id: 'live',
-    title: 'LIVE',
+    title: 'Прямой эфир',
     description: 'Просмотр камер в реальном времени',
     icon: VideocamIcon,
     gradient: 'linear-gradient(135deg, #4caf50 0%, #2e7d32 100%)',
@@ -43,8 +43,8 @@ const modules: Module[] = [
   },
   {
     id: 'search',
-    title: 'SEARCH',
-    description: 'Архив записей и поиск',
+    title: 'Поиск',
+    description: 'Архив записей',
     icon: SearchIcon,
     gradient: 'linear-gradient(135deg, #2196f3 0%, #1565c0 100%)',
     tabIndex: 4, // Recordings
@@ -59,15 +59,15 @@ const modules: Module[] = [
   },
   {
     id: 'birdview',
-    title: 'BirdView',
-    description: 'Система 360° обзора',
+    title: '360°',
+    description: 'Система кругового обзора',
     icon: ThreeSixtyIcon,
     gradient: 'linear-gradient(135deg, #00bcd4 0%, #0097a7 100%)',
     tabIndex: -1, // Будет добавлено позже
   },
   {
     id: 'maintain',
-    title: 'MAINTAIN',
+    title: 'Настройки',
     description: 'Настройки камер',
     icon: SettingsIcon,
     gradient: 'linear-gradient(135deg, #ff9800 0%, #e65100 100%)',
