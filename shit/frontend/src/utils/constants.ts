@@ -1,7 +1,21 @@
-// Читаем из переменных окружения (Vite)
-export const WS_URL = import.meta.env.VITE_WS_URL || 'ws://192.168.1.2:8000/ws';
-export const FASTAPI_BASE = import.meta.env.VITE_FASTAPI_BASE || 'http://192.168.1.2:8000';
-export const SIGNALING_SERVER = import.meta.env.VITE_SIGNALING_SERVER || 'ws://192.168.1.2:8765';
+const getBaseUrl = () => {
+  // Используем текущий хост из браузера
+  const protocol = window.location.protocol; // http: или https:
+  const host = window.location.host; // 192.168.1.2:80 или 172.25.78.137:8081
+
+  return `${protocol}//${host}`;
+};
+
+const getWsProtocol = () => {
+  return window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+};
+
+// API и WebSocket используют ОТНОСИТЕЛЬНЫЕ пути (проксируются через nginx)
+export const FASTAPI_BASE = getBaseUrl(); // http://текущий_хост
+export const WS_URL = `${getWsProtocol()}//${window.location.host}/ws`; // ws://текущий_хост/ws
+
+// Signaling на порту 8765 (нужно пробрасывать через nginx или использовать host)
+export const SIGNALING_SERVER = `${getWsProtocol()}//${window.location.hostname}:8765`;
 
 export const ENDPOINT_MAP: Record<string, string> = {
   'id_1': '/neural_1',

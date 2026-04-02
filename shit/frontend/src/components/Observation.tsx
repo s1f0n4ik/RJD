@@ -37,6 +37,7 @@ import {
 } from '@mui/icons-material';
 import WebRTCPlayer from './WebRTCPlayer';
 import { api, type CPPCamera } from '../services/api';
+import { SIGNALING_SERVER } from '../utils/constants';
 
 type GridSize = 1 | 4 | 9 | 16 | 'custom';
 
@@ -92,7 +93,7 @@ const Observation: React.FC = () => {
   // Drag & Drop State
   const [draggedCamera, setDraggedCamera] = useState<string | null>(null);
 
-  const SIGNALING_SERVER = 'ws://192.168.1.2:8765';
+//   const SIGNALING_SERVER = 'ws://192.168.1.2:8765';
 
   useEffect(() => {
     loadCameras();
