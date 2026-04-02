@@ -314,21 +314,37 @@ const Observation: React.FC = () => {
   };
 
   const handleCellClick = (cellId: number | string) => {
-    if (activeCells[cellId]) return;
+    if (!selectedCamera) {
+      // Если камера не выбрана, но ячейка занята - открываем контекстное меню
+      if (activeCells[cellId]) {
+        alert('Выберите камеру слева для замены или кликните ПКМ для удаления');
+      } else {
+        alert('Выберите камеру слева');
+      }
+      return;
+    }
 
-    if (selectedCamera) {
-      const alreadyUsed = Object.values(activeCells).includes(selectedCamera);
-      if (alreadyUsed) {
-        alert('Эта камера уже отображается');
+    // Проверяем, не используется ли камера в другой ячейке
+    const usedInCell = Object.entries(activeCells).find(([id, name]) =>
+      name === selectedCamera && id !== String(cellId)
+    );
+
+    if (usedInCell) {
+      if (!confirm(`Камера "${selectedCamera}" уже используется в другой ячейке. Переместить сюда?`)) {
         return;
       }
-
-      setActiveCells(prev => ({
-        ...prev,
-        [cellId]: selectedCamera,
-      }));
-      setCurrentLayoutName(''); // Reset layout name when modifying
+      // Удаляем из старой ячейки
+      const newActiveCells = { ...activeCells };
+      delete newActiveCells[usedInCell[0]];
+      setActiveCells(newActiveCells);
     }
+
+    // Устанавливаем/заменяем камеру
+    setActiveCells(prev => ({
+      ...prev,
+      [cellId]: selectedCamera,
+    }));
+    setCurrentLayoutName(''); // Сбрасываем название layout
   };
 
   const handleCellRightClick = (event: React.MouseEvent, cellId: number | string) => {
