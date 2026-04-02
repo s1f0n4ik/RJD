@@ -34,6 +34,7 @@ import {
   DragIndicator as DragIndicatorIcon,
   Save as SaveIcon,
   Delete as DeleteIcon,
+  Visibility as VisibilityIcon
 } from '@mui/icons-material';
 import WebRTCPlayer from './WebRTCPlayer';
 import { api, type CPPCamera } from '../services/api';
@@ -449,6 +450,15 @@ const Observation: React.FC = () => {
     return camera?.streams?.main?.status === 3;
   };
 
+  const isCameraUsedInGrid = (cameraName: string): boolean => {
+      return Object.values(activeCells).includes(cameraName);
+    };
+
+    const getCameraGridCell = (cameraName: string): string | null => {
+      const entry = Object.entries(activeCells).find(([_, name]) => name === cameraName);
+      return entry ? entry[0] : null;
+    };
+
   const renderStandardGrid = () => {
     const cols = getGridCols();
     return (
@@ -638,6 +648,8 @@ const Observation: React.FC = () => {
           {cameras.map((camera) => {
             const isActive = getCameraStatus(camera.name);
             const isSelected = selectedCamera === camera.name;
+            const isUsedInGrid = isCameraUsedInGrid(camera.name); // ✅ NEW
+            const gridCellId = getCameraGridCell(camera.name); // ✅ NEW
 
             return (
               <ListItem
@@ -649,9 +661,15 @@ const Observation: React.FC = () => {
                 onDragEnd={handleDragEnd}
                 onClick={() => setSelectedCamera(camera.name)}
                 sx={{
-                  bgcolor: isSelected ? 'info.main' : 'transparent',
+                  bgcolor: isSelected
+                    ? 'info.main'
+                    : isUsedInGrid
+                    ? 'rgba(76, 175, 80, 0.08)' // ✅ Зеленоватый фон если используется
+                    : 'transparent',
                   color: isSelected ? 'white' : 'inherit',
                   cursor: 'grab',
+                  borderLeft: isUsedInGrid && !isSelected ? '3px solid #4caf50' : 'none', // ✅ Зеленая полоска слева
+                  paddingLeft: isUsedInGrid && !isSelected ? '13px' : '16px', // Компенсация бордера
                   '&:active': {
                     cursor: 'grabbing',
                   },
@@ -660,6 +678,8 @@ const Observation: React.FC = () => {
                   },
                   '&.Mui-selected': {
                     bgcolor: 'info.main',
+                    borderLeft: 'none',
+                    paddingLeft: '16px',
                     '&:hover': {
                       bgcolor: 'info.dark',
                     },
@@ -690,6 +710,25 @@ const Observation: React.FC = () => {
                     fontWeight: isSelected ? 600 : 400,
                   }}
                 />
+                {/* ✅ NEW: Индикатор использования в сетке */}
+                {isUsedInGrid && (
+                  <Box
+                    component="span"
+                    title={`Отображается в ячейке ${gridCellId}`}
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      ml: 0.5,
+                    }}
+                  >
+                    <VisibilityIcon
+                      sx={{
+                        fontSize: 18,
+                        color: isSelected ? 'white' : 'success.main',
+                      }}
+                    />
+                  </Box>
+                )}
               </ListItem>
             );
           })}
