@@ -402,27 +402,42 @@ const Observation: React.FC = () => {
   };
 
   const handleDrop = (event: React.DragEvent, cellId: number | string) => {
-    event.preventDefault();
-    const cameraName = event.dataTransfer.getData('text/plain');
+      event.preventDefault();
+      const cameraName = event.dataTransfer.getData('text/plain');
 
-    if (activeCells[cellId]) {
-      alert('Ячейка уже занята');
-      return;
-    }
+      // if (activeCells[cellId]) {
+      //   alert('Ячейка уже занята');
+      //   return;
+      // }
 
-    const alreadyUsed = Object.values(activeCells).includes(cameraName);
-    if (alreadyUsed) {
-      alert('Эта камера уже отображается');
-      return;
-    }
+      const usedInCell = Object.entries(activeCells).find(([id, name]) =>
+        name === cameraName && id !== String(cellId)
+      );
 
-    setActiveCells(prev => ({
-      ...prev,
-      [cellId]: cameraName,
-    }));
-    setDraggedCamera(null);
-    setCurrentLayoutName(''); // Reset layout name
+      if (usedInCell) {
+        // Удаляем из старой ячейки
+        const newActiveCells = { ...activeCells };
+        delete newActiveCells[usedInCell[0]];
+        setActiveCells(newActiveCells);
+      }
+
+      // ✅ Устанавливаем/заменяем камеру
+      setActiveCells(prev => ({
+        ...prev,
+        [cellId]: cameraName,
+      }));
+      setDraggedCamera(null);
+      setCurrentLayoutName('');
   };
+
+  const handleCellDoubleClick = (cellId: number | string) => {
+      if (activeCells[cellId]) {
+        const newActiveCells = { ...activeCells };
+        delete newActiveCells[cellId];
+        setActiveCells(newActiveCells);
+        setCurrentLayoutName('');
+      }
+    };
 
   const getGridCols = (): number => {
     if (gridSize === 'custom') return customGridCols;
@@ -474,6 +489,7 @@ const Observation: React.FC = () => {
               key={cell.id}
               id={`video-cell-${cell.id}`}
               onClick={() => handleCellClick(cell.id)}
+              onDoubleClick={() => handleCellDoubleClick(cell.id)}
               onContextMenu={(e) => handleCellRightClick(e, cell.id)}
               onDragOver={handleDragOver}
               onDrop={(e) => handleDrop(e, cell.id)}
@@ -524,6 +540,7 @@ const Observation: React.FC = () => {
         id={`video-cell-${cellId}`}
         key={cellId}
         onClick={() => handleCellClick(cellId)}
+        onDoubleClick={() => handleCellDoubleClick(cellId)}
         onContextMenu={(e) => handleCellRightClick(e, cellId)}
         onDragOver={handleDragOver}
         onDrop={(e) => handleDrop(e, cellId)}
@@ -538,30 +555,55 @@ const Observation: React.FC = () => {
           cursor: cameraName ? 'context-menu' : 'pointer',
           position: 'relative',
           overflow: 'hidden',
-          transition: 'border-color 0.2s',
+          transition: 'all 0.2s',
           '&:hover': {
             borderColor: cameraName ? '#1976d2' : '#2196f3',
+            boxShadow: '0 0 8px rgba(33, 150, 243, 0.3)',
           },
         }}
       >
         {cameraName ? (
+          <>
           <WebRTCPlayer
             key={`player-${cellId}-${cameraName}`}
             cameraId={cameraName}
             signalingUrl={`${SIGNALING_SERVER}/client/${cameraName}`}
             onError={(err) => console.error(`Error in ${cameraName}:`, err)}
           />
-        ) : (
-          <Box sx={{ textAlign: 'center', color: 'text.secondary' }}>
-            <VideocamIcon sx={{ fontSize: 60, mb: 1, opacity: 0.3 }} />
-            <Typography variant="body2" sx={{ opacity: 0.6 }}>
-              {selectedCamera
-                ? `Нажмите или перетащите`
-                : 'Выберите камеру слева'}
-            </Typography>
+          {/* ✅ ДОБАВЛЕНО: Подсказка при hover */}
+          <Box
+            sx={{
+              position: 'absolute',
+              top: 8,
+              left: 8,
+              bgcolor: 'rgba(0,0,0,0.7)',
+              color: 'white',
+              px: 1,
+              py: 0.5,
+              borderRadius: 1,
+              fontSize: '0.75rem',
+              opacity: 0,
+              transition: 'opacity 0.2s',
+              pointerEvents: 'none',
+              '.MuiBox-root:hover &': {
+                opacity: 1,
+              },
+            }}
+          >
+            {cameraName} • 2× клик = удалить
           </Box>
-        )}
-      </Box>
+        </>
+      ) : (
+        <Box sx={{ textAlign: 'center', color: 'text.secondary' }}>
+          <VideocamIcon sx={{ fontSize: 60, mb: 1, opacity: 0.3 }} />
+          <Typography variant="body2" sx={{ opacity: 0.6 }}>
+            {selectedCamera
+              ? `Нажмите или перетащите`
+              : 'Выберите камеру слева'}
+          </Typography>
+        </Box>
+      )}
+    </Box>
     );
   };
 
