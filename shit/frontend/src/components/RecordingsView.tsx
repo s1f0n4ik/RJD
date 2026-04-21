@@ -256,24 +256,30 @@ const RecordingsView: React.FC = () => {
               onChange={(e) => handleCameraChange(e.target.value)}
               label="📹 Выберите камеру"
             >
-              {cameraList.map(camera => (
-                <MenuItem key={camera} value={camera}>
-                  <Box display="flex" alignItems="center" gap={1} width="100%">
-                    <FiberManualRecord
-                      sx={{
-                        fontSize: 12,
-                        color: recordings[camera]?.length > 0 ? 'success.main' : 'grey.400'
-                      }}
-                    />
-                    <Typography flexGrow={1}>{camera}</Typography>
-                    <Chip
-                      label={`${recordings[camera]?.length || 0} файлов`}
-                      size="small"
-                      color="primary"
-                    />
-                  </Box>
-                </MenuItem>
-              ))}
+              {cameraList.map(camera => {
+                  const dateStr = selectedDate.toISOString().split('T')[0];
+                  const totalCount = recordings[camera]?.length || 0;
+                  const dayCount =
+                    recordings[camera]?.filter(f => f.created.startsWith(dateStr)).length || 0;
+                  return (
+                    <MenuItem key={camera} value={camera}>
+                      <Box display="flex" alignItems="center" gap={1} width="100%">
+                        <FiberManualRecord
+                          sx={{
+                            fontSize: 12,
+                            color: totalCount > 0 ? 'success.main' : 'grey.400',
+                          }}
+                        />
+                        <Typography flexGrow={1}>{camera}</Typography>
+                        <Chip
+                          label={`${dayCount} за день / ${totalCount} всего`}
+                          size="small"
+                          color={dayCount > 0 ? 'primary' : 'default'}
+                        />
+                      </Box>
+                    </MenuItem>
+                  );
+                })}
             </Select>
           </FormControl>
         </Box>

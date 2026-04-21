@@ -1,36 +1,35 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Box, ButtonGroup, Button, Typography, Chip } from '@mui/material';
+import React, { useMemo, useRef, useEffect, useState } from 'react';
+import { Box, Slider, Typography, ToggleButtonGroup, ToggleButton, Chip } from '@mui/material';
 import { RZD_COLORS } from '../theme';
 
 interface Recording {
   filename: string;
+  size: number;
   created: string;
+  modified: string;
 }
 
 interface RecordingsTimelineProps {
   camera: string;
   date: Date;
   files: Recording[];
-  currentTime?: number;
+  currentTime?: number; // в минутах от начала дня (0..1440); undefined = нет playhead
   onSeek: (file: Recording) => void;
-  selectionMode?: boolean;
-  selectedRange?: { start: number; end: number } | null;
-  onRangeSelected?: (range: { start: number; end: number }) => void;
+  selectionMode: boolean;
+  selectedRange: { start: number; end: number } | null;
+  onRangeSelected: (range: { start: number; end: number }) => void;
 }
 
-const parseUTC = (utcString: string): Date => {
-  return new Date(utcString);
-};
+// Длина одного сегмента по умолчанию (мин). В будущем можно считать из метаданных.
+const DEFAULT_SEGMENT_MINUTES = 10;
 
-const getMinutesFromDayStart = (date: Date): number => {
-  return date.getHours() * 60 + date.getMinutes() + date.getSeconds() / 60;
-};
-
-const formatTime = (minutes: number): string => {
-  const h = Math.floor(minutes / 60);
-  const m = Math.floor(minutes % 60);
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-};
+// Доступные масштабы (ширина окна в минутах)
+const ZOOM_OPTIONS: { label: string; minutes: number }[] = [
+  { label: '24ч', minutes: 24 * 60 },
+  { label: '6ч', minutes: 6 * 60 },
+  { label: '1ч', minutes: 60 },
+  { label: '15м', minutes: 15 },
+];
 
 const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
   camera,
@@ -38,320 +37,318 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
   files,
   currentTime,
   onSeek,
-  selectionMode = false,
+  selectionMode,
   selectedRange,
-  onRangeSelected
+  onRangeSelected,
 }) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [zoom, setZoom] = useState(24);
-  const [hoveredTime, setHoveredTime] = useState<string | null>(null);
-  const [mouseX, setMouseX] = useState(0);
-  const [tempStart, setTempStart] = useState<number | null>(null);
+  const [windowMinutes, setWindowMinutes] = useState<number>(24 * 60);
+  const [windowStart, setWindowStart] = useState<number>(0); // начало видимого окна (мин от 00:00)
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isDraggingRef = useRef(false);
+  const dragStartRef = useRef<{ x: number; windowStart: number } | null>(null);
 
+  // Преобразование ISO-времени файла в минуты от начала дня
+  const fileToMinutes = (iso: string): number => {
+    const d = new Date(iso);
+    return d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60;
+  };
+
+  const segments = useMemo(() => {
+    return files.map(f => {
+      const start = fileToMinutes(f.created);
+      return {
+        file: f,
+        start,
+        end: start + DEFAULT_SEGMENT_MINUTES,
+      };
+    });
+  }, [files]);
+
+  // Центрирование окна на currentTime при смене масштаба / при смене воспроизводимого файла
   useEffect(() => {
-    drawTimeline();
-  }, [camera, date, zoom, files, currentTime, selectionMode, selectedRange, tempStart]);
-
-  const drawTimeline = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const width = rect.width;
-    const height = rect.height;
-
-    canvas.width = width * window.devicePixelRatio;
-    canvas.height = height * window.devicePixelRatio;
-    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-
-    // Background
-    ctx.fillStyle = '#2a2a2a';
-    ctx.fillRect(0, 0, width, height);
-
-    const topMargin = 30;
-    const segmentHeight = height - topMargin - 10;
-
-    // Draw hour grid
-    ctx.font = 'bold 12px Arial';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-
-    for (let h = 0; h <= zoom; h++) {
-      const x = (h / zoom) * width;
-
-      ctx.strokeStyle = h % 6 === 0 ? '#666' : '#444';
-      ctx.lineWidth = h % 6 === 0 ? 2 : 1;
-      ctx.beginPath();
-      ctx.moveTo(x, topMargin);
-      ctx.lineTo(x, height);
-      ctx.stroke();
-
-      if (zoom <= 12 || h % 2 === 0) {
-        const label = `${String(h).padStart(2, '0')}:00`;
-        const metrics = ctx.measureText(label);
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-        ctx.fillRect(x - metrics.width / 2 - 4, 5, metrics.width + 8, 18);
-        ctx.fillStyle = '#fff';
-        ctx.fillText(label, x, 8);
+    if (currentTime === undefined || currentTime === null) {
+      // Если нет playhead — центрируем на первом сегменте, если есть
+      if (segments.length > 0 && windowMinutes < 24 * 60) {
+        const centerOn = segments[0].start;
+        centerWindowOn(centerOn);
       }
+      return;
     }
+    centerWindowOn(currentTime);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentTime, windowMinutes]);
 
-    // Draw recording ranges (BLUE)
-    if (files.length > 0) {
-      const sortedFiles = [...files].sort((a, b) =>
-        new Date(a.created).getTime() - new Date(b.created).getTime()
-      );
-
-      const ranges: { start: number; end: number }[] = [];
-      let currentRange: { start: number; end: number } | null = null;
-
-      sortedFiles.forEach(file => {
-        const fileTime = parseUTC(file.created);
-        const minutes = getMinutesFromDayStart(fileTime);
-        const segmentDuration = 10;
-
-        if (!currentRange) {
-          currentRange = { start: minutes, end: minutes + segmentDuration };
-        } else {
-          if (minutes - currentRange.end < 2) {
-            currentRange.end = minutes + segmentDuration;
-          } else {
-            ranges.push(currentRange);
-            currentRange = { start: minutes, end: minutes + segmentDuration };
-          }
-        }
-      });
-
-      if (currentRange) {
-        ranges.push(currentRange);
-      }
-
-      // Draw blue ranges
-      ranges.forEach(range => {
-        const startX = (range.start / (zoom * 60)) * width;
-        const endX = (range.end / (zoom * 60)) * width;
-        const rangeWidth = Math.max(endX - startX, 3);
-
-        ctx.fillStyle = '#2196F3';
-        ctx.fillRect(startX, topMargin, rangeWidth, segmentHeight);
-        ctx.strokeStyle = '#64B5F6';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(startX, topMargin, rangeWidth, segmentHeight);
-      });
-
-      // Draw SELECTED RANGE (GREEN overlay)
-      if (selectedRange) {
-        const startX = (selectedRange.start / (zoom * 60)) * width;
-        const endX = (selectedRange.end / (zoom * 60)) * width;
-        const rangeWidth = Math.max(endX - startX, 3);
-
-        // Semi-transparent green fill
-        ctx.fillStyle = 'rgba(76, 175, 80, 0.4)';
-        ctx.fillRect(startX, topMargin, rangeWidth, segmentHeight);
-
-        // Green borders
-        ctx.strokeStyle = '#4CAF50';
-        ctx.lineWidth = 3;
-        ctx.strokeRect(startX, topMargin, rangeWidth, segmentHeight);
-
-        // Start marker
-        ctx.fillStyle = '#4CAF50';
-        ctx.fillRect(startX - 2, topMargin, 4, segmentHeight);
-
-        // End marker
-        ctx.fillRect(endX - 2, topMargin, 4, segmentHeight);
-
-        // Labels
-        ctx.fillStyle = '#4CAF50';
-        ctx.font = 'bold 11px Arial';
-        ctx.fillText(`🟢 ${formatTime(selectedRange.start)}`, startX, topMargin - 15);
-        ctx.fillText(`🟢 ${formatTime(selectedRange.end)}`, endX, topMargin - 15);
-      }
-
-      // Draw TEMP START marker (while selecting)
-      if (tempStart !== null) {
-        const startX = (tempStart / (zoom * 60)) * width;
-
-        ctx.strokeStyle = '#FFC107';
-        ctx.lineWidth = 3;
-        ctx.setLineDash([5, 5]);
-        ctx.beginPath();
-        ctx.moveTo(startX, topMargin);
-        ctx.lineTo(startX, height);
-        ctx.stroke();
-        ctx.setLineDash([]);
-
-        ctx.fillStyle = '#FFC107';
-        ctx.font = 'bold 11px Arial';
-        ctx.fillText(`⏱️ ${formatTime(tempStart)}`, startX, topMargin - 15);
-      }
-
-      // Draw current playback marker (RED)
-      if (currentTime && currentTime > 0 && !selectionMode) {
-        const currentDate = new Date(currentTime * 1000);
-        const currentMinutes = getMinutesFromDayStart(currentDate);
-        const markerX = (currentMinutes / (zoom * 60)) * width;
-
-        ctx.strokeStyle = '#F44336';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(markerX, topMargin - 8);
-        ctx.lineTo(markerX, height);
-        ctx.stroke();
-
-        ctx.fillStyle = '#F44336';
-        ctx.beginPath();
-        ctx.arc(markerX, topMargin - 8, 5, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.fillStyle = '#F44336';
-        ctx.font = 'bold 11px Arial';
-        ctx.fillText(
-          currentDate.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
-          markerX,
-          topMargin - 15
-        );
-      }
-    } else {
-      ctx.fillStyle = '#888';
-      ctx.font = 'bold 14px Arial';
-      ctx.textAlign = 'center';
-      ctx.fillText('Нет записей для выбранной даты', width / 2, height / 2);
-    }
+  const centerWindowOn = (minute: number) => {
+    const half = windowMinutes / 2;
+    let ws = minute - half;
+    ws = Math.max(0, Math.min(1440 - windowMinutes, ws));
+    setWindowStart(ws);
   };
 
-  const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (files.length === 0) return;
+  const windowEnd = windowStart + windowMinutes;
 
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const clickedMinutes = (x / rect.width) * zoom * 60;
+  // Перевод "минут от 00:00" в X-пиксели относительно контейнера
+  const minuteToPx = (minute: number, containerWidth: number): number => {
+    return ((minute - windowStart) / windowMinutes) * containerWidth;
+  };
 
-    if (selectionMode) {
-      // RANGE SELECTION MODE
-      if (tempStart === null) {
-        // First click = start
-        setTempStart(clickedMinutes);
-        console.log(`🟢 Range start: ${formatTime(clickedMinutes)}`);
-      } else {
-        // Second click = end
-        const start = Math.min(tempStart, clickedMinutes);
-        const end = Math.max(tempStart, clickedMinutes);
+  const pxToMinute = (x: number, containerWidth: number): number => {
+    return windowStart + (x / containerWidth) * windowMinutes;
+  };
 
-        if (onRangeSelected) {
-          onRangeSelected({ start, end });
-        }
+  // Drag для прокрутки timeline (только когда не selectionMode)
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (selectionMode) return;
+    isDraggingRef.current = true;
+    dragStartRef.current = { x: e.clientX, windowStart };
+  };
 
-        setTempStart(null);
-        console.log(`🟢 Range selected: ${formatTime(start)} - ${formatTime(end)}`);
-      }
-    } else {
-      // NORMAL SEEK MODE
-      let closestFile: Recording | null = null;
-      let minDiff = Infinity;
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDraggingRef.current || !dragStartRef.current || !containerRef.current) return;
+    const dx = e.clientX - dragStartRef.current.x;
+    const w = containerRef.current.clientWidth;
+    const dMinutes = -(dx / w) * windowMinutes;
+    let ws = dragStartRef.current.windowStart + dMinutes;
+    ws = Math.max(0, Math.min(1440 - windowMinutes, ws));
+    setWindowStart(ws);
+  };
 
-      files.forEach(file => {
-        const fileDate = parseUTC(file.created);
-        const fileMinutes = getMinutesFromDayStart(fileDate);
-        const diff = Math.abs(fileMinutes - clickedMinutes);
+  const endDrag = () => {
+    isDraggingRef.current = false;
+    dragStartRef.current = null;
+  };
 
-        if (diff < minDiff) {
-          minDiff = diff;
-          closestFile = file;
-        }
-      });
+  // Колесо мыши — прокрутка по времени
+  const handleWheel = (e: React.WheelEvent) => {
+    if (selectionMode) return;
+    const delta = e.deltaY > 0 ? windowMinutes * 0.1 : -windowMinutes * 0.1;
+    let ws = windowStart + delta;
+    ws = Math.max(0, Math.min(1440 - windowMinutes, ws));
+    setWindowStart(ws);
+  };
 
-      if (closestFile) {
-        console.log(`▶️ Playing: ${closestFile.filename}`);
-        onSeek(closestFile);
-      }
+  // Клик по сегменту → seek
+  const handleSegmentClick = (e: React.MouseEvent, file: Recording) => {
+    if (selectionMode) return;
+    e.stopPropagation();
+    onSeek(file);
+  };
+
+  // Форматирование минут в HH:MM
+  const formatMinutes = (m: number): string => {
+    const h = Math.floor(m / 60);
+    const min = Math.floor(m % 60);
+    return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+  };
+
+  // Тики времени для отображения
+  const ticks = useMemo(() => {
+    // Подбираем шаг тиков в зависимости от масштаба
+    let step = 60; // минут
+    if (windowMinutes <= 30) step = 5;
+    else if (windowMinutes <= 120) step = 15;
+    else if (windowMinutes <= 360) step = 30;
+    else if (windowMinutes <= 720) step = 60;
+    else step = 120;
+
+    const result: number[] = [];
+    const firstTick = Math.ceil(windowStart / step) * step;
+    for (let t = firstTick; t <= windowEnd; t += step) {
+      result.push(t);
     }
+    return result;
+  }, [windowStart, windowMinutes, windowEnd]);
+
+  // === Двухсторонний слайдер для выбора диапазона ===
+  // Работает в координатах всего дня (0..1440), но "виртуально",
+  // чтобы пользователь мог выбирать диапазон только в пределах текущего окна просмотра.
+  const handleRangeSliderChange = (_: Event, value: number | number[]) => {
+    if (!Array.isArray(value)) return;
+    const [start, end] = value;
+    onRangeSelected({ start, end });
   };
 
-  const handleCanvasHover = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const minutes = (x / rect.width) * zoom * 60;
-
-    setHoveredTime(formatTime(minutes));
-    setMouseX(e.clientX);
-  };
+  // Значение по умолчанию для слайдера при входе в selectionMode
+  const sliderValue: [number, number] = selectedRange
+    ? [selectedRange.start, selectedRange.end]
+    : [windowStart + windowMinutes * 0.25, windowStart + windowMinutes * 0.75];
 
   return (
     <Box>
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={1} flexWrap="wrap" gap={1}>
+      {/* Панель управления масштабом */}
+      <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
         <Typography variant="subtitle2" fontWeight="bold">
-          📊 Временная шкала {files.length > 0 && `(${files.length} сегментов)`}
+          ⏱ Timeline: {date.toLocaleDateString('ru-RU')}
         </Typography>
-
-        {selectionMode && (
-          <Chip
-            label={tempStart !== null ? "Выберите конец диапазона" : "Выберите начало диапазона"}
-            color={tempStart !== null ? "warning" : "success"}
+        <Box display="flex" alignItems="center" gap={1}>
+          <Typography variant="caption" color="text.secondary">
+            {formatMinutes(windowStart)} – {formatMinutes(windowEnd)}
+          </Typography>
+          <ToggleButtonGroup
             size="small"
-          />
-        )}
-
-        <ButtonGroup size="small">
-          {[1, 2, 6, 12, 24].map(h => (
-            <Button
-              key={h}
-              onClick={() => setZoom(h)}
-              variant={zoom === h ? 'contained' : 'outlined'}
-            >
-              {h}ч
-            </Button>
-          ))}
-        </ButtonGroup>
-      </Box>
-
-      <Box position="relative">
-        <canvas
-          ref={canvasRef}
-          style={{
-            width: '100%',
-            height: '100px',
-            cursor: selectionMode ? 'crosshair' : 'pointer',
-            borderRadius: '4px',
-            border: selectionMode ? '2px solid #4CAF50' : '2px solid #444',
-            display: 'block',
-          }}
-          onClick={handleCanvasClick}
-          onMouseMove={handleCanvasHover}
-          onMouseLeave={() => setHoveredTime(null)}
-        />
-
-        {hoveredTime && (
-          <Box
-            sx={{
-              position: 'fixed',
-              left: mouseX + 10,
-              top: 'auto',
-              bgcolor: 'rgba(0, 0, 0, 0.9)',
-              color: 'white',
-              px: 1.5,
-              py: 0.5,
-              borderRadius: 1,
-              fontSize: '13px',
-              fontWeight: 'bold',
-              pointerEvents: 'none',
-              zIndex: 9999,
-            }}
+            exclusive
+            value={windowMinutes}
+            onChange={(_, v) => v && setWindowMinutes(v)}
           >
-            ⏰ {hoveredTime}
-          </Box>
-        )}
+            {ZOOM_OPTIONS.map(opt => (
+              <ToggleButton key={opt.minutes} value={opt.minutes}>
+                {opt.label}
+              </ToggleButton>
+            ))}
+          </ToggleButtonGroup>
+        </Box>
       </Box>
 
-      <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-        💡 <strong style={{ color: '#2196F3' }}>Синие блоки</strong> = записи •
-        {!selectionMode && <><strong style={{ color: '#F44336' }}> Красная линия</strong> = воспроизведение • </>}
-        {selectionMode && <><strong style={{ color: '#4CAF50' }}> Зеленая область</strong> = выбранный диапазон • </>}
-        Кликайте для {selectionMode ? 'выбора' : 'перехода'}
-      </Typography>
+      {/* Сам timeline */}
+      <Box
+        ref={containerRef}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={endDrag}
+        onMouseLeave={endDrag}
+        onWheel={handleWheel}
+        sx={{
+          position: 'relative',
+          width: '100%',
+          height: 64,
+          bgcolor: 'grey.100',
+          borderRadius: 1,
+          overflow: 'hidden',
+          cursor: selectionMode ? 'default' : 'grab',
+          userSelect: 'none',
+          '&:active': {
+            cursor: selectionMode ? 'default' : 'grabbing',
+          },
+        }}
+      >
+        {/* Фон с тиками */}
+        {containerRef.current &&
+          ticks.map(t => {
+            const w = containerRef.current!.clientWidth;
+            const x = minuteToPx(t, w);
+            return (
+              <Box
+                key={t}
+                sx={{
+                  position: 'absolute',
+                  left: x,
+                  top: 0,
+                  bottom: 0,
+                  width: '1px',
+                  bgcolor: 'grey.300',
+                }}
+              >
+                <Typography
+                  variant="caption"
+                  sx={{
+                    position: 'absolute',
+                    top: 2,
+                    left: 3,
+                    fontSize: '0.65rem',
+                    color: 'text.secondary',
+                    pointerEvents: 'none',
+                  }}
+                >
+                  {formatMinutes(t)}
+                </Typography>
+              </Box>
+            );
+          })}
+
+        {/* Сегменты записей */}
+        {containerRef.current &&
+          segments.map(seg => {
+            const w = containerRef.current!.clientWidth;
+            // Отсекаем сегменты вне окна
+            if (seg.end < windowStart || seg.start > windowEnd) return null;
+            const visibleStart = Math.max(seg.start, windowStart);
+            const visibleEnd = Math.min(seg.end, windowEnd);
+            const x = minuteToPx(visibleStart, w);
+            const width = Math.max(2, minuteToPx(visibleEnd, w) - x);
+
+            return (
+              <Box
+                key={seg.file.filename}
+                onClick={(e) => handleSegmentClick(e, seg.file)}
+                sx={{
+                  position: 'absolute',
+                  top: 20,
+                  height: 32,
+                  left: x,
+                  width,
+                  bgcolor: RZD_COLORS.secondary,
+                  opacity: 0.7,
+                  borderRadius: 0.5,
+                  cursor: selectionMode ? 'default' : 'pointer',
+                  transition: 'opacity 0.15s',
+                  '&:hover': {
+                    opacity: selectionMode ? 0.7 : 1,
+                  },
+                }}
+                title={`${seg.file.filename} • ${formatMinutes(seg.start)}`}
+              />
+            );
+          })}
+
+        {/* Playhead (текущая позиция воспроизведения) */}
+        {currentTime !== undefined &&
+          currentTime >= windowStart &&
+          currentTime <= windowEnd &&
+          containerRef.current && (
+            <Box
+              sx={{
+                position: 'absolute',
+                top: 0,
+                bottom: 0,
+                left: minuteToPx(currentTime, containerRef.current.clientWidth),
+                width: '2px',
+                bgcolor: 'error.main',
+                boxShadow: '0 0 4px rgba(255,0,0,0.5)',
+                pointerEvents: 'none',
+                zIndex: 3,
+              }}
+            />
+          )}
+      </Box>
+
+      {/* Двухсторонний слайдер для выбора диапазона */}
+      {selectionMode && (
+        <Box sx={{ px: 2, pt: 2 }}>
+          <Typography variant="caption" color="text.secondary">
+            Перетащите ручки для выбора диапазона склейки
+          </Typography>
+          <Slider
+            value={sliderValue}
+            onChange={handleRangeSliderChange}
+            min={windowStart}
+            max={windowEnd}
+            step={1}
+            valueLabelDisplay="auto"
+            valueLabelFormat={(v) => formatMinutes(v)}
+            sx={{ mt: 1 }}
+          />
+          {selectedRange && (
+            <Box display="flex" gap={1} mt={1}>
+              <Chip
+                size="small"
+                color="success"
+                label={`Начало: ${formatMinutes(selectedRange.start)}`}
+              />
+              <Chip
+                size="small"
+                color="success"
+                label={`Конец: ${formatMinutes(selectedRange.end)}`}
+              />
+              <Chip
+                size="small"
+                color="primary"
+                variant="outlined"
+                label={`Длительность: ${Math.round(selectedRange.end - selectedRange.start)} мин`}
+              />
+            </Box>
+          )}
+        </Box>
+      )}
     </Box>
   );
 };

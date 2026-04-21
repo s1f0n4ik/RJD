@@ -36,3 +36,5 @@ export const CAMERA_STATUS = {
   STOPPED: 2,
   RUNNING: 3,
 } as const;
+
+export const KIOSK_PATH_PREFIX = '/kiosk';
