@@ -250,38 +250,22 @@ const RecordingsView: React.FC = () => {
           </Box>
 
           <FormControl sx={{ minWidth: 280 }}>
-            <InputLabel>📹 Выберите камеру</InputLabel>
-            <Select
-              value={selectedCamera}
-              onChange={(e) => handleCameraChange(e.target.value)}
-              label="📹 Выберите камеру"
-            >
-              {cameraList.map(camera => {
-                  const dateStr = selectedDate.toISOString().split('T')[0];
-                  const totalCount = recordings[camera]?.length || 0;
-                  const dayCount =
-                    recordings[camera]?.filter(f => f.created.startsWith(dateStr)).length || 0;
-                  return (
-                    <MenuItem key={camera} value={camera}>
-                      <Box display="flex" alignItems="center" gap={1} width="100%">
-                        <FiberManualRecord
-                          sx={{
-                            fontSize: 12,
-                            color: totalCount > 0 ? 'success.main' : 'grey.400',
-                          }}
-                        />
-                        <Typography flexGrow={1}>{camera}</Typography>
-                        <Chip
-                          label={`${dayCount} за день / ${totalCount} всего`}
-                          size="small"
-                          color={dayCount > 0 ? 'primary' : 'default'}
-                        />
-                      </Box>
-                    </MenuItem>
-                  );
-                })}
-            </Select>
-          </FormControl>
+              <InputLabel>📹 Выберите камеру</InputLabel>
+              <Select
+                value={selectedCamera}
+                onChange={(e) => handleCameraChange(e.target.value)}
+                label="📹 Выберите камеру"
+              >
+                {cameraList.map(camera => (
+                  <MenuItem key={camera} value={camera}>
+                    <Box display="flex" alignItems="center" gap={1}>
+                      <FiberManualRecord sx={{ fontSize: 12, color: 'success.main' }} />
+                      <Typography>{camera}</Typography>
+                    </Box>
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
         </Box>
       </Paper>
 
@@ -356,6 +340,7 @@ const RecordingsView: React.FC = () => {
                 date={selectedDate}
                 files={filesForDate}
                 currentTime={selectionMode ? undefined : currentTime}
+                currentFileName={currentFile?.filename}
                 onSeek={handleTimelineSeek}
                 selectionMode={selectionMode}
                 selectedRange={selectedRange}
@@ -392,7 +377,7 @@ const RecordingsView: React.FC = () => {
                 Дата: <strong>{selectedDate.toLocaleDateString('ru-RU')}</strong>
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                Файлов: <strong>{filesForDate.length}</strong>
+                  {filesForDate.length > 0 ? '✅ Записи за этот день есть' : '— Записей за этот день нет'}
               </Typography>
               {currentFile && !selectionMode && (
                 <Typography variant="body2" color="primary" sx={{ mt: 1 }}>
@@ -423,7 +408,7 @@ const RecordingsView: React.FC = () => {
                       onClick={() => alert('TODO: Скачать все видео за день')}
                       sx={{ mb: 1 }}
                     >
-                      Скачать все ({filesForDate.length})
+                      Скачать все за день
                     </Button>
                     <Button
                       fullWidth

@@ -1,5 +1,6 @@
 import React, { useMemo, useRef, useEffect, useState } from 'react';
-import { Box, Slider, Typography, ToggleButtonGroup, ToggleButton, Chip } from '@mui/material';
+import { Box, Slider, Typography, ToggleButtonGroup, ToggleButton, Chip, IconButton, Tooltip } from '@mui/material';
+import { MyLocation } from '@mui/icons-material';
 import { RZD_COLORS } from '../theme';
 
 interface Recording {
@@ -13,17 +14,16 @@ interface RecordingsTimelineProps {
   camera: string;
   date: Date;
   files: Recording[];
-  currentTime?: number; // в минутах от начала дня (0..1440); undefined = нет playhead
+  currentTime?: number; // минуты от начала дня (0..1440); undefined = нет playhead
+  currentFileName?: string; // имя текущего воспроизводимого файла (для авто-центрирования при смене)
   onSeek: (file: Recording) => void;
   selectionMode: boolean;
   selectedRange: { start: number; end: number } | null;
   onRangeSelected: (range: { start: number; end: number }) => void;
 }
 
-// Длина одного сегмента по умолчанию (мин). В будущем можно считать из метаданных.
 const DEFAULT_SEGMENT_MINUTES = 10;
 
-// Доступные масштабы (ширина окна в минутах)
 const ZOOM_OPTIONS: { label: string; minutes: number }[] = [
   { label: '24ч', minutes: 24 * 60 },
   { label: '6ч', minutes: 6 * 60 },
@@ -32,22 +32,26 @@ const ZOOM_OPTIONS: { label: string; minutes: number }[] = [
 ];
 
 const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
-  camera,
   date,
   files,
   currentTime,
+  currentFileName,
   onSeek,
   selectionMode,
   selectedRange,
   onRangeSelected,
 }) => {
   const [windowMinutes, setWindowMinutes] = useState<number>(24 * 60);
-  const [windowStart, setWindowStart] = useState<number>(0); // начало видимого окна (мин от 00:00)
+  const [windowStart, setWindowStart] = useState<number>(0);
+  // Флаг: пользователь сам прокрутил timeline → не авто-центрируем на playhead
+  const [userScrolled, setUserScrolled] = useState(false);
+
   const containerRef = useRef<HTMLDivElement>(null);
   const isDraggingRef = useRef(false);
   const dragStartRef = useRef<{ x: number; windowStart: number } | null>(null);
+  const lastCenteredFileRef = useRef<string | undefined>(undefined);
+  const lastCenteredZoomRef = useRef<number>(windowMinutes);
 
-  // Преобразование ISO-времени файла в минуты от начала дня
   const fileToMinutes = (iso: string): number => {
     const d = new Date(iso);
     return d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60;
@@ -56,47 +60,59 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
   const segments = useMemo(() => {
     return files.map(f => {
       const start = fileToMinutes(f.created);
-      return {
-        file: f,
-        start,
-        end: start + DEFAULT_SEGMENT_MINUTES,
-      };
+      return { file: f, start, end: start + DEFAULT_SEGMENT_MINUTES };
     });
   }, [files]);
-
-  // Центрирование окна на currentTime при смене масштаба / при смене воспроизводимого файла
-  useEffect(() => {
-    if (currentTime === undefined || currentTime === null) {
-      // Если нет playhead — центрируем на первом сегменте, если есть
-      if (segments.length > 0 && windowMinutes < 24 * 60) {
-        const centerOn = segments[0].start;
-        centerWindowOn(centerOn);
-      }
-      return;
-    }
-    centerWindowOn(currentTime);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentTime, windowMinutes]);
 
   const centerWindowOn = (minute: number) => {
     const half = windowMinutes / 2;
     let ws = minute - half;
-    ws = Math.max(0, Math.min(1440 - windowMinutes, ws));
+    ws = Math.max(0, Math.min(Math.max(0, 1440 - windowMinutes), ws));
     setWindowStart(ws);
   };
 
+  // Авто-центрирование ТОЛЬКО при явных событиях:
+  // 1) сменился воспроизводимый файл
+  // 2) сменился масштаб
+  // НЕ центрируем на каждом тике currentTime.
+  useEffect(() => {
+    const fileChanged = currentFileName !== lastCenteredFileRef.current;
+    const zoomChanged = windowMinutes !== lastCenteredZoomRef.current;
+
+    if (!fileChanged && !zoomChanged) return;
+
+    lastCenteredFileRef.current = currentFileName;
+    lastCenteredZoomRef.current = windowMinutes;
+
+    // Если пользователь сам прокручивал — при смене файла сбрасываем флаг
+    if (fileChanged) {
+      setUserScrolled(false);
+    }
+
+    // Центрируем только если пользователь не прокручивал вручную
+    if (!userScrolled || fileChanged) {
+      if (currentTime !== undefined && currentTime !== null) {
+        centerWindowOn(currentTime);
+      } else if (segments.length > 0) {
+        centerWindowOn(segments[0].start);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentFileName, windowMinutes]);
+
+  // При смене даты — сброс прокрутки
+  useEffect(() => {
+    setUserScrolled(false);
+    setWindowStart(0);
+    lastCenteredFileRef.current = undefined;
+  }, [date]);
+
   const windowEnd = windowStart + windowMinutes;
 
-  // Перевод "минут от 00:00" в X-пиксели относительно контейнера
   const minuteToPx = (minute: number, containerWidth: number): number => {
     return ((minute - windowStart) / windowMinutes) * containerWidth;
   };
 
-  const pxToMinute = (x: number, containerWidth: number): number => {
-    return windowStart + (x / containerWidth) * windowMinutes;
-  };
-
-  // Drag для прокрутки timeline (только когда не selectionMode)
   const handleMouseDown = (e: React.MouseEvent) => {
     if (selectionMode) return;
     isDraggingRef.current = true;
@@ -109,8 +125,9 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
     const w = containerRef.current.clientWidth;
     const dMinutes = -(dx / w) * windowMinutes;
     let ws = dragStartRef.current.windowStart + dMinutes;
-    ws = Math.max(0, Math.min(1440 - windowMinutes, ws));
+    ws = Math.max(0, Math.min(Math.max(0, 1440 - windowMinutes), ws));
     setWindowStart(ws);
+    setUserScrolled(true); // 👈 помечаем, что пользователь прокрутил сам
   };
 
   const endDrag = () => {
@@ -118,33 +135,37 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
     dragStartRef.current = null;
   };
 
-  // Колесо мыши — прокрутка по времени
   const handleWheel = (e: React.WheelEvent) => {
     if (selectionMode) return;
     const delta = e.deltaY > 0 ? windowMinutes * 0.1 : -windowMinutes * 0.1;
     let ws = windowStart + delta;
-    ws = Math.max(0, Math.min(1440 - windowMinutes, ws));
+    ws = Math.max(0, Math.min(Math.max(0, 1440 - windowMinutes), ws));
     setWindowStart(ws);
+    setUserScrolled(true); // 👈
   };
 
-  // Клик по сегменту → seek
   const handleSegmentClick = (e: React.MouseEvent, file: Recording) => {
     if (selectionMode) return;
     e.stopPropagation();
     onSeek(file);
+    setUserScrolled(false); // seek-ом «оживляем» авто-центрирование
   };
 
-  // Форматирование минут в HH:MM
+  const recenterOnPlayhead = () => {
+    if (currentTime !== undefined) {
+      centerWindowOn(currentTime);
+      setUserScrolled(false);
+    }
+  };
+
   const formatMinutes = (m: number): string => {
     const h = Math.floor(m / 60);
     const min = Math.floor(m % 60);
     return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
   };
 
-  // Тики времени для отображения
   const ticks = useMemo(() => {
-    // Подбираем шаг тиков в зависимости от масштаба
-    let step = 60; // минут
+    let step = 60;
     if (windowMinutes <= 30) step = 5;
     else if (windowMinutes <= 120) step = 15;
     else if (windowMinutes <= 360) step = 30;
@@ -159,23 +180,18 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
     return result;
   }, [windowStart, windowMinutes, windowEnd]);
 
-  // === Двухсторонний слайдер для выбора диапазона ===
-  // Работает в координатах всего дня (0..1440), но "виртуально",
-  // чтобы пользователь мог выбирать диапазон только в пределах текущего окна просмотра.
   const handleRangeSliderChange = (_: Event, value: number | number[]) => {
     if (!Array.isArray(value)) return;
     const [start, end] = value;
     onRangeSelected({ start, end });
   };
 
-  // Значение по умолчанию для слайдера при входе в selectionMode
   const sliderValue: [number, number] = selectedRange
     ? [selectedRange.start, selectedRange.end]
     : [windowStart + windowMinutes * 0.25, windowStart + windowMinutes * 0.75];
 
   return (
     <Box>
-      {/* Панель управления масштабом */}
       <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
         <Typography variant="subtitle2" fontWeight="bold">
           ⏱ Timeline: {date.toLocaleDateString('ru-RU')}
@@ -184,6 +200,13 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
           <Typography variant="caption" color="text.secondary">
             {formatMinutes(windowStart)} – {formatMinutes(windowEnd)}
           </Typography>
+          {currentTime !== undefined && userScrolled && (
+            <Tooltip title="Вернуться к текущей позиции">
+              <IconButton size="small" onClick={recenterOnPlayhead} color="error">
+                <MyLocation fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
           <ToggleButtonGroup
             size="small"
             exclusive
@@ -199,7 +222,6 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
         </Box>
       </Box>
 
-      {/* Сам timeline */}
       <Box
         ref={containerRef}
         onMouseDown={handleMouseDown}
@@ -221,7 +243,6 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
           },
         }}
       >
-        {/* Фон с тиками */}
         {containerRef.current &&
           ticks.map(t => {
             const w = containerRef.current!.clientWidth;
@@ -255,16 +276,15 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
             );
           })}
 
-        {/* Сегменты записей */}
         {containerRef.current &&
           segments.map(seg => {
             const w = containerRef.current!.clientWidth;
-            // Отсекаем сегменты вне окна
             if (seg.end < windowStart || seg.start > windowEnd) return null;
             const visibleStart = Math.max(seg.start, windowStart);
             const visibleEnd = Math.min(seg.end, windowEnd);
             const x = minuteToPx(visibleStart, w);
             const width = Math.max(2, minuteToPx(visibleEnd, w) - x);
+            const isCurrentSegment = seg.file.filename === currentFileName;
 
             return (
               <Box
@@ -276,8 +296,8 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
                   height: 32,
                   left: x,
                   width,
-                  bgcolor: RZD_COLORS.secondary,
-                  opacity: 0.7,
+                  bgcolor: isCurrentSegment ? RZD_COLORS.primary : RZD_COLORS.secondary,
+                  opacity: isCurrentSegment ? 0.9 : 0.7,
                   borderRadius: 0.5,
                   cursor: selectionMode ? 'default' : 'pointer',
                   transition: 'opacity 0.15s',
@@ -290,7 +310,6 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
             );
           })}
 
-        {/* Playhead (текущая позиция воспроизведения) */}
         {currentTime !== undefined &&
           currentTime >= windowStart &&
           currentTime <= windowEnd &&
@@ -311,7 +330,6 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
           )}
       </Box>
 
-      {/* Двухсторонний слайдер для выбора диапазона */}
       {selectionMode && (
         <Box sx={{ px: 2, pt: 2 }}>
           <Typography variant="caption" color="text.secondary">
@@ -329,16 +347,8 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
           />
           {selectedRange && (
             <Box display="flex" gap={1} mt={1}>
-              <Chip
-                size="small"
-                color="success"
-                label={`Начало: ${formatMinutes(selectedRange.start)}`}
-              />
-              <Chip
-                size="small"
-                color="success"
-                label={`Конец: ${formatMinutes(selectedRange.end)}`}
-              />
+              <Chip size="small" color="success" label={`Начало: ${formatMinutes(selectedRange.start)}`} />
+              <Chip size="small" color="success" label={`Конец: ${formatMinutes(selectedRange.end)}`} />
               <Chip
                 size="small"
                 color="primary"

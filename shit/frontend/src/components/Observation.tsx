@@ -805,6 +805,24 @@ const Observation: React.FC = () => {
                   <DeleteIcon />
                 </IconButton>
               )}
+
+              {/* 🆕 Кнопка входа в киоск-режим */}
+              <Button
+                size="small"
+                variant="outlined"
+                color="primary"
+                startIcon={<FullscreenIcon />}
+                disabled={!currentLayoutName}
+                onClick={() => {
+                  window.open(`/kiosk/${encodeURIComponent(currentLayoutName)}`, '_blank');
+                }}
+                title={currentLayoutName
+                  ? `Открыть layout "${currentLayoutName}" в киоск-режиме`
+                  : 'Сначала сохраните или загрузите layout'}
+                sx={{ ml: 1 }}
+              >
+                Киоск
+              </Button>
             </Box>
           </Box>
 

@@ -1,13 +1,6 @@
 import React from 'react';
 import {
-  Box,
-  Typography,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemText,
-  Checkbox,
-  Chip,
+  Box, Typography, List, ListItem, ListItemButton, ListItemText, Checkbox,
 } from '@mui/material';
 import { Videocam } from '@mui/icons-material';
 
@@ -15,19 +8,17 @@ interface RecordingsCameraListProps {
   cameras: string[];
   selectedCameras: string[];
   onToggle: (camera: string) => void;
-  recordings: Record<string, any[]>;
 }
 
 const RecordingsCameraList: React.FC<RecordingsCameraListProps> = ({
   cameras,
   selectedCameras,
   onToggle,
-  recordings,
 }) => {
   return (
     <Box>
       <Typography variant="subtitle2" fontWeight="bold" mb={1}>
-        📹 Cameras
+        📹 Камеры
       </Typography>
       <List dense>
         {cameras.map(camera => (
@@ -46,9 +37,6 @@ const RecordingsCameraList: React.FC<RecordingsCameraListProps> = ({
                   </Box>
                 }
               />
-              {recordings[camera]?.length > 0 && (
-                <Chip label="M" size="small" color="primary" />
-              )}
             </ListItemButton>
           </ListItem>
         ))}
