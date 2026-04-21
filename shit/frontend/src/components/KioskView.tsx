@@ -495,26 +495,28 @@ const KioskView: React.FC = () => {
 
       {/* 🔑 Боковая панель: variant="persistent" + убран backdrop */}
       <Drawer
-        anchor="left"
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        variant="persistent"
-        ModalProps={{
-          keepMounted: true,
-          hideBackdrop: true,
-          disableEnforceFocus: true,
-          disableAutoFocus: true,
-          disableRestoreFocus: true,
-        }}
-        PaperProps={{
-          sx: {
-            width: 260,
-            bgcolor: '#1a1a1a',
-            color: 'white',
-            zIndex: 1100,
-          }
-        }}
-      >
+          anchor="left"
+          open={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
+          variant="persistent"
+          ModalProps={{
+            keepMounted: true,
+            hideBackdrop: true,
+            disableEnforceFocus: true,
+            disableAutoFocus: true,
+            disableRestoreFocus: true,
+          }}
+          PaperProps={{
+            sx: {
+              width: 260,
+              bgcolor: '#1a1a1a',
+              color: 'white',
+              zIndex: 1300, // 🔑 выше шторки (1200)
+              pt: controlsVisible ? '56px' : 0, // 🔑 отступ сверху, когда шторка видна
+              transition: 'padding-top 0.25s ease',
+            }
+          }}
+        >
         <Box sx={{ p: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <Typography variant="subtitle1" fontWeight="bold">📹 Камеры</Typography>
           <IconButton size="small" sx={{ color: 'white' }} onClick={() => setDrawerOpen(false)}>
