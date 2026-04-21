@@ -9,7 +9,6 @@ import {
   Menu as MenuIcon,
   Home as HomeIcon,
   FullscreenExit as FullscreenExitIcon,
-  Videocam as VideocamIcon,
   CheckCircle as CheckCircleIcon,
   Error as ErrorIcon,
   DragIndicator as DragIndicatorIcon,
@@ -38,7 +37,7 @@ interface SavedLayout {
 }
 
 const STORAGE_KEY = 'observation_layouts';
-const CONTROLS_HIDE_DELAY = 3000; // мс
+const CONTROLS_HIDE_DELAY = 3000;
 
 const KioskView: React.FC = () => {
   const [layout, setLayout] = useState<SavedLayout | null>(null);
@@ -47,14 +46,15 @@ const KioskView: React.FC = () => {
   const [availableLayouts, setAvailableLayouts] = useState<SavedLayout[]>([]);
   const [cameras, setCameras] = useState<CPPCamera[]>([]);
 
-  // Управление: видимость шторки и боковой панели
   const [controlsVisible, setControlsVisible] = useState(true);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const hideTimerRef = useRef<number | null>(null);
 
-  // Редактирование ячеек в киоске (меняется in-memory, НЕ пишем обратно в localStorage
-  // без явного действия пользователя, чтобы не затирать сохранённый layout)
   const [activeCellsOverride, setActiveCellsOverride] = useState<Record<number | string, string> | null>(null);
+
+  // 🆕 Состояние drag-n-drop
+  const [draggedCamera, setDraggedCamera] = useState<string | null>(null);
+  const [dragOverCellId, setDragOverCellId] = useState<number | string | null>(null);
 
   const getLayoutNameFromUrl = (): string | null => {
     const match = window.location.pathname.match(/^\/kiosk\/?(.*)$/);
@@ -63,7 +63,6 @@ const KioskView: React.FC = () => {
     return name || null;
   };
 
-  // Загрузка layouts и камер
   useEffect(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
@@ -94,13 +93,11 @@ const KioskView: React.FC = () => {
       console.error(err);
     }
 
-    // Параллельно подгружаем список камер (для списка в шторке)
     api.getCameras().then(data => {
       if (Array.isArray(data)) setCameras(data);
     }).catch(err => console.error('Kiosk: failed to load cameras', err));
   }, []);
 
-  // Fullscreen отслеживание
   useEffect(() => {
     const handleFullscreenChange = () => {
       setFullscreenActive(!!document.fullscreenElement);
@@ -117,11 +114,10 @@ const KioskView: React.FC = () => {
     };
   }, []);
 
-  // Автоскрытие шторки
   const scheduleHide = () => {
     if (hideTimerRef.current) window.clearTimeout(hideTimerRef.current);
     hideTimerRef.current = window.setTimeout(() => {
-      if (!drawerOpen) setControlsVisible(false);
+      if (!drawerOpen && !draggedCamera) setControlsVisible(false);
     }, CONTROLS_HIDE_DELAY);
   };
 
@@ -137,7 +133,7 @@ const KioskView: React.FC = () => {
       if (hideTimerRef.current) window.clearTimeout(hideTimerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drawerOpen]);
+  }, [drawerOpen, draggedCamera]);
 
   const enterFullscreen = async () => {
     try {
@@ -159,31 +155,49 @@ const KioskView: React.FC = () => {
     const found = availableLayouts.find(l => l.name === layoutName);
     if (!found) return;
     setLayout(found);
-    setActiveCellsOverride(null); // сбрасываем временные изменения
-    // Обновляем URL без перезагрузки
+    setActiveCellsOverride(null);
     window.history.replaceState(null, '', `/kiosk/${encodeURIComponent(layoutName)}`);
   };
 
-  // === Drag & Drop: смена камер в ячейках прямо в киоске ===
+  // === Drag & Drop ===
   const handleDragStart = (e: React.DragEvent, cameraName: string) => {
     e.dataTransfer.effectAllowed = 'copy';
     e.dataTransfer.setData('text/plain', cameraName);
+    setDraggedCamera(cameraName);
   };
 
-  const handleDragOver = (e: React.DragEvent) => {
+  const handleDragEnd = () => {
+    setDraggedCamera(null);
+    setDragOverCellId(null);
+  };
+
+  const handleDragOver = (e: React.DragEvent, cellId: number | string) => {
     e.preventDefault();
+    e.stopPropagation();
     e.dataTransfer.dropEffect = 'copy';
+    if (dragOverCellId !== cellId) {
+      setDragOverCellId(cellId);
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent, cellId: number | string) => {
+    // проверяем, что уходим реально из ячейки, а не на её дочерний элемент
+    const related = e.relatedTarget as Node | null;
+    if (related && (e.currentTarget as Node).contains(related)) return;
+    if (dragOverCellId === cellId) {
+      setDragOverCellId(null);
+    }
   };
 
   const handleDrop = (e: React.DragEvent, cellId: number | string) => {
     e.preventDefault();
-    const cameraName = e.dataTransfer.getData('text/plain');
-    if (!cameraName) return;
+    e.stopPropagation();
+    const cameraName = e.dataTransfer.getData('text/plain') || draggedCamera;
+    if (!cameraName || !layout) return;
 
-    const currentCells = activeCellsOverride ?? layout!.activeCells;
+    const currentCells = activeCellsOverride ?? layout.activeCells;
     const next = { ...currentCells };
 
-    // Удаляем камеру из другой ячейки, если она там
     Object.entries(next).forEach(([id, name]) => {
       if (name === cameraName && id !== String(cellId)) {
         delete next[id];
@@ -191,10 +205,13 @@ const KioskView: React.FC = () => {
     });
     next[cellId] = cameraName;
     setActiveCellsOverride(next);
+    setDraggedCamera(null);
+    setDragOverCellId(null);
   };
 
   const handleCellDoubleClick = (cellId: number | string) => {
-    const currentCells = activeCellsOverride ?? layout!.activeCells;
+    if (!layout) return;
+    const currentCells = activeCellsOverride ?? layout.activeCells;
     if (!currentCells[cellId]) return;
     const next = { ...currentCells };
     delete next[cellId];
@@ -276,29 +293,93 @@ const KioskView: React.FC = () => {
 
   const renderCellContent = (cellId: number | string) => {
     const cameraName = effectiveActiveCells[cellId];
+    const isDropTarget = dragOverCellId === cellId;
+    const isDragging = !!draggedCamera;
+
     return (
       <Box
-        onDragOver={handleDragOver}
+        // ⚠️ ВАЖНО: обработчики drag на самом контейнере ячейки
+        onDragOver={(e) => handleDragOver(e, cellId)}
+        onDragEnter={(e) => handleDragOver(e, cellId)}
+        onDragLeave={(e) => handleDragLeave(e, cellId)}
         onDrop={(e) => handleDrop(e, cellId)}
         onDoubleClick={() => handleCellDoubleClick(cellId)}
         sx={{
+          position: 'relative',
           width: '100%', height: '100%',
           bgcolor: '#000',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          overflow: 'hidden', border: '1px solid #222',
+          overflow: 'hidden',
+          border: isDropTarget
+            ? '3px solid #4caf50'
+            : isDragging
+            ? '2px dashed rgba(76, 175, 80, 0.5)'
+            : '1px solid #222',
+          transition: 'border-color 0.15s',
+          // 🔑 КРИТИЧНО: когда идёт drag, все дочерние элементы (video, WebRTC)
+          // не должны перехватывать события мыши — чтобы drop срабатывал на ячейке
+          '& video, & > div > video, & > *': isDragging ? {
+            pointerEvents: 'none',
+          } : {},
         }}
       >
         {cameraName ? (
-          <WebRTCPlayer
-            key={`kiosk-${cellId}-${cameraName}`}
-            cameraId={cameraName}
-            signalingUrl={`${SIGNALING_SERVER}/client/${cameraName}`}
-            onError={(err) => console.error(`Kiosk error ${cameraName}:`, err)}
-          />
+          <>
+            <WebRTCPlayer
+              key={`kiosk-${cellId}-${cameraName}`}
+              cameraId={cameraName}
+              signalingUrl={`${SIGNALING_SERVER}/client/${cameraName}`}
+              onError={(err) => console.error(`Kiosk error ${cameraName}:`, err)}
+            />
+
+            {/* 🆕 Прозрачный overlay ТОЛЬКО во время drag — ловит события поверх видео */}
+            {isDragging && (
+              <Box
+                onDragOver={(e) => handleDragOver(e, cellId)}
+                onDragEnter={(e) => handleDragOver(e, cellId)}
+                onDragLeave={(e) => handleDragLeave(e, cellId)}
+                onDrop={(e) => handleDrop(e, cellId)}
+                sx={{
+                  position: 'absolute',
+                  inset: 0,
+                  zIndex: 5,
+                  bgcolor: isDropTarget ? 'rgba(76, 175, 80, 0.25)' : 'rgba(0, 0, 0, 0.15)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'background-color 0.15s',
+                }}
+              >
+                <Typography
+                  variant="body2"
+                  sx={{
+                    color: 'white',
+                    bgcolor: 'rgba(0,0,0,0.7)',
+                    px: 2, py: 0.5, borderRadius: 1,
+                    fontSize: '0.85rem',
+                  }}
+                >
+                  {isDropTarget ? `✓ Заменить на «${draggedCamera}»` : 'Отпустите для замены'}
+                </Typography>
+              </Box>
+            )}
+          </>
         ) : (
-          <Typography color="grey.700" variant="caption">
-            Перетащите камеру
-          </Typography>
+          <Box sx={{ textAlign: 'center', pointerEvents: 'none' }}>
+            <Typography
+              variant="body2"
+              sx={{
+                color: isDropTarget ? '#4caf50' : 'grey.600',
+                fontWeight: isDropTarget ? 'bold' : 'normal',
+              }}
+            >
+              {isDropTarget
+                ? `✓ Отпустите «${draggedCamera}»`
+                : isDragging
+                ? 'Перетащите сюда'
+                : 'Пусто'}
+            </Typography>
+          </Box>
         )}
       </Box>
     );
@@ -315,7 +396,9 @@ const KioskView: React.FC = () => {
         gap: 0.5, bgcolor: '#000', p: 0.5, boxSizing: 'border-box',
       }}>
         {Array.from({ length: gridSize }).map((_, index) => (
-          <Box key={index}>{renderCellContent(index)}</Box>
+          <Box key={index} sx={{ minHeight: 0, minWidth: 0 }}>
+            {renderCellContent(index)}
+          </Box>
         ))}
       </Box>
     );
@@ -336,6 +419,7 @@ const KioskView: React.FC = () => {
           <Box key={cell.id} sx={{
             gridColumn: `${cell.col} / span ${cell.colSpan}`,
             gridRow: `${cell.row} / span ${cell.rowSpan}`,
+            minHeight: 0, minWidth: 0,
           }}>
             {renderCellContent(cell.id)}
           </Box>
@@ -348,7 +432,7 @@ const KioskView: React.FC = () => {
     <Box sx={{ position: 'relative', width: '100vw', height: '100vh', bgcolor: '#000' }}>
       {layout.gridSize === 'custom' ? renderCustomGrid() : renderStandardGrid()}
 
-      {/* Верхняя шторка с быстрым управлением */}
+      {/* Верхняя шторка */}
       <Box
         sx={{
           position: 'fixed', top: 0, left: 0, right: 0,
@@ -358,16 +442,16 @@ const KioskView: React.FC = () => {
           display: 'flex', alignItems: 'center', gap: 2,
           transform: controlsVisible ? 'translateY(0)' : 'translateY(-100%)',
           transition: 'transform 0.25s ease',
-          zIndex: 1000,
+          zIndex: 1200,
+          // Когда шторка скрыта — не мешаем кликать/дропать под ней
+          pointerEvents: controlsVisible ? 'auto' : 'none',
         }}
       >
         <IconButton size="small" sx={{ color: 'white' }} onClick={() => setDrawerOpen(true)}>
           <MenuIcon />
         </IconButton>
 
-        <Typography variant="subtitle2" sx={{ flexGrow: 0 }}>
-          🎥 Киоск
-        </Typography>
+        <Typography variant="subtitle2">🎥 Киоск</Typography>
 
         <FormControl size="small" sx={{ minWidth: 180 }}>
           <InputLabel sx={{ color: 'grey.400' }}>Layout</InputLabel>
@@ -409,12 +493,27 @@ const KioskView: React.FC = () => {
         </Tooltip>
       </Box>
 
-      {/* Боковая панель с камерами */}
+      {/* 🔑 Боковая панель: variant="persistent" + убран backdrop */}
       <Drawer
         anchor="left"
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        PaperProps={{ sx: { width: 260, bgcolor: '#1a1a1a', color: 'white' } }}
+        variant="persistent"
+        ModalProps={{
+          keepMounted: true,
+          hideBackdrop: true,
+          disableEnforceFocus: true,
+          disableAutoFocus: true,
+          disableRestoreFocus: true,
+        }}
+        PaperProps={{
+          sx: {
+            width: 260,
+            bgcolor: '#1a1a1a',
+            color: 'white',
+            zIndex: 1100,
+          }
+        }}
       >
         <Box sx={{ p: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <Typography variant="subtitle1" fontWeight="bold">📹 Камеры</Typography>
@@ -430,13 +529,16 @@ const KioskView: React.FC = () => {
           {cameras.map(camera => {
             const isActive = getCameraStatus(camera.name);
             const isUsed = Object.values(effectiveActiveCells).includes(camera.name);
+            const isBeingDragged = draggedCamera === camera.name;
             return (
               <ListItem
                 key={camera.name}
                 draggable
                 onDragStart={(e) => handleDragStart(e, camera.name)}
+                onDragEnd={handleDragEnd}
                 sx={{
                   cursor: 'grab',
+                  opacity: isBeingDragged ? 0.5 : 1,
                   bgcolor: isUsed ? 'rgba(76,175,80,0.15)' : 'transparent',
                   borderLeft: isUsed ? '3px solid #4caf50' : '3px solid transparent',
                   '&:active': { cursor: 'grabbing' },
