@@ -31,6 +31,7 @@ import { RZD_COLORS } from '../theme';
 import RecordingsCalendar from './RecordingsCalendar';
 import RecordingsPlayer from './RecordingsPlayer';
 import RecordingsTimeline from './RecordingsTimeline';
+import { isProbeCamera } from '../utils/probeFilter';
 
 interface Recording {
   filename: string;
@@ -85,6 +86,15 @@ const RecordingsView: React.FC = () => {
       if (!response.ok) throw new Error('Failed to load recordings');
 
       const data = await response.json();
+      const raw: Record<string, Recording[]> = data.recordings || {};
+
+      // 🔑 Убираем probe-камеры из архива
+      const filtered: Record<string, Recording[]> = {};
+      for (const [name, files] of Object.entries(raw)) {
+        if (!isProbeCamera(name)) {
+          filtered[name] = files;
+        }
+      }
       setRecordings(data.recordings || {});
       setError('');
     } catch (err: any) {

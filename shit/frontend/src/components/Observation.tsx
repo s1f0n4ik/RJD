@@ -39,6 +39,7 @@ import {
 import WebRTCPlayer from './WebRTCPlayer';
 import { api, type CPPCamera } from '../services/api';
 import { SIGNALING_SERVER } from '../utils/constants';
+import { isProbeCamera } from '../utils/probeFilter';
 
 type GridSize = 1 | 4 | 9 | 16 | 'custom';
 
@@ -113,7 +114,8 @@ const Observation: React.FC = () => {
       }
 
       console.log('✅ Loaded cameras:', data);
-      setCameras(data);
+      const visible = data.filter((c) => !isProbeCamera(c.name));
+      setCameras(visible);
       setLoadError('');
 
     } catch (error) {
