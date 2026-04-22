@@ -95,7 +95,7 @@ const RecordingsView: React.FC = () => {
           filtered[name] = files;
         }
       }
-      setRecordings(data.recordings || {});
+      setRecordings(filtered);
       setError('');
     } catch (err: any) {
       setError(err.message);
