@@ -10,18 +10,25 @@ interface RecordingsCameraListProps {
   onToggle: (camera: string) => void;
 }
 
+const RESERVED_PREFIXES = ['__probe_'];
+
 const RecordingsCameraList: React.FC<RecordingsCameraListProps> = ({
   cameras,
   selectedCameras,
   onToggle,
 }) => {
+  // 🔑 Фильтруем технические probe-камеры из списка архива
+  const visibleCameras = cameras.filter(
+    (name) => !RESERVED_PREFIXES.some((p) => name.startsWith(p))
+  );
+
   return (
     <Box>
       <Typography variant="subtitle2" fontWeight="bold" mb={1}>
         📹 Камеры
       </Typography>
       <List dense>
-        {cameras.map(camera => (
+        {visibleCameras.map(camera => (
           <ListItem key={camera} disablePadding>
             <ListItemButton onClick={() => onToggle(camera)}>
               <Checkbox
@@ -40,6 +47,11 @@ const RecordingsCameraList: React.FC<RecordingsCameraListProps> = ({
             </ListItemButton>
           </ListItem>
         ))}
+        {visibleCameras.length === 0 && (
+          <Typography variant="caption" color="text.secondary" sx={{ px: 2 }}>
+            Нет камер с записями
+          </Typography>
+        )}
       </List>
     </Box>
   );

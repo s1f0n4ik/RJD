@@ -44,7 +44,7 @@ import {
   CheckCircle as CheckIcon,
   Error as ErrorIcon,
 } from '@mui/icons-material';
-import { FASTAPI_BASE } from '../utils/constants';
+import {FASTAPI_BASE, SIGNALING_SERVER} from '../utils/constants';
 import { RZD_COLORS } from '../theme';
 // ⚠️ Если у тебя другой путь к плееру — поправь импорт
 import WebRTCPlayer from './WebRTCPlayer';
@@ -225,6 +225,21 @@ const CameraSettings: React.FC = () => {
   const isFormValid =
     nameValidation.valid && ipValidation.valid && portValidation.valid;
 
+  const cleanupAllProbeCameras = useCallback(async (rawCameras: Camera[]) => {
+  const probes = rawCameras.filter((c) =>
+    RESERVED_PREFIXES.some((p) => c.name.startsWith(p))
+  );
+  if (probes.length === 0) return;
+
+  console.log(`[CameraSettings] 🧹 Found ${probes.length} stale probe cameras, deleting...`);
+  await Promise.allSettled(
+    probes.map((c) =>
+      fetch(`${FASTAPI_BASE}/api/camera/${c.name}`, { method: 'DELETE' })
+    )
+  );
+  console.log(`[CameraSettings] ✅ Cleanup of probe cameras done`);
+}, []);
+
   const loadCameras = async () => {
     setLoading(true);
     try {
@@ -232,7 +247,6 @@ const CameraSettings: React.FC = () => {
       if (!response.ok) throw new Error('Failed to load cameras');
       const data = await response.json();
 
-      // Нормализация: бэк может отдавать и объект, и массив
       let list: Camera[] = [];
       if (data.cameras) {
         if (Array.isArray(data.cameras)) {
@@ -244,7 +258,20 @@ const CameraSettings: React.FC = () => {
           }));
         }
       }
-      // скрываем probe-камеры из UI (если вдруг остались от прошлой сессии)
+
+      // 🔑 Нашли probe-камеры? — запускаем их удаление в фоне.
+      // Не ждём результата, чтобы UI не висел. Пользователю они всё равно не показываются.
+      // ВАЖНО: не удаляем активный probe (пользователь прямо сейчас тестирует поток)
+      const stale = list.filter(
+        (c) =>
+          RESERVED_PREFIXES.some((p) => c.name.startsWith(p)) &&
+          c.name !== probeNameRef.current
+      );
+      if (stale.length > 0) {
+        cleanupAllProbeCameras(stale);
+      }
+
+      // В UI отдаём только обычные камеры
       list = list.filter((c) => !RESERVED_PREFIXES.some((p) => c.name.startsWith(p)));
       setCameras(list);
       setError('');
@@ -613,7 +640,7 @@ const CameraSettings: React.FC = () => {
                       {recOn ? (
                         <Chip
                           icon={<RecIcon sx={{ color: '#e53935 !important' }} />}
-                          label={`REC ${camera.streams.main.segment}м`}
+                          label={`REC ${camera.streams.main.segment}сек`}
                           size="small"
                           variant="outlined"
                           sx={{ borderColor: '#e53935', color: '#e53935' }}
@@ -1037,7 +1064,14 @@ const CameraSettings: React.FC = () => {
                 }}
               >
                 {probeStatus === 'streaming' && probeName ? (
-                  <WebRTCPlayer cameraName={probeName} />
+                  <WebRTCPlayer
+                    cameraId={probeName}
+                    signalingUrl={`${SIGNALING_SERVER}/client/${probeName}`}
+                    onError={(err) => {
+                      setProbeError(err);
+                      setProbeStatus('error');
+                    }}
+                  />
                 ) : probeStatus === 'creating' ? (
                   <Box textAlign="center" color="white">
                     <CircularProgress color="inherit" />

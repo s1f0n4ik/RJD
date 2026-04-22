@@ -3,6 +3,7 @@ import { Box, Typography } from '@mui/material';
 import { DateCalendar, PickersDay, PickersDayProps } from '@mui/x-date-pickers';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
+import { ru } from 'date-fns/locale'; // 🔑 русская локаль (неделя с понедельника)
 import { RZD_COLORS } from '../theme';
 
 interface RecordingsCalendarProps {
@@ -45,10 +46,8 @@ const RecordingsCalendar: React.FC<RecordingsCalendarProps> = ({
 
   return (
     <Box>
-      <Typography variant="subtitle2" fontWeight="bold" mb={1}>
-        📅 Calendar
-      </Typography>
-      <LocalizationProvider dateAdapter={AdapterDateFns}>
+      {/* 🔑 Передаём русскую локаль адаптеру */}
+      <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={ru}>
         <DateCalendar
           value={selectedDate}
           onChange={(newDate) => newDate && onDateChange(newDate)}
