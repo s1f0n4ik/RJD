@@ -15,33 +15,34 @@ namespace varan {
 namespace neural {
 
 	UCamera::UCamera(
-		const FCameraData& options,
+		const std::string& name,
 		const FWebSocketOptions& socket_options,
-		CDmabufMover dmabuf_callback,
 		ULogger::ELoggerLevel level_
 	)
-		: m_name(options.name)
-		, m_description(options.description)
-		, m_ip_adress(options.ip_adress)
-		, m_port(options.port)
-		, m_user(options.user)
-		, m_running(false)
+		: m_running(false)
 		, m_error(false)
 		, m_initialized(false)
 		, m_gst_initialized(false)
 		, m_io_context()
-		, m_work_guard(boost::asio::make_work_guard(m_io_context))
 		, m_websocket_client(nullptr)
 		, m_socket_options(socket_options)
-		, m_frame_callback(dmabuf_callback)
-		, m_logger(options.name, level_)
+		, m_logger(name, level_)
 	{
-		for (const auto& [name, stream_data] : options.pipelines) {
-			auto pipeline_setting = FInputPipelineParameters{
-				name, m_name,
-				stream_data.rtsp_url, stream_data.latency, stream_data.use_udp, stream_data.reconnect_time,
-				stream_data.record_path, stream_data.segment_length
-			};
+		
+	};
+
+	void UCamera::set_configurations(
+		const FCameraData& options,
+		const std::map<std::string, FPipelineConfig>& streams_config,
+		CFrameMover dmabuf_callback,
+		birdview::UEGLContextManager* m_gl_manager
+	) {
+		// Удаление текущий стримов
+		m_streams.clear();
+		m_initialized = false;
+		// Создание новых
+		m_options = options;
+		for (const auto& [name, stream_data] : streams_config) {
 			// Проверка на существование pipeline
 			auto it = m_streams.find(name);
 			if (it != m_streams.end()) {
@@ -49,30 +50,66 @@ namespace neural {
 				continue;
 			}
 
-			auto pipe_logger = std::make_unique<ULogger>(m_name + ": " + name, m_logger.get_level());
+			// Создание ссылки
+			const auto it_maker = rtsp_maker.find(options.production);
+			const auto& maker = (it_maker != rtsp_maker.end()) ? it_maker->second : rtsp_maker.at(ERtspType::ACE);
+			std::string rtsp_url = maker(options.ip_adress, options.port, options.user, options.password, stream_data.stream);
+
+			// Копирование конфига
+			FPipelineConfig pipeline_setting = stream_data;
+			pipeline_setting.camera_name = options.id;
+			pipeline_setting.name = name;
+			pipeline_setting.rtsp_url = rtsp_url;
+
+			auto pipe_logger = std::make_unique<ULogger>(m_options.id + ": " + name, m_logger.get_level());
 			auto send_callback = [this](std::string msg) {this->send_message(std::move(msg)); };
-			switch (stream_data.type) {
-				case EPilelineType::SUB: {
-					m_streams[name] = std::make_unique<UCameraSubPipeline>(
-						pipeline_setting,
-						std::move(pipe_logger),
-						std::move(send_callback)
-					);
-					break;
-				}
-				case EPilelineType::MAIN: 
-				default: {
-					m_streams[name] = std::make_unique<UCameraMainPipeline>(
-						pipeline_setting,
-						std::move(pipe_logger),
-						std::move(send_callback),
-						m_frame_callback
-					);
-					break;
-				}
+
+			try {
+				m_streams[name] = create_pipeline(
+					name,
+					pipeline_setting,
+					rtsp_url,
+					std::move(pipe_logger),
+					send_callback,
+					std::move(dmabuf_callback),
+					m_gl_manager
+				);
+			}
+			catch (const std::exception& e) {
+				m_logger.error("Camera constructor: " + std::string(e.what()));
+				continue;
 			}
 		}
-	};
+	}
+
+	std::unique_ptr<UCameraPipeline> UCamera::create_pipeline(
+		const std::string& name,
+		const FPipelineConfig& stream_data,
+		const std::string& rtsp_url,
+		std::unique_ptr<ULogger> logger,
+		std::function<void(std::string)> send_callback,
+		CFrameMover frame_callback,
+		birdview::UEGLContextManager* gl_manager
+	) {
+		switch (stream_data.type) {
+		case EPilelineType::SUB:
+			return std::make_unique<UCameraSubPipeline>(
+				stream_data,
+				std::move(logger),
+				std::move(send_callback)
+			);
+
+		case EPilelineType::MAIN:
+		default:
+			return std::make_unique<UCameraMainPipeline>(
+				stream_data,
+				std::move(logger),
+				std::move(send_callback),
+				gl_manager,
+				std::move(frame_callback)
+			);
+		}
+	}
 
 	UCamera::~UCamera() { 
 		stop(); 
@@ -84,7 +121,9 @@ namespace neural {
 		auto start_g_loop = [&]() {
 			m_main_loop = g_main_loop_new(nullptr, FALSE);
 			m_gst_loop_thread = std::thread([this]() {
+				m_gst_loop_running = true;
 				g_main_loop_run(m_main_loop);
+				m_gst_loop_running = false;
 			});
 		};
 
@@ -124,7 +163,7 @@ namespace neural {
 
 	std::string UCamera::get_name() {
 		if (m_initialized) {
-			return m_name;
+			return m_options.id;
 		}
 		else {
 			return "Camera has not inititalized!";
@@ -207,10 +246,37 @@ namespace neural {
 			m_init_thread.join();
 		}
 
-		// Убийство всех пайплайнов
-		//for (const auto& [name, stream] : m_streams) {
-		//	stream->teardown();
-		//}
+		// Останавливаем пайплайны через GMainLoop (его поток)
+		if (m_main_loop && m_gst_loop_running) {
+			std::promise<void> done;
+			auto future = done.get_future();
+
+			// Структура для передачи в idle callback
+			struct StopCtx {
+				UCamera* self;
+				std::promise<void> done;
+			};
+			auto* ctx = new StopCtx{ this, std::move(done) };
+
+			g_main_context_invoke(
+				g_main_loop_get_context(m_main_loop),
+				+[](gpointer data) -> gboolean {
+					auto* ctx = static_cast<StopCtx*>(data);
+					// Теперь мы в потоке GMainLoop — teardown безопасен
+					ctx->self->m_streams.clear(); // деструкторы вызовут teardown
+					ctx->done.set_value();
+					delete ctx;
+					return G_SOURCE_REMOVE;
+				},
+				ctx
+			);
+
+			// Ждём завершения teardown, но не вечно
+			future.wait_for(std::chrono::seconds(5));
+		}
+		else {
+			m_streams.clear();
+		}
 
 		// Остановка вебсокета
 		stop_websocket_client();
@@ -229,13 +295,21 @@ namespace neural {
 			g_main_loop_unref(m_main_loop);
 			m_main_loop = nullptr;
 		}
-		m_streams.clear();
 
 		m_running = false;
+		m_initialized = false;
 	}
 
-	void UCamera::set_frame_callback(CDmabufMover callback) {
+	void UCamera::set_frame_callback(CFrameMover callback) {
 		m_frame_callback = std::move(callback);
+	}
+
+	void UCamera::update_metadata(
+		const std::string& display_name,
+		const std::string& description)
+	{
+		m_options.display_name = display_name;
+		m_options.description = description;
 	}
 
 	// ===========================================================
@@ -244,9 +318,13 @@ namespace neural {
 
 	void UCamera::start_websocket_client()
 	{
-		std::string url = "/camera/" + m_name;
+		std::string url = "/camera/" + m_options.id;
+
+		// Рестарт на случай, если он был остановлен
+		m_io_context.restart();
+
 		if (!m_websocket_client) {
-			m_websocket_client = std::make_shared<UWebSocketClient>(m_io_context, m_socket_options.ip_adress, m_socket_options.port, url, m_name);
+			m_websocket_client = std::make_shared<UWebSocketClient>(m_io_context, m_socket_options.ip_adress, m_socket_options.port, url, m_options.id);
 		}
 
 		m_websocket_client->set_message_callback(
@@ -264,7 +342,7 @@ namespace neural {
 			catch (std::exception& error) {
 				std::cerr << color::red << "[UCamera] Start websocket client error: " << error.what() << color::reset << std::endl;
 			}
-			});
+		});
 	}
 
 	void UCamera::stop_websocket_client()
@@ -273,7 +351,6 @@ namespace neural {
 			m_websocket_client->stop();
 		}
 
-		m_work_guard.reset();
 		m_io_context.stop();
 
 		if (m_websocket_thread.joinable()) {
@@ -311,7 +388,7 @@ namespace neural {
 			std::string description;
 			UCameraPipeline* web_stream = nullptr;
 			for (const auto& [name, stream] : m_streams) {
-				if (stream->get_type() == EPilelineType::SUB) {
+				if (stream->get_type() == EPilelineType::SUB || stream->get_type() == EPilelineType::NV12_ENCODER) {
 					web_stream = stream.get();
 					break;
 				}
@@ -374,7 +451,7 @@ namespace neural {
 			m_websocket_client->send(message);
 		}
 		else {
-			std::cout << color::red << "[UCamera " << m_name << "] Cannot send message because websocket client is nullptr!\n" << color::reset;
+			std::cout << color::red << "[UCamera " << m_options.id << "] Cannot send message because websocket client is nullptr!\n" << color::reset;
 		}
 	}
 
@@ -390,25 +467,18 @@ namespace neural {
 		message[SIG_SENDER] = SIG_SENDER_CAMERA;
 		message[SIG_RET] = successed ? SIG_RET_SUCCESS : SIG_RET_FAULT;
 		message[SIG_CLIENT] = client;
-		message[SIG_CAMERA] = m_name;
+		message[SIG_CAMERA] = m_options.id;
 		message[SIG_DECRIPTION] = description;
 		return message;
 	}
 
-	FCameraData UCamera::get_data()
+	FCameraStreamsData UCamera::get_data()
 	{
-		FCameraData data;
+		FCameraStreamsData data;
 		for (const auto& [name, pipeline] : m_streams) {
 			data.pipelines[name] = std::move(pipeline->get_pipeline_data());
 		}
-		data.name = m_name;
-		data.description = m_description;
-		data.user = m_user;
-
-		data.ip_adress = m_ip_adress;
-		data.port = m_port;
-
-		data.type = m_type;
+		data.camera = m_options;
 
 		return data;
 	}

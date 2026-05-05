@@ -2,15 +2,22 @@
 #include "bird-view/renderer.h"
 #include "bird-view/egl-context.h"
 
+#include "utility/fd-monitor.h"
+
+#include <opencv2/opencv.hpp>
+
 namespace varan {
 namespace birdview {
 
 	ULinker::ULinker(
 		const nvr::FWebSocketOptions& websocket,
+		UEGLContextManager* manager,
+		FFrameStorage<IFrame>* storage,
 		ULogger::ELoggerLevel level
 	)
 		: m_logger("Bird ULinker", level)
-		, m_storage(&m_logger)
+		, m_storage(storage)
+		, m_context_manager(manager)
 	{
 	}
 
@@ -18,10 +25,6 @@ namespace birdview {
 
 	ULinker::~ULinker() {
 		stop();
-	}
-
-	CDmabufMover ULinker::get_dmabuf_frame_callback() {
-		return std::move(m_storage.get_callback());
 	}
 
 	void ULinker::set_stitching_mode(EBirdViewStitchingMode mode) {
@@ -81,37 +84,96 @@ namespace birdview {
 
 	void ULinker::processing_loop(uint32_t fps)
 	{
-		using clock = std::chrono::high_resolution_clock;
-		// Использование контекста
-		auto context = FEGLContext();
-		context.init(&m_logger);
-		// инициализация ренждера
-		auto render = UCubeRenderer();
-		if (render.init(m_cameras_purpose.size(), &m_logger) == false) {
-			m_logger.error("processing_loop(): render didn;t initialize, abort linking loop!");
+		if (!m_context_manager) {
+			m_logger.error("processing_loop(): cannot start render loop, context doesn't initialized");
 			return;
 		}
-		// получаем время кадра
-		const auto frame_time = std::chrono::microseconds(1000000 / fps);
+		using clock = std::chrono::high_resolution_clock;
+		// Установление контекста
+		if (!m_context_manager->make_current(&m_logger)) {
+			return;
+		}
+		if (!m_context_manager->init_render_framebuffer(1024, 1024, &m_logger)) {
+			m_logger.error("processing_loop(): render framebuffer didn't initialize, abort linking loop!");
+			return;
+		}
+		else {
+			m_logger.info("processing_loop(): render framebuffer successfully initialized with (" + std::to_string(1024) + "," + std::to_string(1024) + ")");
+		}
+		glBindFramebuffer(GL_FRAMEBUFFER, m_context_manager->get_fbo());
+		// инициализация ренждера
+		/*
+		EGLContext ctx = eglGetCurrentContext();
+		if (ctx == EGL_NO_CONTEXT) {
+			m_logger.error("No current EGL context!");
+		}
+		else {
+			m_logger.info("EGL context is current: " + std::to_string((uintptr_t)ctx));
+		}
+		*/
+		auto render = UCubeRenderer();
+		if (render.init(m_cameras_purpose.size(), m_context_manager, &m_logger) == false) {
+			m_logger.error("processing_loop(): render didn't initialize, abort linking loop!");
+			return;
+		}
+
+		std::string video_path = "/home/orangepi/render/output.avi";
+		cv::VideoWriter writer;
+		writer.open(video_path, cv::VideoWriter::fourcc('M', 'J', 'P', 'G'), fps, cv::Size(1024, 1024));
+
+		if (!writer.isOpened()) {
+			m_logger.error("processing_loop(): cannot open VideoWriter!");
+			return;
+		}
+
 		// Собираем хранилище для кажров
 		auto space = create_linking_space();
+		// получаем время кадра
+		const auto frame_time = std::chrono::microseconds(1000000 / fps);
 		// Цикл обработки
 		auto next_frame = clock::now();
+
+		std::vector<uint8_t> pixels(1024 * 1024 * 4); // RGBA8
+
 		while (m_running) {
 			next_frame += frame_time;
 
 			// Заполняем фреймами буфер
 			fill_linking_space(space);
 
+			// Устанавливаем viewport
+			glViewport(0, 0, 1024, 1024);
+
+			glEnable(GL_DEPTH_TEST);
+			glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
 			// Обнолвяем рендер
-			render.update_textures(space, context.display);
-			render.update(0.1f);
+			render.update_textures(space, m_context_manager->get_display());
+			render.update(0.025f);
 
 			render.render(1.0f);
+
+			// Считываем пиксели с FBO
+			glReadPixels(0, 0, 1024, 1024, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+
+			for (auto& slot : space) {
+				slot.reset(); // если slot уже release()-нут — это no-op
+			}
+
+			cv::Mat img(1024, 1024, CV_8UC4, pixels.data());
+			cv::flip(img, img, 0);
+
+			cv::Mat bgr;
+			cv::cvtColor(img, bgr, cv::COLOR_RGBA2BGR);
+
+			writer.write(bgr);
 
 			// Соблюдаем фпс цикла
 			std::this_thread::sleep_until(next_frame);
 		}
+
+		m_context_manager->undone_current(&m_logger);
 	}
 
 	ULinker::NLinkSpace ULinker::create_linking_space() {
@@ -124,7 +186,7 @@ namespace birdview {
 				m_logger.warn("create_linking_space(): index of camera " + from_bird_camera_type_to_string(key) + " out of linking space, skip!");
 				continue;
 			}
-			space[from_bird_camera_type_to_index(key)] = std::nullopt;
+			space[from_bird_camera_type_to_index(key)] = nullptr;
 		}
 
 		return space;
@@ -152,14 +214,14 @@ namespace birdview {
 				continue;
 			}
 
-			auto it_frame = m_storage.extract(it_camera->second.value());
-			if (it_frame == std::nullopt) {
-				m_logger.trace("fill_linking_space(): " + type_string + " camera " + it_camera->second.value() + " did not transmit frames");
-				continue;
-			}
-			else {
+			auto it_frame = m_storage->extract(it_camera->second.value());
+			if (it_frame) {
 				m_logger.trace("fill_linking_space(): frame from " + type_string + " camera " + it_camera->second.value() + " moved to Linker");
 				space[camera_idx] = std::move(it_frame);
+			}
+			else {
+				m_logger.trace("fill_linking_space(): " + type_string + " camera " + it_camera->second.value() + " did not transmit frames");
+				continue;
 			}
 		}
 	}

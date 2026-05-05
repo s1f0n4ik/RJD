@@ -4,7 +4,7 @@
 #include <gst/rtsp/gstrtsptransport.h>
 
 UCameraPipeline::UCameraPipeline(
-    const FInputPipelineParameters& parameters,
+    const FPipelineConfig& parameters,
     std::unique_ptr<ULogger> logger,
     std::function<void(std::string)> send_callback
 )
@@ -92,6 +92,7 @@ bool UCameraPipeline::start() {
         return false;
     }
 
+    m_is_playing = true;
     m_logger->info("Pipeline started successfully.");
     return true;
 }
@@ -110,12 +111,15 @@ bool UCameraPipeline::stop() {
         return false;
     }
 
+    m_is_playing = false;
     m_logger->info("Pipeline paused successfully.");
     return true;
 }
 
 bool UCameraPipeline::teardown()
 {
+    std::lock_guard<std::mutex> lock(m_pipeline_mutex);
+
     if (m_is_destroying) {
         m_logger->warn("teardown(): function already called!");
         return true;
@@ -126,6 +130,8 @@ bool UCameraPipeline::teardown()
         m_is_destroying = false;
         return true;
     }
+
+    m_is_playing = false;
 
     m_logger->info("teardown(): direct NULL shutdown pipeline...");
     m_is_destroying = true;
@@ -138,8 +144,14 @@ bool UCameraPipeline::teardown()
     m_tees.clear();
 
     // Останавливаем сетевые потоки
-    gst_element_send_event(m_pipeline, gst_event_new_flush_start());
-    gst_element_send_event(m_pipeline, gst_event_new_flush_stop(TRUE));
+    //gst_element_send_event(m_pipeline, gst_event_new_flush_start());
+    //gst_element_send_event(m_pipeline, gst_event_new_flush_stop(TRUE));
+
+    // Отвязывает pipeline
+    if (m_bus_watch_id != 0) {
+        g_source_remove(m_bus_watch_id);
+        m_bus_watch_id = 0;
+    }
 
     // Переводим pipeline в NULL
     GstStateChangeReturn ret = gst_element_set_state(m_pipeline, GST_STATE_NULL);
@@ -213,6 +225,11 @@ void UCameraPipeline::restart_loop() {
 }
 
 void UCameraPipeline::restart_async() {
+    if (m_is_destroying) {
+        m_logger->warn("restart_async(): skip, pipeline is destroying");
+        return;
+    }
+
     if (m_is_restarting.exchange(true)) {
         m_logger->warn("restart_async(): Restart already in progress");
         return;

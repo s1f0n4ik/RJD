@@ -1,6 +1,9 @@
+#pragma once
+
 #include <boost/beast.hpp>
 #include <boost/asio.hpp>
 #include <iostream>
+#include <deque>
 #include <thread>
 #include <functional>
 #include <string>
@@ -17,19 +20,21 @@ class UWebSocketClient : public std::enable_shared_from_this<UWebSocketClient> {
 public:
     using MessageCallback = std::function<void(const std::string&)>;
 
-    UWebSocketClient(asio::io_context& ioc,
+    UWebSocketClient(
+        asio::io_context& ioc,
         const std::string& host,
         const std::string& port,
         const std::string& target,
-        const std::string& camera_name)
-        : m_resolver(ioc),
-        m_ws(ioc),
-        m_ioc(ioc),
-        m_timer(ioc),
-        m_host(host),
-        m_port(port),
-        m_target(target),
-        m_camera_name(camera_name) {
+        const std::string& camera_name
+    )
+        : m_resolver(ioc)
+        , m_ws(ioc)
+        , m_ioc(ioc)
+        , m_timer(ioc)
+        , m_host(host)
+        , m_port(port)
+        , m_target(target)
+        , m_camera_name(camera_name) {
     }
 
     void set_message_callback(MessageCallback cb) {
@@ -41,11 +46,11 @@ public:
         start_resolve();
     }
 
-    void send(const std::string& message) {
+    void send(const std::string& message, bool is_binary = false) {
         asio::post(m_ws.get_executor(),
-            [self = shared_from_this(), message]() {
+            [self = shared_from_this(), message, is_binary]() {
                 bool write_in_progress = !self->m_send_queue.empty();
-                self->m_send_queue.push_back(message);
+                self->m_send_queue.push_back({ message, is_binary });
                 if (!write_in_progress) {
                     self->do_write();
                 }
@@ -186,16 +191,23 @@ private:
     }
 
     void do_write() {
-        if (m_stopping) {
-            return;
-        }
+        if (m_stopping) return;
 
         m_sending = true;
 
-        // Логируем отправляемое сообщение (предполагается, что m_send_queue.front() — это std::string или подобное)
-        log_send("Sending message: " + m_send_queue.front());
+        auto& [msg, is_binary] = m_send_queue.front();
 
-        m_ws.async_write(asio::buffer(m_send_queue.front()),
+        // Логируем только текстовые, бинарные — только размер
+        if (is_binary) {
+            log_send("Sending binary message, size=" + std::to_string(msg.size()));
+        }
+        else {
+            log_send("Sending message: " + msg);
+        }
+
+        m_ws.binary(is_binary);
+        m_ws.async_write(
+            asio::buffer(msg.data(), msg.size()),
             [self = shared_from_this()](boost::beast::error_code ec, std::size_t) {
                 if (ec) {
                     self->log_error("Write failed: " + ec.message());
@@ -211,7 +223,8 @@ private:
                 else {
                     self->m_sending = false;
                 }
-            });
+            }
+        );
     }
 
 private:
@@ -223,7 +236,7 @@ private:
     websocket::stream<asio::ip::tcp::socket> m_ws;
     boost::beast::flat_buffer m_buffer;
 
-    std::deque<std::string> m_send_queue;
+    std::deque<std::pair<std::string, bool>> m_send_queue;
     bool m_sending = false;
 
     std::atomic_bool m_stopping{ false };

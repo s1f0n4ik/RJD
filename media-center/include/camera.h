@@ -12,7 +12,7 @@
 #include <atomic>
 #include <chrono>
 #include <filesystem>
-//#include <opencv2/opencv.hpp>
+#include <opencv2/opencv.hpp>
 
 #include <gst/gst.h>
 #include <gst/video/video.h>
@@ -22,10 +22,10 @@
 
 #include <boost/json.hpp>
 
-#include "utility/dma-frame.h"
+#include "utility/frames.h"
 #include "safe_buffers.h"
-#include "icamera_signaling.h"
-#include "iwebsocket_client.h"
+#include "isignaling.h"
+#include "websocket-client.h"
 #include "logger.h"
 #include "webrtc_session.h"
 
@@ -36,20 +36,26 @@ using namespace varan::nvr;
 namespace varan {
 namespace neural {
 
-	class UCamera : public ICameraSignaling {
+	class UCamera : public ISignaling {
 	public:
 
 		using TUniqueGst = std::unique_ptr<GstElement, decltype(&gst_object_unref)>;
 		using TUniqueBus = std::unique_ptr<GstBus, decltype(&gst_object_unref)>;
 
 		explicit UCamera(
-			const FCameraData& options, 
-			const FWebSocketOptions& socket_options, 
-			CDmabufMover dmabuf_callback,
+			const std::string& name,
+			const FWebSocketOptions& socket_options,
 			ULogger::ELoggerLevel level_ = ULogger::ELoggerLevel::DEBUG
 		);
 
-		~UCamera();
+		virtual ~UCamera();
+
+		virtual void set_configurations(
+			const FCameraData& options,
+			const std::map<std::string, FPipelineConfig>& streams_config,
+			CFrameMover dmabuf_callback,
+			birdview::UEGLContextManager* m_gl_manager
+		);
 
 		bool initialize();
 
@@ -67,7 +73,12 @@ namespace neural {
 
 		void stop_websocket_client();
 
-		void set_frame_callback(CDmabufMover callback);
+		void set_frame_callback(CFrameMover callback);
+
+		void update_metadata(
+			const std::string& display_name,
+			const std::string& description
+		);
 
 		std::string get_name();
 
@@ -81,19 +92,26 @@ namespace neural {
 
 		void set_signaling_callback(CSignalingCallback callback) override;
 
-		FCameraData get_data();
+		FCameraStreamsData get_data();
 
-	private:
+	protected:
+
+		virtual std::unique_ptr<UCameraPipeline> create_pipeline(
+			const std::string& name,
+			const FPipelineConfig& stream_data,
+			const std::string& rtsp_url,
+			std::unique_ptr<ULogger> logger,
+			std::function<void(std::string)> send_callback,
+			CFrameMover frame_callback,
+			birdview::UEGLContextManager* gl_manager
+		);
+
+	protected:
+
+		FCameraData m_options;
 		std::string m_name;
-		std::string m_description;
 
-		std::string m_ip_adress;
-		std::string m_port;
-		std::string m_user;
-
-		ECameraType m_type;
-
-		CDmabufMover m_frame_callback;
+		CFrameMover m_frame_callback;
 		CSignalingCallback m_signaling_callback;
 
 		std::atomic<bool> m_running;
@@ -125,7 +143,7 @@ namespace neural {
 
 		std::shared_ptr<UWebSocketClient> m_websocket_client;
 		boost::asio::io_context m_io_context;
-		boost::asio::executor_work_guard<boost::asio::io_context::executor_type> m_work_guard;
+		//boost::asio::executor_work_guard<boost::asio::io_context::executor_type> m_work_guard;
 
 		std::thread m_websocket_thread;
 
@@ -143,6 +161,42 @@ namespace neural {
 		);
 		// Прочее
 		//static std::string make_start_timestamp();
+	};
+
+	class UVirtualCamera : public UCamera {
+		public:
+			explicit UVirtualCamera(
+				const std::string& id,
+				const FWebSocketOptions& socket_options,
+				ULogger::ELoggerLevel level_ = ULogger::ELoggerLevel::DEBUG
+			);
+
+			virtual void set_configurations(
+				const FCameraData& options,
+				const std::map<std::string, FPipelineConfig>& streams_config,
+				CFrameMover dmabuf_callback,
+				birdview::UEGLContextManager* m_gl_manager
+			) override;
+
+			bool set_parameters(int width, int height, int fps);
+
+			void push_frame(cv::Mat frame);
+
+			std::optional<cv::Mat> get_cached_frame();
+
+		protected:
+			std::unique_ptr<UCameraPipeline> create_pipeline(
+				const std::string& name,
+				const FPipelineConfig& stream_data,
+				const std::string& rtsp_url,
+				std::unique_ptr<ULogger> logger,
+				std::function<void(std::string)> send_callback,
+				CFrameMover frame_callback,
+				birdview::UEGLContextManager* gl_manager
+			) override;
+
+		private:
+			UNV12EncodingPipeline* m_nv12_pipeline = nullptr;
 	};
 
 } // namespace neural

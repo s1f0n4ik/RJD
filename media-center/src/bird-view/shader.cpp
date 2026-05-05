@@ -1,4 +1,5 @@
 #include "bird-view/shader.h"
+#include "bird-view/egl-context.h"
 
 namespace varan {
 namespace birdview {
@@ -31,27 +32,49 @@ namespace birdview {
         GLint success;
         GLchar infoLog[512];
 
+        EGLContext ctx = eglGetCurrentContext();
+        if (ctx == EGL_NO_CONTEXT) {
+            if (logger) logger->error("load_from_source(): No current EGL context!");
+            return false;
+        }
+        else {
+            if (logger) logger->info("load_from_source(): EGL context is current: " + std::to_string((uintptr_t)ctx));
+        }
+
         vertex = glCreateShader(GL_VERTEX_SHADER);
+        if (vertex == 0) {
+            logger->error("load_from_source(): glCreateShader vertex failed!");
+            return false;
+        }
         glShaderSource(vertex, 1, &vertex_source, nullptr);
         glCompileShader(vertex);
         glGetShaderiv(vertex, GL_COMPILE_STATUS, &success);
         if (!success) {
             glGetShaderInfoLog(vertex, 512, nullptr, infoLog);
-            if (logger) logger->error("Error with compiling vertex shader from source: " + std::string(infoLog));
+            if (logger) logger->error("load_from_source(): Error with compiling vertex shader from source: " + std::string(infoLog));
             return false;
         }
 
         fragment = glCreateShader(GL_FRAGMENT_SHADER);
+        if (fragment == 0) {
+            logger->error("load_from_source(): glCreateShader fragment failed!");
+            return false;
+        }
         glShaderSource(fragment, 1, &fragment_source, nullptr);
         glCompileShader(fragment);
         glGetShaderiv(fragment, GL_COMPILE_STATUS, &success);
         if (!success) {
             glGetShaderInfoLog(fragment, 512, nullptr, infoLog);
-            if (logger) logger->error("Error with compiling fragment shader from source: " + std::string(infoLog));
+            if (logger) logger->error("load_from_source(): Error with compiling fragment shader from source: " + std::string(infoLog));
             return false;
         }
 
         m_id = glCreateProgram();
+        if (m_id == 0) {
+            if (logger) logger->error("load_from_source(): glCreateProgram returned 0! No current GL context?");
+            return false;
+        }
+
         glAttachShader(m_id, vertex);
         glAttachShader(m_id, fragment);
         glLinkProgram(m_id);
@@ -59,7 +82,7 @@ namespace birdview {
         glGetProgramiv(m_id, GL_LINK_STATUS, &success);
         if (!success) {
             glGetProgramInfoLog(m_id, 512, nullptr, infoLog);
-            if (logger) logger->error("Error with linking shader program: " + std::string(infoLog));
+            if (logger) logger->error("load_from_source(): Error with linking shader program: " + std::string(infoLog));
             return false;
         }
 

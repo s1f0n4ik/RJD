@@ -18,6 +18,12 @@ file(GLOB_RECURSE SRC_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/main-server/*.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/bird-view/*.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/src/bird-view/*.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/calibration/*.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/calibration/*.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/utility/*.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/utility/*.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/core/*.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/core/*.cpp
 )
 
 # OpenCV
@@ -37,16 +43,19 @@ pkg_check_modules(GST_ALL REQUIRED
     gstreamer-allocators-1.0
     gstreamer-pbutils-1.0
     gstreamer-webrtc-1.0
-    #gstreamer-plugins-bad-1.0
+    gstreamer-gl-1.0
     gstreamer-sdp-1.0
 )
 
 link_directories(${GST_ALL_LIBRARY_DIRS})
 
-pkg_check_modules(GL REQUIRED glesv2 egl)
+pkg_check_modules(EGL REQUIRED egl)
+pkg_check_modules(GLESV2 REQUIRED glesv2)
 
-include_directories(${GL_INCLUDE_DIRS})
-link_directories(${GL_LIBRARY_DIRS})
+pkg_check_modules(GBM REQUIRED gbm)
+
+#include_directories(${GL_INCLUDE_DIRS})
+#link_directories(${GL_LIBRARY_DIRS})
 
 # Потоки
 if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -70,19 +79,24 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${GST_ALL_INCLUDE_DIRS}
     ${BOOST_INCLUDEDIR}
+    ${GBM_INCLUDE_DIRS}
     ${GLM}
 )
 
 # Линковка библиотек
 target_link_libraries(${PROJECT_NAME}
     ${GST_ALL_LIBRARIES}
-    ${GL_LIBRARIES}
+    ${EGL_LIBRARIES}
+    ${GLESV2_LIBRARIES}
+    ${GST_GL_LIBRARIES}
+    ${GBM_LIBRARIES}
     Threads::Threads
     opencv_core
     opencv_imgproc
     opencv_imgcodecs
     opencv_videoio
     opencv_highgui
+    opencv_calib3d
     ${BOOST_LIBRARYDIR}/libboost_json.a
     ${BOOST_LIBRARYDIR}/libboost_filesystem.a
     ${BOOST_LIBRARYDIR}/libboost_thread.a

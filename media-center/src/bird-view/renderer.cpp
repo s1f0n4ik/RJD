@@ -2,17 +2,19 @@
 #include <gtc/matrix_transform.hpp>
 #include <gtc/type_ptr.hpp>
 #include <vector>
+#include <chrono>
+#include <iostream>
 
 #include "bird-view/renderer.h"
 #include "bird-view/constants.h"
+#include "bird-view/utility.h"
 
 namespace varan {
 namespace birdview {
 
-	bool UCubeRenderer::init(int textures_count, ULogger* logger) {
-
-		if (!m_context.init(m_logger)) {
-			if (logger) logger->error("Failed initialize egl context at cube renderer initializtion!");
+	bool UCubeRenderer::init(int textures_count, UEGLContextManager* context, ULogger* logger) {
+		if (!context || !context->is_initialized()) {
+			if (logger) logger->error("init(): failed locate initialized egl context at cube renderer!");
 			return false;
 		}
 
@@ -24,9 +26,10 @@ namespace birdview {
 		}
 
 		m_gl_images.resize(textures_count);
-		m_logger = logger;
 
 		create_cube();
+
+        m_logger = logger;
 
 		return true;
 	}
@@ -35,7 +38,7 @@ namespace birdview {
         struct Vertex {
             float x, y, z;
             float u, v;
-            float face;
+            int face;
         };
 
         std::vector<Vertex> v;
@@ -47,13 +50,13 @@ namespace birdview {
             glm::vec3 d)
             {
                 // 2 треугольника
-                v.push_back({ a.x,a.y,a.z, 0,0,(float)face });
-                v.push_back({ b.x,b.y,b.z, 1,0,(float)face });
-                v.push_back({ c.x,c.y,c.z, 1,1,(float)face });
+                v.push_back({ a.x,a.y,a.z, 0,0,face });
+                v.push_back({ b.x,b.y,b.z, 1,0,face });
+                v.push_back({ c.x,c.y,c.z, 1,1,face });
 
-                v.push_back({ c.x,c.y,c.z, 1,1,(float)face });
-                v.push_back({ d.x,d.y,d.z, 0,1,(float)face });
-                v.push_back({ a.x,a.y,a.z, 0,0,(float)face });
+                v.push_back({ c.x,c.y,c.z, 1,1,face });
+                v.push_back({ d.x,d.y,d.z, 0,1,face });
+                v.push_back({ a.x,a.y,a.z, 0,0,face });
             };
 
         // FRONT
@@ -121,17 +124,17 @@ namespace birdview {
 
         // faceId
         glEnableVertexAttribArray(2);
-        glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE,
-            sizeof(Vertex), (void*)(5 * sizeof(float)));
+        glVertexAttribIPointer(2, 1, GL_INT, sizeof(Vertex), (void*)(5 * sizeof(float)));
 
         glBindVertexArray(0);
 	}
 
 	void UCubeRenderer::update(float dt) {
 		m_angle += dt;
+        if (m_logger) m_logger->trace("update: current angle: " + std::to_string(m_angle));
 	}
 
-	void UCubeRenderer::update_textures(std::vector<std::optional<FDmabufFrame>>& frames, EGLDisplay display) {
+	void UCubeRenderer::update_textures(std::vector<NPFrame>& frames, EGLDisplay display) {
 		if (m_gl_images.size() == 0) {
 			if (m_logger) m_logger->error("update_textures(): cannot update textures storage of textures not initialized!");
 			return;
@@ -140,32 +143,33 @@ namespace birdview {
 		for (auto i = 0; i < m_gl_images.size(); ++i) {
 			if (i >= frames.size()) {
                 if (m_logger) m_logger->warn("update_textures(): index " + std::to_string(i) + " is out of range at frame storage. Cannot update texture");
-                m_gl_images[i].create(display, std::nullopt, m_logger);
+                continue;
 			}
+            else if (auto new_texture = dynamic_cast<UGLTextureWrapper*>(frames[i].get())) {
+                frames[i].release();
+                m_gl_images[i].reset(new_texture);
+                if (m_logger) m_logger->trace("update_textures() : frame with index " + std::to_string(i) + " successfully updated!");
+            }
 			else {
-				if (frames[i] == std::nullopt) {
-                    if (m_logger) m_logger->warn("update_textures(): no frame at index " + std::to_string(i) + ". Creating texture fallback");
-                    m_gl_images[i].create(display, std::nullopt, m_logger);
-				}
-				else {
-					if (m_gl_images[i].create(display, std::move(frames[i].value()), m_logger) == false) {
-                        if (m_logger) m_logger->trace("update_textures(): texture with index " + std::to_string(i) + " didn't update!");
-					}
-                    else {
-                        if (m_logger) m_logger->trace("update_textures(): texture with index " + std::to_string(i) + " updated with new dma frame!");
-                    }
-				}
+                if (!frames[i].get()) {
+                    if (m_logger) m_logger->warn("update_textures(): frame with index " + std::to_string(i) + " is NULL!");
+                }
+                else {
+                    if (m_logger) m_logger->warn("update_textures(): frame with index " + std::to_string(i) + " has not valid texture type: " 
+                        + frames[i].get()->type() + " !" + "Must be UGLTextureWrapper that can be got from gstreamer gl pipeline!");
+                }
+                continue;
 			}
 		}
 	}
 
     void UCubeRenderer::render(float aspect) {
-        glm::mat4 proj = glm::perspective(1.0f, aspect, 0.1f, 100.0f);
-        glm::mat4 view = glm::translate(glm::mat4(1.0f), glm::vec3(0, 0, -4));
-        glm::mat4 model =
-            glm::rotate(glm::mat4(1.0f), m_angle, glm::vec3(0, 1, 0)) *
-            glm::rotate(glm::mat4(1.0f), m_angle * 0.5f, glm::vec3(1, 0, 0));
+        using namespace std::chrono;
+        auto t_start = high_resolution_clock::now(); // старт таймера
 
+        glm::mat4 proj = glm::perspective(45.0f, aspect, 0.1f, 100.0f);
+        glm::mat4 view = glm::translate(glm::mat4(1.0f), glm::vec3(0, 0, -4));
+        glm::mat4 model = glm::rotate(glm::mat4(1.0f), m_angle, glm::vec3(0.5f, 1.0f, 0));
         glm::mat4 mvp = proj * view * model;
 
         m_shader.use();
@@ -176,28 +180,55 @@ namespace birdview {
             glm::value_ptr(mvp)
         );
 
-        for (int i = 0; i < m_gl_images.size(); ++i)
-        {
-            int unit_y = i * 2;
-            int unit_uv = i * 2 + 1;
+        int used_textures = 0;
+        for (int i = 0; i < m_gl_images.size(); ++i) {
+            auto frame = static_cast<UGLTextureWrapper*>(m_gl_images[i].get());
 
-            /*
-            glActiveTexture(GL_TEXTURE0 + unit_y);
-            glBindTexture(GL_TEXTURE_2D, m_gl_images[i].texture_y());
+            auto is_texture_exists = frame != nullptr;
+            auto is_nv12_format = is_texture_exists ? frame->format == "NV12" && frame->get_texure_count() == 2 : false;
 
-            glActiveTexture(GL_TEXTURE0 + unit_uv);
-            glBindTexture(GL_TEXTURE_2D, m_gl_images[i].texture_uv());
+            if (!is_texture_exists) {
+                if (m_logger) m_logger->trace("Frame with index " + std::to_string(i) + " doesn't exist to render!");
+            } else if (!is_nv12_format) {
+                if (m_logger) m_logger->trace("Frame with index " + std::to_string(i) + " doesn't have nv12 format!");
+            }
 
-            std::string y_name = "plane_y[" + std::to_string(i) + "]";
-            std::string uv_name = "plane_uv[" + std::to_string(i) + "]";
+            std::string exists_uniform = "is_exists[" + std::to_string(i) + "]";
+            glUniform1i(glGetUniformLocation(m_shader.get_id(), exists_uniform.c_str()), is_texture_exists && is_nv12_format ? 1 : 0);
 
-            glUniform1i(glGetUniformLocation(m_shader.get_id(), y_name.c_str()), unit_y);
-            glUniform1i(glGetUniformLocation(m_shader.get_id(), uv_name.c_str()), unit_uv);
-            */
+            if (!(is_texture_exists && is_nv12_format)) {
+                continue;
+            }
+
+            // Биндим текстуоы
+            for (auto unit = 0; unit < frame->get_texure_count(); ++unit) {
+                auto texture = frame->get_texture(unit);
+                if (texture == std::nullopt) {
+                    if (m_logger) m_logger->warn("Frame with index " + std::to_string(i) + " doesn't have valid OpenGL texture!");
+                    continue;
+                }
+                std::string texture_uniform = unit == 0 ? "plane_y[" + std::to_string(i) + "]" : "plane_uv[" + std::to_string(i) + "]";
+                glActiveTexture(GL_TEXTURE0 + i * 2 + unit);
+                glBindTexture(texture.value().target, texture.value().id);
+                glUniform1i(glGetUniformLocation(m_shader.get_id(), texture_uniform.c_str()), i * 2 + unit);
+            }
         }
 
-        //glBindVertexArray(m_vao);
-        //glDrawArrays(GL_TRIANGLES, 0, 36);
+        glBindVertexArray(m_vao);
+        glDrawArrays(GL_TRIANGLES, 0, 36);
+
+        GLenum err = glGetError();
+        if (err != GL_NO_ERROR) {
+            if (m_logger) m_logger->error((std::ostringstream() << "OpenGL Error: " << glErrorString(err) << "(0x" << std::hex << err << std::dec << ")").str());
+        }
+
+        auto t_end = high_resolution_clock::now();
+        double elapsed_ms = duration<double, std::milli>(t_end - t_start).count();
+
+        std::ostringstream oss;
+        oss << "render(): Render time: " << elapsed_ms << " ms, "
+            << "textures used: " << used_textures << "/" << m_gl_images.size() << std::endl;
+        if (m_logger) m_logger->trace(oss.str());
     }
 
 

@@ -8,32 +8,40 @@
 #include <unordered_map>
 #include <string>
 
-#include "dma-frame.h"
 #include "logger.h"
 
-class FDmabufFrameStorage
+template<typename TFrame>
+class FFrameStorage
 {
 public:
-    struct FCameraSlot
-    {
-        std::mutex mutex;
-        std::optional<FDmabufFrame> frame; // всегда хранит только последний кадр
+    using TFramePtr = std::unique_ptr<TFrame>;
+    using TStorageCallback = std::function<void(std::string, TFramePtr)>;
 
-        FCameraSlot(): frame(std::nullopt) {}
-        FCameraSlot& operator=(FCameraSlot& other) = delete;
+    struct FCameraSlot {
+        std::mutex mutex;
+        TFramePtr frame = nullptr; // nullptr = нет кадра
+
+        FCameraSlot() = default;
+
+        FCameraSlot(const FCameraSlot&) = delete;
+        FCameraSlot& operator=(const FCameraSlot&) = delete;
+
+        FCameraSlot(FCameraSlot&& other) noexcept {
+            std::scoped_lock lock(other.mutex);
+            frame = std::move(other.frame);
+        }
 
         FCameraSlot& operator=(FCameraSlot&& other) noexcept {
             if (this == &other) return *this;
 
             std::scoped_lock lock(mutex, other.mutex);
             frame = std::move(other.frame);
-            other.frame.reset();
             return *this;
         }
     };
 
 public:
-    FDmabufFrameStorage(ULogger* logger = nullptr)
+    FFrameStorage(ULogger* logger = nullptr)
         : m_logger(logger)
     {
     }
@@ -44,58 +52,68 @@ public:
         std::lock_guard<std::mutex> lock(m_registry_mutex);
 
         if (m_slots.find(name) == m_slots.end()) {
-            m_slots[name] = std::move(FCameraSlot());
+            m_slots.emplace(name, FCameraSlot{});
+
             if (m_logger) {
                 m_logger->info("register_storage(): Registered storage for camera: " + name);
             }
             return true;
         }
+
         if (m_logger) {
             m_logger->warn("register_storage(): Camera already registered: " + name);
         }
         return false;
     }
 
-    // Получить callback для внешнего pipeline
-    CDmabufMover get_callback() {
-        return [this](std::string name, FDmabufFrame&& frame) {
+    // Получить callback для внешнего пользователя
+    TStorageCallback get_callback() {
+        return [this](std::string name, TFramePtr frame) {
             add_frame(std::move(name), std::move(frame));
         };
     }
 
     // Добавление кадра
-    bool add_frame(std::string name, FDmabufFrame&& frame) {
-        FCameraSlot* slot = nullptr;
+    bool add_frame(std::string name, TFramePtr frame) {
+        if (!frame) {
+            if (m_logger) {
+                m_logger->warn("add_frame(): nullptr frame for camera: " + name);
+            }
+            return false;
+        }
 
+        FCameraSlot* slot = nullptr;
         {
             std::lock_guard<std::mutex> lock(m_registry_mutex);
 
             auto it = m_slots.find(name);
             if (it == m_slots.end()) {
-                if (m_logger) m_logger->warn("add_frame(): Frame received for unknown camera: " + name);
+                auto& added = m_slots[name];
+                slot = &added;
 
-                auto& added_slot = m_slots[name];
-                slot = &added_slot;
-
-                if (m_logger) m_logger->info("add_frame(): Created camera slot for camera: " + name);
+                if (m_logger) {
+                    m_logger->info("add_frame(): Created camera slot for camera: " + name);
+                }
             }
             else {
                 slot = &it->second;
             }
         }
+        std::string frame_string;
+        {
+            std::lock_guard<std::mutex> lock(slot->mutex);
+            frame_string = frame->to_string();
+            slot->frame = std::move(frame); // старый кадр уничтожится автоматически
+        }
 
         if (m_logger) {
             m_logger->trace("add_frame(): Frame stored for camera: " + name);
-            m_logger->trace(frame.to_string());
+            m_logger->trace("add_frame(): Stored frame: " + frame_string);
         }
 
-        // Блокируется только конкретная камера
-        {
-            std::lock_guard<std::mutex> lock(slot->mutex);
-            slot->frame = std::move(frame);
-        }
         return true;
     }
+
 
     bool is_exists(const std::string& name) {
         std::lock_guard<std::mutex> lock(m_registry_mutex);
@@ -103,18 +121,17 @@ public:
     }
 
     // Извлечь последний кадр (через move)
-    std::optional<FDmabufFrame> extract(const std::string& name) {
+    TFramePtr extract(const std::string& name) {
         FCameraSlot* slot = nullptr;
-
         {
             std::lock_guard<std::mutex> lock(m_registry_mutex);
 
             auto it = m_slots.find(name);
             if (it == m_slots.end()) {
                 if (m_logger) {
-                    m_logger->warn("extract(): Extract requested for unknown camera: " + name);
+                    m_logger->warn("extract(): Unknown camera: " + name);
                 }
-                return std::nullopt;
+                return nullptr;
             }
 
             slot = &it->second;
@@ -124,17 +141,18 @@ public:
 
         if (!slot->frame) {
             if (m_logger) {
-                m_logger->trace("extract(): No frame available for camera: " + name);
+                m_logger->trace("extract(): No frame for camera: " + name);
             }
-            return std::nullopt;
+            return nullptr;
         }
 
-        std::optional<FDmabufFrame> result = std::move(slot->frame);
+        TFramePtr result = std::move(slot->frame);
         slot->frame.reset();
 
         if (m_logger) {
             m_logger->trace("extract(): Frame extracted for camera: " + name);
         }
+
         return result;
     }
 

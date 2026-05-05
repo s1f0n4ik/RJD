@@ -6,10 +6,12 @@ flat in int vFace;
 
 out vec4 FragColor;
 
-// 6 камер * (Y + UV)
-uniform sampler2D plane_y[6];
-uniform sampler2D plane_uv[6];
+// 6 камер, по 2 текстуры на камеру
+uniform highp sampler2D plane_y[6];
+uniform highp sampler2D plane_uv[6];
+uniform int is_exists[6];
 
+// YUV -> RGB (NV12)
 vec3 yuv_to_rgb(float y, vec2 uv)
 {
     float u = uv.x - 0.5;
@@ -22,44 +24,69 @@ vec3 yuv_to_rgb(float y, vec2 uv)
     );
 }
 
+vec3 sample_nv12(int idx, vec2 uv)
+{
+    if (idx == 0) {
+        float y = texture(plane_y[0], uv).r;
+        vec2 uv_sample = texture(plane_uv[0], uv).rg;
+        return yuv_to_rgb(y, uv_sample);
+    }
+    else if (idx == 1) {
+        float y = texture(plane_y[1], uv).r;
+        vec2 uv_sample = texture(plane_uv[1], uv).rg;
+        return yuv_to_rgb(y, uv_sample);
+    }
+    else if (idx == 2) {
+        float y = texture(plane_y[2], uv).r;
+        vec2 uv_sample = texture(plane_uv[2], uv).rg;
+        return yuv_to_rgb(y, uv_sample);
+    }
+    else if (idx == 3) {
+        float y = texture(plane_y[3], uv).r;
+        vec2 uv_sample = texture(plane_uv[3], uv).rg;
+        return yuv_to_rgb(y, uv_sample);
+    }
+    else if (idx == 4) {
+        float y = texture(plane_y[4], uv).r;
+        vec2 uv_sample = texture(plane_uv[4], uv).rg;
+        return yuv_to_rgb(y, uv_sample);
+    }
+    else if (idx == 5) {
+        float y = texture(plane_y[5], uv).r;
+        vec2 uv_sample = texture(plane_uv[5], uv).rg;
+        return yuv_to_rgb(y, uv_sample);
+    }
+
+    return vec3(0.5);
+}
+
 void main()
 {
-    float y = 0.0;
-    vec2 uv = vec2(0.0);
+    vec3 rgb = vec3(0.5); // fallback
 
-    switch (vFace)
+    switch(vFace)
     {
         case 0:
-            y  = texture(plane_y[0], vUV).r;
-            uv = texture(plane_uv[0], vUV).rg;
+            if (is_exists[0] > 0) rgb = sample_nv12(0, vUV);
             break;
         case 1:
-            y  = texture(plane_y[1], vUV).r;
-            uv = texture(plane_uv[1], vUV).rg;
+            if (is_exists[1] > 0) rgb = sample_nv12(1, vUV);
             break;
         case 2:
-            y  = texture(plane_y[2], vUV).r;
-            uv = texture(plane_uv[2], vUV).rg;
+            if (is_exists[2] > 0) rgb = sample_nv12(2, vUV);
             break;
         case 3:
-            y  = texture(plane_y[3], vUV).r;
-            uv = texture(plane_uv[3], vUV).rg;
+            if (is_exists[3] > 0) rgb = sample_nv12(3, vUV);
             break;
         case 4:
-            y  = texture(plane_y[4], vUV).r;
-            uv = texture(plane_uv[4], vUV).rg;
+            if (is_exists[4] > 0) rgb = sample_nv12(4, vUV);
             break;
         case 5:
-            y  = texture(plane_y[5], vUV).r;
-            uv = texture(plane_uv[5], vUV).rg;
+            if (is_exists[5] > 0) rgb = sample_nv12(5, vUV);
             break;
         default:
-            // fallback (на случай мусора в vFace)
-            y  = 0.0;
-            uv = vec2(0.5, 0.5);
             break;
     }
 
-    vec3 rgb = yuv_to_rgb(y, uv);
     FragColor = vec4(rgb, 1.0);
 }

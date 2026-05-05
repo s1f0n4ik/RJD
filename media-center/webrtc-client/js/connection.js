@@ -71,7 +71,14 @@ function createPeerConnection(clientId, cameraId) {
     log("Создаётся RTCPeerConnection...");
 
     pc = new RTCPeerConnection({
-        //iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+        iceServers: [
+            { urls: "stun:stun.l.google.com:19302" },
+            {
+                urls: 'turn:172.25.78.169:3478',
+                username: 'niac',
+                credential: 'VniiTest'
+            }
+        ]
     });
 
     pc.addTransceiver("video", { direction: "recvonly" });
