@@ -14,10 +14,14 @@ export interface CameraStream {
 }
 
 export interface RealCamera {
+  id: string;                 // 👈 NEW (бэк теперь возвращает id вместо name)
+  display_name: string;       // 👈 NEW
   description: string;
   ip_adress: string;
   port: string;
   user: string;
+  production?: number;        // 👈 заодно добавь, он же используется в UI
+  type?: number;
   streams: {
     main: CameraStream;
     sub: CameraStream;
@@ -26,7 +30,8 @@ export interface RealCamera {
 
 // ✅ ПРЕОБРАЗОВАННЫЙ формат (после Object.values + добавления name)
 export interface CPPCamera {
-  name: string;  // Добавляется при конвертации
+  id: string;  // Добавляется при конвертации
+  display_name: string;
   description: string;
   ip_adress: string;
   port: string;

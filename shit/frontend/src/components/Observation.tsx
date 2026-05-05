@@ -114,7 +114,7 @@ const Observation: React.FC = () => {
       }
 
       console.log('✅ Loaded cameras:', data);
-      const visible = data.filter((c) => !isProbeCamera(c.name));
+      const visible = data.filter((c) => !isProbeCamera(c.id));
       setCameras(visible);
       setLoadError('');
 
@@ -448,7 +448,7 @@ const Observation: React.FC = () => {
   };
 
   const getCameraStatus = (cameraName: string): boolean => {
-    const camera = cameras.find(c => c.name === cameraName);
+    const camera = cameras.find(c => c.id === cameraName);
     return camera?.streams?.main?.status === 3;
   };
 
@@ -648,20 +648,20 @@ const Observation: React.FC = () => {
 
         <List dense>
           {cameras.map((camera) => {
-            const isActive = getCameraStatus(camera.name);
-            const isSelected = selectedCamera === camera.name;
-            const isUsedInGrid = isCameraUsedInGrid(camera.name); // ✅ NEW
-            const gridCellId = getCameraGridCell(camera.name); // ✅ NEW
+            const isActive = getCameraStatus(camera.id);
+            const isSelected = selectedCamera === camera.id;
+            const isUsedInGrid = isCameraUsedInGrid(camera.id); // ✅ NEW
+            const gridCellId = getCameraGridCell(camera.id); // ✅ NEW
 
             return (
               <ListItem
-                key={camera.name}
+                key={camera.id}
                 button
                 selected={isSelected}
                 draggable
-                onDragStart={(e) => handleDragStart(e, camera.name)}
+                onDragStart={(e) => handleDragStart(e, camera.id)}
                 onDragEnd={handleDragEnd}
-                onClick={() => setSelectedCamera(camera.name)}
+                onClick={() => setSelectedCamera(camera.id)}
                 sx={{
                   bgcolor: isSelected
                     ? 'info.main'
@@ -706,10 +706,19 @@ const Observation: React.FC = () => {
                   )}
                 </ListItemIcon>
                 <ListItemText
-                  primary={camera.name}
+                  primary={camera.display_name || camera.id}
+                  secondary={
+                  camera.display_name && camera.display_name !== camera.id
+                    ? camera.id
+                    : undefined
+                  }
                   primaryTypographyProps={{
                     fontSize: '0.875rem',
                     fontWeight: isSelected ? 600 : 400,
+                  }}
+                  secondaryTypographyProps={{
+                    fontSize: '0.7rem',
+                    color: isSelected ? 'rgba(255,255,255,0.7)' : 'text.secondary',
                   }}
                 />
                 {/* ✅ NEW: Индикатор использования в сетке */}
