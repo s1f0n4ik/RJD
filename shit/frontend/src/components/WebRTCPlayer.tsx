@@ -19,6 +19,63 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
   const isMountedRef = useRef<boolean>(true);
   const cleanupTimeoutRef = useRef<number | null>(null);
 
+  const retryTimeoutRef = useRef<number | null>(null);
+  const retryAttemptRef = useRef<number>(0);
+  const isRetryingRef = useRef<boolean>(false);
+  const intentionalCloseRef = useRef<boolean>(false);
+
+  const MAX_RETRY_DELAY = 15000;
+  const getRetryDelay = () => {
+    const base = 2000 * Math.pow(2, retryAttemptRef.current); // 2s, 4s, 8s, 16s…
+    return Math.min(base, MAX_RETRY_DELAY);
+  };
+
+  // Внутренний reset PC + WS без отправки close-сообщения.
+  // Не ставит intentionalClose — это именно переустановка соединения.
+  const softReset = () => {
+    if (pcRef.current) {
+      try { pcRef.current.close(); } catch {}
+      pcRef.current = null;
+    }
+    if (videoRef.current && videoRef.current.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach(t => { try { t.stop(); } catch {} });
+      videoRef.current.srcObject = null;
+    }
+    if (wsRef.current) {
+      // 🔑 отвязываем обработчики ДО close, чтобы отложенный onclose старого WS
+      // не дёрнул scheduleReconnect ещё раз.
+      wsRef.current.onopen = null;
+      wsRef.current.onmessage = null;
+      wsRef.current.onerror = null;
+      wsRef.current.onclose = null;
+      try { wsRef.current.close(); } catch {}
+      wsRef.current = null;
+    }
+  };
+
+  const scheduleReconnect = (reason: string) => {
+    if (!isMountedRef.current) return;
+    if (intentionalCloseRef.current) return;
+    if (isRetryingRef.current) return;  // уже запланирован
+    isRetryingRef.current = true;
+
+    const delay = getRetryDelay();
+    retryAttemptRef.current += 1;
+    console.warn(`[${cameraId}] 🔁 Reconnect #${retryAttemptRef.current} in ${delay}ms (reason: ${reason})`);
+
+    setStatus('error');
+    setErrorMsg(`Переподключение... (попытка ${retryAttemptRef.current})`);
+
+    retryTimeoutRef.current = window.setTimeout(() => {
+      retryTimeoutRef.current = null;
+      if (!isMountedRef.current) return;
+      softReset();
+      isRetryingRef.current = false;
+      connectWebRTC(); // тот же самый метод, что и на старте — он пошлёт {type:'connection', ...}
+    }, delay);
+  };
+
   useEffect(() => {
     isMountedRef.current = true;
     clientIdRef.current = `client_${Math.random().toString(36).substr(2, 9)}`;
@@ -47,7 +104,12 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
 
   const cleanup = () => {
       console.log(`[${cameraId}] 🧹 Cleanup started`);
-
+      intentionalCloseRef.current = true;
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+        retryTimeoutRef.current = null;
+      }
+      isRetryingRef.current = false;
       // 1. Close PeerConnection
       if (pcRef.current) {
         console.log(`[${cameraId}] 🔌 Closing PeerConnection (state: ${pcRef.current.connectionState})`);
@@ -160,20 +222,17 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
 
       ws.onerror = (error) => {
         console.error(`[${cameraId}] ❌ WebSocket error:`, error);
-        if (isMountedRef.current) {
-          setStatus('error');
-          setErrorMsg('Ошибка подключения');
+          if (!isMountedRef.current) return;
           onError?.('WebSocket error');
-        }
-      };
+          scheduleReconnect('ws.onerror');
+        };
 
       ws.onclose = (event) => {
-        console.log(`[${cameraId}] 🔌 WebSocket closed (code: ${event.code}, reason: ${event.reason})`);
-        if (isMountedRef.current) {
-          setStatus('error');
-          setErrorMsg('Соединение закрыто');
-        }
-      };
+        console.log(`[${cameraId}] 🔌 WS closed (code=${event.code}, reason=${event.reason})`);
+          if (!isMountedRef.current) return;
+          if (intentionalCloseRef.current) return; // мы сами закрыли — не ретраимся
+          scheduleReconnect(`ws.onclose code=${event.code}`);
+        };
 
     } catch (err) {
       console.error(`[${cameraId}] ❌ Connect error:`, err);
@@ -217,8 +276,8 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
 
     pc.ontrack = (event) => {
       if (!isMountedRef.current) return;
-
       console.log(`[${cameraId}] 🎥 Got video track`);
+      retryAttemptRef.current = 0; // 👈 успех — обнуляем счётчик, следующий сбой начнёт с 2с
       if (videoRef.current) {
         videoRef.current.srcObject = event.streams[0];
         setStatus('connected');
@@ -226,29 +285,21 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
     };
 
     pc.oniceconnectionstatechange = () => {
-      console.log(`[${cameraId}] ICE connection state:`, pc.iceConnectionState);
-
+      console.log(`[${cameraId}] ICE state:`, pc.iceConnectionState);
       if (!isMountedRef.current) return;
-
-      if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
-        setStatus('error');
-        setErrorMsg('ICE соединение потеряно');
+      const s = pc.iceConnectionState;
+      if (s === 'failed' || s === 'disconnected' || s === 'closed') {
+        scheduleReconnect(`ice=${s}`);
       }
     };
 
     pc.onconnectionstatechange = () => {
       console.log(`[${cameraId}] Connection state:`, pc.connectionState);
-
       if (!isMountedRef.current) return;
-
-      if (pc.connectionState === 'failed') {
-        setStatus('error');
-        setErrorMsg('Соединение потеряно');
-      } else if (pc.connectionState === 'disconnected') {
-        setStatus('error');
-        setErrorMsg('Соединение разорвано');
+      const s = pc.connectionState;
+      if (s === 'failed' || s === 'disconnected' || s === 'closed') {
+        scheduleReconnect(`pc=${s}`);
       }
-    };
   };
 
   const handleOffer = async (sdp: string) => {

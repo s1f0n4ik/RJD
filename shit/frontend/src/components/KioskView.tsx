@@ -100,7 +100,13 @@ const KioskView: React.FC = () => {
       if (Array.isArray(data)) setCameras(data);
     }).catch(err => console.error('Kiosk: failed to load cameras', err));
   }, []);
-
+  useEffect(() => {
+    api.getCameras()
+      .then(data => {
+        if (Array.isArray(data)) setCameras(data);
+      })
+      .catch(err => console.error('Kiosk: failed to load cameras', err));
+  }, []);
   useEffect(() => {
     const handleFullscreenChange = () => {
       setFullscreenActive(!!document.fullscreenElement);
