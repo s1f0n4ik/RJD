@@ -634,12 +634,16 @@ const KioskView: React.FC = () => {
             const isActive = getCameraStatus(camera.id);
             const isUsed = Object.values(effectiveActiveCells).includes(camera.id);
             const isBeingDragged = draggedCamera === camera.id;
+            const isSelected = selectedCamera === camera.id;
             return (
               <ListItem
                 key={camera.id}
                 draggable
                 onDragStart={(e) => handleDragStart(e, camera.id)}
                 onDragEnd={handleDragEnd}
+                onClick={() => {
+                  setSelectedCamera(prev => (prev === camera.id ? null : camera.id));
+                }}
                 sx={{
                   cursor: 'grab',
                   opacity: isBeingDragged ? 0.5 : 1,
@@ -647,6 +651,22 @@ const KioskView: React.FC = () => {
                   borderLeft: isUsed ? '3px solid #4caf50' : '3px solid transparent',
                   '&:active': { cursor: 'grabbing' },
                   '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' },
+                  bgcolor: isSelected
+                  ? 'rgba(33, 150, 243, 0.35)'             // 🆕 выбранная — синяя
+                  : isUsed
+                  ? 'rgba(76,175,80,0.15)'
+                  : 'transparent',
+                borderLeft: isSelected
+                  ? '3px solid #2196f3'                    // 🆕
+                  : isUsed
+                  ? '3px solid #4caf50'
+                  : '3px solid transparent',
+                '&:active': { cursor: 'grabbing' },
+                '&:hover': {
+                  bgcolor: isSelected
+                    ? 'rgba(33, 150, 243, 0.45)'
+                    : 'rgba(255,255,255,0.08)'
+                },
                 }}
               >
                 <ListItemIcon sx={{ minWidth: 32 }}>
@@ -657,7 +677,10 @@ const KioskView: React.FC = () => {
                 </ListItemIcon>
                 <ListItemText
                   primary={camera.id}
-                  primaryTypographyProps={{ fontSize: '0.85rem' }}
+                  primaryTypographyProps={{
+                    fontSize: '0.85rem',
+                    fontWeight: isSelected ? 600 : 400, // 🆕
+                  }}
                 />
               </ListItem>
             );

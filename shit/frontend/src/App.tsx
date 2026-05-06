@@ -22,13 +22,15 @@ import { RZD_COLORS } from './theme';
 import Observation from './components/Observation';
 import RecordingsView from './components/RecordingsView';
 import { FASTAPI_BASE } from './utils/constants';
-
+import Landing from './components/Landing';
 const ADMIN_TABS = new Set([1, 3]); // Камеры, Загрузчики
 
 const App: React.FC = () => {
   // === KIOSK ROUTING ===
   // Если URL начинается с /kiosk — рендерим KioskView без Header/авторизации
   const isKioskRoute = window.location.pathname.startsWith('/kiosk');
+  const isAdminRoute = pathname.startsWith('/app'); // 🆕
+  const isLandingRoute = !isKioskRoute && !isAdminRoute; // 🆕
 
   const [currentTab, setCurrentTab] = useState(0);
   const [wsConnected, setWsConnected] = useState(false);
@@ -126,7 +128,7 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    if (isKioskRoute) return; // В киоск-режиме WS не нужен
+    if (isKioskRoute || isLandingRoute) return; // В киоск-режиме WS не нужен
     if (token) {
       wsService.connect(
         (newState) => setState(newState),
@@ -136,14 +138,18 @@ const App: React.FC = () => {
     return () => {
       wsService.disconnect();
     };
-  }, [token, isKioskRoute]);
+  }, [token, isKioskRoute, isLandingRoute]);
+
+  if (isLandingRoute) {
+    return <Landing />;
+  }
 
   // === РЕНДЕР КИОСК-РЕЖИМА ===
   if (isKioskRoute) {
     return <KioskView />;
   }
 
-  // === РЕНДЕР ОБЫЧНОГО ИНТЕРФЕЙСА ===
+  // === РЕНДЕР ОБЫЧНОГО ИНТЕРФЕЙСА (/app/*) ===
   if (!token) {
     return <Login onLogin={handleLogin} />;
   }
