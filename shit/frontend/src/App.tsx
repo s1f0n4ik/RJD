@@ -26,6 +26,7 @@ import Landing from './components/Landing';
 const ADMIN_TABS = new Set([1, 3]); // Камеры, Загрузчики
 
 const App: React.FC = () => {
+  const pathname = window.location.pathname;
   // === KIOSK ROUTING ===
   // Если URL начинается с /kiosk — рендерим KioskView без Header/авторизации
   const isKioskRoute = window.location.pathname.startsWith('/kiosk');
@@ -143,7 +144,7 @@ const App: React.FC = () => {
   if (isLandingRoute) {
     return <Landing />;
   }
-  const pathname = window.location.pathname;
+
   // === РЕНДЕР КИОСК-РЕЖИМА ===
   if (isKioskRoute) {
     return <KioskView />;
