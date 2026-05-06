@@ -175,7 +175,7 @@ const App: React.FC = () => {
         return <Observation />;
       // case 3:
       //   return hasAccessToTab(3) ? <LoaderSettings /> : renderDenied();
-      case 4:
+      case 3:
         return <RecordingsView />;
       default:
         return <Dashboard state={state} onNavigate={handleTabChange} />;
