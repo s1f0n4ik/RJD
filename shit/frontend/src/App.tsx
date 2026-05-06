@@ -143,7 +143,7 @@ const App: React.FC = () => {
   if (isLandingRoute) {
     return <Landing />;
   }
-
+  const pathname = window.location.pathname;
   // === РЕНДЕР КИОСК-РЕЖИМА ===
   if (isKioskRoute) {
     return <KioskView />;
