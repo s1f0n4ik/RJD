@@ -301,6 +301,7 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
         scheduleReconnect(`pc=${s}`);
       }
   };
+  };
 
   const handleOffer = async (sdp: string) => {
     if (!isMountedRef.current || !pcRef.current) return;
