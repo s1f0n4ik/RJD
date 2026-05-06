@@ -23,6 +23,7 @@ import Observation from './components/Observation';
 import RecordingsView from './components/RecordingsView';
 import { FASTAPI_BASE } from './utils/constants';
 import Landing from './components/Landing';
+import OnScreenKeyboard from './components/OnScreenKeyboard';
 const ADMIN_TABS = new Set([1, 3]); // Камеры, Загрузчики
 
 const App: React.FC = () => {
@@ -142,7 +143,12 @@ const App: React.FC = () => {
   }, [token, isKioskRoute, isLandingRoute]);
 
   if (isLandingRoute) {
-    return <Landing />;
+    return (
+    <>
+      <Landing />
+      <OnScreenKeyboard />
+    </>
+  );
   }
 
   // === РЕНДЕР КИОСК-РЕЖИМА ===
@@ -152,7 +158,12 @@ const App: React.FC = () => {
 
   // === РЕНДЕР ОБЫЧНОГО ИНТЕРФЕЙСА (/app/*) ===
   if (!token) {
-    return <Login onLogin={handleLogin} />;
+    return (
+    <>
+      <Login onLogin={handleLogin} />
+      <OnScreenKeyboard />
+    </>
+  );
   }
 
   const hasAccessToTab = (tab: number): boolean => {
@@ -248,6 +259,7 @@ const App: React.FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
+      <OnScreenKeyboard />
     </Box>
   );
 };

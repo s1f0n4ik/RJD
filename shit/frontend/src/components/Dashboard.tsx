@@ -47,16 +47,16 @@ const modules: Module[] = [
     description: 'Архив записей',
     icon: SearchIcon,
     gradient: 'linear-gradient(135deg, #2196f3 0%, #1565c0 100%)',
-    tabIndex: 4, // Recordings
+    tabIndex: 3, // Recordings
   },
-  {
-    id: 'ai',
-    title: 'AI',
-    description: 'Компьютерное зрение',
-    icon: MemoryIcon,
-    gradient: 'linear-gradient(135deg, #9c27b0 0%, #6a1b9a 100%)',
-    tabIndex: 3, // LoaderSettings
-  },
+  // {
+  //   id: 'ai',
+  //   title: 'AI',
+  //   description: 'Компьютерное зрение',
+  //   icon: MemoryIcon,
+  //   gradient: 'linear-gradient(135deg, #9c27b0 0%, #6a1b9a 100%)',
+  //   tabIndex: 4, // LoaderSettings
+  // },
   {
     id: 'birdview',
     title: '360°',
