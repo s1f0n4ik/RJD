@@ -10,7 +10,8 @@ export interface CameraMetaPatch {
   display_name?: string;
   description?: string;
 }
-
+const cameraUrl = (base: string, id: string) =>
+  `${base}/api/camera?id=${encodeURIComponent(id)}`;
 export interface CameraCriticalPatch {
   ip_adress?: string;
   port?: string;
@@ -81,14 +82,40 @@ class ApiClient {
     return [];
   }
 
+
+
   async getCamera(cameraId: string): Promise<CPPCamera | null> {
-    const response = await fetch(`${this.baseUrl}/api/camera/${cameraId}`);
+    const response = await fetch(cameraUrl(this.baseUrl, cameraId));
     if (!response.ok) throw new Error('Camera not found');
 
     const data = await response.json();
     if (!data) return null;
 
     return this.normalizeCamera({ id: data.id ?? cameraId, ...data });
+  }
+
+  async updateCamera(cameraId: string, updates: CameraPatchBody): Promise<any> {
+    if (!updates.meta && !updates.critical) {
+      return { ok: true, noop: true };
+    }
+
+    const response = await fetch(cameraUrl(this.baseUrl, cameraId), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.detail || 'Failed to update camera');
+    }
+    return response.json();
+  }
+
+  async deleteCamera(cameraId: string): Promise<void> {
+    const response = await fetch(cameraUrl(this.baseUrl, cameraId), {
+      method: 'DELETE',
+    });
+    if (!response.ok) throw new Error('Failed to delete camera');
   }
 
   async createCamera(camera: CPPCamera): Promise<any> {
@@ -102,37 +129,6 @@ class ApiClient {
       throw new Error(error.detail || 'Failed to create camera');
     }
     return response.json();
-  }
-
-  /**
-   * PATCH камеры.
-   * ⚠️ Важно: `password` внутри `updates.critical` должен быть задан ТОЛЬКО если
-   * пользователь реально вводит новый пароль. Пустая строка затрёт текущий.
-   * Формировать тело нужно на стороне вызывающего кода (CameraSettings).
-   */
-  async updateCamera(cameraId: string, updates: CameraPatchBody): Promise<any> {
-    if (!updates.meta && !updates.critical) {
-      // Нечего отправлять — не дёргаем сеть
-      return { ok: true, noop: true };
-    }
-
-    const response = await fetch(`${this.baseUrl}/api/camera/${cameraId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updates),
-    });
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.detail || 'Failed to update camera');
-    }
-    return response.json();
-  }
-
-  async deleteCamera(cameraId: string): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/api/camera/${cameraId}`, {
-      method: 'DELETE',
-    });
-    if (!response.ok) throw new Error('Failed to delete camera');
   }
 
   // === helpers ===

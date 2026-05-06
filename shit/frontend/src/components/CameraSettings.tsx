@@ -98,7 +98,7 @@ interface CameraFormData {
 }
 
 type ProbeStatus = 'idle' | 'creating' | 'streaming' | 'error';
-
+const cameraUrl = (id: string) => `${FASTAPI_BASE}/api/camera?id=${encodeURIComponent(id)}`;
 const RESERVED_PREFIXES = ['__probe_'];
 const NAME_REGEX = /^[a-zA-Z_][a-zA-Z0-9_-]{1,31}$/;
 const IP_REGEX = /^((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/;
@@ -206,7 +206,7 @@ const CameraSettings: React.FC = () => {
     const handler = () => {
       if (probeNameRef.current) {
         // fetch с keepalive работает при unload в современных браузерах
-        fetch(`${FASTAPI_BASE}/api/camera/${probeNameRef.current}`, {
+        fetch(cameraUrl(probeNameRef.current), {
           method: 'DELETE',
           keepalive: true,
         }).catch(() => {});
@@ -238,7 +238,7 @@ const CameraSettings: React.FC = () => {
   console.log(`[CameraSettings] 🧹 Found ${probes.length} stale probe cameras, deleting...`);
   await Promise.allSettled(
     probes.map((c) =>
-      fetch(`${FASTAPI_BASE}/api/camera/${c.id}`, { method: 'DELETE' })
+      fetch(cameraUrl(c.id), { method: 'DELETE' })
     )
   );
   console.log(`[CameraSettings] ✅ Cleanup of probe cameras done`);
@@ -341,7 +341,7 @@ const CameraSettings: React.FC = () => {
     probeNameRef.current = null;
     setProbeName(null);
     try {
-      await fetch(`${FASTAPI_BASE}/api/camera/${name}`, { method: 'DELETE' });
+      await fetch(cameraUrl(name), { method: 'DELETE' });
     } catch {
       /* тихо */
     }
@@ -515,7 +515,7 @@ const CameraSettings: React.FC = () => {
         }
 
         const response = await fetch(
-          `${FASTAPI_BASE}/api/camera/${cameraId}`,
+          cameraUrl(cameraId),
           {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
@@ -598,7 +598,7 @@ const CameraSettings: React.FC = () => {
 
     setLoading(true);
     try {
-      const response = await fetch(`${FASTAPI_BASE}/api/camera/${cameraName}`, {
+      const response = await fetch(cameraUrl(cameraName), {
         method: 'DELETE',
       });
       if (!response.ok) throw new Error('Failed to delete camera');

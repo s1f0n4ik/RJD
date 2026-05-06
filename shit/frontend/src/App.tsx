@@ -13,7 +13,7 @@ import {
 import Header from './components/Header';
 import Dashboard from './components/Dashboard';
 import CameraSettings from './components/CameraSettings';
-import LoaderSettings from './components/LoaderSettings';
+// import LoaderSettings from './components/LoaderSettings';
 import Login from './components/Login';
 import KioskView from './components/KioskView';
 import { wsService } from './services/websocket';
@@ -173,8 +173,8 @@ const App: React.FC = () => {
         return hasAccessToTab(1) ? <CameraSettings /> : renderDenied();
       case 2:
         return <Observation />;
-      case 3:
-        return hasAccessToTab(3) ? <LoaderSettings /> : renderDenied();
+      // case 3:
+      //   return hasAccessToTab(3) ? <LoaderSettings /> : renderDenied();
       case 4:
         return <RecordingsView />;
       default:
