@@ -39,8 +39,7 @@ interface SavedLayout {
 
 const STORAGE_KEY = 'observation_layouts';
 const CONTROLS_HIDE_DELAY = 3000;
-const isTouch = useTouchDevice();
-const [selectedCamera, setSelectedCamera] = useState<string | null>(null);
+
 
 const KioskView: React.FC = () => {
   const [layout, setLayout] = useState<SavedLayout | null>(null);
@@ -48,7 +47,8 @@ const KioskView: React.FC = () => {
   const [fullscreenActive, setFullscreenActive] = useState(false);
   const [availableLayouts, setAvailableLayouts] = useState<SavedLayout[]>([]);
   const [cameras, setCameras] = useState<CPPCamera[]>([]);
-
+  const isTouch = useTouchDevice();
+  const [selectedCamera, setSelectedCamera] = useState<string | null>(null);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const hideTimerRef = useRef<number | null>(null);
