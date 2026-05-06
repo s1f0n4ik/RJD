@@ -40,7 +40,8 @@ import WebRTCPlayer from './WebRTCPlayer';
 import { api, type CPPCamera } from '../services/api';
 import { SIGNALING_SERVER } from '../utils/constants';
 import { isProbeCamera } from '../utils/probeFilter';
-
+import CellMenu from './CellMenu';
+import { useTouchDevice } from '../utils/useTouchDevice';
 type GridSize = 1 | 4 | 9 | 16 | 'custom';
 
 interface CustomCell {
@@ -94,7 +95,7 @@ const Observation: React.FC = () => {
 
   // Drag & Drop State
   const [draggedCamera, setDraggedCamera] = useState<string | null>(null);
-
+  const isTouch = useTouchDevice();
 //   const SIGNALING_SERVER = 'ws://192.168.1.2:8765';
 
   useEffect(() => {
@@ -365,26 +366,34 @@ const Observation: React.FC = () => {
     setContextMenu(null);
   };
 
-  const handleRemoveCamera = () => {
-    if (contextMenu) {
-      const newActiveCells = { ...activeCells };
-      delete newActiveCells[contextMenu.cellId];
-      setActiveCells(newActiveCells);
-      setCurrentLayoutName(''); // Reset layout name
+  const handleFullscreenCell = (cellId: number | string) => {
+    const videoElement = document
+      .getElementById(`video-cell-${cellId}`)
+      ?.querySelector('video');
+    if (videoElement && videoElement.requestFullscreen) {
+      videoElement.requestFullscreen().catch(err =>
+        console.error('Fullscreen failed:', err)
+      );
     }
+  };
+
+  const handleRemoveCameraFromCell = (cellId: number | string) => {
+    setActiveCells(prev => {
+      const next = { ...prev };
+      delete next[cellId];
+      return next;
+    });
+    setCurrentLayoutName('');
+  };
+
+  // Старые обёртки для контекстного меню (оставляем для совместимости)
+  const handleFullscreen = () => {
+    if (contextMenu) handleFullscreenCell(contextMenu.cellId);
     handleCloseContextMenu();
   };
 
-  const handleFullscreen = () => {
-    if (contextMenu) {
-      const cellId = contextMenu.cellId;
-      const videoElement = document.getElementById(`video-cell-${cellId}`)?.querySelector('video');
-      if (videoElement) {
-        if (videoElement.requestFullscreen) {
-          videoElement.requestFullscreen();
-        }
-      }
-    }
+  const handleRemoveCamera = () => {
+    if (contextMenu) handleRemoveCameraFromCell(contextMenu.cellId);
     handleCloseContextMenu();
   };
 
@@ -500,6 +509,7 @@ const Observation: React.FC = () => {
             <Box
               key={cell.id}
               id={`video-cell-${cell.id}`}
+              className="video-cell"
               onClick={() => handleCellClick(cell.id)}
               onDoubleClick={() => handleCellDoubleClick(cell.id)}
               onContextMenu={(e) => handleCellRightClick(e, cell.id)}
@@ -525,12 +535,21 @@ const Observation: React.FC = () => {
               }}
             >
               {cameraName ? (
-                <WebRTCPlayer
-                  key={`player-${cell.id}-${cameraName}`}
-                  cameraId={cameraName}
-                  signalingUrl={`${SIGNALING_SERVER}/client/${cameraName}`}
-                  onError={(err) => console.error(`Error in ${cameraName}:`, err)}
-                />
+                <>
+                  <WebRTCPlayer
+                    key={`player-${cell.id}-${cameraName}`}
+                    cameraId={cameraName}
+                    signalingUrl={`${SIGNALING_SERVER}/client/${cameraName}`}
+                    onError={(err) => console.error(`Error in ${cameraName}:`, err)}
+                  />
+                  <CellMenu
+                    cellId={cell.id}
+                    onFullscreen={handleFullscreenCell}
+                    onRemove={handleRemoveCameraFromCell}
+                    alwaysVisible={isTouch}
+                    variant="light"
+                  />
+                </>
               ) : (
                 <Box sx={{ textAlign: 'center', color: 'text.secondary' }}>
                   <VideocamIcon sx={{ fontSize: 60, mb: 1, opacity: 0.3 }} />
@@ -550,6 +569,7 @@ const Observation: React.FC = () => {
     return (
       <Box
         id={`video-cell-${cellId}`}
+        className="video-cell"
         key={cellId}
         onClick={() => handleCellClick(cellId)}
         onDoubleClick={() => handleCellDoubleClick(cellId)}
@@ -583,6 +603,13 @@ const Observation: React.FC = () => {
             onError={(err) => console.error(`Error in ${cameraName}:`, err)}
           />
           {/* ✅ ДОБАВЛЕНО: Подсказка при hover */}
+            <CellMenu
+              cellId={cellId}
+              onFullscreen={handleFullscreenCell}
+              onRemove={handleRemoveCameraFromCell}
+              alwaysVisible={isTouch}
+              variant="light"
+            />
           <Box
             sx={{
               position: 'absolute',

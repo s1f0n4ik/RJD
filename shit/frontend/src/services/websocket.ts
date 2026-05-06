@@ -27,7 +27,7 @@ export class WebSocketService {
         const message: WebSocketMessage = JSON.parse(event.data);
 
         if (message.type === 'initial_state' || message.type === 'status_update') {
-          console.log('📦 State received');
+          // console.log('📦 State received');
 
           const stateData = message.data as SystemState;
 
@@ -55,10 +55,10 @@ export class WebSocketService {
             stateData.loaders = [];
           }
 
-          console.log('📦 State updated:', {
-            cameras: stateData.cameras.length,
-            loaders: stateData.loaders.length
-          });
+          // console.log('📦 State updated:', {
+          //   cameras: stateData.cameras.length,
+          //   loaders: stateData.loaders.length
+          // });
 
           onStateUpdate(stateData);
         }
