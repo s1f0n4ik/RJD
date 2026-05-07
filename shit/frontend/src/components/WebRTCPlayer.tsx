@@ -24,6 +24,8 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
     const isRetryingRef = useRef<boolean>(false);
     const intentionalCloseRef = useRef<boolean>(false);
 
+    const connectionTimeoutRef = useRef<number | null>(null);
+
     const MAX_RETRY_DELAY = 15000;
     const getRetryDelay = () => {
         const base = 2000 * Math.pow(2, retryAttemptRef.current); // 2s, 4s, 8s, 16s…
@@ -286,7 +288,14 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
         console.log(`[${cameraId}] 🔧 Creating RTCPeerConnection...`);
 
         const pc = new RTCPeerConnection({
-            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                {
+                    urls: 'turn:172.25.78.169:3478',
+                    username: 'niac',
+                    credential: 'VniiTest'
+                }
+            ]
         });
         pcRef.current = pc;
 
@@ -336,7 +345,26 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
             console.log(`[${cameraId}] Connection state:`, pc.connectionState);
             if (!isMountedRef.current) return;
             const s = pc.connectionState;
-            if (s === 'disconnected') {
+            if (s === 'connecting') {
+                setStatus('connecting');
+                if (connectionTimeoutRef.current) {
+                    clearTimeout(connectionTimeoutRef.current);
+                }
+
+                connectionTimeoutRef.current = window.setTimeout(() => {
+                    console.warn(`[${cameraId}] ⏱️ Connection timeout (20s)`);
+
+                    if (!isMountedRef.current) return;
+
+                    setStatus('error');
+                    setErrorMsg('Таймаут подключения');
+
+                    closeWebRTC();
+                    sendCloseRequest();
+                    sendCreateRequest();
+                }, 20000);
+            }
+            else if (s === 'disconnected') {
                 setStatus('error');
                 setErrorMsg('Обрыв соединения. Ожидание переподключения');
             }
@@ -428,13 +456,12 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
                 <Box
                     sx={{
                         position: 'absolute',
-                        top: 8,
-                        left: 8,
+                        top: 12,
+                        left: 20,
                         zIndex: 10,
                         bgcolor: 'rgba(0,0,0,0.65)',
                         color: 'white',
-                        px: 1,
-                        py: 0.3,
+                        padding: '4px 10px',
                         borderRadius: 1,
                         display: 'flex',
                         alignItems: 'center',
@@ -442,7 +469,7 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
                         backdropFilter: 'blur(4px)',
                     }}
                 >
-                    <Typography variant="caption" sx={{ fontSize: 11, lineHeight: 1 }}>
+                    <Typography variant="caption" sx={{ fontSize: 12, lineHeight: 1 }}>
                         {cameraId}
                     </Typography>
 
