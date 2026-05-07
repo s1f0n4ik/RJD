@@ -65,13 +65,14 @@ class MediaCenterClient:
             logger.error(f"❌ Error creating camera: {e}")
             return {"data": None, "error": {"message": str(e)}}
 
-    async def patch_camera(self, camera_name: str) -> Dict[str, Any]:
+    async def patch_camera(self, camera_name: str, body: Dict[str, Any]) -> Dict[str, Any]:
             """PATCH /camera?id=camera_X"""
             try:
                 async with httpx.AsyncClient(timeout=self.timeout) as client:
                     response = await client.patch(
                         f"{self.base_url}/camera",
-                        params={"id": camera_name}
+                        params={"id": camera_name},
+                        json=body
                     )
                     response.raise_for_status()
                     return response.json()

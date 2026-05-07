@@ -48,11 +48,11 @@ async def create_camera(camera_data: Dict[str, Any]):
     return result
 
 @router.patch("/camera/{camera_name}")
-async def patch_camera(camera_name: str):
+async def patch_camera(camera_name: str, body: Dict[str, Any]):
     """Изменить камеру"""
-    logger.info(f"Изменение камеры: {camera_name}")
+    logger.info(f"PATCH camera: {camera_name}, body={body}")
 
-    result = await cpp_client.patch_camera(camera_name)
+    result = await cpp_client.patch_camera(camera_name, body)
 
     if result.get("error"):
         raise HTTPException(
