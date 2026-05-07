@@ -54,6 +54,69 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
         }
     };
 
+    const sendCloseRequest = () => {
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+            try {
+                wsRef.current.send(JSON.stringify({
+                    type: 'close',
+                    client_id: clientIdRef.current,
+                    camera: cameraId,
+                    description: 'client disconnect'
+                }));
+
+                console.log(`[${cameraId}] 📤 Sent close message`);
+            } catch (err) {
+                console.error(`[${cameraId}] ❌ Error sending close message:`, err);
+            }
+        }
+    };
+
+    const sendCreateRequest = () => {
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+            try {
+                const connectionRequest = {
+                    type: 'connection',
+                    client_id: clientIdRef.current,
+                    camera: cameraId,
+                    description: 'connect_request from client',
+                    ret: 'none'
+                };
+
+                wsRef.current.send(JSON.stringify(connectionRequest));
+                console.log(`[${cameraId}] 📤 Sent connection request`);
+            } catch (err) {
+                console.error(`[${cameraId}] ❌ Error sending create request:`, err);
+            }
+        }
+    };
+
+    const closeWebRTC = () => {
+        // 1. Close PeerConnection
+        if (pcRef.current) {
+            console.log(`[${cameraId}] 🔌 Closing PeerConnection (state: ${pcRef.current.connectionState})`);
+            pcRef.current.ontrack = null;
+            pcRef.current.onicecandidate = null;
+            pcRef.current.oniceconnectionstatechange = null;
+            pcRef.current.onconnectionstatechange = null;
+
+            try {
+                pcRef.current.close();
+            } catch {}
+
+            pcRef.current = null;
+        }
+
+        // 2. Stop video tracks
+        if (videoRef.current && videoRef.current.srcObject) {
+            const stream = videoRef.current.srcObject as MediaStream;
+            stream.getTracks().forEach(track => {
+                console.log(`[${cameraId}] ⏹️ Stopping track: ${track.kind}`);
+                track.stop();
+            });
+            videoRef.current.srcObject = null;
+        }
+    };
+
     const scheduleReconnect = (reason: string) => {
         if (!isMountedRef.current) return;
         if (intentionalCloseRef.current) return;
@@ -110,36 +173,12 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
             retryTimeoutRef.current = null;
         }
         isRetryingRef.current = false;
-        // 1. Close PeerConnection
-        if (pcRef.current) {
-            console.log(`[${cameraId}] 🔌 Closing PeerConnection (state: ${pcRef.current.connectionState})`);
-            pcRef.current.close();
-            pcRef.current = null;
-        }
 
-        // 2. Stop video tracks
-        if (videoRef.current && videoRef.current.srcObject) {
-            const stream = videoRef.current.srcObject as MediaStream;
-            stream.getTracks().forEach(track => {
-                console.log(`[${cameraId}] ⏹️ Stopping track: ${track.kind}`);
-                track.stop();
-            });
-            videoRef.current.srcObject = null;
-        }
+        closeWebRTC();
+        sendCloseRequest()
 
         // 3. Send close message (но НЕ закрывать WebSocket!)
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-            try {
-                wsRef.current.send(JSON.stringify({
-                    type: 'close',
-                    client_id: clientIdRef.current,
-                    camera: cameraId,
-                    description: 'client disconnect'
-                }));
-                console.log(`[${cameraId}] 📤 Sent close message`);
-            } catch (err) {
-                console.error(`[${cameraId}] ❌ Error sending close message:`, err);
-            }
 
             // ✅ КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: НЕ закрываем WebSocket, просто очищаем обработчики
             wsRef.current.onopen = null;
@@ -178,16 +217,7 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
 
                 console.log(`[${cameraId}] ✅ WebSocket connected`);
 
-                const connectionRequest = {
-                    type: 'connection',
-                    client_id: clientIdRef.current,
-                    camera: cameraId,
-                    description: 'connect_request from client',
-                    ret: 'none'
-                };
-
-                ws.send(JSON.stringify(connectionRequest));
-                console.log(`[${cameraId}] 📤 Sent connection request`);
+                sendCreateRequest();
             };
 
             ws.onmessage = async (event) => {
@@ -289,7 +319,7 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
             if (!isMountedRef.current) return;
             const s = pc.iceConnectionState;
             if (s === 'failed' || s === 'disconnected' || s === 'closed') {
-                scheduleReconnect(`ice=${s}`);
+                //scheduleReconnect(`ice=${s}`);
             }
         };
 
@@ -298,7 +328,7 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
             if (!isMountedRef.current) return;
             const s = pc.connectionState;
             if (s === 'failed' || s === 'disconnected' || s === 'closed') {
-                scheduleReconnect(`pc=${s}`);
+                //scheduleReconnect(`pc=${s}`);
             }
         };
     };
