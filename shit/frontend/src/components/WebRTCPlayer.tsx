@@ -424,6 +424,7 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
                 flexDirection: 'column',
             }}
         >
+            {/*
             <Box
                 sx={{
                     position: 'absolute',
@@ -449,6 +450,7 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
                     </IconButton>
                 )}
             </Box>
+            */}
 
             <video
                 ref={videoRef}
