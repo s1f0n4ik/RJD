@@ -47,6 +47,20 @@ async def create_camera(camera_data: Dict[str, Any]):
 
     return result
 
+@router.patch("/camera/{camera_name}")
+async def patch_camera(camera_name: str):
+    """Изменить камеру"""
+    logger.info(f"Изменение камеры: {camera_name}")
+
+    result = await cpp_client.patch_camera(camera_name)
+
+    if result.get("error"):
+        raise HTTPException(
+            status_code=400,
+            detail=result["error"].get("message", "Failed to delete camera")
+        )
+
+    return {"message": f"Camera {camera_name} updated", "result": result}
 
 @router.delete("/camera/{camera_name}")
 async def delete_camera(camera_name: str):

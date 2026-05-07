@@ -11,7 +11,7 @@ export interface CameraMetaPatch {
   description?: string;
 }
 const cameraUrl = (base: string, id: string) =>
-  `${base}/api/camera?id=${encodeURIComponent(id)}`;
+  `${base}/api/camera/${encodeURIComponent(id)}`;
 export interface CameraCriticalPatch {
   ip_adress?: string;
   port?: string;

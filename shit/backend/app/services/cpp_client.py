@@ -65,6 +65,20 @@ class MediaCenterClient:
             logger.error(f"❌ Error creating camera: {e}")
             return {"data": None, "error": {"message": str(e)}}
 
+    async def patch_camera(self, camera_name: str) -> Dict[str, Any]:
+            """PATCH /camera?id=camera_X"""
+            try:
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    response = await client.patch(
+                        f"{self.base_url}/camera",
+                        params={"id": camera_name}
+                    )
+                    response.raise_for_status()
+                    return response.json()
+            except Exception as e:
+                logger.error(f"❌ Error deleting camera: {e}")
+                return {"data": None, "error": {"message": str(e)}}
+
     async def delete_camera(self, camera_name: str) -> Dict[str, Any]:
         """DELETE /camera?id=camera_X"""
         try:
