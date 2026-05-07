@@ -89,7 +89,7 @@ export interface ClosePayload {
 // ──────────────────────────────────────────────────────────────────────────
 
 const BASE_RETRY_DELAY_MS = 2_000;
-const MAX_RETRY_DELAY_MS = 15_000;
+const MAX_RETRY_DELAY_MS = 10_000;
 
 export class WebSocketManager {
     private readonly url: string;
