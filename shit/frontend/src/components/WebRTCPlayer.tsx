@@ -424,33 +424,45 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
                 flexDirection: 'column',
             }}
         >
-            {/*
-            <Box
-                sx={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    bgcolor: 'rgba(0,0,0,0.7)',
-                    color: 'white',
-                    px: 2,
-                    py: 1,
-                    zIndex: 10,
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                }}
-            >
-                <Typography variant="body2" fontWeight="bold">
-                    {cameraId}
-                </Typography>
-                {status === 'connected' && (
-                    <IconButton size="small" onClick={handleFullscreen} sx={{ color: 'white' }}>
-                        <Fullscreen />
-                    </IconButton>
-                )}
-            </Box>
-            */}
+            {
+                <Box
+                    sx={{
+                        position: 'absolute',
+                        top: 8,
+                        left: 8,
+                        zIndex: 10,
+                        bgcolor: 'rgba(0,0,0,0.65)',
+                        color: 'white',
+                        px: 1,
+                        py: 0.3,
+                        borderRadius: 1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 0.5,
+                        backdropFilter: 'blur(4px)',
+                    }}
+                >
+                    <Typography variant="caption" sx={{ fontSize: 11, lineHeight: 1 }}>
+                        {cameraId}
+                    </Typography>
+
+                    {/*
+                    {status === 'connected' && (
+                        <IconButton
+                            size="small"
+                            onClick={handleFullscreen}
+                            sx={{
+                                color: 'white',
+                                p: 0.2,
+                                ml: 0.5,
+                            }}
+                        >
+                            <Fullscreen fontSize="small" />
+                        </IconButton>
+                    )}
+                    */}
+                </Box>
+            }
 
             <video
                 ref={videoRef}
