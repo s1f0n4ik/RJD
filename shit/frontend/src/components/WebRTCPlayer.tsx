@@ -102,7 +102,8 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
         }, delay);
     };
 
-  useEffect(() => {
+  useEffect(() => {}
+      /*
     isMountedRef.current = true;
     clientIdRef.current = `client_${Math.random().toString(36).substr(2, 9)}`;
 
@@ -126,7 +127,8 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
 
       cleanup();
     };
-  }, [cameraId, signalingUrl]);
+  }, [cameraId, signalingUrl]
+  */);
 
     const sendCloseMessage = () => {
         if (wsRef.current?.readyState === WebSocket.OPEN) {
