@@ -237,6 +237,12 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
                             setErrorMsg('Камера отклонила соединение');
                             onError?.('Camera rejected connection');
                         }
+                        // Может отклонять только в случае открытой сессии с таким же клиентом, иначе - не приходит сообщение вовсе
+                        sendCloseRequest();
+                        // Пробуем еще раз отправить спустя время
+                        setTimeout(() => {
+                            sendCreateRequest();
+                        }, 2000); // 2 секунды
                     }
                     return;
                 }
@@ -318,7 +324,10 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
             console.log(`[${cameraId}] ICE state:`, pc.iceConnectionState);
             if (!isMountedRef.current) return;
             const s = pc.iceConnectionState;
-            if (s === 'failed' || s === 'disconnected' || s === 'closed') {
+            if (s === 'disconnected') {
+                //setStatus('error');
+            }
+            else if (s === 'failed' || s === 'closed') {
                 //scheduleReconnect(`ice=${s}`);
             }
         };
@@ -327,20 +336,13 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
             console.log(`[${cameraId}] Connection state:`, pc.connectionState);
             if (!isMountedRef.current) return;
             const s = pc.connectionState;
-            if (s === 'failed' || s === 'closed') {
-                try {
-                    wsRef.current.send(JSON.stringify({
-                        type: 'new_type',
-                        client_id: clientIdRef.current,
-                        camera: cameraId,
-                        description: 'client disconnect'
-                    }));
-
-                    console.log(`[${cameraId}] 📤 Sent close message`);
-                } catch (err) {
-                    console.error(`[${cameraId}] ❌ Error sending close message:`, err);
-                }
-                //scheduleReconnect(`pc=${s}`);
+            if (s === 'disconnected') {
+                setStatus('error');
+            }
+            else if (s === 'failed' || s === 'closed') {
+                setStatus('connecting');
+                closeWebRTC();
+                sendCreateRequest();
             }
         };
     };
