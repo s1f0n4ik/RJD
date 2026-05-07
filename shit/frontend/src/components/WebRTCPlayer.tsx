@@ -327,7 +327,19 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
             console.log(`[${cameraId}] Connection state:`, pc.connectionState);
             if (!isMountedRef.current) return;
             const s = pc.connectionState;
-            if (s === 'failed' || s === 'disconnected' || s === 'closed') {
+            if (s === 'failed' || s === 'closed') {
+                try {
+                    wsRef.current.send(JSON.stringify({
+                        type: 'new_type',
+                        client_id: clientIdRef.current,
+                        camera: cameraId,
+                        description: 'client disconnect'
+                    }));
+
+                    console.log(`[${cameraId}] 📤 Sent close message`);
+                } catch (err) {
+                    console.error(`[${cameraId}] ❌ Error sending close message:`, err);
+                }
                 //scheduleReconnect(`pc=${s}`);
             }
         };
