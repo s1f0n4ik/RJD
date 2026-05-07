@@ -338,6 +338,7 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
             const s = pc.connectionState;
             if (s === 'disconnected') {
                 setStatus('error');
+                setErrorMsg('Обрыв соединения. Ожидание переподключения');
             }
             else if (s === 'failed' || s === 'closed') {
                 setStatus('connecting');
