@@ -232,7 +232,6 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
 
         if (msg.type === 'connection') {
           if (msg.ret === 'success') {
-              destroyPeerConnection();
               console.log(`[${cameraId}] ✅ Camera accepted connection`);
 
               retryAttemptRef.current = 0;
@@ -265,14 +264,14 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
         console.error(`[${cameraId}] ❌ WebSocket error:`, error);
           if (!isMountedRef.current) return;
           onError?.('WebSocket error');
-          //scheduleReconnect('ws.onerror');
+          destroyPeerConnection();
         };
 
       ws.onclose = (event) => {
         console.log(`[${cameraId}] 🔌 WS closed (code=${event.code}, reason=${event.reason})`);
           if (!isMountedRef.current) return;
           if (intentionalCloseRef.current) return; // мы сами закрыли — не ретраимся
-          //scheduleReconnect(`ws.onclose code=${event.code}`);
+          destroyPeerConnection();
         };
 
     } catch (err) {
@@ -295,7 +294,14 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
     console.log(`[${cameraId}] 🔧 Creating RTCPeerConnection...`);
 
     const pc = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+      iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          {
+              urls: 'turn:172.25.78.169:3478',
+              username: 'niac',
+              credential: 'VniiTest'
+          }
+      ]
     });
     pcRef.current = pc;
 
@@ -343,7 +349,9 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
       if (!isMountedRef.current) return;
       const s = pc.connectionState;
       if (s === 'failed' || s === 'closed') {
-        scheduleReconnect(`pc=${s}`);
+          destroyPeerConnection();
+          sendCloseMessage();
+          scheduleReconnect(`pc=${s}`);
       }
     };
   };
