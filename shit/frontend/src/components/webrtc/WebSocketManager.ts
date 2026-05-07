@@ -190,6 +190,8 @@ export class WebSocketManager {
     private connect(): void {
         if (this.destroyed) return;
 
+        this.clearRetryTimer();
+
         console.log(`[WSManager] Connecting to ${this.url} (attempt ${this.retryAttempt})`);
         this.handlers.onStatusChange?.('connecting');
 

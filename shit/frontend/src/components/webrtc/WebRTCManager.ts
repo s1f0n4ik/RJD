@@ -45,6 +45,8 @@ const ICE_SERVERS: RTCIceServer[] = [
 export class WebRTCManager {
     private readonly handlers: RTCHandlers;
 
+    private reconnectLocked = false;
+
     private pc: RTCPeerConnection | null = null;
     private destroyed = false;
 
@@ -67,6 +69,8 @@ export class WebRTCManager {
             console.warn('[RTCManager] PC already exists, ignoring');
             return;
         }
+
+        this.reconnectLocked = false;
 
         console.log('[RTCManager] Creating RTCPeerConnection');
         this.handlers.onStatusChange?.('connecting');
@@ -102,6 +106,10 @@ export class WebRTCManager {
             console.log('[RTCManager] Connection state:', state);
 
             if (state === 'failed' || state === 'closed') {
+                if (this.reconnectLocked || this.destroyed) return;
+
+                this.reconnectLocked = true;
+
                 this.handlers.onStatusChange?.('failed');
                 // Уведомляем сигналинг о закрытии сессии
                 this.handlers.onSendClose();
