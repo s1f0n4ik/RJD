@@ -254,14 +254,14 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
                 console.error(`[${cameraId}] ❌ WebSocket error:`, error);
                 if (!isMountedRef.current) return;
                 onError?.('WebSocket error');
-                scheduleReconnect('ws.onerror');
+                //scheduleReconnect('ws.onerror');
             };
 
             ws.onclose = (event) => {
                 console.log(`[${cameraId}] 🔌 WS closed (code=${event.code}, reason=${event.reason})`);
                 if (!isMountedRef.current) return;
                 if (intentionalCloseRef.current) return; // мы сами закрыли — не ретраимся
-                scheduleReconnect(`ws.onclose code=${event.code}`);
+                //scheduleReconnect(`ws.onclose code=${event.code}`);
             };
 
         } catch (err) {
