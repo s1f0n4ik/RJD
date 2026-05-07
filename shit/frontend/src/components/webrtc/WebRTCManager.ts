@@ -193,6 +193,10 @@ export class WebRTCManager {
         this.close(true);
     }
 
+    get isConnecting(): boolean {
+        return this.pc?.connectionState === 'connecting';
+    }
+
     get isConnected(): boolean {
         return this.pc?.connectionState === 'connected';
     }

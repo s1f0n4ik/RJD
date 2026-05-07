@@ -188,8 +188,9 @@ export function useWebRTCPlayer({
                         setErrorMsg(`Камера отклонила соединение (ret=${msg.ret})`);
                         // Повторим connection-request через паузу (простая задержка)
                         setTimeout(() => {
+                            if (rtc?.isConnecting) return;
                             if (ws.isOpen) sendConnectionRequest();
-                        }, 3000);
+                        }, 2000);
                     }
                     return;
                 }
