@@ -368,6 +368,10 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
             if (!isMountedRef.current) return;
             const s = pc.connectionState;
             if (s === 'connected') {
+                if (connectionTimeoutRef.current) {
+                    clearTimeout(connectionTimeoutRef.current);
+                    connectionTimeoutRef.current = null;
+                }
                 setStatus('connected');
             }
             if (s === 'connecting') {
