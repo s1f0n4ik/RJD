@@ -134,6 +134,9 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
           pcRef.current.close();
           pcRef.current = null;
       }
+      else {
+          return;
+      }
 
       // Stop video tracks
       if (videoRef.current && videoRef.current.srcObject) {
