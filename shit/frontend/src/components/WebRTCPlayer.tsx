@@ -95,14 +95,15 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
                     )}
                 </Box>
 
-                {/* Кнопки управления */}
+                {/* Кнопки управления
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                     {isStreaming && (
-                        //<IconButton size="small" onClick={handleFullscreen} sx={{ color: 'white' }}>
-                        //    <Fullscreen fontSize="small" />
-                        //</IconButton>
+                        <IconButton size="small" onClick={handleFullscreen} sx={{ color: 'white' }}>
+                            <Fullscreen fontSize="small" />
+                        </IconButton>
                     )}
                 </Box>
+                */}
             </Box>
 
             {/* ── Видео ────────────────────────────────────────────────────────── */}
