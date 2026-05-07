@@ -25,6 +25,7 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
     const intentionalCloseRef = useRef<boolean>(false);
 
     const connectionTimeoutRef = useRef<number | null>(null);
+    const connectionResponseTimeoutRef = useRef<number | null>(null);
 
     const MAX_RETRY_DELAY = 15000;
     const getRetryDelay = () => {
@@ -86,10 +87,27 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
 
                 wsRef.current.send(JSON.stringify(connectionRequest));
                 console.log(`[${cameraId}] 📤 Sent connection request`);
+
+                startConnectionResponseTimeout();
             } catch (err) {
                 console.error(`[${cameraId}] ❌ Error sending create request:`, err);
             }
         }
+    };
+
+    const startConnectionResponseTimeout = () => {
+        // очищаем старый таймер
+        if (connectionResponseTimeoutRef.current) {
+            clearTimeout(connectionResponseTimeoutRef.current);
+        }
+
+        connectionResponseTimeoutRef.current = window.setTimeout(() => {
+            console.warn(`[${cameraId}] ⏱️ No connection response in 5s, retrying...`);
+
+            if (!isMountedRef.current) return;
+
+            sendCreateRequest(); // повторяем запрос
+        }, 5000);
     };
 
     const closeWebRTC = () => {
@@ -230,6 +248,10 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
 
                 if (msg.type === 'connection') {
                     if (msg.ret === 'success') {
+                        if (connectionResponseTimeoutRef.current) {
+                            clearTimeout(connectionResponseTimeoutRef.current);
+                            connectionResponseTimeoutRef.current = null;
+                        }
                         console.log(`[${cameraId}] ✅ Camera accepted connection`);
                         createPeerConnection();
                     } else {
@@ -345,6 +367,9 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
             console.log(`[${cameraId}] Connection state:`, pc.connectionState);
             if (!isMountedRef.current) return;
             const s = pc.connectionState;
+            if (s === 'connected') {
+                setStatus('connected');
+            }
             if (s === 'connecting') {
                 setStatus('connecting');
                 if (connectionTimeoutRef.current) {
