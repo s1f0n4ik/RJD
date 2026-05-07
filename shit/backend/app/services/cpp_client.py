@@ -31,12 +31,12 @@ class MediaCenterClient:
             return {}
 
     async def get_camera(self, camera_name: str) -> Dict[str, Any]:
-        """GET /camera?name=camera_X"""
+        """GET /camera?id=camera_X"""
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 response = await client.get(
                     f"{self.base_url}/camera",
-                    params={"name": camera_name}
+                    params={"id": camera_name}
                 )
                 response.raise_for_status()
                 data = response.json()
@@ -66,12 +66,12 @@ class MediaCenterClient:
             return {"data": None, "error": {"message": str(e)}}
 
     async def delete_camera(self, camera_name: str) -> Dict[str, Any]:
-        """DELETE /camera?name=camera_X"""
+        """DELETE /camera?id=camera_X"""
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 response = await client.delete(
                     f"{self.base_url}/camera",
-                    params={"name": camera_name}
+                    params={"id": camera_name}
                 )
                 response.raise_for_status()
                 return response.json()

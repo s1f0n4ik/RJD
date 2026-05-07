@@ -98,7 +98,7 @@ interface CameraFormData {
 }
 
 type ProbeStatus = 'idle' | 'creating' | 'streaming' | 'error';
-const cameraUrl = (id: string) => `${FASTAPI_BASE}/api/camera?id=${encodeURIComponent(id)}`;
+const cameraUrl = (id: string) => `${FASTAPI_BASE}/api/camera/${encodeURIComponent(id)}`;
 const RESERVED_PREFIXES = ['__probe_'];
 const NAME_REGEX = /^[a-zA-Z_][a-zA-Z0-9_-]{1,31}$/;
 const IP_REGEX = /^((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/;
