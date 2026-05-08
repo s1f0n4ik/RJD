@@ -362,7 +362,7 @@ const CameraSettings: React.FC = () => {
     setProbeStatus('creating');
 
     const tempName = `__probe_${Date.now()}`;
-    const recordPath = `/home/orangepi/records/${tempName}`;
+    const recordPath = `/home/orangepi/records`;
 
     const payload = {
       id: tempName,
@@ -432,7 +432,7 @@ const CameraSettings: React.FC = () => {
     setSuccess('');
 
     const cameraId = formData.id || findNextFreeCameraId(cameras);
-    const recordPath = `/home/orangepi/records/${cameraId}`;
+    const recordPath = `/home/orangepi/records`;
     const effectiveSegment = formData.recording_enabled ? formData.main_segment : 0;
 
     try {
@@ -812,7 +812,7 @@ const CameraSettings: React.FC = () => {
                   placeholder={autoNamePreview}
                   value={formData.display_name}
                   onChange={(e) => handleInputChange('display_name', e.target.value)}
-                  disabled={editMode}
+                  {/*disabled={editMode}*/}
                   error={!nameValidation.valid}
                   helperText={
                     nameValidation.error ||
@@ -1084,9 +1084,7 @@ const CameraSettings: React.FC = () => {
                   fullWidth
                   disabled
                   label="Местоположение записей"
-                  value={`/home/orangepi/records/${
-                    formData.id || autoNamePreview
-                  }`}
+                  value={`/home/orangepi/records`}
                   helperText="Генерируется автоматически"
                 />
               </Grid>

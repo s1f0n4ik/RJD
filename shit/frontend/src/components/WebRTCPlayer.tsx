@@ -156,7 +156,7 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
             if (!isMountedRef.current) return;
             softReset();
             isRetryingRef.current = false;
-            connectWebRTC(); // тот же самый метод, что и на старте — он пошлёт {type:'connection', ...}
+            connectWebSocket(); // тот же самый метод, что и на старте — он пошлёт {type:'connection', ...}
         }, delay);
     };
 
@@ -169,7 +169,7 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
         // Небольшая задержка перед подключением, чтобы избежать race conditions
         cleanupTimeoutRef.current = window.setTimeout(() => {
             if (isMountedRef.current) {
-                connectWebRTC();
+                connectWebSocket();
             }
         }, 2000);
 
@@ -216,7 +216,7 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
         console.log(`[${cameraId}] ✅ Cleanup complete`);
     };
 
-    const connectWebRTC = async () => {
+    const connectWebSocket = async () => {
         if (!isMountedRef.current) {
             console.log(`[${cameraId}] ⚠️ Component unmounted, skipping connection`);
             return;
@@ -292,6 +292,7 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
                 console.log(`[${cameraId}] 🔌 WS closed (code=${event.code}, reason=${event.reason})`);
                 if (!isMountedRef.current) return;
                 if (intentionalCloseRef.current) return; // мы сами закрыли — не ретраимся
+
                 scheduleReconnect(`ws.onclose code=${event.code}`);
             };
 
