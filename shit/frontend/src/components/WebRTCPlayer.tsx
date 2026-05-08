@@ -4,11 +4,12 @@ import { Fullscreen, Error as ErrorIcon } from '@mui/icons-material';
 
 interface WebRTCPlayerProps {
     cameraId: string;
+    cameraName?: string;
     signalingUrl: string;
     onError?: (error: string) => void;
 }
 
-const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onError }) => {
+const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signalingUrl, onError }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const [status, setStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
     const [errorMsg, setErrorMsg] = useState<string>('');
@@ -499,7 +500,7 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, signalingUrl, onE
                     }}
                 >
                     <Typography variant="caption" sx={{ fontSize: 12, lineHeight: 1 }}>
-                        {cameraId}
+                        {cameraName || cameraId}
                     </Typography>
 
                     {/*
