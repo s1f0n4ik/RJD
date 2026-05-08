@@ -267,7 +267,7 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
                         // Пробуем еще раз отправить спустя время
                         setTimeout(() => {
                             sendCreateRequest();
-                        }, 2000); // 2 секунды
+                        }, 10000); // 10 секунд
                     }
                     return;
                 }
