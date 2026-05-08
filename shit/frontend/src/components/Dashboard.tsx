@@ -14,7 +14,7 @@ import {
   Memory as MemoryIcon,
   ThreeSixty as ThreeSixtyIcon,
   Settings as SettingsIcon,
-  Backup as BackupIcon,
+  StoreIcon as KioskIcon,
 } from '@mui/icons-material';
 import type { SystemState } from '../types';
 
@@ -30,6 +30,8 @@ interface Module {
   icon: React.ElementType;
   gradient: string;
   tabIndex: number;
+  disabled?: boolean;   // 👈 NEW
+  kiosk?: boolean;
 }
 
 const modules: Module[] = [
@@ -49,21 +51,23 @@ const modules: Module[] = [
     gradient: 'linear-gradient(135deg, #2196f3 0%, #1565c0 100%)',
     tabIndex: 3, // Recordings
   },
-  // {
-  //   id: 'ai',
-  //   title: 'AI',
-  //   description: 'Компьютерное зрение',
-  //   icon: MemoryIcon,
-  //   gradient: 'linear-gradient(135deg, #9c27b0 0%, #6a1b9a 100%)',
-  //   tabIndex: 4, // LoaderSettings
-  // },
+  {
+    id: 'ai',
+    title: 'AI',
+    description: 'Компьютерное зрение',
+    icon: MemoryIcon,
+    gradient: 'linear-gradient(135deg, #9c27b0 0%, #6a1b9a 100%)',
+    tabIndex: 4, // LoaderSettings
+    disabled: true,
+  },
   {
     id: 'birdview',
     title: '360°',
     description: 'Система кругового обзора',
     icon: ThreeSixtyIcon,
     gradient: 'linear-gradient(135deg, #00bcd4 0%, #0097a7 100%)',
-    tabIndex: -1, // Будет добавлено позже
+    tabIndex: -1,
+    disabled: true,
   },
   {
     id: 'maintain',
@@ -74,12 +78,13 @@ const modules: Module[] = [
     tabIndex: 1, // CameraSettings
   },
   {
-    id: 'backup',
-    title: 'Резерв',
-    description: 'Резервное копирование',
-    icon: BackupIcon,
+    id: 'kiosk',
+    title: 'Киоск',
+    description: 'Переход в полноэкранный режим',
+    icon: KioskIcon,
     gradient: 'linear-gradient(135deg, #757575 0%, #424242 100%)',
-    tabIndex: -1, // Будет добавлено позже
+    tabIndex: 5,
+    kiosk: true,
   },
 ];
 
@@ -91,6 +96,13 @@ const Dashboard: React.FC<DashboardProps> = ({ state, onNavigate }) => {
   const runningLoaders = loaders.filter(l => l.status === 'running').length;
 
   const handleModuleClick = (module: Module) => {
+    if (module.disabled) return;
+
+    if (module.kiosk) {
+      window.location.href = '/kiosk';
+      return;
+    }
+
     if (module.tabIndex >= 0) {
       onNavigate(module.tabIndex);
     } else {
@@ -155,17 +167,21 @@ const Dashboard: React.FC<DashboardProps> = ({ state, onNavigate }) => {
                   flexDirection: 'column',
                   justifyContent: 'center',
                   alignItems: 'center',
-                  cursor: 'pointer',
+                  cursor: module.disabled ? 'not-allowed' : 'pointer',
+                  opacity: module.disabled ? 0.45 : 1,
+                  filter: module.disabled ? 'grayscale(0.7)' : 'none',
+                  '&:hover': {
+                    transform: module.disabled ? 'none' : 'translateY(-8px)',
+                    boxShadow: module.disabled
+                      ? '0 4px 20px rgba(0,0,0,0.15)'
+                      : '0 12px 40px rgba(0,0,0,0.3)',
+                  },
+                  '&:active': {
+                    transform: module.disabled ? 'none' : 'translateY(-4px)',
+                  },
                   transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                   borderRadius: 2,
                   boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
-                  '&:hover': {
-                    transform: 'translateY(-8px)',
-                    boxShadow: '0 12px 40px rgba(0,0,0,0.3)',
-                  },
-                  '&:active': {
-                    transform: 'translateY(-4px)',
-                  },
                 }}
               >
                 <CardContent sx={{ textAlign: 'center', p: 3 }}>
