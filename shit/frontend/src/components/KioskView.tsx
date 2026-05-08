@@ -653,10 +653,10 @@ const KioskView: React.FC = () => {
                 sx={{
                   cursor: 'grab',
                   opacity: isBeingDragged ? 0.5 : 1,
-                  bgcolor: isUsed ? 'rgba(76,175,80,0.15)' : 'transparent',
-                  borderLeft: isUsed ? '3px solid #4caf50' : '3px solid transparent',
-                  '&:active': { cursor: 'grabbing' },
-                  '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' },
+                  // bgcolor: isUsed ? 'rgba(76,175,80,0.15)' : 'transparent',
+                  // borderLeft: isUsed ? '3px solid #4caf50' : '3px solid transparent',
+                  // '&:active': { cursor: 'grabbing' },
+                  // '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' },
                   bgcolor: isSelected
                   ? 'rgba(33, 150, 243, 0.35)'             // 🆕 выбранная — синяя
                   : isUsed

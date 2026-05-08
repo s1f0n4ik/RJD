@@ -14,10 +14,9 @@ import {
   Memory as MemoryIcon,
   ThreeSixty as ThreeSixtyIcon,
   Settings as SettingsIcon,
-  StoreIcon as KioskIcon,
 } from '@mui/icons-material';
 import type { SystemState } from '../types';
-
+import StoreIcon from '@mui/icons-material/Store' ;
 interface DashboardProps {
   state: SystemState;
   onNavigate: (tabIndex: number) => void;
@@ -81,7 +80,7 @@ const modules: Module[] = [
     id: 'kiosk',
     title: 'Киоск',
     description: 'Переход в полноэкранный режим',
-    icon: KioskIcon,
+    icon: StoreIcon,
     gradient: 'linear-gradient(135deg, #757575 0%, #424242 100%)',
     tabIndex: 5,
     kiosk: true,
