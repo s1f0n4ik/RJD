@@ -715,7 +715,9 @@ const CameraSettings: React.FC = () => {
               </TableRow>
             ) : (
               cameras.map((camera, index) => {
-                const recOn = (camera.streams?.main?.segment ?? 0) > 0;
+                  {/* Segment больше нуля и путь записи не пустой*/}
+                const recOn = (camera.streams?.main?.segment ?? 0) > 0 &&
+                    (camera.streams?.main?.record_path ?? "") !== ""
                 return (
                   <TableRow key={camera.id} hover>
                     <TableCell>
