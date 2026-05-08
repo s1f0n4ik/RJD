@@ -812,7 +812,7 @@ const CameraSettings: React.FC = () => {
                   placeholder={autoNamePreview}
                   value={formData.display_name}
                   onChange={(e) => handleInputChange('display_name', e.target.value)}
-                  {/*disabled={editMode}*/}
+                  {/* disabled={editMode} */}
                   error={!nameValidation.valid}
                   helperText={
                     nameValidation.error ||
