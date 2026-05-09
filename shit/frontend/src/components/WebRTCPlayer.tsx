@@ -402,6 +402,7 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
             else if (s === 'failed' || s === 'closed') {
                 setStatus('connecting');
                 closeWebRTC();
+                sendCloseRequest();
                 sendCreateRequest();
             }
         };
