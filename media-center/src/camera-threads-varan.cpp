@@ -65,21 +65,22 @@ int main(int argc, char* argv[])
 	auto socket_options = varan::nvr::FWebSocketOptions(config.signaling_ip, std::to_string(config.signaling_port));
 
 	// Контекст и хранидище для OpenGL
-	auto gl_storage = std::make_shared<FFrameStorage<IFrame>>(&main_logger);
-	auto main_context = std::make_shared<varan::birdview::UEGLContextManager>();
-	main_context->init(true, &main_logger);
+	//auto gl_storage = std::make_shared<FFrameStorage<IFrame>>(&main_logger);
+	//auto main_context = std::make_shared<varan::birdview::UEGLContextManager>();
+	//main_context->init(true, &main_logger);
 
 	// Создание модуля 360
 	//auto linker_360 = std::make_shared<varan::birdview::ULinker>(socket_options, main_context.get(), gl_storage.get(), ULogger::ELoggerLevel::TRACE);
 	//linker_360->set_stitching_mode(varan::birdview::EBirdViewStitchingMode::SIX_CAMERAS);
 
 	// Создание калибратора
-	auto calibrator = std::make_shared<varan::calibration::UCalibrator>(socket_options.ip_adress, socket_options.port, main_context.get(), gl_storage.get());
-	calibrator->start_websocket_connection();
+	//auto calibrator = std::make_shared<varan::calibration::UCalibrator>(socket_options.ip_adress, socket_options.port, main_context.get(), gl_storage.get());
+	//calibrator->start_websocket_connection();
 
 	// Создание центра видеонаблюдения
-	auto center = std::make_shared<varan::neural::UMediaCenter>(socket_options, main_context.get());
-	center->set_bird_view_callback(std::move(gl_storage->get_callback()));
+	auto center = std::make_shared<varan::neural::UMediaCenter>(socket_options);
+	//auto center = std::make_shared<varan::neural::UMediaCenter>(socket_options, main_context.get());
+	//center->set_bird_view_callback(std::move(gl_storage->get_callback()));
 	//center->set_neural_callback(std::move(linker_360.get_dmabuf_frame_callback()));
 
 	auto rest_server = URestServer{ config.rest_port, center };

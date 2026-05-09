@@ -28,7 +28,18 @@ namespace neural {
 		, m_socket_options(socket_options)
 		, m_logger(name, level_)
 	{
-		
+		m_main_loop = g_main_loop_new(nullptr, FALSE);
+		if (!m_main_loop) {
+			m_gst_loop_running = false;
+			return;
+		}
+
+		m_gst_loop_thread = std::thread([this]() {
+			m_gst_loop_thread_id = std::this_thread::get_id();
+			m_gst_loop_running = true;
+			g_main_loop_run(m_main_loop);
+			m_gst_loop_running = false;
+		});
 	};
 
 	void UCamera::set_configurations(
@@ -119,35 +130,20 @@ namespace neural {
 	bool UCamera::initialize() {
 		if (m_initialized) return true;
 
-		auto start_g_loop = [&]() {
-			m_main_loop = g_main_loop_new(nullptr, FALSE);
-			m_gst_loop_thread = std::thread([this]() {
-				m_gst_loop_running = true;
-				g_main_loop_run(m_main_loop);
-				m_gst_loop_running = false;
-			});
-		};
-
-		auto stop_g_loop = [&]() {
-			if (m_main_loop) {
-				g_main_loop_quit(m_main_loop);
-			}
-			if (m_gst_loop_thread.joinable()) {
-				m_gst_loop_thread.join();
-			}
-			if (m_main_loop) {
-				g_main_loop_unref(m_main_loop);
-				m_main_loop = nullptr;
-			}
-		};
+		if (!m_gst_loop_running) {
+			m_logger.error("initialize(): False to initialize + " + m_name + " camera, main_g_loop didn't run");
+			return false;
+		}
 
 		try {
-			start_g_loop();
-			
+			if (m_stop_called.load()) {
+				m_logger.info("initialize(): stop requested, aborting");
+				return false;
+			}
+
 			for (const auto& [name, stream] : m_streams) {
 				if (stream->initialize() == false) {
-					m_logger.error("False to initialize " + name + " pipeline!");
-					stop_g_loop();
+					m_logger.error("initialize(): False to initialize " + name + " pipeline!");
 					return false;
 				}
 			}
@@ -157,7 +153,6 @@ namespace neural {
 		}
 		catch (const std::runtime_error& error) {
 			std::cerr << error.what();
-			stop_g_loop();
 			return false;
 		}
 	}
@@ -195,42 +190,37 @@ namespace neural {
 			return;
 		}
 
-		m_stop_requested = false;
+		m_stop_called = false;
 		m_is_initializing = true;
+
+		if (m_init_thread.joinable()) {
+			m_init_thread.join();
+		}
 
 		m_init_thread = std::thread(&UCamera::worker, this);
 	}
 
-	void UCamera::worker()
-	{
-		//constexpr auto TIMEOUT = std::chrono::seconds(120);
-		//auto start_time = std::chrono::steady_clock::now();
-
-		while (!m_stop_requested)
+	void UCamera::worker() {
+		while (!m_stop_called.load())
 		{
 			if (initialize()) break;
 
-			//if (std::chrono::steady_clock::now() - start_time > TIMEOUT)
-			//{
-			//	m_logger.error("Camera initialization timeout");
-			//	m_error = true;
-			//	m_is_initializing = false;
-			//	return;
-			//}
-
-			std::this_thread::sleep_for(std::chrono::seconds(2));
-		}
-
-		if (m_stop_requested) {
-			m_is_initializing = false;
-			return;
+			std::unique_lock<std::mutex> lk(m_worker_cv_mutex);
+			m_worker_cv.wait_for(lk, std::chrono::seconds(2),
+				[this] { return m_stop_called.load(); }
+			);
 		}
 
 		m_is_initializing = false;
 
+		if (m_stop_called.load()) {
+			m_logger.info("worker(): stop requested during init, exiting");
+			return;
+		}
+
 		if (!start()) {
 			m_logger.error("Camera failed to start");
-			m_error = true;
+			m_running = false;
 			return;
 		}
 
@@ -239,53 +229,73 @@ namespace neural {
 
 	void UCamera::stop() 
 	{
-		{
-			std::lock_guard<std::mutex> lk(m_init_mutex);
-			m_stop_requested = true;
+		if (m_stop_called.exchange(true)) {
+			m_logger.warn("stop(): already called, ignoring");
+			return;
 		}
+
+		// Запршиваем остановку пайплайлна
+		for (auto& [name, stream] : m_streams) {
+			stream->request_stop();
+		}
+
+		m_worker_cv.notify_all();
 
 		if (m_init_thread.joinable()) {
 			m_init_thread.join();
 		}
-
+		m_logger.warn("stop(): called!");
 		// Останавливаем пайплайны через GMainLoop (его поток)
 		if (m_main_loop && m_gst_loop_running) {
-			std::promise<void> done;
-			auto future = done.get_future();
-
-			// Структура для передачи в idle callback
-			struct StopCtx {
-				UCamera* self;
+			bool called_from_gst_thread = (std::this_thread::get_id() == m_gst_loop_thread_id);
+			if (called_from_gst_thread) {
+				// Удаляем напрямую
+				m_logger.debug("stop(): clearing all streams directly!");
+				m_streams.clear();
+			}
+			else {
 				std::promise<void> done;
-			};
-			auto* ctx = new StopCtx{ this, std::move(done) };
+				auto future = done.get_future();
 
-			g_main_context_invoke(
-				g_main_loop_get_context(m_main_loop),
-				+[](gpointer data) -> gboolean {
-					auto* ctx = static_cast<StopCtx*>(data);
-					// Теперь мы в потоке GMainLoop — teardown безопасен
-					ctx->self->m_streams.clear(); // деструкторы вызовут teardown
-					ctx->done.set_value();
-					delete ctx;
-					return G_SOURCE_REMOVE;
-				},
-				ctx
-			);
+				// Структура для передачи в idle callback
+				struct StopCtx {
+					UCamera* self;
+					std::promise<void> done;
+				};
+				auto* ctx = new StopCtx{ this, std::move(done) };
 
-			// Ждём завершения teardown, но не вечно
-			future.wait_for(std::chrono::seconds(5));
+				g_main_context_invoke(
+					g_main_loop_get_context(m_main_loop),
+					+[](gpointer data) -> gboolean {
+						auto* ctx = static_cast<StopCtx*>(data);
+						// Теперь мы в потоке GMainLoop — teardown безопасен
+						ctx->self->m_streams.clear(); // деструкторы вызовут teardown
+						ctx->done.set_value();
+						delete ctx;
+						return G_SOURCE_REMOVE;
+					},
+					ctx
+				);
+				m_logger.debug("stop(): inoked stop to the main gloop thread!");
+				// Ждём завершения teardown
+				if (future.wait_for(std::chrono::seconds(5)) == std::future_status::timeout) {
+					m_logger.error("stop(): teardown timeout! Cleanup");
+				}
+			}
 		}
 		else {
+			m_logger.debug("stop(): simply delete streams");
 			m_streams.clear();
 		}
 
 		// Остановка вебсокета
 		stop_websocket_client();
+		m_logger.debug("stop(): stopped websocket");
 
 		// Остановка главного потока
 		if (m_main_loop) {
 			g_main_loop_quit(m_main_loop);
+			m_logger.debug("stop(): stopped g_main_loop");
 		}
 
 		if (m_gst_loop_thread.joinable()) {
@@ -300,6 +310,8 @@ namespace neural {
 
 		m_running = false;
 		m_initialized = false;
+
+		m_logger.info("stop(): done");
 	}
 
 	void UCamera::set_frame_callback(CFrameMover callback) {

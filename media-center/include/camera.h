@@ -114,10 +114,16 @@ namespace neural {
 		CFrameMover m_frame_callback;
 		CSignalingCallback m_signaling_callback;
 
+		std::thread::id m_gst_loop_thread_id;
+
 		std::atomic<bool> m_running;
-		std::atomic<bool> m_stop_requested;
 		std::atomic<bool> m_is_initializing;
 		std::atomic<bool> m_error;
+		std::atomic<bool> m_stop_called{ false };
+
+		// Для прерывания worker loop
+		std::mutex m_worker_cv_mutex;
+		std::condition_variable m_worker_cv;
 
 		bool m_initialized;
 		bool m_gst_initialized;

@@ -32,11 +32,13 @@ UCameraMainPipeline::UCameraMainPipeline(
 }
 
 UCameraMainPipeline::~UCameraMainPipeline() {
-
+	//teardown();
+	m_send_callback = nullptr;
+	m_dma_sender = nullptr;
+	destroy_gst_gl_context();
 }
 
-bool UCameraMainPipeline::teardown() {
-	std::lock_guard<std::mutex> lock(m_branch_mutex);
+bool UCameraMainPipeline::teardown_prefix() {
 	if (!destroy_branch(m_record_branch)) {
 		m_logger->warn("teardown(): record branch didn't teardown properly!");
 	}
@@ -45,13 +47,7 @@ bool UCameraMainPipeline::teardown() {
 		m_logger->warn("teardown(): decoder branch didn't teardown properly!");
 	}
 
-	if (UCameraPipeline::teardown()) {
-		return true;
-	}
-	else {
-		destroy_gst_gl_context();
-		return true;
-	}
+	return true;
 }
 
 bool UCameraMainPipeline::initialize() {
@@ -98,7 +94,7 @@ bool UCameraMainPipeline::initialize() {
 				if (debug) g_free(debug);
 
 
-				//self->restart_async();
+				//self->shedule_restart();
 				break;
 			}
 
@@ -136,7 +132,7 @@ bool UCameraMainPipeline::initialize() {
 				if (s && gst_structure_has_name(s, "GstRTSPSrcTimeout"))
 				{
 					self->m_logger->warn("RTSP timeout detected");
-					self->restart_async();
+					self->shedule_restart();
 				}
 				break;
 			}
@@ -399,14 +395,16 @@ bool UCameraMainPipeline::create_record_branch(GstElement* tee)
 	m_logger->debug("Creating branch to record segments...");
 	m_logger->debug("A path for recording segments has been found: " + m_record_path.string());
 	if (!std::filesystem::exists(m_record_path)) {
-		try {
-			std::filesystem::create_directories(m_record_path);
-			m_logger->debug("create_record_branch(): Directory " + m_record_path.string() + " sucessfully created!");
-		}
-		catch (...) {
-			m_logger->error("create_record_branch(): Cannot create directories at path: " + m_record_path.string());
-			return false;
-		}
+		m_logger->error("create_record_branch(): Cannot write directories at path: " + m_record_path.string());
+		return false;
+		//try {
+		//	std::filesystem::create_directories(m_record_path);
+		//	m_logger->debug("create_record_branch(): Directory " + m_record_path.string() + " sucessfully created!");
+		//}
+		//catch (...) {
+		//	m_logger->error("create_record_branch(): Cannot create directories at path: " + m_record_path.string());
+		//	return false;
+		//}
 	}
 
 	auto usage = get_disk_usage(m_parameters.record_path, m_logger.get());

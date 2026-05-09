@@ -1,6 +1,7 @@
 #pragma once 
 
 #include <mutex>
+#include <condition_variable>
 #include <map>
 #include <iostream>
 #include <string>
@@ -67,11 +68,15 @@ public:
 
 	bool stop();
 
-	virtual bool teardown();
+	bool teardown(bool is_stop = true);
+
+	virtual bool teardown_prefix();
+
+	void request_stop();
 
 	void stop_restart_thread();
 
-	void restart_async();
+	void shedule_restart();
 
 	virtual bool create_webrtc_session(const std::string& client_id, std::string& description);
 
@@ -117,7 +122,6 @@ protected:
 	std::function<void(std::string)> m_send_callback;
 
 	std::atomic<bool> m_has_initialized{false};
-	std::atomic<bool> m_is_destroying{false};
 	std::atomic<bool> m_is_playing{false};
 
 	// Поток для рестарта
@@ -127,6 +131,10 @@ protected:
 	int m_max_restart_attempts{0}; // 0 = бесконечно
 	int m_backoff_ms{1000};        // стартовая задержка 1 сек
 	int m_max_backoff_ms{30000};   // максимум 30 сек
+
+	std::atomic<bool> m_stop_requested{ false };
+	std::mutex        m_restart_cv_mutex;
+	std::condition_variable m_restart_cv;
 
 	std::unique_ptr<ULogger> m_logger;
 
@@ -191,7 +199,7 @@ public:
 
 	virtual bool initialize() override;
 
-	virtual bool teardown() override;
+	virtual bool teardown_prefix() override;
 
 	virtual bool create_webrtc_session(const std::string& client_id, std::string& description) override;
 
@@ -262,7 +270,7 @@ public:
 
 	virtual bool initialize() override;
 
-	virtual bool teardown() override;
+	virtual bool teardown_prefix() override;
 
 	virtual bool create_webrtc_session(const std::string& client_id, std::string& description) override;
 

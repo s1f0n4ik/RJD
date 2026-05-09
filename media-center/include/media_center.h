@@ -87,6 +87,14 @@ private:
 	CFrameMover m_bird_view_frame_mover = nullptr;
 	CFrameMover m_neural_frame_mover = nullptr;
 
+	// Потоки для удаления камер асинхронно
+	std::mutex m_cleanup_mutex;
+	std::vector<std::thread> m_cleanup_threads;
+
+	std::atomic<bool> m_shutdown_requested{ false };
+	std::mutex m_init_cv_mutex;
+	std::condition_variable m_init_cv;
+
 	ULogger m_logger;
 };
 

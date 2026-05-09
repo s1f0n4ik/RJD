@@ -164,14 +164,14 @@ bool UNV12EncodingPipeline::initialize() {
 	return true;
 }
 
-bool UNV12EncodingPipeline::teardown() {
+bool UNV12EncodingPipeline::teardown_prefix() {
 	{
-		std::lock_guard<std::mutex> lk(m_appsrc_mutex);
+		std::lock_guard<std::mutex> lock(m_appsrc_mutex);
 		m_is_set = false;
 		m_appsrc = nullptr;
 		m_frame_count = 0;
 	}
-	return UCameraPipeline::teardown();
+	return true;
 }
 
 bool UNV12EncodingPipeline::create_webrtc_session(const std::string& client_id, std::string& description) {

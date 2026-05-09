@@ -101,19 +101,41 @@ int UMediaCenter::remove_camera(const std::string& camera_unique, bool to_save) 
 }
 
 void UMediaCenter::remove_camera_async(const std::string& camera_id, bool to_save) {
-    std::thread([this, camera_id, to_save]() {
+    // Вытаскиваем указатель на камеру
+    std::shared_ptr<UCamera> camera_to_remove;
+    {
         std::lock_guard<std::mutex> lk(m_mutex);
-
         auto it = m_cameras.find(camera_id);
         if (it == m_cameras.end()) {
             return;
         }
 
+        camera_to_remove = std::move(it->second);
         m_cameras.erase(it);
 
         if (to_save) m_config_manager.remove_camera(camera_id);
+    }
+    // Удаление в потоках камеры
+    {
+        std::lock_guard<std::mutex> lk(m_cleanup_mutex);
 
-    }).detach();
+        // Чистим завершённые потоки
+        m_cleanup_threads.erase(
+            std::remove_if(m_cleanup_threads.begin(), m_cleanup_threads.end(),
+                [](std::thread& t) {
+                    return !t.joinable();
+                }
+            ),
+            m_cleanup_threads.end()
+        );
+
+        m_cleanup_threads.emplace_back(
+            [camera = std::move(camera_to_remove)]() mutable {
+                camera->stop();
+                camera.reset();
+            }
+        );
+    }
 }
 
 void UMediaCenter::run_eos() {
@@ -142,36 +164,58 @@ void UMediaCenter::start_cameras_from_config() {
     }
 
     auto cameras = m_config_manager.get_all_configs();
-    int ready = 0;
 
-    // Добавляем камеры в список
-    for (const auto& camera : cameras) {
-        add_camera(camera.camera, camera.streams);
-    }
-
-    // Начинаем инициализацию + асинхронный запуск
-    int count = m_cameras.size();
-    while (ready < count) {
-        for (auto& camera : m_cameras) {
-            if (camera.second->initialize()) {
-                ready++;
-
-                camera.second->start_async();
-            }
-            else {
-                m_logger.error("start_cameras_from_config(): camera " + camera.second->get_name() + " didn't initialized!");
-            }
-        }
-        if (ready != count) {
-            ready = 0;
-            m_logger.error((std::ostringstream() 
-                << "start_cameras_from_config(): Initialized " << ready << " of " << count << " cameras at nvr. Restart!").str()
-            );
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    {
+        for (const auto& camera : cameras) {
+            add_camera(camera.camera, camera.streams);
         }
     }
+
+    std::vector<std::pair<std::string, std::weak_ptr<UCamera>>> camera_refs;
+    {
+        std::lock_guard<std::mutex> lk(m_mutex);
+        for (auto& [id, cam] : m_cameras)
+            camera_refs.push_back({ id, cam }); // weak_ptr из shared_ptr
+    }
+
+    for (auto& [id, weak_cam] : camera_refs) {
+        std::thread([this, id, weak_cam]() {
+            while (!m_shutdown_requested.load()) {
+
+                auto cam = weak_cam.lock();
+                if (!cam) {
+                    m_logger.warn("start_cameras_from_config(): camera "
+                        + id + " removed, exiting init thread");
+                    return;
+                }
+
+                {
+                    std::lock_guard<std::mutex> lk(m_mutex);
+                    if (m_cameras.find(id) == m_cameras.end()) return;
+                }
+
+                if (cam->initialize()) {
+                    m_logger.info("start_cameras_from_config(): camera " + id + " initialized");
+                    cam->start_async();
+                    return;
+                }
+
+                m_logger.error("start_cameras_from_config(): camera "
+                    + id + " failed to initialize, retry in 2s");
+
+                cam.reset(); // отпускаем перед sleep
+
+                std::unique_lock<std::mutex> lk(m_init_cv_mutex);
+                m_init_cv.wait_for(lk, std::chrono::seconds(2),
+                    [this] { return m_shutdown_requested.load(); }
+                );
+            }
+            }).detach();
+    }
+
     m_camera_initialization = true;
-    m_logger.info("start_cameras_from_config():  All cameras was initialized!");
+    m_logger.info("start_cameras_from_config(): init threads launched for "
+        + std::to_string(camera_refs.size()) + " cameras");
 }
 
 void UMediaCenter::initialize_cameras() {

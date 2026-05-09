@@ -1,5 +1,6 @@
 #include "webrtc_session.h"
 
+#include <future>
 #include <thread>
 
 #include "signaling_definers.h"
@@ -193,8 +194,34 @@ void UWebRTCSession::teardown() {
 		return;
 	}
 
-	if (!g_main_context_is_owner(nullptr)) {
-		m_logger->error("teardown(): MUST be called from main thread!");
+	if (!g_main_context_is_owner(g_main_context_default())) {
+		m_logger->debug("teardown(): not in main thread, invoking via g_main_context");
+
+		std::promise<void> done;
+		auto future = done.get_future();
+
+		struct Ctx {
+			UWebRTCSession* self;
+			std::promise<void> done;
+		};
+		auto* ctx = new Ctx{ this, std::move(done) };
+
+		g_main_context_invoke(
+			g_main_context_default(),
+			+[](gpointer data) -> gboolean {
+				auto* ctx = static_cast<Ctx*>(data);
+				ctx->self->teardown(); // рекурсивный вызов — теперь в main thread
+				ctx->done.set_value();
+				delete ctx;
+				return G_SOURCE_REMOVE;
+			},
+			ctx
+		);
+
+		// Ждём завершения с таймаутом
+		if (future.wait_for(std::chrono::seconds(5)) == std::future_status::timeout) {
+			m_logger->error("teardown(): timeout waiting for main thread!");
+		}
 		return;
 	}
 
@@ -266,41 +293,6 @@ void UWebRTCSession::teardown() {
 		gst_element_set_state(m_queue, GST_STATE_NULL);
 		gst_element_get_state(m_queue, nullptr, nullptr, GST_SECOND);
 	}
-
-	// Отвзяка втеки
-	/*if (m_tee_pad_src) {
-
-		std::atomic<bool> blocked = false;
-
-		gst_pad_add_probe(
-			m_tee_pad_src,
-			GST_PAD_PROBE_TYPE_BLOCK_DOWNSTREAM,
-			+[](GstPad*, GstPadProbeInfo*, gpointer user_data) {
-				auto* flag = static_cast<std::atomic<bool>*>(user_data);
-				*flag = true;
-				return GST_PAD_PROBE_OK;
-			},
-			&blocked,
-			nullptr
-		);
-
-		while (!blocked) {
-			g_main_context_iteration(nullptr, FALSE);
-		}
-
-		GstPad* queue_sink = gst_element_get_static_pad(m_queue, "sink");
-		if (queue_sink) {
-			gst_pad_unlink(m_tee_pad_src, queue_sink);
-			gst_object_unref(queue_sink);
-		}
-
-		if (m_tee) {
-			gst_element_release_request_pad(m_tee, m_tee_pad_src);
-		}
-
-		gst_object_unref(m_tee_pad_src);
-		m_tee_pad_src = nullptr;
-	}*/
 
 	// очистка самого пайплайна
 	if (m_pipeline) {
