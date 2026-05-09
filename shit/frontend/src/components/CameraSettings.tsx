@@ -461,11 +461,12 @@ const CameraSettings: React.FC = () => {
           formData.main_latency !== original.streams.main.latency ||
           formData.main_use_udp !== original.streams.main.use_udp ||
           formData.main_reconnect !== original.streams.main.reconnect ||
-          effectiveSegment !== original.streams.main.segment ||
           formData.sub_sub !== original.streams.sub.sub ||
           formData.sub_latency !== original.streams.sub.latency ||
           formData.sub_use_udp !== original.streams.sub.use_udp ||
-          formData.sub_reconnect !== original.streams.sub.reconnect;
+          formData.sub_reconnect !== original.streams.sub.reconnect ||
+          effectiveSegment !== original.streams.main.segment ||
+          recordPath !== original.streams.main.record_path;
 
         const criticalChanged = passwordChanged || otherCriticalChanged;
 
