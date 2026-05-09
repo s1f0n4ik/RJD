@@ -1085,7 +1085,7 @@ const CameraSettings: React.FC = () => {
                   fullWidth
                   disabled
                   label="Местоположение записей"
-                  value={`/home/orangepi/records`}
+                  value={`/storage/internal`}
                   helperText="Генерируется автоматически"
                 />
               </Grid>

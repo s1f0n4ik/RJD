@@ -12,8 +12,7 @@ import tempfile
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-RECORDS_PATH = Path("/home/orangepi/records")
-
+RECORDS_PATH = Path("/storage/internal")
 
 class MergeRequest(BaseModel):
     """Запрос на склейку видео"""
