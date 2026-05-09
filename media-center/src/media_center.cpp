@@ -26,7 +26,11 @@ int UMediaCenter::add_camera(const FCameraData& options, const std::map<std::str
 
     m_cameras[options.id] = std::move(cam);
 
-    if (to_save) m_config_manager.add_or_update_camera(m_cameras[options.id]->get_data());
+    if (to_save) {
+        if (!options.id.starts_with("__probe_")) {
+            m_config_manager.add_or_update_camera(m_cameras[options.id]->get_data());
+        }
+    }
 
     return 0;
 }
