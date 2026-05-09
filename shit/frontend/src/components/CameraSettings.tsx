@@ -327,7 +327,7 @@ const CameraSettings: React.FC = () => {
       sub_use_udp: camera.streams.sub.use_udp,
       sub_reconnect: camera.streams.sub.reconnect,
       // тумблер = включён, если segment > 0
-      recording_enabled: camera.streams.main.segment > 0,
+      recording_enabled: (camera.streams.main.segment > 0) && (!(camera.streams.main.record_path === "")),
     });
     editOriginalRef.current = camera;
     setSelectedTab(0);
