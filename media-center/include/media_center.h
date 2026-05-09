@@ -4,6 +4,7 @@
 #include <mutex>
 #include <optional>
 #include "bird-view/egl-context.h"
+#include "nvr/camera-configurator.h"
 
 #include "camera.h"
 
@@ -17,21 +18,24 @@ public:
 
 	UMediaCenter(const FWebSocketOptions& websocket, birdview::UEGLContextManager* gl_manager = nullptr);
 
-	int add_camera(const FCameraData& options, const std::map<std::string, FPipelineConfig>& pipelines);
+	int add_camera(const FCameraData& options, const std::map<std::string, FPipelineConfig>& pipelines, bool to_save = false);
 
-	bool add_camera_async(const FCameraData& options, const std::map<std::string, FPipelineConfig>& pipelines);
+	bool add_camera_async(const FCameraData& options, const std::map<std::string, FPipelineConfig>& pipelines, bool to_save = false);
 
-	int remove_camera(const std::string& camera_name);
+	int remove_camera(const std::string& camera_name, bool to_save = false);
 
-	void remove_camera_async(const std::string& camera_name);
+	void remove_camera_async(const std::string& camera_name, bool to_save = false);
 
 	bool update_camera(
 		const std::string& id,
 		const std::optional<FCameraData>& camera_options,
-		const std::optional<std::map<std::string, FPipelineConfig>>& pipelines
+		const std::optional<std::map<std::string, FPipelineConfig>>& pipelines,
+		bool to_save = false
 	);
 
 	bool camera_exists(std::string name);
+
+	void start_cameras_from_config();
 
 	void initialize_cameras();
 
@@ -40,6 +44,9 @@ public:
 	void stop_cameras();
 
 	void run_eos();
+
+	// Возвращает конфигуратор камер для сохранения параметров
+	UCameraConfigirationManager* get_config_manager();
 
 	// Установка колбэеков
 	void set_bird_view_callback(CFrameMover callback);
@@ -56,6 +63,8 @@ private:
 	CFrameMover get_frame_callback_by_camera_type(ECameraType type);
 
 private:
+	UCameraConfigirationManager m_config_manager;
+
 	FWebSocketOptions m_websocket;
 	birdview::UEGLContextManager* m_gl_manager = nullptr;
 

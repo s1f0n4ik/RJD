@@ -60,6 +60,7 @@ namespace neural {
 			pipeline_setting.camera_name = options.id;
 			pipeline_setting.name = name;
 			pipeline_setting.rtsp_url = rtsp_url;
+			pipeline_setting.stream = stream_data.stream;
 
 			auto pipe_logger = std::make_unique<ULogger>(m_options.id + ": " + name, m_logger.get_level());
 			auto send_callback = [this](std::string msg) {this->send_message(std::move(msg)); };
@@ -190,6 +191,7 @@ namespace neural {
 		std::lock_guard<std::mutex> lk(m_init_mutex);
 
 		if (m_running || m_is_initializing) {
+			m_logger.warn("start_async(): camera is already running!");
 			return;
 		}
 

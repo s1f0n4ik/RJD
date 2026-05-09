@@ -179,7 +179,7 @@ UController::post_camera(const http::request<http::string_body>& req)
             // Добавление структуры в камеру
             pipelines[name_stream] = std::move(pipeline_config);
         }
-        if (m_media_center->add_camera_async(camera_data, pipelines)) {
+        if (m_media_center->add_camera_async(camera_data, pipelines, true)) {
             body[fields::RESULT] = "success";
             body[fields::ERROR_DETAILS] = "Camera \"" + id + "\" successfully added to nvr!";
 
@@ -390,7 +390,7 @@ UController::patch_camera(const http::request<http::string_body>& req)
             patch_streams_data = pipelines;
         }
         // Изменяем pipeline
-        if (m_media_center->update_camera(*camera_id, patch_camera_options, patch_streams_data)) {
+        if (m_media_center->update_camera(*camera_id, patch_camera_options, patch_streams_data, true)) {
             json::object body;
             body[fields::RESULT] = "success";
             body[fields::ERROR_DETAILS] = "Camera \"" + *camera_id + "\" successfully updated";
@@ -445,7 +445,7 @@ UController::delete_camera(const http::request<http::string_body>& req) {
                         throw std::runtime_error("Camera with name " + value + " doesn't exist in nvr!");
                     }
 
-                    m_media_center->remove_camera_async(value);
+                    m_media_center->remove_camera_async(value, true);
 
                     body[fields::RESULT] = "success";
                     body[fields::ERROR_DETAILS] = "Camera with name " + value + " successfully pended to delete!";

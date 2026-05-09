@@ -314,6 +314,8 @@ FPipelineData UNV12EncodingPipeline::get_pipeline_data() {
 	data.record_path = "";
 	data.segment_length = -1;
 
+	data.sub = m_parameters.stream;
+
 	return data;
 }
 

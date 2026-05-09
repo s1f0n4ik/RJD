@@ -249,7 +249,8 @@ void UCameraPipeline::stop_restart_thread() {
 }
 
 bool UCameraPipeline::probe_video_stream(int timeout_sec) {
-    m_logger->debug("Initializing probe pipeline...");
+    if (m_logger) m_logger->debug("Initializing probe pipeline...");
+    if (m_logger) m_logger->debug("Trying to connect to camera with rtsp: " + m_parameters.rtsp_url);
 
     auto pipeline = gst_pipeline_new("probe-pipeline");
     auto src = gst_element_factory_make("rtspsrc", nullptr);
@@ -257,7 +258,7 @@ bool UCameraPipeline::probe_video_stream(int timeout_sec) {
     auto sink = gst_element_factory_make("fakesink", nullptr);
 
     if (!pipeline || !src || !decoder || !sink) {
-        m_logger->error("Failed to create probe pipeline elements.");
+        if (m_logger) m_logger->error("Failed to create probe pipeline elements.");
         return false;
     }
 

@@ -126,6 +126,9 @@ private:
         }},
         { fields::RECONNECT, [](const FPipelineData& data, boost::json::object& obj) {
             obj[fields::RECONNECT] = data.reconnect_time;
+        }},
+        { fields::SUB_STREAM, [](const FPipelineData& data, boost::json::object& obj) {
+            obj[fields::SUB_STREAM] = data.sub;
         }}
     };
 

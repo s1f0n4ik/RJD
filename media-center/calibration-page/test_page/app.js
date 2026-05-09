@@ -13,6 +13,7 @@
 // ── State ────────────────────────────────────────────────────
 const state = {
     clientId: 'web_' + Math.random().toString(16).slice(2, 10),
+    camera:   null, // { id, displayName, width, height, fps }
     ws:       null,
     rtcWs:    null,
     pc:       null,
@@ -67,6 +68,41 @@ const _cal = {
     dismissBtn:   () => document.getElementById('calDismissBtn'),
     video:        () => document.getElementById('remoteVideo'),
     noSignal:    () => document.getElementById('noSignal'),
+};
+
+const undist = {
+    show:             document.getElementById('distortionDisplayToggle'),
+
+    alphaValue:        document.getElementById('distAlphaValue'),
+    alphaSlider:       document.getElementById('distAlphaSlider'),
+    alphaMin:          document.getElementById('distAlphaMin'),
+    alphaMid:          document.getElementById('distAlphaMid'),
+    alphaMax:          document.getElementById('distAlphaMax'),
+
+    zoomValue:         document.getElementById('distZoomValue'),
+    zoomSlider:        document.getElementById('distZoomSlider'),
+    zoomMin:           document.getElementById('distZoomMin'),
+    zoomMid:           document.getElementById('distZoomMid'),
+    zoomMax:           document.getElementById('distZoomMax'),
+
+    shiftXValue:       document.getElementById('distShiftXValue'),
+    shiftXSlider:      document.getElementById('distShiftXSlider'),
+    shiftXMin:         document.getElementById('distShiftXMin'),
+    shiftXMid:         document.getElementById('distShiftXMid'),
+    shiftXMax:         document.getElementById('distShiftXMax'),
+
+    shiftYValue:       document.getElementById('distShiftYValue'),
+    shiftYSlider:      document.getElementById('distShiftYSlider'),
+    shiftYMin:         document.getElementById('distShiftYMin'),
+    shiftYMid:         document.getElementById('distShiftYMid'),
+    shiftYMax:         document.getElementById('distShiftYMax'),
+}
+
+const UNDIST_SLIDERS = {
+    alpha:  { value: () => undist.alphaValue,  min: () => undist.alphaMin,  mid: () => undist.alphaMid,  max: () => undist.alphaMax,  slider: () => undist.alphaSlider  },
+    zoom:   { value: () => undist.zoomValue,   min: () => undist.zoomMin,   mid: () => undist.zoomMid,   max: () => undist.zoomMax,   slider: () => undist.zoomSlider   },
+    shiftX: { value: () => undist.shiftXValue, min: () => undist.shiftXMin, mid: () => undist.shiftXMid, max: () => undist.shiftXMax, slider: () => undist.shiftXSlider },
+    shiftY: { value: () => undist.shiftYValue, min: () => undist.shiftYMin, mid: () => undist.shiftYMid, max: () => undist.shiftYMax, slider: () => undist.shiftYSlider },
 };
 
 // ── Config refs ─────────────────────────────────────────────────
@@ -293,6 +329,8 @@ function onWsClose() {
     });
     setWsStatus('disconnected');
     setStreamingUI(false)
+    hidePanelBlock(dom.calibrationBlock.id)
+    hidePanelBlock(dom.correctionBlock.id)
     log('WebSocket закрыт', 'warn');
 }
 
@@ -339,6 +377,8 @@ function onRtcWsError(e) {
 function onRtcWsClose() {
     setRtcWsStatus('disconnected');
     log('RTC WebSocket закрыт', 'warn');
+    hidePanelBlock(dom.calibrationBlock.id)
+    hidePanelBlock(dom.correctionBlock.id)
     closeRTC();
     hideVideo();
 }
@@ -390,6 +430,8 @@ function dispatchServerMessage(msg) {
         case 'calibration_progress': handleCalibrateStep(msg); break;
         case 'calibration_compute': handleCalibrationCompute(msg); break;
         case 'calibration_result': handleCalibrationResult(msg); break;
+        case 'undistort_compute': handleDistortionCompute(msg); break;
+        case 'view_undistort': handleOnDistortionShow(msg); break;
         default:
             log(`Неизвестный тип: ${msg.type}. Сообщение: ${msg}`, 'warn');
     }
@@ -457,7 +499,7 @@ async function handleRTCOffer(msg) {
         sendRTC({
             type:        'answer',
             client_id:   state.clientId,
-            camera:      getCameraId(),
+            camera:      state.camera.id,
             description: 'SDP answer from client',
             sdp:         answer.sdp,
         });
@@ -496,6 +538,122 @@ async function handleRTCIce(msg) {
 }
 
 // ════════════════════════════════════════════════════════════
+// Выбор камеры
+// ════════════════════════════════════════════════════════════
+
+function toggleCameraSelect() {
+    const wrap = document.getElementById('cameraSelect');
+    const isOpen = wrap.classList.contains('open');
+    if (isOpen) {
+        closeCameraSelect();
+    } else {
+        openCameraSelect();
+    }
+}
+
+function openCameraSelect() {
+    const wrap = document.getElementById('cameraSelect');
+    wrap.classList.add('open');
+    fetchCameraList();
+
+    // закрыть при клике вне
+    setTimeout(() => document.addEventListener('click', _onCameraSelectOutside), 0);
+}
+
+function closeCameraSelect() {
+    document.getElementById('cameraSelect').classList.remove('open');
+    document.removeEventListener('click', _onCameraSelectOutside);
+}
+
+function _onCameraSelectOutside(e) {
+    if (!document.getElementById('cameraSelect').contains(e.target)) {
+        closeCameraSelect();
+    }
+}
+
+async function fetchCameraList() {
+    const list = document.getElementById('cameraSelectList');
+    list.innerHTML = `<div class="custom-select-loading">Загрузка...</div>`;
+
+    try {
+        const res  = await fetch('http://192.168.1.2:7778/camera');
+        const json = await res.json();
+
+        if (json.error) throw new Error(json.error);
+
+        const cameras = json?.data?.cameras ?? {};
+        const items   = _filterCameras(cameras);
+
+        _renderCameraList(items);
+
+    } catch (err) {
+        list.innerHTML = `<div class="custom-select-empty">Ошибка загрузки</div>`;
+        console.error('fetchCameraList:', err);
+    }
+}
+
+/* Оставить только camera_type === 3 и имеющие поток type === 2 */
+function _filterCameras(cameras) {
+    const result = [];
+
+    for (const [id, cam] of Object.entries(cameras)) {
+        if (cam.camera_type !== 3) continue;
+
+        const subStream = Object.values(cam.streams ?? {}).find(s => s.type === 1);
+        if (!subStream) continue;
+
+        result.push({
+            id,
+            displayName: cam.display_name,
+            width:  subStream.width,
+            height: subStream.height,
+            fps:    subStream.fps,
+        });
+    }
+
+    return result;
+}
+
+function _renderCameraList(items) {
+    const list = document.getElementById('cameraSelectList');
+    list.innerHTML = '';
+
+    if (!items.length) {
+        list.innerHTML = `<div class="custom-select-empty">Нет доступных камер</div>`;
+        return;
+    }
+
+    items.forEach(item => {
+        const el = document.createElement('div');
+        el.className = 'custom-select-item' + (state.camera?.id === item.id ? ' selected' : '');
+        el.innerHTML = `<span class="custom-select-item-name">${item.displayName}</span>`;
+        el.onclick = () => selectCamera(item);
+        list.appendChild(el);
+    });
+}
+
+function selectCamera(item) {
+    state.camera = item;
+
+    const label = document.getElementById('cameraSelectLabel');
+    label.textContent = item.displayName;
+    label.classList.add('selected');
+
+    closeCameraSelect();
+
+    console.log('camera selected:', item);
+
+    document.getElementById('width').value = item.width;
+    document.getElementById('height').value = item.height;
+    // item.id, item.displayName, item.width, item.height, item.fps
+}
+
+/* Получить текущий выбор извне */
+function getSelectedCamera() {
+    return _cameraSelect.selected;
+}
+
+// ════════════════════════════════════════════════════════════
 // CALIBRATION — STEP 1 ACTIONS
 // ════════════════════════════════════════════════════════════
 
@@ -505,11 +663,15 @@ function startCalibrationStream() {
         return;
     }
 
-    const camera_id = getCameraId();
-    const width     = parseInt(document.getElementById('width').value)    || 3040;
-    const height    = parseInt(document.getElementById('height').value)   || 1368;
-    const fps       = parseInt(document.getElementById('fps').value)      || 15;
-    const max_width = parseInt(document.getElementById('maxWidth').value) || 1080;
+    if (!state.camera) {
+        log('Не выбрана камера для подключения!');
+        return;
+    }
+
+    const camera_id         = state.camera.id;
+    const width     = parseInt(state.camera.width);
+    const height    = parseInt(state.camera.height);
+    const fps       = parseInt(state.camera.fps);
 
     const msg = {
         type:      'connection',
@@ -519,7 +681,6 @@ function startCalibrationStream() {
             width,
             height,
             fps,
-            max_width,
         },
     };
 
@@ -670,7 +831,7 @@ function createPeerConnection() {
         sendRTC({
             type:             'ice',
             client_id:        state.clientId,
-            camera:           getCameraId(),
+            camera:           state.camera.id,
             candidate:        e.candidate.candidate,
             sdpMLineIndex:    e.candidate.sdpMLineIndex,
             sdpMid:           e.candidate.sdpMid,
@@ -716,7 +877,6 @@ function sendRTCReadySignal() {
         log(`WebRTC ошибка: нет streamId для организации подключения`);
         return;
     }
-    const cameraId = getCameraId();
     sendRTC({
         type:        'connection',
         client_id:   state.clientId,
@@ -724,7 +884,7 @@ function sendRTCReadySignal() {
         description: 'webrtc_ready',
         ret:         'none',
     });
-    log(`WebRTC ready → camera=${cameraId}`);
+    log(`WebRTC ready → camera=${state.camera.id}`);
 }
 
 function closeRTC() {
@@ -791,14 +951,15 @@ function setStreamingUI(isStreaming) {
         btn.classList.add('streaming');
         load_config.classList.remove('collapsed');
         label.textContent = '■ Закрыть стрим';
+        showPanelBlock(dom.calibrationBlock.id);
     } else {
         fields.classList.remove('collapsed');
         btn.classList.remove('streaming');
         load_config.classList.add('collapsed');
+        hidePanelBlock(dom.calibrationBlock.id)
+        hidePanelBlock(dom.correctionBlock.id)
         label.textContent = '▶ Запустить стрим';
     }
-
-    showPanelBlock(dom.calibrationBlock.id);
 }
 
 // ════════════════════════════════════════════════════════════
@@ -1066,14 +1227,34 @@ function handleCalibrationResult(msg) {
         return;
     }
 
+    let width = msg.meta?.width ?? -1;
+    let height = msg.meta?.height ?? -1;
     let rms = msg.meta?.rms ?? -1;
     let used_images = msg.meta?.used_images ?? -1;
     let total = msg.meta?.total ?? -1;
 
-    calShowSuccess({
-        title: 'Калибровка завершена',
-        desc: `Погрешность в пикселях: ${rms}px\nОбработано: ${total} снимков, из которых использовано ${used_images}`
-    });
+    if (rms > 1.0) {
+        calShowError({
+            title: 'Калибровка завершена',
+            desc: `Погрешность слишком высокая для дальнейших вычислений: ${rms}px\n
+              Добейтейсь значений в пределах 1 пикселя!\n
+              Обработано: ${total} снимков, из которых использовано ${used_images}`
+        });
+    }
+    else {
+        calShowSuccess({
+            title: 'Калибровка завершена',
+            desc: `Погрешность в пикселях: ${rms}px\nОбработано: ${total} снимков, из которых использовано ${used_images}`
+        });
+    }
+
+    setSliderConfig('alpha',  { value: 0.0, min: 0,   max: 1,   decimals: 2 });
+    setSliderConfig('zoom',   { value: 1.0, min: 0.1,  max: 2.0, mid: 1.0, decimals: 2 });
+    setSliderConfig('shiftX', { value: 0.0, min: -width / 2, max: width / 2, decimals: 0 });
+    setSliderConfig('shiftY', { value: 0.0, min: -height / 2, max: height / 2, decimals: 0 });
+
+    // Запуск вычисления undistort
+    requestDistortionCompute();
 }
 
 // ════════════════════════════════════════════════════════════
@@ -1244,6 +1425,87 @@ function hideDistortionControls() {
     document.getElementById('distortionBody').classList.remove('visible');
 }
 
+function requestDistortionCompute() {
+    sendWS({
+        type: 'undistort_compute',
+        client_id: state.clientId,
+        meta: {
+            alpha: Number(UNDIST_SLIDERS["alpha"].value().textContent),
+            zoom: Number(UNDIST_SLIDERS["zoom"].value().textContent),
+            shift_x: Number(UNDIST_SLIDERS["shiftX"].value().textContent),
+            shift_y: Number(UNDIST_SLIDERS["shiftY"].value().textContent),
+        }
+    });
+}
+
+function handleDistortionCompute(msg) {
+    if (!msg.ret) {
+        let err_text = `Ошибка при вычислении коррекции искажений: ${msg.meta?.description ?? 'нет описания ошибки'}`;
+        log(err_text, 'err');
+        showToast("Ошибка", err_text, 'err');
+        return;
+    }
+
+    setDistortionState("success");
+    showPanelBlock(dom.correctionBlock.id);
+}
+
+function onDistortionDisplayToggle() {
+    let desired = undist.show.checked;
+    undist.show.checked = !desired;       // откатить визуально до ответа сервера
+
+    sendWS({
+        type:        'view_undistort',
+        client_id:   state.clientId,
+        meta: {
+            "show" : desired,
+        },
+    })
+}
+
+function handleOnDistortionShow(msg) {
+    if (!msg.ret) {
+        log(`Ошибка при отображении коррекции изображений: ${msg.meta?.description ?? 'нет описания ошибки'}`);
+        return;
+    }
+
+    let show = msg.meta?.show ?? false;
+    undist.show.checked = show;
+    log(`Изменено отображение коррекции`, 'info');
+}
+
+function _fmt(n, decimals = 2) {
+    return parseFloat(n).toFixed(decimals);
+}
+
+function onSliderInput(key, rawValue) {
+    const s = UNDIST_SLIDERS[key];
+    if (!s) return;
+    s.value().textContent = _fmt(rawValue);
+}
+
+function onSliderCommit(key, rawValue) {
+    const value = parseFloat(rawValue);
+    console.log(`slider commit [${key}]:`, value);
+    // сюда вставить отправку на сервер / применение
+}
+
+function setSliderConfig(key, { value, min, max, mid, decimals = 2 } = {}) {
+    const s = UNDIST_SLIDERS[key];
+    if (!s) return;
+
+    const midVal = mid ?? (min + max) / 2;
+
+    s.slider().min   = min;
+    s.slider().max   = max;
+    s.slider().value = value;
+
+    s.min().textContent   = _fmt(min,    decimals);
+    s.mid().textContent   = _fmt(midVal, decimals);
+    s.max().textContent   = _fmt(max,    decimals);
+    s.value().textContent = _fmt(value,  decimals);
+}
+
 // ════════════════════════════════════════════════════════════
 // Работа с конфигурауциями
 // ════════════════════════════════════════════════════════════
@@ -1304,11 +1566,6 @@ function showPanelBlock(id) {
 function hidePanelBlock(id) {
     document.getElementById(id).classList.remove('visible');
     document.getElementById(id).classList.add('panel-block--hidden');
-}
-
-
-function getCameraId() {
-    return document.getElementById('cameraId').value.trim() || 'camera_0';
 }
 
 function toggleFullscreen() {

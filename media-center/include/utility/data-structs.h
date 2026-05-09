@@ -71,6 +71,8 @@ namespace nvr {
 
 		std::string record_path;
 		int segment_length;
+
+		int sub;
 	};
 
 	// Структуры для пайпалнов

@@ -33,13 +33,14 @@ namespace fields {
 	inline const std::string RECORD_PATH = "record_path";    // "record_path"
 	inline const std::string SEGMENT_LENGTH = "segment";     // "segment"
 	inline const std::string RECONNECT = "reconnect";        // "reconnect"
+	inline const std::string SUB = "sub";                    // "sub"
 
 	inline const std::string IP_ADRESS = "ip_adress";        // "ip_adress"
 	inline const std::string PORT = "port";                  // "port"
 	inline const std::string USER = "user";                  // "user"
 	inline const std::string PASSWORD = "password";          // "password"
 	inline const std::string PRODUCTION = "production";      // "production"
-	inline const std::string CAMERA_TYPE = "camera_type";    // "camera type"
+	inline const std::string CAMERA_TYPE = "type";           // "type"
 
 	// Общие поля
 	inline const std::string DESCRIPTION = "description";    // "description"

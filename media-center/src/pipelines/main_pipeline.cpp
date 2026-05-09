@@ -78,7 +78,7 @@ bool UCameraMainPipeline::initialize() {
 			{
 			case GST_MESSAGE_ERROR: {
 				// обработка ошибки записи
-				if (self->m_record_branch.is_deployed &&
+				if (self->m_record_branch.is_deployed.load() &&
 					(GST_MESSAGE_SRC(msg) == GST_OBJECT(self->m_record_branch.get_element(varan::nvr::RECORD_SPLITMUXSINK)))) {
 					self->m_logger->error("splitmux error detected, restarting record branch");
 					self->destroy_branch(self->m_record_branch);
@@ -260,11 +260,13 @@ bool UCameraMainPipeline::initialize() {
 		}), depay);
 
 	// В случае, если передан путь для сохранения файлов
-	if (!m_parameters.record_path.empty()) {
-		create_record_branch(tee);
+	if (m_parameters.record_path.empty() || m_parameters.segment_length <= 0) {
+		m_logger->debug("inititalize(): record path not found. Record branch didn't create");
 	}
 	else {
-		m_logger->debug("inititalize(): record path not found. Record branch didn't create");
+		m_record_path = m_parameters.record_path / m_parameters.camera_name;
+		create_record_branch(tee);
+		set_timer_check_record_branch();
 	}
 
 	// Добавить декодировщик
@@ -370,7 +372,7 @@ bool UCameraMainPipeline::create_decoder_branch(GstElement* tee) {
 	m_decoder_branch.add_element(varan::nvr::DECODER_APPSINK, appsink);
 
 	m_decoder_branch.is_deployed = true;
-	m_record_branch.type = EBranchType::DECODER;
+	m_decoder_branch.type = EBranchType::DECODER;
 
 	// Использовать контекст GLES, если он был иницилизирован
 	if (m_gl_context.is_initialized) {
@@ -389,22 +391,28 @@ bool UCameraMainPipeline::create_record_branch(GstElement* tee)
 		return false;
 	}
 
-	if (m_record_branch.is_deployed) {
+	if (m_record_branch.is_deployed.load()) {
 		m_logger->warn("create_record_branch(): trying to create record branch that already exists!");
 		return true;
 	}
 
 	m_logger->debug("Creating branch to record segments...");
-	m_logger->debug("A path for recording segments has been found: " + m_parameters.record_path.string());
-	if (!std::filesystem::exists(m_parameters.record_path)) {
+	m_logger->debug("A path for recording segments has been found: " + m_record_path.string());
+	if (!std::filesystem::exists(m_record_path)) {
 		try {
-			std::filesystem::create_directories(m_parameters.record_path);
-			m_logger->debug("create_record_branch(): Directory " + m_parameters.record_path.string() + " sucessfully created!");
+			std::filesystem::create_directories(m_record_path);
+			m_logger->debug("create_record_branch(): Directory " + m_record_path.string() + " sucessfully created!");
 		}
 		catch (...) {
-			m_logger->error("create_record_branch(): Cannot create directories at path: " + m_parameters.record_path.string());
+			m_logger->error("create_record_branch(): Cannot create directories at path: " + m_record_path.string());
 			return false;
 		}
+	}
+
+	auto usage = get_disk_usage(m_parameters.record_path, m_logger.get());
+	if (usage >= 95.0f) {
+		m_logger->error("create_record_branch(): Cannot create record branch at path=" + m_record_path.string() + "; disk usage=" + std::to_string(usage));
+		return false;
 	}
 
 	auto record_queue = gst_element_factory_make("queue", "record_queue");
@@ -429,43 +437,24 @@ bool UCameraMainPipeline::create_record_branch(GstElement* tee)
 	g_signal_connect(splitmux, "format-location",
 		G_CALLBACK(+[](GstElement*, guint, gpointer data) -> gchar* {
 			auto self = static_cast<UCameraMainPipeline*>(data);
-			const auto& record_path = self->m_parameters.record_path;
+			const auto& record_path = self->m_record_path;
 
-			// Удаление файлов, которым больше 1 месяца
-			auto now = std::filesystem::file_time_type::clock::now();
-			constexpr auto ONE_MONTH = std::chrono::hours(24 * 30);
+			float usage = self->get_disk_usage(record_path, self->m_logger.get());
+			if (usage >= 95.0f) {
+				self->m_logger->warn(
+					"format-location: disk usage " +
+					std::to_string(static_cast<int>(usage)) +
+					"%, scheduling record branch removal"
+				);
+				// Планируем удаление в главном потоке GLib — не трогаем пайплайн из колбека
+				g_idle_add([](gpointer data) -> gboolean {
+					auto self = static_cast<UCameraMainPipeline*>(data);
+					self->destroy_branch(self->m_record_branch);
+					return G_SOURCE_REMOVE;
+					}, self);
 
-			std::error_code ec;
-			for (const auto& entry : std::filesystem::directory_iterator(record_path, ec)) {
-				if (!entry.is_regular_file()) continue;
-				if (entry.path().extension() != ".mp4") continue;
-
-				auto age = now - entry.last_write_time();
-				if (age > ONE_MONTH) {
-					std::filesystem::remove(entry.path(), ec);
-					if (!ec) {
-						self->m_logger->info(
-							"format-location: removed old segment: " + entry.path().string()
-						);
-					}
-				}
-			}
-
-			// Проверка заполненности диска
-			auto space = std::filesystem::space(record_path, ec);
-			if (!ec && space.capacity > 0) {
-				float usage = static_cast<float>(space.capacity - space.available)
-					/ static_cast<float>(space.capacity) * 100.0f;
-
-				if (usage >= 90.0f) {
-					self->m_logger->warn(
-						"format-location: disk usage " +
-						std::to_string(static_cast<int>(usage)) +
-						"%, stopping record branch"
-					);
-					// Возвращаем nullptr — splitmuxsink остановит запись
-					return nullptr;
-				}
+				// Возвращаем /dev/null чтобы не ронять splitmuxsink этим последним фрагментом
+				return g_strdup("/dev/null");
 			}
 
 			// Генерация имени файла по времени
@@ -474,7 +463,7 @@ bool UCameraMainPipeline::create_record_branch(GstElement* tee)
 
 			auto save_path = record_path / oss.str();
 			return g_strdup(save_path.c_str());
-			}),
+		}),
 		this
 	);
 
@@ -502,7 +491,7 @@ bool UCameraMainPipeline::create_record_branch(GstElement* tee)
 
 	// Связывание остальные элеентов
 	if (!gst_element_link(record_queue, splitmux)) {
-		m_logger->error("Failed to link file record tee: tee, record_queue, splitmux");
+		if (m_logger) m_logger->error("Failed to link file record tee: tee, record_queue, splitmux");
 		return false;
 	}
 
@@ -511,15 +500,45 @@ bool UCameraMainPipeline::create_record_branch(GstElement* tee)
 
 	if (m_record_branch.elements.size() != 0) m_record_branch.elements.clear();
 
-	m_decoder_branch.add_element(varan::nvr::QUEUE, record_queue);
-	m_decoder_branch.add_element(varan::nvr::RECORD_SPLITMUXSINK, splitmux);
+	m_record_branch.add_element(varan::nvr::QUEUE, record_queue);
+	m_record_branch.add_element(varan::nvr::RECORD_SPLITMUXSINK, splitmux);
 
 	m_record_branch.tee_pad = tee_record_pad;
 
-	m_record_branch.is_deployed = true;
 	m_record_branch.type = EBranchType::RECORD;
+	m_record_branch.is_deployed.store(true);
+
+	if (m_logger) m_logger->info("create_record_branch(): record branch successfully created!");
 
 	return true;
+}
+
+void UCameraMainPipeline::set_timer_check_record_branch() {
+	g_timeout_add_seconds(60, [](gpointer data) -> gboolean {
+		auto self = static_cast<UCameraMainPipeline*>(data);
+
+		if (self->m_record_branch.is_deployed.load()) {
+			if (self->m_logger) self->m_logger->debug("timer_check_record_branch: record branch is alive");
+			return G_SOURCE_CONTINUE;
+		}
+
+		auto usage = UCameraMainPipeline::get_disk_usage(self->m_record_path, self->m_logger.get());
+		// Не восстанавливает, если заполненность диска больше 90 процентов
+		if (usage >= 90.0f) {
+			if (self->m_logger) self->m_logger->warn(
+				"timer_check_record_branch: disk still at " +
+				std::to_string(static_cast<int>(usage)) + "%, waiting, not recovering"
+			);
+			return G_SOURCE_CONTINUE;
+		}
+
+		self->m_logger->info(
+			"timer_check_record_branch: disk at " +
+			std::to_string(static_cast<int>(usage)) + "%, restoring record branch"
+		);
+		self->create_record_branch(self->m_tees[MAIN_TEE]);
+		return G_SOURCE_CONTINUE;
+	}, this);
 }
 
 bool UCameraMainPipeline::destroy_branch(FPipelineBranch& branch)
@@ -544,15 +563,6 @@ bool UCameraMainPipeline::destroy_branch(FPipelineBranch& branch)
 		}
 	}
 
-	// посылаем EOS только в ветку записи
-	if ((branch.type == EBranchType::RECORD) && branch.get_element(varan::nvr::RECORD_SPLITMUXSINK)) {
-		m_logger->debug("destroy_branch(): send eos signal to record branch!");
-		auto queue = branch.get_element(varan::nvr::QUEUE);
-		if (queue) {
-			gst_element_send_event(queue, gst_event_new_eos());
-		}
-	}
-
 	// Блокировка ветки
 	if (branch.tee_pad) {
 		gst_pad_add_probe(branch.tee_pad, GST_PAD_PROBE_TYPE_BLOCK_DOWNSTREAM,
@@ -574,6 +584,13 @@ bool UCameraMainPipeline::destroy_branch(FPipelineBranch& branch)
 		branch.tee_pad = nullptr;
 	}
 
+	if (branch.type == EBranchType::RECORD) {
+		auto splitmux = branch.get_element(varan::nvr::RECORD_SPLITMUXSINK);
+		if (splitmux) {
+			g_signal_emit_by_name(branch.get_element(varan::nvr::RECORD_SPLITMUXSINK), "split-now");
+		}
+	}
+
 	// Остановка элементов
 	for (auto& pair_element : branch.elements) {
 		auto element_name = pair_element.first;
@@ -585,34 +602,38 @@ bool UCameraMainPipeline::destroy_branch(FPipelineBranch& branch)
 		}
 		if (m_logger) m_logger->debug("destroy_branch(): turn to NULL state element " + element_name);
 		gst_element_set_state(element, GST_STATE_NULL);
-		gst_element_get_state(element, nullptr, nullptr, GST_CLOCK_TIME_NONE);
+		GstStateChangeReturn ret = gst_element_get_state(element, nullptr, nullptr, 3 * GST_SECOND);
+		if (ret == GST_STATE_CHANGE_FAILURE) {
+			if (m_logger) m_logger->error("destroy_branch(): failed to set NULL: " + element_name);
+		}
 
 		gst_bin_remove(GST_BIN(m_pipeline), element);
 	}
 
 	branch.elements.clear();
 
-	branch.is_deployed = false;
+	branch.is_deployed.store(false);
 	m_logger->info("destroy_branch(): " + branch.name + " branch was deleted!");
 	return true;
 }
 
 bool UCameraMainPipeline::create_webrtc_session(const std::string& client_id, std::string& description)
 {
-	if (!UCameraPipeline::create_webrtc_session(client_id, description)) {
+	std::string client = client_id;
+	if (!UCameraPipeline::create_webrtc_session(client, description)) {
 		return false;
 	}
 
 	auto session = std::make_unique<UWebRTCSession>(
-		client_id,
+		client,
 		m_parameters.camera_name,
 		false,
 		m_pipeline,
 		m_tees[std::string(MAIN_TEE)],
 		m_send_callback,
 		std::move(
-			[this](const std::string& client_id, std::string& description) {
-				return this->close_webrtc_session(client_id, description);
+			[this](const std::string& client, std::string& description) {
+				return this->close_webrtc_session(client, description);
 			}
 		),
 		m_logger.get()
@@ -623,15 +644,15 @@ bool UCameraMainPipeline::create_webrtc_session(const std::string& client_id, st
 		return false;
 	}
 
-	auto [it, inserted] = m_webrtc_sessions.emplace(client_id, std::move(session));
+	auto [it, inserted] = m_webrtc_sessions.emplace(client, std::move(session));
 
 	auto ret = it->second->create_branch(m_probe.codec_name);
 	if (ret) {
-		m_logger->info("Successfully created webrtc session branch with client " + client_id);
+		m_logger->info("Successfully created webrtc session branch with client " + client);
 		description = "Connection resolved!";
 	}
 	else {
-		m_logger->info("Error creation webrtc session branch with client " + client_id);
+		m_logger->info("Error creation webrtc session branch with client " + client);
 		description = "Connection doesn't resolved!";
 	}
 	return ret;
@@ -931,6 +952,19 @@ void UCameraMainPipeline::destroy_gst_gl_context() {
 	if (m_logger) m_logger->info("destroy_gst_gl_context(): destroyed");
 }
 
+float UCameraMainPipeline::get_disk_usage(const std::string path, ULogger* logger) {
+	std::error_code ec;
+	auto space = std::filesystem::space(path, ec);
+	if (ec || space.capacity == 0) {
+		if (logger) logger->warn("get_disk_usage(): error with computing space at disk!");
+		return 146.0f;
+	}
+
+	auto usage = static_cast<float>(space.capacity - space.available) / static_cast<float>(space.capacity) * 100.0f;
+	if (logger) logger->debug("get_disk_usage(): current space usage is " + std::to_string(usage) + "; check from path " + path);
+	return usage;
+}
+
 FPipelineData UCameraMainPipeline::get_pipeline_data() {
 	FPipelineData data;
 
@@ -948,8 +982,10 @@ FPipelineData UCameraMainPipeline::get_pipeline_data() {
 	data.reconnect_time = m_parameters.reconnect_delay;
 	data.latency = m_parameters.latency;
 
-	data.record_path = m_parameters.record_path;
+	data.record_path = m_record_path;
 	data.segment_length = m_parameters.segment_length;
+
+	data.sub = m_parameters.stream;
 
 	return data;
 }

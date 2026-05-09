@@ -85,86 +85,7 @@ int main(int argc, char* argv[])
 	auto rest_server = URestServer{ config.rest_port, center };
 	rest_server.async_start();
 
-	// camera 1
-	FPipelineData main_1;
-	main_1.name = "main"; main_1.type = EPilelineType::MAIN; main_1.rtsp_url = "rtsp://admin:VniiTest@192.168.1.11:554/ISAPI/Streaming/Channels/101";
-	main_1.latency = 0; main_1.use_udp = false; main_1.reconnect_time = 10;
-	main_1.record_path = "/home/orangepi/records/camera_01"; main_1.segment_length = 10;
-
-	FPipelineData sub_1;
-	sub_1.name = "sub"; sub_1.type = EPilelineType::SUB; sub_1.rtsp_url = "rtsp://admin:VniiTest@192.168.1.11:554/ISAPI/Streaming/Channels/102";
-	sub_1.latency = 0; sub_1.use_udp = true; sub_1.reconnect_time = 10;
-
-	// camera 2
-	FPipelineData main_2;
-	main_2.name = "main"; main_2.type = EPilelineType::MAIN; main_2.rtsp_url = "rtsp://admin:VniiTest@192.168.1.12:554/ISAPI/Streaming/Channels/101";
-	main_2.latency = 0; main_2.use_udp = false; main_2.reconnect_time = 10;
-	main_2.record_path = "/home/orangepi/records/camera_02"; main_2.segment_length = 10;
-
-	FPipelineData sub_2;
-	sub_2.name = "sub"; sub_2.type = EPilelineType::SUB; sub_2.rtsp_url = "rtsp://admin:VniiTest@192.168.1.12:554/ISAPI/Streaming/Channels/102";
-	sub_2.latency = 0; sub_2.use_udp = true; sub_2.reconnect_time = 10;
-
-	// camera 3
-	FPipelineData main_3;
-	main_3.name = "main"; main_3.type = EPilelineType::MAIN; main_3.rtsp_url = "rtsp://admin:VniiTest@192.168.1.13:554/cam/realmonitor?channel=1&subtype=0";
-	main_3.latency = 0; main_3.use_udp = false; main_3.reconnect_time = 10;
-	main_3.record_path = "/home/orangepi/records/camera_03"; main_3.segment_length = 10;
-
-	FPipelineData sub_3;
-	sub_3.name = "sub"; sub_3.type = EPilelineType::SUB; sub_3.rtsp_url = "rtsp://admin:VniiTest@192.168.1.13:554/cam/realmonitor?channel=1&subtype=1";
-	sub_3.latency = 0; sub_3.use_udp = true; sub_3.reconnect_time = 10;
-
-	// camera 4
-	FPipelineData main_4;
-	main_4.name = "main"; main_4.type = EPilelineType::MAIN; main_4.rtsp_url = "rtsp://admin:VniiTest@192.168.1.14:554/cam/realmonitor?channel=1&subtype=0";
-	main_4.latency = 0; main_4.use_udp = false; main_4.reconnect_time = 10;
-	main_4.record_path = "/home/orangepi/records/camera_04"; main_4.segment_length = 10;
-
-	FPipelineData sub_4;
-	sub_4.name = "sub"; sub_4.type = EPilelineType::SUB; sub_4.rtsp_url = "rtsp://admin:VniiTest@192.168.1.14:554/cam/realmonitor?channel=1&subtype=1";
-	sub_4.latency = 0; sub_4.use_udp = true; sub_4.reconnect_time = 10;
-
-	// camera 5
-	FPipelineData main_5;
-	main_5.name = "main"; main_5.type = EPilelineType::MAIN; main_5.rtsp_url = "rtsp://admin:VniiTest@192.168.1.16:554/ISAPI/Streaming/Channels/101";
-	main_5.latency = 0; main_5.use_udp = false; main_5.reconnect_time = 10;
-	main_5.record_path = "/home/orangepi/records/camera_06"; main_5.segment_length = 10;
-
-	FPipelineData sub_5;
-	sub_5.name = "sub"; sub_5.type = EPilelineType::SUB; sub_5.rtsp_url = "rtsp://admin:VniiTest@192.168.1.16:554/ISAPI/Streaming/Channels/102";
-	sub_5.latency = 0; sub_5.use_udp = true; sub_5.reconnect_time = 10;
-
-	// camera 7
-	FPipelineData main_6;
-	main_6.name = "main"; main_6.type = EPilelineType::MAIN; main_6.rtsp_url = "rtsp://admin:VniiTest@192.168.1.17:554/cam/realmonitor?channel=1&subtype=0";
-	main_6.latency = 0; main_6.use_udp = false; main_6.reconnect_time = 10;
-	main_6.record_path = "/home/orangepi/records/camera_07"; main_6.segment_length = 10;
-
-	FPipelineData sub_6;
-	sub_6.name = "sub"; sub_6.type = EPilelineType::SUB; sub_6.rtsp_url = "rtsp://admin:VniiTest@192.168.1.17:554/cam/realmonitor?channel=1&subtype=1";
-	sub_6.latency = 0; sub_6.use_udp = true; sub_6.reconnect_time = 10;
-
-	// camera 8
-	FPipelineData main_7;
-	main_7.name = "main"; main_7.type = EPilelineType::MAIN; main_7.rtsp_url = "rtsp://admin:VniiTest@192.168.1.18:554/cam/realmonitor?channel=1&subtype=0";
-	main_7.latency = 0; main_7.use_udp = false; main_7.reconnect_time = 10;
-	main_7.record_path = "/home/orangepi/records/camera_08"; main_7.segment_length = 10;
-
-	FPipelineData sub_7;
-	sub_7.name = "sub"; sub_7.type = EPilelineType::SUB; sub_7.rtsp_url = "rtsp://admin:VniiTest@192.168.1.18:554/cam/realmonitor?channel=1&subtype=1";
-	sub_7.latency = 0; sub_7.use_udp = true; sub_7.reconnect_time = 10;
-
-	// camera 9
-	FPipelineData main_8;
-	main_8.name = "main"; main_8.type = EPilelineType::MAIN; main_8.rtsp_url = "rtsp://admin:VniiTest@192.168.1.19:554/ISAPI/Streaming/Channels/101";
-	main_8.latency = 0; main_8.use_udp = false; main_8.reconnect_time = 10;
-	main_8.record_path = "/home/orangepi/records/camera_09"; main_8.segment_length = 10;
-
-	FPipelineData sub_8;
-	sub_8.name = "sub"; sub_8.type = EPilelineType::SUB; sub_8.rtsp_url = "rtsp://admin:VniiTest@192.168.1.19:554/ISAPI/Streaming/Channels/102";
-	sub_8.latency = 0; sub_8.use_udp = true; sub_8.reconnect_time = 10;
-
+	/*
 	std::vector<std::map<std::string, FPipelineConfig>> streams_config = {
 		{
 			{"main", {"", "", "", 1, EPilelineType::MAIN, 0, false, 10, "/home/orangepi/records/camera_01", 60}},
@@ -187,10 +108,15 @@ int main(int argc, char* argv[])
 		},{
 			{"main", {"", "", "", 1, EPilelineType::MAIN, 0, false, 10, "", 10}},
 			{"sub", {"", "", "", 2, EPilelineType::SUB, 0, true, 10, "", 10}}
-		},{
+		},
+		{
 			{"main", {"", "", "", 1, EPilelineType::MAIN, 0, false, 10, "", 10}},
 			{"sub", {"", "", "", 2, EPilelineType::SUB, 0, true, 10, "", 10}}
 		},
+		{
+			{"main", {"", "", "", 1, EPilelineType::MAIN, 0, false, 10, "/home/orangepi/records", 10}},
+			{"sub", {"", "", "", 2, EPilelineType::SUB, 0, true, 10, "", 10}}
+		}
 	};
 
 	std::vector<varan::nvr::FCameraData> vector_options = {
@@ -198,11 +124,11 @@ int main(int argc, char* argv[])
 		{"camera_02", "Камера 2", "Описание", "192.168.1.12", "554", "admin", "VniiTest", ECameraType::BIRDVIEW, ERtspType::HIKVISION},
 		{"camera_03", "Камера 3", "Описание", "192.168.1.13", "554", "admin", "VniiTest", ECameraType::BIRDVIEW, ERtspType::DAHUA},
 		{"camera_04", "Камера 4", "Описание", "192.168.1.14", "554", "admin", "VniiTest", ECameraType::GENERAL, ERtspType::DAHUA},
-		//{"camera_06", "Камера 5", "Описание", "192.168.1.16", "554", "admin", "VniiTest", ECameraType::BIRDVIEW, ERtspType::HIKVISION},
-		//{"camera_07", "Камера 6", "Описание", "192.168.1.17", "554", "admin", "VniiTest", ECameraType::BIRDVIEW, ERtspType::DAHUA},
+		{"camera_06", "Камера 5", "Описание", "192.168.1.16", "554", "admin", "VniiTest", ECameraType::BIRDVIEW, ERtspType::HIKVISION},
+		{"camera_07", "Камера 6", "Описание", "192.168.1.17", "554", "admin", "VniiTest", ECameraType::BIRDVIEW, ERtspType::DAHUA},
 		{"camera_10", "Камера 10", "Описание", "192.168.1.31", "554", "admin", "VniiTest", ECameraType::BIRDVIEW, ERtspType::ACE},
 		{"camera_11", "Камера 11", "Описание", "192.168.1.32", "554", "admin", "VniiTest", ECameraType::BIRDVIEW, ERtspType::ACE},
-		{"camera_bird_test", "Камера Крутая ахуенная", "ХУЙ", "192.168.1.64", "554", "admin", "VniiTest", ECameraType::BIRDVIEW, ERtspType::HIKVISION},
+		{"camera_bird_test", "Камера апельсинчик", "Для теста калибровки", "192.168.1.64", "554", "admin", "VniiTest", ECameraType::BIRDVIEW, ERtspType::HIKVISION}
 	};
 
 	// Создание камер
@@ -212,6 +138,11 @@ int main(int argc, char* argv[])
 
 	center->initialize_cameras();
 
+	// Запуск камер
+	center->start_cameras();
+
+	*/
+
 	//linker_360->set_render_camera(varan::birdview::EBirdCameraType::FRONT, "camera_1");
 	//linker_360->set_render_camera(varan::birdview::EBirdCameraType::BACK, "camera_2");
 	//linker_360->set_render_camera(varan::birdview::EBirdCameraType::LEFT_FRONT, "camera_3");
@@ -219,11 +150,10 @@ int main(int argc, char* argv[])
 	//linker_360->set_render_camera(varan::birdview::EBirdCameraType::RIGHT_BACK, "camera_6");
 	//linker_360->set_render_camera(varan::birdview::EBirdCameraType::LEFT_BACK, "camera_7");
 
-	// Запуск камер
-	center->start_cameras();
-
 	// Запуск Линкера
 	//linker_360->async_start(25);
+
+	center->start_cameras_from_config();
 
 	while (RUNNING) {
 		std::this_thread::sleep_for(std::chrono::milliseconds(200));

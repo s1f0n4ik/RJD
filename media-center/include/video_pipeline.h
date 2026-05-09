@@ -158,7 +158,7 @@ class UCameraMainPipeline : public UCameraPipeline {
 		elements_map elements;
 
 		GstPad* tee_pad = nullptr;
-		bool is_deployed = false;
+		std::atomic<bool> is_deployed = false;
 		EBranchType type;
 		std::string name;
 
@@ -207,6 +207,8 @@ private:
 
 	bool create_record_branch(GstElement* tee);
 
+	void set_timer_check_record_branch();
+
 	bool destroy_branch(FPipelineBranch& branch);
 
 	void destroy_gst_gl_context();
@@ -215,18 +217,20 @@ private:
 
 	static GstFlowReturn on_new_sample_gl_texture(GstElement* sink, gpointer user_data);
 
+	static float get_disk_usage(const std::string path, ULogger* logger);
+
 private:
 
 	FGstGLContext m_gl_context;
 
 	FPipelineBranch m_record_branch;
+	std::filesystem::path m_record_path = "";
+
 	FPipelineBranch m_decoder_branch;
 
 	CFrameMover m_dma_sender;
 
 	std::mutex m_branch_mutex;
-
-	std::atomic<bool> m_record_eos_received{ false };
 };
 
 class UCameraSubPipeline : public UCameraPipeline {

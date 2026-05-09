@@ -162,27 +162,31 @@
             </div>
             <div id="cameraFields" class="camera-fields">
                 <div class="field-group">
-                    <label class="field-label">ID камеры</label>
-                    <input id="cameraId" class="field-input" type="text" placeholder="camera_0" />
+                    <label class="field-label">Камера</label>
+                    <div class="custom-select" id="cameraSelect">
+                        <button class="custom-select-trigger" onclick="toggleCameraSelect()" id="cameraSelectTrigger">
+                            <span id="cameraSelectLabel" class="custom-select-label">Выберите камеру</span>
+                            <span class="custom-select-arrow" id="cameraSelectArrow">›</span>
+                        </button>
+                        <div class="custom-select-dropdown" id="cameraSelectDropdown">
+                            <div class="custom-select-list" id="cameraSelectList"></div>
+                        </div>
+                    </div>
                 </div>
+                <!--
+                <div class="field-group">
+                    <label class="field-label">ID камеры</label>
+                    <input id="cameraId" class="field-input" type="text" placeholder="camera_bird_test" />
+                </div>
+                -->
                 <div class="field-row">
                     <div class="field-group">
                         <label class="field-label">Ширина</label>
-                        <input id="width" class="field-input" type="number" placeholder="3040" value="3040"/>
+                        <input id="width" class="field-input" type="number" readonly/>
                     </div>
                     <div class="field-group">
                         <label class="field-label">Высота</label>
-                        <input id="height" class="field-input" type="number" placeholder="1368" value="1368"/>
-                    </div>
-                </div>
-                <div class="field-row">
-                    <div class="field-group">
-                        <label class="field-label">Max W</label>
-                        <input id="maxWidth" class="field-input" type="number" placeholder="1080" value="1080"/>
-                    </div>
-                    <div class="field-group">
-                        <label class="field-label">FPS</label>
-                        <input id="fps" class="field-input" type="number" placeholder="15" value="15"/>
+                        <input id="height" class="field-input" type="number" readonly/>
                     </div>
                 </div>
             </div>
@@ -270,18 +274,77 @@
                 </summary>
                 <div class="collapsible-body" style="gap:6px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
-                        <label class="field-label">Alpha</label>
+                        <label class="field-label">Альфа</label>
                         <span id="distAlphaValue" class="field-label" style="color: var(--accent);">0.00</span>
                     </div>
                     <input
                             id="distAlphaSlider"
                             type="range" min="0" max="1" step="0.01" value="0"
                             class="dist-slider"
-                            oninput="onDistAlphaInput(this.value)"
-                            onchange="onDistAlphaCommit(this.value)"
+                            oninput="onSliderInput('alpha', this.value)"
+                            onchange="onSliderCommit('alpha', this.value)"
                     />
                     <div class="dist-slider-labels">
-                        <span>0</span><span>0.5</span><span>1</span>
+                        <span id="distAlphaMin">0</span>
+                        <span id="distAlphaMid">0.5</span>
+                        <span id="distAlphaMax">1</span>
+                    </div>
+                </div>
+
+                <div class="collapsible-body" style="gap:6px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
+                        <label class="field-label">Приближение</label>
+                        <span id="distZoomValue" class="field-label" style="color: var(--accent);">0.00</span>
+                    </div>
+                    <input
+                            id="distZoomSlider"
+                            type="range" min="0" max="2" step="0.005" value="1"
+                            class="dist-slider"
+                            oninput="onSliderInput('zoom', this.value)"
+                            onchange="onSliderCommit('zoom', this.value)"
+                    />
+                    <div class="dist-slider-labels">
+                        <span id="distZoomMin">0</span>
+                        <span id="distZoomMid">0.5</span>
+                        <span id="distZoomMax">1</span>
+                    </div>
+                </div>
+
+                <div class="collapsible-body" style="gap:6px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
+                        <label class="field-label">Смещение по X</label>
+                        <span id="distShiftXValue" class="field-label" style="color: var(--accent);">0.00</span>
+                    </div>
+                    <input
+                            id="distShiftXSlider"
+                            type="range" min="0" max="2" step="0.001" value="1"
+                            class="dist-slider"
+                            oninput="onSliderInput('shiftX', this.value)"
+                            onchange="onSliderCommit('shiftX', this.value)"
+                    />
+                    <div class="dist-slider-labels">
+                        <span id="distShiftXMin">0</span>
+                        <span id="distShiftXMid">0.5</span>
+                        <span id="distShiftXMax">1</span>
+                    </div>
+                </div>
+
+                <div class="collapsible-body" style="gap:6px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
+                        <label class="field-label">Смещение по Y</label>
+                        <span id="distShiftYValue" class="field-label" style="color: var(--accent);">0.00</span>
+                    </div>
+                    <input
+                            id="distShiftYSlider"
+                            type="range" min="0" max="2" step="0.001" value="1"
+                            class="dist-slider"
+                            oninput="onSliderInput('shiftY', this.value)"
+                            onchange="onSliderCommit('shiftY', this.value)"
+                    />
+                    <div class="dist-slider-labels">
+                        <span id="distShiftYMin">0</span>
+                        <span id="distShiftYMid">0.5</span>
+                        <span id="distShiftYMax">1</span>
                     </div>
                 </div>
             </details>
@@ -290,7 +353,7 @@
             <label class="toggle-row" style="padding: 6px 2px;">
                 <span class="toggle-label">Отображать коррекцию</span>
                 <input id="distortionDisplayToggle" class="toggle-input" type="checkbox"
-                       onchange="onDistortionDisplayToggle(this.checked)" />
+                       onchange="onDistortionDisplayToggle()" />
                 <span class="toggle-track"><span class="toggle-thumb"></span></span>
             </label>
         </section>

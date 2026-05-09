@@ -10,43 +10,13 @@ UMediaCenter::UMediaCenter(const FWebSocketOptions& socket, birdview::UEGLContex
     , m_websocket(socket)
     , m_gl_manager(manager)
     , m_logger("Media Center", ULogger::ELoggerLevel::TRACE)
-{
-    /*
-    if (!m_gl_manager) {
-        m_logger.error("Cannot create OpenGL context: gl manager is nullptr");
-        return;
-    }
+    , m_config_manager(constants::CONFIG_PATH, &m_logger)
+{}
 
-    m_gl_display = GST_GL_DISPLAY(gst_gl_display_egl_new_with_egl_display(manager->get_display()));
-
-    if (!m_gl_display) {
-        m_logger.error("Failed to create GStreamer OpenGL display!");
-        return;
-    }
-
-    m_gl_context = gst_gl_context_new_wrapped(m_gl_display, (guintptr)manager->get_context(), GST_GL_PLATFORM_EGL, GST_GL_API_GLES2);
-
-    if (!m_gl_context) {
-        m_logger.error("Failed to create wrapped GStreamer context from OpenGL context!");
-        gst_object_unref(m_gl_display);
-        return;
-    }
-
-    if (!gst_gl_context_activate(m_gl_context, TRUE)) {
-        m_logger.error("Failed to activate wrapped GSteamer context!");
-        gst_object_unref(m_gl_context);
-        gst_object_unref(m_gl_display);
-        return;
-    }
-    else {
-        m_logger.info("Created GStreamer wrapped context!");
-    }
-    */
-}
-
-int UMediaCenter::add_camera(const FCameraData& options, const std::map<std::string, FPipelineConfig>& pipelines) {
+int UMediaCenter::add_camera(const FCameraData& options, const std::map<std::string, FPipelineConfig>& pipelines, bool to_save) {
     std::lock_guard<std::mutex> lk(m_mutex);
     if (m_cameras.count(options.id)) {
+        m_logger.error("add_camera(): cannot add camera, camera with id=" + options.id + " already exists!");
         return -1;
     }
 
@@ -55,10 +25,13 @@ int UMediaCenter::add_camera(const FCameraData& options, const std::map<std::str
     cam->set_configurations(options, pipelines, std::move(callback), m_gl_manager);
 
     m_cameras[options.id] = std::move(cam);
+
+    if (to_save) m_config_manager.add_or_update_camera(m_cameras[options.id]->get_data());
+
     return 0;
 }
 
-bool UMediaCenter::add_camera_async(const FCameraData& options, const std::map<std::string, FPipelineConfig>& pipelines) {
+bool UMediaCenter::add_camera_async(const FCameraData& options, const std::map<std::string, FPipelineConfig>& pipelines, bool to_save) {
     std::lock_guard<std::mutex> lk(m_mutex);
 
     if (m_cameras.count(options.id)) {
@@ -72,14 +45,17 @@ bool UMediaCenter::add_camera_async(const FCameraData& options, const std::map<s
     camera->start_async();
     m_cameras[options.id] = std::move(camera);
 
+    if (to_save) m_config_manager.add_or_update_camera(m_cameras[options.id]->get_data());
+
     return true;
 }
 
 bool UMediaCenter::update_camera(
     const std::string& id,
     const std::optional<FCameraData>& camera_options,
-    const std::optional<std::map<std::string, FPipelineConfig>>& pipelines)
-{
+    const std::optional<std::map<std::string, FPipelineConfig>>& pipelines,
+    bool to_save 
+) {
     std::lock_guard<std::mutex> lk(m_mutex);
 
     auto it = m_cameras.find(id);
@@ -91,6 +67,7 @@ bool UMediaCenter::update_camera(
     // Обновление метаданных
     if (camera_options && !pipelines) {
         camera->update_metadata(camera_options.value().display_name, camera_options.value().description);
+        if (to_save) m_config_manager.add_or_update_camera(camera->get_data());
         m_logger.info("update_camera(): successfully updated camera metadata with id=" + id);
         return true;
     }
@@ -99,6 +76,7 @@ bool UMediaCenter::update_camera(
         auto callback = get_frame_callback_by_camera_type(camera_options.value().type);
         camera->set_configurations(*camera_options, *pipelines, std::move(callback), m_gl_manager);
         camera->start_async();
+        if (to_save) m_config_manager.add_or_update_camera(camera->get_data());
         m_logger.info("update_camera(): successfully updated camera streams with id=" + id);
         return true;
     }
@@ -109,27 +87,32 @@ bool UMediaCenter::update_camera(
 }
 
 // Удалить камеру (остановить и убрать)
-int UMediaCenter::remove_camera(const std::string& camera_unique) {
+int UMediaCenter::remove_camera(const std::string& camera_unique, bool to_save) {
     std::lock_guard<std::mutex> lk(m_mutex);
     auto it = m_cameras.find(camera_unique);
     if (it != m_cameras.end()) {
+        std::string camera_id = it->second->get_name();
         it->second->stop();
         m_cameras.erase(it);
+        if (to_save) m_config_manager.remove_camera(camera_id);
+        m_logger.info("remove_camera(): successfully removed camera id=" + camera_id);
     }
     return 1;
 }
 
-void UMediaCenter::remove_camera_async(const std::string& camera_name) {
-    auto it = m_cameras.find(camera_name);
-    if (it == m_cameras.end()) {
-        return;
-    }
+void UMediaCenter::remove_camera_async(const std::string& camera_id, bool to_save) {
+    std::thread([this, camera_id, to_save]() {
+        std::lock_guard<std::mutex> lk(m_mutex);
 
-    auto camera = std::move(it->second);
-    m_cameras.erase(it);
+        auto it = m_cameras.find(camera_id);
+        if (it == m_cameras.end()) {
+            return;
+        }
 
-    std::thread([cam = std::move(camera)]() mutable {
-        cam->stop();
+        m_cameras.erase(it);
+
+        if (to_save) m_config_manager.remove_camera(camera_id);
+
     }).detach();
 }
 
@@ -150,6 +133,45 @@ std::shared_ptr<UCamera> UMediaCenter::get_camera(const std::string& id) {
         return nullptr;
     }
     return result->second;
+}
+
+void UMediaCenter::start_cameras_from_config() {
+    if (!m_config_manager.load()) {
+        m_logger.error("start_cameras_from_config(): failed to load configurations");
+        return;
+    }
+
+    auto cameras = m_config_manager.get_all_configs();
+    int ready = 0;
+
+    // Добавляем камеры в список
+    for (const auto& camera : cameras) {
+        add_camera(camera.camera, camera.streams);
+    }
+
+    // Начинаем инициализацию + асинхронный запуск
+    int count = m_cameras.size();
+    while (ready < count) {
+        for (auto& camera : m_cameras) {
+            if (camera.second->initialize()) {
+                ready++;
+
+                camera.second->start_async();
+            }
+            else {
+                m_logger.error("start_cameras_from_config(): camera " + camera.second->get_name() + " didn't initialized!");
+            }
+        }
+        if (ready != count) {
+            ready = 0;
+            m_logger.error((std::ostringstream() 
+                << "start_cameras_from_config(): Initialized " << ready << " of " << count << " cameras at nvr. Restart!").str()
+            );
+            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+        }
+    }
+    m_camera_initialization = true;
+    m_logger.info("start_cameras_from_config():  All cameras was initialized!");
 }
 
 void UMediaCenter::initialize_cameras() {
@@ -195,6 +217,12 @@ void UMediaCenter::start_cameras() {
         camera->start();
     }
     std::cout << color::yellow << "[Media Center] All camera streams are running!" << color::reset << std::endl;
+
+    std::vector<FCameraStreamsData> data_vector;
+    for (auto& [name, camera] : m_cameras) {
+        data_vector.push_back(camera->get_data());
+    }
+    m_config_manager.save(data_vector);
 }
 
 void UMediaCenter::stop_cameras() {

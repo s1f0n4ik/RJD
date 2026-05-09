@@ -9,6 +9,8 @@ namespace constants {
 	inline const std::string calibration_url_server = "/calibrator/server"; // /calibrator/server
 	inline const std::string CALIBRATION_STREAM_ID = "calibration_stream"; // calibration_stream
 
+	inline const std::string CALIBRATION_CONFIGURES_PATH = ""; 
+
 	// Тип подключений
 	inline const std::string TYPE_CONNECTION = "connection";             // connection
 	inline const std::string TYPE_CLOSE = "close";                       // close
@@ -37,8 +39,10 @@ namespace constants {
 	// Переменные в meta
 	inline const std::string META_ID_STREAM = "id_stream"; // id_stream
 	inline const std::string META_STATUS = "status"; // status
+	inline const std::string META_WIDTH = "width"; // width
+	inline const std::string META_HEIGHT = "height"; // height
 
-	inline const std::string META_SHOW_CHESSBOARD = "show"; // show
+	inline const std::string META_SHOW = "show"; // show
 
 	inline const std::string META_ADDED_ID = "added_id"; // added_id
 	inline const std::string META_COUNT = "count"; // count

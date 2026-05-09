@@ -94,15 +94,20 @@ namespace calibration {
 				}
 
 				// Получаем занчение ресайза, если такое есть
-				int max_width = 1080;
+				int max_width = -1;
 				if (auto* v = meta->if_contains("max_width"); v && v->is_int64()) {
 					max_width = v->as_int64();
 				}
-				int max_height = 1080;
+				int max_height = -1;
 				if (auto* v = meta->if_contains("max_height"); v && v->is_int64()) {
 					max_height = v->as_int64();
 				}
-				resize_keep_aspect(m_raw_image, m_resized_image, max_width, max_height);
+				if (max_width == -1 || max_height == -1) {
+					m_resized_image = m_raw_image;
+				}
+				else {
+					resize_keep_aspect(m_raw_image, m_resized_image, max_width, max_height);
+				}
 				m_logger.info("New resized stream is: " + std::to_string(m_resized_image.width) + ", " + std::to_string(m_resized_image.height));
 
 				try {
@@ -217,7 +222,7 @@ namespace calibration {
 				if (auto* v = meta->if_contains("show"); v && v->is_bool()) {
 					m_to_show_chessboard = v->as_bool();
 					boost::json::object send_meta;
-					send_meta[constants::META_SHOW_CHESSBOARD] = m_to_show_chessboard;
+					send_meta[constants::META_SHOW] = m_to_show_chessboard;
 					send_message(make_socket_message(type, true, &client_id, &m_name, &send_meta));
 				}
 				else {
@@ -389,7 +394,19 @@ namespace calibration {
 				}
 			}
 			else if (type == constants::TYPE_VIEW_UNDISTORT) {
-				
+				boost::json::object send_meta;
+				if (!m_undistort.ready) {
+					send_meta[constants::META_SHOW] = false;
+					m_logger.debug("Undistort correction doesn't ready: cannot show undistortion");
+					return;
+				}
+				if (auto* v = meta->if_contains(constants::META_SHOW); v && v->is_bool()) {
+					m_apply_undistort = v->as_bool();
+				}
+				send_meta[constants::META_SHOW] = m_apply_undistort;
+				send_message(make_socket_message(type, true, &client_id, &m_name, &send_meta));
+				m_logger.debug("Set undistort correction to: " + std::to_string(m_apply_undistort));
+				return;
 			}
 			else {
 				on_error(constants::TYPE_MESSAGE, "Error with message: unsupported type message!", &client_id);
@@ -411,6 +428,9 @@ namespace calibration {
 	}
 
 	void UCalibrator::handle_image_for_push(cv::Mat image) {
+		if (image.empty()) {
+			return;
+		}
 		// Кешируем неизмененный фрейм
 		{
 			std::unique_lock<std::mutex> lk(m_cached_image_mutex);
@@ -426,24 +446,28 @@ namespace calibration {
 			}
 		}
 
-		cv::Mat to_push;
+		cv::Mat undistorted;
 		if (m_apply_undistort) {
-			to_push.create(image.size(), image.type());
-			apply_undistort_maps(image, to_push);
+			undistorted.create(image.size(), image.type());
+			apply_undistort_maps(image, undistorted);
 		}
 		else {
-			to_push = std::move(image);
+			undistorted = std::move(image);
 		}
 
+		cv::Mat to_push;
 		// Првоеряем нужно ли делать resize
 		if (m_resized_image != m_raw_image) {
 			cv::resize(
-				image,
+				undistorted,
 				to_push,
 				cv::Size(m_resized_image.width, m_resized_image.height),
 				0, 0,
 				cv::INTER_AREA
 			);
+		}
+		else {
+			to_push = std::move(undistorted);
 		}
 
 		if (m_to_show_chessboard) {
@@ -468,7 +492,17 @@ namespace calibration {
 		meta[constants::META_TOTAL] = m_calibration_images.size();
 		send_message(make_socket_message(constants::TYPE_CALIBRATION_START, true, &client_id, &m_name, &meta));
 
-		m_calibration_thread = std::thread([this, client_id]() {
+		auto send_step_result = [this, client_id](int index, int total, bool result) {
+			boost::json::object meta;
+			meta[constants::META_CURRENT_COUNT] = index + 1;
+			meta[constants::META_TOTAL] = total;
+			meta[constants::META_ID] = index;
+			meta[constants::META_CORNERS_FOUND] = result;
+
+			send_message(make_socket_message(constants::TYPE_CALIBRATION_PROGRESS, true, &client_id, &m_name, &meta));
+		};
+
+		m_calibration_thread = std::thread([this, client_id, send_step_result]() {
 
 			const cv::Size pattern_size(m_pattern.width, m_pattern.height);
 			const int total = static_cast<int>(m_calibration_images.size());
@@ -483,6 +517,9 @@ namespace calibration {
 
 			std::vector<std::vector<cv::Point3f>> object_points;
 			std::vector<std::vector<cv::Point2f>> image_points;
+
+			// ограничение на калибровку, 10 процентов кадра - минимум занимает шахматка
+			const double min_area_ratio = 0.1;
 
 			// Поиск углов на наших скриншотах
 			for (int i = 0; i < total; ++i) {
@@ -501,45 +538,69 @@ namespace calibration {
 				else {
 					m_logger.warn("run_calibration(): unsupported format image " + std::to_string(i));
 
-					boost::json::object meta;
-					meta[constants::META_CURRENT_COUNT] = i + 1;
-					meta[constants::META_TOTAL] = total;
-					meta[constants::META_ID] = i;
-					meta[constants::META_CORNERS_FOUND] = false;
-
-					send_message(make_socket_message(constants::TYPE_CALIBRATION_PROGRESS, true, &client_id, &m_name, &meta));
+					send_step_result(i, total, false);
 					continue;
 				}
 
 				std::vector<cv::Point2f> corners;
-				bool found = cv::findChessboardCorners(gray, pattern_size, corners);
+				// Использование точного алгоритма
+				bool found = cv::findChessboardCorners(
+					gray,
+					pattern_size,
+					corners,
+					cv::CALIB_CB_ADAPTIVE_THRESH | cv::CALIB_CB_NORMALIZE_IMAGE
+				);
 				bool chess_result = found && (corners.size() == pattern_size.area());
-				// Отправляем прогресс
-				{
-					boost::json::object meta;
-					meta[constants::META_CURRENT_COUNT] = i + 1;
-					meta[constants::META_TOTAL] = total;
-					meta[constants::META_ID] = i;
-					meta[constants::META_CORNERS_FOUND] = chess_result;
 
-					send_message(make_socket_message(constants::TYPE_CALIBRATION_PROGRESS, true, &client_id, &m_name, &meta));
-				}
-
-				if (!chess_result) {
+				if (!chess_result || corners.size() != pattern_size.area()) {
+					send_step_result(i, total, false);
 					m_logger.warn("run_calibration(): corners not found on image " + std::to_string(i));
 					continue;
 				}
 
-				cv::cornerSubPix(gray, corners, cv::Size(11, 11), cv::Size(-1, -1),
+				cv::cornerSubPix(gray, corners, cv::Size(11, 11), cv::Size(-1, -1), 
 					cv::TermCriteria(cv::TermCriteria::EPS + cv::TermCriteria::MAX_ITER, 30, 0.1));
 
+				// Проверка на углы
+				bool valid = true;
+				for (const auto& p : corners) {
+					if (!std::isfinite(p.x) || !std::isfinite(p.y)) {
+						valid = false;
+						break;
+					}
+				}
+				if (!valid) {
+					m_logger.warn("Invalid corners (NaN) on frame " + std::to_string(i));
+					send_step_result(i, total, false);
+					continue;
+				}
+
+				// Проверка размера доски
+				cv::Rect bbox = cv::boundingRect(corners);
+				/*double area_ratio = static_cast<double>(bbox.area()) / (gray.cols * gray.rows);
+				if (area_ratio < min_area_ratio) {
+					m_logger.warn("Chessboard too small on frame " + std::to_string(i));
+					send_step_result(i, total, false);
+					continue;
+				}
+				*/
+
+				// Проверка геометрии
+				float aspect = static_cast<float>(bbox.width) / bbox.height;
+				if (aspect < 0.3f || aspect > 3.0f) {
+					m_logger.warn("Bad aspect ratio on frame " + std::to_string(i));
+					send_step_result(i, total, false);
+					continue;
+				}
+
+				send_step_result(i, total, true);
 				object_points.push_back(single_object_points);
 				image_points.push_back(corners);
 			}
 
-			if (image_points.size() < 3) {
+			if (image_points.size() < 6) {
 				send_message(make_socket_error(constants::TYPE_CALIBRATION_RESULT,
-					"Not enough images with detected corners (need at least 3)",
+					"Not enough images with detected corners (need at least 6-10)",
 					&client_id, &m_name));
 				return;
 			}
@@ -554,6 +615,18 @@ namespace calibration {
 				m_calibration_images[0].cols,
 				m_calibration_images[0].rows
 			);
+
+			for (size_t i = 0; i < image_points.size(); i++) {
+
+				cv::Rect bbox = cv::boundingRect(image_points[i]);
+
+				float aspect = (float)bbox.width / bbox.height;
+
+				std::cout << "frame " << i
+					<< " area=" << bbox.area()
+					<< " aspect=" << aspect
+					<< std::endl;
+			}
 
 			double rms = 0;
 			try {
@@ -582,6 +655,8 @@ namespace calibration {
 
 			// Отправка рещультатов
 			boost::json::object meta;
+			meta[constants::META_WIDTH] = m_raw_image.width;
+			meta[constants::META_HEIGHT] = m_raw_image.height;
 			meta[constants::META_RMS] = rms;
 			meta[constants::META_USED_IMAGES] = static_cast<int>(image_points.size());
 			meta[constants::META_TOTAL] = total;
@@ -613,37 +688,55 @@ namespace calibration {
 	}
 
 	void UCalibrator::handle_undistort_computation(const std::string& client_id, const boost::json::object& meta, COnError on_error) {
-		auto get_double_from_meta = [&](const boost::json::object& obj,
+		if (!m_calibration.ready) {
+			send_message(make_socket_error(constants::TYPE_UNDISTORT_COMPUTE, "Cannot compute undistort maps: calibration didn't ready!", &client_id, &m_name));
+			return;
+		}
+		
+		auto get_float_from_meta = [&](
+			const boost::json::object& obj,
 			const std::string& key,
-			float& out,
-			const char* field_name
-		) -> bool
-		{
-			if (auto* v = obj.if_contains(key); v && v->is_double()) {
-				out = static_cast<float>(v->as_double());
+			float& out
+		) -> bool {
+			try {
+				auto it = obj.if_contains(key);
+				if (!it) {
+					throw std::runtime_error("missing key");
+				}
+
+				out = static_cast<float>(boost::json::value_to<double>(*it));
+
 				return true;
 			}
-
-			if (on_error) {
-				on_error(constants::TYPE_UNDISTORT_COMPUTE,
-					std::string("Error with message: missing or invalid <") + field_name + "> at meta block!",
-					&client_id);
+			catch (...) {
+				if (on_error) {
+					on_error(constants::TYPE_UNDISTORT_COMPUTE,
+						std::string("Error with message: missing or invalid <") +
+						key + "> at meta block!",
+						&client_id);
+				}
+				return false;
 			}
-			return false;
 		};
 
 		float alpha = 0.0f;
-		if (!get_double_from_meta(meta, constants::META_ID, alpha, "alpha")) return;
+		if (!get_float_from_meta(meta, constants::META_ALPHA, alpha)) return;
 
 		float zoom = 1.0f;
-		if (!get_double_from_meta(meta, constants::META_ZOOM, zoom, "zoom")) return;
+		if (!get_float_from_meta(meta, constants::META_ZOOM, zoom)) return;
 
-		float shift_x = 1.0f;
-		if (!get_double_from_meta(meta, constants::META_SHIFT_X, shift_x, "shift_x")) return;
+		float shift_x = 0.0f;
+		if (!get_float_from_meta(meta, constants::META_SHIFT_X, shift_x)) return;
 
-		float shift_y = 1.0f;
-		if (!get_double_from_meta(meta, constants::META_SHIFT_Y, shift_y, "shift_y")) return;
+		float shift_y = 0.0f;
+		if (!get_float_from_meta(meta, constants::META_SHIFT_Y, shift_y)) return;
 
+		std::ostringstream oss;
+		oss << "handle_undistort_computation(): Start correction image with parameters: alpha=" << alpha 
+			<< ", zoom=" << zoom << ", shift_x=" << shift_x << ", shift_y=" << shift_y << ";";
+		m_logger.debug(oss.str());
+
+		//build_fisheye_dewarp_LUT(client_id, m_raw_image.width, m_raw_image.height, 180.0);
 		compute_undistort_maps(client_id, alpha, true, zoom, shift_x, shift_y);
 	}
 
@@ -653,7 +746,7 @@ namespace calibration {
 			return;
 		}
 
-		auto ROI = cv::Rect(0, 0, m_raw_image.width, m_raw_image.height);
+		auto ROI = cv::Rect(0, 0, m_raw_image.height, m_raw_image.height);
 		auto image_size = cv::Size(m_raw_image.width, m_raw_image.height);
 		// Вычисление новой матрицы K
 		cv::Mat new_k = cv::getOptimalNewCameraMatrix(
@@ -666,10 +759,14 @@ namespace calibration {
 			true
 		);
 		// Кастомная настройка матрицы
-		new_k.at<float>(0, 0) *= zoom;
-		new_k.at<float>(1, 1) *= zoom;
-		new_k.at<double>(0, 2) = shift_x;
-		new_k.at<double>(1, 2) = shift_y;
+		new_k.at<double>(0, 0) *= zoom;
+		new_k.at<double>(1, 1) *= zoom;
+		new_k.at<double>(0, 2) += shift_x;
+		new_k.at<double>(1, 2) += shift_y;
+
+		std::ostringstream oss;
+		oss << "compute_undistort_maps(): computed new camera matrix: " << new_k;
+		m_logger.trace(oss.str());
 
 		m_undistort.custom_camera_matrix = new_k;
 
@@ -685,6 +782,8 @@ namespace calibration {
 			m_undistort.matrix_y
 		);
 		send_message(make_socket_message(constants::TYPE_UNDISTORT_COMPUTE, true, &client_id, &m_name));
+		m_logger.debug("compute_undistort_maps(): Successfully computed undistort maps!");
+		m_undistort.ready = true;
 	}
 
 	void UCalibrator::apply_undistort_maps(const cv::Mat& src, cv::Mat& dst) {
@@ -865,6 +964,52 @@ namespace calibration {
 
 		source.width = static_cast<int>(original.width * scale);
 		source.height = static_cast<int>(original.height * scale);
+	}
+
+	void UCalibrator::build_fisheye_dewarp_LUT(const std::string& client_id, int width, int height, float fov_deg) {
+		if (!m_undistort.matrix_x.empty()) m_undistort.matrix_x.release();
+		if (!m_undistort.matrix_y.empty()) m_undistort.matrix_y.release();
+
+		m_undistort.matrix_x.create(height, width, CV_32F);
+		m_undistort.matrix_y.create(height, width, CV_32F);
+
+		float cx = width * 0.5f;
+		float cy = height * 0.5f;
+
+		float fov = fov_deg * CV_PI / 180.0f;
+
+		// условный "фокус" под FOV
+		float f = width / fov;
+
+		for (int y = 0; y < height; y++) {
+			for (int x = 0; x < width; x++) {
+
+				float nx = (x - cx);
+				float ny = (y - cy);
+
+				float r = sqrt(nx * nx + ny * ny);
+
+				if (r < 1e-6f) {
+					m_undistort.matrix_x.at<float>(y, x) = cx;
+					m_undistort.matrix_y.at<float>(y, x) = cy;
+					continue;
+				}
+
+				// fisheye angle approximation
+				float theta = r / f;
+
+				// rectilinear projection
+				float scale = tan(theta) / r;
+
+				float src_x = cx + nx * scale;
+				float src_y = cy + ny * scale;
+
+				m_undistort.matrix_x.at<float>(y, x) = src_x;
+				m_undistort.matrix_y.at<float>(y, x) = src_y;
+			}
+		}
+		m_undistort.ready = true;
+		send_message(make_socket_message(constants::TYPE_UNDISTORT_COMPUTE, true, &client_id, &m_name));
 	}
 } // calibration
 } // varan

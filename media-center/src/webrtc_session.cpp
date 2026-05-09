@@ -208,6 +208,46 @@ void UWebRTCSession::teardown() {
 	// Отключение сигналов
 	g_signal_handlers_disconnect_by_data(m_webrtcbin, this);
 
+	// блокирование ветки
+	if (m_tee_pad_src) {
+		gst_pad_add_probe(m_tee_pad_src, GST_PAD_PROBE_TYPE_BLOCK_DOWNSTREAM,
+			[](GstPad*, GstPadProbeInfo*, gpointer) { return GST_PAD_PROBE_REMOVE; }, nullptr, nullptr);
+
+		GstPad* queue_sink = gst_element_get_static_pad(m_queue, "sink");
+		if (queue_sink) {
+			gst_pad_unlink(m_tee_pad_src, queue_sink);
+			gst_object_unref(queue_sink);
+		}
+
+		gst_element_release_request_pad(m_tee, m_tee_pad_src);
+		gst_object_unref(m_tee_pad_src);
+		m_tee_pad_src = nullptr;
+	}
+
+	GstWebRTCICE* ice_agent = nullptr;
+	g_object_get(m_webrtcbin, "ice-agent", &ice_agent, nullptr);
+
+	if (ice_agent) {
+		// Создаём promise, чтобы дождаться завершения закрытия
+		gst_webrtc_ice_close(ice_agent, nullptr);
+		gst_object_unref(ice_agent);
+	}
+
+	// Удаление трансиверов
+	GArray* transceivers = nullptr;
+	g_signal_emit_by_name(m_webrtcbin, "get-transceivers", &transceivers);
+	if (transceivers) {
+		for (guint i = 0; i < transceivers->len; ++i) {
+
+			GstWebRTCRTPTransceiver* trans = g_array_index(transceivers, GstWebRTCRTPTransceiver*, i);
+			if (!trans) { continue; }
+
+			g_object_set(trans, "direction", GST_WEBRTC_RTP_TRANSCEIVER_DIRECTION_INACTIVE, NULL);
+		}
+
+		g_array_unref(transceivers);
+	}
+
 	// Закрытие через сигнал
 	g_signal_emit_by_name(m_webrtcbin, "close", nullptr);
 
@@ -228,7 +268,7 @@ void UWebRTCSession::teardown() {
 	}
 
 	// Отвзяка втеки
-	if (m_tee_pad_src) {
+	/*if (m_tee_pad_src) {
 
 		std::atomic<bool> blocked = false;
 
@@ -260,7 +300,7 @@ void UWebRTCSession::teardown() {
 
 		gst_object_unref(m_tee_pad_src);
 		m_tee_pad_src = nullptr;
-	}
+	}*/
 
 	// очистка самого пайплайна
 	if (m_pipeline) {

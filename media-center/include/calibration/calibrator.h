@@ -34,6 +34,8 @@ namespace calibration {
 		virtual void on_signaling_message(const std::string& msg) override;
 
 		virtual void internal_handle_image(cv::Mat rgb_pixels) override;
+
+		void build_fisheye_dewarp_LUT(const std::string& client_id, int width, int height, float fov_deg);
 		
 	private:
 
