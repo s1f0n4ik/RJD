@@ -368,26 +368,6 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
             if (s === 'new') {
                 setStatus('connecting');
                 console.log(`[${cameraId}] New webRTC connection pending!`);
-
-                console.warn(`[${cameraId}] Start timeout 20s to connect`)
-                // Запускаем таймер, если не удалось подключиться за 20 секунд
-                if (connectionTimeoutRef.current) {
-                    clearTimeout(connectionTimeoutRef.current);
-                }
-
-                connectionTimeoutRef.current = window.setTimeout(() => {
-                    console.warn(`[${cameraId}] ⏱️ Connection timeout (20s)`);
-
-                    if (!isMountedRef.current) return;
-
-                    setStatus('error');
-                    setErrorMsg('Таймаут подключения');
-
-                    closeWebRTC();
-                    sendCloseRequest();
-                    // Снова начинаем срать в вебсокет
-                    sendCreateRequest();
-                }, 20000);
             }
             if (s === 'connected') {
                 // На всякий случаем убирам и срущий таймаут
@@ -421,6 +401,26 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
                 sendCreateRequest();
             }
         };
+
+        console.warn(`[${cameraId}] Start timeout 20s to connect`)
+        // Запускаем таймер, если не удалось подключиться за 20 секунд
+        if (connectionTimeoutRef.current) {
+            clearTimeout(connectionTimeoutRef.current);
+        }
+
+        connectionTimeoutRef.current = window.setTimeout(() => {
+            console.warn(`[${cameraId}] ⏱️ Connection timeout (20s)`);
+
+            if (!isMountedRef.current) return;
+
+            setStatus('error');
+            setErrorMsg('Таймаут подключения');
+
+            closeWebRTC();
+            sendCloseRequest();
+            // Снова начинаем срать в вебсокет
+            sendCreateRequest();
+        }, 20000);
     };
 
     const handleOffer = async (sdp: string) => {
