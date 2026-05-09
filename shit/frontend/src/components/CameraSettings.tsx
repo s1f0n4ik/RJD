@@ -432,7 +432,7 @@ const CameraSettings: React.FC = () => {
     setSuccess('');
 
     const cameraId = formData.id || findNextFreeCameraId(cameras);
-    const recordPath = `/home/orangepi/records`;
+    const recordPath = `/storage/internal`;
     const effectiveSegment = formData.recording_enabled ? formData.main_segment : 0;
 
     try {
