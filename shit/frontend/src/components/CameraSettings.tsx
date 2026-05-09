@@ -362,7 +362,7 @@ const CameraSettings: React.FC = () => {
     setProbeStatus('creating');
 
     const tempName = `__probe_${Date.now()}`;
-    const recordPath = `/home/orangepi/records`;
+    const recordPath = `/storage/internal`;
 
     const payload = {
       id: tempName,
