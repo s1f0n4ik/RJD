@@ -89,7 +89,7 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
                 wsRef.current.send(JSON.stringify(connectionRequest));
                 console.log(`[${cameraId}] 📤 Sent connection request`);
 
-                //startConnectionResponseTimeout();
+                startConnectionResponseTimeout();
             } catch (err) {
                 console.error(`[${cameraId}] ❌ Error sending create request:`, err);
             }
@@ -265,9 +265,9 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
                         // Может отклонять только в случае открытой сессии с таким же клиентом, иначе - не приходит сообщение вовсе
                         sendCloseRequest();
                         // Пробуем еще раз отправить спустя время
-                        setTimeout(() => {
-                            sendCreateRequest();
-                        }, 10000); // 10 секунд
+                        //setTimeout(() => {
+                        //    sendCreateRequest();
+                        //}, 2000); // 2 секунды
                     }
                     return;
                 }
