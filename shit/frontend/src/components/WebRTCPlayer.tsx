@@ -89,7 +89,7 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
                 wsRef.current.send(JSON.stringify(connectionRequest));
                 console.log(`[${cameraId}] 📤 Sent connection request`);
 
-                startConnectionResponseTimeout();
+                //startConnectionResponseTimeout();
             } catch (err) {
                 console.error(`[${cameraId}] ❌ Error sending create request:`, err);
             }
