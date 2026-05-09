@@ -6,31 +6,39 @@
 #include <gst/video/video.h>
 #include <gst/video/gstvideometa.h>
 #include <gst/allocators/gstdmabuf.h>
+#include <gst/gl/gstglmemory.h>
 
 #include "video_utility.h"
 #include "utility/json-definers.h"
+#include "nvr/element-definers.h"
 
 #define MAIN_TEE "tee_main"
 
+using namespace varan;
+
 UCameraMainPipeline::UCameraMainPipeline(
-	const FInputPipelineParameters& parameters,
+	const FPipelineConfig& parameters,
 	std::unique_ptr<ULogger> logger,
 	std::function<void(std::string)> send_callback,
-	CDmabufMover dma_callback
+	varan::birdview::UEGLContextManager* gl_context_manager,
+	CFrameMover dma_callback
 )
 	: UCameraPipeline(parameters, std::move(logger), send_callback)
 	, m_dma_sender(std::move(dma_callback))
 	, m_record_branch(FPipelineBranch(EBranchType::RECORD, "record"))
 	, m_decoder_branch(FPipelineBranch(EBranchType::DECODER, "decoder"))
 {
+	create_gst_gl_context(gl_context_manager);
 }
 
 UCameraMainPipeline::~UCameraMainPipeline() {
-	
+	//teardown();
+	m_send_callback = nullptr;
+	m_dma_sender = nullptr;
+	destroy_gst_gl_context();
 }
 
-bool UCameraMainPipeline::teardown() {
-	std::lock_guard<std::mutex> lock(m_branch_mutex);
+bool UCameraMainPipeline::teardown_prefix() {
 	if (!destroy_branch(m_record_branch)) {
 		m_logger->warn("teardown(): record branch didn't teardown properly!");
 	}
@@ -39,7 +47,7 @@ bool UCameraMainPipeline::teardown() {
 		m_logger->warn("teardown(): decoder branch didn't teardown properly!");
 	}
 
-	return UCameraPipeline::teardown();
+	return true;
 }
 
 bool UCameraMainPipeline::initialize() {
@@ -66,8 +74,8 @@ bool UCameraMainPipeline::initialize() {
 			{
 			case GST_MESSAGE_ERROR: {
 				// обработка ошибки записи
-				if (self->m_record_branch.is_deployed &&
-					(GST_MESSAGE_SRC(msg) == GST_OBJECT(self->m_record_branch.elem_1))) {
+				if (self->m_record_branch.is_deployed.load() &&
+					(GST_MESSAGE_SRC(msg) == GST_OBJECT(self->m_record_branch.get_element(varan::nvr::RECORD_SPLITMUXSINK)))) {
 					self->m_logger->error("splitmux error detected, restarting record branch");
 					self->destroy_branch(self->m_record_branch);
 					self->create_record_branch(self->m_tees[MAIN_TEE]);
@@ -86,7 +94,31 @@ bool UCameraMainPipeline::initialize() {
 				if (debug) g_free(debug);
 
 
-				//self->restart_async();
+				//self->shedule_restart();
+				break;
+			}
+
+			case GST_MESSAGE_NEED_CONTEXT: {
+				const gchar* type = nullptr;
+				gst_message_parse_context_type(msg, &type);
+
+				GstElement* element = GST_ELEMENT(msg->src);
+
+				if (g_strcmp0(type, GST_GL_DISPLAY_CONTEXT_TYPE) == 0) {
+					if (!self->m_gl_context.display) {
+						self->m_logger->error("Cannot handle GST_MESSAGE_NEED_CONTEXT: there is not display context!");
+						break;
+					}
+					gst_element_set_context(element, self->m_gl_context.display);
+				}
+				else if (g_strcmp0(type, "gst.gl.app_context") == 0) {
+					if (!self->m_gl_context.app) {
+						self->m_logger->error("Cannot handle GST_MESSAGE_NEED_CONTEXT: there is not app context!");
+						break;
+					}
+					gst_element_set_context(element, self->m_gl_context.app);
+				}
+
 				break;
 			}
 
@@ -100,7 +132,7 @@ bool UCameraMainPipeline::initialize() {
 				if (s && gst_structure_has_name(s, "GstRTSPSrcTimeout"))
 				{
 					self->m_logger->warn("RTSP timeout detected");
-					self->restart_async();
+					self->shedule_restart();
 				}
 				break;
 			}
@@ -139,7 +171,7 @@ bool UCameraMainPipeline::initialize() {
 		if (tee) gst_object_unref(tee);
 		if (fake_queue) gst_object_unref(fake_queue);
 		if (fakesink) gst_object_unref(fakesink);
-	};
+		};
 
 	if (!m_pipeline || !src || !depay || !parse || !tee || !fake_queue || !fakesink) {
 		std::ostringstream oss;
@@ -224,11 +256,13 @@ bool UCameraMainPipeline::initialize() {
 		}), depay);
 
 	// В случае, если передан путь для сохранения файлов
-	if (!m_parameters.record_path.empty()) {
-		create_record_branch(tee);
+	if (m_parameters.record_path.empty() || m_parameters.segment_length <= 0) {
+		m_logger->debug("inititalize(): record path not found. Record branch didn't create");
 	}
 	else {
-		m_logger->debug("inititalize(): record path not found. Record branch didn't create");
+		m_record_path = m_parameters.record_path / m_parameters.camera_name;
+		create_record_branch(tee);
+		set_timer_check_record_branch();
 	}
 
 	// Добавить декодировщик
@@ -260,21 +294,39 @@ bool UCameraMainPipeline::create_decoder_branch(GstElement* tee) {
 
 	m_logger->debug("Creating branch to decode frames");
 
-	m_decoder_branch.queue = gst_element_factory_make("queue", "decoding_queue");
-	m_decoder_branch.elem_1 = gst_element_factory_make("mppvideodec", "decoder");
-	m_decoder_branch.elem_2 = gst_element_factory_make("appsink", "appsink");
+	auto queue = gst_element_factory_make("queue", varan::nvr::QUEUE.c_str());
+	auto decoder = gst_element_factory_make("mppvideodec", varan::nvr::DECODER_MPPVIDEODEC.c_str());
+	auto upload = gst_element_factory_make("glupload", varan::nvr::DECODER_GLUPLOAD.c_str());
+	//auto colorconvert = gst_element_factory_make("glcolorconvert", varan::nvr::DECODER_GLCOLORCONVERT.c_str());
+	auto appsink = gst_element_factory_make("appsink", varan::nvr::DECODER_APPSINK.c_str());
 
-	if (!m_decoder_branch.queue || !m_decoder_branch.elem_1 || !m_decoder_branch.elem_2) {
+	if (!queue || !decoder || !upload || !appsink) {
 		std::ostringstream oss;
 		oss << "Failed to create elements at decode tee: "
-			<< "\n\rdecode_queue=" << (m_decoder_branch.queue ? "OK" : "NULL") << ","
-			<< "\n\tmppvideodec=" << (m_decoder_branch.elem_1 ? "OK" : "NULL") << ","
-			<< "\n\tappsink=" << (m_decoder_branch.elem_2 ? "OK" : "NULL");
+			<< "\n\rdecode_queue=" << (queue ? "OK" : "NULL") << ","
+			<< "\n\tmppvideodec=" << (decoder ? "OK" : "NULL") << ","
+			//<< "\n\tglupload=" << (upload ? "OK" : "NULL") << ","
+			//<< "\n\tglcolorconvert=" << (colorconvert ? "OK" : "NULL") << ","
+			<< "\n\tappsink=" << (appsink ? "OK" : "NULL");
 		m_logger->error(oss.str());
 		return false;
 	}
 
-	g_object_set(m_decoder_branch.elem_2,
+	g_object_set(queue,
+		"max-size-buffers", 0,
+		"leaky", 0,
+		nullptr
+	);
+
+	g_object_set(decoder,
+		"dma-feature", true,
+		"discard-corrupted-frames", true,
+		"fast-mode", false,
+		"format", 23, // NV12
+		nullptr
+	);
+
+	g_object_set(appsink,
 		"emit-signals", TRUE,
 		"sync", FALSE,
 		"max-buffers", 1,
@@ -282,28 +334,12 @@ bool UCameraMainPipeline::create_decoder_branch(GstElement* tee) {
 		nullptr
 	);
 
-	g_object_set(m_decoder_branch.queue,
-		"max-size-buffers", 1,
-		"max-size-bytes", 0,
-		"max-size-time", 0,
-		"leaky", 2,
-		nullptr
-	);
-
-	g_object_set(m_decoder_branch.elem_1,
-		"dma-feature", true,
-		"discard-corrupted-frames", true,
-		"fast-mode", true,
-		"format", 23,  // NV12
-		nullptr
-	);
-
 	gst_bin_add_many(GST_BIN(m_pipeline),
-		m_decoder_branch.queue, m_decoder_branch.elem_1, m_decoder_branch.elem_2, nullptr
+		queue, decoder, upload, appsink, nullptr
 	);
 
 	m_decoder_branch.tee_pad = gst_element_request_pad_simple(tee, "src_%u");
-	GstPad* queue_pad = gst_element_get_static_pad(m_decoder_branch.queue, "sink");
+	GstPad* queue_pad = gst_element_get_static_pad(queue, "sink");
 	if (gst_pad_link(m_decoder_branch.tee_pad, queue_pad) != GST_PAD_LINK_OK) {
 		m_logger->error("Failed to link tee pad with decode branch!");
 		gst_object_unref(queue_pad);
@@ -312,18 +348,34 @@ bool UCameraMainPipeline::create_decoder_branch(GstElement* tee) {
 	gst_object_unref(queue_pad);
 
 	g_signal_connect(
-		m_decoder_branch.elem_2,
+		appsink,
 		"new-sample",
-		G_CALLBACK(UCameraMainPipeline::on_new_sample_dma),
-		&m_dma_sender  // это gpointer, внутри callback приводим к CDmaSender*
+		G_CALLBACK(UCameraMainPipeline::on_new_sample_gl_texture),
+		this
 	);
 
-	if (!gst_element_link_many(m_decoder_branch.queue, m_decoder_branch.elem_1, m_decoder_branch.elem_2, nullptr)) {
+	if (!gst_element_link_many(queue, decoder, upload, appsink, nullptr)) {
 		m_logger->error("Failed to link decoding elements in decode branch!");
 		return false;
 	}
 
+	if (m_decoder_branch.elements.size() != 0) m_decoder_branch.elements.clear();
+
+	m_decoder_branch.add_element(varan::nvr::QUEUE, queue);
+	m_decoder_branch.add_element(varan::nvr::DECODER_MPPVIDEODEC, decoder);
+	m_decoder_branch.add_element(varan::nvr::DECODER_GLUPLOAD, upload);
+	//m_decoder_branch.add_element(varan::nvr::DECODER_GLCOLORCONVERT, colorconvert);
+	m_decoder_branch.add_element(varan::nvr::DECODER_APPSINK, appsink);
+
 	m_decoder_branch.is_deployed = true;
+	m_decoder_branch.type = EBranchType::DECODER;
+
+	// Использовать контекст GLES, если он был иницилизирован
+	if (m_gl_context.is_initialized) {
+		gst_element_set_context(m_pipeline, m_gl_context.display);
+		gst_element_set_context(m_pipeline, m_gl_context.app);
+		if (m_logger) m_logger->info("inititalize(): gstreamer opengl context initialized");
+	}
 
 	return false;
 }
@@ -335,22 +387,30 @@ bool UCameraMainPipeline::create_record_branch(GstElement* tee)
 		return false;
 	}
 
-	if (m_record_branch.is_deployed) {
+	if (m_record_branch.is_deployed.load()) {
 		m_logger->warn("create_record_branch(): trying to create record branch that already exists!");
 		return true;
 	}
 
 	m_logger->debug("Creating branch to record segments...");
-	m_logger->debug("A path for recording segments has been found: " + m_parameters.record_path.string());
-	if (!std::filesystem::exists(m_parameters.record_path)) {
-		try {
-			std::filesystem::create_directories(m_parameters.record_path);
-			m_logger->debug("create_record_branch(): Directory " + m_parameters.record_path.string() + " sucessfully created!");
-		}
-		catch (...) {
-			m_logger->error("create_record_branch(): Cannot create directories at path: " + m_parameters.record_path.string());
-			return false;
-		}
+	m_logger->debug("A path for recording segments has been found: " + m_record_path.string());
+	if (!std::filesystem::exists(m_record_path)) {
+		m_logger->error("create_record_branch(): Cannot write directories at path: " + m_record_path.string());
+		return false;
+		//try {
+		//	std::filesystem::create_directories(m_record_path);
+		//	m_logger->debug("create_record_branch(): Directory " + m_record_path.string() + " sucessfully created!");
+		//}
+		//catch (...) {
+		//	m_logger->error("create_record_branch(): Cannot create directories at path: " + m_record_path.string());
+		//	return false;
+		//}
+	}
+
+	auto usage = get_disk_usage(m_parameters.record_path, m_logger.get());
+	if (usage >= 95.0f) {
+		m_logger->error("create_record_branch(): Cannot create record branch at path=" + m_record_path.string() + "; disk usage=" + std::to_string(usage));
+		return false;
 	}
 
 	auto record_queue = gst_element_factory_make("queue", "record_queue");
@@ -375,13 +435,31 @@ bool UCameraMainPipeline::create_record_branch(GstElement* tee)
 	g_signal_connect(splitmux, "format-location",
 		G_CALLBACK(+[](GstElement*, guint, gpointer data) -> gchar* {
 			auto self = static_cast<UCameraMainPipeline*>(data);
+			const auto& record_path = self->m_record_path;
 
+			float usage = self->get_disk_usage(record_path, self->m_logger.get());
+			if (usage >= 95.0f) {
+				self->m_logger->warn(
+					"format-location: disk usage " +
+					std::to_string(static_cast<int>(usage)) +
+					"%, scheduling record branch removal"
+				);
+				// Планируем удаление в главном потоке GLib — не трогаем пайплайн из колбека
+				g_idle_add([](gpointer data) -> gboolean {
+					auto self = static_cast<UCameraMainPipeline*>(data);
+					self->destroy_branch(self->m_record_branch);
+					return G_SOURCE_REMOVE;
+					}, self);
+
+				// Возвращаем /dev/null чтобы не ронять splitmuxsink этим последним фрагментом
+				return g_strdup("/dev/null");
+			}
+
+			// Генерация имени файла по времени
 			std::ostringstream oss;
 			oss << self->m_parameters.camera_name << "_" << make_start_timestamp() << ".mp4";
 
-			using path = std::filesystem::path;
-			path save_path = path(self->m_parameters.record_path) / path(oss.str());
-
+			auto save_path = record_path / oss.str();
 			return g_strdup(save_path.c_str());
 		}),
 		this
@@ -411,23 +489,57 @@ bool UCameraMainPipeline::create_record_branch(GstElement* tee)
 
 	// Связывание остальные элеентов
 	if (!gst_element_link(record_queue, splitmux)) {
-		m_logger->error("Failed to link file record tee: tee, record_queue, splitmux");
+		if (m_logger) m_logger->error("Failed to link file record tee: tee, record_queue, splitmux");
 		return false;
 	}
 
 	gst_element_sync_state_with_parent(record_queue);
 	gst_element_sync_state_with_parent(splitmux);
 
-	m_record_branch.queue = record_queue;
-	m_record_branch.elem_1 = splitmux;
+	if (m_record_branch.elements.size() != 0) m_record_branch.elements.clear();
+
+	m_record_branch.add_element(varan::nvr::QUEUE, record_queue);
+	m_record_branch.add_element(varan::nvr::RECORD_SPLITMUXSINK, splitmux);
+
 	m_record_branch.tee_pad = tee_record_pad;
 
-	m_record_branch.is_deployed = true;
+	m_record_branch.type = EBranchType::RECORD;
+	m_record_branch.is_deployed.store(true);
+
+	if (m_logger) m_logger->info("create_record_branch(): record branch successfully created!");
 
 	return true;
 }
 
-bool UCameraMainPipeline::destroy_branch(FPipelineBranch& branch) 
+void UCameraMainPipeline::set_timer_check_record_branch() {
+	g_timeout_add_seconds(60, [](gpointer data) -> gboolean {
+		auto self = static_cast<UCameraMainPipeline*>(data);
+
+		if (self->m_record_branch.is_deployed.load()) {
+			if (self->m_logger) self->m_logger->debug("timer_check_record_branch: record branch is alive");
+			return G_SOURCE_CONTINUE;
+		}
+
+		auto usage = UCameraMainPipeline::get_disk_usage(self->m_record_path, self->m_logger.get());
+		// Не восстанавливает, если заполненность диска больше 90 процентов
+		if (usage >= 90.0f) {
+			if (self->m_logger) self->m_logger->warn(
+				"timer_check_record_branch: disk still at " +
+				std::to_string(static_cast<int>(usage)) + "%, waiting, not recovering"
+			);
+			return G_SOURCE_CONTINUE;
+		}
+
+		self->m_logger->info(
+			"timer_check_record_branch: disk at " +
+			std::to_string(static_cast<int>(usage)) + "%, restoring record branch"
+		);
+		self->create_record_branch(self->m_tees[MAIN_TEE]);
+		return G_SOURCE_CONTINUE;
+	}, this);
+}
+
+bool UCameraMainPipeline::destroy_branch(FPipelineBranch& branch)
 {
 	if (!m_pipeline) {
 		m_logger->error("destroy_branch(): broken pipeline!");
@@ -440,9 +552,13 @@ bool UCameraMainPipeline::destroy_branch(FPipelineBranch& branch)
 	}
 
 	// Остановка отправки изображений в другие модули
+
 	if (branch.type == EBranchType::DECODER) {
-		g_signal_handlers_disconnect_by_data(branch.elem_2, this);
-		m_logger->debug("destroy_branch(): disconnect signals from decoder element!");
+		auto appsink = branch.get_element(varan::nvr::DECODER_APPSINK);
+		if (appsink) {
+			g_signal_handlers_disconnect_by_data(appsink, this);
+			m_logger->debug("destroy_branch(): disconnect signals from decoder element!");
+		}
 	}
 
 	// Блокировка ветки
@@ -450,11 +566,14 @@ bool UCameraMainPipeline::destroy_branch(FPipelineBranch& branch)
 		gst_pad_add_probe(branch.tee_pad, GST_PAD_PROBE_TYPE_BLOCK_DOWNSTREAM,
 			[](GstPad*, GstPadProbeInfo*, gpointer) { return GST_PAD_PROBE_REMOVE; }, nullptr, nullptr);
 
-		GstPad* queue_sink = gst_element_get_static_pad(branch.queue, "sink");
-		if (queue_sink) {
-			m_logger->debug("destroy_branch(): unlink tee_pad with queue_pad!");
-			gst_pad_unlink(branch.tee_pad, queue_sink);
-			gst_object_unref(queue_sink);
+		auto queue = branch.get_element(varan::nvr::QUEUE);
+		if (queue) {
+			GstPad* queue_sink = gst_element_get_static_pad(queue, "sink");
+			if (queue_sink) {
+				m_logger->debug("destroy_branch(): unlink tee_pad with queue_pad!");
+				gst_pad_unlink(branch.tee_pad, queue_sink);
+				gst_object_unref(queue_sink);
+			}
 		}
 
 		gst_element_release_request_pad(m_tees[MAIN_TEE], branch.tee_pad);
@@ -463,60 +582,56 @@ bool UCameraMainPipeline::destroy_branch(FPipelineBranch& branch)
 		branch.tee_pad = nullptr;
 	}
 
-	// посылаем EOS только в ветку записи
-	if ((branch.type == EBranchType::RECORD) && branch.elem_1) {
-		m_logger->debug("destroy_branch(): send eos signal to record branch!");
-		gst_element_send_event(branch.queue, gst_event_new_eos());
+	if (branch.type == EBranchType::RECORD) {
+		auto splitmux = branch.get_element(varan::nvr::RECORD_SPLITMUXSINK);
+		if (splitmux) {
+			g_signal_emit_by_name(branch.get_element(varan::nvr::RECORD_SPLITMUXSINK), "split-now");
+		}
 	}
 
 	// Остановка элементов
-	if (branch.queue) {
-		m_logger->debug("destroy_branch(): turn to NULL state element queue");
-		gst_element_set_state(branch.queue, GST_STATE_NULL);
-		gst_element_get_state(branch.queue, nullptr, nullptr, GST_CLOCK_TIME_NONE);
-	}
-	if (branch.elem_1) {
-		std::string elem_str = branch.type == EBranchType::DECODER ? "mppvideodec" : "";
-		m_logger->debug("destroy_branch(): turn to NULL state element " + elem_str);
-		gst_element_set_state(branch.elem_1, GST_STATE_NULL);
-		gst_element_get_state(branch.elem_1, nullptr, nullptr, GST_CLOCK_TIME_NONE);
-	}
-	if (branch.elem_2) {
-		std::string elem_str = branch.type == EBranchType::DECODER ? "appsink" : "";
-		m_logger->debug("destroy_branch(): turn to NULL state element " + elem_str);
-		gst_element_set_state(branch.elem_2, GST_STATE_NULL);
-		gst_element_get_state(branch.elem_2, nullptr, nullptr, GST_CLOCK_TIME_NONE);
+	for (auto& pair_element : branch.elements) {
+		auto element_name = pair_element.first;
+		auto element = pair_element.second;
+
+		if (!element) {
+			if (m_logger) m_logger->warn("destroy_branch(): cannot delete NULL element " + element_name);
+			continue;
+		}
+		if (m_logger) m_logger->debug("destroy_branch(): turn to NULL state element " + element_name);
+		gst_element_set_state(element, GST_STATE_NULL);
+		GstStateChangeReturn ret = gst_element_get_state(element, nullptr, nullptr, 3 * GST_SECOND);
+		if (ret == GST_STATE_CHANGE_FAILURE) {
+			if (m_logger) m_logger->error("destroy_branch(): failed to set NULL: " + element_name);
+		}
+
+		gst_bin_remove(GST_BIN(m_pipeline), element);
 	}
 
-	if (branch.queue) gst_bin_remove(GST_BIN(m_pipeline), branch.queue);
-	if (branch.elem_1) gst_bin_remove(GST_BIN(m_pipeline), branch.elem_1);
-	if (branch.elem_2) gst_bin_remove(GST_BIN(m_pipeline), branch.elem_2);
+	branch.elements.clear();
 
-	branch.queue = nullptr;
-	branch.elem_1 = nullptr;
-	branch.elem_2 = nullptr;
-
-	branch.is_deployed = false;
+	branch.is_deployed.store(false);
 	m_logger->info("destroy_branch(): " + branch.name + " branch was deleted!");
 	return true;
 }
 
 bool UCameraMainPipeline::create_webrtc_session(const std::string& client_id, std::string& description)
 {
-	if (!UCameraPipeline::create_webrtc_session(client_id, description)) {
+	std::string client = client_id;
+	if (!UCameraPipeline::create_webrtc_session(client, description)) {
 		return false;
 	}
 
 	auto session = std::make_unique<UWebRTCSession>(
-		client_id,
+		client,
 		m_parameters.camera_name,
 		false,
 		m_pipeline,
 		m_tees[std::string(MAIN_TEE)],
 		m_send_callback,
 		std::move(
-			[this](const std::string& client_id, std::string& description) {
-				return this->close_webrtc_session(client_id, description);
+			[this](const std::string& client, std::string& description) {
+				return this->close_webrtc_session(client, description);
 			}
 		),
 		m_logger.get()
@@ -527,15 +642,15 @@ bool UCameraMainPipeline::create_webrtc_session(const std::string& client_id, st
 		return false;
 	}
 
-	auto [it, inserted] = m_webrtc_sessions.emplace(client_id, std::move(session));
+	auto [it, inserted] = m_webrtc_sessions.emplace(client, std::move(session));
 
 	auto ret = it->second->create_branch(m_probe.codec_name);
 	if (ret) {
-		m_logger->info("Successfully created webrtc session branch with client " + client_id);
+		m_logger->info("Successfully created webrtc session branch with client " + client);
 		description = "Connection resolved!";
 	}
 	else {
-		m_logger->info("Error creation webrtc session branch with client " + client_id);
+		m_logger->info("Error creation webrtc session branch with client " + client);
 		description = "Connection doesn't resolved!";
 	}
 	return ret;
@@ -563,7 +678,11 @@ void dump_video_info(GstVideoInfo* info) {
 }
 
 GstFlowReturn UCameraMainPipeline::on_new_sample_dma(GstElement* sink, gpointer user_data) {
-	auto mover =  static_cast<CDmabufMover*>(user_data);
+	auto pipeline = static_cast<UCameraMainPipeline*>(user_data);
+	if (!pipeline) {
+		return GST_FLOW_OK;
+	}
+
 	GstSample* sample = gst_app_sink_pull_sample(GST_APP_SINK(sink));
 	if (!sample) {
 		return GST_FLOW_OK;
@@ -572,21 +691,276 @@ GstFlowReturn UCameraMainPipeline::on_new_sample_dma(GstElement* sink, gpointer 
 	GstBuffer* buffer = gst_sample_get_buffer(sample);
 	GstCaps* caps = gst_sample_get_caps(sample);
 	if (!buffer || !caps) {
+		if (pipeline->m_logger) pipeline->m_logger->trace("on_new_sample_dma(): There is not buffer or caps!");
 		gst_sample_unref(sample);
 		return GST_FLOW_OK;
+	}
+
+	// Test
+	gchar* caps_str = gst_caps_to_string(caps);
+	if (caps_str) {
+		if (pipeline->m_logger)
+			pipeline->m_logger->debug(std::string("Caps: ") + caps_str);
+
+		g_free(caps_str);
 	}
 
 	// Получение размера
 	GstVideoInfo info;
 	if (!gst_video_info_from_caps(&info, caps)) {
+		if (pipeline->m_logger) pipeline->m_logger->debug("on_new_sample_dma(): There is no video info!");
 		gst_sample_unref(sample);
 		return GST_FLOW_OK;
 	}
 
-	//dump_video_info(&info);
+	auto frame = std::make_unique<UDmaFdFrame>();
+	// Получние типа памяти
+	guint n_mem = gst_buffer_n_memory(buffer);
+	guint num_planes = info.finfo->n_planes;
+	if (num_planes < n_mem) {
+		if (pipeline->m_logger) pipeline->m_logger->error("on_new_sample_dma(): Count of memory buffers greater then frame planes!");
+		gst_sample_unref(sample);
+		return GST_FLOW_OK;
+	}
+
+	for (guint i = 0; i < n_mem; i++) {
+		GstMemory* mem = gst_buffer_peek_memory(buffer, i);
+
+		if (!gst_is_dmabuf_memory(mem)) {
+			if (pipeline->m_logger) pipeline->m_logger->warn("on_new_sample_dma(): Got not a dmabuf memory!");
+			continue;
+		}
+
+		int fd = dup(gst_dmabuf_memory_get_fd(mem));
+		if (fd >= 0) {
+			frame->fds.push_back(fd);
+		}
+	}
+
+	if (frame->fds.size() == 0) {
+		if (pipeline->m_logger) pipeline->m_logger->warn("on_new_sample_dma(): no one dmabuf fds, skip frame!");
+		gst_sample_unref(sample);
+		return GST_FLOW_OK;
+	}
+
+	// Получение данных по кадру
+	frame->format = std::string(gst_video_format_to_string(info.finfo->format));
+	frame->width = info.width;
+	frame->height = info.height;
+	frame->size = info.size;
+	frame->pts = GST_BUFFER_PTS(buffer) / 1e6;
+	// Берем данные plane
+	for (guint i = 0; i < num_planes; i++) {
+		UDmaFdFrame::FDmabufPlane plane;
+		plane.stride = info.stride[i];
+		plane.offset = info.offset[i];
+		// Только для NV12
+		if (frame->format == "NV12") {
+			plane.height = (i == 0) ? info.height : info.height / 2;
+		}
+		else {
+			plane.height = frame->height;
+		}
+
+		frame->planes.push_back(std::move(plane));
+	}
+
+	// Передаем буфер кадров
+	if (pipeline->m_dma_sender) pipeline->m_dma_sender(pipeline->m_parameters.camera_name, std::move(frame));
+
 	gst_sample_unref(sample);
 
 	return GST_FLOW_OK;
+}
+
+GstFlowReturn UCameraMainPipeline::on_new_sample_gl_texture(GstElement* sink, gpointer user_data) {
+	auto pipeline = static_cast<UCameraMainPipeline*>(user_data);
+	if (!pipeline) {
+		return GST_FLOW_OK;
+	}
+
+	GstSample* sample = gst_app_sink_pull_sample(GST_APP_SINK(sink));
+	if (!sample) {
+		return GST_FLOW_OK;
+	}
+
+	GstBuffer* buffer = gst_sample_get_buffer(sample);
+	GstCaps* caps = gst_sample_get_caps(sample);
+	if (!buffer || !caps) {
+		if (pipeline->m_logger) pipeline->m_logger->trace("on_new_sample_gl_texture(): There is not buffer or caps!");
+		gst_sample_unref(sample);
+		return GST_FLOW_OK;
+	}
+
+	// Test
+	/*gchar* caps_str = gst_caps_to_string(caps);
+	if (caps_str) {
+		if (pipeline->m_logger)
+			pipeline->m_logger->debug(std::string("Caps: ") + caps_str);
+
+		g_free(caps_str);
+	}*/
+
+	// Получение размера
+	GstVideoInfo info;
+	if (!gst_video_info_from_caps(&info, caps)) {
+		if (pipeline->m_logger) pipeline->m_logger->debug("on_new_sample_gl_texture(): There is no video info!");
+		gst_sample_unref(sample);
+		return GST_FLOW_OK;
+	}
+
+	// Формировние фрейма
+	auto gl_frame = std::make_unique<UGLTextureWrapper>(sample);
+	guint n_mem = gst_buffer_n_memory(buffer);
+	guint num_planes = info.finfo->n_planes;
+	if (num_planes < n_mem) {
+		if (pipeline->m_logger) pipeline->m_logger->error("on_new_sample_gl_texture(): Count of memory buffers greater then frame planes!");
+		//gst_sample_unref(sample);
+		return GST_FLOW_OK;
+	}
+
+	for (guint i = 0; i < n_mem; i++) {
+		GstMemory* mem = gst_buffer_peek_memory(buffer, i);
+
+		if (!gst_is_gl_memory(mem)) {
+			if (pipeline->m_logger) pipeline->m_logger->error("on_new_sample_gl_texture(): Got not an opengl memory!");
+			//gst_sample_unref(sample);
+			return GST_FLOW_OK;
+		}
+		// создание одной текстуры
+		UGLTextureWrapper::FGLTexture gl_texture;
+		GstGLMemory* gl_mem = (GstGLMemory*)mem;
+
+		gl_texture.id = gst_gl_memory_get_texture_id(gl_mem);
+		gl_texture.width = gst_gl_memory_get_texture_width(gl_mem);
+		gl_texture.height = gst_gl_memory_get_texture_height(gl_mem);
+		gl_texture.format = UGLTextureWrapper::from_gst_to_gl_format(gst_gl_memory_get_texture_format(gl_mem));
+		gl_texture.target = UGLTextureWrapper::from_gst_to_gl_target(gst_gl_memory_get_texture_target(gl_mem));
+
+		gl_frame->add_texture(std::move(gl_texture));
+	}
+
+	// Получение данных по кадру
+	gl_frame->format = std::string(gst_video_format_to_string(info.finfo->format));
+	gl_frame->width = info.width;
+	gl_frame->height = info.height;
+	gl_frame->pts = GST_BUFFER_PTS(buffer) / 1e6;
+
+	// Передаем буфер кадров
+	if (pipeline->m_dma_sender) pipeline->m_dma_sender(pipeline->m_parameters.camera_name, std::move(gl_frame));
+
+	gst_sample_unref(sample);
+
+	return GST_FLOW_OK;
+}
+
+void UCameraMainPipeline::create_gst_gl_context(varan::birdview::UEGLContextManager* gl_context_manager) {
+	if (!gl_context_manager) {
+		if (m_logger) m_logger->warn(
+			(std::ostringstream() << "create_gst_gl_context(): cannot create GStreamer OpenGL context: context manadger is NULL!").str()
+		);
+		return;
+	}
+
+	if (m_gl_context.is_initialized) {
+		if (m_logger) m_logger->warn("create_gst_gl_context(): cannot create already initialized GStreamer GL context!");
+		return;
+	}
+
+	GstGLDisplay* gst_display = nullptr;
+	GstGLContext* gst_ctx = nullptr;
+	GstContext* display_ctx = nullptr;
+	GstContext* app_ctx = nullptr;
+
+	auto clean_context = [&]() {
+		if (gst_ctx) gst_object_unref(gst_ctx);
+		if (gst_display) gst_object_unref(gst_display);
+		destroy_gst_gl_context();
+		};
+
+	// Общий контекст
+	m_gl_context.root_display = gl_context_manager->get_display();
+	if (!gl_context_manager->create_shared_context(m_gl_context.shared_context, m_logger.get())) {
+		if (m_logger) m_logger->error("create_gst_gl_context(): fault with creation shared context!");
+		m_gl_context.root_display = EGL_NO_DISPLAY;
+		return;
+	}
+	// Обертка для Gstreamer
+	gst_display = GST_GL_DISPLAY(gst_gl_display_egl_new_with_egl_display(gl_context_manager->get_display()));
+	if (!gst_display) {
+		if (m_logger) m_logger->error("create_gst_gl_context(): cannot create gst gl display from shared context!");
+		clean_context();
+		return;
+	}
+
+	gst_ctx = gst_gl_context_new_wrapped(
+		gst_display,
+		(guintptr)m_gl_context.shared_context.context,
+		GST_GL_PLATFORM_EGL,
+		GST_GL_API_GLES2
+	);
+	if (!gst_ctx) {
+		if (m_logger) m_logger->error("create_gst_gl_context(): cannot create gst wrapped context with shared gl context!");
+		clean_context();
+		return;
+	}
+
+	display_ctx = gst_context_new(GST_GL_DISPLAY_CONTEXT_TYPE, TRUE);
+	if (!display_ctx) {
+		if (m_logger) m_logger->error("create_gst_gl_context(): cannot create gst display context with shared gl context!");
+		clean_context();
+		return;
+	}
+	gst_context_set_gl_display(display_ctx, gst_display);
+
+	app_ctx = gst_context_new("gst.gl.app_context", TRUE);
+	if (!app_ctx) {
+		if (m_logger) m_logger->error("create_gst_gl_context(): cannot create gst app context with shared gl context!");
+		clean_context();
+		return;
+	}
+	gst_structure_set(
+		gst_context_writable_structure(app_ctx),
+		"context", GST_TYPE_GL_CONTEXT, gst_ctx,
+		NULL
+	);
+
+	m_gl_context.app = gst_context_ref(app_ctx);
+	m_gl_context.display = gst_context_ref(display_ctx);
+	m_gl_context.is_initialized = true;
+}
+
+void UCameraMainPipeline::destroy_gst_gl_context() {
+	if (m_gl_context.app) {
+		gst_context_unref(m_gl_context.app);
+		m_gl_context.app = nullptr;
+	}
+
+	if (m_gl_context.display) {
+		gst_context_unref(m_gl_context.display);
+		m_gl_context.display = nullptr;
+	}
+
+	if (m_gl_context.display != EGL_NO_DISPLAY) {
+		eglDestroyContext(m_gl_context.display, m_gl_context.shared_context.context);
+	}
+
+	memset(&m_gl_context.shared_context, 0, sizeof(m_gl_context.shared_context));
+	m_gl_context.is_initialized = false;
+	if (m_logger) m_logger->info("destroy_gst_gl_context(): destroyed");
+}
+
+float UCameraMainPipeline::get_disk_usage(const std::string path, ULogger* logger) {
+	std::error_code ec;
+	auto space = std::filesystem::space(path, ec);
+	if (ec || space.capacity == 0) {
+		if (logger) logger->warn("get_disk_usage(): error with computing space at disk!");
+		return 146.0f;
+	}
+
+	auto usage = static_cast<float>(space.capacity - space.available) / static_cast<float>(space.capacity) * 100.0f;
+	if (logger) logger->debug("get_disk_usage(): current space usage is " + std::to_string(usage) + "; check from path " + path);
+	return usage;
 }
 
 FPipelineData UCameraMainPipeline::get_pipeline_data() {
@@ -606,8 +980,10 @@ FPipelineData UCameraMainPipeline::get_pipeline_data() {
 	data.reconnect_time = m_parameters.reconnect_delay;
 	data.latency = m_parameters.latency;
 
-	data.record_path = m_parameters.record_path;
+	data.record_path = m_record_path;
 	data.segment_length = m_parameters.segment_length;
+
+	data.sub = m_parameters.stream;
 
 	return data;
 }

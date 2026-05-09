@@ -17,6 +17,8 @@ private:
     void on_read(boost::beast::error_code ec, std::size_t bytes);
     void do_close();
 
+    static void add_cors(http::response<http::string_body>& res);
+
 private:
     boost::beast::tcp_stream m_stream;
     boost::asio::strand<boost::asio::any_io_executor> m_strand;

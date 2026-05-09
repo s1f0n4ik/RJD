@@ -38,7 +38,7 @@ UController::get_camera(const http::request<http::string_body>& req)
         }
 
         auto cameras_data = m_media_center->get_cameras();
-        std::vector<FCameraData> matched_data;
+        std::vector<FCameraStreamsData> matched_data;
 
         // Проходим селекуторы, если они есть
         if (!selectors.empty()) {
@@ -59,10 +59,10 @@ UController::get_camera(const http::request<http::string_body>& req)
         }
         else {
             boost::json::object cameras;
-            for (const auto& camera : matched_data) {
-                auto current = make_camera_json(camera, fields);
+            for (const auto& data : matched_data) {
+                auto current = make_camera_json(data, fields);
                 if (!current.empty()) {
-                    cameras[camera.name] = current;
+                    cameras[data.camera.id] = current;
                 }
             }
             data[fields::CAMERAS] = cameras.empty() ? boost::json::value(nullptr) : cameras;
@@ -112,9 +112,9 @@ UController::post_camera(const http::request<http::string_body>& req)
         }
         auto obj_streams = obj[fields::STREAMS].as_object();
         // Проверка уникальности имени камер
-        std::string name = obj[fields::NAME].as_string().c_str();
-        if (m_media_center->camera_exists(name)) {
-            throw std::runtime_error("Camera with name \"" + name + "\" already exists!");
+        std::string id = obj[fields::ID].as_string().c_str();
+        if (m_media_center->camera_exists(id)) {
+            throw std::runtime_error("Camera with id \"" + id + "\" already exists!");
         }
         // Создание ссылки на камеру
 
@@ -122,26 +122,23 @@ UController::post_camera(const http::request<http::string_body>& req)
         if (prod == std::nullopt) {
             throw std::runtime_error("Not supported camera production!");
         }
+        std::string display_name = obj.contains(fields::DISPLAY_NAME) ? obj[fields::DISPLAY_NAME].as_string().c_str(): "имя не установлено";
+        std::string description = obj.contains(fields::DESCRIPTION) ? obj[fields::DESCRIPTION].as_string().c_str() : "без описания";
         // Получение ссылки
         std::string ip_adress = get_json_value<std::string>(obj[fields::IP_ADRESS], fields::IP_ADRESS);
         std::string port = get_json_value<std::string>(obj[fields::PORT], fields::PORT);
         std::string user = get_json_value<std::string>(obj[fields::USER], fields::USER);
         std::string password = get_json_value<std::string>(obj[fields::PASSWORD], fields::PASSWORD);
-        // Заполнение стурктуры;
-        FCameraData camera_data;
-        camera_data.name = name;
-        camera_data.description = get_json_value<std::string>(obj[fields::DESCRIPTION], fields::DESCRIPTION);
-        camera_data.ip_adress = ip_adress;
-        camera_data.port = port;
-        camera_data.user = user;
         // Тип камеры
         std::cout << json::serialize(obj) << std::endl;
         auto camera_type = int_to_count_enum<ECameraType>(get_json_value<int64_t>(obj[fields::TYPE], fields::TYPE));
         if (camera_type == std::nullopt) {
             throw std::runtime_error("Camera type doesn't supported!");
         }
-        camera_data.type = camera_type.value();
 
+        FCameraData camera_data = {id, display_name, description, ip_adress, port, user, password, camera_type.value(), prod.value()};
+
+        std::map<std::string, FPipelineConfig> pipelines;
         std::unordered_set<std::string> stream_names;
         // Парсинг объекта pipeline
         for (auto const& [name_stream, stream] : obj_streams) {
@@ -168,32 +165,240 @@ UController::post_camera(const http::request<http::string_body>& req)
             }
             // Ссылка rtsp
             int sub = get_json_value<int64_t>(stream_obj[fields::SUB_STREAM], fields::SUB_STREAM);
-            std::string rtsp = rtsp_maker.at(prod.value())(ip_adress, port, user, password, sub);
             // Заполнение структуры pipeline
-            FPipelineData pipeline_data;
-            pipeline_data.name = name_stream;
-            pipeline_data.type = type_stream.value();
-            pipeline_data.rtsp_url = rtsp;
-            pipeline_data.latency = get_json_value<int64_t>(stream_obj[fields::LATENCY], fields::LATENCY);
-            pipeline_data.use_udp = get_json_value<bool>(stream_obj[fields::USE_UDP], fields::USE_UDP);
-            pipeline_data.reconnect_time = get_json_value<int64_t>(stream_obj[fields::RECONNECT], fields::RECONNECT);
-            pipeline_data.record_path = get_json_value<std::string>(stream_obj[fields::RECORD_PATH], fields::RECORD_PATH);
-            pipeline_data.segment_length = get_json_value<int64_t>(stream_obj[fields::SEGMENT_LENGTH], fields::SEGMENT_LENGTH);
+            FPipelineConfig pipeline_config;
+            pipeline_config.name = name_stream;
+            pipeline_config.type = type_stream.value();
+            pipeline_config.stream = sub;
+            pipeline_config.latency = get_json_value<int64_t>(stream_obj[fields::LATENCY], fields::LATENCY);
+            pipeline_config.use_udp = get_json_value<bool>(stream_obj[fields::USE_UDP], fields::USE_UDP);
+            pipeline_config.reconnect_delay = get_json_value<int64_t>(stream_obj[fields::RECONNECT], fields::RECONNECT);
+            pipeline_config.record_path = get_json_value<std::string>(stream_obj[fields::RECORD_PATH], fields::RECORD_PATH);
+            pipeline_config.segment_length = get_json_value<int64_t>(stream_obj[fields::SEGMENT_LENGTH], fields::SEGMENT_LENGTH);
 
             // Добавление структуры в камеру
-            camera_data.pipelines[name_stream] = std::move(pipeline_data);
+            pipelines[name_stream] = std::move(pipeline_config);
         }
-        FWebSocketOptions websocket = FWebSocketOptions{"192.168.1.254", "8765"};
-        if (m_media_center->add_camera_async(camera_data, websocket)) {
+        if (m_media_center->add_camera_async(camera_data, pipelines, true)) {
             body[fields::RESULT] = "success";
-            body[fields::ERROR_DETAILS] = "Camera \"" + name + "\" successfully added to nvr!";
+            body[fields::ERROR_DETAILS] = "Camera \"" + id + "\" successfully added to nvr!";
 
             res.body() = json::serialize(create_answer_message(body, std::nullopt, std::nullopt));
         }
         else {
-            throw std::runtime_error("Camera \"" + name + "\" cannot be added");
+            throw std::runtime_error("Camera \"" + id + "\" cannot be added");
         }
 
+    }
+    catch (const std::exception& e) {
+        res.result(http::status::bad_request);
+        json::object error;
+        error[fields::ERROR_CODE] = 402;
+        error[fields::ERROR_MESSAGE] = "Bad Request";
+        error[fields::ERROR_DETAILS] = e.what();
+
+        res.body() = json::serialize(create_answer_message(std::nullopt, std::nullopt, error));
+    }
+
+    res.prepare_payload();
+    return res;
+}
+
+// PATCH /camera?id=
+// Body (все поля опциональны):
+// { "display_name":"...", "description":"...", "streams": { ... } }
+http::response<http::string_body>
+UController::patch_camera(const http::request<http::string_body>& req)
+{
+    http::response<http::string_body> res{ http::status::created, req.version() };
+    res.set(http::field::content_type, "application/json");
+    res.keep_alive(req.keep_alive());
+
+    try {
+        json::object body;
+        // Парсинг строки URL
+        std::string_view target = req.target();
+        std::unordered_map<std::string, std::string> selectors;
+        std::set<std::string> fields;
+
+        if (auto pos = target.find('?'); pos != std::string_view::npos) {
+            std::string_view query = target.substr(pos + 1);
+            parse_query(query, selectors, fields);
+        }
+
+        // Поиск камеры
+        std::optional<std::string> camera_id;
+        std::shared_ptr<UCamera> found_camera = nullptr;
+        if (selectors.empty()) {
+            throw std::runtime_error("The request body is empty when trying to patch a camera. "
+                "Please specify the camera name as a query parameter, for example: ?id=camera_name.");
+        }
+        else {
+            for (const auto& [field, value] : selectors) {
+                if (field == fields::ID) {
+                    found_camera = m_media_center->get_camera(value);
+                    if (!found_camera) {
+                        res.result(http::status::not_found);
+                        json::object error;
+                        error[fields::ERROR_CODE] = 404;
+                        error[fields::ERROR_MESSAGE] = "Not Found";
+                        error[fields::ERROR_DETAILS] = "Camera \"" + value + "\" does not exist";
+                        res.body() = json::serialize(create_answer_message(std::nullopt, std::nullopt, error));
+                        res.prepare_payload();
+                        return res;
+                    }
+                    camera_id = value;
+                    break;
+                }
+            }
+        }
+        // Проверка прошла, можно приступить к JSON body
+        // Парсинг тела json
+        json::value jv = json::parse(req.body());
+        if (!jv.is_object()) {
+            throw std::runtime_error("Invalid JSON body");
+        }
+        json::object obj = jv.as_object();
+        // Проверка структуры тела JSON
+        bool has_meta = obj.contains("meta");
+        bool has_critical = obj.contains("critical");
+
+        if (!has_meta && !has_critical) {
+            throw std::runtime_error("Empty PATCH: no meta or critical section provided");
+        }
+        // Назначение опциональные параметры
+        std::optional<FCameraData> patch_camera_options = std::nullopt;
+        std::optional<std::map<std::string, FPipelineConfig>> patch_streams_data = std::nullopt;
+        // Получаем текущие данные с камеры
+        auto current_data = found_camera->get_data();
+        auto current_camera_options = current_data.camera;
+        // Проверяем структуру каждого блока
+        if (has_meta) {
+            if (!obj["meta"].is_object()) {
+                throw std::runtime_error("meta must be an object");
+            }
+            auto meta = obj["meta"].as_object();
+
+            std::optional<std::string> display_name;
+            std::optional<std::string> description;
+
+            if (meta.contains(fields::DISPLAY_NAME) && meta[fields::DISPLAY_NAME].is_string()) {
+                display_name = meta[fields::DISPLAY_NAME].as_string().c_str();
+            }
+
+            if (meta.contains(fields::DESCRIPTION) && meta[fields::DESCRIPTION].is_string()) {
+                description = meta[fields::DESCRIPTION].as_string().c_str();
+            }
+
+            if (!display_name && !description) {
+                throw std::runtime_error("No fields at meta block to update were provided");
+            }
+            // Обновление метаданных
+            current_camera_options.display_name = display_name ? display_name.value() : current_camera_options.display_name;
+            current_camera_options.description = description ? description.value() : current_camera_options.description;
+            // Применяем его к нашим баранам
+            patch_camera_options = current_camera_options;
+        }
+        if (has_critical) {
+            if (!obj["critical"].is_object()) {
+                throw std::runtime_error("critical must be an object");
+            }
+            auto crit = obj["critical"].as_object();
+
+            // Проверка всех обязательных полей
+            for (const auto& field : m_post_camera_fields) {
+                if (field == fields::DISPLAY_NAME || field == fields::DESCRIPTION || field == fields::ID || field == fields::PASSWORD) {
+                    continue;
+                }
+
+                if (!crit.contains(field)) {
+                    throw std::runtime_error("critical missing field: " + field);
+                }
+            }
+            if (!crit[fields::STREAMS].is_object()) {
+                throw std::runtime_error("Stream field is not json object!");
+            }
+            auto obj_streams = crit[fields::STREAMS].as_object();
+
+            auto prod = int_to_count_enum<ERtspType>(get_json_value<int64_t>(crit[fields::PRODUCTION], fields::PRODUCTION));
+            if (prod == std::nullopt) {
+                throw std::runtime_error("Not supported camera production!");
+            }
+            // Получение ссылки
+            std::string ip_adress = get_json_value<std::string>(crit[fields::IP_ADRESS], fields::IP_ADRESS);
+            std::string port = get_json_value<std::string>(crit[fields::PORT], fields::PORT);
+            std::string user = get_json_value<std::string>(crit[fields::USER], fields::USER);
+            std::string password = crit.contains(fields::PASSWORD) ? get_json_value<std::string>(crit[fields::PASSWORD], fields::PASSWORD) 
+                                                                   : current_camera_options.password;
+            // Тип камеры
+            std::cout << json::serialize(crit) << std::endl;
+            auto camera_type = int_to_count_enum<ECameraType>(get_json_value<int64_t>(crit[fields::TYPE], fields::TYPE));
+            if (camera_type == std::nullopt) {
+                throw std::runtime_error("Camera type doesn't supported!");
+            }
+
+            FCameraData camera_data = { 
+                *camera_id, 
+                patch_camera_options ? patch_camera_options.value().display_name : current_camera_options.display_name,
+                patch_camera_options ? patch_camera_options.value().description : current_camera_options.description,
+                ip_adress, port, user, password, camera_type.value(), prod.value() 
+            };
+
+            std::map<std::string, FPipelineConfig> pipelines;
+            std::unordered_set<std::string> stream_names;
+            // Парсинг объекта pipeline
+            for (auto const& [name_stream, stream] : obj_streams) {
+                if (!stream.is_object()) {
+                    throw std::runtime_error("Stream \"" + std::string(name_stream) + "\" is not json object!");
+                }
+                std::cout << name_stream << ": " << json::serialize(stream) << std::endl;
+                auto stream_obj = stream.as_object();
+                // Проверка полей стримов
+                for (const auto& field : m_post_stream_fields) {
+                    if (!stream_obj.contains(field)) {
+                        throw std::runtime_error("Stream \"" + std::string(name_stream) + "\" does not contain the required field <" + field + ">");
+                    }
+                }
+                // Проверка
+                if (stream_names.contains(name_stream)) {
+                    throw std::runtime_error("This stream <" + std::string(name_stream) + "> name is already taken");
+                }
+                else {
+                    stream_names.insert(name_stream);
+                }
+                auto type_stream = int_to_count_enum<EPilelineType>(get_json_value<int64_t>(stream_obj[fields::TYPE], fields::TYPE));
+                if (type_stream == std::nullopt) {
+                    throw std::runtime_error("Not supported stream type in \"" + std::string(name_stream) + "\"");
+                }
+                // Ссылка rtsp
+                int sub = get_json_value<int64_t>(stream_obj[fields::SUB_STREAM], fields::SUB_STREAM);
+                // Заполнение структуры pipeline
+                FPipelineConfig pipeline_config;
+                pipeline_config.name = name_stream;
+                pipeline_config.type = type_stream.value();
+                pipeline_config.stream = sub;
+                pipeline_config.latency = get_json_value<int64_t>(stream_obj[fields::LATENCY], fields::LATENCY);
+                pipeline_config.use_udp = get_json_value<bool>(stream_obj[fields::USE_UDP], fields::USE_UDP);
+                pipeline_config.reconnect_delay = get_json_value<int64_t>(stream_obj[fields::RECONNECT], fields::RECONNECT);
+                pipeline_config.record_path = get_json_value<std::string>(stream_obj[fields::RECORD_PATH], fields::RECORD_PATH);
+                pipeline_config.segment_length = get_json_value<int64_t>(stream_obj[fields::SEGMENT_LENGTH], fields::SEGMENT_LENGTH);
+
+                // Добавление структуры в камеру
+                pipelines[name_stream] = std::move(pipeline_config);
+            }
+            patch_camera_options = camera_data;
+            patch_streams_data = pipelines;
+        }
+        // Изменяем pipeline
+        if (m_media_center->update_camera(*camera_id, patch_camera_options, patch_streams_data, true)) {
+            json::object body;
+            body[fields::RESULT] = "success";
+            body[fields::ERROR_DETAILS] = "Camera \"" + *camera_id + "\" successfully updated";
+            res.body() = json::serialize(create_answer_message(body, std::nullopt, std::nullopt));
+        }
+        else {
+            throw std::runtime_error("cannot update camera");
+        }
     }
     catch (const std::exception& e) {
         res.result(http::status::bad_request);
@@ -234,13 +439,13 @@ UController::delete_camera(const http::request<http::string_body>& req) {
         }
         else {
             for (const auto& [field, value] : selectors) {
-                if (field == fields::NAME) {
+                if (field == fields::ID) {
                     auto exists = m_media_center->camera_exists(value);
                     if (!exists) {
                         throw std::runtime_error("Camera with name " + value + " doesn't exist in nvr!");
                     }
 
-                    m_media_center->remove_camera_async(value);
+                    m_media_center->remove_camera_async(value, true);
 
                     body[fields::RESULT] = "success";
                     body[fields::ERROR_DETAILS] = "Camera with name " + value + " successfully pended to delete!";
@@ -262,9 +467,9 @@ UController::delete_camera(const http::request<http::string_body>& req) {
     return res;
 }
 
-std::optional<FCameraData> UController::match_data_with_selectors(
+std::optional<FCameraStreamsData> UController::match_data_with_selectors(
     const std::unordered_map<std::string, std::string>& selectors, 
-    FCameraData& data) 
+    FCameraStreamsData& data)
 {
     size_t camera_counts = 0; 
     std::unordered_map<std::string, size_t> stream_counts;
@@ -302,12 +507,18 @@ std::optional<FCameraData> UController::match_data_with_selectors(
             }
         }
         else {
-            if (field == fields::NAME) camera_counts += value == data.name;
-            else if (field == fields::DESCRIPTION) camera_counts += value == data.description;
+            if (field == fields::ID) camera_counts += value == data.camera.id;
+            else if (field == fields::DISPLAY_NAME) camera_counts += value == data.camera.display_name;
+            else if (field == fields::DESCRIPTION) camera_counts += value == data.camera.description;
+            else if (field == fields::PRODUCTION) camera_counts += std::stoi(value) == static_cast<int>(data.camera.production);
+            else if (field == fields::CAMERA_TYPE) camera_counts += std::stoi(value) == static_cast<int>(data.camera.type);
+            else if (field == fields::IP_ADRESS) camera_counts += value == data.camera.ip_adress;
+            else if (field == fields::PORT) camera_counts += value == data.camera.port;
+            else if (field == fields::USER) camera_counts += value == data.camera.user;
         }
     }
     size_t previous_size = data.pipelines.size();
-    FCameraData camera_data;
+    FCameraStreamsData camera_data;
 
     size_t max_value = 0;
     for (const auto& [key, value] : stream_counts) {
@@ -315,8 +526,7 @@ std::optional<FCameraData> UController::match_data_with_selectors(
     }
 
     if (camera_counts + max_value == selectors.size()) {
-        camera_data.name = data.name;
-        camera_data.description = data.description;
+        camera_data.camera = data.camera;
     }
     else {
         return std::nullopt;
@@ -369,7 +579,7 @@ void UController::parse_query(
     }
 }
 
-boost::json::object UController::make_camera_json(const FCameraData& data, const std::set<std::string>& fields) {
+boost::json::object UController::make_camera_json(const FCameraStreamsData& data, const std::set<std::string>& fields) {
     json::object obj;
 
     if (fields.empty()) {

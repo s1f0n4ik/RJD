@@ -1,5 +1,6 @@
 #include "webrtc_session.h"
 
+#include <future>
 #include <thread>
 
 #include "signaling_definers.h"
@@ -17,13 +18,15 @@ UWebRTCSession::UWebRTCSession(
 	: m_client_id(client)
 	, m_camera_name(camera)
 	, m_is_sub(is_sub)
-	, m_pipeline(pipeline)
 	, m_tee(tee)
 	, m_send_callback(std::move(send_callback))
 	, m_remove_callback(std::move(remove_callback))
 	, m_logger(logger)
 	, m_is_valid(false)
 {
+	gst_object_ref(pipeline);
+	m_pipeline = pipeline;
+
 	std::ostringstream oss;
 	oss << "Successfull created pending new webrtc self:"
 		<< "\n\tClient: " << client << "\n\t"
@@ -92,6 +95,8 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 	g_object_set(m_webrtcbin,
 		"latency", 0,
 		"bundle-policy", GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE,
+		"stun-server", "stun:stun.l.google.com:19302",
+		"turn-server", "turn://niac:VniiTest@172.25.78.169:3478?transport=udp",
 		nullptr
 	);
 
@@ -184,17 +189,50 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 }
 
 void UWebRTCSession::teardown() {
-	m_logger->debug("teardown(): destroying session: " + m_client_id);
-
-	if (!g_main_context_is_owner(nullptr)) {
-		m_logger->warn("teardown(): teardown execiting not in the main thread");
-	}
-
 	if (!m_webrtcbin) {
+		m_logger->error("teardown(): cannot do teardown: webrtcbin is NULL!");
 		return;
 	}
 
-	// отключение сигналов
+	if (!g_main_context_is_owner(g_main_context_default())) {
+		m_logger->debug("teardown(): not in main thread, invoking via g_main_context");
+
+		std::promise<void> done;
+		auto future = done.get_future();
+
+		struct Ctx {
+			UWebRTCSession* self;
+			std::promise<void> done;
+		};
+		auto* ctx = new Ctx{ this, std::move(done) };
+
+		g_main_context_invoke(
+			g_main_context_default(),
+			+[](gpointer data) -> gboolean {
+				auto* ctx = static_cast<Ctx*>(data);
+				ctx->self->teardown(); // рекурсивный вызов — теперь в main thread
+				ctx->done.set_value();
+				delete ctx;
+				return G_SOURCE_REMOVE;
+			},
+			ctx
+		);
+
+		// Ждём завершения с таймаутом
+		if (future.wait_for(std::chrono::seconds(5)) == std::future_status::timeout) {
+			m_logger->error("teardown(): timeout waiting for main thread!");
+		}
+		return;
+	}
+
+	if (!m_is_valid) {
+		return;
+	}
+	m_is_valid = false;
+
+	m_logger->debug("teardown(): destroying session: " + m_client_id);
+
+	// Отключение сигналов
 	g_signal_handlers_disconnect_by_data(m_webrtcbin, this);
 
 	// блокирование ветки
@@ -213,7 +251,6 @@ void UWebRTCSession::teardown() {
 		m_tee_pad_src = nullptr;
 	}
 
-	
 	GstWebRTCICE* ice_agent = nullptr;
 	g_object_get(m_webrtcbin, "ice-agent", &ice_agent, nullptr);
 
@@ -238,44 +275,45 @@ void UWebRTCSession::teardown() {
 		g_array_unref(transceivers);
 	}
 
-	// закрыватие сессии
-	gboolean closed = FALSE;
-	g_signal_connect(m_webrtcbin, "notify::connection-state", G_CALLBACK(on_connection_state_notify), &closed);
-
+	// Закрытие через сигнал
 	g_signal_emit_by_name(m_webrtcbin, "close", nullptr);
 
-	gint64 end_time = g_get_monotonic_time() + 2 * G_TIME_SPAN_SECOND;
-	while (!closed && g_get_monotonic_time() < end_time) {
-		g_main_context_iteration(nullptr, FALSE);
-		g_usleep(10000);
-	}
-
-	g_signal_handlers_disconnect_by_func(m_webrtcbin, (gpointer)on_connection_state_notify, &closed);
-
-	// убийство элементов
+	// Остановка всех элементов
 	if (m_webrtcbin) {
 		gst_element_set_state(m_webrtcbin, GST_STATE_NULL);
 		gst_element_get_state(m_webrtcbin, nullptr, nullptr, GST_SECOND);
 	}
+
 	if (m_pay) {
 		gst_element_set_state(m_pay, GST_STATE_NULL);
 		gst_element_get_state(m_pay, nullptr, nullptr, GST_SECOND);
 	}
+
 	if (m_queue) {
 		gst_element_set_state(m_queue, GST_STATE_NULL);
 		gst_element_get_state(m_queue, nullptr, nullptr, GST_SECOND);
 	}
 
+	// очистка самого пайплайна
 	if (m_pipeline) {
-		if (m_pay) gst_bin_remove_many(GST_BIN(m_pipeline), m_webrtcbin, m_pay, m_queue, nullptr);
-		else gst_bin_remove_many(GST_BIN(m_pipeline), m_webrtcbin, m_queue, nullptr);
+		if (GST_IS_BIN(m_pipeline)) {
+			if (m_pay) {
+				gst_bin_remove_many(GST_BIN(m_pipeline), m_webrtcbin, m_pay, m_queue, nullptr);
+			}
+			else {
+				gst_bin_remove_many(GST_BIN(m_pipeline), m_webrtcbin, m_queue, nullptr);
+			}
+		}
+
+		gst_object_unref(m_pipeline);
+		m_pipeline = nullptr;
 	}
 
 	m_webrtcbin = nullptr;
 	m_pay = nullptr;
 	m_queue = nullptr;
+	m_tee = nullptr;
 
-	m_is_valid = false;
 	m_logger->debug("Session " + m_client_id + " destroyed completely!");
 }
 
@@ -372,16 +410,16 @@ bool UWebRTCSession::add_ice_candidate(const boost::json::object& message, std::
 		m_logger->receive(oss.str());
 	}
 
-	if (candidate.find(".local") != std::string::npos) {
-		description = get_session_name() + ": Ignore mDNS candidate: " + candidate;
-		m_logger->warn(description);
-		return true;
-	}
-	else {
+	//if (candidate.find(".local") != std::string::npos) {
+	//	description = get_session_name() + ": Ignore mDNS candidate: " + candidate;
+	//	m_logger->warn(description);
+	//	return true;
+	//}
+	//else {
 		g_signal_emit_by_name(m_webrtcbin, "add-ice-candidate", mline_index, candidate.c_str());
 		description = get_session_name() + ": Added ICE candidate!";
 		return true;
-	}
+	//}
 }
 
 void UWebRTCSession::on_negotiation_needed(GstElement* webrtcbin, gpointer data) {

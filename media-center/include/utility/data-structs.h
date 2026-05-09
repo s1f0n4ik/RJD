@@ -6,6 +6,8 @@
 #include <string>
 #include <filesystem>
 
+#include "utility/rtsp-url.h"
+
 namespace varan {
 namespace nvr {
 	// Перечисления
@@ -24,7 +26,8 @@ namespace nvr {
 		NONE = 0,
 		MAIN = 1,
 		SUB = 2,
-		COUNT = 3
+		NV12_ENCODER = 3,
+		COUNT = 4
 	};
 
 	enum class ECameraType {
@@ -32,7 +35,8 @@ namespace nvr {
 		GENERAL = 1,
 		NEURAL = 2,
 		BIRDVIEW = 3,
-		COUNT = 4
+		VIRTUAL = 4,
+		COUNT = 5
 	};
 
 	template <typename T>
@@ -60,42 +64,54 @@ namespace nvr {
 		int fps;
 
 		std::string rtsp_url;
+
 		bool use_udp;
 		int latency;
 		int reconnect_time;
 
 		std::string record_path;
 		int segment_length;
+
+		int sub;
+	};
+
+	// Структуры для пайпалнов
+	// Входные данные для пайплайна
+	struct FPipelineConfig {
+		std::string name = "unnamed";
+		std::string camera_name;
+
+		std::string rtsp_url;
+		int stream = 0;
+		EPilelineType type;
+
+		int latency = 200;
+		bool use_udp = false;
+		int reconnect_delay = 10;
+
+		std::filesystem::path record_path;
+		int segment_length = 600;
 	};
 
 	// Стурктуры ждля камер
 	struct FCameraData {
-		std::string name;
+		std::string id;
+
+		std::string display_name;
 		std::string description;
 
 		std::string ip_adress;
 		std::string port;
 		std::string user;
+		std::string password;
 
 		ECameraType type;
-
-		std::map<std::string, FPipelineData> pipelines;
+		ERtspType production;
 	};
 
-	// Структуры для пайпалнов
-
-	// Входные данные для пайплайна
-	struct FInputPipelineParameters {
-		std::string name = "unnamed";
-		std::string camera_name = "";
-
-		std::string rtsp_url = ""; // полная ссылка с пользователем и паролем
-		int latency = 200; // в милисекундах
-		bool use_udp = false;
-		int reconnect_delay = 10; // в секундах
-
-		std::filesystem::path record_path = ""; // Путь для записи фрагментов
-		int segment_length = 600; // Длительность сегмента в секундах
+	struct FCameraStreamsData {
+		FCameraData camera;
+		std::map<std::string, FPipelineData> pipelines;
 	};
 
 	struct FWebSocketOptions {

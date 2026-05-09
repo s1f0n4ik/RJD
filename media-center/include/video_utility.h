@@ -80,6 +80,7 @@ inline GstVideoFormat drm_to_gst_video_format(uint32_t fourcc)
     }
 }
 
+// Вовзращаем формат %Y-%m-%d_%H-%M-%S
 static std::string make_start_timestamp() {
     auto now = std::chrono::system_clock::now();
     std::time_t t = std::chrono::system_clock::to_time_t(now);

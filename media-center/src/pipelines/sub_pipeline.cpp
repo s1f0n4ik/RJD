@@ -49,7 +49,7 @@ bool UCameraSubPipeline::initialize() {
 					if (err) g_error_free(err);
 					if (debug) g_free(debug);
 
-					//self->restart_async();
+					//self->shedule_restart();
 					break;
 				}
 				case GST_MESSAGE_EOS: {
@@ -62,7 +62,7 @@ bool UCameraSubPipeline::initialize() {
 					if (s && gst_structure_has_name(s, "GstRTSPSrcTimeout"))
 					{
 						self->m_logger->warn("RTSP timeout detected");
-						self->restart_async();
+						self->shedule_restart();
 					}
 					break;
 				}
@@ -278,6 +278,8 @@ FPipelineData UCameraSubPipeline::get_pipeline_data() {
 	
 	data.record_path = "";
 	data.segment_length = -1;
+
+	data.sub = m_parameters.stream;
 
 	return data;
 }

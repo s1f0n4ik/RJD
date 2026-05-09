@@ -1,4 +1,7 @@
+#pragma once 
+
 #include <mutex>
+#include <condition_variable>
 #include <map>
 #include <iostream>
 #include <string>
@@ -12,12 +15,21 @@
 #include <gst/app/gstappsrc.h>
 #include <gst/webrtc/webrtc.h>
 
+#include <gst/gl/gl.h>
+#include <gst/gl/gstglcontext.h>
+#include <gst/gl/gstgldisplay.h>
+#include <gst/gl/egl/gstgldisplay_egl.h>
+
+#include <opencv2/opencv.hpp>
+
 #include "webrtc_session.h"
 #include "logger.h"
 #include "utility/data-structs.h"
-#include "utility/dma-frame.h"
+#include "utility/frames.h"
+#include "bird-view/egl-context.h"
 
 using namespace varan::nvr;
+using namespace varan;
 
 class UCameraPipeline {
 protected:
@@ -44,7 +56,7 @@ protected:
 
 public:
 	UCameraPipeline(
-		const FInputPipelineParameters& parameters,
+		const FPipelineConfig& parameters,
 		std::unique_ptr<ULogger> logger,
 		std::function<void(std::string)> send_callback
 	);
@@ -52,15 +64,19 @@ public:
 
 	virtual bool initialize();
 
-	bool start();
+	virtual bool start();
 
 	bool stop();
 
-	virtual bool teardown();
+	bool teardown(bool is_stop = true);
+
+	virtual bool teardown_prefix();
+
+	void request_stop();
 
 	void stop_restart_thread();
 
-	void restart_async();
+	void shedule_restart();
 
 	virtual bool create_webrtc_session(const std::string& client_id, std::string& description);
 
@@ -88,6 +104,7 @@ protected:
 
 protected:
 	GstElement* m_pipeline;
+	guint m_bus_watch_id = 0;
 	// Словарь веток, которые есть в пайплайне
 	// Ключ - название ветки
 	std::map<std::string, GstElement*> m_tees;
@@ -98,14 +115,14 @@ protected:
 	std::map<std::string, std::unique_ptr<UWebRTCSession>> m_webrtc_sessions;
 
 	// параметры самого pipeline
-	FInputPipelineParameters m_parameters;
+	FPipelineConfig m_parameters;
 	// параметры каметры
 	FProbeResult m_probe;
 
 	std::function<void(std::string)> m_send_callback;
 
 	std::atomic<bool> m_has_initialized{false};
-	std::atomic<bool> m_is_destroying{false};
+	std::atomic<bool> m_is_playing{false};
 
 	// Поток для рестарта
 	std::thread m_restart_thread;
@@ -114,6 +131,10 @@ protected:
 	int m_max_restart_attempts{0}; // 0 = бесконечно
 	int m_backoff_ms{1000};        // стартовая задержка 1 сек
 	int m_max_backoff_ms{30000};   // максимум 30 сек
+
+	std::atomic<bool> m_stop_requested{ false };
+	std::mutex        m_restart_cv_mutex;
+	std::condition_variable m_restart_cv;
 
 	std::unique_ptr<ULogger> m_logger;
 
@@ -128,36 +149,57 @@ private:
 	static const GstStructure* extract_caps_structure(GstPadProbeInfo* info, ULogger* logger);
 };
 
+struct FGstGLContext {
+	EGLDisplay root_display = EGL_NO_DISPLAY;
+	varan::birdview::FEGLContext shared_context;
+	GstContext* display = nullptr;
+	GstContext* app = nullptr;
+	bool is_initialized{false};
+};
+
 class UCameraMainPipeline : public UCameraPipeline {
 
 	enum class EBranchType { DECODER, RECORD };
 
 	struct FPipelineBranch {
-		GstElement* queue = nullptr;
-		GstElement* elem_1 = nullptr;  // splimux если RECORD; mppvideodec если DECODER
-		GstElement* elem_2 = nullptr;  // nullptr если RECORD; appsink если DECODER
+		using elements_map = std::vector<std::pair<std::string, GstElement*>>;
+		elements_map elements;
 
 		GstPad* tee_pad = nullptr;
-		bool is_deployed = false;
+		std::atomic<bool> is_deployed = false;
 		EBranchType type;
 		std::string name;
 
 		FPipelineBranch(EBranchType t, std::string name_) : type(t), name(name_) {}
+
+		GstElement* get_element(const std::string& name) {
+			for (const auto& pair_element : elements) {
+				if (pair_element.first == name) {
+					return pair_element.second;
+				}
+			}
+			return nullptr;
+		}
+
+		void add_element(std::string name, GstElement* element) {
+			elements.push_back(std::pair<std::string, GstElement*>(name, element));
+		}
 	};
 
 public:
 	UCameraMainPipeline(
-		const FInputPipelineParameters& parameters,
+		const FPipelineConfig& parameters,
 		std::unique_ptr<ULogger> logger,
 		std::function<void(std::string)> send_callback,
-		CDmabufMover dma_callback = nullptr
+		varan::birdview::UEGLContextManager* gl_context_manager = nullptr,
+		CFrameMover dma_callback = nullptr
 	);
 
 	~UCameraMainPipeline() override;
 
 	virtual bool initialize() override;
 
-	virtual bool teardown() override;
+	virtual bool teardown_prefix() override;
 
 	virtual bool create_webrtc_session(const std::string& client_id, std::string& description) override;
 
@@ -167,20 +209,34 @@ public:
 
 private:
 
+	void create_gst_gl_context(varan::birdview::UEGLContextManager* gl_context_manager);
+
 	bool create_decoder_branch(GstElement* tee);
 
 	bool create_record_branch(GstElement* tee);
 
+	void set_timer_check_record_branch();
+
 	bool destroy_branch(FPipelineBranch& branch);
+
+	void destroy_gst_gl_context();
 
 	static GstFlowReturn on_new_sample_dma(GstElement* sink, gpointer user_data);
 
+	static GstFlowReturn on_new_sample_gl_texture(GstElement* sink, gpointer user_data);
+
+	static float get_disk_usage(const std::string path, ULogger* logger);
+
 private:
 
+	FGstGLContext m_gl_context;
+
 	FPipelineBranch m_record_branch;
+	std::filesystem::path m_record_path = "";
+
 	FPipelineBranch m_decoder_branch;
 
-	CDmabufMover m_dma_sender;
+	CFrameMover m_dma_sender;
 
 	std::mutex m_branch_mutex;
 };
@@ -198,4 +254,42 @@ public:
 	virtual FPipelineData get_pipeline_data() override;
 
 	virtual EPilelineType get_type() override;
+};
+
+class UNV12EncodingPipeline : public UCameraPipeline {
+public:
+	using UCameraPipeline::UCameraPipeline;
+
+	~UNV12EncodingPipeline() override;
+
+	void push_frame(cv::Mat frame);
+
+	void set_stream_size(int width, int height, int fps);
+
+	std::optional<cv::Mat> get_cached_frame();
+
+	virtual bool initialize() override;
+
+	virtual bool teardown_prefix() override;
+
+	virtual bool create_webrtc_session(const std::string& client_id, std::string& description) override;
+
+	virtual FPipelineData get_pipeline_data() override;
+
+	virtual EPilelineType get_type() override;
+
+private:
+	GstElement* m_appsrc;
+	std::mutex m_appsrc_mutex;
+
+	guint64 m_frame_count = 0;
+
+	cv::Mat m_cached_frame;
+	std::mutex m_cached_mutex;
+
+	int m_width = 800;
+	int m_height = 600;
+	int m_fps = 15;
+
+	std::atomic<bool> m_is_set{false};
 };

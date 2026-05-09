@@ -23,12 +23,15 @@ public:
         post_camera(const boost::beast::http::request<boost::beast::http::string_body>& req);
 
     boost::beast::http::response<boost::beast::http::string_body>
+        patch_camera(const boost::beast::http::request<boost::beast::http::string_body>& req);
+
+    boost::beast::http::response<boost::beast::http::string_body>
         delete_camera(const boost::beast::http::request<boost::beast::http::string_body>& req);
 
 private:
     std::shared_ptr<UMediaCenter> m_media_center;
 
-    boost::json::object make_camera_json(const FCameraData& data, const std::set<std::string>& fields);
+    boost::json::object make_camera_json(const FCameraStreamsData& data, const std::set<std::string>& fields);
 
     boost::json::object make_pipeline_json(const FPipelineData& data, const std::vector<std::string>& fields);
 
@@ -37,9 +40,9 @@ private:
         const std::optional<boost::json::object>& meta,
         const std::optional<boost::json::object>& error);
 
-    static std::optional<FCameraData> match_data_with_selectors(
+    static std::optional<FCameraStreamsData> match_data_with_selectors(
         const std::unordered_map<std::string, std::string>& selectors, 
-        FCameraData& data
+        FCameraStreamsData& data
     );
 
     static void parse_query(
@@ -49,23 +52,32 @@ private:
     );
 
 private:
-    using CCameraFieldWriter = std::function<void(const FCameraData& data, boost::json::object& obj)>;
+    using CCameraFieldWriter = std::function<void(const FCameraStreamsData& data, boost::json::object& obj)>;
     using CStreamFieldWriter = std::function<void(const FPipelineData& data, boost::json::object& obj)>;
-
+             
     const std::map<std::string, CCameraFieldWriter> m_camera_field_map = {
-        { fields::DESCRIPTION, [](const FCameraData& data,  boost::json::object& obj) {
-            obj[fields::DESCRIPTION] = data.description;
+        { fields::DISPLAY_NAME, [](const FCameraStreamsData& data,  boost::json::object& obj) {
+            obj[fields::DISPLAY_NAME] = data.camera.display_name;
         }},
-        { fields::IP_ADRESS, [](const FCameraData& data,  boost::json::object& obj) {
-            obj[fields::IP_ADRESS] = data.ip_adress;
+        { fields::DESCRIPTION, [](const FCameraStreamsData& data,  boost::json::object& obj) {
+            obj[fields::DESCRIPTION] = data.camera.description;
         }},
-        { fields::PORT, [](const FCameraData& data,  boost::json::object& obj) {
-            obj[fields::PORT] = data.port;
+        { fields::IP_ADRESS, [](const FCameraStreamsData& data,  boost::json::object& obj) {
+            obj[fields::IP_ADRESS] = data.camera.ip_adress;
         }},
-        { fields::USER, [](const FCameraData& data,  boost::json::object& obj) {
-            obj[fields::USER] = data.user;
+        { fields::PORT, [](const FCameraStreamsData& data,  boost::json::object& obj) {
+            obj[fields::PORT] = data.camera.port;
         }},
-        { fields::STREAMS, [this](const FCameraData& data,  boost::json::object& obj) {
+        { fields::USER, [](const FCameraStreamsData& data,  boost::json::object& obj) {
+            obj[fields::USER] = data.camera.user;
+        }},
+        { fields::CAMERA_TYPE, [](const FCameraStreamsData& data,  boost::json::object& obj) {
+            obj[fields::CAMERA_TYPE] = static_cast<int>(data.camera.type);
+        }},
+        { fields::PRODUCTION, [](const FCameraStreamsData& data,  boost::json::object& obj) {
+            obj[fields::PRODUCTION] = static_cast<int>(data.camera.production);
+        }},
+        { fields::STREAMS, [this](const FCameraStreamsData& data,  boost::json::object& obj) {
                 boost::json::object arr;
                 for (const auto& [name, pipe] : data.pipelines) {
                     std::vector<std::string> vec;
@@ -114,11 +126,14 @@ private:
         }},
         { fields::RECONNECT, [](const FPipelineData& data, boost::json::object& obj) {
             obj[fields::RECONNECT] = data.reconnect_time;
+        }},
+        { fields::SUB_STREAM, [](const FPipelineData& data, boost::json::object& obj) {
+            obj[fields::SUB_STREAM] = data.sub;
         }}
     };
 
     const std::vector<std::string> m_post_camera_fields = {
-        fields::NAME, fields::DESCRIPTION, fields::IP_ADRESS, fields::PORT, fields::TYPE, 
+        fields::ID, fields::DISPLAY_NAME, fields::DESCRIPTION, fields::IP_ADRESS, fields::PORT, fields::TYPE, 
         fields::USER, fields::PASSWORD, fields::PRODUCTION, fields::STREAMS
     };
 

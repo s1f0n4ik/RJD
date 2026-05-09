@@ -3,11 +3,11 @@
 #include <string>
 #include <functional>
 
-class ICameraSignaling {
+class ISignaling {
 public:
 	using CSignalingCallback = std::function<void(const std::string& msg)>;
 
-	virtual ~ICameraSignaling() = default;
+	virtual ~ISignaling() = default;
 
 	virtual void send_message(const std::string& message) = 0;
 

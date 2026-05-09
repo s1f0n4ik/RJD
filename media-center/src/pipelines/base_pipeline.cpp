@@ -4,7 +4,7 @@
 #include <gst/rtsp/gstrtsptransport.h>
 
 UCameraPipeline::UCameraPipeline(
-    const FInputPipelineParameters& parameters,
+    const FPipelineConfig& parameters,
     std::unique_ptr<ULogger> logger,
     std::function<void(std::string)> send_callback
 )
@@ -16,13 +16,7 @@ UCameraPipeline::UCameraPipeline(
 }
 
 UCameraPipeline::~UCameraPipeline() {
-    // Если запущен поток - завершаем
-    if (m_restart_thread.joinable()) {
-        m_restart_thread.join();
-    }
-
     teardown();
-
     // Очищаем callback
     m_send_callback = nullptr;
 }
@@ -54,27 +48,42 @@ EPipelineStatus UCameraPipeline::get_status() {
 
 bool UCameraPipeline::initialize() {
     if (m_has_initialized) {
-        m_logger->info("inititalize(): Pipeline already initialized!");
+        if (m_logger) m_logger->info("inititalize(): Pipeline already initialized!");
         return true;
     }
-    m_logger->info("Initializing " + m_parameters.name + " pipeline..");
+    if (m_logger) m_logger->info("Initializing " + m_parameters.name + " pipeline..");
 
     const int probe_timeout = 5;   // timeout на каждый probe
     const int max_attempts = 10;   // сколько попыток сделать
-    const int reconnect_delay_sec = 2; // задержка между попытками
+    const int reconnect_delay = 2; // задержка между попытками
 
     for (int attempt = 1; attempt <= max_attempts; ++attempt) {
-        m_logger->info("Probe attempt " + std::to_string(attempt) + "/" + std::to_string(max_attempts));
+        if (m_stop_requested.load()) {
+            if (m_logger) m_logger->info("initialize(): stop requested, aborting");
+            return false;
+        }
+
+        if (m_logger) m_logger->info("Probe attempt " + std::to_string(attempt) + "/" + std::to_string(max_attempts));
 
         if (probe_video_stream(probe_timeout)) {
             return true;
         }
 
-        m_logger->warn("Camera stream not found, retrying in " + std::to_string(reconnect_delay_sec) + "s...");
-        std::this_thread::sleep_for(std::chrono::seconds(reconnect_delay_sec));
+        if (m_stop_requested.load()) {
+            if (m_logger) m_logger->info("initialize(): stop requested after probe, aborting");
+            return false;
+        }
+
+        if (m_logger) m_logger->warn("Camera stream not found, retrying in " + std::to_string(reconnect_delay) + "s...");
+        {
+            std::unique_lock<std::mutex> lock(m_restart_cv_mutex);
+            m_restart_cv.wait_for(lock, std::chrono::seconds(reconnect_delay),
+                [this] { return m_stop_requested.load(); }
+            );
+        }
     }
 
-    m_logger->error("Failed to detect camera stream after " + std::to_string(max_attempts) + " attempts!");
+    if (m_logger) m_logger->error("Failed to detect camera stream after " + std::to_string(max_attempts) + " attempts!");
     return false;
 }
 
@@ -92,8 +101,14 @@ bool UCameraPipeline::start() {
         return false;
     }
 
+    m_is_playing = true;
     m_logger->info("Pipeline started successfully.");
     return true;
+}
+
+void UCameraPipeline::request_stop() {
+    m_stop_requested.store(true);
+    m_restart_cv.notify_all();
 }
 
 bool UCameraPipeline::stop() {
@@ -110,25 +125,35 @@ bool UCameraPipeline::stop() {
         return false;
     }
 
+    m_is_playing = false;
     m_logger->info("Pipeline paused successfully.");
     return true;
 }
 
-bool UCameraPipeline::teardown()
+bool UCameraPipeline::teardown(bool is_blocking)
 {
-    if (m_is_destroying) {
-        m_logger->warn("teardown(): function already called!");
-        return true;
+    // Если уничтожающий - вызываем стоп сигнал
+    if (is_blocking) {
+        (m_stop_requested.exchange(true));
+        m_restart_cv.notify_all();
+
+        if (m_restart_thread.joinable()) {
+            m_restart_thread.join();
+        }
+        m_is_restarting.store(false);
     }
+
+    // Теперь переходим к самому пайплайну
+    std::lock_guard<std::mutex> lock(m_pipeline_mutex);
+
+    teardown_prefix();
 
     if (!m_pipeline) {
         m_logger->warn("teardown(): pipeline already destroyed or null.");
-        m_is_destroying = false;
         return true;
     }
 
-    m_logger->info("teardown(): direct NULL shutdown pipeline...");
-    m_is_destroying = true;
+    m_is_playing = false;
 
     // Удаляем все сессии
     for (const auto& [name, session] : m_webrtc_sessions) {
@@ -138,58 +163,81 @@ bool UCameraPipeline::teardown()
     m_tees.clear();
 
     // Останавливаем сетевые потоки
-    gst_element_send_event(m_pipeline, gst_event_new_flush_start());
-    gst_element_send_event(m_pipeline, gst_event_new_flush_stop(TRUE));
+    //gst_element_send_event(m_pipeline, gst_event_new_flush_start());
+    //gst_element_send_event(m_pipeline, gst_event_new_flush_stop(TRUE));
+
+    // Отвязывает pipeline
+    if (m_bus_watch_id != 0) {
+        g_source_remove(m_bus_watch_id);
+        m_bus_watch_id = 0;
+    }
 
     // Переводим pipeline в NULL
-    GstStateChangeReturn ret = gst_element_set_state(m_pipeline, GST_STATE_NULL);
-    if (ret == GST_STATE_CHANGE_FAILURE) {
-        m_logger->error("teardown(): failed to initiate state change to NULL.");
+    if (!m_pipeline || !GST_IS_ELEMENT(m_pipeline)) {
+        m_logger->error("teardown(): m_pipeline is NOT a valid GstElement! ptr="
+            + std::to_string(reinterpret_cast<uintptr_t>(m_pipeline)));
+        m_pipeline = nullptr;
+        //return false;
     }
     else {
-        m_logger->info("teardown(): pipeline reached NULL state successfully.");
+        GstStateChangeReturn ret = gst_element_set_state(m_pipeline, GST_STATE_NULL);
+        if (ret == GST_STATE_CHANGE_FAILURE) {
+            m_logger->error("teardown(): failed to initiate state change to NULL.");
+        }
+        else {
+            m_logger->info("teardown(): pipeline reached NULL state successfully.");
+        }
+        gst_object_unref(m_pipeline);
+        m_pipeline = nullptr;
     }
-
-    gst_object_unref(m_pipeline);
-    m_pipeline = nullptr;
 
     // Очистка локальных структур
     m_probe.got_codec = false;
     m_probe.got_video_info = false;
     m_has_initialized = false;
+    if (is_blocking) {
+        m_stop_requested.store(false);
+    }
 
     m_logger->info("teardown(): pipeline destroyed successfully");
-    m_is_destroying = false;
+    return true;
+}
 
+bool UCameraPipeline::teardown_prefix() {
     return true;
 }
 
 void UCameraPipeline::restart_loop() {
-    m_logger->info("restart_loop(): Starting restart loop for " + m_parameters.name);
+    if (m_logger) m_logger->info("restart_loop(): Started for " + m_parameters.name);
 
-    while (m_is_restarting) {
-        m_logger->info("restart_loop(): Attempt restart #" + std::to_string(m_restart_attempts + 1));
+    while (m_is_restarting && !m_stop_requested.load()) {
+        if (m_logger) m_logger->info("restart_loop(): Attempt restart #" + std::to_string(m_restart_attempts + 1));
 
         bool success = true;
 
-        if (!teardown()) {
-            m_logger->error("restart_loop(): teardown() pipeline failed");
+        if (!teardown(false) && !m_stop_requested.load()) {
+            if (m_logger) m_logger->error("restart_loop(): teardown() pipeline failed");
             success = false;
         }
 
-        if (success && !initialize()) {
-            m_logger->error("restart_loop(): initialize() pipeline failed");
+        if (success && !initialize() && !m_stop_requested.load()) {
+            if (m_logger) m_logger->error("restart_loop(): initialize() pipeline failed");
             success = false;
         }
 
-        if (success && !start()) {
-            m_logger->error("restart_loop(): start() pipeline failed");
+        if (success && !start() && !m_stop_requested.load()) {
+            if (m_logger) m_logger->error("restart_loop(): start() pipeline failed");
             success = false;
+        }
+
+        if (m_stop_requested.load()) {
+            if (m_logger) m_logger->warn("restart_loop(): stop requested at pipeline, restart aborted");
+            break;
         }
 
         if (success)
         {
-            m_logger->info("restart_loop(): Pipeline restarted successfully");
+            if (m_logger) m_logger->info("restart_loop(): Pipeline restarted successfully");
 
             // сброс backoff
             m_restart_attempts = 0;
@@ -200,10 +248,18 @@ void UCameraPipeline::restart_loop() {
         }
 
         m_restart_attempts++;
+        if (m_logger) m_logger->warn("restart_loop(): Retry in " + std::to_string(m_backoff_ms) + " ms");
 
-        m_logger->warn("restart_loop(): Retry in " + std::to_string(m_backoff_ms) + " ms");
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(m_backoff_ms));
+        {
+            std::unique_lock<std::mutex> lock(m_restart_cv_mutex);
+            m_restart_cv.wait_for(lock, 
+                std::chrono::milliseconds(m_backoff_ms),
+                [this] {
+                    if (m_logger) m_logger->warn("restart_loop(): exit from loop, stop requested!");
+                    return m_stop_requested.load(); 
+                }
+            );
+        }
 
         m_backoff_ms = std::min(m_backoff_ms * 2, m_max_backoff_ms);
     }
@@ -212,9 +268,14 @@ void UCameraPipeline::restart_loop() {
     m_is_restarting = false;
 }
 
-void UCameraPipeline::restart_async() {
+void UCameraPipeline::shedule_restart() {
+    if (m_stop_requested.load()) {
+        m_logger->warn("shedule_restart(): skip, pipeline is destroying");
+        return;
+    }
+
     if (m_is_restarting.exchange(true)) {
-        m_logger->warn("restart_async(): Restart already in progress");
+        m_logger->warn("shedule_restart(): Restart already in progress");
         return;
     }
 
@@ -232,7 +293,10 @@ void UCameraPipeline::stop_restart_thread() {
 }
 
 bool UCameraPipeline::probe_video_stream(int timeout_sec) {
-    m_logger->debug("Initializing probe pipeline...");
+    if (m_stop_requested.load()) return false;
+
+    if (m_logger) m_logger->debug("Initializing probe pipeline...");
+    if (m_logger) m_logger->debug("Trying to connect to camera with rtsp: " + m_parameters.rtsp_url);
 
     auto pipeline = gst_pipeline_new("probe-pipeline");
     auto src = gst_element_factory_make("rtspsrc", nullptr);
@@ -240,7 +304,7 @@ bool UCameraPipeline::probe_video_stream(int timeout_sec) {
     auto sink = gst_element_factory_make("fakesink", nullptr);
 
     if (!pipeline || !src || !decoder || !sink) {
-        m_logger->error("Failed to create probe pipeline elements.");
+        if (m_logger) m_logger->error("Failed to create probe pipeline elements.");
         return false;
     }
 
@@ -273,7 +337,7 @@ bool UCameraPipeline::probe_video_stream(int timeout_sec) {
 
     GstBus* bus = gst_element_get_bus(pipeline);
     gint64 deadline = g_get_monotonic_time() + timeout_sec * G_TIME_SPAN_SECOND;
-    while (!m_probe.ready() && g_get_monotonic_time() < deadline) {
+    while (!m_probe.ready() && !m_stop_requested.load() && g_get_monotonic_time() < deadline) {
         GstMessage* msg = gst_bus_timed_pop(bus, 200 * GST_MSECOND);
 
         if (!msg) {
@@ -291,7 +355,7 @@ bool UCameraPipeline::probe_video_stream(int timeout_sec) {
                 << "Error message: " << (err ? err->message : "unknown") << "\n"
                 << "Debug info: " << (debug_info ? debug_info : "none");
 
-            m_logger->error(oss.str());
+            if (m_logger) m_logger->error(oss.str());
 
             if (err) g_error_free(err);
             if (debug_info) g_free(debug_info);
@@ -306,16 +370,22 @@ bool UCameraPipeline::probe_video_stream(int timeout_sec) {
     gst_object_unref(bus);
 
     gst_element_set_state(pipeline, GST_STATE_NULL);
+    gst_element_get_state(pipeline, nullptr, nullptr, 3 * GST_SECOND);
     gst_object_unref(pipeline);
 
+    if (m_stop_requested.load()) {
+        if (m_logger) m_logger->info("probe_video_stream(): interrupted by stop request");
+        return false;
+    }
+
     if (!m_probe.ready()) {
-        m_logger->warn("Probe failed: stream not ready.");
+        if (m_logger) m_logger->warn("Probe failed: stream not ready.");
         return false;
     }
 
     std::ostringstream oss;
     oss << "Probe succeeded:\n\tcodec=" << m_probe.codec_name << "\n\twidth=" << m_probe.width << "\n\theight=" << m_probe.height;
-    m_logger->info(oss.str());
+    if (m_logger) m_logger->info(oss.str());
     return true;
 }
 

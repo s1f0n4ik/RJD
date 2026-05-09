@@ -15,7 +15,7 @@ namespace nvr {
 		COUNT = 4
 	};
 
-	const std::string production_naming(ERtspType production) {
+	inline const std::string production_naming(ERtspType production) {
 		switch (production) {
 		case ERtspType::NO_PRODUCER:
 			return "Noname production";
@@ -32,18 +32,19 @@ namespace nvr {
 
 	using CRtspUrlMaker = std::string(*)(const std::string&, const std::string&, const std::string&, const std::string&, int);
 
-	const std::unordered_map<ERtspType, CRtspUrlMaker> rtsp_maker = {
+	// Обязательно в stream передаем id начиная с 1
+	inline const std::unordered_map<ERtspType, CRtspUrlMaker> rtsp_maker = {
 		{ERtspType::NO_PRODUCER, 
 		[](const std::string& ip, const std::string& port, const std::string& admin, const std::string& password, int stream) {
 			std::stringstream ss;
 			ss << "rtsp://" << ip << ":" << port << "/user=" << admin << "_password="
-			   << password << "_channel=0_stream=" << stream << "&onvif=0.sdp?real_stream";
+			   << password << "_channel=0_stream=" << stream - 1 << "&onvif=0.sdp?real_stream";
 			return ss.str();
 		}},
 		{ERtspType::DAHUA,
 		[](const std::string& ip, const std::string& port, const std::string& admin, const std::string& password, int stream) {
 			std::stringstream ss;
-			ss << "rtsp://" << admin << ":" << password << "@" << ip << ":" << port << "/cam/realmonitor?channel=1&subtype=" << stream;
+			ss << "rtsp://" << admin << ":" << password << "@" << ip << ":" << port << "/cam/realmonitor?channel=1&subtype=" << stream - 1;
 			return ss.str();
 		}},
 		{ERtspType::HIKVISION,
@@ -56,7 +57,7 @@ namespace nvr {
 		[](const std::string& ip, const std::string& port, const std::string& admin, const std::string& password, int stream) {
 			std::stringstream ss;
 			ss << "rtsp://" << ip << ":" << port << "/user=" << admin << "_password="
-			   << password << "_channel=0_stream=" << stream << "&onvif=0.sdp?real_stream";
+			   << password << "_channel=0_stream=" << stream - 1 << "&onvif=0.sdp?real_stream";
 			return ss.str();
 		}},
 	};
