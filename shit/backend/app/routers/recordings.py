@@ -27,7 +27,10 @@ async def get_all_recordings() -> Dict[str, Any]:
     """Получить все записи, сгруппированные по камерам"""
     if not RECORDS_PATH.exists():
         logger.warning(f"Records path does not exist: {RECORDS_PATH}")
-        return {"recordings": {}}
+        return {
+            "recordings": {},
+            "message": f"Records path does not exist: {RECORDS_PATH}"
+        }
 
     recordings = {}
 
