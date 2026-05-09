@@ -103,12 +103,12 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
         }
 
         connectionResponseTimeoutRef.current = window.setTimeout(() => {
-            console.warn(`[${cameraId}] ⏱️ No connection response in 5s, retrying...`);
+            console.warn(`[${cameraId}] ⏱️ No connection response in 10s, retrying...`);
 
             if (!isMountedRef.current) return;
 
             sendCreateRequest(); // повторяем запрос
-        }, 5000);
+        }, 10000);
     };
 
     const closeWebRTC = () => {
@@ -264,10 +264,6 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
                         }
                         // Может отклонять только в случае открытой сессии с таким же клиентом, иначе - не приходит сообщение вовсе
                         sendCloseRequest();
-                        // Пробуем еще раз отправить спустя время
-                        //setTimeout(() => {
-                        //    sendCreateRequest();
-                        //}, 2000); // 2 секунды
                     }
                     return;
                 }
@@ -373,7 +369,7 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
                 setStatus('connecting');
                 console.log(`[${cameraId}] New webRTC connection pending!`);
 
-                console.log(`[${cameraId}] Start timeout 20s to connect`)
+                console.warn(`[${cameraId}] Start timeout 20s to connect`)
                 // Запускаем таймер, если не удалось подключиться за 20 секунд
                 if (connectionTimeoutRef.current) {
                     clearTimeout(connectionTimeoutRef.current);
@@ -389,10 +385,12 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
 
                     closeWebRTC();
                     sendCloseRequest();
+                    // Снова начинаем срать в вебсокет
                     sendCreateRequest();
                 }, 20000);
             }
             if (s === 'connected') {
+                // На всякий случаем убирам и срущий таймаут
                 if (connectionResponseTimeoutRef.current) {
                     clearTimeout(connectionResponseTimeoutRef.current);
                     connectionResponseTimeoutRef.current = null;
@@ -419,6 +417,7 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
                 setErrorMsg('Соединение оборвано, ожидание нового...');
                 closeWebRTC();
                 sendCloseRequest();
+                // Снова начинает спамить в надежде на ответ
                 sendCreateRequest();
             }
         };
