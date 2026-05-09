@@ -371,6 +371,7 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
             const s = pc.connectionState;
             if (s === 'new') {
                 setStatus('connecting');
+                console.log(`[${cameraId}] New webRTC connection pending!`);
                 // Запускаем таймер, если не удалось подключиться за 20 секунд
                 if (connectionTimeoutRef.current) {
                     clearTimeout(connectionTimeoutRef.current);
@@ -395,15 +396,19 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
                     connectionTimeoutRef.current = null;
                 }
                 setStatus('connected');
+                console.log(`[${cameraId}] Connection successfully suggested!`);
             }
             else if (s === 'connecting') {
                 setStatus('connecting');
+                console.log(`[${cameraId}] WebRTC turned to connecting state!`);
             }
             else if (s === 'disconnected') {
                 setStatus('error');
                 setErrorMsg('Обрыв соединения. Ожидание переподключения');
+                console.warn(`[${cameraId}] WebRTC turned to disconnected state!`);
             }
             else if (s === 'failed' || s === 'closed') {
+                console.warn(`[${cameraId}] WebRTC closed, try to restart connection!`);
                 setStatus('error');
                 setErrorMsg('Соединение оборвано, ожидание нового...');
                 closeWebRTC();
