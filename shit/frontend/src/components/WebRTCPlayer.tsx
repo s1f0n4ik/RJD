@@ -369,6 +369,26 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
             console.log(`[${cameraId}] Connection state:`, pc.connectionState);
             if (!isMountedRef.current) return;
             const s = pc.connectionState;
+            if (s === 'new') {
+                setStatus('connecting');
+                // Запускаем таймер, если не удалось подключиться за 20 секунд
+                if (connectionTimeoutRef.current) {
+                    clearTimeout(connectionTimeoutRef.current);
+                }
+
+                connectionTimeoutRef.current = window.setTimeout(() => {
+                    console.warn(`[${cameraId}] ⏱️ Connection timeout (20s)`);
+
+                    if (!isMountedRef.current) return;
+
+                    setStatus('error');
+                    setErrorMsg('Таймаут подключения');
+
+                    closeWebRTC();
+                    sendCloseRequest();
+                    sendCreateRequest();
+                }, 20000);
+            }
             if (s === 'connected') {
                 if (connectionTimeoutRef.current) {
                     clearTimeout(connectionTimeoutRef.current);
@@ -376,7 +396,7 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
                 }
                 setStatus('connected');
             }
-            if (s === 'connecting') {
+            else if (s === 'connecting') {
                 setStatus('connecting');
             }
             else if (s === 'disconnected') {
@@ -384,30 +404,13 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
                 setErrorMsg('Обрыв соединения. Ожидание переподключения');
             }
             else if (s === 'failed' || s === 'closed') {
-                setStatus('connecting');
+                setStatus('error');
+                setErrorMsg('Соединение оборвано, ожидание нового...');
                 closeWebRTC();
                 sendCloseRequest();
                 sendCreateRequest();
             }
         };
-
-        // Запускаем таймер, если не удалось подключиться за 20 секунд
-        if (connectionTimeoutRef.current) {
-            clearTimeout(connectionTimeoutRef.current);
-        }
-
-        connectionTimeoutRef.current = window.setTimeout(() => {
-            console.warn(`[${cameraId}] ⏱️ Connection timeout (20s)`);
-
-            if (!isMountedRef.current) return;
-
-            setStatus('error');
-            setErrorMsg('Таймаут подключения');
-
-            closeWebRTC();
-            sendCloseRequest();
-            sendCreateRequest();
-        }, 20000);
     };
 
     const handleOffer = async (sdp: string) => {
