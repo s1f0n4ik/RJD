@@ -65,6 +65,10 @@ interface SavedLayout {
 const STORAGE_KEY = 'observation_layouts';
 
 const Observation: React.FC = () => {
+    const getCameraDisplayName = (cameraId: string): string => {
+      const c = cameras.find(c => c.id === cameraId);
+      return c?.display_name || cameraId;
+    };
   const [cameras, setCameras] = useState<CPPCamera[]>([]);
   const [selectedCamera, setSelectedCamera] = useState<string | null>(null);
   const [activeCells, setActiveCells] = useState<Record<number | string, string>>({});
@@ -539,6 +543,7 @@ const Observation: React.FC = () => {
                   <WebRTCPlayer
                     key={`player-${cell.id}-${cameraName}`}
                     cameraId={cameraName}
+                    cameraName={getCameraDisplayName(cameraName)}
                     signalingUrl={`${SIGNALING_SERVER}/client/${cameraName}`}
                     onError={(err) => console.error(`Error in ${cameraName}:`, err)}
                   />
@@ -599,6 +604,7 @@ const Observation: React.FC = () => {
           <WebRTCPlayer
             key={`player-${cellId}-${cameraName}`}
             cameraId={cameraName}
+            cameraName={getCameraDisplayName(cameraName)}
             signalingUrl={`${SIGNALING_SERVER}/client/${cameraName}`}
             onError={(err) => console.error(`Error in ${cameraName}:`, err)}
           />
@@ -629,7 +635,7 @@ const Observation: React.FC = () => {
               },
             }}
           >
-            {cameraName} • 2× клик = удалить
+            {getCameraDisplayName(cameraName)} • 2× клик = удалить
           </Box>
         </>
       ) : (

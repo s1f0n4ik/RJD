@@ -103,6 +103,18 @@ const RESERVED_PREFIXES = ['__probe_'];
 const NAME_REGEX = /^[a-zA-Z_][a-zA-Z0-9_-]{1,31}$/;
 const IP_REGEX = /^((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/;
 
+const IP_POOL_PREFIX = '192.168.1.';
+const IP_POOL_FROM = 11;
+const IP_POOL_TO = 39;
+
+const buildIpPool = (): string[] => {
+  const arr: string[] = [];
+  for (let i = IP_POOL_FROM; i <= IP_POOL_TO; i++) {
+    arr.push(`${IP_POOL_PREFIX}${i}`);
+  }
+  return arr;
+};
+
 const DEFAULT_FORM: CameraFormData = {
   id: '',
   display_name: '',
@@ -217,6 +229,16 @@ const CameraSettings: React.FC = () => {
   }, []);
 
   const existingNames = useMemo(() => cameras.map((c) => c.id), [cameras]);
+  const usedIps = useMemo(
+      () => new Set(
+        cameras
+          .filter(c => !editMode || c.id !== editOriginalRef.current?.id) // в режиме редактирования НЕ считаем текущую как занятую
+          .map(c => c.ip_adress)
+      ),
+      [cameras, editMode]
+    );
+
+    const ipPool = useMemo(() => buildIpPool(), []);
 
   // === Валидация ===
   const nameValidation = useMemo(
@@ -832,18 +854,30 @@ const CameraSettings: React.FC = () => {
                 />
               </Grid>
               <Grid item xs={12} sm={8}>
-                <TextField
-                  fullWidth
-                  required
-                  label="IP-адрес"
-                  placeholder="192.168.1.10"
-                  value={formData.ip_adress}
-                  onChange={(e) => handleInputChange('ip_adress', e.target.value)}
-                  error={!!formData.ip_adress && !ipValidation.valid}
-                  helperText={
-                    formData.ip_adress ? ipValidation.error : 'Формат: 192.168.1.10'
-                  }
-                />
+                  <FormControl fullWidth required error={!!formData.ip_adress && !ipValidation.valid}>
+                    <InputLabel id="ip-select-label">IP-адрес</InputLabel>
+                    <Select
+                      labelId="ip-select-label"
+                      label="IP-адрес"
+                      value={formData.ip_adress}
+                      onChange={(e) => handleInputChange('ip_adress', e.target.value)}
+                    >
+                      <MenuItem value="">
+                        <em>— не выбран —</em>
+                      </MenuItem>
+                      {ipPool.map(ip => {
+                        const taken = usedIps.has(ip);
+                        return (
+                          <MenuItem key={ip} value={ip} disabled={taken}>
+                            {ip}{taken ? ' — занят' : ''}
+                          </MenuItem>
+                        );
+                      })}
+                    </Select>
+                    <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, ml: 1.5 }}>
+                      Пул: {IP_POOL_PREFIX}{IP_POOL_FROM}–{IP_POOL_TO}. Занятые скрыты.
+                    </Typography>
+                  </FormControl>
               </Grid>
               <Grid item xs={12} sm={4}>
                 <TextField

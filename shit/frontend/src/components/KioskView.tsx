@@ -271,6 +271,10 @@ const KioskView: React.FC = () => {
     const camera = cameras.find(c => c.id === cameraId);
     return camera?.streams?.main?.status === 3;
   };
+  const getCameraDisplayName = (cameraId: string): string => {
+      const c = cameras.find(c => c.id === cameraId);
+      return c?.display_name || cameraId;
+    };
 
   // === РЕНДЕР ===
 
@@ -381,6 +385,7 @@ const KioskView: React.FC = () => {
             <WebRTCPlayer
               key={`kiosk-${cellId}-${cameraName}`}
               cameraId={cameraName}
+              cameraName={getCameraDisplayName(cameraName)}
               signalingUrl={`${SIGNALING_SERVER}/client/${cameraName}`}
               onError={(err) => console.error(`Kiosk error ${cameraName}:`, err)}
             />
@@ -413,7 +418,7 @@ const KioskView: React.FC = () => {
                     px: 2, py: 0.5, borderRadius: 1, fontSize: '0.85rem',
                   }}
                 >
-                  {isDropTarget ? `✓ Заменить на «${draggedCamera}»` : 'Отпустите для замены'}
+                  {isDropTarget ? `✓ Заменить на «${getCameraDisplayName(draggedCamera!)}»` : 'Отпустите для замены'}
                 </Typography>
               </Box>
             )}
@@ -435,7 +440,7 @@ const KioskView: React.FC = () => {
                     px: 2, py: 0.5, borderRadius: 1, fontSize: '0.85rem',
                   }}
                 >
-                  Тап — заменить на «{selectedCamera}»
+                  Тап — заменить на «${getCameraDisplayName(selectedCamera!)}»
                 </Typography>
               </Box>
             )}
@@ -454,9 +459,9 @@ const KioskView: React.FC = () => {
               }}
             >
               {isDropTarget
-                ? `✓ Отпустите «${draggedCamera}»`
+                ? `✓ Отпустите «${getCameraDisplayName(selectedCamera!)}»`
                 : canPlaceByTap
-                ? `Тап — поставить «${selectedCamera}»`
+                ? `Тап — поставить «${getCameraDisplayName(selectedCamera!)}»`
                 : isDragging
                 ? 'Перетащите сюда'
                 : 'Пусто'}
@@ -548,7 +553,7 @@ const KioskView: React.FC = () => {
             }}
           >
             <Typography variant="caption" sx={{ color: 'white' }}>
-              📹 {selectedCamera}
+              📹 {getCameraDisplayName(selectedCamera)}
             </Typography>
             <IconButton
               size="small"
