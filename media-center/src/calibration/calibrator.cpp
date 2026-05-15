@@ -2,6 +2,7 @@
 #include "calibration/constants.h"
 
 #include "signaling_definers.h"
+#include "calibration/utility.h"
 
 namespace varan {
 namespace calibration {
@@ -72,6 +73,7 @@ namespace calibration {
 				std::string camera_id;
 				if (auto* v = meta->if_contains("camera_id"); v && v->is_string()) {
 					camera_id = v->as_string().c_str();
+					m_camera_id = camera_id;
 				}
 				else {
 					on_error(type, "Error with message: missing camera_id at meta block!", &client_id);
@@ -364,8 +366,8 @@ namespace calibration {
 				}
 				boost::json::object send_meta;
 				send_meta[constants::META_RMS] = m_calibration.rms;
-				send_meta[constants::META_CAMERA_MATRIX] = make_json_object_mat(m_calibration.camera_matrix);
-				send_meta[constants::META_DISTORION_COEFFS] = make_json_object_mat(m_calibration.distortion_coeffs);
+				send_meta[constants::META_CAMERA_MATRIX] = SBinary::make_json_object_mat(m_calibration.camera_matrix);
+				send_meta[constants::META_DISTORION_COEFFS] = SBinary::make_json_object_mat(m_calibration.distortion_coeffs);
 
 				send_message(make_socket_message(type, true, &client_id, &m_name, &send_meta));
 				m_logger.info("on_signaling_message(): successfully transported distortion parameters");
@@ -407,6 +409,16 @@ namespace calibration {
 				send_message(make_socket_message(type, true, &client_id, &m_name, &send_meta));
 				m_logger.debug("Set undistort correction to: " + std::to_string(m_apply_undistort));
 				return;
+			}
+			else if (type == constants::TYPE_CALIBRATION_CONFIGURATION) {
+				try {
+					handle_calibration_configuration(client_id, *meta, on_error);
+					return;
+				}
+				catch (const std::exception& error) {
+					send_message(make_socket_error(type, "Error with computing image correction: " + std::string(error.what()), &client_id, &m_name));
+					return;
+				}
 			}
 			else {
 				on_error(constants::TYPE_MESSAGE, "Error with message: unsupported type message!", &client_id);
@@ -660,8 +672,10 @@ namespace calibration {
 			meta[constants::META_RMS] = rms;
 			meta[constants::META_USED_IMAGES] = static_cast<int>(image_points.size());
 			meta[constants::META_TOTAL] = total;
-			meta[constants::META_CAMERA_MATRIX] = make_json_object_mat(camera_matrix);
-			meta[constants::META_DISTORION_COEFFS] = make_json_object_mat(dist_coeffs);
+
+
+
+			meta[constants::META_DISTORION_COEFFS] = SBinary::make_json_object_mat(dist_coeffs);
 
 			send_message(make_socket_message(constants::TYPE_CALIBRATION_RESULT, true, &client_id, &m_name, &meta));
 		});
@@ -676,7 +690,6 @@ namespace calibration {
 		}
 
 		boost::json::object send_meta;
-		send_meta[constants::META_ALPHA] = m_undistort.alpha;
 		send_meta[constants::META_ZOOM] = m_undistort.ready ? m_undistort.custom_camera_matrix.at<double>(0, 0) / m_calibration.camera_matrix.at<double>(0, 0) 
 			                                                : 1.0f;
 		send_meta[constants::META_SHIFT_X] = m_undistort.ready ? m_undistort.custom_camera_matrix.at<double>(0, 2) 
@@ -731,38 +744,59 @@ namespace calibration {
 		float shift_y = 0.0f;
 		if (!get_float_from_meta(meta, constants::META_SHIFT_Y, shift_y)) return;
 
+		bool k_block_exists = true;
+		float k1 = 0, k2 = 0, k3 = 0, k4 = 0;
+		if (!get_float_from_meta(meta, constants::META_K1, k1)) k_block_exists = false;
+		if (!get_float_from_meta(meta, constants::META_K2, k2)) k_block_exists = false;
+		if (!get_float_from_meta(meta, constants::META_K3, k3)) k_block_exists = false;
+		if (!get_float_from_meta(meta, constants::META_K4, k4)) k_block_exists = false;
+
 		std::ostringstream oss;
 		oss << "handle_undistort_computation(): Start correction image with parameters: alpha=" << alpha 
 			<< ", zoom=" << zoom << ", shift_x=" << shift_x << ", shift_y=" << shift_y << ";";
 		m_logger.debug(oss.str());
 
 		//build_fisheye_dewarp_LUT(client_id, m_raw_image.width, m_raw_image.height, 180.0);
-		compute_undistort_maps(client_id, alpha, true, zoom, shift_x, shift_y);
+		compute_undistort_maps(client_id, 
+			{ true, alpha, zoom, shift_x, shift_y },
+			{ k_block_exists, k1, k2, k3, k4}
+		);
 	}
 
-	void UCalibrator::compute_undistort_maps(const std::string& client_id, float alpha, bool center, float zoom, float shift_x, float shift_y) {
+	void UCalibrator::compute_undistort_maps(
+		const std::string& client_id, 
+		const FCameraMatrixParameters& cammat_pars, 
+		const FDistotionCoefficientsParameters& dist_pars
+	) {
 		if (!m_calibration.ready) {
 			send_message(make_socket_error(constants::TYPE_UNDISTORT_COMPUTE, "Cannot compute undistort maps: calibration didn't ready!", &client_id, &m_name));
 			return;
 		}
 
-		auto ROI = cv::Rect(0, 0, m_raw_image.height, m_raw_image.height);
+		if (dist_pars.use) {
+			m_calibration.distortion_coeffs.at<double>(0, 0) = dist_pars.k1;
+			m_calibration.distortion_coeffs.at<double>(0, 1) = dist_pars.k2;
+			m_calibration.distortion_coeffs.at<double>(0, 2) = dist_pars.k3;
+			m_calibration.distortion_coeffs.at<double>(0, 3) = dist_pars.k4;
+		}
+
+		//auto ROI = cv::Rect(0, 0, m_raw_image.height, m_raw_image.height);
 		auto image_size = cv::Size(m_raw_image.width, m_raw_image.height);
 		// Вычисление новой матрицы K
 		cv::Mat new_k = cv::getOptimalNewCameraMatrix(
 			m_calibration.camera_matrix,
 			m_calibration.distortion_coeffs,
 			image_size,
-			alpha,
+			cammat_pars.alpha,
 			image_size,
-			&ROI,
+			0,
 			true
 		);
 		// Кастомная настройка матрицы
-		new_k.at<double>(0, 0) *= zoom;
-		new_k.at<double>(1, 1) *= zoom;
-		new_k.at<double>(0, 2) += shift_x;
-		new_k.at<double>(1, 2) += shift_y;
+		new_k.at<double>(0, 0) *= cammat_pars.zoom;
+		new_k.at<double>(1, 1) *= cammat_pars.zoom;
+		new_k.at<double>(0, 2) += cammat_pars.shift_x;
+		new_k.at<double>(1, 2) += cammat_pars.shift_y;
 
 		std::ostringstream oss;
 		oss << "compute_undistort_maps(): computed new camera matrix: " << new_k;
@@ -781,9 +815,69 @@ namespace calibration {
 			m_undistort.matrix_x, 
 			m_undistort.matrix_y
 		);
-		send_message(make_socket_message(constants::TYPE_UNDISTORT_COMPUTE, true, &client_id, &m_name));
+
+		boost::json::object send_meta = get_coeffs();
+		send_message(make_socket_message(constants::TYPE_UNDISTORT_COMPUTE, true, &client_id, &m_name, &send_meta));
 		m_logger.debug("compute_undistort_maps(): Successfully computed undistort maps!");
 		m_undistort.ready = true;
+	}
+
+	void UCalibrator::handle_calibration_configuration(const std::string& client_id, const boost::json::object& meta, COnError on_error) {
+		std::string method;
+		if (auto* v = meta.if_contains(constants::META_DELETE_ALL); v && v->is_string()) {
+			method = v->as_string();
+		}
+		else {
+			on_error(constants::TYPE_CALIBRATION_CONFIGURATION, "Error with message: missing or invalid <method> at meta block!", &client_id);
+			return;
+		}
+
+		if (method == constants::METHOD_CONFIGURATION_LOAD) {
+			if (!m_json_reader.read(constants::CALIBRATION_CONFIGURES_PATH)) {
+				if (on_error) on_error(constants::TYPE_CALIBRATION_CONFIGURATION, "Error: cannot read configuration file at server!", &client_id);
+				return;
+			}
+			auto configs = m_json_reader.get_cameras_info();
+
+			boost::json::object send_meta;
+			send_meta[constants::META_CAMERA_BASE_CONFIGS] = configs;
+			send_message(make_socket_message(constants::TYPE_GET_UNDISTORT_PARAMETERS, true, &client_id, &m_name, &send_meta));
+			return;
+		}
+		else if (method == constants::METHOD_CONFIGURATION_SAVE) {
+			if (m_camera_id.empty()) {
+				if (on_error) on_error(constants::TYPE_CALIBRATION_CONFIGURATION, "Error: save cinfigurations: no camera_id at server!", &client_id);
+				return;
+			}
+			if (!m_json_reader.read(constants::CALIBRATION_CONFIGURES_PATH)) {
+				if (on_error) on_error(constants::TYPE_CALIBRATION_CONFIGURATION, "Error: cannot read configuration file at server!", &client_id);
+				return;
+			}
+			boost::json::object obj_t;
+			// обязательные поля
+			obj_t[constants::JSON_ID] = m_camera_id;
+			obj_t[constants::JSON_WIDTH] = m_raw_image.width;
+			obj_t[constants::JSON_HEIGHT] = m_raw_image.height;
+
+			// Если есть паттерн
+			obj_t[constants::JSON_IS_PATTERN] = m_pattern.recieved;
+			if (m_pattern.recieved) {
+				obj_t[constants::JSON_PATTERN_WIDTH] = m_pattern.width;
+				obj_t[constants::JSON_PATTERN_HEIGHT] = m_pattern.height;
+				obj_t[constants::JSON_PATTERN_SIZE] = m_pattern.size;
+			}
+
+			// Если была проведена калибровка 
+			obj_t[constants::JSON_IS_CALIBRATION] = m_calibration.ready;
+			if (m_calibration.ready) {
+				
+			}
+			return;
+		}
+		else {
+			if (on_error) on_error(constants::TYPE_CALIBRATION_CONFIGURATION, "Error: unresolved method at configuration request!", &client_id);
+			return;
+		}
 	}
 
 	void UCalibrator::apply_undistort_maps(const cv::Mat& src, cv::Mat& dst) {
@@ -882,6 +976,32 @@ namespace calibration {
 		}
 	}
 
+	boost::json::object UCalibrator::get_coeffs() {
+		if (!m_calibration.ready) {
+			return {};
+		}
+
+		try {
+			boost::json::object result;
+			result[constants::META_ALPHA] = m_calibration.alpha;
+			result[constants::META_ZOOM] = m_undistort.ready ? m_undistort.custom_camera_matrix.at<double>(0, 0) / m_calibration.camera_matrix.at<double>(0, 0) : 1.0f;
+			result[constants::META_SHIFT_X] = m_undistort.ready ? m_undistort.custom_camera_matrix.at<double>(0, 2) - m_calibration.camera_matrix.at<double>(0, 2)
+				: m_calibration.camera_matrix.at<double>(0, 2);
+			result[constants::META_SHIFT_Y] = m_undistort.ready ? m_undistort.custom_camera_matrix.at<double>(1, 2) - m_calibration.camera_matrix.at<double>(1, 2)
+				: m_calibration.camera_matrix.at<double>(1, 2);
+			// K коэффициенты
+			result[constants::META_K1] = m_calibration.distortion_coeffs.at<double>(0, 0);
+			result[constants::META_K2] = m_calibration.distortion_coeffs.at<double>(0, 1);
+			result[constants::META_K3] = m_calibration.distortion_coeffs.at<double>(0, 2);
+			result[constants::META_K4] = m_calibration.distortion_coeffs.at<double>(0, 3);
+
+			return result;
+		}
+		catch (...) {
+			return {};
+		}
+	}
+
 	// Хелпер
 	const boost::json::object* UCalibrator::get_object_field(
 		const boost::json::object& obj,
@@ -907,49 +1027,6 @@ namespace calibration {
 
 		on_error(std::string("Missing or invalid field: ") + key);
 		return nullptr;
-	}
-
-	boost::json::array mat_to_flat_array(const cv::Mat& mat) {
-		CV_Assert(mat.channels() == 1);
-		cv::Mat m = mat.isContinuous() ? mat : mat.clone();
-
-		boost::json::array arr;
-		arr.reserve(m.total());
-
-		auto fill = [&]<typename T>() {
-			const T* data = m.ptr<T>(0);
-			for (size_t i = 0; i < m.total(); ++i)
-				arr.emplace_back(data[i]);
-		};
-
-		switch (m.type()) {
-			case CV_64F: 
-				fill.template operator()<double> ();  
-				break;
-			case CV_32F: 
-				fill.template operator()<float> ();   
-				break;
-			case CV_32S: 
-				fill.template operator()<int> ();    
-				break;
-			case CV_8U:  
-				fill.template operator()<uint8_t> (); 
-				break;
-			default: 
-				return boost::json::array();
-		}
-
-		return arr;
-	}
-
-	boost::json::object UCalibrator::make_json_object_mat(const cv::Mat& input) {
-		boost::json::object result;
-		result[constants::META_MAT_ROWS] = input.rows;
-		result[constants::META_MAT_COLS] = input.cols;
-		result[constants::META_MAT_TYPE] = input.type();
-		result[constants::META_MAT_DATA] = mat_to_flat_array(input);
-
-		return result;
 	}
 
 	void UCalibrator::resize_keep_aspect(const FSizeImage& original, FSizeImage& source, int max_width, int max_height)

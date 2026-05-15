@@ -5,10 +5,12 @@
 #include "core/image-handler.h"
 #include "core/websocket-handler.h"
 #include "logger.h"
+#include "json-reader.h"
 
 #include "camera.h"
 
 using namespace varan::birdview;
+using namespace varan::calibration::utility;
 
 namespace varan {
 namespace calibration {
@@ -51,29 +53,20 @@ namespace calibration {
 			}
 		};
 
-		struct FCalibratorPattern {
-			int width;
-			int height;
-			float size;
-
-			bool recieved = false;
+		struct FCameraMatrixParameters {
+			bool center;
+			float alpha;
+			float zoom;
+			float shift_x;
+			float shift_y;
 		};
 
-		struct FCalibrationResult {
-			float rms;
-			cv::Mat camera_matrix;
-			cv::Mat distortion_coeffs;
-
-			bool ready = false;
-		};
-
-		struct FUndistortMaps {
-			cv::Mat custom_camera_matrix;
-			cv::Mat matrix_x;
-			cv::Mat matrix_y;
-			float alpha = 0.0f;
-
-			bool ready = false;
+		struct FDistotionCoefficientsParameters {
+			bool use = false;
+			float k1;
+			float k2;
+			float k3;
+			float k4;
 		};
 
 		const boost::json::object* get_object_field(
@@ -100,15 +93,22 @@ namespace calibration {
 
 		void handle_undistort_computation(const std::string& client_id, const boost::json::object& meta, COnError on_error = nullptr);
 
-		void compute_undistort_maps(const std::string& client_id, float alpha = 0.0f, bool center = false, float zoom = 1.0f, float shift_x = 1.0f, float shift_y = 1.0f);
+		void handle_calibration_configuration(const std::string& client_id, const boost::json::object& meta, COnError on_error = nullptr);
+
+		void compute_undistort_maps(
+			const std::string& client_id,
+			const FCameraMatrixParameters& cammat_pars,
+			const FDistotionCoefficientsParameters& dist_pars
+		);
 
 		void apply_undistort_maps(const cv::Mat& src, cv::Mat& dst);
 
 	private:
 
-		boost::json::object make_json_object_mat(const cv::Mat& input);
+		boost::json::object get_coeffs();
 
 	private:
+		std::string m_camera_id;
 
 		FSizeImage m_raw_image;
 		// Используется только для push_frames
@@ -137,6 +137,8 @@ namespace calibration {
 
 		std::string m_name{"calibration-server"};
 		ULogger m_logger;
+
+		UJsonReader m_json_reader;
 	};
 
 } // calibration

@@ -96,13 +96,42 @@ const undist = {
     shiftYMin:         document.getElementById('distShiftYMin'),
     shiftYMid:         document.getElementById('distShiftYMid'),
     shiftYMax:         document.getElementById('distShiftYMax'),
+
+    k1Value:  document.getElementById('distK1Value'),
+    k1Slider: document.getElementById('distK1Slider'),
+    k1Min:    document.getElementById('distK1Min'),
+    k1Mid:    document.getElementById('distK1Mid'),
+    k1Max:    document.getElementById('distK1Max'),
+
+    k2Value:  document.getElementById('distK2Value'),
+    k2Slider: document.getElementById('distK2Slider'),
+    k2Min:    document.getElementById('distK2Min'),
+    k2Mid:    document.getElementById('distK2Mid'),
+    k2Max:    document.getElementById('distK2Max'),
+
+    k3Value:  document.getElementById('distK3Value'),
+    k3Slider: document.getElementById('distK3Slider'),
+    k3Min:    document.getElementById('distK3Min'),
+    k3Mid:    document.getElementById('distK3Mid'),
+    k3Max:    document.getElementById('distK3Max'),
+
+    k4Value:  document.getElementById('distK4Value'),
+    k4Slider: document.getElementById('distK4Slider'),
+    k4Min:    document.getElementById('distK4Min'),
+    k4Mid:    document.getElementById('distK4Mid'),
+    k4Max:    document.getElementById('distK4Max'),
 }
 
 const UNDIST_SLIDERS = {
-    alpha:  { value: () => undist.alphaValue,  min: () => undist.alphaMin,  mid: () => undist.alphaMid,  max: () => undist.alphaMax,  slider: () => undist.alphaSlider  },
-    zoom:   { value: () => undist.zoomValue,   min: () => undist.zoomMin,   mid: () => undist.zoomMid,   max: () => undist.zoomMax,   slider: () => undist.zoomSlider   },
-    shiftX: { value: () => undist.shiftXValue, min: () => undist.shiftXMin, mid: () => undist.shiftXMid, max: () => undist.shiftXMax, slider: () => undist.shiftXSlider },
-    shiftY: { value: () => undist.shiftYValue, min: () => undist.shiftYMin, mid: () => undist.shiftYMid, max: () => undist.shiftYMax, slider: () => undist.shiftYSlider },
+    alpha:  { value: () => undist.alphaValue,  min: () => undist.alphaMin,  mid: () => undist.alphaMid,  max: () => undist.alphaMax,  slider: () => undist.alphaSlider, decimals: 3  },
+    zoom:   { value: () => undist.zoomValue,   min: () => undist.zoomMin,   mid: () => undist.zoomMid,   max: () => undist.zoomMax,   slider: () => undist.zoomSlider, decimals: 3   },
+    shift_x: { value: () => undist.shiftXValue, min: () => undist.shiftXMin, mid: () => undist.shiftXMid, max: () => undist.shiftXMax, slider: () => undist.shiftXSlider, decimals: 0 },
+    shift_y: { value: () => undist.shiftYValue, min: () => undist.shiftYMin, mid: () => undist.shiftYMid, max: () => undist.shiftYMax, slider: () => undist.shiftYSlider, decimals: 0 },
+
+    k1: { value: () => undist.k1Value, min: () => undist.k1Min, mid: () => undist.k1Mid, max: () => undist.k1Max, slider: () => undist.k1Slider, decimals: 4 },
+    k2: { value: () => undist.k2Value, min: () => undist.k2Min, mid: () => undist.k2Mid, max: () => undist.k2Max, slider: () => undist.k2Slider, decimals: 4 },
+    k3: { value: () => undist.k3Value, min: () => undist.k3Min, mid: () => undist.k3Mid, max: () => undist.k3Max, slider: () => undist.k3Slider, decimals: 4 },
+    k4: { value: () => undist.k4Value, min: () => undist.k4Min, mid: () => undist.k4Mid, max: () => undist.k4Max, slider: () => undist.k4Slider, decimals: 4 },
 };
 
 // ── Config refs ─────────────────────────────────────────────────
@@ -574,6 +603,7 @@ function _onCameraSelectOutside(e) {
 async function fetchCameraList() {
     const list = document.getElementById('cameraSelectList');
     list.innerHTML = `<div class="custom-select-loading">Загрузка...</div>`;
+    console.log('Fetching camera list...');
 
     try {
         const res  = await fetch('http://192.168.1.2:7778/camera');
@@ -585,6 +615,7 @@ async function fetchCameraList() {
         const items   = _filterCameras(cameras);
 
         _renderCameraList(items);
+        console.log('Cameras list:', cameras);
 
     } catch (err) {
         list.innerHTML = `<div class="custom-select-empty">Ошибка загрузки</div>`;
@@ -592,12 +623,12 @@ async function fetchCameraList() {
     }
 }
 
-/* Оставить только camera_type === 3 и имеющие поток type === 2 */
+/* Оставить только type === 3 и имеющие поток type === 2 */
 function _filterCameras(cameras) {
     const result = [];
 
     for (const [id, cam] of Object.entries(cameras)) {
-        if (cam.camera_type !== 3) continue;
+        if (cam.type !== 3) continue;
 
         const subStream = Object.values(cam.streams ?? {}).find(s => s.type === 1);
         if (!subStream) continue;
@@ -1250,11 +1281,11 @@ function handleCalibrationResult(msg) {
 
     setSliderConfig('alpha',  { value: 0.0, min: 0,   max: 1,   decimals: 2 });
     setSliderConfig('zoom',   { value: 1.0, min: 0.1,  max: 2.0, mid: 1.0, decimals: 2 });
-    setSliderConfig('shiftX', { value: 0.0, min: -width / 2, max: width / 2, decimals: 0 });
-    setSliderConfig('shiftY', { value: 0.0, min: -height / 2, max: height / 2, decimals: 0 });
+    setSliderConfig('shift_x', { value: 0.0, min: -width / 2, max: width / 2, decimals: 0 });
+    setSliderConfig('shift_y', { value: 0.0, min: -height / 2, max: height / 2, decimals: 0 });
 
     // Запуск вычисления undistort
-    requestDistortionCompute();
+    requestDistortionCompute(false);
 }
 
 // ════════════════════════════════════════════════════════════
@@ -1425,15 +1456,21 @@ function hideDistortionControls() {
     document.getElementById('distortionBody').classList.remove('visible');
 }
 
-function requestDistortionCompute() {
+function requestDistortionCompute(use_k) {
     sendWS({
         type: 'undistort_compute',
         client_id: state.clientId,
         meta: {
-            alpha: Number(UNDIST_SLIDERS["alpha"].value().textContent),
-            zoom: Number(UNDIST_SLIDERS["zoom"].value().textContent),
-            shift_x: Number(UNDIST_SLIDERS["shiftX"].value().textContent),
-            shift_y: Number(UNDIST_SLIDERS["shiftY"].value().textContent),
+            alpha: Number(undist.alphaSlider.value),
+            zoom: Number(undist.zoomSlider.value),
+            shift_x: Number(undist.shiftXSlider.value),
+            shift_y: Number(undist.shiftYSlider.value),
+            ...(use_k ? {
+                k1: Number(undist.k1Slider.value),
+                k2: Number(undist.k2Slider.value),
+                k3: Number(undist.k3Slider.value),
+                k4: Number(undist.k4Slider.value),
+            } : {})
         }
     });
 }
@@ -1443,7 +1480,18 @@ function handleDistortionCompute(msg) {
         let err_text = `Ошибка при вычислении коррекции искажений: ${msg.meta?.description ?? 'нет описания ошибки'}`;
         log(err_text, 'err');
         showToast("Ошибка", err_text, 'err');
-        return;
+    }
+
+    if (msg.meta) {
+        log(`handleDistortionCompute: got meta ${msg.meta}`);
+        for (const key in msg.meta) {
+            if (!(key in UNDIST_SLIDERS)) {
+                log(`Key ${key} not exists at sliders!`, 'warn');
+            }
+            else {
+                syncSlider(key, Number(msg.meta[key]));
+            }
+        }
     }
 
     setDistortionState("success");
@@ -1481,13 +1529,20 @@ function _fmt(n, decimals = 2) {
 function onSliderInput(key, rawValue) {
     const s = UNDIST_SLIDERS[key];
     if (!s) return;
-    s.value().textContent = _fmt(rawValue);
+    s.value().textContent = _fmt(rawValue, s.decimals);
 }
 
 function onSliderCommit(key, rawValue) {
     const value = parseFloat(rawValue);
     console.log(`slider commit [${key}]:`, value);
     // сюда вставить отправку на сервер / применение
+    requestDistortionCompute(true);
+}
+
+function syncSlider(key, value) {
+    const s = UNDIST_SLIDERS[key];
+    s.slider().value = value;
+    s.value().textContent = _fmt(value, s.decimals);
 }
 
 function setSliderConfig(key, { value, min, max, mid, decimals = 2 } = {}) {

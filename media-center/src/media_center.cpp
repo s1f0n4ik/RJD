@@ -143,6 +143,7 @@ void UMediaCenter::remove_camera_async(const std::string& camera_id, bool to_sav
 }
 
 void UMediaCenter::run_eos() {
+    m_logger.warn("run_eos(): request exit!");
     for (const auto& [name, camera] : m_cameras) {
         camera->stop();
     }

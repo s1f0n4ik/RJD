@@ -72,7 +72,7 @@ set(BOOST_INCLUDEDIR ${BOOST_ROOT}/include)
 set(BOOST_LIBRARYDIR ${BOOST_ROOT}/lib)
 
 # Создание исполняемого файла
-add_executable(${PROJECT_NAME} ${SRC_FILES})
+add_executable(${PROJECT_NAME} ${SRC_FILES} "include/calibration/utility.h")
 
 # Директории для include
 target_include_directories(${PROJECT_NAME} PRIVATE

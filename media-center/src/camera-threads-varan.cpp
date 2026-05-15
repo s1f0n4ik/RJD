@@ -39,8 +39,6 @@ bool parse_arguments(int argc, char* argv[], AppConfig& config, ULogger* logger 
 
 int main(int argc, char* argv[])
 {
-	std::signal(SIGINT, signal_handler);
-
 	AppConfig config;
 	ULogger main_logger = ULogger("MAIN", ULogger::ELoggerLevel::DEBUG);
 
@@ -51,9 +49,15 @@ int main(int argc, char* argv[])
 	setenv("GST_GL_PLATFORM", "egl", 1);
 	setenv("GST_GL_API", "gles2", 1);
 	//setenv("GST_DEBUG", "*:4,rtph265depay:0,rtph264depay:0", 1);
+	//setenv("GST_DISABLE_FAULT_HANDLER", "1", 1); // отключаем fault handler GStreamer
 	gst_init(nullptr, nullptr);
-	gst_debug_set_active(TRUE);
 	//gst_debug_set_default_threshold(GST_LEVEL_INFO);
+
+	gst_debug_set_active(TRUE);
+
+	// Явно перезаписываем после инициализации
+	std::signal(SIGINT, signal_handler);
+	std::signal(SIGTERM, signal_handler);
 
 	main_logger.info((std::ostringstream() << "GStreamer version: "
 		<< GST_VERSION_MAJOR << "."
@@ -64,23 +68,23 @@ int main(int argc, char* argv[])
 
 	auto socket_options = varan::nvr::FWebSocketOptions(config.signaling_ip, std::to_string(config.signaling_port));
 
-	// Контекст и хранидище для OpenGL
-	//auto gl_storage = std::make_shared<FFrameStorage<IFrame>>(&main_logger);
-	//auto main_context = std::make_shared<varan::birdview::UEGLContextManager>();
-	//main_context->init(true, &main_logger);
+	// Контекст и хранилище для OpenGL
+	auto gl_storage = std::make_shared<FFrameStorage<IFrame>>(&main_logger);
+	auto main_context = std::make_shared<varan::birdview::UEGLContextManager>();
+	main_context->init(true, &main_logger);
 
 	// Создание модуля 360
 	//auto linker_360 = std::make_shared<varan::birdview::ULinker>(socket_options, main_context.get(), gl_storage.get(), ULogger::ELoggerLevel::TRACE);
 	//linker_360->set_stitching_mode(varan::birdview::EBirdViewStitchingMode::SIX_CAMERAS);
 
 	// Создание калибратора
-	//auto calibrator = std::make_shared<varan::calibration::UCalibrator>(socket_options.ip_adress, socket_options.port, main_context.get(), gl_storage.get());
-	//calibrator->start_websocket_connection();
+	auto calibrator = std::make_shared<varan::calibration::UCalibrator>(socket_options.ip_adress, socket_options.port, main_context.get(), gl_storage.get());
+	calibrator->start_websocket_connection();
 
 	// Создание центра видеонаблюдения
-	auto center = std::make_shared<varan::neural::UMediaCenter>(socket_options);
-	//auto center = std::make_shared<varan::neural::UMediaCenter>(socket_options, main_context.get());
-	//center->set_bird_view_callback(std::move(gl_storage->get_callback()));
+	//auto center = std::make_shared<varan::neural::UMediaCenter>(socket_options);
+	auto center = std::make_shared<varan::neural::UMediaCenter>(socket_options, main_context.get());
+	center->set_bird_view_callback(std::move(gl_storage->get_callback()));
 	//center->set_neural_callback(std::move(linker_360.get_dmabuf_frame_callback()));
 
 	auto rest_server = URestServer{ config.rest_port, center };
@@ -160,6 +164,7 @@ int main(int argc, char* argv[])
 		std::this_thread::sleep_for(std::chrono::milliseconds(200));
 	}
 
+	rest_server.stop();
 	center->run_eos();
 
 	return 0;
@@ -211,10 +216,8 @@ bool parse_port(const char* str, uint16_t& port_out)
 }
 
 void signal_handler(int signal) {
-	if (signal == SIGINT) {
-		std::cout << "\nCtrl+C pressed, stopping application..." << std::endl;
-		RUNNING = false;
-	}
+	std::cout << "\nCtrl+C pressed, stopping application..." << std::endl;
+	RUNNING = false;
 }
 
 bool parse_arguments(int argc, char* argv[], AppConfig& config, ULogger* logger) {

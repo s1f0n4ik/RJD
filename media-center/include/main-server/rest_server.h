@@ -19,7 +19,6 @@ private:
 
 private:
     boost::asio::io_context m_ioc;
-    boost::asio::signal_set m_signals;
     uint16_t m_port;
 
     std::shared_ptr<URouter> m_router;

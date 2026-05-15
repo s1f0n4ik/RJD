@@ -9,7 +9,8 @@ namespace constants {
 	inline const std::string calibration_url_server = "/calibrator/server"; // /calibrator/server
 	inline const std::string CALIBRATION_STREAM_ID = "calibration_stream"; // calibration_stream
 
-	inline const std::string CALIBRATION_CONFIGURES_PATH = ""; 
+	inline const std::string CALIBRATION_CONFIGURES_PATH = "/home/orangepi/varan/calibration/configurations.json"; 
+	inline const std::string CALIBRATION_MAPS_PATH = "/home/orangepi/varan/calibration/maps";
 
 	// Тип подключений
 	inline const std::string TYPE_CONNECTION = "connection";             // connection
@@ -29,6 +30,7 @@ namespace constants {
 	inline const std::string TYPE_CALIBRATION_PROGRESS = "calibration_progress";  // calibration_progress
 	inline const std::string TYPE_CALIBRATION_COMPUTE = "calibration_compute";    // calibration_compute
 	inline const std::string TYPE_CALIBRATION_RESULT = "calibration_result";      // calibration_result
+	inline const std::string TYPE_CALIBRATION_CONFIGURATION = "calibration_configuration";      // calibration_configuration
 
 	inline const std::string TYPE_UNDISTORT_COMPUTE = "undistort_compute";     // undistort_compute
 	inline const std::string TYPE_GET_UNDISTORT_PARAMETERS = "get_undistort_parameters";  // get_undistort_parameters
@@ -37,10 +39,11 @@ namespace constants {
 	inline const std::string TYPE_MESSAGE = "message";                   // message
 
 	// Переменные в meta
-	inline const std::string META_ID_STREAM = "id_stream"; // id_stream
-	inline const std::string META_STATUS = "status"; // status
-	inline const std::string META_WIDTH = "width"; // width
-	inline const std::string META_HEIGHT = "height"; // height
+	inline const std::string META_ID_STREAM = "id_stream";          // id_stream
+	inline const std::string META_DISPLAY_NAME = "display_name";    // display_name
+	inline const std::string META_STATUS = "status";                // status
+	inline const std::string META_WIDTH = "width";                  // width
+	inline const std::string META_HEIGHT = "height";                // height
 
 	inline const std::string META_SHOW = "show"; // show
 
@@ -70,10 +73,46 @@ namespace constants {
 	inline const std::string META_SHIFT_X = "shift_x";    // shift_x
 	inline const std::string META_SHIFT_Y = "shift_y";    // shift_y
 
+	inline const std::string META_K1 = "k1";              // k1
+	inline const std::string META_K2 = "k2";              // k2
+	inline const std::string META_K3 = "k3";              // k3
+	inline const std::string META_K4 = "k4";              // k4
+
 	inline const std::string META_MAT_ROWS = "rows";
 	inline const std::string META_MAT_COLS = "cols";
 	inline const std::string META_MAT_TYPE = "type";
 	inline const std::string META_MAT_DATA = "data";
+
+	inline const std::string METHOD_CONFIGURATION_LOAD = "load";              // load
+	inline const std::string METHOD_CONFIGURATION_SAVE = "save";              // save
+	inline const std::string METHOD_CONFIGURATION_GET_ITEM = "get";           // get
+	inline const std::string METHOD_CONFIGURATION_GET_LIST = "vector";        // vector
+
+	inline const std::string META_CAMERA_BASE_CONFIGS = "configs";            // configs
+
+	// Поля в блоке дисторсии
+	inline const std::string JSON_ID = "id";                              // id
+	inline const std::string JSON_DISPLAY_NAME = "display_name";          // display_name
+	inline const std::string JSON_WIDTH = "width";                        // width
+	inline const std::string JSON_HEIGHT = "height";                      // height
+
+	inline const std::string JSON_PATTERN_SIZE = "pattern_size";          // pattern_size
+	inline const std::string JSON_PATTERN_WIDTH = "pattern_width";        // pattern_width
+	inline const std::string JSON_PATTERN_HEIGHT = "pattern_height";      // pattern_height
+	inline const std::string JSON_CAMERA_MATRIX = "camera_matrix";        // camera_matrix
+	inline const std::string JSON_DISTORTION_COEFFS = "dist_coeffs";      // dist_coeffs
+	inline const std::string JSON_RMS = "rms";
+
+	inline const std::string JSON_NEW_K = "new_K";
+	inline const std::string JSON_UNDISTORTION_MAP_X = "undist_map_x";
+	inline const std::string JSON_UNDISTORTION_MAP_Y = "undist_map_y";
+
+	inline const std::string JSON_WARP_MAP_X = "warp_map_x";
+	inline const std::string JSON_WARP_MAP_Y = "warp_map_y";
+
+	inline const std::string JSON_IS_PATTERN = "is_pattern";               // is_pattern
+	inline const std::string JSON_IS_CALIBRATION = "is_calibration";       // is_calibration
+	inline const std::string JSON_IS_UNDISTORTION = "is_undistortion";     // is_undistortion
 
 } // constants 
 } // calibration

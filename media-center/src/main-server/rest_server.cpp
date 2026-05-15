@@ -12,7 +12,7 @@ namespace http = boost::beast::http;
 
 URestServer::URestServer(uint16_t port,
     std::shared_ptr<UMediaCenter> media_center)
-    : m_port(port), m_ioc(1), m_signals(m_ioc, SIGINT, SIGTERM)
+    : m_port(port), m_ioc(1)
 {
     m_router = std::make_shared<URouter>();
 
