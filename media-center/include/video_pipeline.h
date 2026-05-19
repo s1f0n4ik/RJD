@@ -110,6 +110,7 @@ protected:
 	std::map<std::string, GstElement*> m_tees;
 
 	std::mutex m_pipeline_mutex;
+	std::mutex m_teardown_mutex;
 	// Словарь сессий webrtcbin
 	// Ключ - клиент, с которым установлена сессия
 	std::map<std::string, std::unique_ptr<UWebRTCSession>> m_webrtc_sessions;
@@ -123,6 +124,7 @@ protected:
 
 	std::atomic<bool> m_has_initialized{false};
 	std::atomic<bool> m_is_playing{false};
+	std::atomic<EPipelineStatus> m_status{ EPipelineStatus::NONE };
 
 	// Поток для рестарта
 	std::thread m_restart_thread;
@@ -233,6 +235,7 @@ private:
 
 	FPipelineBranch m_record_branch;
 	std::filesystem::path m_record_path = "";
+	guint m_timer_check_record_id = 0;
 
 	FPipelineBranch m_decoder_branch;
 

@@ -53,14 +53,6 @@ namespace calibration {
 			}
 		};
 
-		struct FCameraMatrixParameters {
-			bool center;
-			float alpha;
-			float zoom;
-			float shift_x;
-			float shift_y;
-		};
-
 		struct FDistotionCoefficientsParameters {
 			bool use = false;
 			float k1;
@@ -107,6 +99,8 @@ namespace calibration {
 
 		boost::json::object get_coeffs();
 
+		boost::json::object build_json_calibration();
+
 	private:
 		std::string m_camera_id;
 
@@ -127,6 +121,8 @@ namespace calibration {
 		FCalibrationResult m_calibration;
 		std::mutex m_calibration_mutex;
 
+		FCameraMatrixParameters m_custom_parameters;
+
 		FUndistortMaps m_undistort;
 		std::mutex m_undistort_mutex;
 		std::atomic<bool> m_apply_undistort;
@@ -139,6 +135,14 @@ namespace calibration {
 		ULogger m_logger;
 
 		UJsonReader m_json_reader;
+
+	private:
+		// Список для карт после проекций
+		std::unordered_map<std::string, std::pair<cv::Mat, cv::Mat>> m_warped_mats;
+
+		// Канвас для отображения
+		cv::Mat m_canvas;
+
 	};
 
 } // calibration

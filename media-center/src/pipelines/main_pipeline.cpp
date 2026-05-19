@@ -33,6 +33,11 @@ UCameraMainPipeline::UCameraMainPipeline(
 
 UCameraMainPipeline::~UCameraMainPipeline() {
 	//teardown();
+	if (m_timer_check_record_id != 0) {
+		g_source_remove(m_timer_check_record_id);
+		m_timer_check_record_id = 0;
+	}
+
 	m_send_callback = nullptr;
 	m_dma_sender = nullptr;
 	destroy_gst_gl_context();
@@ -509,7 +514,7 @@ bool UCameraMainPipeline::create_record_branch(GstElement* tee)
 }
 
 void UCameraMainPipeline::set_timer_check_record_branch() {
-	g_timeout_add_seconds(60, [](gpointer data) -> gboolean {
+	m_timer_check_record_id = g_timeout_add_seconds(60, [](gpointer data) -> gboolean {
 		auto self = static_cast<UCameraMainPipeline*>(data);
 
 		if (self->m_record_branch.is_deployed.load()) {

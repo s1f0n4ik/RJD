@@ -4,6 +4,7 @@
    ════════════════════════════════════════════════════════════ */
 
 @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap');
+@import url('./projection.css');
 
 /* ── Variables ────────────────────────────────────────────── */
 :root {
@@ -729,6 +730,8 @@ details[open] .collapsible-arrow { transform: rotate(90deg); }
     height: 100%;
     object-fit: contain;
     position: relative;
+    padding: 0;
+    border: none;
     z-index: 1;
     display: none;
 }

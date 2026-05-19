@@ -28,9 +28,15 @@ namespace utility {
 		bool recieved = false;
 	};
 
+	struct FCameraMatrixParameters {
+		float alpha;
+		float zoom;
+		float shift_x;
+		float shift_y;
+	};
+
 	struct FCalibrationResult {
 		float rms;
-		float alpha = 0.0f;
 		cv::Mat camera_matrix;
 		cv::Mat distortion_coeffs;
 
@@ -56,23 +62,20 @@ namespace utility {
 			uint64_t dataSize = 0;
 		};
 
-		static void save(const std::filesystem::path& path, const cv::Mat& mat, ULogger* logger = nullptr) {
+		static bool save_mat_to_binary(const std::filesystem::path& path, const cv::Mat& mat, ULogger* logger = nullptr) {
 			if (mat.empty()) {
-				if (logger) logger->warn("SBinary save(): could not save matrix: empty!");
-				return;
+				if (logger) logger->warn("SBinary save_mat_to_binary(): could not save matrix: empty!");
+				return false;
 			}
 			std::filesystem::path fs_path(path);
 			if (fs_path.has_parent_path()) {
-				if (!std::filesystem::create_directories(fs_path.parent_path())) {
-					if (logger) logger->warn("SBinary save(): could not create directories " + path.string() + "!");
-					return;
-				}
+				std::filesystem::create_directories(fs_path.parent_path());
 			}
 
 			std::ofstream ofs(path, std::ios::binary);
 			if (!ofs) {
-				if (logger) logger->warn("SBinary save(): failed to open file for writing: " + path.string());
-				return;
+				if (logger) logger->warn("SBinary save_mat_to_binary(): failed to open file for writing: " + path.string());
+				return false;
 			}
 
 			// Создание хедера для бинарника
@@ -85,7 +88,7 @@ namespace utility {
 			ofs.write(reinterpret_cast<const char*>(&header), sizeof(header));
 			if (!ofs) {
 				if (logger) logger->warn("SBinary save(): failed to write header: " + path.string());
-				return;
+				return false;
 			}
 
 			// Запись самого массива
@@ -101,12 +104,12 @@ namespace utility {
 
 			if (!ofs) {
 				if (logger) logger->warn("SBinary save(): failed to write matrix data: " + path.string());
-				return;
+				return false;
 			}
-
+			return true;
 		};
 
-		static bool load(const std::filesystem::path& path, cv::Mat& out, ULogger* logger) {
+		static bool load_mat_from_binary(const std::filesystem::path& path, cv::Mat& out, ULogger* logger) {
 			if (!std::filesystem::exists(path)) {
 				if (logger) logger->warn("SBinary load(): file doesn't exist: " + path.string());
 				return false;
@@ -161,6 +164,7 @@ namespace utility {
 
 			// вывод
 			out = result;
+			return true;
 		};
 
 		static boost::json::object make_json_object_mat(const cv::Mat& input) {
@@ -207,6 +211,39 @@ namespace utility {
 
 			return arr;
 		};
+
+		static cv::Mat json_object_to_mat(const boost::json::object& obj) {
+			try {
+				if (!obj.contains(constants::META_MAT_ROWS) ||
+					!obj.contains(constants::META_MAT_COLS) ||
+					!obj.contains(constants::META_MAT_TYPE) ||
+					!obj.contains(constants::META_MAT_DATA))
+				{
+					throw std::runtime_error("missing required mat fields (rows/cols/type/data)");
+				}
+
+				const int rows = static_cast<int>(obj.at(constants::META_MAT_ROWS).as_int64());
+				const int cols = static_cast<int>(obj.at(constants::META_MAT_COLS).as_int64());
+				const int type = static_cast<int>(obj.at(constants::META_MAT_TYPE).as_int64());
+
+				if (!obj.at(constants::META_MAT_DATA).is_array()) {
+					throw std::runtime_error("mat data field is not an array");
+				}
+				const auto& arr = obj.at(constants::META_MAT_DATA).as_array();
+
+				cv::Mat result = flat_array_to_mat(arr, rows, cols, type);
+				if (result.empty()) {
+					throw std::runtime_error("flat_array_to_mat returned empty mat");
+				}
+
+				return result;
+			}
+			catch (const std::exception& e) {
+				// Логгер здесь недоступен — пробрасываем выше,
+				// чтобы поймать в вызывающем контексте, где есть m_logger
+				throw std::runtime_error("json_object_to_mat(): " + std::string(e.what()));
+			}
+		}
 
 		static cv::Mat flat_array_to_mat(const boost::json::array& arr, int rows, int cols, int type) {
 			if ((rows <= 0 || cols <= 0) || (static_cast<size_t>(rows * cols) != arr.size())) {
@@ -258,6 +295,87 @@ namespace utility {
 			return 0.0;
 		};
 	};
+
+	static inline void pretty_print(std::ostream& os, const boost::json::value& value, std::string indent = "") {
+		switch (value.kind()) {
+		case boost::json::kind::object: {
+			os << "{\n";
+
+			auto const& obj = value.as_object();
+			for (auto it = obj.begin(); it != obj.end(); ++it) {
+				os << indent << "    " << boost::json::serialize(it->key()) << ": ";
+				pretty_print(os, it->value(), indent + "    ");
+				if (std::next(it) != obj.end()) {
+					os << ",";
+				}
+				os << "\n";
+			}
+			os << indent << "}";
+			break;
+		}
+
+		case boost::json::kind::array: {
+			os << "[\n";
+			auto const& arr = value.as_array();
+			for (auto it = arr.begin(); it != arr.end(); ++it) {
+				os << indent << "    ";
+				pretty_print(os, *it, indent + "    ");
+				if (std::next(it) != arr.end()) {
+					os << ",";
+				}
+				os << "\n";
+			}
+			os << indent << "]";
+			break;
+		}
+
+		case boost::json::kind::string:
+			os << boost::json::serialize(value.as_string());
+			break;
+
+		case boost::json::kind::uint64:
+			os << value.as_uint64();
+			break;
+
+		case boost::json::kind::int64:
+			os << value.as_int64();
+			break;
+
+		case boost::json::kind::double_: {
+			std::streamsize old_precision = os.precision();
+
+			os << std::setprecision(17) << value.as_double();
+
+			os.precision(old_precision);
+			break;
+		}
+
+		case boost::json::kind::bool_:
+			os << (value.as_bool() ? "true" : "false");
+			break;
+
+		case boost::json::kind::null:
+			os << "null";
+			break;
+		}
+	}
+
+	template<typename T>
+	static inline T json_number_cast(const boost::json::value& v) {
+		if (v.is_int64()) {
+			return static_cast<T>(v.as_int64());
+		}
+
+		if (v.is_uint64()) {
+			return static_cast<T>(v.as_uint64());
+		}
+
+		if (v.is_double()) {
+			return static_cast<T>(v.as_double());
+		}
+
+		throw std::runtime_error("JSON value <" + boost::json::serialize(v) + "> is not numeric");
+	}
 
 }; // utility
 }; // calibration

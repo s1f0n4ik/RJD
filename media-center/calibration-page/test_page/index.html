@@ -73,7 +73,7 @@
                     </table>
                 </div>
                 <div class="modal-footer" style="border-top: 1px solid var(--border); padding: 12px 16px;">
-                    <button class="btn btn-primary" style="width:100%;" onclick="loadSelectedConfig()">
+                    <button class="btn btn-primary" style="width:100%;" onclick="requestLoadSelectedConfig()">
                         ⊛ Загрузить
                     </button>
                 </div>
@@ -144,8 +144,6 @@
                     id="wsUrl"
                     class="field-input"
                     type="text"
-                    placeholder="ws://192.168.1.101:8765/cal-client/server"
-                    value="ws://192.168.1.101:8765/cal-client/server"
                 />
             </div>
             <div class="btn-row">
@@ -190,7 +188,7 @@
                     </div>
                 </div>
             </div>
-            <button id="loadConfigurationBtn" class="btn btn-accent--load collapsed" onclick="openLoadConfigModal()">
+            <button id="loadConfigurationBtn" class="btn btn-accent--load collapsed" onclick="requestListOfCalibrationConfigurations()">
                 <span>Загрузить конфигурацию</span>
             </button>
             <button id="streamBtn" class="btn btn-accent" onclick="toggleStream()">
@@ -357,7 +355,7 @@
                     <input
                             id="distK1Slider"
                             type="range"
-                            min="-2.5" max="-0.1" step="0.00001" value="-0.5"
+                            min="-2.5" max="0.5" step="0.00001" value="-0.5"
                             class="dist-slider"
                             oninput="onSliderInput('k1', this.value)"
                             onchange="onSliderCommit('k1', this.value)"
@@ -447,7 +445,7 @@
             </label>
         </section>
 
-        <button id="saveConfigBtn" class="btn btn-save-config" onclick="openSaveConfigModal()" disabled>
+        <button id="saveConfigBtn" class="btn btn-save-config" onclick="saveCalibrationConfiguration()" disabled>
             ⊛ Сохранить конфигурацию
         </button>
 
@@ -517,7 +515,7 @@
             <div class="footer-left">
                 <div id="iceState" class="state-badge">ICE: —</div>
                 <div id="connState" class="state-badge">CONN: —</div>
-                <div id="patternState" class="state-badge err">Pattern: —</div>
+                <div id="calibrationState" class="state-badge err">Pattern: —</div>
                 <div id="distortionState" class="state-badge err">Distortion: —</div>
             </div>
             <div class="footer-right">
@@ -547,82 +545,106 @@
 
 </main>
 
-<!-- ═══════════════════════════════════════════════════ PAGE 2: CALIBRATION -->
-<!-- <main class="main-layout" id="page-2" style="display:none;">
 
-    <aside class="sidebar">
-        <section class="panel-block" style="flex:1; min-height:0;">
-            <div class="block-header">
-                <span class="block-icon">⊟</span>
-                <span class="block-title">Снимки</span>
-                <button class="btn-icon" onclick="requestClearSnapshotList()" title="Очистить всё">✕</button>
+<!-- ═══════════════════════════════════════════════════ PAGE 2: WARP -->
+<main class="main-layout proj-layout" id="page-2" style="display:none;">
+
+    <!-- ─── Выдвижная панель настроек ─── -->
+    <div class="proj-settings-drawer" id="projSettingsDrawer">
+        <div class="proj-settings-inner">
+            <div class="proj-settings-title">Настройки проекции</div>
+
+            <div>
+                <div class="proj-s-label">Конфигурация</div>
+                <div class="proj-type-grid">
+                    <button class="proj-type-btn" data-config="4" onclick="selectProjConfig(this)">4 камеры</button>
+                    <button class="proj-type-btn" data-config="6" onclick="selectProjConfig(this)">6 камер</button>
+                </div>
             </div>
 
-            <div id="snapshotList" class="snapshot-list"></div>
-        </section>
-    </aside>
+            <div>
+                <div class="proj-s-label">Камера</div>
+                <div class="proj-cam-list" id="projCamList"></div>
+            </div>
+        </div>
+    </div>
 
-    <section class="viewer-area">
+    <!-- Таб-флажок -->
+    <button class="proj-settings-tab" id="projSettingsTab" onclick="toggleProjSettings()">
+        <span class="proj-tab-icon">⊞</span>
+        <span class="proj-tab-label">Настройки</span>
+    </button>
+
+    <!-- ─── Левая часть: редактор точек ─── -->
+    <section class="proj-warp-area" id="projWarpArea">
         <div class="viewer-header">
-            <span class="viewer-label">CALIBRATION VIEW — Этап 2</span>
+            <span class="viewer-label">WARP — Точки проекции</span>
             <div class="viewer-meta">
-             </div>
-         </div>
+                <span id="projPointBadge" class="meta-tag">0 / 4</span>
+                <span id="projEditState" class="meta-tag">Режим: редактирование</span>
+            </div>
+        </div>
 
-        <div id="videoWrapper2" class="video-wrapper">
-            <div class="no-signal" id="noSignal2">
+        <div class="proj-warp-wrapper" id="projWarpWrapper">
+            <div class="no-signal" id="noSignalWarp">
                 <div class="no-signal-icon">⊘</div>
                 <div class="no-signal-text">Нет сигнала</div>
                 <div class="no-signal-sub">Перейдите на страницу подключения</div>
             </div>
-            <div id="snapshotIndicator" class="snapshot-indicator hidden">
-                <span class="snapshot-indicator-icon">⊙</span>
-                <span id="snapshotIndicatorId">snapshot # 000</span>
-            </div>
-
-            <div id="calOverlay" class="cal-overlay" style="display:none;">
-
-                <div id="calSpinner" class="cal-spinner"></div>
-                <div id="calIndeterminate" class="cal-indeterminate" style="display:none;">
-                    <div class="cal-indeterminate-bar"></div>
-                </div>
-                <div id="calResultIcon" class="cal-result-icon" style="display:none;"></div>
-
-                <div id="calStepLabel"  class="cal-step-label"  style="display:none;"></div>
-                <div id="calStepDesc"   class="cal-step-desc"   style="display:none;"></div>
-                <div id="calResultTitle" class="cal-result-title" style="display:none;"></div>
-                <div id="calResultDesc"  class="cal-result-desc"  style="display:none;"></div>
-
-                <div id="calProgressWrap" style="display:none; width:100%;">
-                    <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
-                        <span id="calStepCounter" class="cal-step-counter"></span>
-                        <span id="calItemCounter" class="cal-step-counter"></span>
-                    </div>
-                    <div class="cal-progress-track">
-                        <div id="calProgressFill" class="cal-progress-fill" style="width:0%"></div>
-                    </div>
-                </div>
-
-                <button id="calDismissBtn" class="btn" style="display:none;" onclick="calHide()"></button>
+            <div class="ui-canvas-layer" id="uiCanvasLayer">
+                <canvas id="projWarpCanvas" class="proj-warp-canvas"></canvas>
             </div>
         </div>
 
         <div class="viewer-footer">
             <div class="footer-left">
-                <div id="patternState" class="state-badge err">Pattern: —</div>
-                <div id="distortionState" class="state-badge err">Distortion: —</div>
+                <button class="btn btn-ghost btn-sm" onclick="projRemoveLastPoint()">← Удалить</button>
+                <button class="btn btn-ghost btn-sm" onclick="projClearPoints()">✕ Очистить</button>
             </div>
             <div class="footer-right">
-                <button id="resumeStreamBtn" class="btn btn-accent btn-sm" onclick="resumeStream()" disabled>
-                    <span>▶ Вернуться к стриму</span>
+                <button id="projApplyBtn" class="btn btn-primary btn-sm" onclick="projToggleApply()">
+                    ⊛ Применить warp
                 </button>
             </div>
         </div>
     </section>
 
-</main>
--->
+    <!-- ─── Правая часть: результат + джойстик ─── -->
+    <section class="proj-result-area">
+        <div class="viewer-header">
+            <span class="viewer-label">BIRDVIEW — Результат</span>
+        </div>
 
-<script src="app.js"></script>
+        <div class="proj-result-canvas" id="projResultCanvas"
+             onwheel="projResultZoom(event)"
+             onmousedown="projResultDragStart(event)"
+             onmousemove="projResultDragMove(event)"
+             onmouseup="projResultDragEnd()"
+             onmouseleave="projResultDragEnd()">
+            <canvas id="projResultImg"></canvas>
+            <div class="no-signal" id="noSignalResult">
+                <div class="no-signal-icon">⊘</div>
+                <div class="no-signal-text">Нет данных</div>
+                <div class="no-signal-sub">Примените warp для отображения</div>
+            </div>
+            <div class="proj-canvas-hint">scroll — zoom · drag — pan</div>
+
+            <div class="proj-joystick-wrap">
+                <div class="proj-joystick-label">Смещение проекции</div>
+                <div class="proj-joystick" id="projJoystick">
+                    <div class="proj-joy-cross-h"></div>
+                    <div class="proj-joy-cross-v"></div>
+                    <div class="proj-joy-ring"></div>
+                    <div class="proj-joy-nub" id="projJoyNub">⊕</div>
+                </div>
+            </div>
+        </div>
+
+        <button class="btn proj-lut-btn" onclick="projCalculateLUT()">⊙ Рассчитать LUT</button>
+    </section>
+
+</main>
+
+<script type="module" src="app.js"></script>
 </body>
 </html>
