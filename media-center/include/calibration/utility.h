@@ -51,6 +51,26 @@ namespace utility {
 		bool ready = false;
 	};
 
+	// Привязка одной камеры в пресете склейки
+	struct FProjectionCamera {
+		std::string key;    // Ключ камеры
+
+		std::vector<cv::Point2f> src_points;     // Координаты точек на изображении
+		std::vector<cv::Point2f> dst_points;     // Координаты точек внутри roi канваса
+		std::vector<cv::Point2f> canvas_region;
+	};
+
+	// Полный пресет склейки
+	struct FProjectionPreset {
+		std::string key;      // ключ пресета в json (например, "default_stitching")
+		std::string name;     // отображаемое имя
+
+		cv::Size canvas_size{ 0, 0 };
+
+		// Камеры, индексированные по ключу
+		std::unordered_map<std::string, FProjectionCamera> cameras;
+	};
+
 	class SBinary {
 	public:
 		struct FHeader
@@ -295,70 +315,6 @@ namespace utility {
 			return 0.0;
 		};
 	};
-
-	static inline void pretty_print(std::ostream& os, const boost::json::value& value, std::string indent = "") {
-		switch (value.kind()) {
-		case boost::json::kind::object: {
-			os << "{\n";
-
-			auto const& obj = value.as_object();
-			for (auto it = obj.begin(); it != obj.end(); ++it) {
-				os << indent << "    " << boost::json::serialize(it->key()) << ": ";
-				pretty_print(os, it->value(), indent + "    ");
-				if (std::next(it) != obj.end()) {
-					os << ",";
-				}
-				os << "\n";
-			}
-			os << indent << "}";
-			break;
-		}
-
-		case boost::json::kind::array: {
-			os << "[\n";
-			auto const& arr = value.as_array();
-			for (auto it = arr.begin(); it != arr.end(); ++it) {
-				os << indent << "    ";
-				pretty_print(os, *it, indent + "    ");
-				if (std::next(it) != arr.end()) {
-					os << ",";
-				}
-				os << "\n";
-			}
-			os << indent << "]";
-			break;
-		}
-
-		case boost::json::kind::string:
-			os << boost::json::serialize(value.as_string());
-			break;
-
-		case boost::json::kind::uint64:
-			os << value.as_uint64();
-			break;
-
-		case boost::json::kind::int64:
-			os << value.as_int64();
-			break;
-
-		case boost::json::kind::double_: {
-			std::streamsize old_precision = os.precision();
-
-			os << std::setprecision(17) << value.as_double();
-
-			os.precision(old_precision);
-			break;
-		}
-
-		case boost::json::kind::bool_:
-			os << (value.as_bool() ? "true" : "false");
-			break;
-
-		case boost::json::kind::null:
-			os << "null";
-			break;
-		}
-	}
 
 	template<typename T>
 	static inline T json_number_cast(const boost::json::value& v) {

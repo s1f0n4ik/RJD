@@ -82,6 +82,42 @@
         </div>
     </div>
 </div>
+
+<!-- ═══════════════════════════════════════════════════ Модалки страницы projection -->
+<div class="modal-backdrop hidden" id="lutSaveModalBackdrop" onclick="closeLutSaveModal(event)">
+    <div class="modal" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <span class="modal-title">Сохранить конфигурацию stitching</span>
+            <button class="modal-close" onclick="closeLutSaveModal()">×</button>
+        </div>
+
+        <div class="modal-body">
+            <div class="modal-field">
+                <label class="modal-label" for="lutSaveId">ID конфигурации</label>
+                <input type="text" id="lutSaveId" class="modal-input"
+                       placeholder="example_3cam_test"
+                       autocomplete="off"
+                       spellcheck="false">
+                <div class="modal-hint" id="lutSaveIdHint">Только латиница, цифры и _</div>
+            </div>
+
+            <div class="modal-field">
+                <label class="modal-label" for="lutSaveName">Отображаемое имя</label>
+                <input type="text" id="lutSaveName" class="modal-input"
+                       placeholder="Test 3 cameras"
+                       autocomplete="off">
+            </div>
+        </div>
+
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeLutSaveModal()">Отмена</button>
+            <button class="btn btn-accent" id="lutSaveConfirmBtn" onclick="submitLutSave()">
+                Сохранить
+            </button>
+        </div>
+    </div>
+</div>
+
 <body>
 
 <!-- ═══════════════════════════════════════════════════ NAVBAR -->
@@ -555,16 +591,25 @@
             <div class="proj-settings-title">Настройки проекции</div>
 
             <div>
-                <div class="proj-s-label">Конфигурация</div>
-                <div class="proj-type-grid">
-                    <button class="proj-type-btn" data-config="4" onclick="selectProjConfig(this)">4 камеры</button>
-                    <button class="proj-type-btn" data-config="6" onclick="selectProjConfig(this)">6 камер</button>
+                <div class="proj-s-label">Вид конфигурации</div>
+                <div class="custom-select" id="vehicleSelect">
+                    <button class="custom-select-trigger" onclick="toggleVehicleSelect()">
+                        <span id="vehicleSelectLabel" class="custom-select-label">Не выбрано</span>
+                        <span class="custom-select-arrow">›</span>
+                    </button>
+                    <div class="custom-select-dropdown">
+                        <div class="custom-select-list" id="vehicleSelectList">
+                            <div class="custom-select-empty">Список не получен</div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
             <div>
                 <div class="proj-s-label">Камера</div>
-                <div class="proj-cam-list" id="projCamList"></div>
+                <div class="proj-cam-list" id="projCamList">
+                    <div class="proj-cam-empty">Выберите конфигурацию</div>
+                </div>
             </div>
         </div>
     </div>

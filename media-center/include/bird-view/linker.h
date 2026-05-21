@@ -23,7 +23,7 @@ namespace birdview {
 
 	class ULinker {
 		using NLinkSpace = std::vector<NPFrame>;
-		using NCamerasPurpose = std::unordered_map<EBirdCameraType, std::optional<std::string>>;
+		using NCamerasPurpose = std::unordered_map<std::string, std::optional<std::string>>;
 	public:
 
 		ULinker(
@@ -35,11 +35,13 @@ namespace birdview {
 
 		~ULinker();
 
-		void set_stitching_mode(EBirdViewStitchingMode mode);
-
 		std::vector<std::string> get_active_cameras();
 
-		bool set_render_camera(EBirdCameraType type, std::string camera);
+		bool reload_from_state();
+
+		std::vector<std::string> get_camera_keys() const;
+
+		bool set_render_camera(const std::string& key, std::string camera);
 
 		bool async_start(uint32_t fps);
 
@@ -52,17 +54,25 @@ namespace birdview {
 
 		void fill_linking_space(NLinkSpace& space);
 
+		bool apply_export(const std::string& export_id, NCamerasPurpose desired_bindings);
+
 	private:
 		FFrameStorage<IFrame>* m_storage;
-
 		UEGLContextManager* m_context_manager;
 
+		std::string m_export_id;
+		std::vector<std::string> m_camera_keys;
 		NCamerasPurpose m_cameras_purpose;
 
+		mutable std::mutex m_mutex;
 		std::thread m_worker;
 		std::atomic<bool> m_running{ false };
 
 		ULogger m_logger;
+
+		std::filesystem::path m_exports_root;
+		std::filesystem::path m_exports_index_json;
+		std::filesystem::path m_state_index;
 	};
 
 }; // birdview

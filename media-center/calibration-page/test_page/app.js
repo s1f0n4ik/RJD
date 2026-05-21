@@ -10,8 +10,8 @@
 
 'use strict';
 
-import { initProjPage } from './projection.js';
-import {showToast, log} from './utility.js';
+import { initProjPage, handleProjectionMessage } from './projection.js';
+import { showToast, log} from './utility.js';
 
 // ── State ────────────────────────────────────────────────────
 const state = {
@@ -322,6 +322,16 @@ function sendWS(payload) {
     return true;
 }
 
+export function sendWSMessage(type, meta = {}, ret = 'none') {
+    return sendWS({
+        type:        type,
+        client_id:   state.clientId,
+        camera:      state.streamId,
+        meta: meta,
+        ret:  ret,
+    });
+}
+
 function sendRTC(payload) {
     if (!state.rtcWs || state.rtcWs.readyState !== WebSocket.OPEN) {
         log('RTC WS не открыт', 'err');
@@ -460,6 +470,7 @@ function dispatchServerMessage(msg) {
         case 'undistort_compute': handleDistortionCompute(msg); break;
         case 'view_undistort': handleOnDistortionShow(msg); break;
         case 'calibration_configuration': handleCalibrationConfiguration(msg); break;
+        case 'projection_configuration': handleProjectionMessage(msg); break;
         default:
             log(`Неизвестный тип: ${msg.type}. Сообщение: ${msg}`, 'warn');
     }

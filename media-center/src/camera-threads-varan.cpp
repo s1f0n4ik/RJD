@@ -74,8 +74,7 @@ int main(int argc, char* argv[])
 	main_context->init(true, &main_logger);
 
 	// Создание модуля 360
-	//auto linker_360 = std::make_shared<varan::birdview::ULinker>(socket_options, main_context.get(), gl_storage.get(), ULogger::ELoggerLevel::TRACE);
-	//linker_360->set_stitching_mode(varan::birdview::EBirdViewStitchingMode::SIX_CAMERAS);
+	auto linker_360 = std::make_shared<varan::birdview::ULinker>(socket_options, main_context.get(), gl_storage.get(), ULogger::ELoggerLevel::TRACE);
 
 	// Создание калибратора
 	auto calibrator = std::make_shared<varan::calibration::UCalibrator>(socket_options.ip_adress, socket_options.port, main_context.get(), gl_storage.get());
@@ -156,7 +155,7 @@ int main(int argc, char* argv[])
 	//linker_360->set_render_camera(varan::birdview::EBirdCameraType::LEFT_BACK, "camera_7");
 
 	// Запуск Линкера
-	//linker_360->async_start(25);
+	linker_360->async_start(25);
 
 	center->start_cameras_from_config();
 

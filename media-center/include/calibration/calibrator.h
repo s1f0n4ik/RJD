@@ -5,7 +5,8 @@
 #include "core/image-handler.h"
 #include "core/websocket-handler.h"
 #include "logger.h"
-#include "json-reader.h"
+#include "json-calibration.h"
+#include "json-projection.h"
 
 #include "camera.h"
 
@@ -87,6 +88,8 @@ namespace calibration {
 
 		void handle_calibration_configuration(const std::string& client_id, const boost::json::object& meta, COnError on_error = nullptr);
 
+		void handle_projection_configuration(const std::string& client_id, const boost::json::object& meta, COnError on_error = nullptr);
+
 		void compute_undistort_maps(
 			const std::string& client_id,
 			const FCameraMatrixParameters& cammat_pars,
@@ -97,6 +100,55 @@ namespace calibration {
 
 	private:
 
+		void handle_save_lut(const std::string& client_id, const boost::json::object& meta, COnError on_error = nullptr);
+
+		bool extract_canvas_dst_points(
+			const std::string& camera_key,
+			const std::vector<cv::Point2f>& source_points,
+			cv::Size& canvas_size, 
+			std::vector<cv::Point2f>& dst_points, 
+			std::string& str_err
+		);
+
+		bool build_warp_remap(
+			const std::vector<cv::Point2f>& src_points,
+			const std::vector<cv::Point2f>& dst_points,
+			const cv::Size& canvas_size,
+			cv::Mat& out_map_x,
+			cv::Mat& out_map_y,
+			std::string& error
+		);
+
+		bool build_warp_extras(
+			const std::string& camera_key,
+			const cv::Mat& map_x,
+			const cv::Mat& map_y,
+			const cv::Size& snapshot_size,
+			const std::vector<cv::Point2f>& canvas_region,
+			const std::vector<cv::Point2f>& dst_points
+		);
+
+		bool compose_remap_to_raw(
+			const cv::Mat& warp_x, const cv::Mat& warp_y,
+			const cv::Mat& undist_x, const cv::Mat& undist_y,
+			const cv::Size& raw_size,
+			cv::Mat& out_remap_32fc2,
+			std::string& error
+		);
+
+		bool save_stitching_export(
+			const std::filesystem::path& export_root,
+			const std::string& id,
+			const std::string& display_name,
+			std::string& error
+		);
+
+		bool get_image_to_build(cv::Mat& out, std::string& error);
+
+		bool build_canvas(std::string& error);
+
+		bool send_canvas_as_binary(const std::string& client_id, const boost::json::object& meta, std::string& error);
+		
 		boost::json::object get_coeffs();
 
 		boost::json::object build_json_calibration();
@@ -134,14 +186,28 @@ namespace calibration {
 		std::string m_name{"calibration-server"};
 		ULogger m_logger;
 
-		UJsonReader m_json_reader;
+		UJsonCalibrationConfiguration m_calibration_config;
+		UJsonProjectionConfiguration  m_projection_config;
 
+	// часть класса для проецирования в канвас
 	private:
+		// Скриншоты проекций с камер, по ним строится канвас
+		std::unordered_map<std::string, cv::Mat> m_saved_to_warp_camera_images;
 		// Список для карт после проекций
 		std::unordered_map<std::string, std::pair<cv::Mat, cv::Mat>> m_warped_mats;
 
 		// Канвас для отображения
 		cv::Mat m_canvas;
+
+		struct FWarpExtras {
+			cv::Mat mask;    // CV_8UC1, canvas size, 0/255
+			cv::Mat weight;  // CV_32FC1, canvas size, distance transform внутри маски
+		};
+		std::unordered_map<std::string, FWarpExtras> m_warp_extras;
+
+		// активный пресет в памяти
+		std::optional<FProjectionPreset> m_active_preset;
+		std::mutex m_active_preset_mutex;
 
 	};
 

@@ -18,7 +18,8 @@ namespace calibration {
 		, UWebSocketHandler(ip_address, port, level, "WebSocket<Calibrator>")
 		, m_name("Calibrator")
 		, m_logger(m_name, ULogger::ELoggerLevel::TRACE)
-		, m_json_reader(&m_logger)
+		, m_calibration_config(&m_logger)
+		, m_projection_config(&m_logger)
 	{
 	}
 
@@ -448,8 +449,18 @@ namespace calibration {
 					return;
 				}
 			}
+			else if (type == constants::TYPE_PROJECTION_CONFIGURATION) {
+				try {
+					handle_projection_configuration(client_id, *meta, on_error);
+					return;
+				}
+				catch (const std::exception& error) {
+					send_message(make_socket_error(type, "Error with handle projection: " + std::string(error.what()), &client_id, &m_name));
+					return;
+				}
+			}
 			else {
-				on_error(constants::TYPE_MESSAGE, "Error with message: unsupported type message!", &client_id);
+				on_error(constants::TYPE_MESSAGE, "Error with message: unsupported type <" + type + ">!", &client_id);
 				return;
 			}
 
@@ -882,11 +893,11 @@ namespace calibration {
 		}
 
 		if (method == constants::METHOD_CONFIGURATION_GET_LIST) {
-			if (!m_json_reader.read(constants::CALIBRATION_CONFIGURES_PATH)) {
+			if (!m_calibration_config.read(constants::CALIBRATION_CONFIGURES_PATH)) {
 				if (on_error) on_error(constants::TYPE_CALIBRATION_CONFIGURATION, "Error: cannot read configuration file at server!", &client_id);
 				return;
 			}
-			auto configs = m_json_reader.get_cameras_info();
+			auto configs = m_calibration_config.get_cameras_info();
 
 			boost::json::object send_meta;
 			send_meta[constants::META_CONFIGURATION_METHOD] = constants::METHOD_CONFIGURATION_GET_LIST;
@@ -904,13 +915,13 @@ namespace calibration {
 				return;
 			}
 
-			if (!m_json_reader.read(constants::CALIBRATION_CONFIGURES_PATH)) {
+			if (!m_calibration_config.read(constants::CALIBRATION_CONFIGURES_PATH)) {
 				if (on_error) on_error(constants::TYPE_CALIBRATION_CONFIGURATION, "Error: cannot read configuration file at server!", &client_id);
 				return;
 			}
 
 			try {
-				auto result = m_json_reader.get_sender_json_item(config_key);
+				auto result = m_calibration_config.get_sender_json_item(config_key);
 
 				boost::json::object send_meta;
 				send_meta[constants::META_CONFIGURATION_METHOD] = METHOD_CONFIGURATION_GET_ITEM;
@@ -928,7 +939,7 @@ namespace calibration {
 				if (on_error) on_error(constants::TYPE_CALIBRATION_CONFIGURATION, "Error: save cinfigurations: no camera_id at server!", &client_id);
 				return;
 			}
-			if (!m_json_reader.read(constants::CALIBRATION_CONFIGURES_PATH)) {
+			if (!m_calibration_config.read(constants::CALIBRATION_CONFIGURES_PATH)) {
 				if (on_error) on_error(constants::TYPE_CALIBRATION_CONFIGURATION, "Error: cannot read configuration file at server!", &client_id);
 				return;
 			}
@@ -938,7 +949,7 @@ namespace calibration {
 				key = v->as_string();
 			}
 			else {
-				key = UJsonReader::make_item_key(m_camera_id, m_raw_image.width, m_raw_image.height);
+				key = UJsonCalibrationConfiguration::make_item_key(m_camera_id, m_raw_image.width, m_raw_image.height);
 			}
 
 			boost::json::object obj_t;
@@ -979,8 +990,8 @@ namespace calibration {
 				}
 			}
 
-			m_json_reader.add_json_item(key, obj_t);
-			m_json_reader.save(constants::CALIBRATION_CONFIGURES_PATH);
+			m_calibration_config.add_json_item(key, obj_t);
+			m_calibration_config.save(constants::CALIBRATION_CONFIGURES_PATH);
 
 			boost::json::object send_meta;
 			send_meta[constants::META_CONFIGURATION_METHOD] = constants::METHOD_CONFIGURATION_SAVE;
@@ -992,7 +1003,7 @@ namespace calibration {
 				if (on_error) on_error(constants::TYPE_CALIBRATION_CONFIGURATION, "Error: load configuration: no camera_id at server!", &client_id);
 				return;
 			}
-			if (!m_json_reader.read(constants::CALIBRATION_CONFIGURES_PATH)) {
+			if (!m_calibration_config.read(constants::CALIBRATION_CONFIGURES_PATH)) {
 				if (on_error) on_error(constants::TYPE_CALIBRATION_CONFIGURATION, "Error: cannot read configuration file at server!", &client_id);
 				return;
 			}
@@ -1006,7 +1017,7 @@ namespace calibration {
 				return;
 			}
 
-			auto opt_obj = m_json_reader.get_json_item(key);
+			auto opt_obj = m_calibration_config.get_json_item(key);
 			if (!opt_obj) {
 				if (on_error) on_error(constants::TYPE_CALIBRATION_CONFIGURATION, "Error: load configuration: key not found: " + key, &client_id);
 				return;
@@ -1014,7 +1025,7 @@ namespace calibration {
 			const auto& obj = *opt_obj;
 
 			// Обязательные поля
-			if (!UJsonReader::contains_required_fields(obj)) {
+			if (!UJsonCalibrationConfiguration::contains_required_fields(obj)) {
 				if (on_error) on_error(constants::TYPE_CALIBRATION_CONFIGURATION, "Error: load configuration: missing required fields!", &client_id);
 				return;
 			}
@@ -1037,7 +1048,7 @@ namespace calibration {
 			}
 
 			// Поля паттерна
-			if (UJsonReader::contains_pattern_fileds(obj)) {
+			if (UJsonCalibrationConfiguration::contains_pattern_fields(obj)) {
 				try {
 					m_pattern.width = json_number_cast<int>(obj.at(constants::JSON_PATTERN_WIDTH));
 					m_pattern.height = json_number_cast<int>(obj.at(constants::JSON_PATTERN_HEIGHT));
@@ -1050,7 +1061,7 @@ namespace calibration {
 			}
 
 			// Поля калибровки
-			if (UJsonReader::contains_calibration_fields(obj)) {
+			if (UJsonCalibrationConfiguration::contains_calibration_fields(obj)) {
 				try {
 					m_custom_parameters.alpha = json_number_cast<double>(obj.at(constants::META_ALPHA));
 					m_custom_parameters.zoom = json_number_cast<double>(obj.at(constants::META_ZOOM));
@@ -1073,7 +1084,7 @@ namespace calibration {
 			}
 
 			// Поля undistortion
-			if (UJsonReader::contains_undistortion_fields(obj)) {
+			if (UJsonCalibrationConfiguration::contains_undistortion_fields(obj)) {
 				try {
 					m_undistort.custom_camera_matrix = SBinary::json_object_to_mat(obj.at(constants::JSON_NEW_K).as_object());
 
