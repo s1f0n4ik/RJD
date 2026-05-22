@@ -1,5 +1,6 @@
 // URestServer.cpp
 #include "main-server/rest_server.h"
+#include "main-server/linker-controller.h"
 #include "main-server/listener.h"
 #include <iostream>
 
@@ -10,10 +11,17 @@ namespace asio = boost::asio;
 namespace http = boost::beast::http;
 
 
-URestServer::URestServer(uint16_t port,
-    std::shared_ptr<UMediaCenter> media_center)
-    : m_port(port), m_ioc(1)
+URestServer::URestServer(
+    uint16_t port,
+    std::shared_ptr<UMediaCenter> media_center,
+    std::shared_ptr<varan::birdview::ULinker> linker, 
+    ULogger::ELoggerLevel level
+)
+    : m_port(port)
+    , m_ioc(1)
+    , m_logger("Rest Server", level)
 {
+    // Сначала маршруты для камер
     m_router = std::make_shared<URouter>();
 
     auto controller = std::make_shared<UController>(media_center);
@@ -27,6 +35,24 @@ URestServer::URestServer(uint16_t port,
         [controller](const auto& req) { return controller->patch_camera(req); });
     m_router->add_route(http::verb::delete_, "/camera",
         [controller](const auto& req) { return controller->delete_camera(req); });
+
+    // Маршруты для Линкер
+    auto linker_ctrl = std::make_shared<ULinkerController>(linker);
+
+    m_router->add_route(http::verb::get, "/linker/exports", 
+        [linker_ctrl](const auto& r) { return linker_ctrl->get_exports(r); });
+    m_router->add_route(http::verb::get, "/linker/state", 
+        [linker_ctrl](const auto& r) { return linker_ctrl->get_state(r); });
+    m_router->add_route(http::verb::post, "/linker/state", 
+        [linker_ctrl](const auto& r) { return linker_ctrl->post_state(r); });
+    m_router->add_route(http::verb::get, "/linker/status", 
+        [linker_ctrl](const auto& r) { return linker_ctrl->get_status(r); });
+    m_router->add_route(http::verb::post, "/linker/start", 
+        [linker_ctrl](const auto& r) { return linker_ctrl->post_start(r); });
+    m_router->add_route(http::verb::post, "/linker/restart", 
+        [linker_ctrl](const auto& r) { return linker_ctrl->post_restart(r); });
+    m_router->add_route(http::verb::post, "/linker/stop", 
+        [linker_ctrl](const auto& r) { return linker_ctrl->post_stop(r); });
 }
 
 URestServer::~URestServer()

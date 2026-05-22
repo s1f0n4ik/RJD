@@ -32,6 +32,9 @@ namespace constants {
 	inline const std::string TYPE_GET_PATTERN = "get_pattern";             // get_pattern
 	inline const std::string TYPE_GET_DISTOTION = "get_distortion";        // get_distortion
 
+	inline const std::string TYPE_COMPUTE_PANORAMA_REMAP = "compute_panorama_remap";     // compute_panorama_remap
+	inline const std::string TYPE_PANORAMA_TOGGLE = "panorama_toggle";                   // panorama_toggle
+
 	inline const std::string TYPE_CALIBRATION_START = "calibration_start";        // calibration_start
 	inline const std::string TYPE_CALIBRATION_PROGRESS = "calibration_progress";  // calibration_progress
 	inline const std::string TYPE_CALIBRATION_POST_PROCESS = "calibration_post_process";   // calibration_post_process
@@ -53,6 +56,7 @@ namespace constants {
 	inline const std::string META_HEIGHT = "height";                // height
 
 	inline const std::string META_SHOW = "show";                               // show
+	inline const std::string META_USE_PANORAMA_REMAP = "use_panorama_remap";   // use_panorama_remap
 	inline const std::string META_SHOW_CHESSBOARD = "show_chessboard";         // show_chessboard
 	inline const std::string META_SHOW_UNDISTORTION = "show_undistortion";     // show_undistortion
 

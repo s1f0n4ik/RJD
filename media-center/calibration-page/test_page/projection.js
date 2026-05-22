@@ -21,12 +21,26 @@ const projState = {
 
     // Лимит точек на камеру — приходит с сервера в каждой камере
     maxPointsByCam: {},        // { [key]: number }
-    // Слоаврь соответсия камер
+    // Словарь соответсия камер
     camId: {},                 // { [key]: camera_id}
 
     applied:      false,
     result:       { scale: 1, ox: 0, oy: 0, dragging: false, startX: 0, startY: 0 },
 };
+
+const projView = {
+    scale: 1,
+    ox: 0,
+    oy: 0,
+    panning: false,
+    panStartX: 0,
+    panStartY: 0,
+};
+
+const MIN_SCALE = 1.0;   // не даём уменьшить меньше базового — иначе появляется пустота
+const MAX_SCALE = 8.0;
+
+let _projCanvasBase = { w: 0, h: 0 };
 
 let _projDraggingPoint = null;
 let _projDragMoved     = false;
@@ -34,7 +48,7 @@ let _projDragStartX    = 0;   // нормализованная стартова
 let _projDragStartY    = 0;
 const DRAG_THRESHOLD   = 0.005; // в долях canvas — старт движения только после смещения
 
-const PROJ_POSITION_LABELS = {
+export const PROJ_POSITION_LABELS = {
     front:        'Передняя',
     right:        'Правая',
     right_front:  'Спереди правая',
@@ -170,15 +184,13 @@ function initProjWarpCanvas() {
     canvas.addEventListener('pointerup',   _projPointerUp);
 
     function resizeCanvas() {
-        // Если видео готово — берём его реальные пропорции
         const vw = video?.videoWidth;
         const vh = video?.videoHeight;
 
+        let canvasW, canvasH;
         if (vw && vh) {
-            const wrapperRatio  = wrapper.offsetWidth / wrapper.offsetHeight;
-            const videoRatio    = vw / vh;
-            let canvasW, canvasH;
-
+            const wrapperRatio = wrapper.offsetWidth / wrapper.offsetHeight;
+            const videoRatio   = vw / vh;
             if (videoRatio > wrapperRatio) {
                 canvasW = wrapper.offsetWidth;
                 canvasH = Math.round(wrapper.offsetWidth / videoRatio);
@@ -186,37 +198,44 @@ function initProjWarpCanvas() {
                 canvasH = wrapper.offsetHeight;
                 canvasW = Math.round(wrapper.offsetHeight * videoRatio);
             }
-
-            canvas.width  = canvasW;
-            canvas.height = canvasH;
-            canvas.style.width  = canvasW + 'px';
-            canvas.style.height = canvasH + 'px';
-            // Центрировать canvas поверх видео
-            canvas.style.position = 'absolute';
-            canvas.style.left = Math.round((wrapper.offsetWidth  - canvasW) / 2) + 'px';
-            canvas.style.top  = Math.round((wrapper.offsetHeight - canvasH) / 2) + 'px';
         } else {
-            // Видео ещё не готово — canvas по размеру wrapper
-            canvas.width  = wrapper.offsetWidth;
-            canvas.height = wrapper.offsetHeight;
-            canvas.style.width  = '';
-            canvas.style.height = '';
-            canvas.style.left   = '0';
-            canvas.style.top    = '0';
+            canvasW = wrapper.offsetWidth;
+            canvasH = wrapper.offsetHeight;
         }
 
-        _projDraw();
+        _projCanvasBase.w = canvasW;
+        _projCanvasBase.h = canvasH;
+
+        canvas.style.width  = canvasW + 'px';
+        canvas.style.height = canvasH + 'px';
+        canvas.style.position = 'absolute';
+        canvas.style.left = Math.round((wrapper.offsetWidth  - canvasW) / 2) + 'px';
+        canvas.style.top  = Math.round((wrapper.offsetHeight - canvasH) / 2) + 'px';
+
+        _resizeCanvasBitmap();
     }
 
-    // При изменении размера wrapper
     new ResizeObserver(resizeCanvas).observe(wrapper);
-
-    // Когда видео получило реальные размеры
     if (video) {
         video.addEventListener('loadedmetadata', resizeCanvas);
-        // Если метаданные уже есть
         if (video.readyState >= 1) resizeCanvas();
     }
+}
+
+function _resizeCanvasBitmap() {
+    const canvas = document.getElementById('projWarpCanvas');
+    if (!canvas || !_projCanvasBase.w) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const s   = projView?.scale ?? 1;
+
+    // Bitmap = базовый_размер * scale * dpr.
+    // CSS-размер остаётся базовым → CSS-scale слоя растянет канвас в s раз, и
+    // битмап попадёт в физический экран 1:1 (с поправкой на dpr).
+    canvas.width  = Math.round(_projCanvasBase.w * s * dpr);
+    canvas.height = Math.round(_projCanvasBase.h * s * dpr);
+
+    _projDraw();
 }
 
 function getNormalizedCanvasCoords(canvas, event) {
@@ -234,14 +253,15 @@ function _projHitPoint(nx, ny) {
     const canvas = document.getElementById('projWarpCanvas');
     if (!canvas.width || !canvas.height) return -1;
 
-    // Радиус срабатывания в пикселях → переводим в нормализованные
-    const HIT_PX = 14;
+    const s = (typeof projView !== 'undefined' && projView.scale) ? projView.scale : 1;
+    // Базовая hit-zone 14 px в экранных координатах. Под scale делим, чтобы
+    // в нормализованных координатах она соответствовала тому же экранному размеру.
+    const HIT_PX = 14 / s;
     const hitNX  = HIT_PX / canvas.width;
     const hitNY  = HIT_PX / canvas.height;
 
     for (let i = projState.points.length - 1; i >= 0; i--) {
         const p = projState.points[i];
-        // Проверка по эллипсу (canvas не квадратный)
         const dx = (p.x - nx) / hitNX;
         const dy = (p.y - ny) / hitNY;
         if (dx * dx + dy * dy < 1) return i;
@@ -252,7 +272,9 @@ function _projHitPoint(nx, ny) {
 function _projPointerDown(e) {
     if (projState.applied) return;
 
-    // Без выбранной камеры ставить или таскать точки нельзя
+    // При Ctrl или Shift — это режим zoom/pan, точки не трогаем.
+    if (e.ctrlKey || e.shiftKey) return;
+
     if (!projState.activeCam) {
         showToast('Камера не выбрана', 'Выберите камеру в настройках', 'err');
         return;
@@ -293,6 +315,8 @@ function _projPointerMove(e) {
 function _projPointerUp(e) {
     if (projState.applied) return;
     if (!projState.activeCam) return;
+
+    if (e.ctrlKey || e.shiftKey) return;
 
     const canvas        = e.currentTarget;
     const hitExisting   = _projDraggingPoint !== -1 && _projDraggingPoint !== null;
@@ -335,57 +359,63 @@ function _projDraw() {
     const pts = projState.points;
     if (!pts.length) return;
 
-    // Конвертация нормализованных → пиксельные
+    const dpr = window.devicePixelRatio || 1;
+    const s   = projView?.scale ?? 1;
+
+    // Внутренние пиксели битмапа на 1 экранный пиксель.
+    // bitmap = base * s * dpr, экранно после CSS-scale = base * s.
+    // То есть 1 экранный пиксель = dpr внутренних → размеры * dpr.
+    const PX = dpr;
+
     const toPx = p => ({ x: p.x * W, y: p.y * H });
 
-    // Линии
+    const R         = 7   * PX;
+    const RING      = 3   * PX;
+    const LINE_W    = 1.5 * PX;
+    const FONT_SIZE = 11  * PX;
+
     if (pts.length > 1) {
         ctx.beginPath();
         ctx.strokeStyle = 'rgba(200,255,64,0.4)';
-        ctx.lineWidth   = 1.5;
-        ctx.setLineDash([5, 4]);
+        ctx.lineWidth   = LINE_W;
+        ctx.setLineDash([5 * PX, 4 * PX]);
         pts.forEach((p, i) => {
             const px = toPx(p);
             i === 0 ? ctx.moveTo(px.x, px.y) : ctx.lineTo(px.x, px.y);
         });
-        if (pts.length === projState.maxPoints) ctx.closePath();
+        if (pts.length === _currentMaxPoints()) ctx.closePath();
         ctx.stroke();
         ctx.setLineDash([]);
     }
 
-    const R = 7;
-
     pts.forEach((p, i) => {
         const { x, y } = toPx(p);
 
-        // Подложка
         ctx.beginPath();
-        ctx.arc(x, y, R + 3, 0, Math.PI * 2);
+        ctx.arc(x, y, R + RING, 0, Math.PI * 2);
         ctx.fillStyle = 'rgba(0,0,0,0.55)';
         ctx.fill();
 
-        // Заливка точки
         ctx.beginPath();
         ctx.arc(x, y, R, 0, Math.PI * 2);
         ctx.fillStyle   = '#c8ff40';
         ctx.strokeStyle = '#0a0a0c';
-        ctx.lineWidth   = 1.5;
+        ctx.lineWidth   = LINE_W;
         ctx.fill();
         ctx.stroke();
 
-        // Номер сбоку
         const label = String(i + 1);
-        const lx    = x + R + 6;
-        const ly    = y;
-        const pad   = 3;
-        ctx.font          = 'bold 11px monospace';
+        ctx.font          = `bold ${FONT_SIZE}px monospace`;
         ctx.textAlign     = 'left';
         ctx.textBaseline  = 'middle';
         const tw = ctx.measureText(label).width;
+        const lx = x + R + 6 * PX;
+        const ly = y;
+        const pad = 3 * PX;
 
         ctx.fillStyle = 'rgba(0,0,0,0.7)';
         ctx.beginPath();
-        ctx.roundRect(lx - pad, ly - 8, tw + pad * 2, 16, 3);
+        ctx.roundRect(lx - pad, ly - 8 * PX, tw + pad * 2, 16 * PX, 3 * PX);
         ctx.fill();
 
         ctx.fillStyle = '#c8ff40';
@@ -463,6 +493,129 @@ function projToggleApply() {
     //const canvas = document.getElementById('projWarpCanvas');
     //const ctx = canvas.getContext('2d');
     //ctx.clearRect(0, 0, canvas.width, canvas.height);
+}
+
+let _lastAppliedScale = 1;
+
+// РАБОТА С ОСНОВНЫМ КАНВАСОМ
+function _applyWarpTransform() {
+    const layer = document.getElementById('uiCanvasLayer');
+    if (!layer) return;
+    layer.style.transform =
+        `translate(${projView.ox}px, ${projView.oy}px) scale(${projView.scale})`;
+
+    if (projView.scale !== _lastAppliedScale) {
+        _lastAppliedScale = projView.scale;
+        _resizeCanvasBitmap();   // пересоздать битмап под новый scale и перерисовать
+    } else {
+        _projDraw();
+    }
+}
+
+function _clampPan() {
+    // Не пускаем содержимое наружу viewport (proj-warp-wrapper).
+    const wrapper = document.getElementById('projWarpWrapper');
+    const layer   = document.getElementById('uiCanvasLayer');
+    if (!wrapper || !layer) return;
+
+    const wRect = wrapper.getBoundingClientRect();
+    // Базовый размер слоя (без трансформации) — равен размеру wrapper по offset'у,
+    // так как layer стилизован inset:0.
+    const baseW = layer.offsetWidth;
+    const baseH = layer.offsetHeight;
+
+    const scaledW = baseW * projView.scale;
+    const scaledH = baseH * projView.scale;
+
+    // Если контент меньше viewport — центрируем; если больше — ограничиваем.
+    if (scaledW <= wRect.width)  projView.ox = (wRect.width  - scaledW) / 2;
+    else                          projView.ox = Math.min(0, Math.max(wRect.width  - scaledW, projView.ox));
+    if (scaledH <= wRect.height) projView.oy = (wRect.height - scaledH) / 2;
+    else                          projView.oy = Math.min(0, Math.max(wRect.height - scaledH, projView.oy));
+}
+
+function _onWarpWheel(e) {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+
+    const wrapper = document.getElementById('projWarpWrapper');
+    const rect = wrapper.getBoundingClientRect();
+
+    // Точка курсора в координатах wrapper.
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+
+    const prevScale = projView.scale;
+    const factor    = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+    const newScale  = Math.min(MAX_SCALE, Math.max(MIN_SCALE, prevScale * factor));
+    if (newScale === prevScale) return;
+
+    // Удерживаем точку под курсором в той же позиции после зума:
+    // (mx - ox') / s' === (mx - ox) / s   →   ox' = mx - (mx - ox) * s'/s
+    const ratio = newScale / prevScale;
+    projView.ox = mx - (mx - projView.ox) * ratio;
+    projView.oy = my - (my - projView.oy) * ratio;
+    projView.scale = newScale;
+
+    _clampPan();
+    _applyWarpTransform();
+}
+
+// Pan начинается, только если клик прошёл сквозь канвас (пустая зона)
+// либо если мы держим средний/правый клик. Чтобы не конфликтовать с расстановкой точек.
+function _onWarpPanDown(e) {
+    // Pan: средняя кнопка, либо Shift+левая, либо когда зум активен и клик мимо точки.
+    // Самый простой и предсказуемый вариант: средняя кнопка или Shift+левая.
+    const usePan = (e.button === 1) || (e.button === 0 && e.shiftKey);
+    if (!usePan) return;
+
+    e.preventDefault();
+    projView.panning   = true;
+    projView.panStartX = e.clientX - projView.ox;
+    projView.panStartY = e.clientY - projView.oy;
+    document.getElementById('projWarpWrapper')?.classList.add('panning');
+}
+
+function _onWarpPanMove(e) {
+    if (!projView.panning) return;
+    projView.ox = e.clientX - projView.panStartX;
+    projView.oy = e.clientY - projView.panStartY;
+    _clampPan();
+    _applyWarpTransform();
+}
+
+function _onWarpPanUp() {
+    if (!projView.panning) return;
+    projView.panning = false;
+    document.getElementById('projWarpWrapper')?.classList.remove('panning');
+}
+
+// Вызвать один раз при инициализации страницы — например, из initProjWarpCanvas
+function initWarpZoomPan() {
+    const wrapper = document.getElementById('projWarpWrapper');
+    if (!wrapper) return;
+
+    wrapper.addEventListener('wheel', _onWarpWheel, { passive: false });
+    wrapper.addEventListener('pointerdown', _onWarpPanDown);
+    window.addEventListener('pointermove', _onWarpPanMove);
+    window.addEventListener('pointerup',   _onWarpPanUp);
+
+    // Реагируем на ресайз wrapper, чтобы перецентрировать.
+    new ResizeObserver(() => {
+        _clampPan();
+        _applyWarpTransform();
+    }).observe(wrapper);
+
+    _applyWarpTransform();
+}
+
+// Опциональная функция: сбросить вид (если хочешь кнопку "Reset zoom")
+function projResetView() {
+    projView.scale = 1;
+    projView.ox    = 0;
+    projView.oy    = 0;
+    _clampPan();
+    _applyWarpTransform();
 }
 
 // ── Result canvas: pan + zoom ─────────────────────────────
@@ -644,16 +797,18 @@ function _validateLutSubmit() {
 export function initProjPage() {
     const video   = document.getElementById('remoteVideo');
     const wrapper = document.getElementById('projWarpWrapper');
+    const layer   = document.getElementById('uiCanvasLayer');
 
-    if (video && !wrapper.contains(video)) {
-        wrapper.insertBefore(video, wrapper.firstChild);
+    if (video && layer && !layer.contains(video)) {
+        layer.insertBefore(video, layer.firstChild);
         if (video.srcObject) {
             video.classList.add('active');
-            document.getElementById('noSignal3').classList.add('hidden');
+            document.getElementById('noSignal3')?.classList.add('hidden');
         }
     }
 
     initProjWarpCanvas();
+    initWarpZoomPan();
     _renderProjCamList();
 }
 
@@ -880,4 +1035,5 @@ Object.assign(window, {
     toggleVehicleSelect,
     closeLutSaveModal,
     submitLutSave,
+    projResetView
 })

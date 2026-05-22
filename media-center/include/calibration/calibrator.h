@@ -96,6 +96,12 @@ namespace calibration {
 			const FDistotionCoefficientsParameters& dist_pars
 		);
 
+		void handle_panorama_computation(const std::string& client_id, const boost::json::object& meta, COnError on_error);
+
+		void handle_panorama_toggle(const std::string& client_id, const boost::json::object& meta, COnError on_error);
+		
+		void compute_panorama_remap(const std::string& client_id, int radius);
+
 		void apply_undistort_maps(const cv::Mat& src, cv::Mat& dst);
 
 	private:
@@ -177,7 +183,8 @@ namespace calibration {
 
 		FUndistortMaps m_undistort;
 		std::mutex m_undistort_mutex;
-		std::atomic<bool> m_apply_undistort;
+		std::atomic<bool> m_use_panorama_remap{false};
+		std::atomic<bool> m_apply_undistort{false};
 
 		std::mutex m_cached_image_mutex;
 

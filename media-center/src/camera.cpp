@@ -332,6 +332,11 @@ namespace neural {
 
 	void UCamera::start_websocket_client()
 	{
+		if (m_websocket_thread.joinable()) {
+			m_logger.warn("start_websocket_client(): already running");
+			return;
+		}
+
 		std::string url = "/camera/" + m_options.id;
 
 		// Рестарт на случай, если он был остановлен

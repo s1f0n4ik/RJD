@@ -4,11 +4,18 @@
 #include <memory>
 
 #include "main-server/controller.h"
+#include "main-server/linker-controller.h"
 #include "main-server/listener.h"
 
 class URestServer {
 public:
-    URestServer(uint16_t port, std::shared_ptr<varan::neural::UMediaCenter> media_center);
+    URestServer(
+        uint16_t port, 
+        std::shared_ptr<varan::neural::UMediaCenter> media_center, 
+        std::shared_ptr<varan::birdview::ULinker> linker,
+        ULogger::ELoggerLevel level = ULogger::ELoggerLevel::DEBUG
+    );
+
     ~URestServer();
 
     void async_start();
@@ -26,4 +33,6 @@ private:
 
     std::thread m_thread;
     std::atomic<bool> m_running{ false };
+
+    ULogger m_logger;
 };

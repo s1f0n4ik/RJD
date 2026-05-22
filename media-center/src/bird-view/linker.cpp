@@ -17,14 +17,17 @@ namespace birdview {
 		const nvr::FWebSocketOptions& websocket,
 		UEGLContextManager* manager,
 		FFrameStorage<IFrame>* storage,
+		uint32_t fps,
 		ULogger::ELoggerLevel level
 	)
 		: m_logger("Bird ULinker", level)
+		, m_websocket(websocket)
 		, m_storage(storage)
 		, m_context_manager(manager)
 		, m_exports_root(calib_consts::LINKER_CONFIGURES_ROOT)
 		, m_exports_index_json(calib_consts::LINKER_CONFIGURATION_INDEX)
 		, m_state_index(calib_consts::LINKER_STATE_INDEX)
+		, m_fps(fps)
 	{
 		reload_from_state();
 	}
@@ -128,6 +131,88 @@ namespace birdview {
 		return true;
 	}
 
+	std::vector<ULinker::FExportInfo> ULinker::list_exports() {
+		std::vector<FExportInfo> result;
+		try {
+			auto list_confihuration_file_path = calib_consts::LINKER_CONFIGURES_ROOT / calib_consts::LINKER_CONFIGURATION_INDEX; 
+			if (!std::filesystem::exists(list_confihuration_file_path)) return result;
+
+			std::ifstream f(list_confihuration_file_path);
+			std::stringstream ss; ss << f.rdbuf();
+			auto v = boost::json::parse(ss.str());
+			if (!v.is_object()) return result;
+
+			for (const auto& [id, val] : v.as_object()) {
+				if (!val.is_object()) continue;
+				const auto& obj = val.as_object();
+
+				FExportInfo info;
+				info.id = id;
+				if (auto* name = obj.if_contains("name"); name && name->is_string()) {
+					info.name = name->as_string().c_str();
+				}
+				else {
+					info.name = info.id;
+				}
+				if (auto* cams = obj.if_contains("cameras"); cams && cams->is_object()) {
+					for (const auto& [k, _] : cams->as_object()) {
+						info.cameras.emplace_back(k);
+					}
+				}
+				result.push_back(std::move(info));
+			}
+		}
+		catch (const std::exception& e) {
+			 m_logger.error("list_exports(): " + std::string(e.what()));
+		}
+		return result;
+	}
+
+	boost::json::object ULinker::get_state_raw() {
+		boost::json::object result;
+		try {
+			if (!std::filesystem::exists(m_state_index)) return result;
+			std::ifstream f(m_state_index);
+			std::stringstream ss; ss << f.rdbuf();
+			auto v = boost::json::parse(ss.str());
+			if (v.is_object()) result = v.as_object();
+		}
+		catch (const std::exception& e) {
+			m_logger.error("get_state_raw(): " + std::string(e.what()));
+		}
+		return result;
+	}
+
+	bool ULinker::write_state(const std::string& export_id, const std::unordered_map<std::string, std::string>& bindings) {
+		if (export_id.empty()) {
+			m_logger.error("write_state(): empty export_id");
+			return false;
+		}
+		try {
+			boost::json::object root;
+			root["export_id"] = export_id;
+
+			boost::json::object cams;
+			for (const auto& [k, v] : bindings) {
+				if (v.empty()) cams[k] = nullptr;
+				else           cams[k] = v;
+			}
+			root["cameras"] = std::move(cams);
+
+			auto state_path = calib_consts::LINKER_CONFIGURES_ROOT / calib_consts::LINKER_STATE_INDEX;
+			std::filesystem::create_directories(calib_consts::LINKER_CONFIGURES_ROOT);
+			std::ofstream f(state_path);
+			f << boost::json::serialize(root);
+		}
+		catch (const std::exception& e) {
+			m_logger.error("write_state(): " + std::string(e.what()));
+			return false;
+		}
+
+		m_logger.info("write_state(): persisted, export_id=" + export_id);
+		return reload_from_state();
+	}
+
 	ULinker::NLinkSpace ULinker::create_linking_space() {
 		NLinkSpace space;
 		space.resize(m_camera_keys.size());
@@ -155,6 +240,15 @@ namespace birdview {
 		return m_camera_keys;
 	}
 
+	std::string ULinker::get_stream_id() const {
+		return m_stream_id;
+	}
+
+	std::string ULinker::get_active_export_id() const {
+		std::lock_guard<std::mutex> lk(m_mutex);
+		return m_export_id;
+	}
+
 	bool ULinker::set_render_camera(const std::string& key, std::string camera) {
 		auto it_camera = m_cameras_purpose.find(key);
 		if (it_camera == m_cameras_purpose.end()) {
@@ -167,16 +261,42 @@ namespace birdview {
 		return true;
 	}
 
-	bool ULinker::async_start(uint32_t fps) {
-		if (m_running) return false;
-		m_running = true;
-		m_worker = std::thread(&ULinker::processing_loop, this, fps);
+	bool ULinker::restart() {
+		if (m_running) stop();
+		if (!reload_from_state()) {
+			m_logger.error("restart(): no valid state");
+			return false;
+		}
+		return async_start();
+	}
+
+	bool ULinker::async_start() {
+		{
+			std::lock_guard<std::mutex> lk(m_mutex);
+			if (m_export_id.empty()) {
+				m_logger.error("async_start(): no active export — call reload_from_state() first");
+				return false;
+			}
+		}
+		if (m_running.exchange(true)) {
+			m_logger.warn("async_start(): already running");
+			return true;
+		}
+		// TO DO: заменть это говноа на условуню переменную
+		m_worker = std::thread([this] {
+			while (m_running.load()) {
+				processing_loop(m_fps);
+				m_logger.warn("processing stream ended!");
+				if (m_running.load()) {
+					std::this_thread::sleep_for(std::chrono::seconds(5));
+				}
+			}
+		});
 		return true;
 	}
 
 	void ULinker::stop() {
-		if (!m_running) return;
-		m_running = false;
+		if (!m_running.exchange(false)) return;
 		if (m_worker.joinable()) m_worker.join();
 	}
 
@@ -212,10 +332,38 @@ namespace birdview {
 			return;
 		}
 
-		cv::VideoWriter writer;
-		writer.open("/home/orangepi/render/output.avi",
-			cv::VideoWriter::fourcc('M', 'J', 'P', 'G'),
-			fps, cv::Size(W, H));
+		//cv::VideoWriter writer;
+		//writer.open("/home/orangepi/render/output.avi",
+		//	cv::VideoWriter::fourcc('M', 'J', 'P', 'G'),
+		//	fps, cv::Size(W, H));
+
+		// Проверка вебсокета
+		if (m_websocket.ip_adress.empty() || m_websocket.port.empty()) {
+			m_logger.error("processing_loop(): websocket is incorrect, aborted starting connection!");
+			return;
+		}
+
+		// Запуск вирутальной камеры
+		m_stream_id = constants::VIRTUAL_CAMERA_ID;
+		m_streamer = std::make_unique<neural::UVirtualCamera>(m_stream_id, m_websocket);
+		if (!m_streamer) {
+			m_logger.error("processing_loop(): streamer didn't create");
+			return;
+		}
+		if (!m_streamer->set_parameters(W, H, fps)) {
+			m_logger.error("processing_loop(): streamer set_parameters failed");
+			return;
+		}
+		if (!m_streamer->initialize()) {
+			m_logger.error("processing_loop(): streamer initialize failed");
+			return;
+		}
+		if (!m_streamer->start()) {
+			m_logger.error("processing_loop(): streamer start failed");
+			return;
+		}
+		m_logger.info("processing_loop(): streamer started, stream_id=" + m_stream_id);
+
 		std::vector<uint8_t> pixels(static_cast<size_t>(W) * H * 4);
 
 		// Синхронизируем порядок ключей с тем, что вернул рендерер.
@@ -240,12 +388,20 @@ namespace birdview {
 			glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
 
 			cv::Mat img(H, W, CV_8UC4, pixels.data());
-			cv::flip(img, img, 0);
-			cv::Mat bgr;
-			cv::cvtColor(img, bgr, cv::COLOR_RGBA2BGR);
-			if (writer.isOpened()) writer.write(bgr);
+			//cv::flip(img, img, 0);
+			//cv::Mat bgr;
+			//cv::cvtColor(img, bgr, cv::COLOR_RGBA2BGR);
+			//if (writer.isOpened()) writer.write(bgr);
+
+			if (m_streamer) m_streamer->push_frame(img);
 
 			std::this_thread::sleep_until(next_frame);
+		}
+
+		if (m_streamer) {
+			m_streamer->stop_websocket_client();
+			m_streamer->stop();
+			m_streamer.reset();
 		}
 
 		m_context_manager->undone_current(&m_logger);

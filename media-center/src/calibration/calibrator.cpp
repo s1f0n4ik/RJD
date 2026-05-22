@@ -439,6 +439,14 @@ namespace calibration {
 
 				return;
 			}
+			else if (type == constants::TYPE_PANORAMA_TOGGLE) {
+				handle_panorama_toggle(client_id, *meta, on_error);
+				return;
+			}
+			else if (type == constants::TYPE_COMPUTE_PANORAMA_REMAP) {
+				handle_panorama_computation(client_id, *meta, on_error);
+				return;
+			}
 			else if (type == constants::TYPE_CALIBRATION_CONFIGURATION) {
 				try {
 					handle_calibration_configuration(client_id, *meta, on_error);
@@ -821,6 +829,11 @@ namespace calibration {
 	) {
 		if (!m_calibration.ready) {
 			send_message(make_socket_error(constants::TYPE_UNDISTORT_COMPUTE, "Cannot compute undistort maps: calibration didn't ready!", &client_id, &m_name));
+			return;
+		}
+
+		if (m_use_panorama_remap.load()) {
+			send_message(make_socket_error(constants::TYPE_UNDISTORT_COMPUTE, "Cannot compute undistort maps: using panorama remaps!", &client_id, &m_name));
 			return;
 		}
 
@@ -1281,6 +1294,149 @@ namespace calibration {
 		result[constants::META_SHOW_CHESSBOARD] = m_to_show_chessboard;
 		result[constants::META_SHOW_UNDISTORTION] = m_apply_undistort;
 		return result;
+	}
+
+	void UCalibrator::handle_panorama_toggle(const std::string& client_id, const boost::json::object& meta, COnError on_error) {
+		if (auto* v = meta.if_contains(constants::META_USE_PANORAMA_REMAP); v && v->is_bool()) {
+			m_use_panorama_remap = v->as_bool();
+		}
+		else {
+			if (on_error) on_error(constants::META_USE_PANORAMA_REMAP,
+				"Error with message: invalid <use_panorama_remap> at meta block!",
+				&client_id);
+			return;
+		}
+
+		boost::json::object send_meta;
+		send_meta[constants::META_USE_PANORAMA_REMAP] = m_use_panorama_remap;
+		send_meta[constants::META_HEIGHT] = m_raw_image.height;
+
+		send_message(make_socket_message(constants::TYPE_PANORAMA_TOGGLE, true, &client_id, &m_name, &send_meta));
+	}
+
+	void UCalibrator::handle_panorama_computation(const std::string& client_id, const boost::json::object& meta, COnError on_error) {
+		int radius = 0;
+		if (auto* v = meta.if_contains("radius")) {
+			try {
+				radius = boost::json::value_to<int>(*v);
+			}
+			catch (...) {
+				if (on_error) {
+					on_error(constants::TYPE_COMPUTE_PANORAMA_REMAP,
+						"Error with message: invalid <radius> at meta block!",
+						&client_id);
+				}
+				return;
+			}
+		}
+
+		compute_panorama_remap(client_id, radius);
+	}
+
+	void UCalibrator::compute_panorama_remap(const std::string& client_id, int radius) {
+		if (!m_calibration.ready) {
+			send_message(make_socket_error(
+				constants::TYPE_COMPUTE_PANORAMA_REMAP,
+				"Cannot compute panorama remap: calibration not ready!",
+				&client_id, &m_name));
+			return;
+		}
+
+		const int src_w = m_raw_image.width;
+		const int src_h = m_raw_image.height;
+
+		if (src_w <= 0 || src_h <= 0) {
+			send_message(make_socket_error(
+				constants::TYPE_COMPUTE_PANORAMA_REMAP,
+				"Invalid source image dimensions!",
+				&client_id, &m_name));
+			return;
+		}
+
+		// Радиус fisheye круга — по умолчанию вписан в высоту
+		float R = (radius > 0) ? static_cast<float>(radius)
+			: static_cast<float>(std::min(src_w, src_h)) * 0.5f;
+
+		// Центр fisheye на исходном кадре
+		const float cx = src_w * 0.5f;
+		const float cy = src_h * 0.5f;
+
+		// Выходное изображение того же размера
+		const int dst_w = src_w;
+		const int dst_h = src_h;
+
+		// Угол обзора fisheye (180° для типичного fisheye-объектива)
+		const float fov = static_cast<float>(CV_PI); // 180°
+
+		cv::Mat map1(dst_h, dst_w, CV_32FC1);
+		cv::Mat map2(dst_h, dst_w, CV_32FC1);
+
+		// Развёртка в горизонтальную панораму:
+		//   x: угол по горизонтали от -π/2 до +π/2 (если fov = π)
+		//   y: вертикаль — от верха круга к низу
+		//
+		//   theta_h = (x / dst_w - 0.5) * fov       — азимут (горизонтальный угол)
+		//   theta_v = (0.5 - y / dst_h) * fov       — высота (вертикальный угол)
+		//
+		// Проецируем сферическое направление обратно на fisheye (equidistant projection):
+		//   r на исходнике = R * angle_from_axis / (fov/2)
+		//   где angle_from_axis — угол отклонения от оптической оси
+		for (int y = 0; y < dst_h; ++y) {
+			float* row1 = map1.ptr<float>(y);
+			float* row2 = map2.ptr<float>(y);
+
+			// Вертикальный угол: верх кадра = +fov/2, низ = -fov/2
+			const float theta_v = -(0.5f - static_cast<float>(y) / dst_h) * fov;
+
+			for (int x = 0; x < dst_w; ++x) {
+				// Горизонтальный угол: левый край = -fov/2, правый = +fov/2
+				const float theta_h = (static_cast<float>(x) / dst_w - 0.5f) * fov;
+
+				// Направление взгляда в 3D (сфера)
+				const float sx = std::sin(theta_h) * std::cos(theta_v);
+				const float sy = std::sin(theta_v);
+				const float sz = std::cos(theta_h) * std::cos(theta_v);
+
+				// Если точка за плоскостью объектива — невалидно
+				if (sz <= 0.0f) {
+					row1[x] = -1.0f;
+					row2[x] = -1.0f;
+					continue;
+				}
+
+				// Угол отклонения от оптической оси (z)
+				const float angle = std::acos(sz);
+
+				// Проекция на fisheye (equidistant model): r = R * angle / (fov/2)
+				const float r = R * angle / (fov * 0.5f);
+
+				// Азимут на плоскости fisheye
+				const float phi = std::atan2(sy, sx);
+
+				const float src_x = cx + r * std::cos(phi);
+				const float src_y = cy + r * std::sin(phi);
+
+				row1[x] = src_x;
+				row2[x] = src_y;
+			}
+		}
+
+		m_undistort.matrix_x = std::move(map1);
+		m_undistort.matrix_y = std::move(map2);
+		m_undistort.ready = true;
+
+		m_logger.debug("compute_panorama_remap(): generated remap maps for radius=" +
+			std::to_string(static_cast<int>(R)) +
+			" src=" + std::to_string(src_w) + "x" + std::to_string(src_h));
+
+		boost::json::object send_meta;
+		send_meta[constants::META_WIDTH] = src_w;
+		send_meta[constants::META_HEIGHT] = src_h;
+		send_meta["radius"] = static_cast<int>(R);
+
+		send_message(make_socket_message(
+			constants::TYPE_COMPUTE_PANORAMA_REMAP, true,
+			&client_id, &m_name, &send_meta));
 	}
 
 	// Хелпер

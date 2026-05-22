@@ -189,6 +189,8 @@
     align-items: center;
     justify-content: center;
 }
+.proj-warp-wrapper.panning { cursor: grabbing; }
+
 .proj-warp-wrapper::before,
 .proj-warp-wrapper::after {
     content: '';
@@ -207,6 +209,21 @@
     inset: 0;
     margin: 10px 15px;
     z-index: 5;
+
+    transform-origin: 0 0;          /* важно: трансформация от верхнего-левого */
+    will-change: transform;
+    transition: transform 0.05s linear;
+}
+
+.proj-zoom-hint {
+    position: absolute;
+    bottom: 8px; left: 8px;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+    pointer-events: none;
+    z-index: 20;
 }
 
 .proj-warp-canvas {

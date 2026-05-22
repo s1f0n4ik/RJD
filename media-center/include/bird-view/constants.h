@@ -7,6 +7,8 @@ namespace varan {
 namespace birdview {
 namespace constants {
 
+	inline const std::string VIRTUAL_CAMERA_ID = "linker_360";
+
 	const std::string CAMERA_FRONT = "front";
 	const std::string CAMERA_RIGHT = "right";
 	const std::string CAMERA_RIGHT_FRONT = "right_front";

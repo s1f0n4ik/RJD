@@ -12,9 +12,10 @@
 
 import { initProjPage, handleProjectionMessage } from './projection.js';
 import { showToast, log} from './utility.js';
+import {initLinkerPage} from "./linker-page.js";
 
 // ── State ────────────────────────────────────────────────────
-const state = {
+export const state = {
     clientId: 'web_' + Math.random().toString(16).slice(2, 10),
     camera:   null, // { id, displayName, width, height, fps }
     ws:       null,
@@ -86,6 +87,9 @@ const _cal = {
 const undist = {
     show:             document.getElementById('distortionDisplayToggle'),
 
+    panorama:        document.getElementById('panoramaToggle'),
+    panoramaBlock:   document.getElementById('panoramaRadiusBlock'),
+
     alphaValue:        document.getElementById('distAlphaValue'),
     alphaSlider:       document.getElementById('distAlphaSlider'),
     alphaMin:          document.getElementById('distAlphaMin'),
@@ -145,6 +149,15 @@ const UNDIST_SLIDERS = {
     k2: { value: () => undist.k2Value, min: () => undist.k2Min, mid: () => undist.k2Mid, max: () => undist.k2Max, slider: () => undist.k2Slider, decimals: 4 },
     k3: { value: () => undist.k3Value, min: () => undist.k3Min, mid: () => undist.k3Mid, max: () => undist.k3Max, slider: () => undist.k3Slider, decimals: 4 },
     k4: { value: () => undist.k4Value, min: () => undist.k4Min, mid: () => undist.k4Mid, max: () => undist.k4Max, slider: () => undist.k4Slider, decimals: 4 },
+
+    radius: {
+        value:    () => document.getElementById('distRadiusValue'),
+        min:      () => document.getElementById('distRadiusMin'),
+        mid:      () => document.getElementById('distRadiusMid'),
+        max:      () => document.getElementById('distRadiusMax'),
+        slider:   () => document.getElementById('distRadiusSlider'),
+        decimals: 0,
+    },
 };
 
 // ── Config refs ─────────────────────────────────────────────────
@@ -469,6 +482,7 @@ function dispatchServerMessage(msg) {
         case 'calibration_result': handleCalibrationResult(msg); break;
         case 'undistort_compute': handleDistortionCompute(msg); break;
         case 'view_undistort': handleOnDistortionShow(msg); break;
+        case 'panorama_toggle': handleOnPanoramaToggle(msg); break;
         case 'calibration_configuration': handleCalibrationConfiguration(msg); break;
         case 'projection_configuration': handleProjectionMessage(msg); break;
         default:
@@ -956,7 +970,7 @@ function sendRTCReadySignal() {
     log(`WebRTC ready → camera=${state.camera.id}`);
 }
 
-function closeRTC() {
+export function closeRTC() {
     if (!state.pc) return;
 
     if (state.rtcWs && state.rtcWs.readyState === WebSocket.OPEN) {
@@ -1501,8 +1515,11 @@ function navigateTo(page) {
 
     if (page === 1) moveVideoTo('videoWrapper');
     if (page === 2) {
-        moveVideoTo('projWarpWrapper');
+        moveVideoTo('uiCanvasLayer');
         initProjPage();
+    }
+    if (page === 3) {
+        initLinkerPage();
     }
 
     syncNoSignal();
@@ -1603,7 +1620,18 @@ function onSliderInput(key, rawValue) {
 function onSliderCommit(key, rawValue) {
     const value = parseFloat(rawValue);
     console.log(`slider commit [${key}]:`, value);
-    // сюда вставить отправку на сервер / применение
+
+    if (key === 'radius') {
+        sendWS({
+            type:      'compute_panorama_remap',
+            client_id: state.clientId,
+            meta: {
+                radius: Math.round(value),
+            },
+        });
+        return;
+    }
+
     requestDistortionCompute(true);
 }
 
@@ -1871,6 +1899,56 @@ function handleCalibrationConfiguration(msg) {
 }
 
 // ════════════════════════════════════════════════════════════
+// Panorama Toggle
+// ════════════════════════════════════════════════════════════
+
+function onPanoramaToggle() {
+    const desired = undist.panorama.checked;
+    undist.panorama.checked = !desired; // откат до ответа сервера
+
+    sendWS({
+        type:      'panorama_toggle',
+        client_id: state.clientId,
+        meta: {
+            use_panorama_remap: desired,
+        },
+    });
+}
+
+/* Ответ сервера на view_undistort/use_panorama_remap */
+function handleOnPanoramaToggle(msg) {
+    if (!msg.ret) {
+        log(`Ошибка при включении панорамной развёртки: ${msg.meta?.description ?? 'нет описания ошибки'}`, 'err');
+        return;
+    }
+
+    const use_panorama_remap  = msg.meta?.use_panorama_remap  ?? false;
+    const height = msg.meta?.height;
+
+    undist.panorama.checked = use_panorama_remap;
+
+    if (use_panorama_remap) {
+        // Максимум — половина ширины изображения
+        const maxRadius = Math.max(1, Math.floor((height ?? 2) / 2));
+        const current   = parseInt(UNDIST_SLIDERS["radius"].slider.value, 10) || maxRadius;
+
+        setSliderConfig('radius', {
+            value:    Math.min(current, maxRadius),
+            min:      1,
+            max:      maxRadius,
+            decimals: 0,
+        });
+
+        undist.panoramaBlock.style.display = 'flex';
+        log('Включена панорамная развёртка', 'info');
+    } else {
+        undist.panoramaBlock.style.display = 'none';
+        log('Отключена панорамная развёртка', 'info');
+        requestDistortionCompute(false);
+    }
+}
+
+// ════════════════════════════════════════════════════════════
 // BINARY MESSAGES (формат: 4 байта big-endian JSON size + JSON + бинарные данные)
 // ════════════════════════════════════════════════════════════
 
@@ -1945,4 +2023,5 @@ Object.assign(window, {
     resumeStream,
     toggleSnapshotDrawer,
     requestClearSnapshotList,
+    onPanoramaToggle,
 })
