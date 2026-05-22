@@ -31,6 +31,8 @@ interface Module {
   tabIndex: number;
   disabled?: boolean;   // 👈 NEW
   kiosk?: boolean;
+
+  externalUrl?: string;
 }
 
 const modules: Module[] = [
@@ -66,7 +68,7 @@ const modules: Module[] = [
     icon: ThreeSixtyIcon,
     gradient: 'linear-gradient(135deg, #00bcd4 0%, #0097a7 100%)',
     tabIndex: -1,
-    disabled: true,
+      externalUrl: '/birdview/index.html'
   },
   {
     id: 'maintain',
@@ -101,6 +103,11 @@ const Dashboard: React.FC<DashboardProps> = ({ state, onNavigate }) => {
       window.location.href = '/kiosk';
       return;
     }
+
+      if (module.externalUrl) {
+          window.location.href = module.externalUrl;
+          return;
+      }
 
     if (module.tabIndex >= 0) {
       onNavigate(module.tabIndex);

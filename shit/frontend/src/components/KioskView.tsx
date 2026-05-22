@@ -29,7 +29,7 @@ interface CustomCell {
 
 interface SavedLayout {
   name: string;
-  gridSize: number | 'custom';
+  gridSize: number | 'custom' | 'single';
   customCells?: CustomCell[];
   customGridRows?: number;
   customGridCols?: number;
@@ -66,40 +66,58 @@ const KioskView: React.FC = () => {
     return name || null;
   };
 
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (!stored) {
-        setError("Нет сохранённых layout'ов. Зайдите на главную → Наблюдение и создайте хотя бы один.");
-        return;
-      }
-      const layouts: SavedLayout[] = JSON.parse(stored);
-      setAvailableLayouts(layouts);
+    const DEFAULT_LAYOUTS: SavedLayout[] = [
+        {
+            name: "Панорама сверху",
+            gridSize: "single",
+            activeCells: {
+                single: "linker_360", // фиксированная камера
+            },
+            timestamp: Date.now(),
+        },
+    ];
 
-      const requestedName = getLayoutNameFromUrl();
-      if (!requestedName) {
-        if (layouts.length === 0) {
-          setError("Нет сохранённых layout'ов.");
-          return;
+    useEffect(() => {
+        try {
+            const stored = localStorage.getItem(STORAGE_KEY);
+
+            const savedLayouts: SavedLayout[] = stored
+                ? JSON.parse(stored)
+                : [];
+
+            // объединяем дефолтные + сохранённые
+            const mergedLayouts = [
+                ...DEFAULT_LAYOUTS,
+                ...savedLayouts,
+            ];
+
+            setAvailableLayouts(mergedLayouts);
+
+            const requestedName = getLayoutNameFromUrl();
+
+            const found = requestedName
+                ? mergedLayouts.find(l => l.name === requestedName)
+                : mergedLayouts[0];
+
+            if (found) {
+                setLayout(found);
+            } else {
+                setError("Layout не найден");
+            }
+
+        } catch (err) {
+            console.error(err);
+            setAvailableLayouts(DEFAULT_LAYOUTS);
+            setLayout(DEFAULT_LAYOUTS[0]);
         }
-        setLayout(layouts[0]);
-        return;
-      }
-      const found = layouts.find(l => l.name === requestedName);
-      if (!found) {
-        setError(`Layout "${requestedName}" не найден.`);
-        return;
-      }
-      setLayout(found);
-    } catch (err) {
-      setError('Ошибка чтения layouts из localStorage');
-      console.error(err);
-    }
 
-    api.getCameras().then(data => {
-      if (Array.isArray(data)) setCameras(data);
-    }).catch(err => console.error('Kiosk: failed to load cameras', err));
-  }, []);
+        api.getCameras()
+            .then(data => {
+                if (Array.isArray(data)) setCameras(data);
+            })
+            .catch(err => console.error(err));
+
+    }, []);
   useEffect(() => {
     api.getCameras()
       .then(data => {
@@ -342,10 +360,10 @@ const KioskView: React.FC = () => {
     );
   }
 
-  const effectiveActiveCells = activeCellsOverride ?? layout.activeCells;
+  const effectiveActiveCells = layout.gridSize === 'single' ? { single: 'linker_360' } : activeCellsOverride ?? layout.activeCells;
 
   const renderCellContent = (cellId: number | string) => {
-    const cameraName = effectiveActiveCells[cellId];
+    const cameraName = layout.gridSize === 'single' ? effectiveActiveCells['single'] : effectiveActiveCells[cellId];
     const isDropTarget = dragOverCellId === cellId;
     const isDragging = !!draggedCamera;
     const canPlaceByTap = !!selectedCamera;
@@ -472,6 +490,18 @@ const KioskView: React.FC = () => {
     );
   };
 
+    const renderSingleView = () => {
+        return (
+            <Box sx={{
+                width: '100vw',
+                height: '100vh',
+                bgcolor: '#000',
+            }}>
+                {renderCellContent('single')}
+            </Box>
+        );
+    };
+
   const renderStandardGrid = () => {
     const gridSize = layout.gridSize as number;
     const cols = Math.sqrt(gridSize);
@@ -517,7 +547,12 @@ const KioskView: React.FC = () => {
 
   return (
     <Box sx={{ position: 'relative', width: '100vw', height: '100vh', bgcolor: '#000' }}>
-      {layout.gridSize === 'custom' ? renderCustomGrid() : renderStandardGrid()}
+        {layout.gridSize === 'custom'
+            ? renderCustomGrid()
+            : layout.gridSize === 'single'
+                ? renderSingleView()
+                : renderStandardGrid()
+        }
 
       {/* Верхняя шторка */}
       <Box
