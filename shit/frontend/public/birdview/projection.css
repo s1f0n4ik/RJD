@@ -266,6 +266,10 @@
     position: absolute;
     transform-origin: center;
 }
+.proj-result-canvas * {
+    user-select: none;
+}
+
 .proj-canvas-hint {
     position: absolute;
     bottom: 8px; right: 8px;
@@ -384,6 +388,7 @@
     user-select: none;
     transition: border-color 0.15s;
     will-change: transform;
+    pointer-events: all;
 }
 .proj-joy-nub:hover { border-color: var(--accent); color: var(--accent); }
 .proj-joy-nub:active { cursor: grabbing; }

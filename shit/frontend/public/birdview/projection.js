@@ -59,6 +59,11 @@ export const PROJ_POSITION_LABELS = {
     left_front:   'Спереди левая',
 };
 
+let joyActive = false;
+
+document.getElementById('projJoystick').addEventListener('mousedown', () => joyActive = true);
+
+document.addEventListener('mouseup', () => joyActive = false);
 
 // ── Настройки ─────────────────────────────────────────────
 function toggleProjSettings() {
@@ -627,6 +632,7 @@ function projResultZoom(e) {
 }
 
 function projResultDragStart(e) {
+    if (joyActive) return;
     const r = projState.result;
     r.dragging = true;
     r.startX   = e.clientX - r.ox;
@@ -748,50 +754,67 @@ function _validateLutSubmit() {
 }
 
 // ── Джойстик ─────────────────────────────────────────────
-(function initProjJoystick() {
+function initProjJoystick(sendWSMessage, getActiveCamera) {
     const nub = document.getElementById('projJoyNub');
     const joy = document.getElementById('projJoystick');
-    if (!nub || !joy) return;
 
-    const MAX_R    = 30;
-    const THROTTLE = 80;
-    let dragging   = false;
-    let lastSend   = 0;
+    const MAX_R = 30;
 
-    nub.addEventListener('mousedown', e => { dragging = true; e.preventDefault(); });
+    let dragging = false;
+    let dx = 0;
+    let dy = 0;
+    let angle = 0;
 
-    document.addEventListener('mousemove', e => {
+    // 🔥 ключ: блокируем canvas drag
+    joy.addEventListener('mousedown', (e) => {
+        e.stopPropagation();
+        if (!getActiveCamera()?.done) return;
+
+        dragging = true;
+        e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
         if (!dragging) return;
-        const jr = joy.getBoundingClientRect();
-        const cx = jr.left + jr.width  / 2;
-        const cy = jr.top  + jr.height / 2;
-        let dx = e.clientX - cx;
-        let dy = e.clientY - cy;
-        const dist = Math.hypot(dx, dy);
-        if (dist > MAX_R) { dx = dx / dist * MAX_R; dy = dy / dist * MAX_R; }
 
-        nub.style.transform = `translate(${dx}px, ${dy}px)`;
+        const rect = joy.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
 
-        const now = Date.now();
-        if (now - lastSend > THROTTLE) {
-            lastSend = now;
-            sendWSMessage('projection_shift', {
-                dx: +(dx / MAX_R).toFixed(3),
-                dy: +(dy / MAX_R).toFixed(3),
-            });
+        let x = e.clientX - cx;
+        let y = e.clientY - cy;
+
+        const dist = Math.hypot(x, y);
+
+        if (dist > MAX_R) {
+            x = x / dist * MAX_R;
+            y = y / dist * MAX_R;
         }
+
+        dx = x / MAX_R;
+        dy = y / MAX_R;
+
+        nub.style.transform = `translate(${x}px, ${y}px)`;
     });
 
     document.addEventListener('mouseup', () => {
         if (!dragging) return;
         dragging = false;
-        nub.style.transition = 'transform 0.2s';
-        nub.style.transform  = 'translate(0,0)';
-        setTimeout(() => nub.style.transition = '', 200);
 
-        sendWSMessage('projection_shift', { dx: 0, dy: 0 });
+        const cam = getActiveCamera();
+        if (!cam?.done) return;
+
+        sendWSMessage('projection_warp_apply', {
+            dx,
+            dy,
+            angle
+        });
+
+        nub.style.transition = 'transform 0.2s ease';
+        nub.style.transform = 'translate(0,0)';
+        setTimeout(() => nub.style.transition = '', 200);
     });
-})();
+}
 
 // ── Инициализация страницы ────────────────────────────────
 export function initProjPage() {
