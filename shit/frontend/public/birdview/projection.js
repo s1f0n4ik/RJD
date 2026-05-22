@@ -59,11 +59,6 @@ export const PROJ_POSITION_LABELS = {
     left_front:   'Спереди левая',
 };
 
-let joyActive = false;
-
-document.getElementById('projJoystick').addEventListener('mousedown', () => joyActive = true);
-
-document.addEventListener('mouseup', () => joyActive = false);
 
 // ── Настройки ─────────────────────────────────────────────
 function toggleProjSettings() {
@@ -632,7 +627,6 @@ function projResultZoom(e) {
 }
 
 function projResultDragStart(e) {
-    if (joyActive) return;
     const r = projState.result;
     r.dragging = true;
     r.startX   = e.clientX - r.ox;
