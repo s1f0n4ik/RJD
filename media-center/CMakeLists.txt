@@ -24,6 +24,8 @@ file(GLOB_RECURSE SRC_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/utility/*.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/core/*.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/src/core/*.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/neural/*.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/neural/*.cpp
 )
 
 # OpenCV
@@ -47,7 +49,17 @@ pkg_check_modules(GST_ALL REQUIRED
     gstreamer-sdp-1.0
 )
 
-link_directories(${GST_ALL_LIBRARY_DIRS})
+set(RKNN_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/3rdparty/rknn/include)
+set(RKNN_LIB_DIR ${CMAKE_SOURCE_DIR}/3rdparty/rknn/lib)
+
+include_directories(
+    ${RKNN_INCLUDE_DIR}
+)
+
+link_directories(
+    ${GST_ALL_LIBRARY_DIRS}
+    ${RKNN_LIB_DIR}
+)
 
 pkg_check_modules(EGL REQUIRED egl)
 pkg_check_modules(GLESV2 REQUIRED glesv2)
@@ -72,7 +84,7 @@ set(BOOST_INCLUDEDIR ${BOOST_ROOT}/include)
 set(BOOST_LIBRARYDIR ${BOOST_ROOT}/lib)
 
 # Создание исполняемого файла
-add_executable(${PROJECT_NAME} ${SRC_FILES})
+add_executable(${PROJECT_NAME} ${SRC_FILES} "include/neural/loader.h")
 
 # Директории для include
 target_include_directories(${PROJECT_NAME} PRIVATE
@@ -100,6 +112,7 @@ target_link_libraries(${PROJECT_NAME}
     ${BOOST_LIBRARYDIR}/libboost_json.a
     ${BOOST_LIBRARYDIR}/libboost_filesystem.a
     ${BOOST_LIBRARYDIR}/libboost_thread.a
+    rknnrt
 )
 
 # Копирование шейдеров в папку с билдом

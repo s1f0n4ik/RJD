@@ -508,7 +508,13 @@ namespace calibration {
 		cv::Mat undistorted;
 		if (m_apply_undistort) {
 			undistorted.create(image.size(), image.type());
-			apply_undistort_maps(image, undistorted);
+			try {
+				apply_undistort_maps(image, undistorted);
+			}
+			catch (const std::exception& error) {
+				m_logger.error("handle_image_for_push(): opencv_error " + std::string(error.what()));
+				return;
+			}
 		}
 		else {
 			undistorted = std::move(image);

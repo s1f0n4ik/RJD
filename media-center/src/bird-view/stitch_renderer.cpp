@@ -223,11 +223,13 @@ namespace birdview {
         // --- Pass 2: нормализация в текущий внешний FBO ---
         // Возвращаемся в FBO, который установил Linker (context->get_fbo()).
         glBindFramebuffer(GL_FRAMEBUFFER, m_context->get_fbo());
-        glViewport(0, 0, m_canvas_w, m_canvas_h);
+        glViewport(0, 0, m_rotate_ccw ? m_canvas_h : m_canvas_w, m_rotate_ccw ? m_canvas_w : m_canvas_h);
 
         m_normalize.use();
         const GLint u_accum = glGetUniformLocation(m_normalize.get_id(), "u_accum");
+        const GLint u_rotate = glGetUniformLocation(m_normalize.get_id(), "u_rotate_ccw");
         glUniform1i(u_accum, 0);
+        glUniform1i(u_rotate, m_rotate_ccw ? 1 : 0);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, m_accum_tex);
 

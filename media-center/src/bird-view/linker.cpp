@@ -327,7 +327,17 @@ namespace birdview {
 		const int W = renderer.canvas_width();
 		const int H = renderer.canvas_height();
 
-		if (!m_context_manager->init_render_framebuffer(W, H, &m_logger)) {
+		const bool rotate = H > W;
+		renderer.set_rotate_ccw(rotate);
+
+		const int outW = rotate ? H : W;
+		const int outH = rotate ? W : H;
+
+		m_logger.info("processing_loop(): src=" + std::to_string(W) + "x" + std::to_string(H) +
+			", out=" + std::to_string(outW) + "x" + std::to_string(outH) +
+			", rotate=" + (rotate ? "true" : "false"));
+
+		if (!m_context_manager->init_render_framebuffer(outW, outH, &m_logger)) {
 			m_logger.error("processing_loop(): cannot init render FBO");
 			return;
 		}
@@ -350,7 +360,7 @@ namespace birdview {
 			m_logger.error("processing_loop(): streamer didn't create");
 			return;
 		}
-		if (!m_streamer->set_parameters(W, H, fps)) {
+		if (!m_streamer->set_parameters(outW, outH, fps)) {
 			m_logger.error("processing_loop(): streamer set_parameters failed");
 			return;
 		}
@@ -364,7 +374,7 @@ namespace birdview {
 		}
 		m_logger.info("processing_loop(): streamer started, stream_id=" + m_stream_id);
 
-		std::vector<uint8_t> pixels(static_cast<size_t>(W) * H * 4);
+		std::vector<uint8_t> pixels(static_cast<size_t>(outW) * outH * 4);
 
 		// Синхронизируем порядок ключей с тем, что вернул рендерер.
 		{
@@ -385,9 +395,9 @@ namespace birdview {
 			renderer.update(0.0f);
 			renderer.render(1.0f);
 
-			glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+			glReadPixels(0, 0, outW, outH, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
 
-			cv::Mat img(H, W, CV_8UC4, pixels.data());
+			cv::Mat img(outH, outW, CV_8UC4, pixels.data());
 			//cv::flip(img, img, 0);
 			//cv::Mat bgr;
 			//cv::cvtColor(img, bgr, cv::COLOR_RGBA2BGR);

@@ -16,6 +16,7 @@
 #include "main-server/rest_server.h"
 #include "bird-view/linker.h"
 #include "bird-view/egl-context.h"
+#include "neural/loader.h"
 
 #include "calibration/calibrator.h"
 
@@ -80,11 +81,15 @@ int main(int argc, char* argv[])
 	auto calibrator = std::make_shared<varan::calibration::UCalibrator>(socket_options.ip_adress, socket_options.port, main_context.get(), gl_storage.get());
 	calibrator->start_websocket_connection();
 
+	// Создание нейронного загрузчика
+	auto loader = std::make_shared<varan::neural::UNeuralLoader>(socket_options.ip_adress, socket_options.port, main_context.get(), gl_storage.get());
+	loader->async_run();
+
 	// Создание центра видеонаблюдения
 	//auto center = std::make_shared<varan::neural::UMediaCenter>(socket_options);
 	auto center = std::make_shared<varan::neural::UMediaCenter>(socket_options, main_context.get());
 	center->set_bird_view_callback(std::move(gl_storage->get_callback()));
-	//center->set_neural_callback(std::move(linker_360.get_dmabuf_frame_callback()));
+	center->set_neural_callback(std::move(gl_storage->get_callback()));
 
 	auto rest_server = URestServer{ config.rest_port, center, linker_360 };
 	rest_server.async_start();

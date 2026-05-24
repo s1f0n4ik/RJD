@@ -72,6 +72,7 @@ namespace birdview {
 		// Размер канваса экспорта.
 		int canvas_width()  const { return m_canvas_w; }
 		int canvas_height() const { return m_canvas_h; }
+		void set_rotate_ccw(bool v) { m_rotate_ccw = v; }
 
 	private:
 		struct FCameraGL {
@@ -97,6 +98,7 @@ namespace birdview {
 
 		int m_canvas_w = 0;
 		int m_canvas_h = 0;
+		bool m_rotate_ccw = false;
 
 		// Порядок камер из экспорта — фиксируется после load_export.
 		std::vector<std::string> m_ordered_keys;
