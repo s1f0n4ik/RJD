@@ -75,6 +75,14 @@ const KioskView: React.FC = () => {
             },
             timestamp: Date.now(),
         },
+        {
+            name: "Контроль опасностей на пути",
+            gridSize: "single",
+            activeCells: {
+                single: "neural_loader_1", // фиксированная камера
+            },
+            timestamp: Date.now(),
+        }
     ];
 
     useEffect(() => {
@@ -87,8 +95,8 @@ const KioskView: React.FC = () => {
 
             // объединяем дефолтные + сохранённые
             const mergedLayouts = [
-                ...DEFAULT_LAYOUTS,
                 ...savedLayouts,
+                ...DEFAULT_LAYOUTS,
             ];
 
             setAvailableLayouts(mergedLayouts);
@@ -360,7 +368,7 @@ const KioskView: React.FC = () => {
     );
   }
 
-  const effectiveActiveCells = layout.gridSize === 'single' ? { single: 'linker_360' } : activeCellsOverride ?? layout.activeCells;
+    const effectiveActiveCells = activeCellsOverride ?? layout.activeCells;
 
   const renderCellContent = (cellId: number | string) => {
     const cameraName = layout.gridSize === 'single' ? effectiveActiveCells['single'] : effectiveActiveCells[cellId];
