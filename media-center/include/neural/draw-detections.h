@@ -63,7 +63,7 @@ namespace neural {
 				? hex_to_rgb(classes[cls_id].color)
 				: cv::Scalar(255, 255, 0);
 			const std::string name = (cls_id >= 0 && cls_id < (int)classes.size())
-				? classes[cls_id].name
+				? classes[cls_id].server_id
 				: "unknown";
 
 			cv::Rect r(d.x1_coord, d.y1_coord,
@@ -75,7 +75,7 @@ namespace neural {
 			const std::string label(buf);
 
 			int baseline = 0;
-			cv::Size ts = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseline);
+			cv::Size ts = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 1, 2, &baseline);
 			const int ty1 = std::max(0, d.y1_coord - ts.height - 4);
 			cv::rectangle(frame_rgb,
 				cv::Rect(d.x1_coord, ty1, ts.width + 6, ts.height + 4),

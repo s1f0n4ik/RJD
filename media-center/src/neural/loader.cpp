@@ -32,7 +32,7 @@ namespace neural {
                 throw std::runtime_error("Cannot read configurations at " + config_path.string());
             }
 
-            std::string conf_name = "first_time";
+            std::string conf_name = "railway_camera";
             auto config = m_json_configurator.load_config(conf_name);
             if (!config) {
                 throw std::runtime_error("No configuration with name=" + conf_name);
@@ -119,7 +119,7 @@ namespace neural {
         auto result = m_classifier->classify(rgb_pixels, mask);
 
         // Отрисовка bbox + маски прямо в кадр
-        draw_detections_grouped(rgb_pixels, result.detections, mask, m_active_config.classes);
+        draw_detections(rgb_pixels, result.detections, mask, m_active_config.classes);
 
         // Push в виртуальную камеру
         handle_image_for_push(std::move(rgb_pixels));
