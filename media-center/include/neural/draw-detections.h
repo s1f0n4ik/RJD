@@ -75,14 +75,14 @@ namespace neural {
 			const std::string label(buf);
 
 			int baseline = 0;
-			cv::Size ts = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 1, 2, &baseline);
+			cv::Size ts = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 1.2, 2, &baseline);
 			const int ty1 = std::max(0, d.y1_coord - ts.height - 4);
 			cv::rectangle(frame_rgb,
 				cv::Rect(d.x1_coord, ty1, ts.width + 6, ts.height + 4),
 				color, cv::FILLED);
 			cv::putText(frame_rgb, label,
 				cv::Point(d.x1_coord + 3, ty1 + ts.height),
-				cv::FONT_HERSHEY_SIMPLEX, 0.5,
+				cv::FONT_HERSHEY_SIMPLEX, 1.2,
 				cv::Scalar(0, 0, 0), 1, cv::LINE_AA);
 		}
 	}
