@@ -75,7 +75,7 @@ namespace neural {
 			const std::string label(buf);
 
 			int baseline = 0;
-			cv::Size ts = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 1.2, 2, &baseline);
+			cv::Size ts = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 1.4, 2, &baseline);
 			const int ty1 = std::max(0, d.y1_coord - ts.height - 4);
 			cv::rectangle(frame_rgb,
 				cv::Rect(d.x1_coord, ty1, ts.width + 6, ts.height + 4),
