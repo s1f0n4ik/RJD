@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 import logging
 
 from app.config import settings
-from app.routers import cameras, loaders, status, streams, auth, recordings
+from app.routers import loaders, status, streams, auth, recordings
 from app.services.websocket_manager import manager, websocket_endpoint
 
 # Настройка логирования
@@ -40,7 +40,6 @@ app.add_middleware(
 )
 
 # Подключение роутеров
-app.include_router(cameras.router, prefix="/api", tags=["Cameras"])
 app.include_router(loaders.router, prefix="/api", tags=["Loaders"])
 app.include_router(status.router, prefix="/api", tags=["Status"])
 app.include_router(auth.router, prefix="/auth", tags=["Auth"])

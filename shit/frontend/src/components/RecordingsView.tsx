@@ -16,7 +16,6 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogActions,
   LinearProgress,
 } from '@mui/material';
 import {
@@ -26,7 +25,6 @@ import {
   ContentCut,
   Cancel,
 } from '@mui/icons-material';
-import { FASTAPI_BASE } from '../utils/constants';
 import { RZD_COLORS } from '../theme';
 import RecordingsCalendar from './RecordingsCalendar';
 import RecordingsPlayer from './RecordingsPlayer';
@@ -54,7 +52,8 @@ const RecordingsView: React.FC = () => {
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedRange, setSelectedRange] = useState<{ start: number; end: number } | null>(null);
   const [merging, setMerging] = useState(false);
-  const [mergeProgress, setMergeProgress] = useState(0);
+  const [_, setMergeProgress] = useState(0);
+  //const [mergeProgress, setMergeProgress] = useState(0);
 
   useEffect(() => {
     loadRecordings();
@@ -82,7 +81,7 @@ const RecordingsView: React.FC = () => {
   const loadRecordings = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${FASTAPI_BASE}/api/recordings`);
+      const response = await fetch(`/api/recordings`);
       if (!response.ok) throw new Error('Failed to load recordings');
 
       const data = await response.json();
@@ -172,7 +171,7 @@ const RecordingsView: React.FC = () => {
     try {
       const dateStr = selectedDate.toISOString().split('T')[0];
 
-      const response = await fetch(`${FASTAPI_BASE}/api/recordings/merge`, {
+      const response = await fetch(`/api/recordings/merge`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

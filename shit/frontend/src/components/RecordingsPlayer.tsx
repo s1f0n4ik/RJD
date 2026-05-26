@@ -1,6 +1,5 @@
 import React, { useRef, useEffect } from 'react';
 import { Box, LinearProgress, Typography } from '@mui/material';
-import { FASTAPI_BASE } from '../utils/constants';
 
 interface RecordingsPlayerProps {
   camera: string;
@@ -76,7 +75,7 @@ const RecordingsPlayer: React.FC<RecordingsPlayerProps> = ({
           width: '100%', height: '100%', objectFit: 'contain',
           display: loading ? 'none' : 'block',
         }}
-        src={`${FASTAPI_BASE}/api/recordings/stream/${camera}/${file.filename}`}
+        src={`/api/recordings/stream/${camera}/${file.filename}`}
         onCanPlay={handleCanPlay}
         onError={handleError}
         onEnded={onEnded}

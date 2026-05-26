@@ -1,40 +1,39 @@
-const getBaseUrl = () => {
-  // Используем текущий хост из браузера
-  const protocol = window.location.protocol; // http: или https:
-  const host = window.location.host; // 192.168.1.2:80 или 172.25.78.137:8081
+// utils/constants.ts
 
-  return `${protocol}//${host}`;
+/**
+ * Строит URL для WebSocket с тем же хостом и портом, что и текущая страница.
+ * Сам выбирает ws/wss в зависимости от протокола.
+ *
+ * Использование:
+ *   wsUrl('/ws')                       → ws://host/ws
+ *   wsUrl('/signaling/client/cam_1')   → ws://host/signaling/client/cam_1
+ */
+export const wsUrl = (path: string): string => {
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const cleanPath = path.startsWith('/') ? path : `/${path}`;
+    return `${proto}//${window.location.host}${cleanPath}`;
 };
 
-const getWsProtocol = () => {
-  return window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-};
-
-// API и WebSocket используют ОТНОСИТЕЛЬНЫЕ пути (проксируются через nginx)
-export const FASTAPI_BASE = getBaseUrl(); // http://текущий_хост
-export const WS_URL = `${getWsProtocol()}//${window.location.host}/ws`; // ws://текущий_хост/ws
-
-// Signaling на порту 8765 (нужно пробрасывать через nginx или использовать host)
-export const SIGNALING_SERVER = `${getWsProtocol()}//${window.location.hostname}:8765`;
+// ── Доменные константы ──
 
 export const ENDPOINT_MAP: Record<string, string> = {
-  'id_1': '/neural_1',
-  'id_2': '/neural_2',
-  'id_3': '/neural_3',
+    'id_1': '/neural_1',
+    'id_2': '/neural_2',
+    'id_3': '/neural_3',
 };
 
 export const CAMERA_TYPE_URLS = {
-  HIKVISION: 1,
-  DAHUA: 2,
-  ACE: 3,
-  BEWARD: 4,
+    HIKVISION: 1,
+    DAHUA: 2,
+    ACE: 3,
+    BEWARD: 4,
 } as const;
 
 export const CAMERA_STATUS = {
-  NO_PIPELINE: 0,
-  READY: 1,
-  STOPPED: 2,
-  RUNNING: 3,
+    NO_PIPELINE: 0,
+    READY: 1,
+    STOPPED: 2,
+    RUNNING: 3,
 } as const;
 
 export const KIOSK_PATH_PREFIX = '/kiosk';

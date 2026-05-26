@@ -15,8 +15,9 @@ import {
   Close as CloseIcon,
 } from '@mui/icons-material';
 import WebRTCPlayer from './WebRTCPlayer';
-import { api, type CPPCamera } from '../services/api';
-import { SIGNALING_SERVER } from '../utils/constants';
+import { api } from '../services/api';
+import type { CPPCamera } from '../types';
+import { wsUrl } from '../utils/constants';
 import CellMenu from './CellMenu';
 import { useTouchDevice } from '../utils/useTouchDevice';
 interface CustomCell {
@@ -412,7 +413,7 @@ const KioskView: React.FC = () => {
               key={`kiosk-${cellId}-${cameraName}`}
               cameraId={cameraName}
               cameraName={getCameraDisplayName(cameraName)}
-              signalingUrl={`${SIGNALING_SERVER}/client/${cameraName}`}
+              signalingUrl={wsUrl(`/signaling/client/${cameraName}`)}
               onError={(err) => console.error(`Kiosk error ${cameraName}:`, err)}
             />
 
@@ -444,7 +445,7 @@ const KioskView: React.FC = () => {
                     px: 2, py: 0.5, borderRadius: 1, fontSize: '0.85rem',
                   }}
                 >
-                  {isDropTarget ? `✓ Заменить на «${getCameraDisplayName(draggedCamera!)}»` : 'Отпустите для замены'}
+                  {isDropTarget ? `Заменить на «${getCameraDisplayName(draggedCamera!)}»` : 'Отпустите для замены'}
                 </Typography>
               </Box>
             )}

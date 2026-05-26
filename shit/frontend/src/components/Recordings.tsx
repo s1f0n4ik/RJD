@@ -24,7 +24,6 @@ import {
   Folder,
   VideoLibrary,
 } from '@mui/icons-material';
-import { FASTAPI_BASE } from '../utils/constants';
 import { RZD_COLORS } from '../theme';
 
 interface Recording {
@@ -47,7 +46,7 @@ const Recordings: React.FC = () => {
   const loadRecordings = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${FASTAPI_BASE}/api/recordings`);
+      const response = await fetch(`/api/recordings`);
       if (!response.ok) throw new Error('Failed to load recordings');
 
       const data = await response.json();
@@ -74,11 +73,11 @@ const Recordings: React.FC = () => {
   };
 
   const handleDownload = (cameraName: string, filename: string) => {
-    window.open(`${FASTAPI_BASE}/api/recordings/download/${cameraName}/${filename}`, '_blank');
+    window.open(`/api/recordings/download/${cameraName}/${filename}`, '_blank');
   };
 
   const handlePlay = (cameraName: string, filename: string) => {
-    setPlayingVideo(`${FASTAPI_BASE}/api/recordings/stream/${cameraName}/${filename}`);
+    setPlayingVideo(`/api/recordings/stream/${cameraName}/${filename}`);
   };
 
   const totalCameras = Object.keys(recordings).length;

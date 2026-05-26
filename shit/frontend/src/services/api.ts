@@ -1,150 +1,159 @@
-import { FASTAPI_BASE } from '../utils/constants';
+// api/client.ts
+
 import type { CPPCamera } from '../types';
 
-// === Типы для PATCH ===
-// Бэк принимает { meta?: {...}, critical?: {...} }.
-// meta — не перезапускает камеру (сейчас только display_name).
-// critical — перезапускает. password ВНУТРИ critical отправлять ТОЛЬКО если реально меняем,
-// иначе бэк затрёт текущий (договорённость с Ваней от 05.05).
-export interface CameraMetaPatch {
-  display_name?: string;
-  description?: string;
-}
-const cameraUrl = (base: string, id: string) =>
-  `${base}/api/camera/${encodeURIComponent(id)}`;
-export interface CameraCriticalPatch {
-  ip_adress?: string;
-  port?: string;
-  user?: string;
-  password?: string; // ⚠️ включать в объект только при реальной смене
-  production?: number;
-  type?: number;
-  streams?: {
-    main: {
-      sub: number;
-      type: number;
-      latency: number;
-      use_udp: boolean;
-      reconnect: number;
-      record_path: string;
-      segment: number;
-    };
-    sub: {
-      sub: number;
-      type: number;
-      latency: number;
-      use_udp: boolean;
-      reconnect: number;
-      record_path: string;
-      segment: number;
-    };
-  };
-}
+const cameraUrl = (id: string) => `/api/camera/${encodeURIComponent(id)}`;
 
 export interface CameraPatchBody {
-  meta?: CameraMetaPatch;
-  critical?: CameraCriticalPatch;
+    meta?: CameraMetaPatch;
+    critical?: CameraCriticalPatch;
+}
+
+export interface CameraMetaPatch {
+    display_name?: string;
+    description?: string;
+}
+
+export interface CameraCriticalPatch {
+    ip_adress?: string;
+    port?: string;
+    user?: string;
+    password?: string; // ⚠️ включать в объект только при реальной смене
+    production?: number;
+    type?: number;
+    streams?: {
+        main: {
+            sub: number;
+            type: number;
+            latency: number;
+            use_udp: boolean;
+            reconnect: number;
+            record_path: string;
+            segment: number;
+        };
+        sub: {
+            sub: number;
+            type: number;
+            latency: number;
+            use_udp: boolean;
+            reconnect: number;
+            record_path: string;
+            segment: number;
+        };
+    };
+}
+
+// ── Контракт Media Center ──
+interface CppError {
+    code: number;
+    message: string;
+    details?: string;
+}
+
+interface CppResponse<T> {
+    data: T | null;
+    meta: unknown | null;
+    error: CppError | null;
+}
+
+// Кастомный класс ошибки — чтобы в UI можно было различать
+// сетевые сбои и доменные ошибки от C++.
+export class MediaCenterError extends Error {
+    readonly code: number;
+    readonly details?: string;
+
+    constructor(err: CppError) {
+        super(err.details ? `${err.message}: ${err.details}` : err.message);
+        this.name = 'MediaCenterError';
+        this.code = err.code;
+        this.details = err.details;
+    }
 }
 
 class ApiClient {
-  private baseUrl: string;
-
-  constructor(baseUrl: string) {
-    this.baseUrl = baseUrl;
-  }
-
-  async getCameras(): Promise<CPPCamera[]> {
-    const response = await fetch(`${this.baseUrl}/api/cameras`);
-    if (!response.ok) throw new Error('Failed to fetch cameras');
-
-    const data = await response.json();
-
-    // Формат 1: { cameras: [...] }
-    if (data.cameras && Array.isArray(data.cameras)) {
-      return data.cameras.map((c: any) => this.normalizeCamera(c));
+    async getCameras(): Promise<CPPCamera[]> {
+        const res = await this.fetch<{ cameras: Record<string, any> }>('/api/cameras');
+        const camerasObj = res.cameras ?? {};
+        return Object.entries(camerasObj).map(([key, raw]) =>
+            this.normalize({ id: raw.id ?? key, ...raw })
+        );
     }
 
-    // Формат 2: { cameras: { camera_1: {...}, camera_2: {...} } } — легаси,
-    // на случай если бэк где-то ещё отдаёт старый вид.
-    if (data.cameras && typeof data.cameras === 'object') {
-      console.log('📦 Converting cameras object to array (legacy format)...');
-      return Object.entries(data.cameras).map(([key, cameraData]: [string, any]) =>
-        this.normalizeCamera({ id: cameraData.id ?? key, ...cameraData })
-      );
+    async getCamera(id: string): Promise<CPPCamera | null> {
+        const res = await this.fetch<{ cameras: Record<string, any> }>(cameraUrl(id));
+        const raw = res.cameras?.[id];
+        return raw ? this.normalize({ id: raw.id ?? id, ...raw }) : null;
     }
 
-    // Формат 3: массив напрямую
-    if (Array.isArray(data)) {
-      return data.map((c: any) => this.normalizeCamera(c));
+    async createCamera(camera: CPPCamera) {
+        return this.fetch('/api/camera', {
+            method: 'POST',
+            body: JSON.stringify(camera),
+        });
     }
 
-    console.error('❌ getCameras() returned unexpected format:', data);
-    return [];
-  }
-
-
-
-  async getCamera(cameraId: string): Promise<CPPCamera | null> {
-    const response = await fetch(cameraUrl(this.baseUrl, cameraId));
-    if (!response.ok) throw new Error('Camera not found');
-
-    const data = await response.json();
-    if (!data) return null;
-
-    return this.normalizeCamera({ id: data.id ?? cameraId, ...data });
-  }
-
-  async updateCamera(cameraId: string, updates: CameraPatchBody): Promise<any> {
-    if (!updates.meta && !updates.critical) {
-      return { ok: true, noop: true };
+    async updateCamera(id: string, updates: CameraPatchBody) {
+        if (!updates.meta && !updates.critical) return { ok: true, noop: true };
+        return this.fetch(cameraUrl(id), {
+            method: 'PATCH',
+            body: JSON.stringify(updates),
+        });
     }
 
-    const response = await fetch(cameraUrl(this.baseUrl, cameraId), {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updates),
-    });
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.detail || 'Failed to update camera');
+    async deleteCamera(id: string): Promise<void> {
+        await this.fetch(cameraUrl(id), { method: 'DELETE' });
     }
-    return response.json();
-  }
 
-  async deleteCamera(cameraId: string): Promise<void> {
-    const response = await fetch(cameraUrl(this.baseUrl, cameraId), {
-      method: 'DELETE',
-    });
-    if (!response.ok) throw new Error('Failed to delete camera');
-  }
+    // ── helpers ──
 
-  async createCamera(camera: CPPCamera): Promise<any> {
-    const response = await fetch(`${this.baseUrl}/api/camera`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(camera),
-    });
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.detail || 'Failed to create camera');
+    /**
+     * Унифицированный fetch для Media Center.
+     * Раскладывает {data, meta, error} → возвращает data или кидает MediaCenterError.
+     */
+    private async fetch<T = unknown>(
+        url: string,
+        init: RequestInit = {}
+    ): Promise<T> {
+        const hasBody = init.body !== undefined;
+        let r: Response;
+        try {
+            r = await window.fetch(url, {
+                ...init,
+                headers: {
+                    ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+                    ...init.headers,
+                },
+            });
+        } catch (e) {
+            // Сеть упала, nginx недоступен и т.п.
+            throw new Error(`Network error: ${(e as Error).message}`);
+        }
+
+        // Пробуем распарсить тело — оно есть и при успехе, и при ошибке.
+        const body = await r.json().catch(() => null) as CppResponse<T> | null;
+
+        // Если есть error — кидаем его. Это работает и для 2xx (вдруг странный кейс),
+        // и для 4xx/5xx.
+        if (body?.error) {
+            throw new MediaCenterError(body.error);
+        }
+
+        // На случай, если HTTP плохой, а тела с error нет (прокси упал, gateway timeout).
+        if (!r.ok) {
+            throw new Error(`${init.method ?? 'GET'} ${url} → HTTP ${r.status}`);
+        }
+
+        return body?.data as T;
     }
-    return response.json();
-  }
 
-  // === helpers ===
-  private normalizeCamera(raw: any): CPPCamera {
-    // Совместимость на переходный период: если где-то ещё приходит `name`,
-    // считаем его id. display_name падаем обратно на description/id.
-    const id: string = raw.id ?? raw.name;
-    const display_name: string =
-      raw.display_name ?? raw.description ?? id;
-
-    return {
-      ...raw,
-      id,
-      display_name,
-    } as CPPCamera;
-  }
+    private normalize(raw: any): CPPCamera {
+        const id: string = raw.id ?? raw.name;
+        return {
+            ...raw,
+            id,
+            display_name: raw.display_name ?? raw.description ?? id,
+        } as CPPCamera;
+    }
 }
 
-export const api = new ApiClient(FASTAPI_BASE);
+export const api = new ApiClient();

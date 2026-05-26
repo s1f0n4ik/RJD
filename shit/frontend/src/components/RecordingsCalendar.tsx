@@ -1,6 +1,6 @@
 import React from 'react';
-import { Box, Typography } from '@mui/material';
-import { DateCalendar, PickersDay, PickersDayProps } from '@mui/x-date-pickers';
+import { Box } from '@mui/material';
+import { DateCalendar, PickersDay, type PickersDayProps } from '@mui/x-date-pickers';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { ru } from 'date-fns/locale'; // 🔑 русская локаль (неделя с понедельника)

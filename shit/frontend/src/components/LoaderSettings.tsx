@@ -1,5 +1,5 @@
 import React from 'react';
-import { Container, Paper, Typography, Box } from '@mui/material';
+import { Container, Paper, Typography } from '@mui/material';
 import { Construction as ConstructionIcon } from '@mui/icons-material';
 
 const LoaderSettings: React.FC = () => {

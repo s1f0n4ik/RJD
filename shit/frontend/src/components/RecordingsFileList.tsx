@@ -9,7 +9,6 @@ import {
   IconButton,
 } from '@mui/material';
 import { Download, PlayArrow } from '@mui/icons-material';
-import { FASTAPI_BASE } from '../utils/constants';
 
 interface Recording {
   filename: string;
@@ -83,7 +82,7 @@ const RecordingsFileList: React.FC<RecordingsFileListProps> = ({
                     <IconButton
                       size="small"
                       onClick={() =>
-                        window.open(`${FASTAPI_BASE}/api/recordings/download/${camera}/${file.filename}`)
+                        window.open(`/api/recordings/download/${camera}/${file.filename}`)
                       }
                     >
                       <Download fontSize="small" />

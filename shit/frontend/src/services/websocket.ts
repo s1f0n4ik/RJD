@@ -1,10 +1,11 @@
-import { WS_URL } from '../utils/constants.ts';
+import { wsUrl } from '../utils/constants';
 import type {SystemState, WebSocketMessage} from '../types';
 
 export class WebSocketService {
   private ws: WebSocket | null = null;
   private reconnectInterval: number = 3000;
-  private reconnectTimer: NodeJS.Timeout | null = null;
+  // @ts-ignore
+    private reconnectTimer: NodeJS.Timeout | null = null;
 
   connect(onStateUpdate: (state: SystemState) => void, onConnectionChange: (connected: boolean) => void) {
     if (this.ws) {
@@ -12,7 +13,7 @@ export class WebSocketService {
       return;
     }
 
-    this.ws = new WebSocket(WS_URL);
+      this.ws = new WebSocket(wsUrl('/ws'));;
 
     this.ws.onopen = () => {
       console.log('✅ WebSocket Connected');

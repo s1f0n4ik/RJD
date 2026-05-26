@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Box, Typography, CircularProgress, IconButton, Paper } from '@mui/material';
-import { Fullscreen, Error as ErrorIcon } from '@mui/icons-material';
+import { Box, Typography, CircularProgress, Paper } from '@mui/material';
+import { Error as ErrorIcon } from '@mui/icons-material';
 
 interface WebRTCPlayerProps {
     cameraId: string;
@@ -482,11 +482,11 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
         }
     };
 
-    const handleFullscreen = () => {
-        if (videoRef.current) {
-            videoRef.current.requestFullscreen();
-        }
-    };
+    //const handleFullscreen = () => {
+    //    if (videoRef.current) {
+    //        videoRef.current.requestFullscreen();
+    //    }
+    //};
 
     return (
         <Paper

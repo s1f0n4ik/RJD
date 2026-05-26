@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -21,9 +21,9 @@ import {
   IconButton,
   Select,
   FormControl,
-  InputLabel,
-  Divider,
+  InputLabel
 } from '@mui/material';
+
 import {
   CheckCircle as CheckCircleIcon,
   Error as ErrorIcon,
@@ -37,8 +37,9 @@ import {
   Visibility as VisibilityIcon
 } from '@mui/icons-material';
 import WebRTCPlayer from './WebRTCPlayer';
-import { api, type CPPCamera } from '../services/api';
-import { SIGNALING_SERVER } from '../utils/constants';
+import { api } from '../services/api';
+import { wsUrl } from '../utils/constants';
+import type { CPPCamera } from '../types';
 import { isProbeCamera } from '../utils/probeFilter';
 import CellMenu from './CellMenu';
 import { useTouchDevice } from '../utils/useTouchDevice';
@@ -89,7 +90,7 @@ const Observation: React.FC = () => {
   const [drawStart, setDrawStart] = useState<{ row: number; col: number } | null>(null);
   const [drawEnd, setDrawEnd] = useState<{ row: number; col: number } | null>(null);
   const [selectedCellId, setSelectedCellId] = useState<string | null>(null);
-  const [resizing, setResizing] = useState<{ cellId: string; corner: string } | null>(null);
+  //const [resizing, setResizing] = useState<{ cellId: string; corner: string } | null>(null);
 
   // Layout Management
   const [savedLayouts, setSavedLayouts] = useState<SavedLayout[]>([]);
@@ -98,7 +99,8 @@ const Observation: React.FC = () => {
   const [newLayoutName, setNewLayoutName] = useState('');
 
   // Drag & Drop State
-  const [draggedCamera, setDraggedCamera] = useState<string | null>(null);
+  //const [draggedCamera, setDraggedCamera] = useState<string | null>(null);
+    const [_, setDraggedCamera] = useState<string | null>(null);
   const isTouch = useTouchDevice();
 //   const SIGNALING_SERVER = 'ws://192.168.1.2:8765';
 
@@ -544,7 +546,7 @@ const Observation: React.FC = () => {
                     key={`player-${cell.id}-${cameraName}`}
                     cameraId={cameraName}
                     cameraName={getCameraDisplayName(cameraName)}
-                    signalingUrl={`${SIGNALING_SERVER}/client/${cameraName}`}
+                    signalingUrl={wsUrl(`/signaling/client/${cameraName}`)}
                     onError={(err) => console.error(`Error in ${cameraName}:`, err)}
                   />
                   <CellMenu
@@ -605,7 +607,7 @@ const Observation: React.FC = () => {
             key={`player-${cellId}-${cameraName}`}
             cameraId={cameraName}
             cameraName={getCameraDisplayName(cameraName)}
-            signalingUrl={`${SIGNALING_SERVER}/client/${cameraName}`}
+            signalingUrl={wsUrl(`/signaling/client/${cameraName}`)}
             onError={(err) => console.error(`Error in ${cameraName}:`, err)}
           />
           {/* ✅ ДОБАВЛЕНО: Подсказка при hover */}

@@ -9,7 +9,7 @@ import {
   Alert,
   Chip,
 } from '@mui/material';
-import { Lock as LockIcon } from '@mui/icons-material';
+//import { Lock as LockIcon } from '@mui/icons-material';
 import { RZD_COLORS } from '../theme';
 
 interface LoginProps {

@@ -44,8 +44,8 @@ import {
   CheckCircle as CheckIcon,
   Error as ErrorIcon,
 } from '@mui/icons-material';
-import {FASTAPI_BASE, SIGNALING_SERVER} from '../utils/constants';
 import { RZD_COLORS } from '../theme';
+import { wsUrl } from '../utils/constants';
 // ⚠️ Если у тебя другой путь к плееру — поправь импорт
 import WebRTCPlayer from './WebRTCPlayer';
 
@@ -98,7 +98,7 @@ interface CameraFormData {
 }
 
 type ProbeStatus = 'idle' | 'creating' | 'streaming' | 'error';
-const cameraUrl = (id: string) => `${FASTAPI_BASE}/api/camera/${encodeURIComponent(id)}`;
+const cameraUrl = (id: string) => `api/camera/${encodeURIComponent(id)}`;
 const RESERVED_PREFIXES = ['__probe_'];
 const NAME_REGEX = /^[a-zA-Z_][a-zA-Z0-9_-]{1,31}$/;
 const IP_REGEX = /^((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/;
@@ -269,7 +269,7 @@ const CameraSettings: React.FC = () => {
   const loadCameras = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${FASTAPI_BASE}/api/cameras`);
+      const response = await fetch('/api/cameras');
       if (!response.ok) throw new Error('Failed to load cameras');
       const data = await response.json();
 
@@ -419,7 +419,7 @@ const CameraSettings: React.FC = () => {
     };
 
     try {
-      const response = await fetch(`${FASTAPI_BASE}/api/camera`, {
+      const response = await fetch(`/api/camera`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -585,7 +585,7 @@ const CameraSettings: React.FC = () => {
           },
         };
 
-        const response = await fetch(`${FASTAPI_BASE}/api/camera`, {
+        const response = await fetch(`/api/camera`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -1207,7 +1207,7 @@ const CameraSettings: React.FC = () => {
                 {probeStatus === 'streaming' && probeName ? (
                   <WebRTCPlayer
                     cameraId={probeName}
-                    signalingUrl={`${SIGNALING_SERVER}/client/${probeName}`}
+                    signalingUrl={wsUrl(`/signaling/client/${probeName}`)}
                     onError={(err) => {
                       setProbeError(err);
                       setProbeStatus('error');
