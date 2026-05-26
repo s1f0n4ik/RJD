@@ -19,7 +19,7 @@ async def fetch_cameras() -> Dict[str, Any]:
     """
     try:
         async with httpx.AsyncClient(timeout=settings.MEDIA_CENTER_TIMEOUT) as client:
-            response = await client.get(f"/api/cameras")
+            response = await client.get(f"{settings.MEDIA_CENTER_URL}/camera")
             response.raise_for_status()
             payload = response.json()
 
