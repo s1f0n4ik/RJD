@@ -1,6 +1,10 @@
 import {log} from './utility.js';
 
-export const WS_SIGNALING_URL = 'ws://192.168.1.2:8765';
+export function wsUrl(path) {
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const cleanPath = path.startsWith('/') ? path : `/${path}`;
+    return `${proto}//${window.location.host}${cleanPath}`;
+}
 
 export function createWebRTCSession() {
     return {
@@ -22,7 +26,7 @@ export function connectWebRTC(session, {streamId, clientId, wsUrl,
 
     session.streamId = streamId;
     session.clientId = clientId;
-    session.wsUrl    = wsUrl + `/client/${streamId}`;
+    session.wsUrl = wsUrl(`/signaling/client/${streamId}`);
 
     session.handlers = {
         onTrack,

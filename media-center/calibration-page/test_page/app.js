@@ -13,6 +13,7 @@
 import { initProjPage, handleProjectionMessage } from './projection.js';
 import { showToast, log} from './utility.js';
 import {initLinkerPage} from "./linker-page.js";
+import { wsUrl } from './webrtc.js';
 
 // ── State ────────────────────────────────────────────────────
 export const state = {
@@ -24,8 +25,7 @@ export const state = {
     streamId: null,
 };
 
-const rest_server_url = 'http://192.168.1.2:7777';
-const main_ws_url = 'ws://192.168.1.2:8765/cal-client/server'
+const main_ws_url = wsUrl(`ws://192.168.1.2:8765/cal-client/server`);
 
 // ── DOM refs ─────────────────────────────────────────────────
 const dom = {
@@ -630,7 +630,7 @@ async function fetchCameraList() {
     console.log('Fetching camera list...');
 
     try {
-        const res  = await fetch(`${rest_server_url}/camera`);
+        const res  = await fetch(`/api/camera`);
         const json = await res.json();
 
         if (json.error) throw new Error(json.error);
@@ -1682,7 +1682,7 @@ async function openLoadConfigModal(configs = []) {
 
     let cameraMap = {};
     try {
-        const res  = await fetch(`${rest_server_url}/camera`);
+        const res  = await fetch(`/api/camera`);
         const json = await res.json();
         cameraMap  = json?.data?.cameras ?? {};
     } catch (err) {

@@ -20,8 +20,6 @@ import {
 
 const linkerRtc = createWebRTCSession();
 
-const REST_URL = 'http://192.168.1.2:7777';
-
 // ─────────────────────────────────────────────────────────────
 // State модуля
 // ─────────────────────────────────────────────────────────────
@@ -44,7 +42,7 @@ async function _restJson(method, path, body) {
         opts.headers['Content-Type'] = 'application/json';
         opts.body = JSON.stringify(body);
     }
-    const res = await fetch(`${REST_URL}${path}`, opts);
+    const res = await fetch(`${path}`, opts);
     if (!res.ok) {
         const text = await res.text().catch(() => '');
         throw new Error(`${method} ${path}: ${res.status} ${text}`);
