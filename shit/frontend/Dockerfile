@@ -1,3 +1,4 @@
+# ── Build stage ──
 FROM node:20-alpine AS build
 
 WORKDIR /app
@@ -7,21 +8,19 @@ RUN npm install --legacy-peer-deps
 RUN npm install react-simple-keyboard
 
 COPY . .
-
-# Build с заменой переменных окружения
-ARG VITE_SIGNALING_SERVER=ws://192.168.1.2:8765
-ARG VITE_FASTAPI_BASE=http://192.168.1.2:8000
-
-ENV VITE_SIGNALING_SERVER=$VITE_SIGNALING_SERVER
-ENV VITE_FASTAPI_BASE=$VITE_FASTAPI_BASE
-
 RUN npm run build
 
-# Production stage
+# ── Production stage ──
 FROM nginx:alpine
 
-COPY --from=build /app/dist /usr/share/nginx/html
+# Конфиг nginx
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# Сниппеты (proxy-common.conf и т.д.)
+COPY nginx/snippets/ /etc/nginx/snippets/
+
+# Билд фронта
+COPY --from=build /app/dist /usr/share/nginx/html
 
 EXPOSE 80
 
