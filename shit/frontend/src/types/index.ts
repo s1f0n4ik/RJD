@@ -1,5 +1,6 @@
 export interface CameraStream {
   codec: string;
+  sub: number;
   fps: number;
   height: number;
   width: number;
@@ -36,6 +37,8 @@ export interface CPPCamera {
   ip_adress: string;
   port: string;
   user: string;
+  production: number;
+  type: number;
   streams: {
     main: CameraStream;
     sub: CameraStream;

@@ -1,104 +1,50 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
-  Container,
-  Paper,
-  Typography,
-  Box,
-  Button,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  IconButton,
-  Chip,
-  Alert,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  TextField,
-  Grid,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  FormControlLabel,
-  Switch,
-  Tabs,
-  Tab,
-  Divider,
-  CircularProgress,
-  Stack,
+    Container, Paper, Typography, Box, Button, Table, TableBody, TableCell,
+    TableContainer, TableHead, TableRow, IconButton, Chip, Alert, Dialog,
+    DialogTitle, DialogContent, DialogActions, TextField, Grid, FormControl,
+    InputLabel, Select, MenuItem, FormControlLabel, Switch, Tabs, Tab,
+    Divider, CircularProgress, Stack,
 } from '@mui/material';
 import {
-  Add as AddIcon,
-  Delete as DeleteIcon,
-  Edit as EditIcon,
-  Settings as SettingsIcon,
-  Videocam as VideocamIcon,
-  FiberManualRecord as RecIcon,
-  PlayArrow as PlayIcon,
-  Stop as StopIcon,
-  CheckCircle as CheckIcon,
-  Error as ErrorIcon,
+    Add as AddIcon, Delete as DeleteIcon, Edit as EditIcon,
+    Settings as SettingsIcon, Videocam as VideocamIcon,
+    FiberManualRecord as RecIcon, PlayArrow as PlayIcon, Stop as StopIcon,
+    CheckCircle as CheckIcon, Error as ErrorIcon,
 } from '@mui/icons-material';
 import { RZD_COLORS } from '../theme';
 import { wsUrl } from '../utils/constants';
-// ⚠️ Если у тебя другой путь к плееру — поправь импорт
+import { type CPPCamera} from '../types'
+import { api, MediaCenterError, type CameraPatchBody } from '../services/api';
 import WebRTCPlayer from './WebRTCPlayer';
 
-interface Camera {
-  id: string;
-  display_name: string;
-  description: string;
-  ip_adress: string;
-  port: string;
-  user: string;
-  production: number;
-  type: number;
-  streams: {
-    main: CameraStream;
-    sub: CameraStream;
-  };
-}
-
-interface CameraStream {
-  type: number;
-  sub: number;
-  latency: number;
-  use_udp: boolean;
-  reconnect: number;
-  record_path: string;
-  segment: number;
-  status?: number;
-}
+// Используем CPPCamera из api как основной тип камеры
+type Camera = CPPCamera;
 
 interface CameraFormData {
-  id: string;
-  display_name: string;
-  description: string;
-  ip_adress: string;
-  port: string;
-  user: string;
-  password: string;
-  production: number;
-  type: number;
-  main_sub: number;
-  main_latency: number;
-  main_use_udp: boolean;
-  main_reconnect: number;
-  main_segment: number;
-  sub_sub: number;
-  sub_latency: number;
-  sub_use_udp: boolean;
-  sub_reconnect: number;
-  recording_enabled: boolean;
+    id: string;
+    display_name: string;
+    description: string;
+    ip_adress: string;
+    port: string;
+    user: string;
+    password: string;
+    production: number;
+    type: number;
+    main_sub: number;
+    main_latency: number;
+    main_use_udp: boolean;
+    main_reconnect: number;
+    main_segment: number;
+    sub_sub: number;
+    sub_latency: number;
+    sub_use_udp: boolean;
+    sub_reconnect: number;
+    recording_enabled: boolean;
 }
 
 type ProbeStatus = 'idle' | 'creating' | 'streaming' | 'error';
-const cameraUrl = (id: string) => `/api/camera/${encodeURIComponent(id)}`;
+
 const RESERVED_PREFIXES = ['__probe_'];
 const NAME_REGEX = /^[a-zA-Z_][a-zA-Z0-9_-]{1,31}$/;
 const IP_REGEX = /^((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/;
@@ -108,568 +54,464 @@ const IP_POOL_FROM = 11;
 const IP_POOL_TO = 39;
 
 const buildIpPool = (): string[] => {
-  const arr: string[] = [];
-  for (let i = IP_POOL_FROM; i <= IP_POOL_TO; i++) {
-    arr.push(`${IP_POOL_PREFIX}${i}`);
-  }
-  return arr;
+    const arr: string[] = [];
+    for (let i = IP_POOL_FROM; i <= IP_POOL_TO; i++) {
+        arr.push(`${IP_POOL_PREFIX}${i}`);
+    }
+    return arr;
 };
 
 const DEFAULT_FORM: CameraFormData = {
-  id: '',
-  display_name: '',
-  description: 'Test Camera',
-  ip_adress: '',
-  port: '554',
-  user: 'admin',
-  password: 'VniiTest',
-  production: 2,
-  type: 1,
-  main_sub: 1,
-  main_latency: 0,
-  main_use_udp: false,
-  main_reconnect: 10,
-  main_segment: 10,
-  sub_sub: 2,
-  sub_latency: 0,
-  sub_use_udp: false,
-  sub_reconnect: 10,
-  recording_enabled: true,
+    id: '',
+    display_name: '',
+    description: 'Test Camera',
+    ip_adress: '',
+    port: '554',
+    user: 'admin',
+    password: 'VniiTest',
+    production: 2,
+    type: 1,
+    main_sub: 1,
+    main_latency: 0,
+    main_use_udp: false,
+    main_reconnect: 10,
+    main_segment: 10,
+    sub_sub: 2,
+    sub_latency: 0,
+    sub_use_udp: false,
+    sub_reconnect: 10,
+    recording_enabled: true,
 };
 
-/** Поиск первого свободного номера для camera_N */
 const findNextFreeCameraId = (cameras: Camera[]): string => {
-  const usedNumbers = new Set<number>();
-  const re = /^camera_(\d+)$/;
-  for (const c of cameras) {
-    const m = c.id.match(re);
-    if (m) usedNumbers.add(parseInt(m[1], 10));
-  }
-  let n = 1;
-  while (usedNumbers.has(n)) n++;
-  return `camera_${n}`;
+    const usedNumbers = new Set<number>();
+    const re = /^camera_(\d+)$/;
+    for (const c of cameras) {
+        const m = c.id.match(re);
+        if (m) usedNumbers.add(parseInt(m[1], 10));
+    }
+    let n = 1;
+    while (usedNumbers.has(n)) n++;
+    return `camera_${n}`;
 };
 
 interface NameValidation {
-  valid: boolean;
-  error?: string;
+    valid: boolean;
+    error?: string;
 }
 
-const validateCameraName = (
-  name: string,
-  existingNames: string[],
-  editMode: boolean
-): NameValidation => {
-  if (!name) return { valid: true }; // пусто = будет auto-name
-  if (RESERVED_PREFIXES.some((p) => name.startsWith(p))) {
-    return { valid: false, error: 'Этот префикс зарезервирован системой' };
-  }
-  if (!NAME_REGEX.test(name)) {
-    return {
-      valid: false,
-      error: 'Только латиница, цифры, _ и -. Длина 2–32, не начинается с цифры',
-    };
-  }
-  if (!editMode && existingNames.includes(name)) {
-    return { valid: false, error: 'Камера с таким именем уже существует' };
-  }
-  return { valid: true };
+const validateCameraName = (name: string, existingNames: string[], editMode: boolean): NameValidation => {
+    if (!name) return { valid: true };
+    if (RESERVED_PREFIXES.some((p) => name.startsWith(p))) {
+        return { valid: false, error: 'Этот префикс зарезервирован системой' };
+    }
+    if (!NAME_REGEX.test(name)) {
+        return { valid: false, error: 'Только латиница, цифры, _ и -. Длина 2–32, не начинается с цифры' };
+    }
+    if (!editMode && existingNames.includes(name)) {
+        return { valid: false, error: 'Камера с таким именем уже существует' };
+    }
+    return { valid: true };
 };
 
 const validateIp = (ip: string): NameValidation => {
-  if (!ip) return { valid: false, error: 'IP-адрес обязателен' };
-  if (!IP_REGEX.test(ip)) return { valid: false, error: 'Некорректный IP-адрес' };
-  return { valid: true };
+    if (!ip) return { valid: false, error: 'IP-адрес обязателен' };
+    if (!IP_REGEX.test(ip)) return { valid: false, error: 'Некорректный IP-адрес' };
+    return { valid: true };
 };
 
 const validatePort = (port: string): NameValidation => {
-  if (!port) return { valid: false, error: 'Порт обязателен' };
-  const n = parseInt(port, 10);
-  if (isNaN(n) || n < 1 || n > 65535) {
-    return { valid: false, error: 'Порт должен быть в диапазоне 1–65535' };
-  }
-  return { valid: true };
+    if (!port) return { valid: false, error: 'Порт обязателен' };
+    const n = parseInt(port, 10);
+    if (isNaN(n) || n < 1 || n > 65535) {
+        return { valid: false, error: 'Порт должен быть в диапазоне 1–65535' };
+    }
+    return { valid: true };
+};
+
+/** Единое место форматирования ошибок для UI. */
+const formatError = (err: unknown): string => {
+    if (err instanceof MediaCenterError) return err.message;
+    if (err instanceof Error) return err.message;
+    return String(err);
 };
 
 const CameraSettings: React.FC = () => {
-  const [cameras, setCameras] = useState<Camera[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-  const [openDialog, setOpenDialog] = useState(false);
-  const [editMode, setEditMode] = useState(false);
-  const [selectedTab, setSelectedTab] = useState(0);
+    const [cameras, setCameras] = useState<Camera[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+    const [success, setSuccess] = useState('');
+    const [openDialog, setOpenDialog] = useState(false);
+    const [editMode, setEditMode] = useState(false);
+    const [selectedTab, setSelectedTab] = useState(0);
 
-  const [formData, setFormData] = useState<CameraFormData>(DEFAULT_FORM);
+    const [formData, setFormData] = useState<CameraFormData>(DEFAULT_FORM);
 
-  // === PROBE state ===
-  const [probeStatus, setProbeStatus] = useState<ProbeStatus>('idle');
-  const [probeError, setProbeError] = useState('');
-  const [probeName, setProbeName] = useState<string | null>(null);
-  const probeNameRef = useRef<string | null>(null);
-  const editOriginalRef = useRef<Camera | null>(null);
+    const [probeStatus, setProbeStatus] = useState<ProbeStatus>('idle');
+    const [probeError, setProbeError] = useState('');
+    const [probeName, setProbeName] = useState<string | null>(null);
+    const probeNameRef = useRef<string | null>(null);
+    const editOriginalRef = useRef<Camera | null>(null);
 
-  useEffect(() => {
-    loadCameras();
-  }, []);
+    useEffect(() => {
+        loadCameras();
+    }, []);
 
-  // === cleanup probe на beforeunload ===
-  useEffect(() => {
-    const handler = () => {
-      if (probeNameRef.current) {
-        // fetch с keepalive работает при unload в современных браузерах
-        fetch(cameraUrl(probeNameRef.current), {
-          method: 'DELETE',
-          keepalive: true,
-        }).catch(() => {});
-      }
-    };
-    window.addEventListener('beforeunload', handler);
-    return () => window.removeEventListener('beforeunload', handler);
-  }, []);
+    // === cleanup probe на beforeunload ===
+    // Тут оставляем прямой fetch — нам нужен флаг keepalive,
+    // которого нет в нашей обёртке. И тут ошибки нас не интересуют.
+    useEffect(() => {
+        const handler = () => {
+            if (probeNameRef.current) {
+                fetch(`/api/camera/${encodeURIComponent(probeNameRef.current)}`, {
+                    method: 'DELETE',
+                    keepalive: true,
+                }).catch(() => {});
+            }
+        };
+        window.addEventListener('beforeunload', handler);
+        return () => window.removeEventListener('beforeunload', handler);
+    }, []);
 
-  const existingNames = useMemo(() => cameras.map((c) => c.id), [cameras]);
-  const usedIps = useMemo(
-      () => new Set(
-        cameras
-          .filter(c => !editMode || c.id !== editOriginalRef.current?.id) // в режиме редактирования НЕ считаем текущую как занятую
-          .map(c => c.ip_adress)
-      ),
-      [cameras, editMode]
+    const existingNames = useMemo(() => cameras.map((c) => c.id), [cameras]);
+    const usedIps = useMemo(
+        () => new Set(
+            cameras
+                .filter(c => !editMode || c.id !== editOriginalRef.current?.id)
+                .map(c => c.ip_adress)
+        ),
+        [cameras, editMode]
     );
-
     const ipPool = useMemo(() => buildIpPool(), []);
 
-  // === Валидация ===
-  const nameValidation = useMemo(
-    () => validateCameraName(formData.id, existingNames, editMode),
-    [formData.id, existingNames, editMode]
-  );
-  const ipValidation = useMemo(() => validateIp(formData.ip_adress), [formData.ip_adress]);
-  const portValidation = useMemo(() => validatePort(formData.port), [formData.port]);
+    const nameValidation = useMemo(
+        () => validateCameraName(formData.id, existingNames, editMode),
+        [formData.id, existingNames, editMode]
+    );
+    const ipValidation = useMemo(() => validateIp(formData.ip_adress), [formData.ip_adress]);
+    const portValidation = useMemo(() => validatePort(formData.port), [formData.port]);
 
-  const isFormValid =
-    nameValidation.valid && ipValidation.valid && portValidation.valid;
+    const isFormValid = nameValidation.valid && ipValidation.valid && portValidation.valid;
 
-  const cleanupAllProbeCameras = useCallback(async (rawCameras: Camera[]) => {
-  const probes = rawCameras.filter((c) =>
-    RESERVED_PREFIXES.some((p) => c.id.startsWith(p))
-  );
-  if (probes.length === 0) return;
+    const cleanupAllProbeCameras = useCallback(async (probes: Camera[]) => {
+        if (probes.length === 0) return;
+        console.log(`[CameraSettings] 🧹 Cleaning ${probes.length} stale probes`);
+        await Promise.allSettled(probes.map((c) => api.deleteCamera(c.id)));
+    }, []);
 
-  console.log(`[CameraSettings] 🧹 Found ${probes.length} stale probe cameras, deleting...`);
-  await Promise.allSettled(
-    probes.map((c) =>
-      fetch(cameraUrl(c.id), { method: 'DELETE' })
-    )
-  );
-  console.log(`[CameraSettings] ✅ Cleanup of probe cameras done`);
-}, []);
+    const loadCameras = async () => {
+        setLoading(true);
+        try {
+            const all = await api.getCameras();
 
-  const loadCameras = async () => {
-    setLoading(true);
-    try {
-      const response = await fetch('/api/cameras');
-      if (!response.ok) throw new Error('Failed to load cameras');
-      const data = await response.json();
+            // Удаляем зависшие probe-камеры (фоном, не ждём)
+            const stale = all.filter(
+                (c) =>
+                    RESERVED_PREFIXES.some((p) => c.id.startsWith(p)) &&
+                    c.id !== probeNameRef.current
+            );
+            if (stale.length > 0) cleanupAllProbeCameras(stale);
 
-      console.log(`loaded cameras: ${data}`);
-
-      let list: Camera[] = [];
-      if (data.cameras) {
-        if (Array.isArray(data.cameras)) {
-          list = data.cameras.map((c: any) => ({
-            ...c,
-            id: c.id ?? c.name,
-            display_name: c.display_name ?? c.description ?? c.id ?? c.name,
-          }));
-        } else if (typeof data.cameras === 'object') {
-          list = Object.entries(data.cameras).map(([key, v]: [string, any]) => ({
-            ...v,
-            id: v.id ?? key,
-            display_name: v.display_name ?? v.description ?? key,
-          }));
+            // В UI — только обычные камеры
+            const visible = all.filter(
+                (c) => !RESERVED_PREFIXES.some((p) => c.id.startsWith(p))
+            );
+            setCameras(visible);
+            setError('');
+        } catch (err) {
+            setError(formatError(err));
+        } finally {
+            setLoading(false);
         }
-      }
-
-      // 🔑 Нашли probe-камеры? — запускаем их удаление в фоне.
-      // Не ждём результата, чтобы UI не висел. Пользователю они всё равно не показываются.
-      // ВАЖНО: не удаляем активный probe (пользователь прямо сейчас тестирует поток)
-      const stale = list.filter(
-        (c) =>
-          RESERVED_PREFIXES.some((p) => c.id.startsWith(p)) &&
-          c.id !== probeNameRef.current
-      );
-      if (stale.length > 0) {
-        cleanupAllProbeCameras(stale);
-      }
-
-      // В UI отдаём только обычные камеры
-      list = list.filter((c) => !RESERVED_PREFIXES.some((p) => c.id.startsWith(p)));
-      setCameras(list);
-      setError('');
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleInputChange = (field: keyof CameraFormData, value: any) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
-  };
-
-  const handleOpenAddDialog = () => {
-    setEditMode(false);
-    setFormData({
-      ...DEFAULT_FORM,
-      // placeholder оставим пустым, auto-name сформируется при сохранении
-    });
-    setSelectedTab(0);
-    setOpenDialog(true);
-  };
-
-  const handleOpenEditDialog = (camera: Camera) => {
-    setEditMode(true);
-    setFormData({
-      id: camera.id,
-      display_name: camera.display_name || camera.id,
-      description: camera.description,
-      ip_adress: camera.ip_adress,
-      port: camera.port,
-      user: camera.user,
-      password: '',
-      production: camera.production,
-      type: camera.type,
-      main_sub: camera.streams.main.sub,
-      main_latency: camera.streams.main.latency,
-      main_use_udp: camera.streams.main.use_udp,
-      main_reconnect: camera.streams.main.reconnect,
-      main_segment: camera.streams.main.segment,
-      sub_sub: camera.streams.sub.sub,
-      sub_latency: camera.streams.sub.latency,
-      sub_use_udp: camera.streams.sub.use_udp,
-      sub_reconnect: camera.streams.sub.reconnect,
-      // тумблер = включён, если segment > 0
-      recording_enabled: (camera.streams.main.segment > 0) && (!(camera.streams.main.record_path === "")),
-    });
-    editOriginalRef.current = camera;
-    setSelectedTab(0);
-    setOpenDialog(true);
-  };
-
-  // === PROBE ===
-  const cleanupProbe = useCallback(async () => {
-    const name = probeNameRef.current;
-    if (!name) return;
-    probeNameRef.current = null;
-    setProbeName(null);
-    try {
-      await fetch(cameraUrl(name), { method: 'DELETE' });
-    } catch {
-      /* тихо */
-    }
-  }, []);
-
-  const handleTestStream = async () => {
-    // Валидируем только то, что нужно для подключения
-    if (!ipValidation.valid || !portValidation.valid) {
-      setProbeError('Заполните корректные IP и порт');
-      setProbeStatus('error');
-      return;
-    }
-
-    // Если уже есть probe — снесём старый
-    await cleanupProbe();
-
-    setProbeError('');
-    setProbeStatus('creating');
-
-    const tempName = `__probe_${Date.now()}`;
-    const recordPath = `/storage/internal`;
-
-    const payload = {
-      id: tempName,
-      display_name: `Probe ${formData.ip_adress}`,
-      description: 'Temporary probe',
-      ip_adress: formData.ip_adress,
-      port: formData.port,
-      user: formData.user,
-      password: formData.password,
-      production: formData.production,
-      type: formData.type,
-      streams: {
-        main: {
-          type: 1,
-          sub: formData.main_sub,
-          latency: formData.main_latency,
-          use_udp: formData.main_use_udp,
-          reconnect: formData.main_reconnect,
-          record_path: recordPath,
-          segment: 0, // probe пишется без записи
-        },
-        sub: {
-          type: 2,
-          sub: formData.sub_sub,
-          latency: formData.sub_latency,
-          use_udp: formData.sub_use_udp,
-          reconnect: formData.sub_reconnect,
-          record_path: '',
-          segment: 0,
-        },
-      },
     };
 
-    try {
-      const response = await fetch(`/api/camera`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || 'Не удалось создать probe-камеру');
-      }
+    const handleInputChange = (field: keyof CameraFormData, value: any) => {
+        setFormData((prev) => ({ ...prev, [field]: value }));
+    };
 
-      probeNameRef.current = tempName;
-      setProbeName(tempName);
-      // Небольшая задержка, чтобы pipeline успел подняться
-      setTimeout(() => setProbeStatus('streaming'), 1500);
-    } catch (err: any) {
-      setProbeError(err.message);
-      setProbeStatus('error');
-    }
-  };
+    const handleOpenAddDialog = () => {
+        setEditMode(false);
+        setFormData({ ...DEFAULT_FORM });
+        setSelectedTab(0);
+        setOpenDialog(true);
+    };
 
-  const handleStopTest = async () => {
-    await cleanupProbe();
-    setProbeStatus('idle');
-    setProbeError('');
-  };
+    const handleOpenEditDialog = (camera: Camera) => {
+        setEditMode(true);
+        setFormData({
+            id: camera.id,
+            display_name: camera.display_name || camera.id,
+            description: camera.description,
+            ip_adress: camera.ip_adress,
+            port: camera.port,
+            user: camera.user,
+            password: '',
+            production: camera.production,
+            type: camera.type,
+            main_sub: camera.streams.main.sub,
+            main_latency: camera.streams.main.latency,
+            main_use_udp: camera.streams.main.use_udp,
+            main_reconnect: camera.streams.main.reconnect,
+            main_segment: camera.streams.main.segment,
+            sub_sub: camera.streams.sub.sub,
+            sub_latency: camera.streams.sub.latency,
+            sub_use_udp: camera.streams.sub.use_udp,
+            sub_reconnect: camera.streams.sub.reconnect,
+            recording_enabled:
+                (camera.streams.main.segment > 0) && (camera.streams.main.record_path !== ''),
+        });
+        editOriginalRef.current = camera;
+        setSelectedTab(0);
+        setOpenDialog(true);
+    };
 
-  // === SAVE ===
-  const handleSaveCamera = async () => {
-    if (!isFormValid) return;
+    // === PROBE ===
+    const cleanupProbe = useCallback(async () => {
+        const name = probeNameRef.current;
+        if (!name) return;
+        probeNameRef.current = null;
+        setProbeName(null);
+        try {
+            await api.deleteCamera(name);
+        } catch {
+            /* тихо */
+        }
+    }, []);
 
-    setLoading(true);
-    setError('');
-    setSuccess('');
-
-    const cameraId = formData.id || findNextFreeCameraId(cameras);
-    const recordPath = `/storage/internal`;
-    const effectiveSegment = formData.recording_enabled ? formData.main_segment : 0;
-
-    try {
-      if (editMode) {
-        // === PATCH: шлём только то, что поменялось ===
-        const original = editOriginalRef.current;
-        if (!original) throw new Error('Нет исходных данных камеры для PATCH');
-
-        const body: { meta?: any; critical?: any } = {};
-
-        // 1) meta — только display_name. Не перезапускает камеру.
-        if (formData.display_name !== original.display_name) {
-          body.meta = { display_name: formData.display_name };
+    const handleTestStream = async () => {
+        if (!ipValidation.valid || !portValidation.valid) {
+            setProbeError('Заполните корректные IP и порт');
+            setProbeStatus('error');
+            return;
         }
 
-        // 2) critical — если поменялось что-то из критичных полей. Перезапускает камеру.
-        const passwordChanged = !!formData.password;
+        await cleanupProbe();
 
-        const otherCriticalChanged =
-          formData.ip_adress !== original.ip_adress ||
-          formData.port !== original.port ||
-          formData.user !== original.user ||
-          formData.production !== original.production ||
-          formData.type !== original.type ||
-          formData.main_sub !== original.streams.main.sub ||
-          formData.main_latency !== original.streams.main.latency ||
-          formData.main_use_udp !== original.streams.main.use_udp ||
-          formData.main_reconnect !== original.streams.main.reconnect ||
-          formData.sub_sub !== original.streams.sub.sub ||
-          formData.sub_latency !== original.streams.sub.latency ||
-          formData.sub_use_udp !== original.streams.sub.use_udp ||
-          formData.sub_reconnect !== original.streams.sub.reconnect ||
-          effectiveSegment !== original.streams.main.segment ||
-          recordPath !== original.streams.main.record_path;
+        setProbeError('');
+        setProbeStatus('creating');
 
-        const criticalChanged = passwordChanged || otherCriticalChanged;
-
-        if (criticalChanged) {
-          const critical: any = {
+        const tempName = `__probe_${Date.now()}`;
+        const probePayload: any = {
+            id: tempName,
+            display_name: `Probe ${formData.ip_adress}`,
+            description: 'Temporary probe',
             ip_adress: formData.ip_adress,
             port: formData.port,
             user: formData.user,
+            password: formData.password,
             production: formData.production,
             type: formData.type,
             streams: {
-              main: {
-                sub: formData.main_sub,
-                type: 1,
-                latency: formData.main_latency,
-                use_udp: formData.main_use_udp,
-                reconnect: formData.main_reconnect,
-                record_path: recordPath,
-                segment: effectiveSegment,
-              },
-              sub: {
-                sub: formData.sub_sub,
-                type: 2,
-                latency: formData.sub_latency,
-                use_udp: formData.sub_use_udp,
-                reconnect: formData.sub_reconnect,
-                record_path: '',
-                segment: 0,
-              },
+                main: {
+                    type: 1,
+                    sub: formData.main_sub,
+                    latency: formData.main_latency,
+                    use_udp: formData.main_use_udp,
+                    reconnect: formData.main_reconnect,
+                    record_path: '/storage/internal',
+                    segment: 0,
+                },
+                sub: {
+                    type: 2,
+                    sub: formData.sub_sub,
+                    latency: formData.sub_latency,
+                    use_udp: formData.sub_use_udp,
+                    reconnect: formData.sub_reconnect,
+                    record_path: '',
+                    segment: 0,
+                },
             },
-          };
-
-          // 🔑 Пароль шлём ТОЛЬКО если пользователь его реально ввёл.
-          // Иначе бэк затрёт текущий (подтверждено Ваней 05.05 11:38).
-          if (formData.password) {
-            critical.password = formData.password;
-          }
-
-          body.critical = critical;
-        }
-
-        if (!body.meta && !body.critical) {
-          // Ничего не изменилось — молча закрываем
-          setSuccess('Изменений нет');
-          setOpenDialog(false);
-          return;
-        }
-
-        const response = await fetch(
-          cameraUrl(cameraId),
-          {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-          }
-        );
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(errorData.detail || 'Не удалось обновить камеру');
-        }
-
-        setSuccess(`Камера ${cameraId} успешно обновлена!`);
-      } else {
-        // === POST: новая схема с id и display_name ===
-        const payload = {
-          id: cameraId,                                                     // 👈
-          display_name: formData.display_name || cameraId,                  // 👈 NEW, обязательное
-          description: formData.description,
-          ip_adress: formData.ip_adress,
-          port: formData.port,
-          user: formData.user,
-          password: formData.password,
-          production: formData.production,
-          type: formData.type,
-          streams: {
-            main: {
-              type: 1,
-              sub: formData.main_sub,
-              latency: formData.main_latency,
-              use_udp: formData.main_use_udp,
-              reconnect: formData.main_reconnect,
-              record_path: recordPath,
-              segment: effectiveSegment,
-            },
-            sub: {
-              type: 2,
-              sub: formData.sub_sub,
-              latency: formData.sub_latency,
-              use_udp: formData.sub_use_udp,
-              reconnect: formData.sub_reconnect,
-              record_path: '',
-              segment: 0,
-            },
-          },
         };
 
-        const response = await fetch(`/api/camera`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(errorData.detail || 'Failed to save camera');
+        try {
+            await api.createCamera(probePayload);
+            probeNameRef.current = tempName;
+            setProbeName(tempName);
+            setTimeout(() => setProbeStatus('streaming'), 1500);
+        } catch (err) {
+            setProbeError(formatError(err));
+            setProbeStatus('error');
         }
-
-        setSuccess(`Камера ${cameraId} успешно добавлена!`);
-      }
-
-      await cleanupProbe();
-      setProbeStatus('idle');
-      setOpenDialog(false);
-      loadCameras();
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleCloseDialog = async () => {
-    await cleanupProbe();
-    setProbeStatus('idle');
-    setProbeError('');
-    setOpenDialog(false);
-  };
-
-  const handleDeleteCamera = async (cameraName: string) => {
-    if (!window.confirm(`Удалить камеру ${cameraName}?`)) return;
-
-    setLoading(true);
-    try {
-      const response = await fetch(cameraUrl(cameraName), {
-        method: 'DELETE',
-      });
-      if (!response.ok) throw new Error('Failed to delete camera');
-
-      setSuccess(`Камера ${cameraName} удалена`);
-      loadCameras();
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const getStatusColor = (
-    status?: number
-  ): 'default' | 'success' | 'warning' | 'error' | 'info' => {
-    switch (status) {
-      case 3: return 'success';
-      case 5: return 'info';
-      case 2: return 'warning';
-      case 0: return 'error';
-      default: return 'default';
-    }
-  };
-
-  const getStatusText = (status?: number) => {
-    const statusMap: Record<number, string> = {
-      0: 'Отсутствует',
-      1: 'Готов',
-      2: 'Остановлен',
-      3: 'В работе',
-      4: 'Перезапуск',
-      5: 'Инициализирован',
     };
-    return statusMap[status ?? 0] || 'Неизвестно';
-  };
 
-  const getProductionName = (prod: number) => {
-    const prodMap: Record<number, string> = { 1: 'Dahua', 2: 'Hikvision', 3: 'ACE' };
-    return prodMap[prod] || 'Unknown';
-  };
+    const handleStopTest = async () => {
+        await cleanupProbe();
+        setProbeStatus('idle');
+        setProbeError('');
+    };
 
-  const autoNamePreview = useMemo(
-    () => findNextFreeCameraId(cameras),
-    [cameras]
-  );
+    // === SAVE ===
+    const handleSaveCamera = async () => {
+        if (!isFormValid) return;
+
+        setLoading(true);
+        setError('');
+        setSuccess('');
+
+        const cameraId = formData.id || findNextFreeCameraId(cameras);
+        const recordPath = '/storage/internal';
+        const effectiveSegment = formData.recording_enabled ? formData.main_segment : 0;
+
+        try {
+            if (editMode) {
+                const original = editOriginalRef.current;
+                if (!original) throw new Error('Нет исходных данных камеры для PATCH');
+
+                const body: CameraPatchBody = {};
+
+                if (formData.display_name !== original.display_name) {
+                    body.meta = { display_name: formData.display_name };
+                }
+
+                const passwordChanged = !!formData.password;
+                const otherCriticalChanged =
+                    formData.ip_adress !== original.ip_adress ||
+                    formData.port !== original.port ||
+                    formData.user !== original.user ||
+                    formData.production !== original.production ||
+                    formData.type !== original.type ||
+                    formData.main_sub !== original.streams.main.sub ||
+                    formData.main_latency !== original.streams.main.latency ||
+                    formData.main_use_udp !== original.streams.main.use_udp ||
+                    formData.main_reconnect !== original.streams.main.reconnect ||
+                    formData.sub_sub !== original.streams.sub.sub ||
+                    formData.sub_latency !== original.streams.sub.latency ||
+                    formData.sub_use_udp !== original.streams.sub.use_udp ||
+                    formData.sub_reconnect !== original.streams.sub.reconnect ||
+                    effectiveSegment !== original.streams.main.segment ||
+                    recordPath !== original.streams.main.record_path;
+
+                if (passwordChanged || otherCriticalChanged) {
+                    const critical: any = {
+                        ip_adress: formData.ip_adress,
+                        port: formData.port,
+                        user: formData.user,
+                        production: formData.production,
+                        type: formData.type,
+                        streams: {
+                            main: {
+                                sub: formData.main_sub,
+                                type: 1,
+                                latency: formData.main_latency,
+                                use_udp: formData.main_use_udp,
+                                reconnect: formData.main_reconnect,
+                                record_path: recordPath,
+                                segment: effectiveSegment,
+                            },
+                            sub: {
+                                sub: formData.sub_sub,
+                                type: 2,
+                                latency: formData.sub_latency,
+                                use_udp: formData.sub_use_udp,
+                                reconnect: formData.sub_reconnect,
+                                record_path: '',
+                                segment: 0,
+                            },
+                        },
+                    };
+                    // Пароль шлём ТОЛЬКО при реальной смене (договорённость с Ваней 05.05)
+                    if (formData.password) critical.password = formData.password;
+                    body.critical = critical;
+                }
+
+                const result = await api.updateCamera(cameraId, body);
+                if ((result as any)?.noop) {
+                    setSuccess('Изменений нет');
+                } else {
+                    setSuccess(`Камера ${cameraId} успешно обновлена!`);
+                }
+            } else {
+                const payload: any = {
+                    id: cameraId,
+                    display_name: formData.display_name || cameraId,
+                    description: formData.description,
+                    ip_adress: formData.ip_adress,
+                    port: formData.port,
+                    user: formData.user,
+                    password: formData.password,
+                    production: formData.production,
+                    type: formData.type,
+                    streams: {
+                        main: {
+                            type: 1,
+                            sub: formData.main_sub,
+                            latency: formData.main_latency,
+                            use_udp: formData.main_use_udp,
+                            reconnect: formData.main_reconnect,
+                            record_path: recordPath,
+                            segment: effectiveSegment,
+                        },
+                        sub: {
+                            type: 2,
+                            sub: formData.sub_sub,
+                            latency: formData.sub_latency,
+                            use_udp: formData.sub_use_udp,
+                            reconnect: formData.sub_reconnect,
+                            record_path: '',
+                            segment: 0,
+                        },
+                    },
+                };
+                await api.createCamera(payload);
+                setSuccess(`Камера ${cameraId} успешно добавлена!`);
+            }
+
+            await cleanupProbe();
+            setProbeStatus('idle');
+            setOpenDialog(false);
+            loadCameras();
+        } catch (err) {
+            setError(formatError(err));
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleCloseDialog = async () => {
+        await cleanupProbe();
+        setProbeStatus('idle');
+        setProbeError('');
+        setOpenDialog(false);
+    };
+
+    const handleDeleteCamera = async (id: string) => {
+        if (!window.confirm(`Удалить камеру ${id}?`)) return;
+        setLoading(true);
+        try {
+            await api.deleteCamera(id);
+            setSuccess(`Камера ${id} удалена`);
+            loadCameras();
+        } catch (err) {
+            setError(formatError(err));
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const getStatusColor = (status?: number): 'default' | 'success' | 'warning' | 'error' | 'info' => {
+        switch (status) {
+            case 3: return 'success';
+            case 5: return 'info';
+            case 2: return 'warning';
+            case 0: return 'error';
+            default: return 'default';
+        }
+    };
+
+    const getStatusText = (status?: number) => {
+        const map: Record<number, string> = {
+            0: 'Отсутствует', 1: 'Готов', 2: 'Остановлен',
+            3: 'В работе', 4: 'Перезапуск', 5: 'Инициализирован',
+        };
+        return map[status ?? 0] || 'Неизвестно';
+    };
+
+    const getProductionName = (prod: number) => {
+        const map: Record<number, string> = { 1: 'Dahua', 2: 'Hikvision', 3: 'ACE' };
+        return map[prod] || 'Unknown';
+    };
+
+    const autoNamePreview = useMemo(() => findNextFreeCameraId(cameras), [cameras]);
 
   return (
     <Container maxWidth="xl">
