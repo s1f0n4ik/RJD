@@ -381,6 +381,7 @@ namespace neural {
 
 	void UCamera::on_signaling_message(const std::string& msg) {
 		try {
+			m_logger.debug("on_signaling_message(): proccessing message " + msg);
 			boost::json::value parsed = boost::json::parse(msg);
 			boost::json::object& json_object = parsed.as_object();
 

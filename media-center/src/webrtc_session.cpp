@@ -96,9 +96,25 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 		"latency", 0,
 		"bundle-policy", GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE,
 		"stun-server", "stun:stun.l.google.com:19302",
-		"turn-server", "turn://niac:VniiTest@172.25.78.169:3478?transport=udp",
 		nullptr
 	);
+
+	gboolean ret_turn = FALSE;
+	g_signal_emit_by_name(
+		m_webrtcbin,
+		"add-turn-server",
+		"turn://niac:VniiTest@172.25.78.169:3478?transport=udp",
+		&ret_turn
+	);
+	if (m_logger) m_logger->debug("added turn server 172.25.78.169:3478: " + ret_turn ? "success" : "failed");
+
+	g_signal_emit_by_name(
+		m_webrtcbin,
+		"add-turn-server",
+		"turn://niac:VniiTest@91.151.186.105:3478?transport=udp",
+		&ret_turn
+	);
+	if (m_logger) m_logger->debug("added turn server 91.151.186.105:3478: " + ret_turn ? "success" : "failed");
 
 	if (m_pay) {
 		gst_bin_add_many(GST_BIN(m_pipeline), m_queue, m_pay, m_webrtcbin, nullptr);
@@ -526,7 +542,7 @@ void UWebRTCSession::on_ice_candidate(GstElement* webrtcbin, guint mlineindex, g
 
 	std::string serialized_ice_message = boost::json::serialize(ice_msg);
 	self->send_message(serialized_ice_message);
-	self->get_logger()->debug(self->get_session_name() + ": sended ICE candidate!");
+	//self->get_logger()->debug(self->get_session_name() + ": sended ICE candidate!");
 }
 
 void UWebRTCSession::on_connection_state_changed(GObject* obj, GParamSpec*, gpointer user_data)

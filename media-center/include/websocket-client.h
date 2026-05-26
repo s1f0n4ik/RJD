@@ -232,7 +232,7 @@ namespace varan {
                         std::string data = boost::beast::buffers_to_string(self->m_buffer.data());
 
                         self->m_buffer.consume(bytes);
-                        self->log_recv("Received message: " + data);
+                        //self->log_recv("Received message: " + data);
                         if (self->m_message_callback) {
                             self->m_message_callback(data);
                         }
@@ -255,10 +255,10 @@ namespace varan {
                 m_sending = true;
                 auto& [msg, is_binary] = m_send_queue.front();
                 if (is_binary) {
-                    log_send("Sending binary message, size=" + std::to_string(msg.size()));
+                    //log_send("Sending binary message, size=" + std::to_string(msg.size()));
                 }
                 else {
-                    log_send("Sending message: " + msg);
+                    //log_send("Sending message: " + msg);
                 }
 
                 m_ws->binary(is_binary);
@@ -277,7 +277,7 @@ namespace varan {
                             return;
                         }
 
-                        self->log_connect("Message sent successfully");
+                        //self->log_connect("Message sent successfully");
                         self->m_send_queue.pop_front();
                         if (!self->m_send_queue.empty()) {
                             self->do_write();
