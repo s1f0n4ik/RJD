@@ -33,6 +33,11 @@ UCameraMainPipeline::UCameraMainPipeline(
 
 UCameraMainPipeline::~UCameraMainPipeline() {
 	//teardown();
+	if (m_timer_check_record_id != 0) {
+		g_source_remove(m_timer_check_record_id);
+		m_timer_check_record_id = 0;
+	}
+
 	m_send_callback = nullptr;
 	m_dma_sender = nullptr;
 	destroy_gst_gl_context();
@@ -393,18 +398,15 @@ bool UCameraMainPipeline::create_record_branch(GstElement* tee)
 	}
 
 	m_logger->debug("Creating branch to record segments...");
-	m_logger->debug("A path for recording segments has been found: " + m_record_path.string());
 	if (!std::filesystem::exists(m_record_path)) {
-		m_logger->error("create_record_branch(): Cannot write directories at path: " + m_record_path.string());
-		return false;
-		//try {
-		//	std::filesystem::create_directories(m_record_path);
-		//	m_logger->debug("create_record_branch(): Directory " + m_record_path.string() + " sucessfully created!");
-		//}
-		//catch (...) {
-		//	m_logger->error("create_record_branch(): Cannot create directories at path: " + m_record_path.string());
-		//	return false;
-		//}
+		try {
+			std::filesystem::create_directories(m_record_path);
+			m_logger->debug("create_record_branch(): Directory " + m_record_path.string() + " sucessfully created!");
+		}
+		catch (...) {
+			m_logger->error("create_record_branch(): Cannot create directories at path: " + m_record_path.string());
+			return false;
+		}
 	}
 
 	auto usage = get_disk_usage(m_parameters.record_path, m_logger.get());
@@ -512,7 +514,7 @@ bool UCameraMainPipeline::create_record_branch(GstElement* tee)
 }
 
 void UCameraMainPipeline::set_timer_check_record_branch() {
-	g_timeout_add_seconds(60, [](gpointer data) -> gboolean {
+	m_timer_check_record_id = g_timeout_add_seconds(60, [](gpointer data) -> gboolean {
 		auto self = static_cast<UCameraMainPipeline*>(data);
 
 		if (self->m_record_branch.is_deployed.load()) {

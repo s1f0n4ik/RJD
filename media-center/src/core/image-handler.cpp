@@ -62,6 +62,10 @@ namespace varan {
 		return true;
 	}
 
+	bool UImageHandler::is_running() {
+		return m_running_thread;
+	}
+
 	void UImageHandler::stop_handler_thread(std::function<void(const std::string& message)> send) {
 		if (!m_handler_thread.joinable()) {
 			log_and_send_message("stop_handler_thread(): thread is not running", ULogger::ELoggerLevel::WARNING, send);

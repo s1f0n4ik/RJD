@@ -73,7 +73,7 @@
                     </table>
                 </div>
                 <div class="modal-footer" style="border-top: 1px solid var(--border); padding: 12px 16px;">
-                    <button class="btn btn-primary" style="width:100%;" onclick="loadSelectedConfig()">
+                    <button class="btn btn-primary" style="width:100%;" onclick="requestLoadSelectedConfig()">
                         ⊛ Загрузить
                     </button>
                 </div>
@@ -82,6 +82,42 @@
         </div>
     </div>
 </div>
+
+<!-- ═══════════════════════════════════════════════════ Модалки страницы projection -->
+<div class="modal-backdrop hidden" id="lutSaveModalBackdrop" onclick="closeLutSaveModal(event)">
+    <div class="modal" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <span class="modal-title">Сохранить конфигурацию stitching</span>
+            <button class="modal-close" onclick="closeLutSaveModal()">×</button>
+        </div>
+
+        <div class="modal-body">
+            <div class="modal-field">
+                <label class="modal-label" for="lutSaveId">ID конфигурации</label>
+                <input type="text" id="lutSaveId" class="modal-input"
+                       placeholder="example_3cam_test"
+                       autocomplete="off"
+                       spellcheck="false">
+                <div class="modal-hint" id="lutSaveIdHint">Только латиница, цифры и _</div>
+            </div>
+
+            <div class="modal-field">
+                <label class="modal-label" for="lutSaveName">Отображаемое имя</label>
+                <input type="text" id="lutSaveName" class="modal-input"
+                       placeholder="Test 3 cameras"
+                       autocomplete="off">
+            </div>
+        </div>
+
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeLutSaveModal()">Отмена</button>
+            <button class="btn btn-accent" id="lutSaveConfirmBtn" onclick="submitLutSave()">
+                Сохранить
+            </button>
+        </div>
+    </div>
+</div>
+
 <body>
 
 <!-- ═══════════════════════════════════════════════════ NAVBAR -->
@@ -144,8 +180,6 @@
                     id="wsUrl"
                     class="field-input"
                     type="text"
-                    placeholder="ws://192.168.1.254:8765/cal-client/server"
-                    value="ws://192.168.1.254:8765/cal-client/server"
                 />
             </div>
             <div class="btn-row">
@@ -190,7 +224,7 @@
                     </div>
                 </div>
             </div>
-            <button id="loadConfigurationBtn" class="btn btn-accent--load collapsed" onclick="openLoadConfigModal()">
+            <button id="loadConfigurationBtn" class="btn btn-accent--load collapsed" onclick="requestListOfCalibrationConfigurations()">
                 <span>Загрузить конфигурацию</span>
             </button>
             <button id="streamBtn" class="btn btn-accent" onclick="toggleStream()">
@@ -319,8 +353,8 @@
                             id="distShiftXSlider"
                             type="range" min="0" max="2" step="0.001" value="1"
                             class="dist-slider"
-                            oninput="onSliderInput('shiftX', this.value)"
-                            onchange="onSliderCommit('shiftX', this.value)"
+                            oninput="onSliderInput('shift_x', this.value)"
+                            onchange="onSliderCommit('shift_x', this.value)"
                     />
                     <div class="dist-slider-labels">
                         <span id="distShiftXMin">0</span>
@@ -338,8 +372,8 @@
                             id="distShiftYSlider"
                             type="range" min="0" max="2" step="0.001" value="1"
                             class="dist-slider"
-                            oninput="onSliderInput('shiftY', this.value)"
-                            onchange="onSliderCommit('shiftY', this.value)"
+                            oninput="onSliderInput('shift_y', this.value)"
+                            onchange="onSliderCommit('shift_y', this.value)"
                     />
                     <div class="dist-slider-labels">
                         <span id="distShiftYMin">0</span>
@@ -347,6 +381,95 @@
                         <span id="distShiftYMax">1</span>
                     </div>
                 </div>
+
+                <div class="collapsible-body" style="gap:6px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
+                        <label class="field-label">k1</label>
+                        <span id="distK1Value" class="field-label" style="color: var(--accent);">-0.50</span>
+                    </div>
+
+                    <input
+                            id="distK1Slider"
+                            type="range"
+                            min="-2.5" max="0.5" step="0.00001" value="-0.5"
+                            class="dist-slider"
+                            oninput="onSliderInput('k1', this.value)"
+                            onchange="onSliderCommit('k1', this.value)"
+                    />
+
+                    <div class="dist-slider-labels">
+                        <span id="distK1Min">-2.5</span>
+                        <span id="distK1Mid">-1.3</span>
+                        <span id="distK1Max">-0.1</span>
+                    </div>
+                </div>
+
+                <div class="collapsible-body" style="gap:6px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
+                        <label class="field-label">k2</label>
+                        <span id="distK2Value" class="field-label" style="color: var(--accent);">0.10</span>
+                    </div>
+
+                    <input
+                            id="distK2Slider"
+                            type="range"
+                            min="-1.5" max="1.5" step="0.00001" value="0.1"
+                            class="dist-slider"
+                            oninput="onSliderInput('k2', this.value)"
+                            onchange="onSliderCommit('k2', this.value)"
+                    />
+
+                    <div class="dist-slider-labels">
+                        <span id="distK2Min">-1.5</span>
+                        <span id="distK2Mid">0.0</span>
+                        <span id="distK2Max">1.5</span>
+                    </div>
+                </div>
+
+                <div class="collapsible-body" style="gap:6px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
+                        <label class="field-label">k3</label>
+                        <span id="distK3Value" class="field-label" style="color: var(--accent);">0.00</span>
+                    </div>
+
+                    <input
+                            id="distK3Slider"
+                            type="range"
+                            min="-1.0" max="1.0" step="0.00001" value="0.0"
+                            class="dist-slider"
+                            oninput="onSliderInput('k3', this.value)"
+                            onchange="onSliderCommit('k3', this.value)"
+                    />
+
+                    <div class="dist-slider-labels">
+                        <span id="distK3Min">-1.0</span>
+                        <span id="distK3Mid">0.0</span>
+                        <span id="distK3Max">1.0</span>
+                    </div>
+                </div>
+
+                <div class="collapsible-body" style="gap:6px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
+                        <label class="field-label">k4</label>
+                        <span id="distK4Value" class="field-label" style="color: var(--accent);">0.00</span>
+                    </div>
+
+                    <input
+                            id="distK4Slider"
+                            type="range"
+                            min="-0.5" max="0.5" step="0.00001" value="0.0"
+                            class="dist-slider"
+                            oninput="onSliderInput('k4', this.value)"
+                            onchange="onSliderCommit('k4', this.value)"
+                    />
+
+                    <div class="dist-slider-labels">
+                        <span id="distK4Min">-0.5</span>
+                        <span id="distK4Mid">0.0</span>
+                        <span id="distK4Max">0.5</span>
+                    </div>
+                </div>
+
             </details>
 
             <!-- Чекбокс -->
@@ -356,9 +479,35 @@
                        onchange="onDistortionDisplayToggle()" />
                 <span class="toggle-track"><span class="toggle-thumb"></span></span>
             </label>
+
+            <label class="toggle-row" style="padding: 6px 2px;">
+                <span class="toggle-label">Использовать панорамную развёртку</span>
+                <input id="panoramaToggle" class="toggle-input" type="checkbox"
+                       onchange="onPanoramaToggle()" />
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+            </label>
+
+            <!-- Слайдер радиуса — скрыт пока чекбокс не активен -->
+            <div id="panoramaRadiusBlock" class="collapsible-body"
+                 style="gap:6px; display:none; padding: 0 2px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
+                    <label class="field-label">Радиус панорамы</label>
+                    <span id="distRadiusValue" class="field-label" style="color: var(--accent);">0</span>
+                </div>
+                <input id="distRadiusSlider"
+                       type="range" min="1" max="1" step="1" value="1"
+                       class="dist-slider"
+                       oninput="onSliderInput('radius', this.value)"
+                       onchange="onSliderCommit('radius', this.value)" />
+                <div class="dist-slider-labels">
+                    <span id="distRadiusMin">1</span>
+                    <span id="distRadiusMid">—</span>
+                    <span id="distRadiusMax">—</span>
+                </div>
+            </div>
         </section>
 
-        <button id="saveConfigBtn" class="btn btn-save-config" onclick="openSaveConfigModal()" disabled>
+        <button id="saveConfigBtn" class="btn btn-save-config" onclick="saveCalibrationConfiguration()" disabled>
             ⊛ Сохранить конфигурацию
         </button>
 
@@ -428,7 +577,7 @@
             <div class="footer-left">
                 <div id="iceState" class="state-badge">ICE: —</div>
                 <div id="connState" class="state-badge">CONN: —</div>
-                <div id="patternState" class="state-badge err">Pattern: —</div>
+                <div id="calibrationState" class="state-badge err">Pattern: —</div>
                 <div id="distortionState" class="state-badge err">Distortion: —</div>
             </div>
             <div class="footer-right">
@@ -458,82 +607,211 @@
 
 </main>
 
-<!-- ═══════════════════════════════════════════════════ PAGE 2: CALIBRATION -->
-<!-- <main class="main-layout" id="page-2" style="display:none;">
 
-    <aside class="sidebar">
-        <section class="panel-block" style="flex:1; min-height:0;">
-            <div class="block-header">
-                <span class="block-icon">⊟</span>
-                <span class="block-title">Снимки</span>
-                <button class="btn-icon" onclick="requestClearSnapshotList()" title="Очистить всё">✕</button>
+<!-- ═══════════════════════════════════════════════════ PAGE 2: WARP -->
+<main class="main-layout proj-layout" id="page-2" style="display:none;">
+
+    <!-- ─── Выдвижная панель настроек ─── -->
+    <div class="proj-settings-drawer" id="projSettingsDrawer">
+        <div class="proj-settings-inner">
+            <div class="proj-settings-title">Настройки проекции</div>
+
+            <div>
+                <div class="proj-s-label">Вид конфигурации</div>
+                <div class="custom-select" id="vehicleSelect">
+                    <button class="custom-select-trigger" onclick="toggleVehicleSelect()">
+                        <span id="vehicleSelectLabel" class="custom-select-label">Не выбрано</span>
+                        <span class="custom-select-arrow">›</span>
+                    </button>
+                    <div class="custom-select-dropdown">
+                        <div class="custom-select-list" id="vehicleSelectList">
+                            <div class="custom-select-empty">Список не получен</div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
-            <div id="snapshotList" class="snapshot-list"></div>
-        </section>
-    </aside>
+            <div>
+                <div class="proj-s-label">Камера</div>
+                <div class="proj-cam-list" id="projCamList">
+                    <div class="proj-cam-empty">Выберите конфигурацию</div>
+                </div>
+            </div>
+        </div>
+    </div>
 
-    <section class="viewer-area">
+    <!-- Таб-флажок -->
+    <button class="proj-settings-tab" id="projSettingsTab" onclick="toggleProjSettings()">
+        <span class="proj-tab-icon">⊞</span>
+        <span class="proj-tab-label">Настройки</span>
+    </button>
+
+    <!-- ─── Левая часть: редактор точек ─── -->
+    <section class="proj-warp-area" id="projWarpArea">
         <div class="viewer-header">
-            <span class="viewer-label">CALIBRATION VIEW — Этап 2</span>
+            <span class="viewer-label">WARP — Точки проекции</span>
             <div class="viewer-meta">
-             </div>
-         </div>
+                <span id="projPointBadge" class="meta-tag">0 / 4</span>
+                <span id="projEditState" class="meta-tag">Режим: редактирование</span>
+            </div>
+        </div>
 
-        <div id="videoWrapper2" class="video-wrapper">
-            <div class="no-signal" id="noSignal2">
+        <div class="proj-warp-wrapper" id="projWarpWrapper">
+            <div class="no-signal" id="noSignalWarp">
                 <div class="no-signal-icon">⊘</div>
                 <div class="no-signal-text">Нет сигнала</div>
                 <div class="no-signal-sub">Перейдите на страницу подключения</div>
             </div>
-            <div id="snapshotIndicator" class="snapshot-indicator hidden">
-                <span class="snapshot-indicator-icon">⊙</span>
-                <span id="snapshotIndicatorId">snapshot # 000</span>
-            </div>
-
-            <div id="calOverlay" class="cal-overlay" style="display:none;">
-
-                <div id="calSpinner" class="cal-spinner"></div>
-                <div id="calIndeterminate" class="cal-indeterminate" style="display:none;">
-                    <div class="cal-indeterminate-bar"></div>
-                </div>
-                <div id="calResultIcon" class="cal-result-icon" style="display:none;"></div>
-
-                <div id="calStepLabel"  class="cal-step-label"  style="display:none;"></div>
-                <div id="calStepDesc"   class="cal-step-desc"   style="display:none;"></div>
-                <div id="calResultTitle" class="cal-result-title" style="display:none;"></div>
-                <div id="calResultDesc"  class="cal-result-desc"  style="display:none;"></div>
-
-                <div id="calProgressWrap" style="display:none; width:100%;">
-                    <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
-                        <span id="calStepCounter" class="cal-step-counter"></span>
-                        <span id="calItemCounter" class="cal-step-counter"></span>
-                    </div>
-                    <div class="cal-progress-track">
-                        <div id="calProgressFill" class="cal-progress-fill" style="width:0%"></div>
-                    </div>
-                </div>
-
-                <button id="calDismissBtn" class="btn" style="display:none;" onclick="calHide()"></button>
+            <div class="proj-zoom-hint">scroll — zoom · drag — pan</div>
+            <div class="ui-canvas-layer" id="uiCanvasLayer">
+                <canvas id="projWarpCanvas" class="proj-warp-canvas"></canvas>
             </div>
         </div>
 
         <div class="viewer-footer">
             <div class="footer-left">
-                <div id="patternState" class="state-badge err">Pattern: —</div>
-                <div id="distortionState" class="state-badge err">Distortion: —</div>
+                <button class="btn btn-ghost btn-sm" onclick="projRemoveLastPoint()">← Удалить</button>
+                <button class="btn btn-ghost btn-sm" onclick="projClearPoints()">✕ Очистить</button>
             </div>
             <div class="footer-right">
-                <button id="resumeStreamBtn" class="btn btn-accent btn-sm" onclick="resumeStream()" disabled>
-                    <span>▶ Вернуться к стриму</span>
+                <button id="projApplyBtn" class="btn btn-primary btn-sm" onclick="projToggleApply()">
+                    ⊛ Применить warp
                 </button>
             </div>
         </div>
     </section>
 
-</main>
--->
+    <!-- ─── Правая часть: результат + джойстик ─── -->
+    <section class="proj-result-area">
+        <div class="viewer-header">
+            <span class="viewer-label">BIRDVIEW — Результат</span>
+        </div>
 
-<script src="app.js"></script>
+        <div class="proj-result-canvas" id="projResultCanvas"
+             onwheel="projResultZoom(event)"
+             onmousedown="projResultDragStart(event)"
+             onmousemove="projResultDragMove(event)"
+             onmouseup="projResultDragEnd()"
+             onmouseleave="projResultDragEnd()">
+            <canvas id="projResultImg"></canvas>
+            <div class="no-signal" id="noSignalResult">
+                <div class="no-signal-icon">⊘</div>
+                <div class="no-signal-text">Нет данных</div>
+                <div class="no-signal-sub">Примените warp для отображения</div>
+            </div>
+            <div class="proj-canvas-hint">scroll — zoom · drag — pan</div>
+
+            <!-- Джойстик
+            <div class="proj-joystick-wrap">
+                <div class="proj-joystick-label">Смещение проекции</div>
+                <div class="proj-joystick" id="projJoystick">
+                    <div class="proj-joy-cross-h"></div>
+                    <div class="proj-joy-cross-v"></div>
+                    <div class="proj-joy-ring"></div>
+                    <div class="proj-joy-nub" id="projJoyNub">⊕</div>
+                </div>
+            </div>
+            -->
+        </div>
+
+        <button class="btn proj-lut-btn" onclick="projCalculateLUT()">⊙ Рассчитать LUT</button>
+    </section>
+
+</main>
+
+<!-- ═══════════════════════════════════════════════════ PAGE 3: Linker -->
+<main class="main-layout linker-layout" id="page-3" style="display:none;">
+    <section class="linker-page" id="linkerPage">
+
+        <!-- Sticky-кнопка запуска потока (всегда сверху-слева, под навбаром) -->
+        <button class="linker-stream-pill" id="linkerStreamPill"
+                onclick="linkerResumeStream()"
+                disabled>
+            <span class="linker-stream-pill-dot"></span>
+            <span class="linker-stream-pill-text">Поток не активен</span>
+        </button>
+
+        <!-- ── Setup ── -->
+        <div class="linker-setup" id="linkerSetupBlock">
+
+            <div class="linker-section">
+                <div class="linker-section-title">Конфигурация stitching</div>
+                <div class="linker-list" id="linkerExportsList">
+                    <div class="custom-select-empty">Загрузка...</div>
+                </div>
+            </div>
+
+            <div class="linker-section hidden" id="linkerBindingsSection">
+                <div class="linker-section-title">Привязка камер</div>
+                <div class="linker-list" id="linkerBindings"></div>
+            </div>
+
+            <div class="linker-actions">
+                <button class="btn btn-accent" id="linkerApplyBtn"
+                        onclick="linkerApply()" disabled>
+                    ⊙ Применить и запустить
+                </button>
+            </div>
+        </div>
+
+        <!-- ── Streaming view ── -->
+        <div class="linker-stream hidden" id="linkerStreamBlock">
+
+            <div class="linker-stream-header">
+                <div class="linker-stream-header-left">
+            <span class="linker-stream-title">
+                BIRDVIEW — Поток
+            </span>
+
+                    <div class="linker-stream-status" id="linkerRtcStatus">
+                        disconnected
+                    </div>
+
+                    <div class="linker-stream-status" id="linkerIceStatus">
+                        ICE: —
+                    </div>
+                </div>
+
+                <div class="linker-stream-actions">
+                    <button
+                            class="btn btn-secondary"
+                            onclick="linkerResumeStream()">
+                        ↻ Переподключить
+                    </button>
+
+                    <button
+                            class="btn btn-secondary"
+                            onclick="linkerStopStream()">
+                        ⏹ Завершить
+                    </button>
+                </div>
+            </div>
+
+            <div class="linker-stream-viewport">
+                <video
+                        id="linkerVideo"
+                        autoplay
+                        playsinline
+                        muted>
+                </video>
+
+                <div class="linker-stream-overlay" id="linkerStreamOverlay">
+                    <div class="linker-stream-overlay-center">
+                        <div class="linker-stream-loader"></div>
+
+                        <div class="linker-stream-overlay-text"
+                             id="linkerStreamOverlayText">
+                            Ожидание RTC подключения
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+    </section>
+</main>
+
+<script type="module" src="app.js"></script>
 </body>
 </html>

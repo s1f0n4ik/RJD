@@ -125,6 +125,22 @@ namespace neural {
 
 	UCamera::~UCamera() { 
 		stop(); 
+
+		// Остановка главного потока
+		if (m_main_loop) {
+			g_main_loop_quit(m_main_loop);
+			m_logger.debug("stop(): stopped g_main_loop");
+		}
+
+		if (m_gst_loop_thread.joinable()) {
+			m_gst_loop_thread.join();
+		}
+
+		// Убийство главного потока
+		if (m_main_loop) {
+			g_main_loop_unref(m_main_loop);
+			m_main_loop = nullptr;
+		}
 	}
 
 	bool UCamera::initialize() {
@@ -292,22 +308,6 @@ namespace neural {
 		stop_websocket_client();
 		m_logger.debug("stop(): stopped websocket");
 
-		// Остановка главного потока
-		if (m_main_loop) {
-			g_main_loop_quit(m_main_loop);
-			m_logger.debug("stop(): stopped g_main_loop");
-		}
-
-		if (m_gst_loop_thread.joinable()) {
-			m_gst_loop_thread.join();
-		}
-
-		// Убийство главного потока
-		if (m_main_loop) {
-			g_main_loop_unref(m_main_loop);
-			m_main_loop = nullptr;
-		}
-
 		m_running = false;
 		m_initialized = false;
 
@@ -332,6 +332,11 @@ namespace neural {
 
 	void UCamera::start_websocket_client()
 	{
+		if (m_websocket_thread.joinable()) {
+			m_logger.warn("start_websocket_client(): already running");
+			return;
+		}
+
 		std::string url = "/camera/" + m_options.id;
 
 		// Рестарт на случай, если он был остановлен

@@ -5,10 +5,13 @@
 #include "core/image-handler.h"
 #include "core/websocket-handler.h"
 #include "logger.h"
+#include "json-calibration.h"
+#include "json-projection.h"
 
 #include "camera.h"
 
 using namespace varan::birdview;
+using namespace varan::calibration::utility;
 
 namespace varan {
 namespace calibration {
@@ -51,29 +54,12 @@ namespace calibration {
 			}
 		};
 
-		struct FCalibratorPattern {
-			int width;
-			int height;
-			float size;
-
-			bool recieved = false;
-		};
-
-		struct FCalibrationResult {
-			float rms;
-			cv::Mat camera_matrix;
-			cv::Mat distortion_coeffs;
-
-			bool ready = false;
-		};
-
-		struct FUndistortMaps {
-			cv::Mat custom_camera_matrix;
-			cv::Mat matrix_x;
-			cv::Mat matrix_y;
-			float alpha = 0.0f;
-
-			bool ready = false;
+		struct FDistotionCoefficientsParameters {
+			bool use = false;
+			float k1;
+			float k2;
+			float k3;
+			float k4;
 		};
 
 		const boost::json::object* get_object_field(
@@ -100,15 +86,81 @@ namespace calibration {
 
 		void handle_undistort_computation(const std::string& client_id, const boost::json::object& meta, COnError on_error = nullptr);
 
-		void compute_undistort_maps(const std::string& client_id, float alpha = 0.0f, bool center = false, float zoom = 1.0f, float shift_x = 1.0f, float shift_y = 1.0f);
+		void handle_calibration_configuration(const std::string& client_id, const boost::json::object& meta, COnError on_error = nullptr);
+
+		void handle_projection_configuration(const std::string& client_id, const boost::json::object& meta, COnError on_error = nullptr);
+
+		void compute_undistort_maps(
+			const std::string& client_id,
+			const FCameraMatrixParameters& cammat_pars,
+			const FDistotionCoefficientsParameters& dist_pars
+		);
+
+		void handle_panorama_computation(const std::string& client_id, const boost::json::object& meta, COnError on_error);
+
+		void handle_panorama_toggle(const std::string& client_id, const boost::json::object& meta, COnError on_error);
+		
+		void compute_panorama_remap(const std::string& client_id, int radius);
 
 		void apply_undistort_maps(const cv::Mat& src, cv::Mat& dst);
 
 	private:
 
-		boost::json::object make_json_object_mat(const cv::Mat& input);
+		void handle_save_lut(const std::string& client_id, const boost::json::object& meta, COnError on_error = nullptr);
+
+		bool extract_canvas_dst_points(
+			const std::string& camera_key,
+			const std::vector<cv::Point2f>& source_points,
+			cv::Size& canvas_size, 
+			std::vector<cv::Point2f>& dst_points, 
+			std::string& str_err
+		);
+
+		bool build_warp_remap(
+			const std::vector<cv::Point2f>& src_points,
+			const std::vector<cv::Point2f>& dst_points,
+			const cv::Size& canvas_size,
+			cv::Mat& out_map_x,
+			cv::Mat& out_map_y,
+			std::string& error
+		);
+
+		bool build_warp_extras(
+			const std::string& camera_key,
+			const cv::Mat& map_x,
+			const cv::Mat& map_y,
+			const cv::Size& snapshot_size,
+			const std::vector<cv::Point2f>& canvas_region,
+			const std::vector<cv::Point2f>& dst_points
+		);
+
+		bool compose_remap_to_raw(
+			const cv::Mat& warp_x, const cv::Mat& warp_y,
+			const cv::Mat& undist_x, const cv::Mat& undist_y,
+			const cv::Size& raw_size,
+			cv::Mat& out_remap_32fc2,
+			std::string& error
+		);
+
+		bool save_stitching_export(
+			const std::filesystem::path& export_root,
+			const std::string& id,
+			const std::string& display_name,
+			std::string& error
+		);
+
+		bool get_image_to_build(cv::Mat& out, std::string& error);
+
+		bool build_canvas(std::string& error);
+
+		bool send_canvas_as_binary(const std::string& client_id, const boost::json::object& meta, std::string& error);
+		
+		boost::json::object get_coeffs();
+
+		boost::json::object build_json_calibration();
 
 	private:
+		std::string m_camera_id;
 
 		FSizeImage m_raw_image;
 		// Используется только для push_frames
@@ -127,9 +179,12 @@ namespace calibration {
 		FCalibrationResult m_calibration;
 		std::mutex m_calibration_mutex;
 
+		FCameraMatrixParameters m_custom_parameters;
+
 		FUndistortMaps m_undistort;
 		std::mutex m_undistort_mutex;
-		std::atomic<bool> m_apply_undistort;
+		std::atomic<bool> m_use_panorama_remap{false};
+		std::atomic<bool> m_apply_undistort{false};
 
 		std::mutex m_cached_image_mutex;
 
@@ -137,6 +192,30 @@ namespace calibration {
 
 		std::string m_name{"calibration-server"};
 		ULogger m_logger;
+
+		UJsonCalibrationConfiguration m_calibration_config;
+		UJsonProjectionConfiguration  m_projection_config;
+
+	// часть класса для проецирования в канвас
+	private:
+		// Скриншоты проекций с камер, по ним строится канвас
+		std::unordered_map<std::string, cv::Mat> m_saved_to_warp_camera_images;
+		// Список для карт после проекций
+		std::unordered_map<std::string, std::pair<cv::Mat, cv::Mat>> m_warped_mats;
+
+		// Канвас для отображения
+		cv::Mat m_canvas;
+
+		struct FWarpExtras {
+			cv::Mat mask;    // CV_8UC1, canvas size, 0/255
+			cv::Mat weight;  // CV_32FC1, canvas size, distance transform внутри маски
+		};
+		std::unordered_map<std::string, FWarpExtras> m_warp_extras;
+
+		// активный пресет в памяти
+		std::optional<FProjectionPreset> m_active_preset;
+		std::mutex m_active_preset_mutex;
+
 	};
 
 } // calibration

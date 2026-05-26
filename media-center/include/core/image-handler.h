@@ -32,6 +32,8 @@ namespace varan {
 			std::function<void(const std::string& message)> send = nullptr
 		);
 
+		bool is_running();
+
 		void stop_handler_thread(std::function<void(const std::string& message)> send = nullptr);
 
 	protected:

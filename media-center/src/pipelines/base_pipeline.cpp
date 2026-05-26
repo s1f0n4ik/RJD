@@ -22,28 +22,7 @@ UCameraPipeline::~UCameraPipeline() {
 }
 
 EPipelineStatus UCameraPipeline::get_status() {
-    GstState state = GST_STATE_NULL;
-    GstState pending = GST_STATE_NULL;
-
-    if (!m_has_initialized) {
-        return EPipelineStatus::NONE;
-    }
-    gst_element_get_state(m_pipeline, &state, &pending, 0);
-
-    switch (state) {
-    case GST_STATE_NULL:
-        if (m_has_initialized) return EPipelineStatus::INITIALIZED;
-        if (m_is_restarting) return EPipelineStatus::RESTARTING;
-        return EPipelineStatus::NONE;
-    case GST_STATE_READY:
-        return EPipelineStatus::READY;
-    case GST_STATE_PAUSED:
-        return EPipelineStatus::STOPPED;
-    case GST_STATE_PLAYING:
-        return EPipelineStatus::PLAYING;
-    default:
-        return EPipelineStatus::NONE;
-    }
+    return m_status;
 }
 
 bool UCameraPipeline::initialize() {
@@ -66,6 +45,7 @@ bool UCameraPipeline::initialize() {
         if (m_logger) m_logger->info("Probe attempt " + std::to_string(attempt) + "/" + std::to_string(max_attempts));
 
         if (probe_video_stream(probe_timeout)) {
+            m_status.store(EPipelineStatus::INITIALIZED);
             return true;
         }
 
@@ -101,6 +81,7 @@ bool UCameraPipeline::start() {
         return false;
     }
 
+    m_status.store(EPipelineStatus::PLAYING);
     m_is_playing = true;
     m_logger->info("Pipeline started successfully.");
     return true;
@@ -127,11 +108,18 @@ bool UCameraPipeline::stop() {
 
     m_is_playing = false;
     m_logger->info("Pipeline paused successfully.");
+    m_status.store(EPipelineStatus::STOPPED);
     return true;
 }
 
 bool UCameraPipeline::teardown(bool is_blocking)
 {
+    // Блокируем мьютексом
+    std::unique_lock<std::mutex> lock(m_teardown_mutex);
+    if (m_status.load() == EPipelineStatus::NONE) {
+        if (m_logger) m_logger->warn("teardown(): pipeline already destroyed!");
+        return true;
+    }
     // Если уничтожающий - вызываем стоп сигнал
     if (is_blocking) {
         (m_stop_requested.exchange(true));
@@ -143,13 +131,10 @@ bool UCameraPipeline::teardown(bool is_blocking)
         m_is_restarting.store(false);
     }
 
-    // Теперь переходим к самому пайплайну
-    std::lock_guard<std::mutex> lock(m_pipeline_mutex);
-
     teardown_prefix();
 
     if (!m_pipeline) {
-        m_logger->warn("teardown(): pipeline already destroyed or null.");
+        if (m_logger) m_logger->warn("teardown(): pipeline already destroyed or null.");
         return true;
     }
 
@@ -174,7 +159,7 @@ bool UCameraPipeline::teardown(bool is_blocking)
 
     // Переводим pipeline в NULL
     if (!m_pipeline || !GST_IS_ELEMENT(m_pipeline)) {
-        m_logger->error("teardown(): m_pipeline is NOT a valid GstElement! ptr="
+        if (m_logger) m_logger->error("teardown(): m_pipeline is NOT a valid GstElement! ptr="
             + std::to_string(reinterpret_cast<uintptr_t>(m_pipeline)));
         m_pipeline = nullptr;
         //return false;
@@ -199,7 +184,8 @@ bool UCameraPipeline::teardown(bool is_blocking)
         m_stop_requested.store(false);
     }
 
-    m_logger->info("teardown(): pipeline destroyed successfully");
+    if (m_logger) m_logger->info("teardown(): pipeline destroyed successfully");
+    m_status.store(EPipelineStatus::NONE);
     return true;
 }
 
@@ -297,6 +283,7 @@ bool UCameraPipeline::probe_video_stream(int timeout_sec) {
 
     if (m_logger) m_logger->debug("Initializing probe pipeline...");
     if (m_logger) m_logger->debug("Trying to connect to camera with rtsp: " + m_parameters.rtsp_url);
+    m_status.store(EPipelineStatus::PROBING);
 
     auto pipeline = gst_pipeline_new("probe-pipeline");
     auto src = gst_element_factory_make("rtspsrc", nullptr);

@@ -14,12 +14,11 @@ namespace nvr {
 
 	enum class EPipelineStatus {
 		NONE = 0,
-		READY = 1,
-		STOPPED = 2,
+		PROBING = 1,
+		INITIALIZED = 2,
 		PLAYING = 3,
-		RESTARTING = 4,
-		INITIALIZED = 5,
-		COUNT = 6
+		STOPPED = 4,
+		COUNT = 5
 	};
 
 	enum class EPilelineType {

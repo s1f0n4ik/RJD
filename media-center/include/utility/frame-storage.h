@@ -128,9 +128,6 @@ public:
 
             auto it = m_slots.find(name);
             if (it == m_slots.end()) {
-                if (m_logger) {
-                    m_logger->warn("extract(): Unknown camera: " + name);
-                }
                 return nullptr;
             }
 

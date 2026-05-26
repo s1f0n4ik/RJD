@@ -10,8 +10,12 @@
 
 'use strict';
 
+import { initProjPage, handleProjectionMessage } from './projection.js';
+import { showToast, log} from './utility.js';
+import {initLinkerPage} from "./linker-page.js";
+
 // ── State ────────────────────────────────────────────────────
-const state = {
+export const state = {
     clientId: 'web_' + Math.random().toString(16).slice(2, 10),
     camera:   null, // { id, displayName, width, height, fps }
     ws:       null,
@@ -20,8 +24,12 @@ const state = {
     streamId: null,
 };
 
+const rest_server_url = 'http://192.168.1.2:7777';
+const main_ws_url = 'ws://192.168.1.2:8765/cal-client/server'
+
 // ── DOM refs ─────────────────────────────────────────────────
 const dom = {
+    wsUrl:             document.getElementById('wsUrl'),
     wsStatus:          document.getElementById('wsStatus'),
     rtcWsStatus:       document.getElementById('rtcWsStatus'),
     rtcStatus:         document.getElementById('rtcStatus'),
@@ -44,12 +52,18 @@ const dom = {
 
     // Секция коррекции
     correctionBlock:     document.getElementById('correctionBlock'),
+    toggleUndistort:     document.getElementById('distortionDisplayToggle'),
 
     // Страница калибровки
     snapshotList:       document.getElementById('snapshotList'),
-    patternState:       document.getElementById('patternState'),
+    calibrationState:   document.getElementById('calibrationState'),
     distortionState:    document.getElementById('distortionState'),
+
+    saveButton:         document.getElementById('saveConfigBtn'),
 };
+
+dom.wsUrl.placeholder = main_ws_url;
+dom.wsUrl.value = main_ws_url;
 
 // ── CAL refs ─────────────────────────────────────────────────
 const _cal = {
@@ -67,11 +81,14 @@ const _cal = {
     itemCounter:  () => document.getElementById('calItemCounter'),
     dismissBtn:   () => document.getElementById('calDismissBtn'),
     video:        () => document.getElementById('remoteVideo'),
-    noSignal:    () => document.getElementById('noSignal'),
+    noSignal:     () => document.getElementById('noSignal'),
 };
 
 const undist = {
     show:             document.getElementById('distortionDisplayToggle'),
+
+    panorama:        document.getElementById('panoramaToggle'),
+    panoramaBlock:   document.getElementById('panoramaRadiusBlock'),
 
     alphaValue:        document.getElementById('distAlphaValue'),
     alphaSlider:       document.getElementById('distAlphaSlider'),
@@ -96,13 +113,51 @@ const undist = {
     shiftYMin:         document.getElementById('distShiftYMin'),
     shiftYMid:         document.getElementById('distShiftYMid'),
     shiftYMax:         document.getElementById('distShiftYMax'),
+
+    k1Value:  document.getElementById('distK1Value'),
+    k1Slider: document.getElementById('distK1Slider'),
+    k1Min:    document.getElementById('distK1Min'),
+    k1Mid:    document.getElementById('distK1Mid'),
+    k1Max:    document.getElementById('distK1Max'),
+
+    k2Value:  document.getElementById('distK2Value'),
+    k2Slider: document.getElementById('distK2Slider'),
+    k2Min:    document.getElementById('distK2Min'),
+    k2Mid:    document.getElementById('distK2Mid'),
+    k2Max:    document.getElementById('distK2Max'),
+
+    k3Value:  document.getElementById('distK3Value'),
+    k3Slider: document.getElementById('distK3Slider'),
+    k3Min:    document.getElementById('distK3Min'),
+    k3Mid:    document.getElementById('distK3Mid'),
+    k3Max:    document.getElementById('distK3Max'),
+
+    k4Value:  document.getElementById('distK4Value'),
+    k4Slider: document.getElementById('distK4Slider'),
+    k4Min:    document.getElementById('distK4Min'),
+    k4Mid:    document.getElementById('distK4Mid'),
+    k4Max:    document.getElementById('distK4Max'),
 }
 
 const UNDIST_SLIDERS = {
-    alpha:  { value: () => undist.alphaValue,  min: () => undist.alphaMin,  mid: () => undist.alphaMid,  max: () => undist.alphaMax,  slider: () => undist.alphaSlider  },
-    zoom:   { value: () => undist.zoomValue,   min: () => undist.zoomMin,   mid: () => undist.zoomMid,   max: () => undist.zoomMax,   slider: () => undist.zoomSlider   },
-    shiftX: { value: () => undist.shiftXValue, min: () => undist.shiftXMin, mid: () => undist.shiftXMid, max: () => undist.shiftXMax, slider: () => undist.shiftXSlider },
-    shiftY: { value: () => undist.shiftYValue, min: () => undist.shiftYMin, mid: () => undist.shiftYMid, max: () => undist.shiftYMax, slider: () => undist.shiftYSlider },
+    alpha:  { value: () => undist.alphaValue,  min: () => undist.alphaMin,  mid: () => undist.alphaMid,  max: () => undist.alphaMax,  slider: () => undist.alphaSlider, decimals: 3  },
+    zoom:   { value: () => undist.zoomValue,   min: () => undist.zoomMin,   mid: () => undist.zoomMid,   max: () => undist.zoomMax,   slider: () => undist.zoomSlider, decimals: 3   },
+    shift_x: { value: () => undist.shiftXValue, min: () => undist.shiftXMin, mid: () => undist.shiftXMid, max: () => undist.shiftXMax, slider: () => undist.shiftXSlider, decimals: 0 },
+    shift_y: { value: () => undist.shiftYValue, min: () => undist.shiftYMin, mid: () => undist.shiftYMid, max: () => undist.shiftYMax, slider: () => undist.shiftYSlider, decimals: 0 },
+
+    k1: { value: () => undist.k1Value, min: () => undist.k1Min, mid: () => undist.k1Mid, max: () => undist.k1Max, slider: () => undist.k1Slider, decimals: 4 },
+    k2: { value: () => undist.k2Value, min: () => undist.k2Min, mid: () => undist.k2Mid, max: () => undist.k2Max, slider: () => undist.k2Slider, decimals: 4 },
+    k3: { value: () => undist.k3Value, min: () => undist.k3Min, mid: () => undist.k3Mid, max: () => undist.k3Max, slider: () => undist.k3Slider, decimals: 4 },
+    k4: { value: () => undist.k4Value, min: () => undist.k4Min, mid: () => undist.k4Mid, max: () => undist.k4Max, slider: () => undist.k4Slider, decimals: 4 },
+
+    radius: {
+        value:    () => document.getElementById('distRadiusValue'),
+        min:      () => document.getElementById('distRadiusMin'),
+        mid:      () => document.getElementById('distRadiusMid'),
+        max:      () => document.getElementById('distRadiusMax'),
+        slider:   () => document.getElementById('distRadiusSlider'),
+        decimals: 0,
+    },
 };
 
 // ── Config refs ─────────────────────────────────────────────────
@@ -115,17 +170,21 @@ const config = {
 let _selectedConfigId = null;
 
 const CONFIG_FIELDS = [
-    { key: 'id',              label: 'Идентификатор'              },
-    { key: 'name',            label: 'Название'                   },
-    { key: 'description',     label: 'Описание'                   },
-    { key: 'resolution',      label: 'Разрешение'                 },
-    { key: 'calibrated',      label: 'Пройдена калибровка'        },
-    { key: 'rms',             label: 'RMS'                        },
-    { key: 'cameraMatrix',    label: 'Матрица камеры'             },
-    { key: 'distCoeffs',      label: 'Матрица коэффициентов'      },
-    { key: 'undistorted',     label: 'Пройдена коррекция'         },
-    { key: 'map1',            label: 'Матрица map1'               },
-    { key: 'map2',            label: 'Матрица map2'               },
+    { key: 'id',               label: 'Идентификатор'          },
+    { key: 'width',            label: 'Ширина'                 },
+    { key: 'height',           label: 'Высота'                 },
+    { key: 'is_pattern',       label: 'Паттерн задан'          },
+    { key: 'pattern_size',     label: 'Размер ячейки (мм)'     },
+    { key: 'pattern_width',    label: 'Ширина паттерна'        },
+    { key: 'pattern_height',   label: 'Высота паттерна'        },
+    { key: 'is_calibration',   label: 'Калибровка проведена'   },
+    { key: 'rms',              label: 'RMS'                    },
+    { key: 'alpha',            label: 'Alpha'                  },
+    { key: 'zoom',             label: 'Приближение'            },
+    { key: 'shift_x',          label: 'Смещение X'             },
+    { key: 'shift_y',          label: 'Смещение Y'             },
+    { key: 'dist_coeffs',      label: 'Коэффициенты искажений' },
+    { key: 'is_undistortion',  label: 'Коррекция применена'    },
 ];
 
 
@@ -143,28 +202,6 @@ dom.snapshotList.addEventListener('click', (e) => {
         requestSnapshotFrame(+item.dataset.id);
     }
 });
-
-// ════════════════════════════════════════════════════════════
-// LOGGING
-// ════════════════════════════════════════════════════════════
-
-function log(msg, level = 'info') {
-    console.log(`[${level.toUpperCase()}] ${msg}`);
-
-    const now = new Date();
-    const time = now.toTimeString().slice(0, 8);
-
-    const entry = document.createElement('div');
-    entry.className = `log-entry ${level}`;
-    entry.innerHTML = `<span class="log-time">${time}</span><span class="log-msg">${msg}</span>`;
-
-    dom.eventLog.appendChild(entry);
-    dom.eventLog.scrollTop = dom.eventLog.scrollHeight;
-}
-
-function clearLog() {
-    dom.eventLog.innerHTML = '';
-}
 
 // ════════════════════════════════════════════════════════════
 // STATUS UI
@@ -200,14 +237,14 @@ function setConnState(s) {
         ({ connected: 'ok', failed: 'err', disconnected: 'err' }[s] ?? 'warn');
 }
 
-function setPatternState(s) {
-    dom.patternState.textContent = `Pattern: ${s}`;
-    dom.patternState.className = 'state-badge ' +
+function setCalibrationState(s) {
+    dom.calibrationState.textContent = `Калибровка: ${s}`;
+    dom.calibrationState.className = 'state-badge ' +
         ({ installed: 'ok', none: 'err' }[s] ?? 'warn');
 }
 
-function setDistortionState(s) {
-    dom.distortionState.textContent = `Distortion: ${s}`;
+function setUndistortionState(s) {
+    dom.distortionState.textContent = `Коррекция: ${s}`;
     dom.distortionState.className = 'state-badge ' +
         ({ success: 'ok', failed: 'err' }[s] ?? 'warn');
 }
@@ -298,6 +335,16 @@ function sendWS(payload) {
     return true;
 }
 
+export function sendWSMessage(type, meta = {}, ret = 'none') {
+    return sendWS({
+        type:        type,
+        client_id:   state.clientId,
+        camera:      state.streamId,
+        meta: meta,
+        ret:  ret,
+    });
+}
+
 function sendRTC(payload) {
     if (!state.rtcWs || state.rtcWs.readyState !== WebSocket.OPEN) {
         log('RTC WS не открыт', 'err');
@@ -328,9 +375,10 @@ function onWsClose() {
         ret:         'none',
     });
     setWsStatus('disconnected');
-    setStreamingUI(false)
-    hidePanelBlock(dom.calibrationBlock.id)
-    hidePanelBlock(dom.correctionBlock.id)
+    setStreamingUI(false);
+    hidePanelBlock(dom.calibrationBlock.id);
+    hidePanelBlock(dom.correctionBlock.id);
+    disableSaveButton();
     log('WebSocket закрыт', 'warn');
 }
 
@@ -379,6 +427,7 @@ function onRtcWsClose() {
     log('RTC WebSocket закрыт', 'warn');
     hidePanelBlock(dom.calibrationBlock.id)
     hidePanelBlock(dom.correctionBlock.id)
+    disableSaveButton();
     closeRTC();
     hideVideo();
 }
@@ -428,10 +477,14 @@ function dispatchServerMessage(msg) {
         //case 'get_distortion': handleGetCalibrationDistorion(msg); break;
         case 'calibration_start': handleStartCalibration(msg); break;
         case 'calibration_progress': handleCalibrateStep(msg); break;
+        case 'calibration_post_process': handleReprojectionError(msg); break;
         case 'calibration_compute': handleCalibrationCompute(msg); break;
         case 'calibration_result': handleCalibrationResult(msg); break;
         case 'undistort_compute': handleDistortionCompute(msg); break;
         case 'view_undistort': handleOnDistortionShow(msg); break;
+        case 'panorama_toggle': handleOnPanoramaToggle(msg); break;
+        case 'calibration_configuration': handleCalibrationConfiguration(msg); break;
+        case 'projection_configuration': handleProjectionMessage(msg); break;
         default:
             log(`Неизвестный тип: ${msg.type}. Сообщение: ${msg}`, 'warn');
     }
@@ -574,9 +627,10 @@ function _onCameraSelectOutside(e) {
 async function fetchCameraList() {
     const list = document.getElementById('cameraSelectList');
     list.innerHTML = `<div class="custom-select-loading">Загрузка...</div>`;
+    console.log('Fetching camera list...');
 
     try {
-        const res  = await fetch('http://192.168.1.2:7778/camera');
+        const res  = await fetch(`${rest_server_url}/camera`);
         const json = await res.json();
 
         if (json.error) throw new Error(json.error);
@@ -585,6 +639,7 @@ async function fetchCameraList() {
         const items   = _filterCameras(cameras);
 
         _renderCameraList(items);
+        console.log('Cameras list:', cameras);
 
     } catch (err) {
         list.innerHTML = `<div class="custom-select-empty">Ошибка загрузки</div>`;
@@ -592,12 +647,12 @@ async function fetchCameraList() {
     }
 }
 
-/* Оставить только camera_type === 3 и имеющие поток type === 2 */
+/* Оставить только type === 3 и имеющие поток type === 2 */
 function _filterCameras(cameras) {
     const result = [];
 
     for (const [id, cam] of Object.entries(cameras)) {
-        if (cam.camera_type !== 3) continue;
+        if (cam.type !== 3) continue;
 
         const subStream = Object.values(cam.streams ?? {}).find(s => s.type === 1);
         if (!subStream) continue;
@@ -760,35 +815,63 @@ function handleCalibrationStatus(msg) {
         return;
     }
 
-    let has_pattern = msg.meta?.pattern ?? false;
-    setPatternState(has_pattern ? 'installed' : 'none');
-    if (msg.meta?.pattern ?? false) {
-        sendWS({
-            type: 'get_pattern',
-            client_id: state.clientId,
-            meta: {}
-        });
+    const meta = msg.meta ?? {};
+
+    if (meta?.width != null) {
+        setSliderConfig('shift_x', {value: 0.0, min: -meta.width, max: meta.width, decimals: 0});
     }
-    else {
+    if (meta?.height != null) {
+        setSliderConfig('shift_y', {value: 0.0, min: -meta.height, max: meta.height, decimals: 0});
+    }
+
+    // Смотрим что пришло в паттерн
+    const hasPattern = meta.is_pattern ?? false;
+    if (hasPattern) {
+        dom.patternDetails.setAttribute('data-set', '');
+        dom.patternDetails.removeAttribute('open');
+
+        if (meta.pattern_width  !== undefined) dom.patternWidth.textContent  = meta.pattern_width;
+        if (meta.pattern_height !== undefined) dom.patternHeight.textContent = meta.pattern_height;
+        if (meta.pattern_size   !== undefined) dom.patternSize.textContent   = meta.pattern_size;
+    } else {
         dom.patternDetails.removeAttribute('data-set');
         dom.patternDetails.open = true;
     }
 
-    let has_distortion = msg.meta?.distortion ?? false;
-    setDistortionState(has_distortion ? 'success' : 'failed');
-    if (has_distortion) {
-        sendWS({
-            type: 'get_distortion',
-            client_id: state.clientId,
-            meta: {}
-        });
+    const hasCalibration = meta.is_calibration ?? false;
+    setCalibrationState(hasCalibration ? 'installed' : 'none');
+
+    if (hasCalibration) {
+        if (meta.alpha   !== undefined) syncSlider('alpha', Number(meta.alpha));
+        if (meta.zoom    !== undefined) syncSlider('zoom', Number(meta.zoom));
+        if (meta.shift_x !== undefined) syncSlider('shift_x', Number(meta.shift_x));
+        if (meta.shift_y !== undefined) syncSlider('shift_y', Number(meta.shift_y));
+
+        if (meta.k1 !== undefined) syncSlider('k1', Number(meta.k1));
+        if (meta.k2 !== undefined) syncSlider('k2', Number(meta.k2));
+        if (meta.k3 !== undefined) syncSlider('k3', Number(meta.k3));
+        if (meta.k4 !== undefined) syncSlider('k4', Number(meta.k4));
+
+        showPanelBlock(dom.correctionBlock.id);
+        showDistortionControls();
+    } else {
+        hideDistortionControls();
     }
+
+    const hasUndistortion = meta.is_undistortion ?? false;
+    if (hasUndistortion) {
+        enableSaveButton();
+    }
+    setUndistortionState(hasUndistortion ? 'success' : 'failed');
+
+    dom.checkChessboard.checked = meta?.show_chessboard ?? false;
+    dom.toggleUndistort.checked = meta?.show_undistortion ?? false;
 }
 
 function handleGetCalibrationPattern(msg) {
     if (!msg.ret) {
         log(`Сервер не смог отправить паттерн: ${msg.meta?.description ?? 'нет описания ошибки'}`, 'err');
-        setPatternState('none');
+        setCalibrationState('none');
         return;
     }
 
@@ -796,7 +879,7 @@ function handleGetCalibrationPattern(msg) {
     dom.patternHeight.textContent = msg.meta?.height ?? null;
     dom.patternSize.textContent = msg.meta?.size ?? null;
 
-    setPatternState('installed')
+    setCalibrationState('installed')
 
     // Если будут добавлться еще - приписать
     dom.patternDetails.setAttribute('data-set', '');
@@ -887,7 +970,7 @@ function sendRTCReadySignal() {
     log(`WebRTC ready → camera=${state.camera.id}`);
 }
 
-function closeRTC() {
+export function closeRTC() {
     if (!state.pc) return;
 
     if (state.rtcWs && state.rtcWs.readyState === WebSocket.OPEN) {
@@ -956,8 +1039,9 @@ function setStreamingUI(isStreaming) {
         fields.classList.remove('collapsed');
         btn.classList.remove('streaming');
         load_config.classList.add('collapsed');
-        hidePanelBlock(dom.calibrationBlock.id)
-        hidePanelBlock(dom.correctionBlock.id)
+        hidePanelBlock(dom.calibrationBlock.id);
+        hidePanelBlock(dom.correctionBlock.id);
+        disableSaveButton();
         label.textContent = '▶ Запустить стрим';
     }
 }
@@ -1145,7 +1229,7 @@ function moveVideoTo(wrapperId, noSignalId) {
 function syncNoSignal() {
     const hasStream = !!dom.remoteVideo.srcObject;
 
-    ['noSignal', 'noSignal2'].forEach(id => {
+    ['noSignal', 'noSignalWarp'].forEach(id => {
         const el = document.getElementById(id);
         if (!el) return;
         const inSameWrapper = el.parentElement.contains(dom.remoteVideo);
@@ -1209,6 +1293,18 @@ function handleCalibrateStep(msg) {
     setSnapshotUsed(id, is_found);
 }
 
+function handleReprojectionError(msg) {
+    if (!msg.ret) {
+        log(`Ошибка при вычислении ошибки после калибровки: ${msg.meta?.description ?? 'нет описания ошибки'}`, 'err');
+        return;
+    }
+
+    let id = msg.meta?.id ?? -1;
+    let is_found = msg.meta?.corners_found ?? false;
+
+    setSnapshotUsed(id, is_found);
+}
+
 function handleCalibrationCompute(msg) {
     if (!msg.ret) {
         log(`Ошибка при переходе на вычисление матрицы: ${msg.meta?.description ?? 'нет описания ошибки'}`, 'err');
@@ -1224,7 +1320,7 @@ function handleCalibrationResult(msg) {
         calShowError(
             { title: 'Ошибка калибровки', desc: msg.meta?.description ?? 'нет описания ошибки' }
         );
-        return;
+        //return;
     }
 
     let width = msg.meta?.width ?? -1;
@@ -1250,11 +1346,11 @@ function handleCalibrationResult(msg) {
 
     setSliderConfig('alpha',  { value: 0.0, min: 0,   max: 1,   decimals: 2 });
     setSliderConfig('zoom',   { value: 1.0, min: 0.1,  max: 2.0, mid: 1.0, decimals: 2 });
-    setSliderConfig('shiftX', { value: 0.0, min: -width / 2, max: width / 2, decimals: 0 });
-    setSliderConfig('shiftY', { value: 0.0, min: -height / 2, max: height / 2, decimals: 0 });
+    setSliderConfig('shift_x', { value: 0.0, min: -width, max: width, decimals: 0 });
+    setSliderConfig('shift_y', { value: 0.0, min: -height, max: height, decimals: 0 });
 
     // Запуск вычисления undistort
-    requestDistortionCompute();
+    requestDistortionCompute(false);
 }
 
 // ════════════════════════════════════════════════════════════
@@ -1400,6 +1496,17 @@ function calShowError({ title = 'Ошибка калибровки', desc = '' }
 
 // Навигация
 function navigateTo(page) {
+    if (page === 2) {
+        if (!state.camera) {
+            showToast('Камера не выбрана', 'Выберите камеру перед переходом', 'err');
+            return;
+        }
+        if (!state.rtcWs) {
+            showToast('Нет подключения', 'Установите RTC соединение перед переходом', 'err');
+            return;
+        }
+    }
+
     document.querySelectorAll('.main-layout').forEach(el => el.style.display = 'none');
     document.getElementById(`page-${page}`).style.display = 'grid';
 
@@ -1407,7 +1514,13 @@ function navigateTo(page) {
     document.querySelector(`.nav-step[data-step="${page}"]`).classList.add('active');
 
     if (page === 1) moveVideoTo('videoWrapper');
-    //if (page === 2) moveVideoTo('videoWrapper2');
+    if (page === 2) {
+        moveVideoTo('uiCanvasLayer');
+        initProjPage();
+    }
+    if (page === 3) {
+        initLinkerPage();
+    }
 
     syncNoSignal();
 }
@@ -1425,15 +1538,21 @@ function hideDistortionControls() {
     document.getElementById('distortionBody').classList.remove('visible');
 }
 
-function requestDistortionCompute() {
+function requestDistortionCompute(use_k) {
     sendWS({
         type: 'undistort_compute',
         client_id: state.clientId,
         meta: {
-            alpha: Number(UNDIST_SLIDERS["alpha"].value().textContent),
-            zoom: Number(UNDIST_SLIDERS["zoom"].value().textContent),
-            shift_x: Number(UNDIST_SLIDERS["shiftX"].value().textContent),
-            shift_y: Number(UNDIST_SLIDERS["shiftY"].value().textContent),
+            alpha: Number(undist.alphaSlider.value),
+            zoom: Number(undist.zoomSlider.value),
+            shift_x: Number(undist.shiftXSlider.value),
+            shift_y: Number(undist.shiftYSlider.value),
+            ...(use_k ? {
+                k1: Number(undist.k1Slider.value),
+                k2: Number(undist.k2Slider.value),
+                k3: Number(undist.k3Slider.value),
+                k4: Number(undist.k4Slider.value),
+            } : {})
         }
     });
 }
@@ -1446,8 +1565,20 @@ function handleDistortionCompute(msg) {
         return;
     }
 
-    setDistortionState("success");
-    showPanelBlock(dom.correctionBlock.id);
+    if (msg.meta) {
+        log(`handleDistortionCompute: got meta ${msg.meta}`);
+        for (const key in msg.meta) {
+            if (!(key in UNDIST_SLIDERS)) {
+                log(`Key ${key} not exists at sliders!`, 'warn');
+            }
+            else {
+                syncSlider(key, Number(msg.meta[key]));
+            }
+        }
+        setUndistortionState("success");
+        showPanelBlock(dom.correctionBlock.id);
+        enableSaveButton();
+    }
 }
 
 function onDistortionDisplayToggle() {
@@ -1466,6 +1597,8 @@ function onDistortionDisplayToggle() {
 function handleOnDistortionShow(msg) {
     if (!msg.ret) {
         log(`Ошибка при отображении коррекции изображений: ${msg.meta?.description ?? 'нет описания ошибки'}`);
+        log(`Попытка рассчитать коррекцию`);
+        requestDistortionCompute(false);
         return;
     }
 
@@ -1481,13 +1614,31 @@ function _fmt(n, decimals = 2) {
 function onSliderInput(key, rawValue) {
     const s = UNDIST_SLIDERS[key];
     if (!s) return;
-    s.value().textContent = _fmt(rawValue);
+    s.value().textContent = _fmt(rawValue, s.decimals);
 }
 
 function onSliderCommit(key, rawValue) {
     const value = parseFloat(rawValue);
     console.log(`slider commit [${key}]:`, value);
-    // сюда вставить отправку на сервер / применение
+
+    if (key === 'radius') {
+        sendWS({
+            type:      'compute_panorama_remap',
+            client_id: state.clientId,
+            meta: {
+                radius: Math.round(value),
+            },
+        });
+        return;
+    }
+
+    requestDistortionCompute(true);
+}
+
+function syncSlider(key, value) {
+    const s = UNDIST_SLIDERS[key];
+    s.slider().value = value;
+    s.value().textContent = _fmt(value, s.decimals);
 }
 
 function setSliderConfig(key, { value, min, max, mid, decimals = 2 } = {}) {
@@ -1510,29 +1661,291 @@ function setSliderConfig(key, { value, min, max, mid, decimals = 2 } = {}) {
 // Работа с конфигурауциями
 // ════════════════════════════════════════════════════════════
 
-function openLoadConfigModal(configs = []) {
+function requestListOfCalibrationConfigurations() {
+    sendWS({
+        type:        'calibration_configuration',
+        client_id:   state.clientId,
+        camera:      state.streamId,
+        meta: {
+            method: 'get_list',
+        },
+        ret:         'none',
+    });
+}
+
+async function openLoadConfigModal(configs = []) {
     _selectedConfigId = null;
+
+    config.detail.style.display = 'none';
+    config.modal.style.display  = 'flex';
+    config.list.innerHTML       = `<div class="custom-select-loading">Загрузка...</div>`;
+
+    let cameraMap = {};
+    try {
+        const res  = await fetch(`${rest_server_url}/camera`);
+        const json = await res.json();
+        cameraMap  = json?.data?.cameras ?? {};
+    } catch (err) {
+        console.error('openLoadConfigModal: fetch failed', err);
+    }
 
     config.list.innerHTML = '';
 
-    /*configs.forEach(cfg => {
+    if (!configs.length) {
+        config.list.innerHTML = `<div class="custom-select-empty">Нет конфигураций</div>`;
+        return;
+    }
+
+    configs.forEach(cfg => {
+        const cam         = cameraMap[cfg.id];
+        const displayName = cam?.display_name ?? cfg.id;
+        const sub   = `${cfg.id} · ${cfg.width ?? '—'}×${cfg.height ?? '—'}`;
+
         const item = document.createElement('div');
-        item.className = 'config-list-item';
-        item.dataset.id = cfg.id;
-        item.innerHTML = `
-            <span class="config-item-name">${cfg.name}</span>
-            <span class="config-item-sub">${cfg.sub ?? cfg.id}</span>
+        item.className    = 'config-list-item';
+        item.dataset.id   = cfg.id;
+        item.innerHTML    = `
+            <span class="config-item-name">${displayName}</span>
+            <span class="config-item-sub">${sub}</span>
         `;
         item.onclick = () => selectConfig(cfg, item);
-        list.appendChild(item);
-    });*/
-    config.detail.style.display = 'none';
-    config.modal.style.display = 'flex';
+        config.list.appendChild(item);
+    });
 }
 
 function closeLoadConfigModal(e) {
     if (e && e.target !== config.modal) return;
     config.modal.style.display = 'none';
+}
+
+const _pendingConfigRequests = {};
+
+function selectConfig(cfg, itemEl) {
+    document.querySelectorAll('.config-list-item').forEach(el => el.classList.remove('selected'));
+    itemEl.classList.add('selected');
+    _selectedConfigId = cfg.config_key ?? cfg.id ?? null;
+
+    // Показать лоадер в правой части
+    const tbody = document.getElementById('configTableBody');
+    tbody.innerHTML = `
+        <tr><td colspan="2" style="text-align:center; padding:24px 0;">
+            <span class="custom-select-loading">Загрузка...</span>
+        </td></tr>
+    `;
+    document.getElementById('configDetail').style.display = 'flex';
+
+    sendWS({
+        type:      'calibration_configuration',
+        client_id: state.clientId,
+        camera:    state.streamId,
+        meta: {
+            method:     'get_item',
+            config_key: _selectedConfigId,
+        },
+        ret: 'none',
+    });
+}
+
+function onCalibrationConfigurationResponse(data) {
+    const tbody = document.getElementById('configTableBody');
+    tbody.innerHTML = '';
+
+    if (!data || typeof data !== 'object') {
+        tbody.innerHTML = `
+            <tr><td colspan="2" style="text-align:center; padding:16px 0; color:var(--err);">
+                Нет данных
+            </td></tr>
+        `;
+        return;
+    }
+
+    // Отображать только те поля, которые реально пришли
+    CONFIG_FIELDS.forEach(({ key, label }) => {
+        if (!(key in data)) return;
+
+        const raw = data[key];
+        const { text, cls } = formatConfigValue(key, raw);
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${label}</td><td class="${cls}">${text}</td>`;
+        tbody.appendChild(tr);
+    });
+
+    if (!tbody.hasChildNodes()) {
+        tbody.innerHTML = `
+            <tr><td colspan="2" style="text-align:center; padding:16px 0; color:var(--text-dim);">
+                Нет данных для отображения
+            </td></tr>
+        `;
+    }
+}
+
+function formatConfigValue(key, value) {
+    if (value === null || value === undefined) return { text: '—', cls: '' };
+
+    const boolKeys = ['is_pattern', 'is_calibration', 'is_undistortion'];
+    if (boolKeys.includes(key)) {
+        return value
+            ? { text: 'Да', cls: 'cv-ok' }
+            : { text: 'Нет', cls: 'cv-err' };
+    }
+
+    if (key === 'rms') {
+        const n = parseFloat(value);
+        const cls = n < 0.5 ? 'cv-ok' : n < 1.5 ? 'cv-warn' : 'cv-err';
+        return { text: `${n.toFixed(3)} px`, cls };
+    }
+
+    // dist_coeffs — объект с rows/cols/data
+    if (key === 'dist_coeffs') {
+        if (typeof value === 'object' && 'rows' in value && 'cols' in value) {
+            return { text: `${value.rows}×${value.cols} mat`, cls: 'cv-ok' };
+        }
+        return { text: 'Получена', cls: 'cv-ok' };
+    }
+
+    if (['alpha', 'zoom', 'shift_x', 'shift_y'].includes(key)) {
+        return { text: parseFloat(value).toFixed(3), cls: '' };
+    }
+
+    return { text: String(value), cls: '' };
+}
+
+function requestLoadSelectedConfig() {
+    if (!_selectedConfigId) {
+        log('requestLoadSelectedConfig(): нет выбранного конфига для загруки', 'warn');
+        return;
+    }
+    sendWS({
+        type:        'calibration_configuration',
+        client_id:   state.clientId,
+        camera:      state.streamId,
+        meta: {
+            method: 'load',
+            config_key: _selectedConfigId,
+        },
+        ret:         'none',
+    });
+}
+
+function saveCalibrationConfiguration() {
+    sendWS({
+        type:        'calibration_configuration',
+        client_id:   state.clientId,
+        camera:      state.streamId,
+        meta: {
+            method: 'save',
+        },
+        ret:         'none',
+    });
+}
+
+function handleCalibrationConfiguration(msg) {
+    if (!msg.meta) {
+        let str_err = `Отстуствует поле meta при обработке сообщения о конфигураии: ${msg}`;
+        log(str_err, 'err');
+        showToast(str_err, 'err');
+        return;
+    }
+    switch (msg.meta.method) {
+        case 'save':
+            if (msg.ret) {
+                let str_ok = 'Конфигурация успешно сохранена на сервере!';
+                log(str_ok, 'ok');
+                showToast(str_ok, 'ok');
+                return;
+            }
+            else {
+                let str_err = `Ошибка при сохранении конфигурации на сервере: ${msg.meta?.description ?? 'Нет описания ошибки'}!`;
+                log(str_err, 'err');
+                showToast(str_err, 'err');
+                return;
+            }
+            break;
+
+        case 'get_list':
+            if (!msg.ret) {
+                let str_err = `Ошибка при запросе списка конфигураций с сервера: ${msg.meta?.description ?? 'Нет описания ошибки'}!`;
+                log(str_err, 'err');
+                showToast(str_err, 'err');
+                return;
+            }
+            let configs = msg.meta?.configs ?? [];
+            openLoadConfigModal(configs);
+            break;
+
+        case 'get_item':
+            onCalibrationConfigurationResponse(msg.meta?.config_item ?? {})
+            break;
+
+        case 'load':
+            if (!msg.ret) {
+                let str_err = `Ошибка сервера: ${msg.meta?.description ?? 'Нет описания ошибки'}`;
+                log(str_err, 'err', msg);
+                showToast(str_err, 'err');
+            }
+            else {
+                let str_ok = `Конфигурация успешно загружена на сервере: ${_selectedConfigId}!`;
+                log(str_ok, 'ok');
+                showToast(str_ok, 'ok');
+                closeLoadConfigModal();
+            }
+            break;
+
+        default: log(`Неизвестный метод: ${msg.meta.method}. Сообщение: ${msg}`, 'warn');
+    }
+
+    let total = msg.meta?.total ?? 0;
+}
+
+// ════════════════════════════════════════════════════════════
+// Panorama Toggle
+// ════════════════════════════════════════════════════════════
+
+function onPanoramaToggle() {
+    const desired = undist.panorama.checked;
+    undist.panorama.checked = !desired; // откат до ответа сервера
+
+    sendWS({
+        type:      'panorama_toggle',
+        client_id: state.clientId,
+        meta: {
+            use_panorama_remap: desired,
+        },
+    });
+}
+
+/* Ответ сервера на view_undistort/use_panorama_remap */
+function handleOnPanoramaToggle(msg) {
+    if (!msg.ret) {
+        log(`Ошибка при включении панорамной развёртки: ${msg.meta?.description ?? 'нет описания ошибки'}`, 'err');
+        return;
+    }
+
+    const use_panorama_remap  = msg.meta?.use_panorama_remap  ?? false;
+    const height = msg.meta?.height;
+
+    undist.panorama.checked = use_panorama_remap;
+
+    if (use_panorama_remap) {
+        // Максимум — половина ширины изображения
+        const maxRadius = Math.max(1, Math.floor((height ?? 2) / 2));
+        const current   = parseInt(UNDIST_SLIDERS["radius"].slider.value, 10) || maxRadius;
+
+        setSliderConfig('radius', {
+            value:    Math.min(current, maxRadius),
+            min:      1,
+            max:      maxRadius,
+            decimals: 0,
+        });
+
+        undist.panoramaBlock.style.display = 'flex';
+        log('Включена панорамная развёртка', 'info');
+    } else {
+        undist.panoramaBlock.style.display = 'none';
+        log('Отключена панорамная развёртка', 'info');
+        requestDistortionCompute(false);
+    }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -1557,6 +1970,16 @@ function handleBinaryMessage(buffer) {
 // ════════════════════════════════════════════════════════════
 // UTILS
 // ════════════════════════════════════════════════════════════
+
+function enableSaveButton() {
+    dom.saveButton.disabled = false;
+    dom.saveButton.classList.add('active');
+}
+
+function disableSaveButton() {
+    dom.saveButton.disabled = true;
+    dom.saveButton.classList.remove('active');
+}
 
 function showPanelBlock(id) {
     document.getElementById(id).classList.add('visible');
@@ -1583,34 +2006,22 @@ window.addEventListener('beforeunload', () => {
     if (state.ws) state.ws.close();
 });
 
-let _toastTimer = null;
-
-function showToast(title, desc, type = 'info') {
-    const toast    = document.getElementById('toast');
-    const icon     = document.getElementById('toastIcon');
-    const progress = document.getElementById('toastProgress');
-
-    const icons = { ok: '✓', err: '✕', info: '◈' };
-
-    toast.className      = `toast ${type}`;
-    icon.textContent     = icons[type] ?? icons.info;
-    document.getElementById('toastTitle').textContent = title;
-    document.getElementById('toastDesc').textContent  = desc;
-
-    // сбросить прогресс-бар
-    progress.className = 'toast-progress';
-    void progress.offsetWidth; // reflow для рестарта анимации
-    progress.classList.add('running');
-
-    if (_toastTimer) clearTimeout(_toastTimer);
-
-    requestAnimationFrame(() => toast.classList.add('visible'));
-
-    _toastTimer = setTimeout(toastHide, 30_000);
-}
-
-function toastHide() {
-    const toast = document.getElementById('toast');
-    toast.classList.remove('visible');
-    if (_toastTimer) { clearTimeout(_toastTimer); _toastTimer = null; }
-}
+Object.assign(window, {
+    closeLoadConfigModal,
+    requestLoadSelectedConfig,
+    connectWS,
+    disconnectWS,
+    toggleCameraSelect,
+    requestListOfCalibrationConfigurations,
+    toggleStream,
+    onSliderInput,
+    onSliderCommit,
+    onDistortionDisplayToggle,
+    saveCalibrationConfiguration,
+    calHide,
+    toggleFullscreen,
+    resumeStream,
+    toggleSnapshotDrawer,
+    requestClearSnapshotList,
+    onPanoramaToggle,
+})

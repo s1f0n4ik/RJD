@@ -1,0 +1,510 @@
+.proj-layout {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 360px !important;
+    position: relative;
+    overflow: hidden;
+}
+
+/* ── Настройки ── */
+.proj-settings-drawer {
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 0;
+    background: var(--bg-surface);
+    border-right: 1px solid var(--border);
+    z-index: 20;
+    overflow: hidden;
+    transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
+    flex-direction: column;
+}
+.proj-settings-drawer.open { width: 220px; }
+
+.proj-settings-inner {
+    width: 220px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    overflow-y: auto;
+    flex: 1;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+}
+
+.proj-settings-title {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+}
+
+.proj-s-label {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+    margin-bottom: 6px;
+}
+
+.proj-type-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+}
+.proj-type-btn {
+    padding: 7px 4px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.15s;
+}
+.proj-type-btn:hover { border-color: var(--border-bright); color: var(--text-primary); }
+.proj-type-btn.active { border-color: var(--accent); background: var(--accent-glow); color: var(--accent); }
+
+.proj-cam-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.proj-cam-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 8px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: border-color 0.15s;
+}
+.proj-cam-item:hover { border-color: var(--border-bright); }
+.proj-cam-item.active { border-color: var(--accent); }
+
+.proj-cam-empty {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+
+.proj-cam-id {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-left: 4px;
+    letter-spacing: 0.04em;
+}
+.proj-cam-item.active .proj-cam-id { color: var(--accent); }
+
+.proj-cam-radio {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    border: 1.5px solid var(--border-bright);
+    flex-shrink: 0;
+    transition: all 0.15s;
+}
+.proj-cam-item.active .proj-cam-radio {
+    border-color: var(--accent);
+    background: var(--accent);
+}
+.proj-cam-name {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-secondary);
+    flex: 1;
+}
+.proj-cam-item.active .proj-cam-name { color: var(--text-primary); }
+.proj-cam-done {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    flex-shrink: 0;
+    transition: background 0.2s;
+}
+.proj-cam-done.done { background: var(--ok); }
+
+/* Таб */
+.proj-settings-tab {
+    position: absolute;
+    left: 0; top: 50%;
+    transform: translateY(-50%);
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 24px;
+    height: 90px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-left: none;
+    border-radius: 0 var(--radius) var(--radius) 0;
+    cursor: pointer;
+    color: var(--text-dim);
+    transition: all 0.2s;
+}
+.proj-settings-tab:hover { color: var(--text-primary); border-color: var(--border-bright); }
+.proj-settings-tab.open { border-color: var(--accent); color: var(--accent); left: 220px; }
+.proj-tab-icon { font-size: 12px; line-height: 1; }
+.proj-tab-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    writing-mode: vertical-rl;
+}
+
+/* ── Warp editor ── */
+.proj-warp-area {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 16px 16px 16px 40px;
+    gap: 10px;
+    position: relative;
+    transition: padding-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.proj-warp-area.shifted { padding-left: 260px; }
+
+.proj-warp-wrapper {
+    flex: 1;
+    position: relative;
+    padding: 10px 15px;
+    background: #000;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.proj-warp-wrapper.panning { cursor: grabbing; }
+
+.proj-warp-wrapper::before,
+.proj-warp-wrapper::after {
+    content: '';
+    position: absolute;
+    width: 16px; height: 16px;
+    border-color: var(--accent);
+    border-style: solid;
+    z-index: 10;
+    opacity: 0.5;
+}
+.proj-warp-wrapper::before { top: 6px; left: 6px; border-width: 2px 0 0 2px; }
+.proj-warp-wrapper::after  { bottom: 6px; right: 6px; border-width: 0 2px 2px 0; }
+
+.ui-canvas-layer {
+    position: absolute;
+    inset: 0;
+    margin: 10px 15px;
+    z-index: 5;
+
+    transform-origin: 0 0;          /* важно: трансформация от верхнего-левого */
+    will-change: transform;
+    transition: transform 0.05s linear;
+}
+
+.proj-zoom-hint {
+    position: absolute;
+    bottom: 8px; left: 8px;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+    pointer-events: none;
+    z-index: 20;
+}
+
+.proj-warp-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%; height: 100%;
+    z-index: 5;
+    cursor: crosshair;
+}
+.proj-warp-wrapper.applied { cursor: default; }
+.proj-warp-wrapper.applied .proj-warp-canvas { pointer-events: none; }
+
+/* Джойстик — оверлей поверх result canvas */
+.proj-result-area {
+    background: var(--bg-surface);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    padding: 16px;
+    gap: 10px;
+    overflow: hidden;
+}
+
+.proj-result-canvas {
+    flex: 1;
+    background: #000;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    position: relative;
+    overflow: hidden;
+    cursor: grab;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 0;
+}
+.proj-result-canvas:active { cursor: grabbing; }
+
+.proj-result-canvas canvas {
+    position: absolute;
+    transform-origin: center;
+}
+.proj-result-canvas * {
+    user-select: none;
+}
+
+.proj-canvas-hint {
+    position: absolute;
+    bottom: 8px; right: 8px;
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+    pointer-events: none;
+}
+
+.proj-lut-btn {
+    width: 100%;
+    flex-shrink: 0;
+    background: rgba(255,204,64,0.06);
+    border: 1px solid rgba(255,204,64,0.25);
+    color: var(--warn);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+}
+.proj-lut-btn:hover {
+    background: rgba(255,204,64,0.12);
+    border-color: rgba(255,204,64,0.45);
+}
+.proj-lut-btn:active {
+    background: rgba(255,204,64,0.18);
+}
+
+.proj-lut-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+/* ── Joystick ── */
+.proj-joystick-wrap {
+    position: absolute;
+    bottom: 12px;
+    right: 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+    z-index: 10;
+}
+
+.proj-result-canvas:hover .proj-joystick-wrap {
+    opacity: 1;
+    pointer-events: all;
+}
+
+.proj-joystick-label {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    background: rgba(10,10,12,0.7);
+    padding: 2px 6px;
+    border-radius: 3px;
+    backdrop-filter: blur(4px);
+}
+
+.proj-joystick {
+    width: 90px; height: 90px;
+    background: rgba(22,22,29,0.85);
+    border: 1px solid var(--border-bright);
+    border-radius: 50%;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    touch-action: none;
+    backdrop-filter: blur(8px);
+}
+
+.proj-joy-ring {
+    width: 66px; height: 66px;
+    border-radius: 50%;
+    border: 1px solid var(--border-bright);
+    position: absolute;
+    pointer-events: none;
+}
+.proj-joy-cross-h {
+    position: absolute;
+    top: 50%; left: 8px; right: 8px;
+    height: 1px;
+    background: var(--border);
+    transform: translateY(-50%);
+    pointer-events: none;
+}
+.proj-joy-cross-v {
+    position: absolute;
+    left: 50%; top: 8px; bottom: 8px;
+    width: 1px;
+    background: var(--border);
+    transform: translateX(-50%);
+    pointer-events: none;
+}
+.proj-joy-nub {
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    background: var(--bg-input);
+    border: 1px solid var(--border-bright);
+    position: absolute;
+    cursor: grab;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    color: var(--text-dim);
+    user-select: none;
+    transition: border-color 0.15s;
+    will-change: transform;
+    pointer-events: all;
+}
+.proj-joy-nub:hover { border-color: var(--accent); color: var(--accent); }
+.proj-joy-nub:active { cursor: grabbing; }
+
+/* ── Modal ── */
+.modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(3px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    animation: fadeIn 0.15s ease-out;
+}
+.modal-backdrop.hidden { display: none; }
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+.modal {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    min-width: 380px;
+    max-width: 90vw;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+}
+.modal-title {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+.modal-close {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-size: 20px;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0 4px;
+}
+.modal-close:hover { color: var(--text-primary); }
+
+.modal-body {
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.modal-field { display: flex; flex-direction: column; gap: 6px; }
+.modal-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+}
+.modal-input {
+    padding: 8px 10px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.15s;
+}
+.modal-input:focus { border-color: var(--accent); }
+.modal-input.invalid { border-color: var(--err); }
+.modal-hint {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-dim);
+}
+.modal-hint.err { color: var(--err); }
+
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 18px;
+    border-top: 1px solid var(--border);
+}
+
+.btn-secondary {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+}
+.btn-secondary:hover { border-color: var(--border-bright); color: var(--text-primary); }
+
+.btn-accent {
+    background: var(--accent-glow);
+    border: 1px solid var(--accent);
+    color: var(--accent);
+}
+.btn-accent:hover { background: rgba(200, 255, 64, 0.22); }
+.btn-accent:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    pointer-events: none;
+}
