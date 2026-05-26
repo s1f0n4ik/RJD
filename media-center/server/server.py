@@ -63,70 +63,170 @@ async def handle_camera(camera_id: str, websocket) -> None:
     log.info("[CAMERA] connected  id=%s  remote=%s", camera_id, websocket.remote_address)
 
     async with _lock:
-        pair = camera_pairs.setdefault(camera_id, {"camera": None, "client": None})
+        pair = camera_pairs.setdefault(camera_id, {"camera": None, "clients": {}})
 
         if pair["camera"] is not None:
-            log.warning("[CAMERA] replacing existing connection  id=%s", camera_id)
+            # Только тут вытеснение всё ещё имеет смысл: камера одна.
+            log.warning("[CAMERA] replacing existing camera connection  id=%s", camera_id)
             await _safe_close(pair["camera"], "replaced by new camera connection")
 
         pair["camera"] = websocket
 
     try:
         async for message in websocket:
+            # Камера -> конкретному клиенту по client_id из сообщения
+            target_id = _extract_client_id(message)
+
             async with _lock:
-                client = camera_pairs.get(camera_id, {}).get("client")
+                clients = dict(camera_pairs.get(camera_id, {}).get("clients", {}))
 
             size = _msg_size(message)
-            if client:
-                log.debug("[CAMERA→CLIENT] id=%s  %s", camera_id, size)
-                try:
-                    await client.send(message)
-                except Exception as exc:
-                    log.error("[CAMERA→CLIENT] send failed  id=%s  error=%s", camera_id, exc)
+
+            if target_id and target_id in clients:
+                log.debug("[CAMERA→CLIENT] id=%s  client=%s  %s", camera_id, target_id, size)
+                await _send_safely(clients[target_id], message, camera_id, target_id)
+            elif target_id:
+                log.debug("[CAMERA→CLIENT] id=%s  client=%s  %s  — client not found, dropped",
+                          camera_id, target_id, size)
             else:
-                log.debug("[CAMERA→CLIENT] id=%s  %s  — no client, dropped", camera_id, size)
+                # Системное сообщение без client_id — broadcast всем
+                log.debug("[CAMERA→CLIENT] id=%s  %s  — broadcast to %d clients",
+                          camera_id, size, len(clients))
+                for cid, client_ws in clients.items():
+                    await _send_safely(client_ws, message, camera_id, cid)
 
     except (ConnectionClosedOK, ConnectionClosedError) as exc:
         log.info("[CAMERA] disconnected  id=%s  reason=%s", camera_id, exc)
-    except Exception as exc:
+    except Exception:
         log.exception("[CAMERA] unexpected error  id=%s", camera_id)
     finally:
-        await _cleanup_camera_side(camera_id, "camera", websocket)
+        await _cleanup_camera_disconnect(camera_id, websocket)
 
 
 async def handle_client_for_camera(camera_id: str, websocket) -> None:
     log.info("[CAM-CLIENT] connected  id=%s  remote=%s", camera_id, websocket.remote_address)
 
-    async with _lock:
-        pair = camera_pairs.setdefault(camera_id, {"camera": None, "client": None})
-
-        if pair["client"] is not None:
-            log.warning("[CAM-CLIENT] replacing existing connection  id=%s", camera_id)
-            await _safe_close(pair["client"], "replaced by new client connection")
-
-        pair["client"] = websocket
+    # client_id назначим на первом сообщении (где он лежит в JSON).
+    # До этого момента храним как None — для cleanup'а используем сам ws.
+    assigned_client_id: str | None = None
 
     try:
         async for message in websocket:
+            client_id = _extract_client_id(message)
+
+            # При самом первом сообщении регистрируем клиента в пуле
+            if assigned_client_id is None and client_id:
+                async with _lock:
+                    pair = camera_pairs.setdefault(
+                        camera_id, {"camera": None, "clients": {}}
+                    )
+                    pair["clients"][client_id] = websocket
+                    assigned_client_id = client_id
+                log.info("[CAM-CLIENT] registered  camera=%s  client=%s",
+                         camera_id, client_id)
+
             async with _lock:
                 camera = camera_pairs.get(camera_id, {}).get("camera")
 
             size = _msg_size(message)
             if camera:
-                log.debug("[CAM-CLIENT→CAMERA] id=%s  %s", camera_id, size)
+                log.debug("[CAM-CLIENT→CAMERA] camera=%s  client=%s  %s",
+                          camera_id, assigned_client_id, size)
                 try:
                     await camera.send(message)
                 except Exception as exc:
-                    log.error("[CAM-CLIENT→CAMERA] send failed  id=%s  error=%s", camera_id, exc)
+                    log.error("[CAM-CLIENT→CAMERA] send failed  camera=%s  error=%s",
+                              camera_id, exc)
             else:
-                log.debug("[CAM-CLIENT→CAMERA] id=%s  %s  — no camera, dropped", camera_id, size)
+                log.debug("[CAM-CLIENT→CAMERA] camera=%s  %s  — no camera, dropped",
+                          camera_id, size)
 
     except (ConnectionClosedOK, ConnectionClosedError) as exc:
-        log.info("[CAM-CLIENT] disconnected  id=%s  reason=%s", camera_id, exc)
-    except Exception as exc:
-        log.exception("[CAM-CLIENT] unexpected error  id=%s", camera_id)
+        log.info("[CAM-CLIENT] disconnected  camera=%s  client=%s  reason=%s",
+                 camera_id, assigned_client_id, exc)
+    except Exception:
+        log.exception("[CAM-CLIENT] unexpected error  camera=%s  client=%s",
+                      camera_id, assigned_client_id)
     finally:
-        await _cleanup_camera_side(camera_id, "client", websocket)
+        if assigned_client_id is not None:
+            await _cleanup_client_disconnect(camera_id, assigned_client_id, websocket)
+
+
+# ─────────────────────────────────────────
+#  Helpers
+# ─────────────────────────────────────────
+
+def _extract_client_id(message) -> str | None:
+    """Достаёт client_id из JSON. Безопасно для бинарных и невалидных сообщений."""
+    if isinstance(message, (bytes, bytearray)):
+        return None
+    try:
+        parsed = json.loads(message)
+        if isinstance(parsed, dict):
+            cid = parsed.get("client_id")
+            return cid if isinstance(cid, str) else None
+    except (json.JSONDecodeError, ValueError):
+        pass
+    return None
+
+
+async def _send_safely(ws, message, camera_id: str, client_id: str | None) -> None:
+    try:
+        await ws.send(message)
+    except Exception as exc:
+        log.error("send failed  camera=%s  client=%s  error=%s",
+                  camera_id, client_id, exc)
+
+
+# ─────────────────────────────────────────
+#  Cleanup
+# ─────────────────────────────────────────
+
+async def _cleanup_client_disconnect(camera_id: str, client_id: str, websocket) -> None:
+    """Один клиент отключился — убираем только его, камеру и других не трогаем."""
+    async with _lock:
+        pair = camera_pairs.get(camera_id)
+        if pair is None:
+            return
+
+        existing = pair["clients"].get(client_id)
+        if existing is not websocket:
+            log.debug("[CAMERA-PAIR] stale client cleanup ignored  camera=%s  client=%s",
+                      camera_id, client_id)
+            return
+
+        pair["clients"].pop(client_id, None)
+        log.info("[CAMERA-PAIR] removed client  camera=%s  client=%s  remaining=%d",
+                 camera_id, client_id, len(pair["clients"]))
+
+        # Если ни камеры, ни клиентов — выпиливаем пару
+        if pair["camera"] is None and not pair["clients"]:
+            camera_pairs.pop(camera_id, None)
+            log.info("[CAMERA-PAIR] removed  id=%s", camera_id)
+
+
+async def _cleanup_camera_disconnect(camera_id: str, websocket) -> None:
+    """Камера отключилась — закрываем всех её клиентов."""
+    async with _lock:
+        pair = camera_pairs.get(camera_id)
+        if pair is None:
+            return
+
+        if pair["camera"] is not websocket:
+            log.debug("[CAMERA-PAIR] stale camera cleanup ignored  id=%s", camera_id)
+            return
+
+        clients = list(pair["clients"].values())
+        pair["camera"] = None
+        pair["clients"] = {}
+        camera_pairs.pop(camera_id, None)
+
+        log.info("[CAMERA-PAIR] camera gone, closing %d clients  id=%s",
+                 len(clients), camera_id)
+
+    # Закрываем клиентов ВНЕ lock
+    for client_ws in clients:
+        await _safe_close(client_ws, "camera disconnected")
 
 
 async def _cleanup_camera_side(camera_id: str, side: str, websocket) -> None:
@@ -339,9 +439,11 @@ async def _force_destroy_camera(camera_id: str) -> None:
         log.warning("[DESTROY] camera pair not found  id=%s", camera_id)
         return
 
-    log.info("[DESTROY] closing camera pair  id=%s", camera_id)
+    log.info("[DESTROY] closing camera pair  id=%s  clients=%d",
+             camera_id, len(pair.get("clients", {})))
     await _safe_close(pair.get("camera"), "destroyed by external request")
-    await _safe_close(pair.get("client"), "destroyed by external request")
+    for client_ws in pair.get("clients", {}).values():
+        await _safe_close(client_ws, "destroyed by external request")
     log.info("[DESTROY] camera pair closed  id=%s", camera_id)
 
 
