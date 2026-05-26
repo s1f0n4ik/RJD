@@ -13,7 +13,7 @@
 import { initProjPage, handleProjectionMessage } from './projection.js';
 import { showToast, log} from './utility.js';
 import {initLinkerPage} from "./linker-page.js";
-import { wsUrl } from './webrtc.js';
+import { main_ws_url } from './webrtc.js';
 
 // ── State ────────────────────────────────────────────────────
 export const state = {
@@ -24,8 +24,6 @@ export const state = {
     pc:       null,
     streamId: null,
 };
-
-const main_ws_url = wsUrl(`ws://192.168.1.2:8765/cal-client/server`);
 
 // ── DOM refs ─────────────────────────────────────────────────
 const dom = {

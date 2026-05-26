@@ -10,15 +10,16 @@
 import { log, showToast } from "./utility.js";
 import { PROJ_POSITION_LABELS } from "./projection.js"
 import {state} from "./app.js"
+import { main_ws_url } from './webrtc.js';
 
 import {
     createWebRTCSession,
     connectWebRTC,
-    closeWebRTC,
-    WS_SIGNALING_URL,
+    closeWebRTC
 } from './webrtc.js';
 
 const linkerRtc = createWebRTCSession();
+
 
 // ─────────────────────────────────────────────────────────────
 // State модуля
@@ -301,7 +302,7 @@ function _renderResumeButton() {
 
 function connectLinkerRTC() {
 
-    if (!WS_SIGNALING_URL) {
+    if (!main_ws_url) {
         showToast('RTC', 'Не задан WS URL', 'err');
         return;
     }
@@ -312,7 +313,7 @@ function connectLinkerRTC() {
     connectWebRTC(linkerRtc, {
         streamId: linkerState.streamId,
         clientId: state.clientId,
-        wsUrl: WS_SIGNALING_URL,
+        wsUrl: main_ws_url,
 
         onTrack: (e) => {
             const video = document.getElementById('linkerVideo');

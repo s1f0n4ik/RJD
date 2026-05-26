@@ -6,6 +6,8 @@ export function wsUrl(path) {
     return `${proto}//${window.location.host}${cleanPath}`;
 }
 
+export const main_ws_url = wsUrl(`/signaling/cal-client/server`);
+
 export function createWebRTCSession() {
     return {
         rtcWs: null,
