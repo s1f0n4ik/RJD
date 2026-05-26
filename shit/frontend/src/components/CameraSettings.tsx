@@ -98,7 +98,7 @@ interface CameraFormData {
 }
 
 type ProbeStatus = 'idle' | 'creating' | 'streaming' | 'error';
-const cameraUrl = (id: string) => `api/camera/${encodeURIComponent(id)}`;
+const cameraUrl = (id: string) => `/api/camera/${encodeURIComponent(id)}`;
 const RESERVED_PREFIXES = ['__probe_'];
 const NAME_REGEX = /^[a-zA-Z_][a-zA-Z0-9_-]{1,31}$/;
 const IP_REGEX = /^((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/;
@@ -272,6 +272,8 @@ const CameraSettings: React.FC = () => {
       const response = await fetch('/api/cameras');
       if (!response.ok) throw new Error('Failed to load cameras');
       const data = await response.json();
+
+      console.log(`loaded cameras: ${data}`);
 
       let list: Camera[] = [];
       if (data.cameras) {
