@@ -267,14 +267,14 @@ void UWebRTCSession::teardown() {
 		m_tee_pad_src = nullptr;
 	}
 
-	//GstWebRTCICE* ice_agent = nullptr;
-	//g_object_get(m_webrtcbin, "ice-agent", &ice_agent, nullptr);
-	//
-	//if (ice_agent) {
+	GstWebRTCICE* ice_agent = nullptr;
+	g_object_get(m_webrtcbin, "ice-agent", &ice_agent, nullptr);
+	
+	if (ice_agent) {
 	//	// Создаём promise, чтобы дождаться завершения закрытия
-	//	gst_webrtc_ice_close(ice_agent, nullptr);
-	//	gst_object_unref(ice_agent);
-	//}
+		gst_webrtc_ice_close(ice_agent, nullptr);
+		gst_object_unref(ice_agent);
+	}
 
 	// Удаление трансиверов
 	GArray* transceivers = nullptr;
