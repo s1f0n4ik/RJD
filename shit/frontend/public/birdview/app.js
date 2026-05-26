@@ -309,7 +309,7 @@ function connectRtcWS(streamId) {
     if (!baseUrl) return;
 
     const u = new URL(baseUrl);
-    u.pathname = `/client/${streamId}`;
+    u.pathname = `/signaling/client/${streamId}`;
 
     const url = u.toString();
 
