@@ -56,7 +56,7 @@ async function _restJson(method, path, body) {
 // ─────────────────────────────────────────────────────────────
 async function loadExports() {
     try {
-        const json = await _restJson('GET', '/api/linker/exports');
+        const json = await _restJson('GET', '/linker/exports');
         linkerState.exports = json.data?.exports ?? json.exports ?? [];
         log(`Linker: loaded ${linkerState.exports.length} exports`, 'info');
         _renderExportsList();
@@ -83,7 +83,7 @@ async function loadCameras() {
 
 async function loadStatus() {
     try {
-        const json = await _restJson('GET', '/api/linker/status');
+        const json = await _restJson('GET', '/linker/status');
         const data = json.data ?? json;
         linkerState.streaming = !!data.running;
         linkerState.streamId  = data.stream_id ?? null;
@@ -127,7 +127,7 @@ async function selectExport(exp) {
 
     // Если на сервере уже есть state для этого id — подтянем биндинги.
     try {
-        const json = await _restJson('GET', '/api/linker/state');
+        const json = await _restJson('GET', '/linker/state');
         const st = json.data ?? json;
         if (st.export_id === exp.id && st.cameras) {
             linkerState.bindings = { ...st.cameras };
@@ -217,13 +217,13 @@ async function applyAndStart() {
     btn.textContent = 'Запуск...';
 
     try {
-        await _restJson('POST', '/api/linker/state', {
+        await _restJson('POST', '/linker/state', {
             export_id: exp.id,
             cameras:   linkerState.bindings,
         });
         log(`Linker: state saved for <${exp.id}>`, 'info');
 
-        const json = await _restJson('POST', '/api/linker/start');
+        const json = await _restJson('POST', '/linker/start');
         linkerState.streaming = true;
         log(`Linker: started!}`, 'info');
 
@@ -269,7 +269,7 @@ function _exitStreamingView() {
 
 async function stopStream() {
     try {
-        await _restJson('POST', '/api/linker/stop');
+        await _restJson('POST', '/linker/stop');
         linkerState.streaming = false;
     } catch (e) {
         log(`Linker: stop failed: ${e.message}`, 'warn');
