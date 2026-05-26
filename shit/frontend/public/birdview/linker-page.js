@@ -10,7 +10,7 @@
 import { log, showToast } from "./utility.js";
 import { PROJ_POSITION_LABELS } from "./projection.js"
 import {state} from "./app.js"
-import { main_ws_url } from './webrtc.js';
+import {main_ws_url, wsUrl} from './webrtc.js';
 
 import {
     createWebRTCSession,
@@ -313,7 +313,7 @@ function connectLinkerRTC() {
     connectWebRTC(linkerRtc, {
         streamId: linkerState.streamId,
         clientId: state.clientId,
-        wsUrl: main_ws_url,
+        wsUrl: wsUrl(`/signaling/client/${linkerState.streamId}`),
 
         onTrack: (e) => {
             const video = document.getElementById('linkerVideo');

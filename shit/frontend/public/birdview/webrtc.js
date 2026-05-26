@@ -28,7 +28,7 @@ export function connectWebRTC(session, {streamId, clientId, wsUrl,
 
     session.streamId = streamId;
     session.clientId = clientId;
-    session.wsUrl = wsUrl(`/signaling/client/${streamId}`);
+    session.wsUrl = wsUrl;
 
     session.handlers = {
         onTrack,
