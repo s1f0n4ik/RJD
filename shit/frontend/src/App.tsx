@@ -21,7 +21,6 @@ import type { SystemState } from './types';
 import { RZD_COLORS } from './theme';
 import Observation from './components/Observation';
 import RecordingsView from './components/RecordingsView';
-import { FASTAPI_BASE } from './utils/constants';
 import Landing from './components/Landing';
 import OnScreenKeyboard from './components/OnScreenKeyboard';
 const ADMIN_TABS = new Set([1, 3]); // Камеры, Загрузчики
@@ -102,7 +101,7 @@ const App: React.FC = () => {
     setAuthError('');
     try {
       // Проверяем пароль админа через /auth/login (без перелогина основного пользователя)
-      const response = await fetch(`${FASTAPI_BASE}/auth/login`, {
+      const response = await fetch(`/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: 'admin', password: adminPassword }),
