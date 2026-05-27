@@ -10,11 +10,9 @@ interface RecordingsCalendarProps {
     selectedDate: Date;
     onDateChange: (date: Date) => void;
     highlightDates: Date[];
-    /** Map<YYYY-MM-DD, количество записей>. Опциональный — если не передан, tooltip не показывается. */
     recordingCounts?: Map<string, number>;
 }
 
-// Ключ для Map: дата в формате YYYY-MM-DD (по локальному времени, без UTC-сдвига)
 const dateToKey = (d: Date): string => {
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -22,7 +20,6 @@ const dateToKey = (d: Date): string => {
     return `${y}-${m}-${day}`;
 };
 
-// Правильное склонение: 1 запись, 2 записи, 5 записей
 const formatRecordingsCount = (n: number): string => {
     const lastTwo = n % 100;
     if (lastTwo >= 11 && lastTwo <= 14) return `${n} записей`;
@@ -38,7 +35,6 @@ const RecordingsCalendar: React.FC<RecordingsCalendarProps> = ({
                                                                    highlightDates,
                                                                    recordingCounts,
                                                                }) => {
-    console.log('[Calendar] render');
     const isHighlighted = (day: Date) => {
         return highlightDates.some(d => d.toDateString() === day.toDateString());
     };
@@ -64,7 +60,6 @@ const RecordingsCalendar: React.FC<RecordingsCalendarProps> = ({
             />
         );
 
-        // Tooltip только если есть что показать
         if (count === 0) return pickersDay;
 
         return (
@@ -77,10 +72,7 @@ const RecordingsCalendar: React.FC<RecordingsCalendarProps> = ({
                 disableFocusListener
                 disableTouchListener
             >
-                {/* span — Tooltip требует child, который принимает ref */}
-                <span style={{ display: 'inline-flex' }}>
-                  {pickersDay}
-                </span>
+                <span style={{ display: 'inline-flex' }}>{pickersDay}</span>
             </Tooltip>
         );
     };
@@ -104,4 +96,4 @@ const RecordingsCalendar: React.FC<RecordingsCalendarProps> = ({
     );
 };
 
-export default RecordingsCalendar;
+export default React.memo(RecordingsCalendar);

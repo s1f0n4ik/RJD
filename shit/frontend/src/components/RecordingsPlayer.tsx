@@ -1,24 +1,29 @@
 import React, { useRef, useEffect } from 'react';
 import { Box, LinearProgress, Typography } from '@mui/material';
+import { currentTimeBus } from '../utils/currentTimeBus';
+import { throttle } from '../utils/throttle';
 
 interface RecordingsPlayerProps {
     camera: string;
-    displayName?: string;     // ← новый необязательный проп
+    displayName?: string;
     file: { filename: string; created: string };
     onEnded?: () => void;
-    onTimeUpdate?: (minutesFromDayStart: number) => void;
 }
 
 const RecordingsPlayer: React.FC<RecordingsPlayerProps> = ({
-       camera,
-       displayName,
-       file,
-       onEnded,
-       onTimeUpdate,
-   }) => {
+                                                               camera,
+                                                               displayName,
+                                                               file,
+                                                               onEnded,
+                                                           }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const [loading, setLoading] = React.useState(true);
     const [error, setError] = React.useState(false);
+
+    // throttled-публикация в шину. Создаётся один раз на жизнь компонента.
+    const publishCurrentTime = useRef(
+        throttle((minutes: number) => currentTimeBus.set(minutes), 500)
+    ).current;
 
     useEffect(() => {
         if (videoRef.current) {
@@ -28,21 +33,30 @@ const RecordingsPlayer: React.FC<RecordingsPlayerProps> = ({
         }
     }, [camera, file.filename]);
 
+    // Сбрасываем currentTime при размонтировании, чтобы timeline убрал playhead
+    useEffect(() => {
+        return () => {
+            currentTimeBus.set(undefined);
+        };
+    }, []);
+
     const handleCanPlay = () => setLoading(false);
-    const handleError = () => { setLoading(false); setError(true); };
+    const handleError = () => {
+        setLoading(false);
+        setError(true);
+    };
 
     const handleTimeUpdate = () => {
-        if (!videoRef.current || !onTimeUpdate) return;
+        if (!videoRef.current) return;
         const fileStart = new Date(file.created);
         const fileStartMinutes =
             fileStart.getHours() * 60 +
             fileStart.getMinutes() +
             fileStart.getSeconds() / 60;
         const offsetMinutes = videoRef.current.currentTime / 60;
-        onTimeUpdate(fileStartMinutes + offsetMinutes);
+        publishCurrentTime(fileStartMinutes + offsetMinutes);
     };
 
-    // Если displayName не передан или совпадает с id — показываем только одну строку
     const effectiveDisplayName = displayName || camera;
     const showCameraId = displayName && displayName !== camera;
 

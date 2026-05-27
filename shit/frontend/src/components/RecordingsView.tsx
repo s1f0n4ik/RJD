@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
     Container, Paper, Box, Grid, Typography, CircularProgress, Alert,
     FormControl, InputLabel, Select, MenuItem, Chip, Button, Dialog,
@@ -30,7 +30,6 @@ const RecordingsView: React.FC = () => {
     const [selectedDate, setSelectedDate] = useState<Date>(new Date());
     const [currentFile, setCurrentFile] = useState<Recording | null>(null);
     const [currentFileIndex, setCurrentFileIndex] = useState<number>(-1);
-    const [currentTime, setCurrentTime] = useState<number>(0);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
 
@@ -136,12 +135,16 @@ const RecordingsView: React.FC = () => {
         setSelectionMode(false);
     };
 
-    const handleDateChange = (date: Date) => {
+    const handleDateChange = useCallback((date: Date) => {
         setSelectedDate(date);
         setCurrentFile(null);
         setSelectedRange(null);
         setSelectionMode(false);
-    };
+    }, []);
+
+    const handleRangeSelected = useCallback((range: { start: number; end: number }) => {
+        setSelectedRange(range);
+    }, []);
 
     const playFile = (file: Recording, index: number) => {
         setCurrentFile(file);
@@ -161,10 +164,7 @@ const RecordingsView: React.FC = () => {
         const index = files.findIndex(f => f.filename === file.filename);
         if (index !== -1) playFile(file, index);
     };
-
-    const handleRangeSelected = (range: { start: number; end: number }) => {
-        setSelectedRange(range);
-    };
+    
 
     const formatMinutes = (minutes: number): string => {
         const h = Math.floor(minutes / 60);
@@ -214,18 +214,6 @@ const RecordingsView: React.FC = () => {
         }
     };
 
-    const getRecordingCountsByDate = (): Map<string, number> => {
-        const counts = new Map<string, number>();
-        if (!selectedCamera || !recordings[selectedCamera]) return counts;
-
-        for (const file of recordings[selectedCamera]) {
-            // Ключ — дата в формате YYYY-MM-DD
-            const dateKey = file.created.split('T')[0];
-            counts.set(dateKey, (counts.get(dateKey) ?? 0) + 1);
-        }
-        return counts;
-    };
-
     const getFilesForSelectedDate = (): Recording[] => {
         if (!selectedCamera || !recordings[selectedCamera]) return [];
         const dateStr = selectedDate.toISOString().split('T')[0];
@@ -244,9 +232,19 @@ const RecordingsView: React.FC = () => {
         : -1;
     const isCurrentFileInSelectedDate = currentFileIndexInDate !== -1;
 
-    const recordingCounts = getRecordingCountsByDate();
-    const datesWithRecordings = Array.from(recordingCounts.keys()).map(
-        s => new Date(s + 'T00:00:00')   // безопасный парсинг локальной даты
+    const recordingCounts = useMemo(() => {
+        const counts = new Map<string, number>();
+        if (!selectedCamera || !recordings[selectedCamera]) return counts;
+        for (const file of recordings[selectedCamera]) {
+            const dateKey = file.created.split('T')[0];
+            counts.set(dateKey, (counts.get(dateKey) ?? 0) + 1);
+        }
+        return counts;
+    }, [selectedCamera, recordings]);
+
+    const datesWithRecordings = useMemo(
+        () => Array.from(recordingCounts.keys()).map(s => new Date(s + 'T00:00:00')),
+        [recordingCounts]
     );
 
     if (loading) {
@@ -368,7 +366,6 @@ const RecordingsView: React.FC = () => {
                                     displayName={currentCameraDisplay.displayName}
                                     file={currentFile}
                                     onEnded={handleVideoEnded}
-                                    onTimeUpdate={setCurrentTime}
                                 />
                             ) : (
                                 <Box display="flex" alignItems="center" justifyContent="center" height="100%" textAlign="center" p={4}>
@@ -409,7 +406,6 @@ const RecordingsView: React.FC = () => {
                                 camera={selectedCamera}
                                 date={selectedDate}
                                 files={filesForDate}
-                                currentTime={selectionMode ? undefined : currentTime}
                                 currentFileName={currentFile?.filename}
                                 onSeek={handleTimelineSeek}
                                 selectionMode={selectionMode}
