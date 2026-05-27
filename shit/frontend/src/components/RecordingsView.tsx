@@ -232,6 +232,10 @@ const RecordingsView: React.FC = () => {
     const currentCameraDisplay = selectedCamera
         ? getCameraDisplay(selectedCamera)
         : { displayName: 'Не выбрана', isDeleted: false };
+    const currentFileIndexInDate = currentFile
+        ? filesForDate.findIndex(f => f.filename === currentFile.filename)
+        : -1;
+    const isCurrentFileInSelectedDate = currentFileIndexInDate !== -1;
 
     if (loading) {
         return (
@@ -262,7 +266,7 @@ const RecordingsView: React.FC = () => {
                     </Box>
 
                     <FormControl sx={{ minWidth: 320 }}>
-                        <InputLabel>📹 Выберите камеру</InputLabel>
+                        <InputLabel>Выберите камеру</InputLabel>
                         <Select
                             value={selectedCamera}
                             onChange={(e) => handleCameraChange(e.target.value)}
@@ -349,6 +353,7 @@ const RecordingsView: React.FC = () => {
                             {currentFile && selectedCamera && !selectionMode ? (
                                 <RecordingsPlayer
                                     camera={selectedCamera}
+                                    displayName={currentCameraDisplay.displayName}
                                     file={currentFile}
                                     onEnded={handleVideoEnded}
                                     onTimeUpdate={setCurrentTime}
@@ -419,7 +424,7 @@ const RecordingsView: React.FC = () => {
 
                         <Paper sx={{ p: 2, mb: 2 }}>
                             <Typography variant="subtitle2" fontWeight="bold" mb={1}>
-                                📊 Статистика
+                                Статистика
                             </Typography>
                             <Typography variant="body2" color="text.secondary">
                                 Камера:{' '}
@@ -442,11 +447,16 @@ const RecordingsView: React.FC = () => {
                                     ? 'Записи за этот день есть'
                                     : 'Записей за этот день нет'}
                             </Typography>
-                            {currentFile && !selectionMode && (
-                                <Typography variant="body2" color="primary" sx={{ mt: 1 }}>
-                                    Воспроизводится: {currentFileIndex + 1}/{filesForDate.length}
-                                </Typography>
-                            )}
+
+                            {/* Показываем только если: есть файлы за дату, есть текущий файл,
+                                и он реально из этой даты, и не в режиме выбора диапазона */}
+                            {filesForDate.length > 0 &&
+                                isCurrentFileInSelectedDate &&
+                                !selectionMode && (
+                                    <Typography variant="body2" color="primary" sx={{ mt: 1 }}>
+                                        Воспроизводится: {currentFileIndexInDate + 1}/{filesForDate.length}
+                                    </Typography>
+                                )}
                             {selectedRange && (
                                 <Alert severity="success" sx={{ mt: 1 }} icon={false}>
                                     <Typography variant="caption" fontWeight="bold">
