@@ -1,12 +1,18 @@
 import logging
+import asyncio
+import json
 import re
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import (
+    APIRouter, BackgroundTasks, HTTPException, Request, Response,
+    WebSocket, WebSocketDisconnect,
+)
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from app.config import settings
-from app.services.merger import MergeError, merge_range
+from app.services.jobs import JobStatus, jobs
+from app.services.merger import run_merge_job
 from app.services.storage import storage
 
 logger = logging.getLogger(__name__)
@@ -100,22 +106,98 @@ async def stream(camera_name: str, filename: str, request: Request):
     )
 
 
-@router.post("/recordings/merge")
-async def merge_endpoint(req: MergeRequest):
-    try:
-        output_file, list_file = merge_range(
-            req.camera, req.date, req.start_minutes, req.end_minutes
-        )
-    except MergeError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+class MergeRequest(BaseModel):
+    camera: str
+    date: str
+    start_minutes: float
+    end_minutes: float
+    archive: bool = False  # упаковать результат в zip
 
-    def cleanup():
-        list_file.unlink(missing_ok=True)
-        output_file.unlink(missing_ok=True)
+
+@router.post("/recordings/merge")
+async def merge_start(req: MergeRequest):
+    """
+    Запускает асинхронную задачу склейки. Возвращает job_id.
+    Прогресс — по WS /api/recordings/jobs/{job_id}/progress
+    Результат — GET /api/recordings/jobs/{job_id}/download
+    """
+    job = await jobs.create()
+    asyncio.create_task(run_merge_job(
+        job,
+        camera=req.camera,
+        date=req.date,
+        start_minutes=req.start_minutes,
+        end_minutes=req.end_minutes,
+        archive=req.archive,
+    ))
+    return {"job_id": job.id}
+
+
+@router.websocket("/recordings/jobs/{job_id}/progress")
+async def merge_progress(ws: WebSocket, job_id: str):
+    """
+    WebSocket-стрим прогресса. Шлёт JSON-снапшоты по мере обновления.
+    Закрывается, когда status == ready/failed.
+    """
+    await ws.accept()
+    job = await jobs.get(job_id)
+    if job is None:
+        await ws.send_json({"status": "failed", "error": "Job not found"})
+        await ws.close()
+        return
+
+    queue = jobs.subscribe(job)
+    try:
+        while True:
+            event = await queue.get()
+            await ws.send_json({
+                "status": event.status.value,
+                "progress": event.progress,
+                "message": event.message,
+                "error": event.error,
+            })
+            # Терминальные статусы — закрываем
+            if event.status in (JobStatus.READY, JobStatus.FAILED):
+                break
+    except WebSocketDisconnect:
+        pass
+    finally:
+        jobs.unsubscribe(job, queue)
+        try:
+            await ws.close()
+        except Exception:
+            pass
+
+
+@router.get("/recordings/jobs/{job_id}/download")
+async def merge_download(job_id: str, background_tasks: BackgroundTasks):
+    """
+    Скачивание результата. После отправки файла job чистится.
+    """
+    job = await jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status != JobStatus.READY or not job.result_path:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Job not ready (status: {job.status.value})",
+        )
+    if not job.result_path.exists():
+        raise HTTPException(status_code=410, detail="Result file expired")
+
+    background_tasks.add_task(_finalize_job, job_id)
 
     return FileResponse(
-        path=output_file,
-        media_type="video/mp4",
-        filename=output_file.name,
-        background=cleanup,
+        path=job.result_path,
+        media_type=job.result_media_type,
+        filename=job.result_filename,
     )
+
+
+async def _finalize_job(job_id: str):
+    """Помечаем как скачано и чистим временные файлы."""
+    job = await jobs.get(job_id)
+    if job is None:
+        return
+    await jobs.update(job, status=JobStatus.DOWNLOADED)
+    await jobs.cleanup(job)

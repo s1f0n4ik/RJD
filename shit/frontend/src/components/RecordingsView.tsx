@@ -36,7 +36,8 @@ const RecordingsView: React.FC = () => {
     const [selectionMode, setSelectionMode] = useState(false);
     const [selectedRange, setSelectedRange] = useState<{ start: number; end: number } | null>(null);
     const [merging, setMerging] = useState(false);
-    const [_, setMergeProgress] = useState(0);
+    const [mergeProgress, setMergeProgress] = useState(0);
+    const [mergeStatus, setMergeStatus] = useState<string>('');
 
     useEffect(() => {
         loadData();
@@ -176,10 +177,13 @@ const RecordingsView: React.FC = () => {
         if (!selectedRange || !selectedCamera) return;
         setMerging(true);
         setMergeProgress(0);
+        setMergeStatus('Запуск...');
 
         try {
             const dateStr = selectedDate.toISOString().split('T')[0];
-            const response = await fetch('/api/recordings/merge', {
+
+            // 1. Стартуем job
+            const startRes = await fetch('/api/recordings/merge', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -187,27 +191,60 @@ const RecordingsView: React.FC = () => {
                     date: dateStr,
                     start_minutes: selectedRange.start,
                     end_minutes: selectedRange.end,
+                    archive: true,   // или false, если хочешь mp4
                 }),
             });
-            if (!response.ok) {
-                const e = await response.json();
-                throw new Error(e.detail || 'Merge failed');
-            }
-            const blob = await response.blob();
+            if (!startRes.ok) throw new Error('Не удалось запустить склейку');
+            const { job_id } = await startRes.json();
+
+            // 2. Подключаемся к WS прогресса
+            const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const ws = new WebSocket(
+                `${wsProto}//${location.host}/api/recordings/jobs/${job_id}/progress`
+            );
+
+            const finalStatus = await new Promise<string>((resolve, reject) => {
+                ws.onmessage = (e) => {
+                    const ev = JSON.parse(e.data);
+                    setMergeProgress(ev.progress);
+                    setMergeStatus(ev.message || '');
+                    if (ev.status === 'ready') {
+                        resolve('ready');
+                        ws.close();
+                    } else if (ev.status === 'failed') {
+                        reject(new Error(ev.error || 'Ошибка склейки'));
+                        ws.close();
+                    }
+                };
+                ws.onerror = () => reject(new Error('WebSocket error'));
+                ws.onclose = () => {
+                    // close без resolve — если соединение оборвалось до финального события
+                };
+            });
+
+            if (finalStatus !== 'ready') return;
+
+            // 3. Скачиваем результат
+            setMergeStatus('Скачивание...');
+            const dlRes = await fetch(`/api/recordings/jobs/${job_id}/download`);
+            if (!dlRes.ok) throw new Error('Не удалось скачать результат');
+
+            const blob = await dlRes.blob();
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `${selectedCamera}_${dateStr}_${formatMinutes(selectedRange.start).replace(':', '')}-${formatMinutes(selectedRange.end).replace(':', '')}.mp4`;
+            a.download = dlRes.headers.get('content-disposition')?.match(/filename="?([^"]+)"?/)?.[1]
+                ?? `merge_${dateStr}.zip`;
             document.body.appendChild(a);
             a.click();
             window.URL.revokeObjectURL(url);
             document.body.removeChild(a);
-            setMergeProgress(100);
+
             setTimeout(() => {
                 setMerging(false);
                 setSelectionMode(false);
                 setSelectedRange(null);
-            }, 1500);
+            }, 1000);
         } catch (err: any) {
             alert(`Ошибка склейки: ${err.message}`);
             setMerging(false);
@@ -520,14 +557,16 @@ const RecordingsView: React.FC = () => {
             )}
 
             <Dialog open={merging} maxWidth="sm" fullWidth>
-                <DialogTitle>⚙️ Склеивание видео</DialogTitle>
+                <DialogTitle>Склеивание видео</DialogTitle>
                 <DialogContent>
-                    <Typography gutterBottom>
-                        Обрабатываем видео с {selectedRange && formatMinutes(selectedRange.start)} до {selectedRange && formatMinutes(selectedRange.end)}...
-                    </Typography>
-                    <LinearProgress variant="indeterminate" sx={{ mt: 2 }} />
+                    <Typography gutterBottom>{mergeStatus}</Typography>
+                    <LinearProgress
+                        variant="determinate"
+                        value={Math.round(mergeProgress * 100)}
+                        sx={{ mt: 2 }}
+                    />
                     <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                        Это может занять несколько минут в зависимости от длительности
+                        {Math.round(mergeProgress * 100)}%
                     </Typography>
                 </DialogContent>
             </Dialog>
