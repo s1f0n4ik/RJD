@@ -1,5 +1,6 @@
 out/
 .vs/
 .idea/
+media-center/build/
 
 CMakePresets.json
