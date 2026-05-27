@@ -186,7 +186,6 @@ const AppContent: React.FC = () => {
     <>
       <Login onLogin={handleLogin} />
       <OnScreenKeyboard />
-        <GlobalMergeJobPanel />
     </>
   );
   }
@@ -285,6 +284,7 @@ const AppContent: React.FC = () => {
         </DialogActions>
       </Dialog>
       <OnScreenKeyboard />
+        <GlobalMergeJobPanel />
     </Box>
   );
 };
