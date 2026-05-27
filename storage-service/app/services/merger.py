@@ -280,7 +280,15 @@ async def _run_ffmpeg_with_progress(
         *, list_file, output_file, progress_file, expected_seconds,
         on_progress, job, files_count,
 ):
-    cmd = [...]
+    cmd = [
+        "ffmpeg",
+        "-f", "concat", "-safe", "0",
+        "-i", str(list_file),
+        "-c", "copy",
+        "-progress", str(progress_file),
+        "-y",
+        str(output_file),
+    ]
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
