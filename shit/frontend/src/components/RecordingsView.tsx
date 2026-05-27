@@ -214,9 +214,16 @@ const RecordingsView: React.FC = () => {
         }
     };
 
-    const getDatesWithRecordings = (): Date[] => {
-        if (!selectedCamera || !recordings[selectedCamera]) return [];
-        return recordings[selectedCamera].map(f => new Date(f.created));
+    const getRecordingCountsByDate = (): Map<string, number> => {
+        const counts = new Map<string, number>();
+        if (!selectedCamera || !recordings[selectedCamera]) return counts;
+
+        for (const file of recordings[selectedCamera]) {
+            // Ключ — дата в формате YYYY-MM-DD
+            const dateKey = file.created.split('T')[0];
+            counts.set(dateKey, (counts.get(dateKey) ?? 0) + 1);
+        }
+        return counts;
     };
 
     const getFilesForSelectedDate = (): Recording[] => {
@@ -236,6 +243,11 @@ const RecordingsView: React.FC = () => {
         ? filesForDate.findIndex(f => f.filename === currentFile.filename)
         : -1;
     const isCurrentFileInSelectedDate = currentFileIndexInDate !== -1;
+
+    const recordingCounts = getRecordingCountsByDate();
+    const datesWithRecordings = Array.from(recordingCounts.keys()).map(
+        s => new Date(s + 'T00:00:00')   // безопасный парсинг локальной даты
+    );
 
     if (loading) {
         return (
@@ -409,13 +421,14 @@ const RecordingsView: React.FC = () => {
 
                     <Grid item xs={12} lg={3}>
                         <Paper sx={{ p: 2, mb: 2 }}>
-                            <Typography variant="subtitle1" fontWeight="bold" mb={2}>
+                            <Typography variant="subtitle1" fontWeight="bold">
                                 Выберите дату
                             </Typography>
                             <RecordingsCalendar
                                 selectedDate={selectedDate}
                                 onDateChange={handleDateChange}
-                                highlightDates={getDatesWithRecordings()}
+                                highlightDates={datesWithRecordings}
+                                recordingCounts={recordingCounts}
                             />
                             <Alert severity="info" sx={{ mt: 2 }} icon={false}>
                                 <strong>Синие дни</strong> = есть записи
