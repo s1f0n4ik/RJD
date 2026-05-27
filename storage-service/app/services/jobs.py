@@ -17,15 +17,19 @@ class JobStatus(str, Enum):
     READY = "ready"            # готово к скачиванию
     DOWNLOADED = "downloaded"  # клиент уже забрал
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 @dataclass
 class JobEvent:
-    """Одно событие прогресса, которое отправляется по WS."""
     status: JobStatus
-    progress: float = 0.0      # 0..1
+    progress: float = 0.0
     message: str = ""
     error: Optional[str] = None
+    files_total: int = 0
+    files_processed: int = 0
+    bytes_total: int = 0
+    duration_seconds: float = 0.0
 
 
 @dataclass
@@ -38,17 +42,26 @@ class Job:
     result_path: Optional[Path] = None
     result_filename: Optional[str] = None
     result_media_type: str = "video/mp4"
-    # Файлы для cleanup после скачивания или ошибки
+    # Новые поля метрик
+    files_total: int = 0
+    files_processed: int = 0
+    bytes_total: int = 0
+    duration_seconds: float = 0.0
+    cancelled: bool = False              # ← флаг отмены
+    process: Optional[asyncio.subprocess.Process] = None  # ← чтобы убить ffmpeg
     temp_files: list[Path] = field(default_factory=list)
-    # Подписчики на прогресс (WebSocket'ы через очередь)
     _subscribers: list[asyncio.Queue] = field(default_factory=list)
 
-    def snapshot(self) -> JobEvent:
+    def snapshot(self) -> "JobEvent":
         return JobEvent(
             status=self.status,
             progress=self.progress,
             message=self.message,
             error=self.error,
+            files_total=self.files_total,
+            files_processed=self.files_processed,
+            bytes_total=self.bytes_total,
+            duration_seconds=self.duration_seconds,
         )
 
 
@@ -123,6 +136,17 @@ class JobManager:
                 pass
         async with self._lock:
             self._jobs.pop(job.id, None)
+
+    async def cancel(self, job: Job):
+        """Отмена: убиваем ffmpeg если жив, удаляем временные файлы."""
+        job.cancelled = True
+        if job.process and job.process.returncode is None:
+            try:
+                job.process.kill()
+            except ProcessLookupError:
+                pass
+        await self.update(job, status=JobStatus.CANCELLED, message="Отменено пользователем")
+        await self.cleanup(job)
 
 
 jobs = JobManager()

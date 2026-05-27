@@ -27,6 +27,8 @@ async def run_merge_job(
     Полный жизненный цикл задачи склейки. Сама обновляет прогресс job через jobs.update().
     """
     try:
+        if job.cancelled:
+            return
         # ── Фаза 1: парсинг ──
         await jobs.update(job, status=JobStatus.PARSING, message="Подбираем фрагменты...")
 
@@ -49,7 +51,15 @@ async def run_merge_job(
 
         logger.info("Job %s: %d files in range", job.id, len(relevant))
 
+        if job.cancelled:
+            return
+
         # ── Фаза 2: подготовка ──
+        total_input_bytes = sum(f.stat().st_size for f in relevant)
+        job.files_total = len(relevant)
+        job.duration_seconds = expected_seconds
+        job.bytes_total = total_input_bytes   # на этапе merging обновим по факту выходному
+
         temp_dir = Path(tempfile.gettempdir())
         timestamp = int(datetime.now().timestamp())
         list_file = temp_dir / f"merge_{camera}_{timestamp}.txt"
@@ -65,6 +75,9 @@ async def run_merge_job(
             for v in relevant:
                 f.write(f"file '{v.absolute()}'\n")
 
+        if job.cancelled:
+            return
+
         # ── Фаза 3: ffmpeg с прогрессом ──
         await jobs.update(
             job,
@@ -79,12 +92,17 @@ async def run_merge_job(
             progress_file=progress_file,
             expected_seconds=expected_seconds,
             on_progress=lambda p: jobs.update(job, progress=p),
+            job=job,
+            files_count=len(relevant),
         )
 
         if not output_mp4.exists():
             raise RuntimeError("Output file was not created")
 
         job.temp_files.append(output_mp4)
+
+        if job.cancelled:
+            return
 
         # ── Фаза 4: упаковка в zip (опционально) ──
         if archive:
@@ -147,37 +165,19 @@ _TIME_RE = re.compile(r"out_time_ms=(\d+)")
 
 
 async def _run_ffmpeg_with_progress(
-        *,
-        list_file: Path,
-        output_file: Path,
-        progress_file: Path,
-        expected_seconds: float,
-        on_progress,
+        *, list_file, output_file, progress_file, expected_seconds,
+        on_progress, job, files_count,
 ):
-    """
-    Запускает ffmpeg с -progress в отдельный файл и периодически парсит его.
-    Прогресс — отношение out_time_ms к ожидаемой длительности диапазона.
-    """
-    cmd = [
-        "ffmpeg",
-        "-f", "concat", "-safe", "0",
-        "-i", str(list_file),
-        "-c", "copy",
-        "-progress", str(progress_file),
-        "-y",
-        str(output_file),
-    ]
-    logger.info("ffmpeg: %s", " ".join(cmd))
-
+    cmd = [...]
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
+    job.process = proc
 
-    # Задача, которая каждые 500мс читает progress-файл
     poll_task = asyncio.create_task(
-        _poll_progress(progress_file, expected_seconds, on_progress, proc)
+        _poll_progress(progress_file, expected_seconds, on_progress, proc, job, output_file, files_count)
     )
 
     try:
@@ -191,10 +191,14 @@ async def _run_ffmpeg_with_progress(
         raise RuntimeError("Merge timeout — try a shorter range")
     finally:
         poll_task.cancel()
+        job.process = None
         try:
             await poll_task
         except asyncio.CancelledError:
             pass
+
+    if job.cancelled:
+        raise RuntimeError("Cancelled")
 
     if proc.returncode != 0:
         err = (stderr or b"").decode(errors="replace")[-500:]
@@ -206,6 +210,9 @@ async def _poll_progress(
         expected_seconds: float,
         on_progress,
         proc: asyncio.subprocess.Process,
+        job,
+        output_file: Path,
+        files_count: int,
 ):
     last_progress = 0.0
     while proc.returncode is None:
@@ -217,19 +224,29 @@ async def _poll_progress(
         except OSError:
             continue
 
-        # Берём последнее значение out_time_ms из файла
         matches = _TIME_RE.findall(text)
         if not matches:
             continue
-        out_time_us = int(matches[-1])
-        out_seconds = out_time_us / 1_000_000
+        out_seconds = int(matches[-1]) / 1_000_000
         if expected_seconds <= 0:
             continue
         progress = out_seconds / expected_seconds
-        # Защита от рывков: только если выросло заметно
-        if progress - last_progress >= 0.01:
+
+        # Метрики
+        files_done = min(
+            files_count,
+            int((out_seconds / max(expected_seconds, 1)) * files_count) + 1,
+            )
+        try:
+            cur_bytes = output_file.stat().st_size if output_file.exists() else 0
+        except OSError:
+            cur_bytes = 0
+
+        if progress - last_progress >= 0.01 or files_done != job.files_processed:
             last_progress = progress
-            await on_progress(min(progress, 0.99))   # 100% ставит фаза merging-завершилась
+            job.files_processed = files_done
+            job.bytes_total = cur_bytes
+            await on_progress(min(progress, 0.99))
 
 
 # ── Архивация ──

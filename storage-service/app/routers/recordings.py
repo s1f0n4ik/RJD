@@ -193,6 +193,36 @@ async def merge_download(job_id: str, background_tasks: BackgroundTasks):
         filename=job.result_filename,
     )
 
+@router.delete("/recordings/jobs/{job_id}")
+async def merge_cancel(job_id: str):
+    job = await jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status in (JobStatus.READY, JobStatus.DOWNLOADED, JobStatus.FAILED, JobStatus.CANCELLED):
+        # Уже закончилось — просто чистим
+        await jobs.cleanup(job)
+        return {"ok": True}
+    await jobs.cancel(job)
+    return {"ok": True}
+
+@router.get("/recordings/jobs")
+async def list_active_jobs():
+    """Список активных джоб (для восстановления после reload)."""
+    async with jobs._lock:
+        active = [
+            {
+                "id": j.id,
+                "status": j.status.value,
+                "progress": j.progress,
+                "message": j.message,
+                "files_total": j.files_total,
+                "files_processed": j.files_processed,
+                "bytes_total": j.bytes_total,
+            }
+            for j in jobs._jobs.values()
+            if j.status not in (JobStatus.DOWNLOADED, JobStatus.FAILED, JobStatus.CANCELLED)
+        ]
+        return {"jobs": active}
 
 async def _finalize_job(job_id: str):
     """Помечаем как скачано и чистим временные файлы."""

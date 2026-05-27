@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, {useState, useEffect, useMemo, useCallback, useRef} from 'react';
 import {
     Container, Paper, Box, Grid, Typography, CircularProgress, Alert,
     FormControl, InputLabel, Select, MenuItem, Chip, Button, Dialog,
@@ -15,6 +15,8 @@ import RecordingsTimeline from './RecordingsTimeline';
 import { isProbeCamera } from '../utils/probeFilter';
 import type { CPPCamera } from '../types';
 import { api, MediaCenterError} from '../services/api';
+import MergeJobPanel, { type MergeJobInfo } from './MergeJobPanel';
+import { downloadWithProgress } from '../utils/downloadWithProgress';
 
 interface Recording {
     filename: string;
@@ -35,9 +37,29 @@ const RecordingsView: React.FC = () => {
 
     const [selectionMode, setSelectionMode] = useState(false);
     const [selectedRange, setSelectedRange] = useState<{ start: number; end: number } | null>(null);
-    const [merging, setMerging] = useState(false);
-    const [mergeProgress, setMergeProgress] = useState(0);
-    const [mergeStatus, setMergeStatus] = useState<string>('');
+
+    const [activeJob, setActiveJob] = useState<MergeJobInfo | null>(null);
+    const [jobMinimized, setJobMinimized] = useState(false);
+    const [downloading, setDownloading] = useState(false);
+    const [downloadProgress, setDownloadProgress] = useState(0);
+    const wsRef = useRef<WebSocket | null>(null);
+
+    useEffect(() => {
+        const restore = async () => {
+            try {
+                const res = await fetch('/api/recordings/jobs');
+                if (!res.ok) return;
+                const data = await res.json();
+                const active = data.jobs?.[0];
+                if (active) {
+                    setActiveJob(active);
+                    attachToJob(active.id);
+                }
+            } catch {}
+        };
+        restore();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     useEffect(() => {
         loadData();
@@ -173,17 +195,36 @@ const RecordingsView: React.FC = () => {
         return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
     };
 
+    const attachToJob = (jobId: string) => {
+        const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const ws = new WebSocket(
+            `${wsProto}//${location.host}/api/recordings/jobs/${jobId}/progress`
+        );
+        wsRef.current = ws;
+
+        ws.onmessage = (e) => {
+            const ev = JSON.parse(e.data);
+            setActiveJob({
+                id: jobId,
+                status: ev.status,
+                progress: ev.progress,
+                message: ev.message,
+                files_total: ev.files_total ?? 0,
+                files_processed: ev.files_processed ?? 0,
+                bytes_total: ev.bytes_total ?? 0,
+                duration_seconds: ev.duration_seconds ?? 0,
+            });
+        };
+        ws.onclose = () => { wsRef.current = null; };
+    };
+
     const handleMergeVideos = async () => {
         if (!selectedRange || !selectedCamera) return;
-        setMerging(true);
-        setMergeProgress(0);
-        setMergeStatus('Запуск...');
 
         try {
             const dateStr = selectedDate.toISOString().split('T')[0];
 
-            // 1. Стартуем job
-            const startRes = await fetch('/api/recordings/merge', {
+            const res = await fetch('/api/recordings/merge', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -191,63 +232,60 @@ const RecordingsView: React.FC = () => {
                     date: dateStr,
                     start_minutes: selectedRange.start,
                     end_minutes: selectedRange.end,
-                    archive: true,   // или false, если хочешь mp4
+                    archive: true,
                 }),
             });
-            if (!startRes.ok) throw new Error('Не удалось запустить склейку');
-            const { job_id } = await startRes.json();
+            if (!res.ok) throw new Error('Не удалось запустить склейку');
+            const { job_id } = await res.json();
 
-            // 2. Подключаемся к WS прогресса
-            const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const ws = new WebSocket(
-                `${wsProto}//${location.host}/api/recordings/jobs/${job_id}/progress`
-            );
-
-            const finalStatus = await new Promise<string>((resolve, reject) => {
-                ws.onmessage = (e) => {
-                    const ev = JSON.parse(e.data);
-                    setMergeProgress(ev.progress);
-                    setMergeStatus(ev.message || '');
-                    if (ev.status === 'ready') {
-                        resolve('ready');
-                        ws.close();
-                    } else if (ev.status === 'failed') {
-                        reject(new Error(ev.error || 'Ошибка склейки'));
-                        ws.close();
-                    }
-                };
-                ws.onerror = () => reject(new Error('WebSocket error'));
-                ws.onclose = () => {
-                    // close без resolve — если соединение оборвалось до финального события
-                };
+            setActiveJob({
+                id: job_id,
+                status: 'pending',
+                progress: 0,
+                message: 'Запуск...',
+                files_total: 0,
+                files_processed: 0,
+                bytes_total: 0,
+                duration_seconds: 0,
             });
+            setJobMinimized(false);
+            setSelectionMode(false);
+            setSelectedRange(null);
 
-            if (finalStatus !== 'ready') return;
-
-            // 3. Скачиваем результат
-            setMergeStatus('Скачивание...');
-            const dlRes = await fetch(`/api/recordings/jobs/${job_id}/download`);
-            if (!dlRes.ok) throw new Error('Не удалось скачать результат');
-
-            const blob = await dlRes.blob();
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = dlRes.headers.get('content-disposition')?.match(/filename="?([^"]+)"?/)?.[1]
-                ?? `merge_${dateStr}.zip`;
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-            document.body.removeChild(a);
-
-            setTimeout(() => {
-                setMerging(false);
-                setSelectionMode(false);
-                setSelectedRange(null);
-            }, 1000);
+            attachToJob(job_id);
         } catch (err: any) {
-            alert(`Ошибка склейки: ${err.message}`);
-            setMerging(false);
+            alert(`Ошибка: ${err.message}`);
+        }
+    };
+
+    const handleCancelJob = async () => {
+        if (!activeJob) return;
+        try {
+            await fetch(`/api/recordings/jobs/${activeJob.id}`, { method: 'DELETE' });
+        } catch {}
+        if (wsRef.current) wsRef.current.close();
+        setActiveJob(null);
+        setDownloading(false);
+        setDownloadProgress(0);
+    };
+
+    const handleSaveAs = async () => {
+        if (!activeJob || activeJob.status !== 'ready') return;
+        setDownloading(true);
+        setDownloadProgress(0);
+        try {
+            await downloadWithProgress(
+                `/api/recordings/jobs/${activeJob.id}/download`,
+                `merge_${activeJob.id.slice(0, 8)}.zip`,
+                'application/zip',
+                (p) => setDownloadProgress(p),
+            );
+            setActiveJob(null);
+        } catch (err: any) {
+            alert(`Ошибка скачивания: ${err.message}`);
+        } finally {
+            setDownloading(false);
+            setDownloadProgress(0);
         }
     };
 
@@ -537,16 +575,11 @@ const RecordingsView: React.FC = () => {
                                     <>
                                         <Button
                                             fullWidth variant="contained" color="success" startIcon={<ContentCut />}
-                                            disabled={!selectedRange || merging} onClick={handleMergeVideos}
+                                            disabled={!selectedRange || !!activeJob}    // ← блокируем при активной джобе
+                                            onClick={handleMergeVideos}
                                             sx={{ mb: 1 }}
                                         >
-                                            {merging ? 'Склеиваем...' : 'Склеить и скачать'}
-                                        </Button>
-                                        <Button
-                                            fullWidth variant="outlined" color="error" startIcon={<Cancel />}
-                                            onClick={() => { setSelectionMode(false); setSelectedRange(null); }}
-                                        >
-                                            Отменить
+                                            {activeJob ? 'Уже идёт склейка' : 'Склеить и скачать'}
                                         </Button>
                                     </>
                                 )}
@@ -556,20 +589,19 @@ const RecordingsView: React.FC = () => {
                 </Grid>
             )}
 
-            <Dialog open={merging} maxWidth="sm" fullWidth>
-                <DialogTitle>Склеивание видео</DialogTitle>
-                <DialogContent>
-                    <Typography gutterBottom>{mergeStatus}</Typography>
-                    <LinearProgress
-                        variant="determinate"
-                        value={Math.round(mergeProgress * 100)}
-                        sx={{ mt: 2 }}
-                    />
-                    <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                        {Math.round(mergeProgress * 100)}%
-                    </Typography>
-                </DialogContent>
-            </Dialog>
+            {/* Заменяем старый <Dialog merging> на новую панель */}
+            {activeJob && (
+                <MergeJobPanel
+                    job={activeJob}
+                    minimized={jobMinimized}
+                    onMinimize={() => setJobMinimized(true)}
+                    onMaximize={() => setJobMinimized(false)}
+                    onCancel={handleCancelJob}
+                    onSaveAs={handleSaveAs}
+                    downloading={downloading}
+                    downloadProgress={downloadProgress}
+                />
+            )}
         </Container>
     );
 };
