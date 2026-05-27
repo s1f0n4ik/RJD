@@ -1,8 +1,7 @@
-import React, {useState, useEffect, useMemo, useCallback, useRef} from 'react';
+import React, {useState, useEffect, useMemo, useCallback} from 'react';
 import {
     Container, Paper, Box, Grid, Typography, CircularProgress, Alert,
-    FormControl, InputLabel, Select, MenuItem, Chip, Button, Dialog,
-    DialogTitle, DialogContent, LinearProgress,
+    FormControl, InputLabel, Select, MenuItem, Chip, Button
 } from '@mui/material';
 
 import {
@@ -16,8 +15,7 @@ import RecordingsTimeline from './RecordingsTimeline';
 import { isProbeCamera } from '../utils/probeFilter';
 import type { CPPCamera } from '../types';
 import { api, MediaCenterError} from '../services/api';
-import MergeJobPanel, { type MergeJobInfo } from './MergeJobPanel';
-import { downloadWithProgress } from '../utils/downloadWithProgress';
+import { useMergeJobs } from '../contexts/MergeJobsContext';
 
 interface Recording {
     filename: string;
@@ -27,6 +25,8 @@ interface Recording {
 }
 
 const RecordingsView: React.FC = () => {
+    const { activeJob, startJob } = useMergeJobs();
+
     const [recordings, setRecordings] = useState<Record<string, Recording[]>>({});
     const [cameras, setCameras] = useState<Map<string, CPPCamera>>(new Map());
     const [selectedCamera, setSelectedCamera] = useState<string>('');
@@ -39,28 +39,7 @@ const RecordingsView: React.FC = () => {
     const [selectionMode, setSelectionMode] = useState(false);
     const [selectedRange, setSelectedRange] = useState<{ start: number; end: number } | null>(null);
 
-    const [activeJob, setActiveJob] = useState<MergeJobInfo | null>(null);
-    const [jobMinimized, setJobMinimized] = useState(false);
-    const [downloading, setDownloading] = useState(false);
-    const [downloadProgress, setDownloadProgress] = useState(0);
-    const wsRef = useRef<WebSocket | null>(null);
-
-    useEffect(() => {
-        const restore = async () => {
-            try {
-                const res = await fetch('/api/recordings/jobs');
-                if (!res.ok) return;
-                const data = await res.json();
-                const active = data.jobs?.[0];
-                if (active) {
-                    setActiveJob(active);
-                    attachToJob(active.id);
-                }
-            } catch {}
-        };
-        restore();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    //const wsRef = useRef<WebSocket | null>(null);
 
     useEffect(() => {
         loadData();
@@ -196,131 +175,54 @@ const RecordingsView: React.FC = () => {
         return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
     };
 
-    const attachToJob = (jobId: string) => {
-        const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const ws = new WebSocket(
-            `${wsProto}//${location.host}/api/recordings/jobs/${jobId}/progress`
-        );
-        wsRef.current = ws;
-
-        ws.onmessage = (e) => {
-            const ev = JSON.parse(e.data);
-            setActiveJob({
-                id: jobId,
-                status: ev.status,
-                progress: ev.progress,
-                message: ev.message,
-                files_total: ev.files_total ?? 0,
-                files_processed: ev.files_processed ?? 0,
-                bytes_total: ev.bytes_total ?? 0,
-                duration_seconds: ev.duration_seconds ?? 0,
-                result_filename: ev.result_filename,
-                result_media_type: ev.result_media_type,
-            });
-        };
-        ws.onclose = () => { wsRef.current = null; };
-    };
-
     const handleMergeRange = async () => {
         if (!selectedRange || !selectedCamera) return;
         const dateStr = selectedDate.toISOString().split('T')[0];
-        await startJob('/api/recordings/merge', {
-            camera: selectedCamera,
-            date: dateStr,
-            start_minutes: selectedRange.start,
-            end_minutes: selectedRange.end,
-        });
-    };
-
-    const handleArchiveRange = async () => {
-        if (!selectedRange || !selectedCamera) return;
-        const dateStr = selectedDate.toISOString().split('T')[0];
-        await startJob('/api/recordings/archive', {
-            camera: selectedCamera,
-            date: dateStr,
-            mode: 'range',
-            start_minutes: selectedRange.start,
-            end_minutes: selectedRange.end,
-        });
-    };
-
-    const handleArchiveDay = async () => {
-        if (!selectedCamera) return;
-        const dateStr = selectedDate.toISOString().split('T')[0];
-        await startJob('/api/recordings/archive', {
-            camera: selectedCamera,
-            date: dateStr,
-            mode: 'day',
-        });
-    };
-
-// Общий запуск
-    const startJob = async (endpoint: string, body: any) => {
         try {
-            const res = await fetch(endpoint, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body),
+            await startJob('/api/recordings/merge', {
+                camera: selectedCamera,
+                date: dateStr,
+                start_minutes: selectedRange.start,
+                end_minutes: selectedRange.end,
             });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const { job_id } = await res.json();
-
-            setActiveJob({
-                id: job_id,
-                status: 'pending',
-                progress: 0,
-                message: 'Запуск...',
-                files_total: 0,
-                files_processed: 0,
-                bytes_total: 0,
-                duration_seconds: 0,
-            });
-            setJobMinimized(false);
             setSelectionMode(false);
             setSelectedRange(null);
-
-            attachToJob(job_id);
         } catch (err: any) {
             alert(`Ошибка: ${err.message}`);
         }
     };
 
-    const handleCancelJob = async () => {
-        if (!activeJob) return;
+    const handleArchiveRange = async () => {
+        if (!selectedRange || !selectedCamera) return;
+        const dateStr = selectedDate.toISOString().split('T')[0];
         try {
-            await fetch(`/api/recordings/jobs/${activeJob.id}`, { method: 'DELETE' });
-        } catch {}
-        if (wsRef.current) wsRef.current.close();
-        setActiveJob(null);
-        setDownloading(false);
-        setDownloadProgress(0);
-    };
-
-    const handleSaveAs = async () => {
-        if (!activeJob || activeJob.status !== 'ready') return;
-        setDownloading(true);
-        setDownloadProgress(0);
-        try {
-            // Узнаём имя и тип через HEAD-запрос или просто берём дефолтные
-            // Проще — сделать ещё одно поле в JobInfo. Я ниже допишу.
-            const filename = activeJob.result_filename || `result_${activeJob.id.slice(0, 8)}`;
-            const mime = activeJob.result_media_type || 'application/octet-stream';
-
-            await downloadWithProgress(
-                `/api/recordings/jobs/${activeJob.id}/download`,
-                filename,
-                mime,
-                (p) => setDownloadProgress(p),
-            );
-            setActiveJob(null);
+            await startJob('/api/recordings/archive', {
+                camera: selectedCamera,
+                date: dateStr,
+                mode: 'range',
+                start_minutes: selectedRange.start,
+                end_minutes: selectedRange.end,
+            });
+            setSelectionMode(false);
+            setSelectedRange(null);
         } catch (err: any) {
-            alert(`Ошибка скачивания: ${err.message}`);
-        } finally {
-            setDownloading(false);
-            setDownloadProgress(0);
+            alert(`Ошибка: ${err.message}`);
         }
     };
 
+    const handleArchiveDay = async () => {
+        if (!selectedCamera) return;
+        const dateStr = selectedDate.toISOString().split('T')[0];
+        try {
+            await startJob('/api/recordings/archive', {
+                camera: selectedCamera,
+                date: dateStr,
+                mode: 'day',
+            });
+        } catch (err: any) {
+            alert(`Ошибка: ${err.message}`);
+        }
+    };
     const getFilesForSelectedDate = (): Recording[] => {
         if (!selectedCamera || !recordings[selectedCamera]) return [];
         const dateStr = selectedDate.toISOString().split('T')[0];
@@ -591,7 +493,7 @@ const RecordingsView: React.FC = () => {
                                     <>
                                         <Button
                                             fullWidth variant="outlined" startIcon={<CloudDownload />}
-                                            disabled={!!activeJob || downloading}
+                                            disabled={!!activeJob}
                                             onClick={() => handleArchiveDay()}
                                             sx={{ mb: 1 }}
                                         >
@@ -640,20 +542,6 @@ const RecordingsView: React.FC = () => {
                         )}
                     </Grid>
                 </Grid>
-            )}
-
-            {/* Заменяем старый <Dialog merging> на новую панель */}
-            {activeJob && (
-                <MergeJobPanel
-                    job={activeJob}
-                    minimized={jobMinimized}
-                    onMinimize={() => setJobMinimized(true)}
-                    onMaximize={() => setJobMinimized(false)}
-                    onCancel={handleCancelJob}
-                    onSaveAs={handleSaveAs}
-                    downloading={downloading}
-                    downloadProgress={downloadProgress}
-                />
             )}
         </Container>
     );

@@ -25,7 +25,32 @@ import Landing from './components/Landing';
 import OnScreenKeyboard from './components/OnScreenKeyboard';
 const ADMIN_TABS = new Set([1, 3]); // Камеры, Загрузчики
 
-const App: React.FC = () => {
+import { MergeJobsProvider, useMergeJobs } from './contexts/MergeJobsContext';
+import MergeJobPanel from './components/MergeJobPanel';
+
+const GlobalMergeJobPanel: React.FC = () => {
+    const {
+        activeJob, minimized, downloading, downloadProgress,
+        setMinimized, cancelJob, saveAs,
+    } = useMergeJobs();
+
+    if (!activeJob) return null;
+
+    return (
+        <MergeJobPanel
+            job={activeJob}
+            minimized={minimized}
+            onMinimize={() => setMinimized(true)}
+            onMaximize={() => setMinimized(false)}
+            onCancel={cancelJob}
+            onSaveAs={saveAs}
+            downloading={downloading}
+            downloadProgress={downloadProgress}
+        />
+    );
+};
+
+const AppContent: React.FC = () => {
   const pathname = window.location.pathname;
   // === KIOSK ROUTING ===
   // Если URL начинается с /kiosk — рендерим KioskView без Header/авторизации
@@ -161,6 +186,7 @@ const App: React.FC = () => {
     <>
       <Login onLogin={handleLogin} />
       <OnScreenKeyboard />
+        <GlobalMergeJobPanel />
     </>
   );
   }
@@ -261,6 +287,14 @@ const App: React.FC = () => {
       <OnScreenKeyboard />
     </Box>
   );
+};
+
+const App: React.FC = () => {
+    return (
+        <MergeJobsProvider>
+            <AppContent />
+        </MergeJobsProvider>
+    );
 };
 
 export default App;
