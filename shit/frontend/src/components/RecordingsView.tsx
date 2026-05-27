@@ -4,10 +4,11 @@ import {
     FormControl, InputLabel, Select, MenuItem, Chip, Button, Dialog,
     DialogTitle, DialogContent, LinearProgress,
 } from '@mui/material';
+
 import {
-    VideoLibrary, FiberManualRecord, CloudDownload, ContentCut, Cancel,
-    DeleteForever,
+    VideoLibrary, FiberManualRecord, CloudDownload, ContentCut, Cancel, DeleteForever,
 } from '@mui/icons-material';
+
 import { RZD_COLORS } from '../theme';
 import RecordingsCalendar from './RecordingsCalendar';
 import RecordingsPlayer from './RecordingsPlayer';
