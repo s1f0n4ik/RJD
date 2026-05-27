@@ -38,6 +38,7 @@ const RecordingsCalendar: React.FC<RecordingsCalendarProps> = ({
                                                                    highlightDates,
                                                                    recordingCounts,
                                                                }) => {
+    console.log('[Calendar] render');
     const isHighlighted = (day: Date) => {
         return highlightDates.some(d => d.toDateString() === day.toDateString());
     };
