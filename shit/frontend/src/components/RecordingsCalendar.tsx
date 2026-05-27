@@ -73,9 +73,13 @@ const RecordingsCalendar: React.FC<RecordingsCalendarProps> = ({
                 arrow
                 enterDelay={300}
                 leaveDelay={0}
+                disableFocusListener
+                disableTouchListener
             >
                 {/* span — Tooltip требует child, который принимает ref */}
-                <span>{pickersDay}</span>
+                <span style={{ display: 'inline-flex' }}>
+                  {pickersDay}
+                </span>
             </Tooltip>
         );
     };
