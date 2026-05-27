@@ -2,6 +2,8 @@ import logging
 import asyncio
 import json
 import re
+from typing import Literal
+
 
 from fastapi import (
     APIRouter, BackgroundTasks, HTTPException, Request, Response,
@@ -25,6 +27,13 @@ class MergeRequest(BaseModel):
     start_minutes: float
     end_minutes: float
 
+class ArchiveRequest(BaseModel):
+    camera: str
+    date: str
+    mode: Literal["day", "range"] = "day"
+    # Для mode="range" обязательны:
+    start_minutes: float | None = None
+    end_minutes: float | None = None
 
 @router.get("/recordings")
 async def list_all():
@@ -63,7 +72,26 @@ async def merge_start(req: MergeRequest):
         date=req.date,
         start_minutes=req.start_minutes,
         end_minutes=req.end_minutes,
-        archive=req.archive,
+    ))
+    return {"job_id": job.id}
+
+@router.post("/recordings/archive")
+async def archive_start(req: ArchiveRequest):
+    if req.mode == "range":
+        if req.start_minutes is None or req.end_minutes is None:
+            raise HTTPException(
+                status_code=400,
+                detail="start_minutes and end_minutes required for mode=range",
+            )
+
+    job = await jobs.create()
+    asyncio.create_task(run_archive_job(
+        job,
+        camera=req.camera,
+        date=req.date,
+        mode=req.mode,
+        start_minutes=req.start_minutes,
+        end_minutes=req.end_minutes,
     ))
     return {"job_id": job.id}
 
@@ -125,6 +153,12 @@ async def merge_progress(ws: WebSocket, job_id: str):
                 "progress": event.progress,
                 "message": event.message,
                 "error": event.error,
+                "files_total": event.files_total,
+                "files_processed": event.files_processed,
+                "bytes_total": event.bytes_total,
+                "duration_seconds": event.duration_seconds,
+                "result_filename": event.result_filename,
+                "result_media_type": event.result_media_type,
             })
             # Терминальные статусы — закрываем
             if event.status in (JobStatus.READY, JobStatus.FAILED):
@@ -218,7 +252,6 @@ class MergeRequest(BaseModel):
     date: str
     start_minutes: float
     end_minutes: float
-    archive: bool = False  # упаковать результат в zip
 
 
 async def _finalize_job(job_id: str):

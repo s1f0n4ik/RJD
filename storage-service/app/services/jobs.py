@@ -30,6 +30,8 @@ class JobEvent:
     files_processed: int = 0
     bytes_total: int = 0
     duration_seconds: float = 0.0
+    result_filename: Optional[str] = None
+    result_media_type: Optional[str] = None
 
 
 @dataclass
@@ -62,6 +64,8 @@ class Job:
             files_processed=self.files_processed,
             bytes_total=self.bytes_total,
             duration_seconds=self.duration_seconds,
+            result_filename=self.result_filename,
+            result_media_type=self.result_media_type,
         )
 
 

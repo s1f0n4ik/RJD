@@ -214,29 +214,55 @@ const RecordingsView: React.FC = () => {
                 files_processed: ev.files_processed ?? 0,
                 bytes_total: ev.bytes_total ?? 0,
                 duration_seconds: ev.duration_seconds ?? 0,
+                result_filename: ev.result_filename,
+                result_media_type: ev.result_media_type,
             });
         };
         ws.onclose = () => { wsRef.current = null; };
     };
 
-    const handleMergeVideos = async () => {
+    const handleMergeRange = async () => {
         if (!selectedRange || !selectedCamera) return;
+        const dateStr = selectedDate.toISOString().split('T')[0];
+        await startJob('/api/recordings/merge', {
+            camera: selectedCamera,
+            date: dateStr,
+            start_minutes: selectedRange.start,
+            end_minutes: selectedRange.end,
+        });
+    };
 
+    const handleArchiveRange = async () => {
+        if (!selectedRange || !selectedCamera) return;
+        const dateStr = selectedDate.toISOString().split('T')[0];
+        await startJob('/api/recordings/archive', {
+            camera: selectedCamera,
+            date: dateStr,
+            mode: 'range',
+            start_minutes: selectedRange.start,
+            end_minutes: selectedRange.end,
+        });
+    };
+
+    const handleArchiveDay = async () => {
+        if (!selectedCamera) return;
+        const dateStr = selectedDate.toISOString().split('T')[0];
+        await startJob('/api/recordings/archive', {
+            camera: selectedCamera,
+            date: dateStr,
+            mode: 'day',
+        });
+    };
+
+// Общий запуск
+    const startJob = async (endpoint: string, body: any) => {
         try {
-            const dateStr = selectedDate.toISOString().split('T')[0];
-
-            const res = await fetch('/api/recordings/merge', {
+            const res = await fetch(endpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    camera: selectedCamera,
-                    date: dateStr,
-                    start_minutes: selectedRange.start,
-                    end_minutes: selectedRange.end,
-                    archive: true,
-                }),
+                body: JSON.stringify(body),
             });
-            if (!res.ok) throw new Error('Не удалось запустить склейку');
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const { job_id } = await res.json();
 
             setActiveJob({
@@ -275,10 +301,15 @@ const RecordingsView: React.FC = () => {
         setDownloading(true);
         setDownloadProgress(0);
         try {
+            // Узнаём имя и тип через HEAD-запрос или просто берём дефолтные
+            // Проще — сделать ещё одно поле в JobInfo. Я ниже допишу.
+            const filename = activeJob.result_filename || `result_${activeJob.id.slice(0, 8)}`;
+            const mime = activeJob.result_media_type || 'application/octet-stream';
+
             await downloadWithProgress(
                 `/api/recordings/jobs/${activeJob.id}/download`,
-                `merge_${activeJob.id.slice(0, 8)}.zip`,
-                'application/zip',
+                filename,
+                mime,
                 (p) => setDownloadProgress(p),
             );
             setActiveJob(null);
@@ -560,27 +591,48 @@ const RecordingsView: React.FC = () => {
                                     <>
                                         <Button
                                             fullWidth variant="outlined" startIcon={<CloudDownload />}
-                                            onClick={() => alert('TODO: Скачать все видео за день')}
+                                            disabled={!!activeJob || downloading}
+                                            onClick={() => handleArchiveDay()}
                                             sx={{ mb: 1 }}
                                         >
-                                            Скачать все за день
+                                            Скачать день архивом
                                         </Button>
                                         <Button
                                             fullWidth variant="contained" startIcon={<ContentCut />}
+                                            disabled={!!activeJob}
                                             onClick={() => setSelectionMode(true)}
                                         >
-                                            Склеить диапазон
+                                            Выбрать диапазон
                                         </Button>
                                     </>
                                 ) : (
                                     <>
+                                        <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+                                            Выбрано: {selectedRange
+                                            ? `${formatMinutes(selectedRange.start)} – ${formatMinutes(selectedRange.end)}`
+                                            : 'диапазон не выбран'}
+                                        </Typography>
                                         <Button
                                             fullWidth variant="contained" color="success" startIcon={<ContentCut />}
-                                            disabled={!selectedRange || !!activeJob}    // ← блокируем при активной джобе
-                                            onClick={handleMergeVideos}
+                                            disabled={!selectedRange || !!activeJob}
+                                            onClick={handleMergeRange}
                                             sx={{ mb: 1 }}
                                         >
-                                            {activeJob ? 'Уже идёт склейка' : 'Склеить и скачать'}
+                                            Склеить в MP4
+                                        </Button>
+                                        <Button
+                                            fullWidth variant="outlined" color="primary" startIcon={<CloudDownload />}
+                                            disabled={!selectedRange || !!activeJob}
+                                            onClick={handleArchiveRange}
+                                            sx={{ mb: 1 }}
+                                        >
+                                            Скачать архивом
+                                        </Button>
+                                        <Button
+                                            fullWidth variant="text" color="error" startIcon={<Cancel />}
+                                            onClick={() => { setSelectionMode(false); setSelectedRange(null); }}
+                                        >
+                                            Отменить выбор
                                         </Button>
                                     </>
                                 )}

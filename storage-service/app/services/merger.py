@@ -21,7 +21,6 @@ async def run_merge_job(
         date: str,
         start_minutes: float,
         end_minutes: float,
-        archive: bool,
 ):
     """
     Полный жизненный цикл задачи склейки. Сама обновляет прогресс job через jobs.update().
@@ -100,49 +99,162 @@ async def run_merge_job(
             raise RuntimeError("Output file was not created")
 
         job.temp_files.append(output_mp4)
+        job.result_path = output_mp4
+        job.result_filename = output_mp4.name
+        job.result_media_type = "video/mp4"
 
-        if job.cancelled:
-            return
-
-        # ── Фаза 4: упаковка в zip (опционально) ──
-        if archive:
-            await jobs.update(
-                job,
-                status=JobStatus.ARCHIVING,
-                progress=0.0,
-                message="Упаковка в архив...",
-            )
-            output_zip = temp_dir / (output_mp4.stem + ".zip")
-            await _zip_file(
-                source=output_mp4,
-                target=output_zip,
-                on_progress=lambda p: jobs.update(job, progress=p),
-            )
-            job.temp_files.append(output_zip)
-            job.result_path = output_zip
-            job.result_filename = output_zip.name
-            job.result_media_type = "application/zip"
-        else:
-            job.result_path = output_mp4
-            job.result_filename = output_mp4.name
-            job.result_media_type = "video/mp4"
-
-        # ── Готово ──
-        size_mb = job.result_path.stat().st_size / 1024 ** 2
+        size_mb = output_mp4.stat().st_size / 1024 ** 2
         await jobs.update(
             job,
             status=JobStatus.READY,
             progress=1.0,
-            message=f"Готово ({size_mb:.1f} МБ). Скачивайте.",
+            message=f"Готово ({size_mb:.1f} МБ)",
         )
 
     except Exception as e:
         logger.exception("Job %s failed", job.id)
-        await jobs.update(
-            job, status=JobStatus.FAILED, error=str(e), message=f"Ошибка: {e}"
-        )
+        await jobs.update(job, status=JobStatus.FAILED, error=str(e), message=f"Ошибка: {e}")
         await jobs.cleanup(job)
 
+
+async def run_archive_job(
+        job: Job,
+        *,
+        camera: str,
+        date: str,
+        mode: str,
+        start_minutes: float | None,
+        end_minutes: float | None,
+):
+    try:
+        await jobs.update(job, status=JobStatus.PARSING, message="Подбираем файлы...")
+
+        camera_path = storage.root / camera
+        if not camera_path.is_dir():
+            raise RuntimeError(f"Camera '{camera}' not found")
+
+        try:
+            date_obj = datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            raise RuntimeError("Invalid date format")
+
+        # Подбор файлов
+        if mode == "range":
+            start_time = date_obj + timedelta(minutes=start_minutes)
+            end_time = date_obj + timedelta(minutes=end_minutes)
+            files = _collect_files(camera_path, start_time, end_time)
+        else:  # day
+            day_start = date_obj
+            day_end = date_obj + timedelta(days=1)
+            files = _collect_files(camera_path, day_start, day_end)
+
+        if not files:
+            raise RuntimeError("No recordings found")
+
+        total_bytes = sum(f.stat().st_size for f in files)
+        job.files_total = len(files)
+
+        await jobs.update(
+            job,
+            status=JobStatus.ARCHIVING,
+            progress=0.0,
+            message=f"Архивация {len(files)} файлов...",
+        )
+
+        # Имя архива
+        temp_dir = Path(tempfile.gettempdir())
+        if mode == "range":
+            archive_name = (
+                f"{camera}_{date}_"
+                f"{int(start_minutes):04d}-{int(end_minutes):04d}.zip"
+            )
+        else:
+            archive_name = f"{camera}_{date}_full_day.zip"
+
+        output_zip = temp_dir / archive_name
+        job.temp_files.append(output_zip)
+
+        # Архивация в executor с прогрессом
+        await _zip_many_files(
+            files=files,
+            target=output_zip,
+            total_bytes=total_bytes,
+            job=job,
+        )
+
+        if job.cancelled:
+            return
+
+        job.result_path = output_zip
+        job.result_filename = output_zip.name
+        job.result_media_type = "application/zip"
+        job.bytes_total = output_zip.stat().st_size
+
+        size_mb = output_zip.stat().st_size / 1024 ** 2
+        await jobs.update(
+            job,
+            status=JobStatus.READY,
+            progress=1.0,
+            message=f"Готово ({size_mb:.1f} МБ)",
+        )
+
+    except Exception as e:
+        logger.exception("Archive job %s failed", job.id)
+        await jobs.update(job, status=JobStatus.FAILED, error=str(e), message=f"Ошибка: {e}")
+        await jobs.cleanup(job)
+
+
+async def _zip_many_files(*, files: list[Path], target: Path, total_bytes: int, job):
+    """
+    Архивирует несколько файлов с честным прогрессом по байтам.
+    Запускается в executor, чтобы не блокировать event loop.
+    """
+    import zipfile
+    loop = asyncio.get_running_loop()
+
+    # Контейнер для прогресса — обновляется из executor, читается из main loop
+    state = {"bytes_done": 0, "files_done": 0, "cancelled": False}
+
+    def _do_zip():
+        with zipfile.ZipFile(target, "w", zipfile.ZIP_STORED) as zf:
+            # ZIP_STORED — без компрессии. mp4 уже сжатый, deflate даст 1-3%
+            # выигрыша, но времени потратит сильно больше.
+            for f in files:
+                if state["cancelled"]:
+                    return
+                with open(f, "rb") as src, zf.open(f.name, "w") as dst:
+                    while True:
+                        if state["cancelled"]:
+                            return
+                        chunk = src.read(1024 * 1024)  # 1 МБ
+                        if not chunk:
+                            break
+                        dst.write(chunk)
+                        state["bytes_done"] += len(chunk)
+                state["files_done"] += 1
+
+    zip_task = loop.run_in_executor(None, _do_zip)
+
+    # Параллельно — рассылка прогресса
+    while not zip_task.done():
+        if job.cancelled:
+            state["cancelled"] = True
+            try:
+                await zip_task
+            except Exception:
+                pass
+            target.unlink(missing_ok=True)
+            return
+
+        await asyncio.sleep(0.5)
+        if total_bytes > 0:
+            progress = state["bytes_done"] / total_bytes
+            job.files_processed = state["files_done"]
+            job.bytes_total = state["bytes_done"]
+            await jobs.update(job, progress=min(progress, 0.99))
+
+    # Дожидаемся завершения и пробрасываем исключение, если было
+    await zip_task
 
 def _collect_files(camera_path: Path, start: datetime, end: datetime) -> list[Path]:
     out = []

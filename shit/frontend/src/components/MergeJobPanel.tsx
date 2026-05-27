@@ -13,6 +13,8 @@ export interface MergeJobInfo {
     files_processed: number;
     bytes_total: number;
     duration_seconds: number;
+    result_filename?: string;
+    result_media_type?: string;
 }
 
 interface MergeJobPanelProps {
@@ -63,6 +65,11 @@ const MergeJobPanel: React.FC<MergeJobPanelProps> = ({
         ? downloadProgress
         : job.progress;
 
+    const operationLabel =
+        job.result_media_type === 'application/zip' ? 'Архивация'
+            : job.result_media_type === 'video/mp4' ? 'Склейка'
+                : 'Обработка';
+
     // === Свёрнутый вид: маленькая плашка в углу ===
     if (minimized) {
         return (
@@ -79,6 +86,9 @@ const MergeJobPanel: React.FC<MergeJobPanelProps> = ({
                 onClick={onMaximize}
             >
                 <Box display="flex" alignItems="center" gap={1} mb={0.5}>
+                    <Typography variant="subtitle1" fontWeight="bold" sx={{ flexGrow: 1 }}>
+                        {operationLabel}
+                    </Typography>
                     <Typography variant="caption" fontWeight="bold" sx={{ flexGrow: 1 }}>
                         {downloading ? 'Скачивание...' : STATUS_LABELS[job.status]}
                     </Typography>
