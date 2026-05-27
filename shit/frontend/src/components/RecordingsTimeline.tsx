@@ -217,7 +217,7 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
         <Box>
             <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
                 <Typography variant="subtitle2" fontWeight="bold">
-                    ⏱ Timeline: {date.toLocaleDateString('ru-RU')}
+                    Timeline: {date.toLocaleDateString('ru-RU')}
                 </Typography>
                 <Box display="flex" alignItems="center" gap={1}>
                     <Typography variant="caption" color="text.secondary">

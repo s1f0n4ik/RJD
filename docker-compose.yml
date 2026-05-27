@@ -34,6 +34,27 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # ========== Работа с диском и записями ==========
+  storage-service:
+    build:
+      context: ./storage-service
+      dockerfile: Dockerfile
+    container_name: storage-service
+    network_mode: host
+    environment:
+      - RECORDS_PATH=/storage/internal
+      - MAX_STORAGE_GB=100
+      - CLEANUP_INTERVAL_SEC=60
+      - CLEANUP_TARGET_RATIO=0.9
+    volumes:
+      - /storage/internal:/storage/internal
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   # ========== React Frontend ==========
   frontend:
     build:

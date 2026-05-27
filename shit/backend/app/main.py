@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 import logging
 
 from app.config import settings
-from app.routers import loaders, status, streams, auth, recordings
+from app.routers import loaders, status, streams, auth
 from app.services.websocket_manager import manager, websocket_endpoint
 
 # Настройка логирования
@@ -44,7 +44,7 @@ app.include_router(loaders.router, prefix="/api", tags=["Loaders"])
 app.include_router(status.router, prefix="/api", tags=["Status"])
 app.include_router(auth.router, prefix="/auth", tags=["Auth"])
 app.include_router(streams.router, tags=["Streams"])
-app.include_router(recordings.router, prefix="/api", tags=["Recordings"])
+#app.include_router(recordings.router, prefix="/api", tags=["Recordings"])
 
 # WebSocket endpoint
 app.add_websocket_route("/ws", websocket_endpoint)
