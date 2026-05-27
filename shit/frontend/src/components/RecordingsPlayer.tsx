@@ -17,8 +17,32 @@ const RecordingsPlayer: React.FC<RecordingsPlayerProps> = ({
                                                                onEnded,
                                                            }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
     const [loading, setLoading] = React.useState(true);
     const [error, setError] = React.useState(false);
+    const [overlayVisible, setOverlayVisible] = React.useState(true);
+
+    // Скрываем оверлей по той же логике, что браузер прячет controls:
+    // если мышь не двигалась пару секунд — гасим.
+    const hideTimerRef = useRef<number | null>(null);
+    const scheduleHide = () => {
+        if (hideTimerRef.current) window.clearTimeout(hideTimerRef.current);
+        hideTimerRef.current = window.setTimeout(() => {
+            setOverlayVisible(false);
+        }, 2500);
+    };
+
+    const handleMouseActivity = () => {
+        setOverlayVisible(true);
+        scheduleHide();
+    };
+
+    useEffect(() => {
+        scheduleHide();
+        return () => {
+            if (hideTimerRef.current) window.clearTimeout(hideTimerRef.current);
+        };
+    }, []);
 
     // throttled-публикация в шину. Создаётся один раз на жизнь компонента.
     const publishCurrentTime = useRef(
@@ -61,7 +85,13 @@ const RecordingsPlayer: React.FC<RecordingsPlayerProps> = ({
     const showCameraId = displayName && displayName !== camera;
 
     return (
-        <Box sx={{ width: '100%', height: '100%', bgcolor: 'black', position: 'relative' }}>
+        <Box
+            ref={containerRef}
+            onMouseMove={handleMouseActivity}
+            onMouseEnter={handleMouseActivity}
+            onMouseLeave={() => setOverlayVisible(false)}
+            sx={{ width: '100%', height: '100%', bgcolor: 'black', position: 'relative' }}
+        >
             {loading && (
                 <Box sx={{
                     position: 'absolute', top: '50%', left: '50%',
@@ -100,14 +130,17 @@ const RecordingsPlayer: React.FC<RecordingsPlayerProps> = ({
             <Box sx={{
                 position: 'absolute', bottom: 60, left: 10,
                 bgcolor: 'rgba(0,0,0,0.8)', color: 'white',
-                px: 2, py: 1, borderRadius: 1,
-                fontSize: '0.9rem',
+                px: 1.5, py: 0.5, borderRadius: 1,
+                fontSize: '0.75rem',                          // ← уменьшен с 0.9rem
+                opacity: overlayVisible ? 1 : 0,              // ← синхронно с активностью
+                transition: 'opacity 0.3s ease',              // ← плавно
+                pointerEvents: 'none',                        // ← не мешает клику по видео
             }}>
                 <Box sx={{ fontWeight: 'bold' }}>
                     {effectiveDisplayName} • {new Date(file.created).toLocaleTimeString('ru-RU')}
                 </Box>
                 {showCameraId && (
-                    <Box sx={{ fontSize: '0.75rem', color: 'grey.400', fontWeight: 'normal' }}>
+                    <Box sx={{ fontSize: '0.65rem', color: 'grey.400', fontWeight: 'normal' }}>
                         {camera}
                     </Box>
                 )}

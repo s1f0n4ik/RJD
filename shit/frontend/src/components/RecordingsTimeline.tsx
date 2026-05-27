@@ -41,9 +41,18 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
                                                                    selectedRange,
                                                                    onRangeSelected,
                                                                }) => {
+
     const [windowMinutes, setWindowMinutes] = useState<number>(24 * 60);
     const [windowStart, setWindowStart] = useState<number>(0);
     const [userScrolled, setUserScrolled] = useState(false);
+
+    // Отслеживание Drag
+    const containerRef = useRef<HTMLDivElement>(null);
+    const isDraggingRef = useRef(false);
+    const dragStartRef = useRef<{ x: number; windowStart: number } | null>(null);
+    const wasDraggingRef = useRef(false);     // ← НОВОЕ: был ли реальный drag
+    const lastCenteredFileRef = useRef<string | undefined>(undefined);
+    const lastCenteredZoomRef = useRef<number>(windowMinutes);
 
     // currentTime теперь живёт локально и подписан на шину
     const [currentTime, setCurrentTime] = useState<number | undefined>(
@@ -56,12 +65,6 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
 
     // В режиме выбора диапазона playhead не нужен — гасим
     const effectiveCurrentTime = selectionMode ? undefined : currentTime;
-
-    const containerRef = useRef<HTMLDivElement>(null);
-    const isDraggingRef = useRef(false);
-    const dragStartRef = useRef<{ x: number; windowStart: number } | null>(null);
-    const lastCenteredFileRef = useRef<string | undefined>(undefined);
-    const lastCenteredZoomRef = useRef<number>(windowMinutes);
 
     const fileToMinutes = (iso: string): number => {
         const d = new Date(iso);
@@ -116,14 +119,21 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
     };
 
     const handleMouseDown = (e: React.MouseEvent) => {
-        if (selectionMode) return;
+        // убрана блокировка по selectionMode — drag доступен всегда
         isDraggingRef.current = true;
+        wasDraggingRef.current = false;
         dragStartRef.current = { x: e.clientX, windowStart };
     };
 
     const handleMouseMove = (e: React.MouseEvent) => {
         if (!isDraggingRef.current || !dragStartRef.current || !containerRef.current) return;
         const dx = e.clientX - dragStartRef.current.x;
+
+        // Если сдвинули мышь хоть на 3px — это уже настоящий drag
+        if (Math.abs(dx) > 3) {
+            wasDraggingRef.current = true;
+        }
+
         const w = containerRef.current.clientWidth;
         const dMinutes = -(dx / w) * windowMinutes;
         let ws = dragStartRef.current.windowStart + dMinutes;
@@ -135,10 +145,15 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
     const endDrag = () => {
         isDraggingRef.current = false;
         dragStartRef.current = null;
+        // wasDraggingRef НЕ сбрасываем здесь — он нужен в handleSegmentClick,
+        // который вызовется СРАЗУ после mouseup. Сбросим в следующем tick.
+        if (wasDraggingRef.current) {
+            setTimeout(() => { wasDraggingRef.current = false; }, 0);
+        }
     };
 
     const handleWheel = (e: React.WheelEvent) => {
-        if (selectionMode) return;
+        // убрана блокировка по selectionMode — zoom доступен всегда
         const delta = e.deltaY > 0 ? windowMinutes * 0.1 : -windowMinutes * 0.1;
         let ws = windowStart + delta;
         ws = Math.max(0, Math.min(Math.max(0, 1440 - windowMinutes), ws));
@@ -147,7 +162,13 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
     };
 
     const handleSegmentClick = (e: React.MouseEvent, file: Recording) => {
+        // Защита от "ложного клика" после drag — браузер триггерит click
+        // на элементе, над которым отпустили mouse, даже если был drag.
+        if (wasDraggingRef.current) return;
+
+        // В режиме выбора клик по сегменту запрещён — чтобы случайно не сбить выбор.
         if (selectionMode) return;
+
         e.stopPropagation();
         onSeek(file);
         setUserScrolled(false);
@@ -238,10 +259,10 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
                     bgcolor: 'grey.100',
                     borderRadius: 1,
                     overflow: 'hidden',
-                    cursor: selectionMode ? 'default' : 'grab',
+                    cursor: 'grab',
                     userSelect: 'none',
                     '&:active': {
-                        cursor: selectionMode ? 'default' : 'grabbing',
+                        cursor: 'grabbing',
                     },
                 }}
             >
@@ -301,10 +322,10 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
                                     bgcolor: isCurrentSegment ? RZD_COLORS.primary : RZD_COLORS.secondary,
                                     opacity: isCurrentSegment ? 0.9 : 0.7,
                                     borderRadius: 0.5,
-                                    cursor: selectionMode ? 'default' : 'pointer',
+                                    cursor: selectionMode ? 'grab' : 'pointer',   // ← в режиме выбора курсор drag
                                     transition: 'opacity 0.15s',
                                     '&:hover': {
-                                        opacity: selectionMode ? 0.7 : 1,
+                                        opacity: selectionMode ? 0.7 : 1,           // ← без hover-эффекта в selectionMode
                                     },
                                 }}
                                 title={`${seg.file.filename} • ${formatMinutes(seg.start)}`}

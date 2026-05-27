@@ -164,7 +164,7 @@ const RecordingsView: React.FC = () => {
         const index = files.findIndex(f => f.filename === file.filename);
         if (index !== -1) playFile(file, index);
     };
-    
+
 
     const formatMinutes = (minutes: number): string => {
         const h = Math.floor(minutes / 60);
