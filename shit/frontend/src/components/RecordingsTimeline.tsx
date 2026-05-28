@@ -354,7 +354,7 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
             </Box>
 
             {selectionMode && (
-                <Box sx={{ mt: 0, px: 0.0, mx: '6px'}}>
+                <Box sx={{ mt: 0, px: 0.0}}>
                     <Box display="flex" alignItems="center" gap={1.5}>
                         <Slider
                             value={sliderValue}
