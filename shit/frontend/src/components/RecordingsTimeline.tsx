@@ -381,22 +381,6 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
                                 },
                             }}
                         />
-                        {selectedRange && (
-                            <Typography
-                                variant="caption"
-                                sx={{
-                                    display: 'block',
-                                    textAlign: 'center',
-                                    fontWeight: 600,
-                                    color: 'success.main',
-                                    mt: 0.5,
-                                }}
-                            >
-                                {formatMinutes(selectedRange.start)} – {formatMinutes(selectedRange.end)}
-                                {' • '}
-                                {Math.round(selectedRange.end - selectedRange.start)} мин
-                            </Typography>
-                        )}
                     </Box>
                 </Box>
             )}
