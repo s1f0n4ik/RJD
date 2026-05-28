@@ -8,67 +8,51 @@ export async function downloadWithProgress(
     suggestedName: string,
     mimeType: string,
     onProgress: (fraction: number) => void,
+    signal?: AbortSignal,
 ): Promise<void> {
-    // Современный путь: spawn save-as диалог ДО начала скачивания
-    // @ts-ignore — showSaveFilePicker не во всех типах
+    // @ts-ignore
     const canPickFile = typeof window.showSaveFilePicker === 'function';
 
-    let writable: FileSystemWritableFileStream | null = null;
-    let fallbackChunks: Uint8Array[] | null = null;
+    let writable: any = null;
 
     if (canPickFile) {
         try {
             // @ts-ignore
-            const handle = await window.showSaveFilePicker({
-                suggestedName,
-                types: [{
-                    description: mimeType,
-                    accept: { [mimeType]: [extensionFor(suggestedName)] },
-                }],
-            });
+            const handle = await window.showSaveFilePicker({ suggestedName });
             writable = await handle.createWritable();
         } catch (e: any) {
-            if (e.name === 'AbortError') {
-                // Пользователь отменил выбор файла
-                throw new Error('Скачивание отменено');
-            }
-            // Если API упал по другой причине — fallback
-            writable = null;
+            if (e.name === 'AbortError') throw new Error('Загрузка отменена');
         }
     }
 
-    if (!writable) {
-        fallbackChunks = [];
-    }
-
-    const res = await fetch(url);
+    const res = await fetch(url, { signal });   // ← signal в fetch
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    if (!res.body) throw new Error('No response body');
-
-    const totalStr = res.headers.get('content-length');
-    const total = totalStr ? parseInt(totalStr, 10) : 0;
+    const total = parseInt(res.headers.get('content-length') ?? '0', 10);
     let received = 0;
-
-    const reader = res.body.getReader();
+    const reader = res.body!.getReader();
 
     try {
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            received += value.length;
-            if (writable) {
-                await writable.write(value);
-            } else if (fallbackChunks) {
-                fallbackChunks.push(value);
-            }
-            if (total > 0) onProgress(received / total);
-        }
-
         if (writable) {
+            while (true) {
+                if (signal?.aborted) throw new Error('Загрузка отменена');
+                const { done, value } = await reader.read();
+                if (done) break;
+                received += value.length;
+                await writable.write(value);
+                if (total) onProgress(received / total);
+            }
             await writable.close();
-        } else if (fallbackChunks) {
-            // Fallback: собираем Blob и скачиваем через <a download>
-            const blob = new Blob(fallbackChunks as BlobPart[], { type: mimeType });
+        } else {
+            const chunks: Uint8Array[] = [];
+            while (true) {
+                if (signal?.aborted) throw new Error('Загрузка отменена');
+                const { done, value } = await reader.read();
+                if (done) break;
+                received += value.length;
+                chunks.push(value);
+                if (total) onProgress(received / total);
+            }
+            const blob = new Blob(chunks as BlobPart[], { type: mimeType });
             const objectUrl = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = objectUrl;
@@ -76,19 +60,14 @@ export async function downloadWithProgress(
             document.body.appendChild(a);
             a.click();
             URL.revokeObjectURL(objectUrl);
-            document.body.removeChild(a);
+            a.remove();
         }
-
         onProgress(1);
     } catch (e) {
+        // При отмене — пытаемся прибрать частично записанный файл
         if (writable) {
             try { await writable.abort(); } catch {}
         }
         throw e;
     }
-}
-
-function extensionFor(filename: string): string {
-    const dot = filename.lastIndexOf('.');
-    return dot >= 0 ? filename.substring(dot) : '.bin';
 }

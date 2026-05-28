@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useEffect, useState } from 'react';
-import { Box, Slider, Typography, ToggleButtonGroup, ToggleButton, Chip, IconButton, Tooltip } from '@mui/material';
+import { Box, Slider, Typography, ToggleButtonGroup, ToggleButton, IconButton, Tooltip } from '@mui/material';
 import { MyLocation } from '@mui/icons-material';
 import { RZD_COLORS } from '../theme';
 import { currentTimeBus } from '../utils/currentTimeBus';
@@ -354,32 +354,31 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
             </Box>
 
             {selectionMode && (
-                <Box sx={{ px: 2, pt: 2 }}>
-                    <Typography variant="caption" color="text.secondary">
-                        Перетащите ручки для выбора диапазона склейки
-                    </Typography>
-                    <Slider
-                        value={sliderValue}
-                        onChange={handleRangeSliderChange}
-                        min={windowStart}
-                        max={windowEnd}
-                        step={1}
-                        valueLabelDisplay="auto"
-                        valueLabelFormat={(v) => formatMinutes(v)}
-                        sx={{ mt: 1 }}
-                    />
-                    {selectedRange && (
-                        <Box display="flex" gap={1} mt={1}>
-                            <Chip size="small" color="success" label={`Начало: ${formatMinutes(selectedRange.start)}`} />
-                            <Chip size="small" color="success" label={`Конец: ${formatMinutes(selectedRange.end)}`} />
-                            <Chip
-                                size="small"
-                                color="primary"
-                                variant="outlined"
-                                label={`Длительность: ${Math.round(selectedRange.end - selectedRange.start)} мин`}
-                            />
-                        </Box>
-                    )}
+                <Box sx={{ mt: 1, px: 0.5 }}>
+                    <Box display="flex" alignItems="center" gap={1.5}>
+                        <Slider
+                            value={sliderValue}
+                            onChange={handleRangeSliderChange}
+                            min={windowStart}
+                            max={windowEnd}
+                            step={1}
+                            valueLabelDisplay="auto"
+                            valueLabelFormat={(v) => formatMinutes(v)}
+                            size="small"
+                            sx={{ flexGrow: 1, mr: 1 }}
+                        />
+                        {selectedRange ? (
+                            <Typography variant="caption" sx={{ whiteSpace: 'nowrap', fontWeight: 600 }}>
+                                {formatMinutes(selectedRange.start)} – {formatMinutes(selectedRange.end)}
+                                {' • '}
+                                {Math.round(selectedRange.end - selectedRange.start)} мин
+                            </Typography>
+                        ) : (
+                            <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
+                                выберите диапазон
+                            </Typography>
+                        )}
+                    </Box>
                 </Box>
             )}
         </Box>

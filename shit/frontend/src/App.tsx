@@ -31,7 +31,7 @@ import MergeJobPanel from './components/MergeJobPanel';
 const GlobalMergeJobPanel: React.FC = () => {
     const {
         activeJob, minimized, downloading, downloadProgress,
-        setMinimized, cancelJob, saveAs,
+        setMinimized, cancelJob, saveAs, cancelDownload
     } = useMergeJobs();
 
     if (!activeJob) return null;
@@ -46,6 +46,7 @@ const GlobalMergeJobPanel: React.FC = () => {
             onSaveAs={saveAs}
             downloading={downloading}
             downloadProgress={downloadProgress}
+            onCancelDownload={cancelDownload}
         />
     );
 };

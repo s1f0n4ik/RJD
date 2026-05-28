@@ -13,6 +13,7 @@ interface MergeJobsContextValue {
     saveAs: () => Promise<void>;
 
     setMinimized: (v: boolean) => void;
+    cancelDownload: () => void;
 }
 
 const MergeJobsContext = createContext<MergeJobsContextValue | null>(null);
@@ -28,7 +29,9 @@ export const MergeJobsProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const [minimized, setMinimized] = useState(false);
     const [downloading, setDownloading] = useState(false);
     const [downloadProgress, setDownloadProgress] = useState(0);
+
     const wsRef = useRef<WebSocket | null>(null);
+    const abortControllerRef = useRef<AbortController | null>(null);
 
     const attachToJob = useCallback((jobId: string) => {
         if (wsRef.current) {
@@ -119,6 +122,10 @@ export const MergeJobsProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         if (!activeJob || activeJob.status !== 'ready') return;
         setDownloading(true);
         setDownloadProgress(0);
+
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+
         try {
             const { downloadWithProgress } = await import('../utils/downloadWithProgress');
             const filename = activeJob.result_filename || `result_${activeJob.id.slice(0, 8)}`;
@@ -128,20 +135,37 @@ export const MergeJobsProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                 filename,
                 mime,
                 (p) => setDownloadProgress(p),
+                controller.signal,           // ← новый параметр
             );
             setActiveJob(null);
         } catch (err: any) {
-            alert(`Ошибка скачивания: ${err.message}`);
+            if (err.name === 'AbortError' || err.message === 'Загрузка отменена') {
+                // Тихое отмена пользователем — удаляем job на сервере
+                try {
+                    await fetch(`/api/recordings/jobs/${activeJob.id}`, { method: 'DELETE' });
+                } catch {}
+                setActiveJob(null);
+            } else {
+                alert(`Ошибка скачивания: ${err.message}`);
+            }
         } finally {
             setDownloading(false);
             setDownloadProgress(0);
+            abortControllerRef.current = null;
         }
     }, [activeJob]);
+
+    const cancelDownload = useCallback(() => {
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
+    }, []);
 
     return (
         <MergeJobsContext.Provider value={{
             activeJob, minimized, downloading, downloadProgress,
             startJob, cancelJob, saveAs, setMinimized,
+            cancelDownload,                                    // ← новое
         }}>
             {children}
         </MergeJobsContext.Provider>

@@ -26,6 +26,7 @@ interface MergeJobPanelProps {
     onSaveAs: () => Promise<void>;  // вызов диалога «куда сохранить»
     downloading: boolean;
     downloadProgress: number;        // 0..1
+    onCancelDownload: () => void;
 }
 
 const formatBytes = (b: number) => {
@@ -55,7 +56,7 @@ const STATUS_LABELS: Record<string, string> = {
 
 const MergeJobPanel: React.FC<MergeJobPanelProps> = ({
                                                          job, minimized, onMinimize, onMaximize, onCancel, onSaveAs,
-                                                         downloading, downloadProgress,
+                                                         downloading, downloadProgress, onCancelDownload
                                                      }) => {
     const isReady = job.status === 'ready';
     const isTerminal = ['failed', 'cancelled'].includes(job.status);
@@ -91,9 +92,6 @@ const MergeJobPanel: React.FC<MergeJobPanelProps> = ({
                 <Box display="flex" alignItems="center" gap={1} mb={0.5}>
                     <Typography variant="subtitle1" fontWeight="bold" sx={{ flexGrow: 1 }}>
                         {operationLabel}
-                    </Typography>
-                    <Typography variant="caption" fontWeight="bold" sx={{ flexGrow: 1 }}>
-                        {downloading ? 'Скачивание...' : STATUS_LABELS[job.status]}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
                         {Math.round(overallProgress * 100)}%
@@ -222,6 +220,15 @@ const MergeJobPanel: React.FC<MergeJobPanelProps> = ({
                                 Отменить
                             </Button>
                         </>
+                    )}
+                    {downloading && (
+                        <Button
+                            variant="outlined" color="error" fullWidth
+                            startIcon={<CancelIcon />}
+                            onClick={onCancelDownload}
+                        >
+                            Отменить загрузку
+                        </Button>
                     )}
                     {inProgress && (
                         <>
