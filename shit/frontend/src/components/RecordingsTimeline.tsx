@@ -354,7 +354,7 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
             </Box>
 
             {selectionMode && (
-                <Box sx={{ mt: 1, px: 0.5 }}>
+                <Box sx={{ mt: 0, px: 0.0, mx: '6px'}}>
                     <Box display="flex" alignItems="center" gap={1.5}>
                         <Slider
                             value={sliderValue}
@@ -365,17 +365,36 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
                             valueLabelDisplay="auto"
                             valueLabelFormat={(v) => formatMinutes(v)}
                             size="small"
-                            sx={{ flexGrow: 1, mr: 1 }}
+                            sx={{
+                                py: 0,                  // убираем вертикальные отступы
+                                '& .MuiSlider-rail': {
+                                    // делаем rail тонким и прозрачным, чтобы он не выделялся
+                                    height: 2,
+                                    opacity: 0.3,
+                                },
+                                '& .MuiSlider-track': {
+                                    height: 4,            // активный диапазон чуть толще
+                                },
+                                '& .MuiSlider-thumb': {
+                                    width: 12,
+                                    height: 12,
+                                },
+                            }}
                         />
-                        {selectedRange ? (
-                            <Typography variant="caption" sx={{ whiteSpace: 'nowrap', fontWeight: 600 }}>
+                        {selectedRange && (
+                            <Typography
+                                variant="caption"
+                                sx={{
+                                    display: 'block',
+                                    textAlign: 'center',
+                                    fontWeight: 600,
+                                    color: 'success.main',
+                                    mt: 0.5,
+                                }}
+                            >
                                 {formatMinutes(selectedRange.start)} – {formatMinutes(selectedRange.end)}
                                 {' • '}
                                 {Math.round(selectedRange.end - selectedRange.start)} мин
-                            </Typography>
-                        ) : (
-                            <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
-                                выберите диапазон
                             </Typography>
                         )}
                     </Box>
