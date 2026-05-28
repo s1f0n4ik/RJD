@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React from 'react';
 import {
     Box, Paper, Typography, LinearProgress, Button, IconButton, Stack, Chip,
 } from '@mui/material';
@@ -65,9 +65,12 @@ const MergeJobPanel: React.FC<MergeJobPanelProps> = ({
         ? downloadProgress
         : job.progress;
 
-    const operationLabel =
-        job.result_media_type === 'application/zip' ? 'Архивация'
-            : job.result_media_type === 'video/mp4' ? 'Склейка'
+    const operationLabel = downloading
+        ? 'Загрузка'
+        : job.result_media_type === 'application/zip'
+            ? 'Архивация'
+            : job.result_media_type === 'video/mp4'
+                ? 'Склейка'
                 : 'Обработка';
 
     // === Свёрнутый вид: маленькая плашка в углу ===
@@ -128,9 +131,16 @@ const MergeJobPanel: React.FC<MergeJobPanelProps> = ({
                     display: 'flex', alignItems: 'center', gap: 1,
                 }}
             >
-                <Typography variant="subtitle1" fontWeight="bold" sx={{ flexGrow: 1 }}>
-                    Склейка видео
-                </Typography>
+                {(() => {
+                    let title = 'Склейка видео';
+                    if (downloading) title = 'Загрузка';
+                    else if (job.result_media_type === 'application/zip') title = 'Архивация';
+                    return (
+                        <Typography variant="subtitle1" fontWeight="bold" sx={{ flexGrow: 1 }}>
+                            {title}
+                        </Typography>
+                    );
+                })()}
                 <IconButton size="small" onClick={onMinimize} sx={{ color: 'white' }}>
                     <ExpandMore fontSize="small" />
                 </IconButton>
@@ -198,12 +208,20 @@ const MergeJobPanel: React.FC<MergeJobPanelProps> = ({
                 {/* Actions */}
                 <Stack direction="row" spacing={1}>
                     {isReady && !downloading && (
-                        <Button
-                            variant="contained" color="success" fullWidth
-                            onClick={onSaveAs}
-                        >
-                            Сохранить как...
-                        </Button>
+                        <>
+                            <Button
+                                variant="contained" color="success" fullWidth
+                                onClick={onSaveAs}
+                            >
+                                Загрузить
+                            </Button>
+                            <Button
+                                variant="outlined" color="error" fullWidth
+                                onClick={onCancel}
+                            >
+                                Отменить
+                            </Button>
+                        </>
                     )}
                     {inProgress && (
                         <>
