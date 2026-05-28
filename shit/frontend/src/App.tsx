@@ -235,7 +235,7 @@ const AppContent: React.FC = () => {
         username={username || ''}
         onLogout={handleLogout}
       />
-      <Box>{renderContent()}</Box>
+      <Box sx={{ pb: 4 }}>{renderContent()}</Box>
 
       {/* Диалог пароля администратора */}
       <Dialog
