@@ -36,7 +36,7 @@ const Landing: React.FC = () => {
       }}
     >
       <Typography variant="h2" sx={{ mb: 1, fontWeight: 700 }}>
-        🎥 Система видеонаблюдения
+        Система видеонаблюдения
       </Typography>
       <Typography variant="h6" sx={{ color: 'grey.500', mb: 6 }}>
         Выберите режим работы
@@ -55,7 +55,7 @@ const Landing: React.FC = () => {
             minWidth: 260,
           }}
         >
-          Киоск
+          Прямая трансляция
         </Button>
 
         <Button
@@ -76,12 +76,12 @@ const Landing: React.FC = () => {
             },
           }}
         >
-          Админка
+          Администрирование
         </Button>
       </Stack>
 
       <Typography variant="caption" color="grey.600" sx={{ mt: 6 }}>
-        Киоск — просмотр сохранённых layout'ов на полный экран • Админка — настройка и управление
+          Прямая трансляция — просмотр сохранённых конфигурация отображения на полный экран • Администрирование — настройка и управление
       </Typography>
     </Box>
   );
