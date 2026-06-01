@@ -593,7 +593,7 @@ const KioskView: React.FC = () => {
                   onChange={(e) => handleSwitchLayout(e.target.value)}
                   sx={{
                       color: 'white',
-                      borderRadius: 2,                                            // ← не квадратный
+                      borderRadius: 0,                                            // ← квадратный
                       bgcolor: '#1a1a1a',                                         // ← как у списка камер
                       '& .MuiOutlinedInput-notchedOutline': {
                           borderColor: 'grey.900',
