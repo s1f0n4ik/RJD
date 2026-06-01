@@ -162,7 +162,13 @@ const CellMenu: React.FC<CellMenuProps> = ({
                 // mode === 'fullscreenOnly'
                 <Box
                     className="cell-menu-anchor"
-                    sx={{ ...anchorBaseSx, bottom: 6, right: 6 }}
+                    sx={{
+                        position: 'absolute',
+                        bottom: 6,
+                        right: 6,
+                        zIndex: 20,
+                        // opacity всегда 1 — кнопка fullscreen видна постоянно
+                    }}
                     onClick={(e) => e.stopPropagation()}
                     onDoubleClick={(e) => e.stopPropagation()}
                 >
