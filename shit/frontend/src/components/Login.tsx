@@ -72,7 +72,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                             position: 'absolute',
                             top: 20,
                             right: -56,                            // ← вылет вправо
-                            width: 70,
+                            width: 90,
                             height: 'calc(100% - 40px)',           // чуть короче основной карточки сверху и снизу
                             bgcolor: RZD_COLORS.grey[300],
                             borderRadius: 3,
@@ -80,7 +80,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                             // На узких экранах прячем — не помещается рядом с основной карточкой
                             display: { xs: 'none', sm: 'flex' },
                             alignItems: 'center',
-                            justifyContent: 'center',
+                            justifyContent: 'right',
                             transition: 'all 0.2s ease',
                             boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
                             '&:hover': {
@@ -101,16 +101,10 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                                 writingMode: 'vertical-rl',
                             }}
                         >
-                            <FullscreenIcon
-                                sx={{
-                                    color: RZD_COLORS.primary,
-                                    fontSize: 24,
-                                    transform: 'rotate(-180deg)',     // иконку выпрямляем обратно
-                                }}
-                            />
                             <Typography
                                 variant="button"
                                 sx={{
+                                    pr: 1.5,
                                     color: RZD_COLORS.primary,
                                     fontWeight: 600,
                                     letterSpacing: 1,
