@@ -31,6 +31,7 @@ const M     = {
 // ════════════════════════════════════════════════════════════
 
 export function requestProjectionList() {
+    log('Запрос списка проекционных пресетов', 'info');
     _sendWSMessage(TYPE, { method: M.GET_LIST });
 }
 
@@ -64,6 +65,7 @@ export function handleProjectionMessage(msg) {
 // ── get_list ─────────────────────────────────────────────────
 function _onGetList(meta) {
     projState.presets = meta.presets ?? [];
+    log(`Получено ${projState.presets.length} пресетов`, 'ok');
     _renderVehicleList();
 }
 
