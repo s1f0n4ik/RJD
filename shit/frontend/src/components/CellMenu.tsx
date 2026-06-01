@@ -83,20 +83,21 @@ const CellMenu: React.FC<CellMenuProps> = ({
                 <Box
                     sx={{
                         position: 'absolute',
-                        top: 6,
-                        left: 6,
+                        top: 8,                            // небольшой отступ сверху
+                        left: 0,                           // прижато к левому краю
                         zIndex: 19,
                         bgcolor: 'rgba(0,0,0,0.65)',
                         color: 'white',
-                        px: 1,
-                        py: 0.25,
-                        borderRadius: 1,
+                        pl: 2,                             // больший отступ слева внутри плашки
+                        pr: 1.5,                           // обычный справа
+                        py: 0.5,                           // вертикальный паддинг
+                        borderRadius: 0,                   // полностью прямоугольная
                         display: 'flex',
                         alignItems: 'center',
                         gap: 0.5,
                         backdropFilter: 'blur(4px)',
                         pointerEvents: 'none',
-                        maxWidth: 'calc(100% - 60px)',  // оставляем место под кнопку справа
+                        maxWidth: 'calc(100% - 50px)',
                     }}
                 >
                     <Typography
