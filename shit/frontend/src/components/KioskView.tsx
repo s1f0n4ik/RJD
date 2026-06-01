@@ -586,7 +586,7 @@ const KioskView: React.FC = () => {
           </Box>
         )}
           <FormControl size="small" sx={{ minWidth: 180 }}>
-              <InputLabel sx={{ color: 'grey.400' }}>Отображение</InputLabel>
+              <InputLabel sx={{ color: 'grey.700' }}>Отображение</InputLabel>
               <Select
                   value={layout.name}
                   label="Отображение"
@@ -596,12 +596,12 @@ const KioskView: React.FC = () => {
                       borderRadius: 0,                                            // ← квадратный
                       bgcolor: '#1a1a1a',                                         // ← как у списка камер
                       '& .MuiOutlinedInput-notchedOutline': {
-                          borderColor: 'grey.700',
+                          borderColor: 'grey.900',
                           borderRadius: 0,                                          // ← на всякий случай и для notched
                       },
                       '& .MuiSvgIcon-root': { color: 'white' },
                       '&:hover .MuiOutlinedInput-notchedOutline': {
-                          borderColor: 'grey.500',
+                          borderColor: 'grey.700',
                       },
                   }}
                   MenuProps={{
