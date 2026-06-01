@@ -14,7 +14,7 @@ export { handleProjectionMessage} from '../api/proj-server.js';
 import { projState } from '../core/projection-consts.js';
 import { initProjWarpCanvas, initWarpZoomPan, setRenderCamList, projDraw } from '../components/canvas.js';
 import { renderProjCamList } from '../components/cam-list.js';
-import {requestWarp, setRenderVehicleList, setSendWSMessage} from '../api/proj-server.js';
+import { requestWarp, setRenderVehicleList, setSendWSMessage} from '../api/proj-server.js';
 import { showToast } from '../utils/utility.js';
 import { currentMaxPoints } from '../core/projection-consts.js';
 import { sendWSMessage } from '../core/websocket.js';

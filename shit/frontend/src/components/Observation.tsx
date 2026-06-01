@@ -555,6 +555,7 @@ const Observation: React.FC = () => {
                     onRemove={handleRemoveCameraFromCell}
                     alwaysVisible={isTouch}
                     variant="light"
+                    cameraName={getCameraDisplayName(cameraName)}
                   />
                 </>
               ) : (
@@ -610,7 +611,6 @@ const Observation: React.FC = () => {
             signalingUrl={wsUrl(`/signaling/client/${cameraName}`)}
             onError={(err) => console.error(`Error in ${cameraName}:`, err)}
           />
-          {/* ✅ ДОБАВЛЕНО: Подсказка при hover */}
             <CellMenu
               cellId={cellId}
               onFullscreen={handleFullscreenCell}
@@ -618,27 +618,6 @@ const Observation: React.FC = () => {
               alwaysVisible={isTouch}
               variant="light"
             />
-          <Box
-            sx={{
-              position: 'absolute',
-              top: 8,
-              left: 8,
-              bgcolor: 'rgba(0,0,0,0.7)',
-              color: 'white',
-              px: 1,
-              py: 0.5,
-              borderRadius: 1,
-              fontSize: '0.75rem',
-              opacity: 0,
-              transition: 'opacity 0.2s',
-              pointerEvents: 'none',
-              '.MuiBox-root:hover &': {
-                opacity: 1,
-              },
-            }}
-          >
-            {getCameraDisplayName(cameraName)} • 2× клик = удалить
-          </Box>
         </>
       ) : (
         <Box sx={{ textAlign: 'center', color: 'text.secondary' }}>

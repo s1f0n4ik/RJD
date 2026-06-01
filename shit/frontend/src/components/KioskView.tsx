@@ -423,6 +423,8 @@ const KioskView: React.FC = () => {
               onRemove={handleCellRemove}
               alwaysVisible={isTouch}
               variant="light"
+              mode="fullscreenOnly"
+              cameraName={getCameraDisplayName(cameraName)}
             />
 
             {isDragging && (

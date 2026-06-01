@@ -504,45 +504,6 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
                 flexDirection: 'column',
             }}
         >
-            {
-                <Box
-                    sx={{
-                        position: 'absolute',
-                        top: 12,
-                        left: 20,
-                        zIndex: 10,
-                        bgcolor: 'rgba(0,0,0,0.65)',
-                        color: 'white',
-                        padding: '4px 10px',
-                        borderRadius: 1,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 0.5,
-                        backdropFilter: 'blur(4px)',
-                    }}
-                >
-                    <Typography variant="caption" sx={{ fontSize: 12, lineHeight: 1 }}>
-                        {cameraName || cameraId}
-                    </Typography>
-
-                    {/*
-                    {status === 'connected' && (
-                        <IconButton
-                            size="small"
-                            onClick={handleFullscreen}
-                            sx={{
-                                color: 'white',
-                                p: 0.2,
-                                ml: 0.5,
-                            }}
-                        >
-                            <Fullscreen fontSize="small" />
-                        </IconButton>
-                    )}
-                    */}
-                </Box>
-            }
-
             <video
                 ref={videoRef}
                 autoPlay
