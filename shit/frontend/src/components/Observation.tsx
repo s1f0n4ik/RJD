@@ -109,6 +109,25 @@ const Observation: React.FC = () => {
     loadSavedLayouts();
   }, []);
 
+    useEffect(() => {
+        if (!selectedCamera) return;       // нет смысла слушать, если ничего не выбрано
+
+        const handleClickOutside = (e: MouseEvent) => {
+            const target = e.target as HTMLElement;
+            // Не сбрасываем, если клик попал в список камер или в ячейку грида
+            if (
+                target.closest('.MuiListItem-root') ||
+                target.closest('.video-cell')
+            ) {
+                return;
+            }
+            setSelectedCamera(null);
+        };
+
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [selectedCamera]);
+
   const loadCameras = async () => {
     try {
       const data = await api.getCameras();
@@ -147,7 +166,6 @@ const Observation: React.FC = () => {
 
   const saveCurrentLayout = () => {
     if (!newLayoutName.trim()) {
-      alert('Введите название layout');
       return;
     }
 
@@ -277,9 +295,10 @@ const Observation: React.FC = () => {
           colSpan: maxCol - minCol + 1,
         };
         setCustomCells([...customCells, newCell]);
-      } else {
-        alert('Ячейки не должны накладываться друг на друга');
       }
+      //else {
+          // alert('Ячейки не должны накладываться друг на друга');
+      //}
     }
 
     setIsDrawing(false);
@@ -299,7 +318,7 @@ const Observation: React.FC = () => {
 
   const handleApplyCustomGrid = () => {
     if (customCells.length === 0) {
-      alert('Создайте хотя бы одну ячейку');
+      //alert('Создайте хотя бы одну ячейку');
       return;
     }
     setGridSize('custom');
@@ -323,39 +342,24 @@ const Observation: React.FC = () => {
     ) || null;
   };
 
-  const handleCellClick = (cellId: number | string) => {
-    if (!selectedCamera) {
-      // Если камера не выбрана, но ячейка занята - открываем контекстное меню
-      if (activeCells[cellId]) {
-        alert('Выберите камеру слева для замены или кликните ПКМ для удаления');
-      } else {
-        alert('Выберите камеру слева');
-      }
-      return;
-    }
+    const handleCellClick = (cellId: number | string) => {
+        if (!selectedCamera) return;  // тихо игнорируем — раздражающий alert убран
 
-    // Проверяем, не используется ли камера в другой ячейке
-    const usedInCell = Object.entries(activeCells).find(([id, name]) =>
-      name === selectedCamera && id !== String(cellId)
-    );
+        const usedInCell = Object.entries(activeCells).find(([id, name]) =>
+            name === selectedCamera && id !== String(cellId)
+        );
 
-    if (usedInCell) {
-      if (!confirm(`Камера "${selectedCamera}" уже используется в другой ячейке. Переместить сюда?`)) {
-        return;
-      }
-      // Удаляем из старой ячейки
-      const newActiveCells = { ...activeCells };
-      delete newActiveCells[usedInCell[0]];
-      setActiveCells(newActiveCells);
-    }
+        setActiveCells(prev => {
+            const next = { ...prev };
+            // Если камера была в другой ячейке — освобождаем её, без confirm
+            if (usedInCell) delete next[usedInCell[0]];
+            next[cellId] = selectedCamera;
+            return next;
+        });
 
-    // Устанавливаем/заменяем камеру
-    setActiveCells(prev => ({
-      ...prev,
-      [cellId]: selectedCamera,
-    }));
-    setCurrentLayoutName(''); // Сбрасываем название layout
-  };
+        setCurrentLayoutName('');
+        setSelectedCamera(null);       // ← сброс выделения после установки (см. ниже)
+    };
 
   const handleCellRightClick = (event: React.MouseEvent, cellId: number | string) => {
     event.preventDefault();
@@ -446,6 +450,7 @@ const Observation: React.FC = () => {
       }));
       setDraggedCamera(null);
       setCurrentLayoutName('');
+      setSelectedCamera(null);
   };
 
   const handleCellDoubleClick = (cellId: number | string) => {
@@ -555,6 +560,7 @@ const Observation: React.FC = () => {
                     onRemove={handleRemoveCameraFromCell}
                     alwaysVisible={isTouch}
                     variant="light"
+                    mode="menu"
                     cameraName={getCameraDisplayName(cameraName)}
                   />
                 </>
@@ -617,6 +623,8 @@ const Observation: React.FC = () => {
               onRemove={handleRemoveCameraFromCell}
               alwaysVisible={isTouch}
               variant="light"
+              mode="menu"
+              cameraName={getCameraDisplayName(cameraName)}
             />
         </>
       ) : (
@@ -675,7 +683,9 @@ const Observation: React.FC = () => {
                 draggable
                 onDragStart={(e) => handleDragStart(e, camera.id)}
                 onDragEnd={handleDragEnd}
-                onClick={() => setSelectedCamera(camera.id)}
+                onClick={() => {
+                    setSelectedCamera(prev => (prev === camera.id ? null : camera.id));
+                }}
                 sx={{
                   bgcolor: isSelected
                     ? 'info.main'
