@@ -33,6 +33,8 @@ import {
     handleCalibrationResult,
     calHide, resumeStream, toggleSnapshotDrawer,
     requestClearSnapshotList, clearSnapshotList,
+    savePattern, onChessboardClick, takeSnapshot,
+    calibrateStart,
 } from '../components/calibration.js';
 import {
     handleDistortionCompute, handleOnDistortionShow,
@@ -260,4 +262,9 @@ Object.assign(window, {
     resumeStream,
     toggleSnapshotDrawer,
     requestClearSnapshotList,
+    savePattern,
+    onChessboardClick,
+    takeSnapshot,
+    calibrateStart,
+
 });
