@@ -13,6 +13,7 @@ import {
   Error as ErrorIcon,
   DragIndicator as DragIndicatorIcon,
   Close as CloseIcon,
+    Settings as SettingsIcon,
 } from '@mui/icons-material';
 import WebRTCPlayer from './WebRTCPlayer';
 import { api } from '../services/api';
@@ -111,7 +112,7 @@ const KioskView: React.FC = () => {
             if (found) {
                 setLayout(found);
             } else {
-                setError("Layout не найден");
+                setError("Отображение не найдено");
             }
 
         } catch (err) {
@@ -315,7 +316,7 @@ const KioskView: React.FC = () => {
           <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>
           {availableLayouts.length > 0 && (
             <Box>
-              <Typography variant="h6" sx={{ mb: 2 }}>Доступные layouts:</Typography>
+              <Typography variant="h6" sx={{ mb: 2 }}>Доступные отображения:</Typography>
               {availableLayouts.map(l => (
                 <Button key={l.name} fullWidth variant="outlined"
                   sx={{ mb: 1, color: 'white', borderColor: 'white' }}
@@ -350,7 +351,7 @@ const KioskView: React.FC = () => {
         display: 'flex', flexDirection: 'column',
         alignItems: 'center', justifyContent: 'center', p: 4,
       }}>
-        <Typography variant="h3" sx={{ mb: 2 }}>🎥 Киоск-режим</Typography>
+        <Typography variant="h3" sx={{ mb: 2 }}>Трансляция</Typography>
         <Typography variant="h5" color="grey.400" sx={{ mb: 4 }}>
           Layout: <strong>{layout.name}</strong>
         </Typography>
@@ -363,7 +364,7 @@ const KioskView: React.FC = () => {
           ← Вернуться на главную
         </Button>
         <Typography variant="caption" color="grey.500" sx={{ mt: 3 }}>
-          В киоске: подвиньте мышь сверху для панели управления • Esc — выход
+            В режиме трансляции: подвиньте мышь сверху для панели управления • Esc — выход
         </Typography>
       </Box>
     );
@@ -386,7 +387,7 @@ const KioskView: React.FC = () => {
         onDragLeave={(e) => handleDragLeave(e, cellId)}
         onDrop={(e) => handleDrop(e, cellId)}
         onClick={() => handleCellTap(cellId)}
-        onDoubleClick={() => handleCellDoubleClick(cellId)}
+        //onDoubleClick={() => handleCellDoubleClick(cellId)}
         sx={{
           position: 'relative',
           width: '100%', height: '100%',
@@ -584,7 +585,7 @@ const KioskView: React.FC = () => {
           <MenuIcon />
         </IconButton>
 
-        <Typography variant="subtitle2">🎥 Киоск</Typography>
+        <Typography variant="subtitle2">Трансляция</Typography>
         {selectedCamera && (
           <Box
             sx={{
@@ -599,7 +600,7 @@ const KioskView: React.FC = () => {
             }}
           >
             <Typography variant="caption" sx={{ color: 'white' }}>
-              📹 {getCameraDisplayName(selectedCamera)}
+              {getCameraDisplayName(selectedCamera)}
             </Typography>
             <IconButton
               size="small"
@@ -610,23 +611,43 @@ const KioskView: React.FC = () => {
             </IconButton>
           </Box>
         )}
-        <FormControl size="small" sx={{ minWidth: 180 }}>
-          <InputLabel sx={{ color: 'grey.400' }}>Layout</InputLabel>
-          <Select
-            value={layout.name}
-            label="Layout"
-            onChange={(e) => handleSwitchLayout(e.target.value)}
-            sx={{
-              color: 'white',
-              '& .MuiOutlinedInput-notchedOutline': { borderColor: 'grey.600' },
-              '& .MuiSvgIcon-root': { color: 'white' },
-            }}
-          >
-            {availableLayouts.map(l => (
-              <MenuItem key={l.name} value={l.name}>{l.name}</MenuItem>
-            ))}
-          </Select>
-        </FormControl>
+          <FormControl size="small" sx={{ minWidth: 180 }}>
+              <InputLabel sx={{ color: 'grey.400' }}>Отображение</InputLabel>
+              <Select
+                  value={layout.name}
+                  label="Отображение"
+                  onChange={(e) => handleSwitchLayout(e.target.value)}
+                  sx={{
+                      color: 'white',
+                      borderRadius: 0,                                            // ← квадратный
+                      bgcolor: '#1a1a1a',                                         // ← как у списка камер
+                      '& .MuiOutlinedInput-notchedOutline': {
+                          borderColor: 'grey.700',
+                          borderRadius: 0,                                          // ← на всякий случай и для notched
+                      },
+                      '& .MuiSvgIcon-root': { color: 'white' },
+                      '&:hover .MuiOutlinedInput-notchedOutline': {
+                          borderColor: 'grey.500',
+                      },
+                  }}
+                  MenuProps={{
+                      PaperProps: {
+                          sx: {
+                              borderRadius: 0,                                        // ← выпадающее меню тоже квадратное
+                              bgcolor: '#1a1a1a',
+                              color: 'white',
+                              '& .MuiMenuItem-root:hover': {
+                                  bgcolor: 'rgba(255,255,255,0.08)',
+                              },
+                          },
+                      },
+                  }}
+              >
+                  {availableLayouts.map(l => (
+                      <MenuItem key={l.name} value={l.name}>{l.name}</MenuItem>
+                  ))}
+              </Select>
+          </FormControl>
 
         {activeCellsOverride && (
           <Typography variant="caption" color="warning.main">
@@ -650,7 +671,7 @@ const KioskView: React.FC = () => {
         </Tooltip>
       </Box>
 
-      {/* 🔑 Боковая панель: variant="persistent" + убран backdrop */}
+      {/* Боковая панель: variant="persistent" + убран backdrop */}
       <Drawer
           anchor="left"
           open={drawerOpen}
@@ -750,6 +771,31 @@ const KioskView: React.FC = () => {
             </Box>
           )}
         </List>
+          <Divider sx={{ borderColor: 'grey.800', mt: 1 }} />
+          <List dense>
+              <ListItem
+                  onClick={() => {
+                      // Если есть токен — в админку, иначе на логин
+                      const hasToken = !!localStorage.getItem('token');
+                      window.location.href = hasToken ? '/app' : '/app';
+                      // Если у тебя логин/админка на разных URL — поменяй второе значение
+                  }}
+                  sx={{
+                      cursor: 'pointer',
+                      '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' },
+                  }}
+              >
+                  <ListItemIcon sx={{ minWidth: 32 }}>
+                      <SettingsIcon sx={{ color: 'grey.400', fontSize: 18 }} />
+                  </ListItemIcon>
+                  <ListItemText
+                      primary="Настройки"
+                      primaryTypographyProps={{
+                          fontSize: '0.85rem',
+                      }}
+                  />
+              </ListItem>
+          </List>
       </Drawer>
     </Box>
   );
