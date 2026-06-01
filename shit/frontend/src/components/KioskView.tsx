@@ -670,7 +670,7 @@ const KioskView: React.FC = () => {
           }}
         >
         <Box sx={{ p: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Typography variant="subtitle1" fontWeight="bold">📹 Камеры</Typography>
+          <Typography variant="subtitle1" fontWeight="bold">   Камеры</Typography>
           <IconButton size="small" sx={{ color: 'white' }} onClick={() => setDrawerOpen(false)}>
             <CloseIcon />
           </IconButton>
