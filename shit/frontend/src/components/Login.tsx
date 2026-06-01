@@ -71,7 +71,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                         sx={{
                             position: 'absolute',
                             top: 20,
-                            right: -56,                            // ← вылет вправо
+                            right: -40,                            // ← вылет вправо
                             width: 90,
                             height: 'calc(100% - 40px)',           // чуть короче основной карточки сверху и снизу
                             bgcolor: RZD_COLORS.grey[300],
@@ -104,7 +104,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                             <Typography
                                 variant="button"
                                 sx={{
-                                    pr: 1.5,
+                                    pl: 1.5,
                                     color: RZD_COLORS.primary,
                                     fontWeight: 600,
                                     letterSpacing: 1,
