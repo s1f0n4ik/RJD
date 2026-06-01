@@ -1,161 +1,245 @@
 import React, { useState } from 'react';
 import {
-  Container,
-  Paper,
-  TextField,
-  Button,
-  Typography,
-  Box,
-  Alert,
-  Chip,
+    Container,
+    Paper,
+    TextField,
+    Button,
+    Typography,
+    Box,
+    Alert,
+    Chip,
 } from '@mui/material';
-//import { Lock as LockIcon } from '@mui/icons-material';
+import { Fullscreen as FullscreenIcon } from '@mui/icons-material';
 import { RZD_COLORS } from '../theme';
 
 interface LoginProps {
-  onLogin: (token: string, role: string, username: string) => void;
+    onLogin: (token: string, role: string, username: string) => void;
 }
 
 const Login: React.FC<LoginProps> = ({ onLogin }) => {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+    const [username, setUsername] = useState('');
+    const [password, setPassword] = useState('');
+    const [error, setError] = useState('');
+    const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setError('');
+        setLoading(true);
 
-    try {
-      const response = await fetch('/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
-      });
+        try {
+            const response = await fetch('/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password }),
+            });
 
-      if (!response.ok) {
-        throw new Error('Неверный логин или пароль');
-      }
+            if (!response.ok) {
+                throw new Error('Неверный логин или пароль');
+            }
 
-      const data = await response.json();
-      onLogin(data.access_token, data.role, data.username);
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+            const data = await response.json();
+            onLogin(data.access_token, data.role, data.username);
+        } catch (err: any) {
+            setError(err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
 
-  return (
-    <Box
-      sx={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: `linear-gradient(135deg, ${RZD_COLORS.primary} 0%, ${RZD_COLORS.secondary} 100%)`,
-      }}
-    >
-      <Container maxWidth="sm">
-        <Paper
-          elevation={8}
-          sx={{
-            p: 5,
-            borderRadius: 3,
-            boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
-          }}
+    const goToBroadcast = () => {
+        window.location.href = '/kiosk';
+    };
+
+    return (
+        <Box
+            sx={{
+                minHeight: '100vh',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: `linear-gradient(135deg, ${RZD_COLORS.primary} 0%, ${RZD_COLORS.secondary} 100%)`,
+            }}
         >
-          <Box display="flex" flexDirection="column" alignItems="center" mb={4}>
-            <Box
-              component="img"
-              src="/assets/logo1.png"
-              alt="ВНИИЖТ"
-              sx={{
-                height: 60,
-                mb: 2,
-                objectFit: 'contain',
-              }}
-              onError={(e: any) => {
-                e.target.style.display = 'none';
-              }}
-            />
+            <Container maxWidth="sm">
+                {/* Обёртка для основной карточки и серой «закладки» */}
+                <Box sx={{ position: 'relative' }}>
+                    {/* Серая «закладка» — позади основной карточки, чуть смещённая вправо */}
+                    <Paper
+                        elevation={4}
+                        onClick={goToBroadcast}
+                        sx={{
+                            position: 'absolute',
+                            top: 20,
+                            right: -56,                            // ← вылет вправо
+                            width: 70,
+                            height: 'calc(100% - 40px)',           // чуть короче основной карточки сверху и снизу
+                            bgcolor: RZD_COLORS.grey[300],
+                            borderRadius: 3,
+                            cursor: 'pointer',
+                            // На узких экранах прячем — не помещается рядом с основной карточкой
+                            display: { xs: 'none', sm: 'flex' },
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            transition: 'all 0.2s ease',
+                            boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+                            '&:hover': {
+                                right: -64,                          // ← при hover чуть «выдвигается»
+                                bgcolor: RZD_COLORS.grey[500],
+                            },
 
-            <Typography
-              variant="h4"
-              fontWeight="bold"
-              sx={{ color: RZD_COLORS.primary, mb: 1 }}
-            >
-              РЖД
-            </Typography>
-            <Typography variant="h6" color="text.secondary">
-              Система видеоаналитики
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-              Вход в систему
-            </Typography>
-          </Box>
+                        }}
+                    >
+                        <Box
+                            sx={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                gap: 1.5,
+                                // Текст вертикальный — повёрнут на 90 градусов
+                                transform: 'rotate(180deg)',
+                                writingMode: 'vertical-rl',
+                            }}
+                        >
+                            <FullscreenIcon
+                                sx={{
+                                    color: RZD_COLORS.primary,
+                                    fontSize: 24,
+                                    transform: 'rotate(-180deg)',     // иконку выпрямляем обратно
+                                }}
+                            />
+                            <Typography
+                                variant="button"
+                                sx={{
+                                    color: RZD_COLORS.primary,
+                                    fontWeight: 600,
+                                    letterSpacing: 1,
+                                    fontSize: '0.85rem',
+                                    whiteSpace: 'nowrap',
+                                }}
+                            >
+                                Перейти в режим трансляции
+                            </Typography>
+                        </Box>
+                    </Paper>
 
-          <form onSubmit={handleSubmit}>
-            <TextField
-              label="Логин"
-              fullWidth
-              margin="normal"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              required
-              autoFocus
-            />
-            <TextField
-              label="Пароль"
-              type="password"
-              fullWidth
-              margin="normal"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
+                    {/* Основная карточка логина — поверх «закладки» */}
+                    <Paper
+                        elevation={8}
+                        sx={{
+                            position: 'relative',                  // ← чтобы оказаться выше absolute-карточки
+                            zIndex: 1,
+                            p: 5,
+                            borderRadius: 3,
+                            boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
+                        }}
+                    >
+                        <Box display="flex" flexDirection="column" alignItems="center" mb={4}>
+                            <Box
+                                component="img"
+                                src="/assets/logo1.png"
+                                alt="ВНИИЖТ"
+                                sx={{
+                                    height: 60,
+                                    mb: 2,
+                                    objectFit: 'contain',
+                                }}
+                                onError={(e: any) => {
+                                    e.target.style.display = 'none';
+                                }}
+                            />
 
-            {error && (
-              <Alert severity="error" sx={{ mt: 2 }}>
-                {error}
-              </Alert>
-            )}
+                            <Typography
+                                variant="h4"
+                                fontWeight="bold"
+                                sx={{ color: RZD_COLORS.primary, mb: 1 }}
+                            >
+                                РЖД
+                            </Typography>
+                            <Typography variant="h6" color="text.secondary">
+                                Система видеоаналитики
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                                Вход в систему
+                            </Typography>
+                        </Box>
 
-            <Button
-              type="submit"
-              variant="contained"
-              fullWidth
-              size="large"
-              disabled={loading}
-              sx={{
-                mt: 3,
-                py: 1.5,
-                fontSize: '1rem',
-                fontWeight: 600,
-              }}
-            >
-              {loading ? 'Вход...' : 'Войти'}
-            </Button>
-          </form>
+                        <form onSubmit={handleSubmit}>
+                            <TextField
+                                label="Логин"
+                                fullWidth
+                                margin="normal"
+                                value={username}
+                                onChange={(e) => setUsername(e.target.value)}
+                                required
+                                autoFocus
+                            />
+                            <TextField
+                                label="Пароль"
+                                type="password"
+                                fullWidth
+                                margin="normal"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                required
+                            />
 
-          <Box mt={4} p={2} bgcolor={RZD_COLORS.grey[100]} borderRadius={2}>
-            <Typography variant="caption" color="text.secondary" fontWeight={600}>
-              Тестовые аккаунты:
-            </Typography>
-            <Typography variant="body2" sx={{ mt: 1 }}>
-              <strong>admin</strong> / admin123{' '}
-              <Chip label="Администратор" size="small" color="primary" sx={{ ml: 1 }} />
-            </Typography>
-            <Typography variant="body2">
-              <strong>user</strong> / user123{' '}
-              <Chip label="Наблюдатель" size="small" color="default" sx={{ ml: 1 }} />
-            </Typography>
-          </Box>
-        </Paper>
-      </Container>
-    </Box>
-  );
+                            {error && (
+                                <Alert severity="error" sx={{ mt: 2 }}>
+                                    {error}
+                                </Alert>
+                            )}
+
+                            <Button
+                                type="submit"
+                                variant="contained"
+                                fullWidth
+                                size="large"
+                                disabled={loading}
+                                sx={{
+                                    mt: 3,
+                                    py: 1.5,
+                                    fontSize: '1rem',
+                                    fontWeight: 600,
+                                }}
+                            >
+                                {loading ? 'Вход...' : 'Войти'}
+                            </Button>
+                        </form>
+
+                        <Box mt={4} p={2} bgcolor={RZD_COLORS.grey[100]} borderRadius={2}>
+                            <Typography variant="caption" color="text.secondary" fontWeight={600}>
+                                Тестовые аккаунты:
+                            </Typography>
+                            <Typography variant="body2" sx={{ mt: 1 }}>
+                                <strong>admin</strong> / admin123{' '}
+                                <Chip label="Администратор" size="small" color="primary" sx={{ ml: 1 }} />
+                            </Typography>
+                            <Typography variant="body2">
+                                <strong>user</strong> / user123{' '}
+                                <Chip label="Наблюдатель" size="small" color="default" sx={{ ml: 1 }} />
+                            </Typography>
+                        </Box>
+
+                        {/* Дублирующая кнопка для мобильных, где «закладка» скрыта */}
+                        <Button
+                            variant="text"
+                            fullWidth
+                            startIcon={<FullscreenIcon />}
+                            onClick={goToBroadcast}
+                            sx={{
+                                mt: 2,
+                                color: RZD_COLORS.primary,
+                                display: { xs: 'flex', sm: 'none' },   // ← только на узких экранах
+                            }}
+                        >
+                            Перейти в режим трансляции
+                        </Button>
+                    </Paper>
+                </Box>
+            </Container>
+        </Box>
+    );
 };
 
 export default Login;

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Box, Typography, Button, Stack } from '@mui/material';
 import {
   Fullscreen as FullscreenIcon,
@@ -6,6 +6,12 @@ import {
 } from '@mui/icons-material';
 
 const Landing: React.FC = () => {
+    useEffect(() => {
+        if (document.fullscreenElement) {
+            window.location.replace('/kiosk');
+        }
+    }, []);
+
   const goToKiosk = () => {
     // Если есть сохранённые layouts — открываем киоск без имени,
     // KioskView сам возьмёт первый доступный.

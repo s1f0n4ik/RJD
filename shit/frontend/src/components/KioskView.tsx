@@ -344,32 +344,6 @@ const KioskView: React.FC = () => {
     );
   }
 
-  if (!fullscreenActive) {
-    return (
-      <Box sx={{
-        minHeight: '100vh', bgcolor: '#000', color: 'white',
-        display: 'flex', flexDirection: 'column',
-        alignItems: 'center', justifyContent: 'center', p: 4,
-      }}>
-        <Typography variant="h3" sx={{ mb: 2 }}>Трансляция</Typography>
-        <Typography variant="h5" color="grey.400" sx={{ mb: 4 }}>
-          Layout: <strong>{layout.name}</strong>
-        </Typography>
-        <Button variant="contained" size="large" startIcon={<FullscreenIcon />}
-          onClick={enterFullscreen} sx={{ fontSize: '1.2rem', px: 4, py: 2 }}>
-          Запустить полноэкранный режим
-        </Button>
-        <Button variant="text" sx={{ color: 'grey.400', mt: 2 }}
-          onClick={() => (window.location.href = '/')}>
-          ← Вернуться на главную
-        </Button>
-        <Typography variant="caption" color="grey.500" sx={{ mt: 3 }}>
-            В режиме трансляции: подвиньте мышь сверху для панели управления • Esc — выход
-        </Typography>
-      </Box>
-    );
-  }
-
     const effectiveActiveCells = activeCellsOverride ?? layout.activeCells;
 
   const renderCellContent = (cellId: number | string) => {
