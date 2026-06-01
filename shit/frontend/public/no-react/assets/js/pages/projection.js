@@ -9,12 +9,13 @@
 // ── Re-exports для внешнего кода ─────────────────────────────
 export { PROJ_POSITION_LABELS } from '../core/projection-consts.js';
 export { handleProjectionMessage, setSendWSMessage } from '../api/proj-server.js';
+export { sendWSMessage } from '../core/websocket.js';
 
 // ── Внутренние импорты для инициализации ─────────────────────
 import { projState } from '../core/projection-consts.js';
 import { initProjWarpCanvas, initWarpZoomPan, setRenderCamList, projDraw } from '../components/canvas.js';
 import { renderProjCamList } from '../components/cam-list.js';
-import { requestWarp } from '../api/proj-server.js';
+import {requestWarp, setSendWSMessage} from '../api/proj-server.js';
 import { showToast } from '../utils/utility.js';
 import { currentMaxPoints } from '../core/projection-consts.js';
 
@@ -35,6 +36,7 @@ import {
 
 // ── Связки (без циклических импортов) ────────────────────────
 setRenderCamList(renderProjCamList);
+setSendWSMessage(sendWSMessage);
 setServerCallbacks(requestProjectionList, requestSetProjectionConfiguration);
 setRVL(renderVehicleList);
 setRequestSaveLut(requestSaveLut);
