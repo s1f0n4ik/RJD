@@ -1,0 +1,152 @@
+/* ── Fields ───────────────────────────────────────────────── */
+.field-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+}
+.field-row { display: flex; gap: 8px; }
+.field-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+}
+.field-input {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 7px 10px;
+    width: 100%;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+.field-input::placeholder { color: var(--text-dim); }
+.field-input:focus {
+    border-color: var(--accent-dim);
+    box-shadow: 0 0 0 2px var(--accent-glow);
+}
+.field-textarea {
+    resize: vertical;
+    min-height: 72px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+/* ── Buttons ──────────────────────────────────────────────── */
+.btn {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    padding: 8px 14px;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+.btn-row { display: flex; gap: 8px; }
+
+.btn-primary {
+    background: var(--accent);
+    color: #0a0a0c;
+    font-weight: 700;
+}
+.btn-primary:hover { background: #d8ff60; box-shadow: 0 0 12px var(--accent-glow); }
+.btn-primary:active { background: var(--accent-dim); }
+
+.btn-calibrate {
+    background: var(--accent);
+    color: #0a0a0c;
+    font-weight: 700;
+    font-size: 14px;
+    padding: 6px 12px;
+}
+.btn-calibrate:hover { background: #d8ff60; box-shadow: 0 0 12px var(--accent-glow); }
+.btn-calibrate:active { background: var(--accent-dim); }
+.btn-calibrate:disabled { background: transparent; color: var(--text-secondary); }
+
+.btn-accent {
+    background: transparent;
+    border-color: var(--accent);
+    color: var(--accent);
+    width: 100%;
+    justify-content: center;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.btn-accent:hover { background: var(--accent-glow); }
+
+.btn-accent--load {
+    background: transparent;
+    border-color: var(--info);
+    color: var(--info);
+    width: 100%;
+    justify-content: center;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    overflow: hidden;
+    max-height: 36px;
+    opacity: 1;
+    margin-top: 0;
+    transition:
+            max-height 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+            opacity    0.25s ease,
+            margin-top 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+            border-color 0.15s,
+            background   0.15s;
+}
+.btn-accent--load:hover {
+    background: rgba(64, 200, 255, 0.08);
+    border-color: var(--info);
+}
+.btn-accent--load.collapsed {
+    display: none;
+    max-height: 0;
+    opacity: 0;
+    pointer-events: none;
+    margin-top: 0;
+}
+
+.btn-ghost {
+    background: transparent;
+    border-color: var(--border-bright);
+    color: var(--text-secondary);
+}
+.btn-ghost:hover { border-color: var(--text-secondary); color: var(--text-primary); }
+
+.btn-sm { padding: 5px 12px; font-size: 11px; }
+
+.btn-secondary {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+}
+.btn-secondary:hover { border-color: var(--border-bright); color: var(--text-primary); }
+
+/* Save config button */
+.btn-save-config {
+    width: 100%;
+    background: transparent;
+    border-color: var(--border-bright);
+    color: var(--text-dim);
+    cursor: not-allowed;
+    justify-content: center;
+}
+.btn-save-config.active {
+    border-color: #c87820;
+    color: #e89030;
+    background: rgba(200,120,32,0.08);
+    cursor: pointer;
+}
+.btn-save-config.active:hover {
+    background: rgba(200,120,32,0.15);
+    box-shadow: 0 0 12px rgba(200,120,32,0.2);
+}

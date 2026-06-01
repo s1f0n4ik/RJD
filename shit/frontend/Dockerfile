@@ -16,7 +16,7 @@ FROM nginx:alpine
 # Конфиг nginx
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# Сниппеты (proxy-common.conf и т.д.)
+# Сниппеты (proxy-ui.conf и т.д.)
 COPY nginx/snippets/ /etc/nginx/snippets/
 
 # Билд фронта

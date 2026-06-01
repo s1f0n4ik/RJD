@@ -1,0 +1,23 @@
+/* ── MAIN LAYOUT ──────────────────────────────────────────── */
+.main-layout {
+    flex: 1;
+    display: grid;
+    grid-template-columns: var(--sidebar-w) 1fr;
+    overflow: hidden;
+}
+
+/* ── SIDEBAR ──────────────────────────────────────────────── */
+.sidebar {
+    background: var(--bg-surface);
+    border-right: 1px solid var(--border);
+    flex-direction: column;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 16px;
+    gap: 12px;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    scrollbar-color: var(--border-bright) transparent;
+}
+.sidebar::-webkit-scrollbar { display: none; }
+.sidebar > * + * { margin-top: 12px; }

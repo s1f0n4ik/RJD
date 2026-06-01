@@ -1,0 +1,34 @@
+/* ── Fonts ─────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap');
+
+/* ── Variables ────────────────────────────────────────────── */
+:root {
+    --bg-base:       #0a0a0c;
+    --bg-surface:    #111116;
+    --bg-panel:      #16161d;
+    --bg-input:      #0d0d13;
+    --border:        #252530;
+    --border-bright: #35354a;
+
+    --text-primary:  #e8e8f0;
+    --text-secondary:#8888aa;
+    --text-dim:      #44445a;
+
+    --accent:        #c8ff40;
+    --accent-dim:    #8aaf20;
+    --accent-glow:   rgba(200,255,64,0.15);
+
+    --ok:            #40ff90;
+    --warn:          #ffcc40;
+    --err:           #ff4060;
+    --info:          #40c8ff;
+
+    --font-ui:       'Syne', sans-serif;
+    --font-ui-ru:    'Syne', 'Inter', 'Noto Sans', sans-serif;
+    --font-mono:     'Space Mono', monospace;
+
+    --nav-h:         56px;
+    --sidebar-w:     300px;
+    --radius:        6px;
+    --radius-lg:     10px;
+}

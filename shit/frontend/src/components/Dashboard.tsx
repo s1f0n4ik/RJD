@@ -68,7 +68,7 @@ const modules: Module[] = [
     icon: ThreeSixtyIcon,
     gradient: 'linear-gradient(135deg, #00bcd4 0%, #0097a7 100%)',
     tabIndex: -1,
-      externalUrl: '/birdview/index.html'
+      externalUrl: '/no-react/pages/birdview.html'
   },
   {
     id: 'maintain',

@@ -1,0 +1,17 @@
+/* ── Reset ────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    background: var(--bg-base);
+    color: var(--text-primary);
+    font-family: var(--font-ui);
+    font-size: 14px;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background-image:
+            linear-gradient(rgba(37,37,48,0.4) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(37,37,48,0.4) 1px, transparent 1px);
+    background-size: 32px 32px;
+}
