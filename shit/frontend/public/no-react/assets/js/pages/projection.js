@@ -1,5 +1,5 @@
 /**
- * projection/index.js — Входная точка модуля проекции
+ * js/pages/projection.js — Входная точка модуля проекции
  *
  * Собирает все подмодули, связывает их и экспортирует
  * только то, что нужно внешнему коду (app.js, linker.js).
@@ -8,16 +8,16 @@
 
 // ── Re-exports для внешнего кода ─────────────────────────────
 export { PROJ_POSITION_LABELS } from '../core/projection-consts.js';
-export { handleProjectionMessage, setSendWSMessage } from '../api/proj-server.js';
-export { sendWSMessage } from '../core/websocket.js';
+export { handleProjectionMessage} from '../api/proj-server.js';
 
 // ── Внутренние импорты для инициализации ─────────────────────
 import { projState } from '../core/projection-consts.js';
 import { initProjWarpCanvas, initWarpZoomPan, setRenderCamList, projDraw } from '../components/canvas.js';
 import { renderProjCamList } from '../components/cam-list.js';
-import {requestWarp, setSendWSMessage} from '../api/proj-server.js';
+import {requestWarp, setRenderVehicleList, setSendWSMessage} from '../api/proj-server.js';
 import { showToast } from '../utils/utility.js';
 import { currentMaxPoints } from '../core/projection-consts.js';
+import { sendWSMessage } from '../core/websocket.js';
 
 // Подмодули, подключаемые к window
 import { toggleProjSettings, toggleVehicleSelect, renderVehicleList, setServerCallbacks } from '../components/proj-settings.js';
@@ -41,6 +41,7 @@ setServerCallbacks(requestProjectionList, requestSetProjectionConfiguration);
 setRVL(renderVehicleList);
 setRequestSaveLut(requestSaveLut);
 setCloseLutModal(closeLutSaveModal);
+setRenderVehicleList(renderVehicleList)
 
 // ════════════════════════════════════════════════════════════
 // projToggleApply — связывает warp-canvas и server

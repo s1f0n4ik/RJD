@@ -1,5 +1,5 @@
 /**
- * birdview/ws.js — Основной WebSocket (калибровочные команды).
+ * js/pages/websocket.js — Основной WebSocket (калибровочные команды).
  *
  * НЕ управляет RTC-сигналингом — за это отвечает core/webrtc.js.
  */
