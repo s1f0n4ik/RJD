@@ -42,7 +42,7 @@ interface CameraFormData {
     sub_latency: number;
     sub_use_udp: boolean;
     sub_reconnect: number;
-    recording_enabled: boolean;
+    to_record: boolean;
 }
 
 type ProbeStatus = 'idle' | 'creating' | 'streaming' | 'error';
@@ -82,7 +82,7 @@ const DEFAULT_FORM: CameraFormData = {
     sub_latency: 0,
     sub_use_udp: false,
     sub_reconnect: 10,
-    recording_enabled: true,
+    to_record: true,
 };
 
 const findNextFreeCameraId = (cameras: Camera[]): string => {
@@ -259,8 +259,7 @@ const CameraSettings: React.FC = () => {
             sub_latency: camera.streams.sub.latency,
             sub_use_udp: camera.streams.sub.use_udp,
             sub_reconnect: camera.streams.sub.reconnect,
-            recording_enabled:
-                (camera.streams.main.segment > 0) && (camera.streams.main.record_path !== ''),
+            to_record: camera.streams.main.to_record,
         });
         editOriginalRef.current = camera;
         setSelectedTab(0);
@@ -343,7 +342,6 @@ const CameraSettings: React.FC = () => {
     };
 
     // === SAVE ===
-    let isLastStep = false;
     const handleSaveCamera = async () => {
         if (!isFormValid) return;
 
@@ -353,9 +351,6 @@ const CameraSettings: React.FC = () => {
 
         const cameraId = formData.id || findNextFreeCameraId(cameras);
         const recordPath = '/storage/internal';
-        const effectiveSegment = formData.recording_enabled ? formData.main_segment : 0;
-
-        isLastStep = activeStep === STEPS.length - 1;
 
         try {
             if (editMode) {
@@ -383,7 +378,8 @@ const CameraSettings: React.FC = () => {
                     formData.sub_latency !== original.streams.sub.latency ||
                     formData.sub_use_udp !== original.streams.sub.use_udp ||
                     formData.sub_reconnect !== original.streams.sub.reconnect ||
-                    effectiveSegment !== original.streams.main.segment ||
+                    formData.main_segment !== original.streams.main.segment ||
+                    formData.to_record !== original.streams.main.to_record ||
                     recordPath !== original.streams.main.record_path;
 
                 if (passwordChanged || otherCriticalChanged) {
@@ -401,7 +397,8 @@ const CameraSettings: React.FC = () => {
                                 use_udp: formData.main_use_udp,
                                 reconnect: formData.main_reconnect,
                                 record_path: recordPath,
-                                segment: effectiveSegment,
+                                segment: formData.main_segment,
+                                to_record: formData.to_record
                             },
                             sub: {
                                 sub: formData.sub_sub,
@@ -411,6 +408,7 @@ const CameraSettings: React.FC = () => {
                                 reconnect: formData.sub_reconnect,
                                 record_path: '',
                                 segment: 0,
+                                to_record: false,
                             },
                         },
                     };
@@ -444,7 +442,8 @@ const CameraSettings: React.FC = () => {
                             use_udp: formData.main_use_udp,
                             reconnect: formData.main_reconnect,
                             record_path: recordPath,
-                            segment: effectiveSegment,
+                            segment: formData.main_segment,
+                            to_record: formData.to_record
                         },
                         sub: {
                             type: 2,
@@ -454,6 +453,7 @@ const CameraSettings: React.FC = () => {
                             reconnect: formData.sub_reconnect,
                             record_path: '',
                             segment: 0,
+                            to_record: false,
                         },
                     },
                 };
@@ -519,12 +519,30 @@ const CameraSettings: React.FC = () => {
     const autoNamePreview = useMemo(() => findNextFreeCameraId(cameras), [cameras]);
 
     const [activeStep, setActiveStep] = useState(0);
-    const STEPS = ['Подключение', 'Параметры потоков', 'Запись'];
+    const STEPS = ['Подключение', 'Параметры потоков', 'Запись', 'Подтверждение'];
+    const isLastStep = activeStep === STEPS.length - 1;
 
     // Сброс шага при открытии/закрытии диалога
     useEffect(() => {
         if (openDialog) setActiveStep(0);
     }, [openDialog]);
+
+    // Автозапуск превью на шаге подтверждения
+    useEffect(() => {
+        if (!openDialog) return;
+        if (activeStep === STEPS.length - 1) {
+            // входим на шаг подтверждения — запускаем probe, если данные валидны
+            if (ipValidation.valid && portValidation.valid && probeStatus === 'idle') {
+                handleTestStream();
+            }
+        } else {
+            // уходим со шага подтверждения — гасим probe
+            if (probeStatus !== 'idle') {
+                handleStopTest();
+            }
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeStep, openDialog]);
 
     // Можно ли уйти со шага вперёд
     const canGoNext = useMemo(() => {
@@ -689,15 +707,17 @@ const CameraSettings: React.FC = () => {
                     sx={{
                         bgcolor: RZD_COLORS.primary,
                         color: 'white',
-                        py: 2,
+                        py: 1.25,                          // меньше вертикали
+                        fontSize: '1rem',                  // меньше шрифт
                         letterSpacing: '0.02em',
                     }}
                 >
                     {editMode ? 'Изменить камеру' : 'Добавить камеру'}
                     {editMode && (
                         <Typography
+                            component="span"
                             variant="caption"
-                            sx={{ display: 'block', opacity: 0.85, fontFamily: 'monospace', mt: 0.5 }}
+                            sx={{ ml: 1, opacity: 0.85, fontFamily: 'monospace' }}
                         >
                             {formData.id}
                         </Typography>
@@ -706,11 +726,17 @@ const CameraSettings: React.FC = () => {
 
                 <DialogContent sx={{ p: 0 }}>
                     {/* Stepper */}
-                    <Box sx={{ px: 4, py: 3, borderBottom: `1px solid ${RZD_COLORS.grey[200]}` }}>
-                        <Stepper activeStep={activeStep} alternativeLabel>
+                    <Box sx={{ px: 3, py: 2, borderBottom: `1px solid ${RZD_COLORS.grey[200]}` }}>
+                        <Stepper activeStep={activeStep}>
                             {STEPS.map((label) => (
                                 <Step key={label}>
-                                    <StepLabel>{label}</StepLabel>
+                                    <StepLabel
+                                        sx={{
+                                            '& .MuiStepLabel-label': { fontSize: '0.8rem' },
+                                        }}
+                                    >
+                                        {label}
+                                    </StepLabel>
                                 </Step>
                             ))}
                         </Stepper>
@@ -727,11 +753,8 @@ const CameraSettings: React.FC = () => {
                             }}
                         >
                             {/* === Шаг 1: Подключение === */}
-                            <Box sx={{ width: `${100 / STEPS.length}%`, flexShrink: 0, p: 4 }}>
-                                <Typography variant="overline" color="text.secondary" sx={{ letterSpacing: 2 }}>
-                                    Шаг 1 из {STEPS.length}
-                                </Typography>
-                                <Typography variant="h6" fontWeight={600} sx={{ mb: 3 }}>
+                            <Box sx={{ width: `${100 / STEPS.length}%`, flexShrink: 0, p: 3 }}>
+                                <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 2.5 }}>
                                     Параметры подключения
                                 </Typography>
 
@@ -853,123 +876,12 @@ const CameraSettings: React.FC = () => {
                                             </Select>
                                         </FormControl>
                                     </Grid>
-
-                                    {/* Probe section */}
-                                    <Grid item xs={12}>
-                                        <Divider sx={{ my: 1 }} />
-                                        <Box
-                                            sx={{
-                                                mt: 2,
-                                                p: 2,
-                                                border: `1px solid ${RZD_COLORS.grey[300]}`,
-                                                borderRadius: 1,
-                                                bgcolor: RZD_COLORS.grey[100],
-                                            }}
-                                        >
-                                            <Box display="flex" alignItems="center" justifyContent="space-between" mb={probeStatus !== 'idle' ? 2 : 0}>
-                                                <Box>
-                                                    <Typography variant="subtitle2" fontWeight={600}>
-                                                        Проверка соединения
-                                                    </Typography>
-                                                    <Typography variant="caption" color="text.secondary">
-                                                        Временное подключение для предпросмотра потока
-                                                    </Typography>
-                                                </Box>
-                                                <Box display="flex" gap={1} alignItems="center">
-                                                    {probeStatus === 'creating' && (
-                                                        <Chip
-                                                            icon={<CircularProgress size={12} sx={{ color: 'inherit !important' }} />}
-                                                            label="Подключение"
-                                                            color="info" variant="outlined" size="small"
-                                                            sx={{ borderRadius: 1 }}
-                                                        />
-                                                    )}
-                                                    {probeStatus === 'streaming' && (
-                                                        <Chip
-                                                            icon={<CheckIcon />}
-                                                            label="Поток активен"
-                                                            color="success" variant="outlined" size="small"
-                                                            sx={{ borderRadius: 1 }}
-                                                        />
-                                                    )}
-                                                    {probeStatus === 'error' && (
-                                                        <Chip
-                                                            icon={<ErrorIcon />}
-                                                            label="Ошибка"
-                                                            color="error" variant="outlined" size="small"
-                                                            sx={{ borderRadius: 1 }}
-                                                        />
-                                                    )}
-                                                    {probeStatus === 'idle' || probeStatus === 'error' ? (
-                                                        <Button
-                                                            variant="outlined" size="small"
-                                                            startIcon={<PlayIcon />}
-                                                            onClick={handleTestStream}
-                                                            disabled={!ipValidation.valid || !portValidation.valid}
-                                                        >
-                                                            Тест
-                                                        </Button>
-                                                    ) : (
-                                                        <Button
-                                                            variant="outlined" color="error" size="small"
-                                                            startIcon={<StopIcon />}
-                                                            onClick={handleStopTest}
-                                                        >
-                                                            Стоп
-                                                        </Button>
-                                                    )}
-                                                </Box>
-                                            </Box>
-
-                                            {probeError && (
-                                                <Alert severity="error" sx={{ mb: 1, borderRadius: 1 }}>
-                                                    {probeError}
-                                                </Alert>
-                                            )}
-
-                                            {(probeStatus === 'streaming' || probeStatus === 'creating') && (
-                                                <Box
-                                                    sx={{
-                                                        width: '100%',
-                                                        aspectRatio: '16 / 9',
-                                                        bgcolor: '#000',
-                                                        borderRadius: 1,
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center',
-                                                        overflow: 'hidden',
-                                                    }}
-                                                >
-                                                    {probeStatus === 'streaming' && probeName ? (
-                                                        <WebRTCPlayer
-                                                            cameraId={probeName}
-                                                            signalingUrl={wsUrl(`/signaling/client/${probeName}`)}
-                                                            onError={(err) => {
-                                                                setProbeError(err);
-                                                                setProbeStatus('error');
-                                                            }}
-                                                        />
-                                                    ) : (
-                                                        <Box textAlign="center" color="white">
-                                                            <CircularProgress color="inherit" size={28} />
-                                                            <Typography variant="caption" sx={{ display: 'block', mt: 1 }}>
-                                                                Инициализация
-                                                            </Typography>
-                                                        </Box>
-                                                    )}
-                                                </Box>
-                                            )}
-                                        </Box>
-                                    </Grid>
                                 </Grid>
                             </Box>
 
                             {/* === Шаг 2: Параметры потоков === */}
-                            <Box sx={{ width: `${100 / STEPS.length}%`, flexShrink: 0, p: 4 }}>
-                                <Typography variant="overline" color="text.secondary" sx={{ letterSpacing: 2 }}>
-                                    Шаг 2 из {STEPS.length}
-                                </Typography>
-                                <Typography variant="h6" fontWeight={600} sx={{ mb: 3 }}>
+                            <Box sx={{ width: `${100 / STEPS.length}%`, flexShrink: 0, p: 3 }}>
+                                <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 2.5 }}>
                                     Параметры потоков
                                 </Typography>
 
@@ -1067,20 +979,17 @@ const CameraSettings: React.FC = () => {
                             </Box>
 
                             {/* === Шаг 3: Запись === */}
-                            <Box sx={{ width: `${100 / STEPS.length}%`, flexShrink: 0, p: 4 }}>
-                                <Typography variant="overline" color="text.secondary" sx={{ letterSpacing: 2 }}>
-                                    Шаг 3 из {STEPS.length}
-                                </Typography>
-                                <Typography variant="h6" fontWeight={600} sx={{ mb: 3 }}>
+                            <Box sx={{ width: `${100 / STEPS.length}%`, flexShrink: 0, p: 3 }}>
+                                <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 2.5 }}>
                                     Параметры записи
                                 </Typography>
 
                                 <Box
                                     sx={{
                                         p: 2.5,
-                                        border: `1px solid ${formData.recording_enabled ? '#e53935' : RZD_COLORS.grey[300]}`,
+                                        border: `1px solid ${formData.to_record ? '#e53935' : RZD_COLORS.grey[300]}`,
                                         borderRadius: 1,
-                                        bgcolor: formData.recording_enabled ? 'rgba(229, 57, 53, 0.04)' : 'transparent',
+                                        bgcolor: formData.to_record ? 'rgba(229, 57, 53, 0.04)' : 'transparent',
                                         mb: 3,
                                         transition: 'all 0.2s',
                                     }}
@@ -1088,20 +997,15 @@ const CameraSettings: React.FC = () => {
                                     <FormControlLabel
                                         control={
                                             <Switch
-                                                checked={formData.recording_enabled}
-                                                onChange={(e) => handleInputChange('recording_enabled', e.target.checked)}
+                                                checked={formData.to_record}
+                                                onChange={(e) => handleInputChange('to_record', e.target.checked)}
                                                 color="error"
                                             />
                                         }
                                         label={
-                                            <Box display="flex" alignItems="center" gap={1}>
-                                                <RecIcon
-                                                    sx={{ color: formData.recording_enabled ? '#e53935' : 'grey.400' }}
-                                                />
-                                                <Typography fontWeight={600}>
-                                                    {formData.recording_enabled ? 'Запись включена' : 'Запись выключена'}
-                                                </Typography>
-                                            </Box>
+                                            <Typography fontWeight={600}>
+                                                {formData.to_record ? 'Запись включена' : 'Запись выключена'}
+                                            </Typography>
                                         }
                                     />
                                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
@@ -1117,13 +1021,11 @@ const CameraSettings: React.FC = () => {
                                             type="number"
                                             value={formData.main_segment}
                                             onChange={(e) => handleInputChange('main_segment', parseInt(e.target.value) || 0)}
-                                            disabled={!formData.recording_enabled}
+                                            disabled={!formData.to_record}
                                             inputProps={{ min: 1, max: 1440 }}
                                             InputProps={{ sx: { fontFamily: 'monospace' } }}
                                             helperText={
-                                                formData.recording_enabled
-                                                    ? 'Длина одного файла записи'
-                                                    : 'Включите запись, чтобы настроить'
+                                                formData.to_record ? 'Длина одного файла записи' : 'Включите запись, чтобы настроить'
                                             }
                                         />
                                     </Grid>
@@ -1138,48 +1040,107 @@ const CameraSettings: React.FC = () => {
                                         />
                                     </Grid>
                                 </Grid>
+                            </Box>
 
-                                {/* Сводка перед сохранением */}
-                                <Divider sx={{ my: 3 }} />
-                                <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1.5 }}>
-                                    Сводка
+                            {/* === Шаг 4: Подтверждение === */}
+                            <Box sx={{ width: `${100 / STEPS.length}%`, flexShrink: 0, p: 3 }}>
+                                <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 2.5 }}>
+                                    Подтверждение
                                 </Typography>
-                                <Box
-                                    sx={{
-                                        display: 'grid',
-                                        gridTemplateColumns: 'repeat(2, 1fr)',
-                                        gap: 1.5,
-                                        fontFamily: 'monospace',
-                                        fontSize: '0.85rem',
-                                    }}
-                                >
-                                    <Box>
-                                        <Typography variant="caption" color="text.secondary">Имя</Typography>
-                                        <Typography sx={{ fontFamily: 'monospace' }}>
-                                            {formData.display_name || autoNamePreview}
+
+                                <Grid container spacing={2}>
+                                    {/* Превью потока */}
+                                    <Grid item xs={12} sm={6}>
+                                        <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
+                                            <Typography variant="subtitle2" fontWeight={600}>
+                                                Предпросмотр
+                                            </Typography>
+                                            {probeStatus === 'creating' && (
+                                                <Chip
+                                                    icon={<CircularProgress size={12} sx={{ color: 'inherit !important' }} />}
+                                                    label="Подключение" color="info" variant="outlined" size="small"
+                                                    sx={{ borderRadius: 1 }}
+                                                />
+                                            )}
+                                            {probeStatus === 'streaming' && (
+                                                <Chip icon={<CheckIcon />} label="Активен" color="success" variant="outlined" size="small" sx={{ borderRadius: 1 }} />
+                                            )}
+                                            {probeStatus === 'error' && (
+                                                <Chip icon={<ErrorIcon />} label="Ошибка" color="error" variant="outlined" size="small" sx={{ borderRadius: 1 }} />
+                                            )}
+                                        </Box>
+
+                                        <Box
+                                            sx={{
+                                                width: '100%', aspectRatio: '16 / 9', bgcolor: '#000',
+                                                borderRadius: 1, display: 'flex', alignItems: 'center',
+                                                justifyContent: 'center', overflow: 'hidden',
+                                            }}
+                                        >
+                                            {probeStatus === 'streaming' && probeName ? (
+                                                <WebRTCPlayer
+                                                    cameraId={probeName}
+                                                    signalingUrl={wsUrl(`/signaling/client/${probeName}`)}
+                                                    onError={(err) => { setProbeError(err); setProbeStatus('error'); }}
+                                                />
+                                            ) : probeStatus === 'creating' ? (
+                                                <Box textAlign="center" color="white">
+                                                    <CircularProgress color="inherit" size={28} />
+                                                    <Typography variant="caption" sx={{ display: 'block', mt: 1 }}>Инициализация</Typography>
+                                                </Box>
+                                            ) : (
+                                                <Box textAlign="center" color="grey.500">
+                                                    <Typography variant="caption">
+                                                        {probeError || 'Превью недоступно'}
+                                                    </Typography>
+                                                    <Button
+                                                        size="small" startIcon={<PlayIcon />} onClick={handleTestStream}
+                                                        disabled={!ipValidation.valid || !portValidation.valid}
+                                                        sx={{ display: 'block', mx: 'auto', mt: 1, color: 'grey.300' }}
+                                                    >
+                                                        Повторить
+                                                    </Button>
+                                                </Box>
+                                            )}
+                                        </Box>
+                                    </Grid>
+
+                                    {/* Сводка */}
+                                    <Grid item xs={12} sm={6}>
+                                        <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>
+                                            Параметры
                                         </Typography>
-                                    </Box>
-                                    <Box>
-                                        <Typography variant="caption" color="text.secondary">Адрес</Typography>
-                                        <Typography sx={{ fontFamily: 'monospace' }}>
-                                            {formData.ip_adress || '—'}:{formData.port}
-                                        </Typography>
-                                    </Box>
-                                    <Box>
-                                        <Typography variant="caption" color="text.secondary">Производитель</Typography>
-                                        <Typography sx={{ fontFamily: 'monospace' }}>
-                                            {getProductionName(formData.production)}
-                                        </Typography>
-                                    </Box>
-                                    <Box>
-                                        <Typography variant="caption" color="text.secondary">Запись</Typography>
-                                        <Typography sx={{ fontFamily: 'monospace' }}>
-                                            {formData.recording_enabled
-                                                ? `вкл, ${formData.main_segment} мин`
-                                                : 'выкл'}
-                                        </Typography>
-                                    </Box>
-                                </Box>
+                                        <Box
+                                            sx={{
+                                                display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5,
+                                                fontFamily: 'monospace', fontSize: '0.85rem',
+                                            }}
+                                        >
+                                            <Box>
+                                                <Typography variant="caption" color="text.secondary">Имя</Typography>
+                                                <Typography sx={{ fontFamily: 'monospace' }}>{formData.display_name || autoNamePreview}</Typography>
+                                            </Box>
+                                            <Box>
+                                                <Typography variant="caption" color="text.secondary">Адрес</Typography>
+                                                <Typography sx={{ fontFamily: 'monospace' }}>{formData.ip_adress || '—'}:{formData.port}</Typography>
+                                            </Box>
+                                            <Box>
+                                                <Typography variant="caption" color="text.secondary">Производитель</Typography>
+                                                <Typography sx={{ fontFamily: 'monospace' }}>{getProductionName(formData.production)}</Typography>
+                                            </Box>
+                                            <Box>
+                                                <Typography variant="caption" color="text.secondary">Запись</Typography>
+                                                <Typography sx={{ fontFamily: 'monospace' }}>
+                                                    {formData.to_record ? `вкл, ${formData.main_segment} мин` : 'выкл'}
+                                                </Typography>
+                                            </Box>
+                                        </Box>
+
+                                        <Alert severity="info" sx={{ mt: 2, borderRadius: 1 }}>
+                                            Проверьте параметры и предпросмотр, затем подтвердите.
+                                        </Alert>
+                                    </Grid>
+                                </Grid>
                             </Box>
                         </Box>
                     </Box>
@@ -1225,7 +1186,7 @@ const CameraSettings: React.FC = () => {
                                 startIcon={loading ? <CircularProgress size={18} color="inherit" /> : <SaveIcon />}
                                 sx={{ bgcolor: RZD_COLORS.primary }}
                             >
-                                {editMode ? 'Сохранить' : 'Добавить'}
+                                {editMode ? 'Сохранить камеру' : 'Добавить камеру'}
                             </Button>
                         )}
                     </Box>

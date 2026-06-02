@@ -6,9 +6,10 @@ export interface CameraStream {
   width: number;
   latency: number;
   reconnect: number;
+  to_record: boolean;
   record_path: string;
-  rtsp: string;
   segment: number;
+  rtsp: string;
   status: number;  // 0-нет, 1-готов, 2-остановлен, 3-запущен, 5-инициализирован
   type: number;    // 1-main, 2-sub
   use_udp: boolean;
