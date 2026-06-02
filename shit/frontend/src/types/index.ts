@@ -38,6 +38,7 @@ export interface CPPCamera {
   ip_adress: string;
   port: string;
   user: string;
+  password: string;
   production: number;
   type: number;
   streams: {

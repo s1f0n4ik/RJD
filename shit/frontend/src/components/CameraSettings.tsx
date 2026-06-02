@@ -4,7 +4,7 @@ import {
     TableContainer, TableHead, TableRow, IconButton, Chip, Alert, Dialog,
     DialogTitle, DialogContent, DialogActions, TextField, Grid, FormControl,
     InputLabel, Select, MenuItem, FormControlLabel, Switch, Tabs, Tab,
-    Divider, CircularProgress, Stack, Stepper, Step, StepLabel,
+    Divider, CircularProgress, Stack, Stepper, Step, StepLabel, InputAdornment
 } from '@mui/material';
 import {
     Add as AddIcon, Delete as DeleteIcon, Edit as EditIcon,
@@ -13,6 +13,8 @@ import {
     CheckCircle as CheckIcon, Error as ErrorIcon,
     ArrowBack as ArrowBackIcon, ArrowForward as ArrowForwardIcon,
     Save as SaveIcon,
+    Visibility as VisibilityIcon,
+    VisibilityOff as VisibilityOffIcon,
 } from '@mui/icons-material';
 import { RZD_COLORS } from '../theme';
 import { wsUrl } from '../utils/constants';
@@ -131,6 +133,12 @@ const validatePort = (port: string): NameValidation => {
     return { valid: true };
 };
 
+const ipToNumber = (ip: string): number => {
+    const parts = ip.split('.').map(Number);
+    if (parts.length !== 4 || parts.some(isNaN)) return -1;   // некорректный IP — в начало
+    return ((parts[0] << 24) >>> 0) + (parts[1] << 16) + (parts[2] << 8) + parts[3];
+};
+
 /** Единое место форматирования ошибок для UI. */
 const formatError = (err: unknown): string => {
     if (err instanceof MediaCenterError) return err.message;
@@ -148,6 +156,7 @@ const CameraSettings: React.FC = () => {
     const [selectedTab, setSelectedTab] = useState(0);
 
     const [formData, setFormData] = useState<CameraFormData>(DEFAULT_FORM);
+    const [showPassword, setShowPassword] = useState(false);
 
     const [probeStatus, setProbeStatus] = useState<ProbeStatus>('idle');
     const [probeError, setProbeError] = useState('');
@@ -174,6 +183,14 @@ const CameraSettings: React.FC = () => {
         window.addEventListener('beforeunload', handler);
         return () => window.removeEventListener('beforeunload', handler);
     }, []);
+
+    // Пароль
+    useEffect(() => {
+        if (openDialog) {
+            setActiveStep(0);
+            setShowPassword(false);     // ← сброс видимости
+        }
+    }, [openDialog]);
 
     const existingNames = useMemo(() => cameras.map((c) => c.id), [cameras]);
     const usedIps = useMemo(
@@ -247,7 +264,7 @@ const CameraSettings: React.FC = () => {
             ip_adress: camera.ip_adress,
             port: camera.port,
             user: camera.user,
-            password: '',
+            password: camera.password || '',
             production: camera.production,
             type: camera.type,
             main_sub: camera.streams.main.sub,
@@ -368,6 +385,7 @@ const CameraSettings: React.FC = () => {
                     formData.ip_adress !== original.ip_adress ||
                     formData.port !== original.port ||
                     formData.user !== original.user ||
+                    formData.password !== original.password ||
                     formData.production !== original.production ||
                     formData.type !== original.type ||
                     formData.main_sub !== original.streams.main.sub ||
@@ -387,6 +405,7 @@ const CameraSettings: React.FC = () => {
                         ip_adress: formData.ip_adress,
                         port: formData.port,
                         user: formData.user,
+                        password: formData.password,
                         production: formData.production,
                         type: formData.type,
                         streams: {
@@ -412,8 +431,7 @@ const CameraSettings: React.FC = () => {
                             },
                         },
                     };
-                    // Пароль шлём ТОЛЬКО при реальной смене (договорённость с Ваней 05.05)
-                    if (formData.password) critical.password = formData.password;
+
                     body.critical = critical;
                 }
 
@@ -550,6 +568,12 @@ const CameraSettings: React.FC = () => {
         return true;                                     // на остальных шагах нет блокирующих проверок
     }, [activeStep, isFormValid]);
 
+    // Сортировка
+    const sortedCameras = useMemo(
+        () => [...cameras].sort((a, b) => ipToNumber(a.ip_adress) - ipToNumber(b.ip_adress)),
+        [cameras]
+    );
+
     return (
         <Container maxWidth="xl">
             {/* Header */}
@@ -624,7 +648,7 @@ const CameraSettings: React.FC = () => {
                                 </TableCell>
                             </TableRow>
                         ) : (
-                            cameras.map((camera, index) => {
+                            sortedCameras.map((camera, index) => {
                                 const recOn = (camera.streams?.main?.segment ?? 0) > 0 &&
                                     (camera.streams?.main?.record_path ?? "") !== "";
                                 return (
@@ -838,13 +862,24 @@ const CameraSettings: React.FC = () => {
                                     <Grid item xs={12} sm={6}>
                                         <TextField
                                             fullWidth
-                                            type="password"
+                                            type={showPassword ? 'text' : 'password'}
                                             label="Пароль"
                                             value={formData.password}
                                             onChange={(e) => handleInputChange('password', e.target.value)}
-                                            helperText={
-                                                editMode ? 'Оставьте пустым, чтобы сохранить текущий' : ' '
-                                            }
+                                            InputProps={{
+                                                endAdornment: (
+                                                    <InputAdornment position="end">
+                                                        <IconButton
+                                                            onClick={() => setShowPassword((v) => !v)}
+                                                            edge="end"
+                                                            size="small"
+                                                            tabIndex={-1}
+                                                        >
+                                                            {showPassword ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
+                                                        </IconButton>
+                                                    </InputAdornment>
+                                                ),
+                                            }}
                                         />
                                     </Grid>
 
