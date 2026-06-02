@@ -4,13 +4,15 @@ import {
     TableContainer, TableHead, TableRow, IconButton, Chip, Alert, Dialog,
     DialogTitle, DialogContent, DialogActions, TextField, Grid, FormControl,
     InputLabel, Select, MenuItem, FormControlLabel, Switch, Tabs, Tab,
-    Divider, CircularProgress, Stack,
+    Divider, CircularProgress, Stack, Stepper, Step, StepLabel,
 } from '@mui/material';
 import {
     Add as AddIcon, Delete as DeleteIcon, Edit as EditIcon,
     Settings as SettingsIcon, Videocam as VideocamIcon,
     FiberManualRecord as RecIcon, PlayArrow as PlayIcon, Stop as StopIcon,
     CheckCircle as CheckIcon, Error as ErrorIcon,
+    ArrowBack as ArrowBackIcon, ArrowForward as ArrowForwardIcon,
+    Save as SaveIcon,
 } from '@mui/icons-material';
 import { RZD_COLORS } from '../theme';
 import { wsUrl } from '../utils/constants';
@@ -341,6 +343,7 @@ const CameraSettings: React.FC = () => {
     };
 
     // === SAVE ===
+    let isLastStep = false;
     const handleSaveCamera = async () => {
         if (!isFormValid) return;
 
@@ -351,6 +354,8 @@ const CameraSettings: React.FC = () => {
         const cameraId = formData.id || findNextFreeCameraId(cameras);
         const recordPath = '/storage/internal';
         const effectiveSegment = formData.recording_enabled ? formData.main_segment : 0;
+
+        isLastStep = activeStep === STEPS.length - 1;
 
         try {
             if (editMode) {
@@ -513,588 +518,721 @@ const CameraSettings: React.FC = () => {
 
     const autoNamePreview = useMemo(() => findNextFreeCameraId(cameras), [cameras]);
 
-  return (
-    <Container maxWidth="xl">
-      {/* Header */}
-      <Paper sx={{ p: 3, mb: 3 }}>
-        <Box display="flex" justifyContent="space-between" alignItems="center">
-          <Box display="flex" alignItems="center" gap={2}>
-            <SettingsIcon sx={{ fontSize: 40, color: RZD_COLORS.primary }} />
-            <Box>
-              <Typography variant="h5" fontWeight="bold">
-                ⚙️ Настройки камер
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Добавленные устройства: {cameras.length}
-              </Typography>
-            </Box>
-          </Box>
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={handleOpenAddDialog}
-            sx={{ bgcolor: RZD_COLORS.primary }}
-          >
-            Добавить
-          </Button>
-        </Box>
-      </Paper>
+    const [activeStep, setActiveStep] = useState(0);
+    const STEPS = ['Подключение', 'Параметры потоков', 'Запись'];
 
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
-          {error}
-        </Alert>
-      )}
-      {success && (
-        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>
-          {success}
-        </Alert>
-      )}
+    // Сброс шага при открытии/закрытии диалога
+    useEffect(() => {
+        if (openDialog) setActiveStep(0);
+    }, [openDialog]);
 
-      {/* Table */}
-      <TableContainer component={Paper}>
-        <Table>
-          <TableHead sx={{ bgcolor: RZD_COLORS.grey[100] }}>
-            <TableRow>
-              <TableCell><strong>Канал</strong></TableCell>
-              <TableCell><strong>IP</strong></TableCell>
-              <TableCell><strong>Порт</strong></TableCell>
-              <TableCell><strong>Производитель</strong></TableCell>
-              <TableCell><strong>Имя камеры</strong></TableCell>
-              <TableCell><strong>Запись</strong></TableCell>
-              <TableCell><strong>Статус</strong></TableCell>
-              <TableCell align="center"><strong>Изменить</strong></TableCell>
-              <TableCell align="center"><strong>Удалить</strong></TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {loading && cameras.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
-                  <CircularProgress />
-                </TableCell>
-              </TableRow>
-            ) : cameras.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
-                  <Typography color="text.secondary">Нет добавленных камер</Typography>
-                </TableCell>
-              </TableRow>
-            ) : (
-              cameras.map((camera, index) => {
-                  {/* Segment больше нуля и путь записи не пустой*/}
-                const recOn = (camera.streams?.main?.segment ?? 0) > 0 &&
-                    (camera.streams?.main?.record_path ?? "") !== ""
-                return (
-                  <TableRow key={camera.id} hover>
-                    <TableCell>
-                      <Box display="flex" alignItems="center" gap={1}>
-                        <VideocamIcon sx={{ color: RZD_COLORS.primary, fontSize: 20 }} />
-                        <Typography variant="body2" fontWeight={600}>
-                          #{index + 1}
-                        </Typography>
-                      </Box>
-                    </TableCell>
-                    <TableCell>{camera.ip_adress}</TableCell>
-                    <TableCell>{camera.port}</TableCell>
-                    <TableCell>{getProductionName(camera.production)}</TableCell>
-                    <TableCell>
-                      <Typography variant="body2" fontWeight={600}>
-                        {camera.display_name || camera.id}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {camera.id} • {camera.description}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      {recOn ? (
-                        <Chip
-                          icon={<RecIcon sx={{ color: '#e53935 !important' }} />}
-                          label={`REC ${camera.streams.main.segment}сек`}
-                          size="small"
-                          variant="outlined"
-                          sx={{ borderColor: '#e53935', color: '#e53935' }}
-                        />
-                      ) : (
-                        <Chip label="Выкл" size="small" variant="outlined" />
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <Chip
-                        label={getStatusText(camera.streams?.main?.status)}
-                        color={getStatusColor(camera.streams?.main?.status)}
-                        size="small"
-                      />
-                    </TableCell>
-                    <TableCell align="center">
-                      <IconButton
-                        color="primary"
-                        onClick={() => handleOpenEditDialog(camera)}
-                        disabled={loading}
-                      >
-                        <EditIcon />
-                      </IconButton>
-                    </TableCell>
-                    <TableCell align="center">
-                      <IconButton
-                        color="error"
-                        onClick={() => handleDeleteCamera(camera.id)}
-                        disabled={loading}
-                      >
-                        <DeleteIcon />
-                      </IconButton>
-                    </TableCell>
-                  </TableRow>
-                );
-              })
-            )}
-          </TableBody>
-        </Table>
-      </TableContainer>
+    // Можно ли уйти со шага вперёд
+    const canGoNext = useMemo(() => {
+        if (activeStep === 0) return isFormValid;       // основные поля валидны
+        return true;                                     // на остальных шагах нет блокирующих проверок
+    }, [activeStep, isFormValid]);
 
-      {/* Add/Edit Dialog */}
-      <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="md" fullWidth>
-        <DialogTitle sx={{ bgcolor: RZD_COLORS.primary, color: 'white' }}>
-          {editMode ? '✏️ Изменить камеру' : '➕ Добавить новую камеру'}
-        </DialogTitle>
-        <DialogContent sx={{ mt: 2 }}>
-          <Tabs
-            value={selectedTab}
-            onChange={(_, v) => setSelectedTab(v)}
-            sx={{ mb: 2 }}
-          >
-            <Tab label="📋 Основная информация" />
-            <Tab label="📹 Потоки" />
-            <Tab label="⏺️ Запись" />
-            <Tab label="🔍 Проверка" />
-          </Tabs>
-
-          {/* Tab 0: Basic Info */}
-          {selectedTab === 0 && (
-            <Grid container spacing={2}>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Имя камеры"
-                  placeholder={autoNamePreview}
-                  value={formData.display_name}
-                  onChange={(e) => handleInputChange('display_name', e.target.value)}
-                  //disabled={editMode}
-                  error={!nameValidation.valid}
-                  helperText={
-                    nameValidation.error ||
-                    (formData.id
-                      ? ' '
-                      : `Оставьте пустым для авто-имени: ${autoNamePreview}`)
-                  }
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Описание"
-                  value={formData.description}
-                  onChange={(e) => handleInputChange('description', e.target.value)}
-                />
-              </Grid>
-              <Grid item xs={12} sm={8}>
-                  <FormControl fullWidth required error={!!formData.ip_adress && !ipValidation.valid}>
-                    <InputLabel id="ip-select-label">IP-адрес</InputLabel>
-                    <Select
-                      labelId="ip-select-label"
-                      label="IP-адрес"
-                      value={formData.ip_adress}
-                      onChange={(e) => handleInputChange('ip_adress', e.target.value)}
-                    >
-                      <MenuItem value="">
-                        <em>— не выбран —</em>
-                      </MenuItem>
-                      {ipPool.map(ip => {
-                        const taken = usedIps.has(ip);
-                        return (
-                          <MenuItem key={ip} value={ip} disabled={taken}>
-                            {ip}{taken ? ' — занят' : ''}
-                          </MenuItem>
-                        );
-                      })}
-                    </Select>
-                    <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, ml: 1.5 }}>
-                      Пул: {IP_POOL_PREFIX}{IP_POOL_FROM}–{IP_POOL_TO}. Занятые скрыты.
-                    </Typography>
-                  </FormControl>
-              </Grid>
-              <Grid item xs={12} sm={4}>
-                <TextField
-                  fullWidth
-                  label="Порт"
-                  value={formData.port}
-                  onChange={(e) => handleInputChange('port', e.target.value)}
-                  error={!portValidation.valid}
-                  helperText={portValidation.error || ' '}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Имя пользователя"
-                  value={formData.user}
-                  onChange={(e) => handleInputChange('user', e.target.value)}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  type="password"
-                  label="Пароль"
-                  value={formData.password}
-                  onChange={(e) => handleInputChange('password', e.target.value)}
-                  helperText={
-                    editMode
-                      ? 'Оставьте пустым, чтобы сохранить текущий пароль'
-                      : ' '
-                  }
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <FormControl fullWidth>
-                  <InputLabel>Производитель</InputLabel>
-                  <Select
-                    value={formData.production}
-                    onChange={(e) => handleInputChange('production', e.target.value)}
-                    label="Производитель"
-                  >
-                    <MenuItem value={1}>Dahua</MenuItem>
-                    <MenuItem value={2}>Hikvision</MenuItem>
-                    <MenuItem value={3}>ACE</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <FormControl fullWidth>
-                  <InputLabel>Тип камеры</InputLabel>
-                  <Select
-                    value={formData.type}
-                    onChange={(e) => handleInputChange('type', e.target.value)}
-                    label="Тип камеры"
-                  >
-                    <MenuItem value={1}>Основная</MenuItem>
-                    <MenuItem value={2}>AI</MenuItem>
-                    <MenuItem value={3}>360°</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
-            </Grid>
-          )}
-
-          {/* Tab 1: Streams */}
-          {selectedTab === 1 && (
-            <Grid container spacing={2}>
-              <Grid item xs={12}>
-                <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
-                  📹 Главный поток
-                </Typography>
-              </Grid>
-              <Grid item xs={12} sm={4}>
-                <TextField
-                  fullWidth
-                  label="Подтип"
-                  type="number"
-                  value={formData.main_sub}
-                  onChange={(e) =>
-                    handleInputChange('main_sub', parseInt(e.target.value))
-                  }
-                />
-              </Grid>
-              <Grid item xs={12} sm={4}>
-                <TextField
-                  fullWidth
-                  label="Задержка (мс)"
-                  type="number"
-                  value={formData.main_latency}
-                  onChange={(e) =>
-                    handleInputChange('main_latency', parseInt(e.target.value))
-                  }
-                />
-              </Grid>
-              <Grid item xs={12} sm={4}>
-                <TextField
-                  fullWidth
-                  label="Переподключение (сек)"
-                  type="number"
-                  value={formData.main_reconnect}
-                  onChange={(e) =>
-                    handleInputChange('main_reconnect', parseInt(e.target.value))
-                  }
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={formData.main_use_udp}
-                      onChange={(e) =>
-                        handleInputChange('main_use_udp', e.target.checked)
-                      }
-                    />
-                  }
-                  label="Использовать UDP"
-                />
-              </Grid>
-
-              <Grid item xs={12}>
-                <Divider sx={{ my: 1 }} />
-                <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
-                  📹 Второй поток
-                </Typography>
-              </Grid>
-              <Grid item xs={12} sm={4}>
-                <TextField
-                  fullWidth
-                  label="Подтип"
-                  type="number"
-                  value={formData.sub_sub}
-                  onChange={(e) =>
-                    handleInputChange('sub_sub', parseInt(e.target.value))
-                  }
-                />
-              </Grid>
-              <Grid item xs={12} sm={4}>
-                <TextField
-                  fullWidth
-                  label="Задержка (мс)"
-                  type="number"
-                  value={formData.sub_latency}
-                  onChange={(e) =>
-                    handleInputChange('sub_latency', parseInt(e.target.value))
-                  }
-                />
-              </Grid>
-              <Grid item xs={12} sm={4}>
-                <TextField
-                  fullWidth
-                  label="Переподключение (сек)"
-                  type="number"
-                  value={formData.sub_reconnect}
-                  onChange={(e) =>
-                    handleInputChange('sub_reconnect', parseInt(e.target.value))
-                  }
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={formData.sub_use_udp}
-                      onChange={(e) =>
-                        handleInputChange('sub_use_udp', e.target.checked)
-                      }
-                    />
-                  }
-                  label="Использовать UDP"
-                />
-              </Grid>
-            </Grid>
-          )}
-
-          {/* Tab 2: Recording */}
-          {selectedTab === 2 && (
-            <Grid container spacing={2}>
-              <Grid item xs={12}>
-                <Paper
-                  variant="outlined"
-                  sx={{
-                    p: 2,
-                    bgcolor: formData.recording_enabled
-                      ? 'rgba(229, 57, 53, 0.05)'
-                      : 'transparent',
-                    borderColor: formData.recording_enabled ? '#e53935' : undefined,
-                  }}
-                >
-                  <FormControlLabel
-                    control={
-                      <Switch
-                        checked={formData.recording_enabled}
-                        onChange={(e) =>
-                          handleInputChange('recording_enabled', e.target.checked)
-                        }
-                        color="error"
-                      />
-                    }
-                    label={
-                      <Box display="flex" alignItems="center" gap={1}>
-                        <RecIcon
-                          sx={{
-                            color: formData.recording_enabled ? '#e53935' : 'grey.400',
-                          }}
-                        />
-                        <Typography fontWeight="bold">
-                          {formData.recording_enabled
-                            ? 'Запись включена'
-                            : 'Запись выключена'}
-                        </Typography>
-                      </Box>
-                    }
-                  />
-                  <Typography variant="caption" color="text.secondary" display="block">
-                    Запись ведётся только для основного потока в формате MP4
-                  </Typography>
-                </Paper>
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Длительность сегмента (минуты)"
-                  type="number"
-                  value={formData.main_segment}
-                  onChange={(e) =>
-                    handleInputChange('main_segment', parseInt(e.target.value) || 0)
-                  }
-                  disabled={!formData.recording_enabled}
-                  inputProps={{ min: 1, max: 1440 }}
-                  helperText={
-                    formData.recording_enabled
-                      ? 'Длина одного файла записи'
-                      : 'Включите запись, чтобы настроить'
-                  }
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  disabled
-                  label="Местоположение записей"
-                  value={`/storage/internal`}
-                  helperText="Генерируется автоматически"
-                />
-              </Grid>
-              {formData.recording_enabled && (
-                <Grid item xs={12}>
-                  <Typography variant="caption" color="text.secondary">
-                    💾 Каждый сегмент длится {formData.main_segment} мин.
-                    Файлы сохраняются в указанный каталог.
-                  </Typography>
-                </Grid>
-              )}
-            </Grid>
-          )}
-
-          {/* Tab 3: Probe / Preview */}
-          {selectedTab === 3 && (
-            <Stack spacing={2}>
-              <Alert severity="info">
-                Тест создаёт временное подключение к камере и показывает видео-превью.
-                При закрытии окна или сохранении временные данные удаляются автоматически.
-              </Alert>
-
-              <Box display="flex" gap={1} alignItems="center">
-                {probeStatus === 'idle' || probeStatus === 'error' ? (
-                  <Button
-                    variant="contained"
-                    startIcon={<PlayIcon />}
-                    onClick={handleTestStream}
-                    disabled={!ipValidation.valid || !portValidation.valid}
-                    sx={{ bgcolor: RZD_COLORS.primary }}
-                  >
-                    Тестировать поток
-                  </Button>
-                ) : (
-                  <Button
-                    variant="outlined"
-                    color="error"
-                    startIcon={<StopIcon />}
-                    onClick={handleStopTest}
-                  >
-                    Остановить тест
-                  </Button>
-                )}
-
-                {probeStatus === 'creating' && (
-                  <Chip
-                    icon={<CircularProgress size={14} />}
-                    label="Подключение..."
-                    color="info"
-                    variant="outlined"
-                  />
-                )}
-                {probeStatus === 'streaming' && (
-                  <Chip
-                    icon={<CheckIcon />}
-                    label="Поток активен"
-                    color="success"
-                    variant="outlined"
-                  />
-                )}
-                {probeStatus === 'error' && (
-                  <Chip
-                    icon={<ErrorIcon />}
-                    label="Ошибка"
-                    color="error"
-                    variant="outlined"
-                  />
-                )}
-              </Box>
-
-              {probeError && <Alert severity="error">{probeError}</Alert>}
-
-              <Box
+    return (
+        <Container maxWidth="xl">
+            {/* Header */}
+            <Paper
                 sx={{
-                  width: '100%',
-                  aspectRatio: '16 / 9',
-                  bgcolor: '#000',
-                  borderRadius: 1,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  overflow: 'hidden',
+                    p: 3, mb: 3,
+                    borderRadius: 1,
+                    border: `1px solid ${RZD_COLORS.grey[200]}`,
                 }}
-              >
-                {probeStatus === 'streaming' && probeName ? (
-                  <WebRTCPlayer
-                    cameraId={probeName}
-                    signalingUrl={wsUrl(`/signaling/client/${probeName}`)}
-                    onError={(err) => {
-                      setProbeError(err);
-                      setProbeStatus('error');
-                    }}
-                  />
-                ) : probeStatus === 'creating' ? (
-                  <Box textAlign="center" color="white">
-                    <CircularProgress color="inherit" />
-                    <Typography variant="body2" sx={{ mt: 2 }}>
-                      Инициализация потока...
-                    </Typography>
-                  </Box>
-                ) : (
-                  <Typography color="grey.500">
-                    Нажмите «Тестировать поток» для предпросмотра
-                  </Typography>
-                )}
-              </Box>
-            </Stack>
-          )}
-        </DialogContent>
-        <DialogActions sx={{ p: 2 }}>
-          <Button onClick={handleCloseDialog} disabled={loading}>
-            Отменить
-          </Button>
-          <Button
-            variant="contained"
-            onClick={handleSaveCamera}
-            disabled={loading || !isFormValid}
-            sx={{ bgcolor: RZD_COLORS.primary }}
-          >
-            {loading ? (
-              <CircularProgress size={24} />
-            ) : editMode ? (
-              'Обновить'
-            ) : (
-              'Добавить'
+            >
+                <Box display="flex" justifyContent="space-between" alignItems="center">
+                    <Box display="flex" alignItems="center" gap={2}>
+                        <SettingsIcon sx={{ fontSize: 36, color: RZD_COLORS.primary }} />
+                        <Box>
+                            <Typography variant="h5" fontWeight={700} sx={{ letterSpacing: '-0.01em' }}>
+                                Настройки камер
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                                Подключено устройств: {cameras.length}
+                            </Typography>
+                        </Box>
+                    </Box>
+                    <Button
+                        variant="contained"
+                        startIcon={<AddIcon />}
+                        onClick={handleOpenAddDialog}
+                        sx={{ bgcolor: RZD_COLORS.primary, borderRadius: 1 }}
+                    >
+                        Добавить камеру
+                    </Button>
+                </Box>
+            </Paper>
+
+            {error && (
+                <Alert severity="error" sx={{ mb: 2, borderRadius: 1 }} onClose={() => setError('')}>
+                    {error}
+                </Alert>
             )}
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </Container>
-  );
+            {success && (
+                <Alert severity="success" sx={{ mb: 2, borderRadius: 1 }} onClose={() => setSuccess('')}>
+                    {success}
+                </Alert>
+            )}
+
+            {/* Table — оставляем как есть */}
+            <TableContainer component={Paper} sx={{ borderRadius: 1 }}>
+                <Table>
+                    <TableHead sx={{ bgcolor: RZD_COLORS.grey[100] }}>
+                        <TableRow>
+                            <TableCell><strong>Канал</strong></TableCell>
+                            <TableCell><strong>IP</strong></TableCell>
+                            <TableCell><strong>Порт</strong></TableCell>
+                            <TableCell><strong>Производитель</strong></TableCell>
+                            <TableCell><strong>Имя камеры</strong></TableCell>
+                            <TableCell><strong>Запись</strong></TableCell>
+                            <TableCell><strong>Статус</strong></TableCell>
+                            <TableCell align="center"><strong>Изменить</strong></TableCell>
+                            <TableCell align="center"><strong>Удалить</strong></TableCell>
+                        </TableRow>
+                    </TableHead>
+                    <TableBody>
+                        {loading && cameras.length === 0 ? (
+                            <TableRow>
+                                <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
+                                    <CircularProgress />
+                                </TableCell>
+                            </TableRow>
+                        ) : cameras.length === 0 ? (
+                            <TableRow>
+                                <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
+                                    <Typography color="text.secondary">Нет добавленных камер</Typography>
+                                </TableCell>
+                            </TableRow>
+                        ) : (
+                            cameras.map((camera, index) => {
+                                const recOn = (camera.streams?.main?.segment ?? 0) > 0 &&
+                                    (camera.streams?.main?.record_path ?? "") !== "";
+                                return (
+                                    <TableRow key={camera.id} hover>
+                                        <TableCell>
+                                            <Box display="flex" alignItems="center" gap={1}>
+                                                <VideocamIcon sx={{ color: RZD_COLORS.primary, fontSize: 20 }} />
+                                                <Typography variant="body2" fontWeight={600} sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                                                    #{index + 1}
+                                                </Typography>
+                                            </Box>
+                                        </TableCell>
+                                        <TableCell sx={{ fontFamily: 'monospace' }}>{camera.ip_adress}</TableCell>
+                                        <TableCell sx={{ fontFamily: 'monospace' }}>{camera.port}</TableCell>
+                                        <TableCell>{getProductionName(camera.production)}</TableCell>
+                                        <TableCell>
+                                            <Typography variant="body2" fontWeight={600}>
+                                                {camera.display_name || camera.id}
+                                            </Typography>
+                                            <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+                                                {camera.id} • {camera.description}
+                                            </Typography>
+                                        </TableCell>
+                                        <TableCell>
+                                            {recOn ? (
+                                                <Chip
+                                                    icon={<RecIcon sx={{ color: '#e53935 !important' }} />}
+                                                    label={`REC ${camera.streams.main.segment}мин`}
+                                                    size="small"
+                                                    variant="outlined"
+                                                    sx={{ borderColor: '#e53935', color: '#e53935', borderRadius: 1 }}
+                                                />
+                                            ) : (
+                                                <Chip label="Выкл" size="small" variant="outlined" sx={{ borderRadius: 1 }} />
+                                            )}
+                                        </TableCell>
+                                        <TableCell>
+                                            <Chip
+                                                label={getStatusText(camera.streams?.main?.status)}
+                                                color={getStatusColor(camera.streams?.main?.status)}
+                                                size="small"
+                                                sx={{ borderRadius: 1 }}
+                                            />
+                                        </TableCell>
+                                        <TableCell align="center">
+                                            <IconButton
+                                                color="primary"
+                                                onClick={() => handleOpenEditDialog(camera)}
+                                                disabled={loading}
+                                            >
+                                                <EditIcon />
+                                            </IconButton>
+                                        </TableCell>
+                                        <TableCell align="center">
+                                            <IconButton
+                                                color="error"
+                                                onClick={() => handleDeleteCamera(camera.id)}
+                                                disabled={loading}
+                                            >
+                                                <DeleteIcon />
+                                            </IconButton>
+                                        </TableCell>
+                                    </TableRow>
+                                );
+                            })
+                        )}
+                    </TableBody>
+                </Table>
+            </TableContainer>
+
+            {/* Add/Edit Dialog — пошаговая форма */}
+            <Dialog
+                open={openDialog}
+                onClose={handleCloseDialog}
+                maxWidth="md"
+                fullWidth
+                PaperProps={{ sx: { borderRadius: 1 } }}
+            >
+                <DialogTitle
+                    sx={{
+                        bgcolor: RZD_COLORS.primary,
+                        color: 'white',
+                        py: 2,
+                        letterSpacing: '0.02em',
+                    }}
+                >
+                    {editMode ? 'Изменить камеру' : 'Добавить камеру'}
+                    {editMode && (
+                        <Typography
+                            variant="caption"
+                            sx={{ display: 'block', opacity: 0.85, fontFamily: 'monospace', mt: 0.5 }}
+                        >
+                            {formData.id}
+                        </Typography>
+                    )}
+                </DialogTitle>
+
+                <DialogContent sx={{ p: 0 }}>
+                    {/* Stepper */}
+                    <Box sx={{ px: 4, py: 3, borderBottom: `1px solid ${RZD_COLORS.grey[200]}` }}>
+                        <Stepper activeStep={activeStep} alternativeLabel>
+                            {STEPS.map((label) => (
+                                <Step key={label}>
+                                    <StepLabel>{label}</StepLabel>
+                                </Step>
+                            ))}
+                        </Stepper>
+                    </Box>
+
+                    {/* Slide-контейнер */}
+                    <Box sx={{ overflow: 'hidden', position: 'relative' }}>
+                        <Box
+                            sx={{
+                                display: 'flex',
+                                width: `${STEPS.length * 100}%`,
+                                transform: `translateX(-${activeStep * (100 / STEPS.length)}%)`,
+                                transition: 'transform 0.35s ease',
+                            }}
+                        >
+                            {/* === Шаг 1: Подключение === */}
+                            <Box sx={{ width: `${100 / STEPS.length}%`, flexShrink: 0, p: 4 }}>
+                                <Typography variant="overline" color="text.secondary" sx={{ letterSpacing: 2 }}>
+                                    Шаг 1 из {STEPS.length}
+                                </Typography>
+                                <Typography variant="h6" fontWeight={600} sx={{ mb: 3 }}>
+                                    Параметры подключения
+                                </Typography>
+
+                                <Grid container spacing={2}>
+                                    <Grid item xs={12} sm={6}>
+                                        <TextField
+                                            fullWidth
+                                            label="Отображаемое имя"
+                                            placeholder={autoNamePreview}
+                                            value={formData.display_name}
+                                            onChange={(e) => handleInputChange('display_name', e.target.value)}
+                                            error={!nameValidation.valid}
+                                            helperText={
+                                                nameValidation.error ||
+                                                (formData.id ? ' ' : `По умолчанию: ${autoNamePreview}`)
+                                            }
+                                        />
+                                    </Grid>
+                                    <Grid item xs={12} sm={6}>
+                                        <TextField
+                                            fullWidth
+                                            label="Описание"
+                                            value={formData.description}
+                                            onChange={(e) => handleInputChange('description', e.target.value)}
+                                        />
+                                    </Grid>
+
+                                    <Grid item xs={12} sm={8}>
+                                        <FormControl
+                                            fullWidth required
+                                            error={!!formData.ip_adress && !ipValidation.valid}
+                                        >
+                                            <InputLabel id="ip-select-label">IP-адрес</InputLabel>
+                                            <Select
+                                                labelId="ip-select-label"
+                                                label="IP-адрес"
+                                                value={formData.ip_adress}
+                                                onChange={(e) => handleInputChange('ip_adress', e.target.value)}
+                                                sx={{ fontFamily: 'monospace' }}
+                                            >
+                                                <MenuItem value="">
+                                                    <em>— не выбран —</em>
+                                                </MenuItem>
+                                                {ipPool.map(ip => {
+                                                    const taken = usedIps.has(ip);
+                                                    return (
+                                                        <MenuItem
+                                                            key={ip} value={ip} disabled={taken}
+                                                            sx={{ fontFamily: 'monospace' }}
+                                                        >
+                                                            {ip}{taken ? ' — занят' : ''}
+                                                        </MenuItem>
+                                                    );
+                                                })}
+                                            </Select>
+                                            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, ml: 1.5 }}>
+                                                Пул: {IP_POOL_PREFIX}{IP_POOL_FROM}–{IP_POOL_TO}
+                                            </Typography>
+                                        </FormControl>
+                                    </Grid>
+                                    <Grid item xs={12} sm={4}>
+                                        <TextField
+                                            fullWidth
+                                            label="Порт"
+                                            value={formData.port}
+                                            onChange={(e) => handleInputChange('port', e.target.value)}
+                                            error={!portValidation.valid}
+                                            helperText={portValidation.error || ' '}
+                                            InputProps={{ sx: { fontFamily: 'monospace' } }}
+                                        />
+                                    </Grid>
+
+                                    <Grid item xs={12} sm={6}>
+                                        <TextField
+                                            fullWidth
+                                            label="Имя пользователя"
+                                            value={formData.user}
+                                            onChange={(e) => handleInputChange('user', e.target.value)}
+                                        />
+                                    </Grid>
+                                    <Grid item xs={12} sm={6}>
+                                        <TextField
+                                            fullWidth
+                                            type="password"
+                                            label="Пароль"
+                                            value={formData.password}
+                                            onChange={(e) => handleInputChange('password', e.target.value)}
+                                            helperText={
+                                                editMode ? 'Оставьте пустым, чтобы сохранить текущий' : ' '
+                                            }
+                                        />
+                                    </Grid>
+
+                                    <Grid item xs={12} sm={6}>
+                                        <FormControl fullWidth>
+                                            <InputLabel>Производитель</InputLabel>
+                                            <Select
+                                                value={formData.production}
+                                                onChange={(e) => handleInputChange('production', e.target.value)}
+                                                label="Производитель"
+                                            >
+                                                <MenuItem value={1}>Dahua</MenuItem>
+                                                <MenuItem value={2}>Hikvision</MenuItem>
+                                                <MenuItem value={3}>ACE</MenuItem>
+                                            </Select>
+                                        </FormControl>
+                                    </Grid>
+                                    <Grid item xs={12} sm={6}>
+                                        <FormControl fullWidth>
+                                            <InputLabel>Тип камеры</InputLabel>
+                                            <Select
+                                                value={formData.type}
+                                                onChange={(e) => handleInputChange('type', e.target.value)}
+                                                label="Тип камеры"
+                                            >
+                                                <MenuItem value={1}>Основная</MenuItem>
+                                                <MenuItem value={2}>AI</MenuItem>
+                                                <MenuItem value={3}>360°</MenuItem>
+                                            </Select>
+                                        </FormControl>
+                                    </Grid>
+
+                                    {/* Probe section */}
+                                    <Grid item xs={12}>
+                                        <Divider sx={{ my: 1 }} />
+                                        <Box
+                                            sx={{
+                                                mt: 2,
+                                                p: 2,
+                                                border: `1px solid ${RZD_COLORS.grey[300]}`,
+                                                borderRadius: 1,
+                                                bgcolor: RZD_COLORS.grey[100],
+                                            }}
+                                        >
+                                            <Box display="flex" alignItems="center" justifyContent="space-between" mb={probeStatus !== 'idle' ? 2 : 0}>
+                                                <Box>
+                                                    <Typography variant="subtitle2" fontWeight={600}>
+                                                        Проверка соединения
+                                                    </Typography>
+                                                    <Typography variant="caption" color="text.secondary">
+                                                        Временное подключение для предпросмотра потока
+                                                    </Typography>
+                                                </Box>
+                                                <Box display="flex" gap={1} alignItems="center">
+                                                    {probeStatus === 'creating' && (
+                                                        <Chip
+                                                            icon={<CircularProgress size={12} sx={{ color: 'inherit !important' }} />}
+                                                            label="Подключение"
+                                                            color="info" variant="outlined" size="small"
+                                                            sx={{ borderRadius: 1 }}
+                                                        />
+                                                    )}
+                                                    {probeStatus === 'streaming' && (
+                                                        <Chip
+                                                            icon={<CheckIcon />}
+                                                            label="Поток активен"
+                                                            color="success" variant="outlined" size="small"
+                                                            sx={{ borderRadius: 1 }}
+                                                        />
+                                                    )}
+                                                    {probeStatus === 'error' && (
+                                                        <Chip
+                                                            icon={<ErrorIcon />}
+                                                            label="Ошибка"
+                                                            color="error" variant="outlined" size="small"
+                                                            sx={{ borderRadius: 1 }}
+                                                        />
+                                                    )}
+                                                    {probeStatus === 'idle' || probeStatus === 'error' ? (
+                                                        <Button
+                                                            variant="outlined" size="small"
+                                                            startIcon={<PlayIcon />}
+                                                            onClick={handleTestStream}
+                                                            disabled={!ipValidation.valid || !portValidation.valid}
+                                                        >
+                                                            Тест
+                                                        </Button>
+                                                    ) : (
+                                                        <Button
+                                                            variant="outlined" color="error" size="small"
+                                                            startIcon={<StopIcon />}
+                                                            onClick={handleStopTest}
+                                                        >
+                                                            Стоп
+                                                        </Button>
+                                                    )}
+                                                </Box>
+                                            </Box>
+
+                                            {probeError && (
+                                                <Alert severity="error" sx={{ mb: 1, borderRadius: 1 }}>
+                                                    {probeError}
+                                                </Alert>
+                                            )}
+
+                                            {(probeStatus === 'streaming' || probeStatus === 'creating') && (
+                                                <Box
+                                                    sx={{
+                                                        width: '100%',
+                                                        aspectRatio: '16 / 9',
+                                                        bgcolor: '#000',
+                                                        borderRadius: 1,
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        overflow: 'hidden',
+                                                    }}
+                                                >
+                                                    {probeStatus === 'streaming' && probeName ? (
+                                                        <WebRTCPlayer
+                                                            cameraId={probeName}
+                                                            signalingUrl={wsUrl(`/signaling/client/${probeName}`)}
+                                                            onError={(err) => {
+                                                                setProbeError(err);
+                                                                setProbeStatus('error');
+                                                            }}
+                                                        />
+                                                    ) : (
+                                                        <Box textAlign="center" color="white">
+                                                            <CircularProgress color="inherit" size={28} />
+                                                            <Typography variant="caption" sx={{ display: 'block', mt: 1 }}>
+                                                                Инициализация
+                                                            </Typography>
+                                                        </Box>
+                                                    )}
+                                                </Box>
+                                            )}
+                                        </Box>
+                                    </Grid>
+                                </Grid>
+                            </Box>
+
+                            {/* === Шаг 2: Параметры потоков === */}
+                            <Box sx={{ width: `${100 / STEPS.length}%`, flexShrink: 0, p: 4 }}>
+                                <Typography variant="overline" color="text.secondary" sx={{ letterSpacing: 2 }}>
+                                    Шаг 2 из {STEPS.length}
+                                </Typography>
+                                <Typography variant="h6" fontWeight={600} sx={{ mb: 3 }}>
+                                    Параметры потоков
+                                </Typography>
+
+                                <Grid container spacing={2}>
+                                    {/* Главный поток */}
+                                    <Grid item xs={12}>
+                                        <Box display="flex" alignItems="center" gap={1} mb={1}>
+                                            <Box sx={{ width: 4, height: 16, bgcolor: RZD_COLORS.primary }} />
+                                            <Typography variant="subtitle2" fontWeight={700}>
+                                                Главный поток
+                                            </Typography>
+                                        </Box>
+                                    </Grid>
+                                    <Grid item xs={12} sm={4}>
+                                        <TextField
+                                            fullWidth label="Подтип" type="number"
+                                            value={formData.main_sub}
+                                            onChange={(e) => handleInputChange('main_sub', parseInt(e.target.value))}
+                                            InputProps={{ sx: { fontFamily: 'monospace' } }}
+                                        />
+                                    </Grid>
+                                    <Grid item xs={12} sm={4}>
+                                        <TextField
+                                            fullWidth label="Задержка, мс" type="number"
+                                            value={formData.main_latency}
+                                            onChange={(e) => handleInputChange('main_latency', parseInt(e.target.value))}
+                                            InputProps={{ sx: { fontFamily: 'monospace' } }}
+                                        />
+                                    </Grid>
+                                    <Grid item xs={12} sm={4}>
+                                        <TextField
+                                            fullWidth label="Переподключение, сек" type="number"
+                                            value={formData.main_reconnect}
+                                            onChange={(e) => handleInputChange('main_reconnect', parseInt(e.target.value))}
+                                            InputProps={{ sx: { fontFamily: 'monospace' } }}
+                                        />
+                                    </Grid>
+                                    <Grid item xs={12}>
+                                        <FormControlLabel
+                                            control={
+                                                <Switch
+                                                    checked={formData.main_use_udp}
+                                                    onChange={(e) => handleInputChange('main_use_udp', e.target.checked)}
+                                                />
+                                            }
+                                            label="Использовать UDP-транспорт"
+                                        />
+                                    </Grid>
+
+                                    {/* Второй поток */}
+                                    <Grid item xs={12}>
+                                        <Box display="flex" alignItems="center" gap={1} mt={2} mb={1}>
+                                            <Box sx={{ width: 4, height: 16, bgcolor: RZD_COLORS.secondary }} />
+                                            <Typography variant="subtitle2" fontWeight={700}>
+                                                Второй поток
+                                            </Typography>
+                                        </Box>
+                                    </Grid>
+                                    <Grid item xs={12} sm={4}>
+                                        <TextField
+                                            fullWidth label="Подтип" type="number"
+                                            value={formData.sub_sub}
+                                            onChange={(e) => handleInputChange('sub_sub', parseInt(e.target.value))}
+                                            InputProps={{ sx: { fontFamily: 'monospace' } }}
+                                        />
+                                    </Grid>
+                                    <Grid item xs={12} sm={4}>
+                                        <TextField
+                                            fullWidth label="Задержка, мс" type="number"
+                                            value={formData.sub_latency}
+                                            onChange={(e) => handleInputChange('sub_latency', parseInt(e.target.value))}
+                                            InputProps={{ sx: { fontFamily: 'monospace' } }}
+                                        />
+                                    </Grid>
+                                    <Grid item xs={12} sm={4}>
+                                        <TextField
+                                            fullWidth label="Переподключение, сек" type="number"
+                                            value={formData.sub_reconnect}
+                                            onChange={(e) => handleInputChange('sub_reconnect', parseInt(e.target.value))}
+                                            InputProps={{ sx: { fontFamily: 'monospace' } }}
+                                        />
+                                    </Grid>
+                                    <Grid item xs={12}>
+                                        <FormControlLabel
+                                            control={
+                                                <Switch
+                                                    checked={formData.sub_use_udp}
+                                                    onChange={(e) => handleInputChange('sub_use_udp', e.target.checked)}
+                                                />
+                                            }
+                                            label="Использовать UDP-транспорт"
+                                        />
+                                    </Grid>
+                                </Grid>
+                            </Box>
+
+                            {/* === Шаг 3: Запись === */}
+                            <Box sx={{ width: `${100 / STEPS.length}%`, flexShrink: 0, p: 4 }}>
+                                <Typography variant="overline" color="text.secondary" sx={{ letterSpacing: 2 }}>
+                                    Шаг 3 из {STEPS.length}
+                                </Typography>
+                                <Typography variant="h6" fontWeight={600} sx={{ mb: 3 }}>
+                                    Параметры записи
+                                </Typography>
+
+                                <Box
+                                    sx={{
+                                        p: 2.5,
+                                        border: `1px solid ${formData.recording_enabled ? '#e53935' : RZD_COLORS.grey[300]}`,
+                                        borderRadius: 1,
+                                        bgcolor: formData.recording_enabled ? 'rgba(229, 57, 53, 0.04)' : 'transparent',
+                                        mb: 3,
+                                        transition: 'all 0.2s',
+                                    }}
+                                >
+                                    <FormControlLabel
+                                        control={
+                                            <Switch
+                                                checked={formData.recording_enabled}
+                                                onChange={(e) => handleInputChange('recording_enabled', e.target.checked)}
+                                                color="error"
+                                            />
+                                        }
+                                        label={
+                                            <Box display="flex" alignItems="center" gap={1}>
+                                                <RecIcon
+                                                    sx={{ color: formData.recording_enabled ? '#e53935' : 'grey.400' }}
+                                                />
+                                                <Typography fontWeight={600}>
+                                                    {formData.recording_enabled ? 'Запись включена' : 'Запись выключена'}
+                                                </Typography>
+                                            </Box>
+                                        }
+                                    />
+                                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                                        Запись ведётся только для основного потока в формате MP4
+                                    </Typography>
+                                </Box>
+
+                                <Grid container spacing={2}>
+                                    <Grid item xs={12} sm={6}>
+                                        <TextField
+                                            fullWidth
+                                            label="Длительность сегмента, мин"
+                                            type="number"
+                                            value={formData.main_segment}
+                                            onChange={(e) => handleInputChange('main_segment', parseInt(e.target.value) || 0)}
+                                            disabled={!formData.recording_enabled}
+                                            inputProps={{ min: 1, max: 1440 }}
+                                            InputProps={{ sx: { fontFamily: 'monospace' } }}
+                                            helperText={
+                                                formData.recording_enabled
+                                                    ? 'Длина одного файла записи'
+                                                    : 'Включите запись, чтобы настроить'
+                                            }
+                                        />
+                                    </Grid>
+                                    <Grid item xs={12} sm={6}>
+                                        <TextField
+                                            fullWidth
+                                            disabled
+                                            label="Каталог записей"
+                                            value="/storage/internal"
+                                            InputProps={{ sx: { fontFamily: 'monospace' } }}
+                                            helperText="Генерируется автоматически"
+                                        />
+                                    </Grid>
+                                </Grid>
+
+                                {/* Сводка перед сохранением */}
+                                <Divider sx={{ my: 3 }} />
+                                <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1.5 }}>
+                                    Сводка
+                                </Typography>
+                                <Box
+                                    sx={{
+                                        display: 'grid',
+                                        gridTemplateColumns: 'repeat(2, 1fr)',
+                                        gap: 1.5,
+                                        fontFamily: 'monospace',
+                                        fontSize: '0.85rem',
+                                    }}
+                                >
+                                    <Box>
+                                        <Typography variant="caption" color="text.secondary">Имя</Typography>
+                                        <Typography sx={{ fontFamily: 'monospace' }}>
+                                            {formData.display_name || autoNamePreview}
+                                        </Typography>
+                                    </Box>
+                                    <Box>
+                                        <Typography variant="caption" color="text.secondary">Адрес</Typography>
+                                        <Typography sx={{ fontFamily: 'monospace' }}>
+                                            {formData.ip_adress || '—'}:{formData.port}
+                                        </Typography>
+                                    </Box>
+                                    <Box>
+                                        <Typography variant="caption" color="text.secondary">Производитель</Typography>
+                                        <Typography sx={{ fontFamily: 'monospace' }}>
+                                            {getProductionName(formData.production)}
+                                        </Typography>
+                                    </Box>
+                                    <Box>
+                                        <Typography variant="caption" color="text.secondary">Запись</Typography>
+                                        <Typography sx={{ fontFamily: 'monospace' }}>
+                                            {formData.recording_enabled
+                                                ? `вкл, ${formData.main_segment} мин`
+                                                : 'выкл'}
+                                        </Typography>
+                                    </Box>
+                                </Box>
+                            </Box>
+                        </Box>
+                    </Box>
+                </DialogContent>
+
+                {/* Footer: навигация */}
+                <DialogActions
+                    sx={{
+                        p: 2.5,
+                        borderTop: `1px solid ${RZD_COLORS.grey[200]}`,
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                    }}
+                >
+                    <Button onClick={handleCloseDialog} disabled={loading}>
+                        Отменить
+                    </Button>
+
+                    <Box display="flex" gap={1}>
+                        <Button
+                            onClick={() => setActiveStep(s => Math.max(0, s - 1))}
+                            disabled={activeStep === 0 || loading}
+                            startIcon={<ArrowBackIcon />}
+                        >
+                            Назад
+                        </Button>
+
+                        {!isLastStep ? (
+                            <Button
+                                variant="contained"
+                                onClick={() => setActiveStep(s => Math.min(STEPS.length - 1, s + 1))}
+                                disabled={!canGoNext || loading}
+                                endIcon={<ArrowForwardIcon />}
+                                sx={{ bgcolor: RZD_COLORS.primary }}
+                            >
+                                Далее
+                            </Button>
+                        ) : (
+                            <Button
+                                variant="contained"
+                                onClick={handleSaveCamera}
+                                disabled={loading || !isFormValid}
+                                startIcon={loading ? <CircularProgress size={18} color="inherit" /> : <SaveIcon />}
+                                sx={{ bgcolor: RZD_COLORS.primary }}
+                            >
+                                {editMode ? 'Сохранить' : 'Добавить'}
+                            </Button>
+                        )}
+                    </Box>
+                </DialogActions>
+            </Dialog>
+        </Container>
+    );
 };
 
 export default CameraSettings;
