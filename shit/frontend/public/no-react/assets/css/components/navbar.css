@@ -6,10 +6,18 @@
     display: flex;
     align-items: center;
     padding: 0 20px;
-    gap: 32px;
+    gap: 24px;
     flex-shrink: 0;
     position: relative;
     z-index: 100;
+}
+
+.nav-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-left: auto;   /* прижать вправо */
+    flex-shrink: 0;
 }
 
 .nav-brand {
@@ -24,10 +32,11 @@
     line-height: 1;
 }
 .nav-title {
-    font-family: var(--font-ui);
-    font-weight: 800;
-    font-size: 18px;
-    letter-spacing: 0.04em;
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 20px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
     color: var(--text-primary);
 }
 .nav-version {
@@ -41,28 +50,125 @@
 .nav-steps {
     display: flex;
     align-items: center;
-    gap: 4px;
-    flex: 1;
+    gap: 0;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 4px;
+    flex-shrink: 0;
 }
+
 .nav-step {
+    position: relative;
     display: flex;
-    flex-direction: column;
-    padding: 6px 16px;
+    align-items: center;
+    justify-content: center;
+    padding: 7px 22px;
     border-radius: var(--radius);
-    border: 1px solid transparent;
+    border: none;
+    background: transparent;
     cursor: pointer;
-    transition: all 0.2s;
-    opacity: 0.4;
+    transition: background 0.2s, color 0.2s;
+    color: var(--text-dim);
+    overflow: hidden;
 }
+
+.nav-step-label {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    position: relative;
+    z-index: 1;
+    transition: color 0.2s;
+}
+
+/* Полоска-индикатор снизу */
+.nav-step-indicator {
+    position: absolute;
+    bottom: 3px;
+    left: 50%;
+    transform: translateX(-50%) scaleX(0);
+    width: 60%;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--accent);
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s;
+    opacity: 0;
+}
+
+.nav-step:hover {
+    background: rgba(255,255,255,0.04);
+    color: var(--text-secondary);
+}
+
 .nav-step.active {
-    opacity: 1;
-    border-color: var(--accent);
     background: var(--accent-glow);
+    color: var(--accent);
 }
-.nav-step:not(.active):hover {
-    opacity: 0.7;
+.nav-step.active .nav-step-label {
+    color: var(--accent);
+}
+.nav-step.active .nav-step-indicator {
+    transform: translateX(-50%) scaleX(1);
+    opacity: 1;
+}
+
+/* Анимация «вспышки» при переключении */
+.nav-step::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--accent-glow);
+    border-radius: var(--radius);
+    opacity: 0;
+    transform: scale(0.8);
+    transition: opacity 0.3s, transform 0.3s;
+    pointer-events: none;
+}
+.nav-step.active::before {
+    opacity: 1;
+    transform: scale(1);
+}
+
+.nav-step-divider {
+    width: 1px;
+    height: 16px;
+    background: var(--border);
+    flex-shrink: 0;
+    margin: 0 2px;
+}
+
+/* Кнопка администрирования */
+.nav-admin-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.nav-admin-btn:hover {
     border-color: var(--border-bright);
+    color: var(--text-secondary);
+    background: rgba(255,255,255,0.03);
 }
+.nav-admin-btn:active {
+    background: rgba(255,255,255,0.06);
+}
+.nav-admin-icon {
+    font-size: 14px;
+    color: var(--text-dim);
+}
+
 .step-num {
     font-family: var(--font-mono);
     font-size: 10px;
@@ -88,9 +194,11 @@
 /* Status pills */
 .nav-status-area {
     display: flex;
+    align-items: center;
     gap: 8px;
     flex-shrink: 0;
 }
+
 .status-pill {
     display: flex;
     align-items: center;
@@ -110,6 +218,13 @@
     background: currentColor;
     flex-shrink: 0;
 }
+
+/* Статусы — чуть компактнее */
+.status-pill .status-text {
+    font-size: 10px;
+    letter-spacing: 0.06em;
+}
+
 .status-pill.connected    { color: var(--ok);   border-color: rgba(64,255,144,0.3); background: rgba(64,255,144,0.07); }
 .status-pill.connecting   { color: var(--warn); border-color: rgba(255,204,64,0.3); background: rgba(255,204,64,0.07); }
 .status-pill.disconnected { color: var(--text-dim); }

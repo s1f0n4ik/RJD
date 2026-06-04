@@ -123,42 +123,44 @@
 <!-- ═══════════════════════════════════════════════════ NAVBAR -->
 <nav class="navbar">
     <div class="nav-brand">
-        <span class="nav-logo">◈</span>
-        <span class="nav-title">CamCal</span>
-        <span class="nav-version">v1.0</span>
+        <span class="nav-title">Система 360</span>
     </div>
     <div class="nav-steps">
         <div class="nav-step active" data-step="1">
-            <span class="step-num">01</span>
-            <span class="step-label">Подключение</span>
-            <span class="step-sublabel">& Стрим</span>
+            <span class="nav-step-label">Калибровка</span>
+            <span class="nav-step-indicator"></span>
         </div>
-        <div class="nav-step-divider">→</div>
+        <div class="nav-step-divider"></div>
         <div class="nav-step" data-step="2">
-            <span class="step-num">02</span>
-            <span class="step-label">Калибровка</span>
-            <span class="step-sublabel">& Снимки</span>
+            <span class="nav-step-label">Сборка</span>
+            <span class="nav-step-indicator"></span>
         </div>
-        <div class="nav-step-divider">→</div>
+        <div class="nav-step-divider"></div>
         <div class="nav-step" data-step="3">
-            <span class="step-num">03</span>
-            <span class="step-label">Проекция</span>
-            <span class="step-sublabel">& Результат</span>
+            <span class="nav-step-label">Отображение</span>
+            <span class="nav-step-indicator"></span>
         </div>
     </div>
-    <div class="nav-status-area">
-        <div id="wsStatus" class="status-pill disconnected">
-            <span class="status-dot"></span>
-            <span class="status-text">WS: —</span>
+    <div class="nav-right">
+        <div class="nav-status-area">
+            <div id="wsStatus" class="status-pill disconnected">
+                <span class="status-dot"></span>
+                <span class="status-text">WS: —</span>
+            </div>
+            <div id="rtcWsStatus" class="status-pill disconnected">
+                <span class="status-dot"></span>
+                <span class="status-text">RTC WS: —</span>
+            </div>
+            <div id="rtcStatus" class="status-pill disconnected">
+                <span class="status-dot"></span>
+                <span class="status-text">RTC: —</span>
+            </div>
         </div>
-        <div id="rtcWsStatus" class="status-pill disconnected">
-            <span class="status-dot"></span>
-            <span class="status-text">RTC WS: —</span>
-        </div>
-        <div id="rtcStatus" class="status-pill disconnected">
-            <span class="status-dot"></span>
-            <span class="status-text">RTC: —</span>
-        </div>
+
+        <button class="nav-admin-btn" onclick="goToAdmin()">
+            <span class="nav-admin-icon">⊹</span>
+            <span>На главную</span>
+        </button>
     </div>
 </nav>
 

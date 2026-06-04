@@ -8,11 +8,20 @@ import { showToast } from '../utils/utility.js';
 import { syncNoSignal } from '../ui/status.js';
 import { initProjPage } from '../pages/projection.js';
 import { initLinkerPage } from '../pages/linker.js';
+import {toggleProjSettings, toggleVehicleSelect} from "./proj-settings.js";
+import {projClearPoints, projRemoveLastPoint, projResetView} from "./canvas.js";
+import {projResultDragEnd, projResultDragMove, projResultDragStart, projResultZoom} from "./proj-result.js";
+import {closeLutSaveModal, projCalculateLUT, submitLutSave} from "./lut-modal.js";
+import {toggleVehicleSelect} from "./proj-settings.js";
 
 export function moveVideoTo(wrapperId) {
     const video   = document.getElementById('remoteVideo');
     const wrapper = document.getElementById(wrapperId);
     if (video && wrapper) wrapper.appendChild(video);
+}
+
+export function goToAdmin() {
+    window.location.href = '/';
 }
 
 export function navigateTo(page) {
@@ -35,4 +44,8 @@ export function navigateTo(page) {
 
 document.querySelectorAll('.nav-step').forEach(el => {
     el.addEventListener('click', () => navigateTo(+el.dataset.step));
+});
+
+Object.assign(window, {
+    goToAdmin,
 });
