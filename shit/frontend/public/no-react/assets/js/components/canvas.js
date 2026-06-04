@@ -35,6 +35,13 @@ export function initProjWarpCanvas() {
     canvas.addEventListener('pointermove', _pointerMove);
     canvas.addEventListener('pointerup',   _pointerUp);
 
+    canvas.addEventListener('keydown', (e) => {
+        if (e.ctrlKey && e.key === 'z' && !e.shiftKey) {
+            e.preventDefault();
+            projRemoveLastPoint();
+        }
+    });
+
     function resizeCanvas() {
         const vw = video?.videoWidth;
         const vh = video?.videoHeight;
@@ -83,10 +90,10 @@ export function resizeCanvasBitmap() {
     if (!canvas || !projCanvasBase.w) return;
 
     const dpr = window.devicePixelRatio || 1;
+    const s   = projView.scale ?? 1;
 
-    // Без scale — масштаб обеспечивает CSS transform на uiCanvasLayer
-    canvas.width  = Math.round(projCanvasBase.w * dpr);
-    canvas.height = Math.round(projCanvasBase.h * dpr);
+    canvas.width  = Math.round(projCanvasBase.w * s * dpr);
+    canvas.height = Math.round(projCanvasBase.h * s * dpr);
 
     projDraw();
 }
@@ -361,16 +368,6 @@ export function initWarpZoomPan() {
     wrapper.addEventListener('pointerdown', _onPanDown);
     window.addEventListener('pointermove', _onPanMove);
     window.addEventListener('pointerup',   _onPanUp);
-
-    window.addEventListener('keydown', (e) => {
-        if (e.ctrlKey && e.key === 'z' && !e.shiftKey) {
-            // Только если страница проекции активна
-            const page3 = document.getElementById('page-2');
-            if (!page3 || page3.style.display === 'none') return;
-            e.preventDefault();
-            projRemoveLastPoint();
-        }
-    });
 
     new ResizeObserver(() => {
         _clampPan();
