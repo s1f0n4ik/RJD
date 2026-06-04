@@ -83,10 +83,10 @@ export function resizeCanvasBitmap() {
     if (!canvas || !projCanvasBase.w) return;
 
     const dpr = window.devicePixelRatio || 1;
-    const s   = projView.scale ?? 1;
 
-    canvas.width  = Math.round(projCanvasBase.w * s * dpr);
-    canvas.height = Math.round(projCanvasBase.h * s * dpr);
+    // Без scale — масштаб обеспечивает CSS transform на uiCanvasLayer
+    canvas.width  = Math.round(projCanvasBase.w * dpr);
+    canvas.height = Math.round(projCanvasBase.h * dpr);
 
     projDraw();
 }
@@ -207,33 +207,32 @@ export function projDraw() {
     if (!pts.length) return;
 
     const dpr = window.devicePixelRatio || 1;
-    // Точки всегда одного экранного размера независимо от zoom
-    // canvas.width = projCanvasBase.w * scale * dpr
-    // значит 1 экранный px = scale * dpr физических px в canvas
-    const s      = projView.scale || 1;
-    const PX     = dpr * s;        // физических px canvas на 1 экранный px
+    // Точки фиксированного экранного размера — нейтрализуем scale
+    const PX     = dpr;           // только dpr, без s
 
-    const R      = 7;
-    const RING   = 3;
-    const LINE_W = 2;
-    const FONT   = 11;
+    const R      = 7   * PX;
+    const RING   = 3   * PX;
+    const LINE_W = 1.5 * PX;
+    const FONT   = 11  * PX;
 
     const toPx = p => ({ x: p.x * W, y: p.y * H });
 
+    // Пунктирные линии — без замыкания первой и последней точки
     if (pts.length > 1) {
         ctx.beginPath();
-        ctx.strokeStyle = 'rgba(200,255,64,0.4)';
-        ctx.lineWidth   = LINE_W;
-        ctx.setLineDash([5 * PX, 4 * PX]);
+        ctx.strokeStyle = 'rgba(200,255,64,0.75)';
+        ctx.lineWidth   = 1.5 * PX;
+        ctx.setLineDash([6 * PX, 3 * PX]);
         pts.forEach((p, i) => {
             const px = toPx(p);
             i === 0 ? ctx.moveTo(px.x, px.y) : ctx.lineTo(px.x, px.y);
         });
-        if (pts.length === currentMaxPoints()) ctx.closePath();
+        // ctx.closePath() убран — первая и последняя не соединяются
         ctx.stroke();
         ctx.setLineDash([]);
     }
 
+    // Точки
     pts.forEach((p, i) => {
         const { x, y } = toPx(p);
 
