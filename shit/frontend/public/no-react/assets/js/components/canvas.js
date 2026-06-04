@@ -103,20 +103,20 @@ function _getNorm(canvas, event) {
     };
 }
 
-function _hitPoint(nx, ny) {
-    const canvas = document.getElementById('projWarpCanvas');
-    if (!canvas.width || !canvas.height) return -1;
+function _hitPoint(canvas, event) {
+    const rect = canvas.getBoundingClientRect();
+    const ex   = event.clientX - rect.left;
+    const ey   = event.clientY - rect.top;
 
-    const s      = projView.scale || 1;
-    const HIT_PX = 14 / s;
-    const hitNX  = HIT_PX / canvas.width;
-    const hitNY  = HIT_PX / canvas.height;
+    // Радиус точки в экранных пикселях — ровно R из _projDraw
+    const HIT_PX = 10; // совпадает с R = 7px + небольшой запас
 
     for (let i = projState.points.length - 1; i >= 0; i--) {
-        const p  = projState.points[i];
-        const dx = (p.x - nx) / hitNX;
-        const dy = (p.y - ny) / hitNY;
-        if (dx * dx + dy * dy < 1) return i;
+        const p = projState.points[i];
+        // Нормализованные → экранные через bounding rect canvas
+        const px = p.x * rect.width;
+        const py = p.y * rect.height;
+        if (Math.hypot(ex - px, ey - py) < HIT_PX) return i;
     }
     return -1;
 }
@@ -140,7 +140,7 @@ function _pointerDown(e) {
     _dragStartX    = x;
     _dragStartY    = y;
     _dragMoved     = false;
-    _draggingPoint = _hitPoint(x, y);
+    _draggingPoint = _hitPoint(canvas, e);
 
     if (_draggingPoint !== -1) canvas.setPointerCapture(e.pointerId);
 }
@@ -207,16 +207,19 @@ export function projDraw() {
     if (!pts.length) return;
 
     const dpr = window.devicePixelRatio || 1;
-    const PX  = dpr;
-
-    const toPx = p => ({ x: p.x * W, y: p.y * H });
+    // Точки всегда одного экранного размера независимо от zoom
+    // canvas.width = projCanvasBase.w * scale * dpr
+    // значит 1 экранный px = scale * dpr физических px в canvas
+    const s      = projView.scale || 1;
+    const PX     = dpr * s;        // физических px canvas на 1 экранный px
 
     const R      = 7   * PX;
     const RING   = 3   * PX;
     const LINE_W = 1.5 * PX;
     const FONT   = 11  * PX;
 
-    // Пунктирные линии между точками
+    const toPx = p => ({ x: p.x * W, y: p.y * H });
+
     if (pts.length > 1) {
         ctx.beginPath();
         ctx.strokeStyle = 'rgba(200,255,64,0.4)';
@@ -231,7 +234,6 @@ export function projDraw() {
         ctx.setLineDash([]);
     }
 
-    // Точки
     pts.forEach((p, i) => {
         const { x, y } = toPx(p);
 
@@ -360,6 +362,16 @@ export function initWarpZoomPan() {
     wrapper.addEventListener('pointerdown', _onPanDown);
     window.addEventListener('pointermove', _onPanMove);
     window.addEventListener('pointerup',   _onPanUp);
+
+    window.addEventListener('keydown', (e) => {
+        if (e.ctrlKey && e.key === 'z' && !e.shiftKey) {
+            // Только если страница проекции активна
+            const page3 = document.getElementById('page-3');
+            if (!page3 || page3.style.display === 'none') return;
+            e.preventDefault();
+            projRemoveLastPoint();
+        }
+    });
 
     new ResizeObserver(() => {
         _clampPan();

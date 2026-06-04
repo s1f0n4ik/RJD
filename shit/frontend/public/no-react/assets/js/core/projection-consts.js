@@ -46,7 +46,7 @@ export const projView = {
 
 // ── Constants ────────────────────────────────────────────────
 export const MIN_SCALE      = 1.0;
-export const MAX_SCALE      = 8.0;
+export const MAX_SCALE      = 12.0;
 export const DRAG_THRESHOLD = 0.005;
 
 // Базовый размер канваса (заполняется при инициализации)
