@@ -8,11 +8,6 @@ import { showToast } from '../utils/utility.js';
 import { syncNoSignal } from '../ui/status.js';
 import { initProjPage } from '../pages/projection.js';
 import { initLinkerPage } from '../pages/linker.js';
-import {toggleProjSettings, toggleVehicleSelect} from "./proj-settings.js";
-import {projClearPoints, projRemoveLastPoint, projResetView} from "./canvas.js";
-import {projResultDragEnd, projResultDragMove, projResultDragStart, projResultZoom} from "./proj-result.js";
-import {closeLutSaveModal, projCalculateLUT, submitLutSave} from "./lut-modal.js";
-import {toggleVehicleSelect} from "./proj-settings.js";
 
 export function moveVideoTo(wrapperId) {
     const video   = document.getElementById('remoteVideo');
