@@ -213,10 +213,10 @@ export function projDraw() {
     const s      = projView.scale || 1;
     const PX     = dpr * s;        // физических px canvas на 1 экранный px
 
-    const R      = 7   * PX;
-    const RING   = 3   * PX;
-    const LINE_W = 1.5 * PX;
-    const FONT   = 11  * PX;
+    const R      = 7;
+    const RING   = 3;
+    const LINE_W = 2;
+    const FONT   = 11;
 
     const toPx = p => ({ x: p.x * W, y: p.y * H });
 
@@ -366,7 +366,7 @@ export function initWarpZoomPan() {
     window.addEventListener('keydown', (e) => {
         if (e.ctrlKey && e.key === 'z' && !e.shiftKey) {
             // Только если страница проекции активна
-            const page3 = document.getElementById('page-3');
+            const page3 = document.getElementById('page-2');
             if (!page3 || page3.style.display === 'none') return;
             e.preventDefault();
             projRemoveLastPoint();
