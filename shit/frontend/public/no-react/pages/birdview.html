@@ -118,6 +118,47 @@
     </div>
 </div>
 
+<!-- ═══════════════════════════════════════════════════ Модальное окно для рассчета конфигурации -->
+<div id="confExportModal" class="modal-backdrop" style="display:none;" onclick="confCloseExport(event)">
+    <div class="modal-window modal-window--wide" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <span class="modal-title">Экспорт конфигурации</span>
+            <button class="toast-close" onclick="confCloseExport()">✕</button>
+        </div>
+        <div class="modal-body" style="gap:14px;">
+            <div class="field-row">
+                <div class="field-group">
+                    <label class="field-label">ID конфигурации</label>
+                    <input id="confExportId" class="field-input" type="text" placeholder="my_config_360" />
+                </div>
+                <div class="field-group">
+                    <label class="field-label">Название</label>
+                    <input id="confExportName" class="field-input" type="text" placeholder="Мой birdview" />
+                </div>
+            </div>
+            <div class="field-row">
+                <div class="field-group">
+                    <label class="field-label">Масштаб (у.е. → px)</label>
+                    <input id="confExportScale" class="field-input" type="number" value="1" min="0.1" step="0.1"
+                           oninput="confUpdateExportPreview()" />
+                </div>
+                <div class="field-group">
+                    <label class="field-label">Итоговый canvas</label>
+                    <span id="confExportCanvasSize" class="modal-stat-value" style="padding-top:4px;">—</span>
+                </div>
+            </div>
+
+            <div class="conf-export-preview-wrap">
+                <pre id="confExportPreview" class="conf-export-preview"></pre>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-ghost" onclick="confCloseExport()">Отмена</button>
+            <button class="btn btn-primary" onclick="confSaveExport()">⊛ Сохранить</button>
+        </div>
+    </div>
+</div>
+
 <body>
 
 <!-- ═══════════════════════════════════════════════════ NAVBAR -->
@@ -138,6 +179,11 @@
         <div class="nav-step-divider"></div>
         <div class="nav-step" data-step="3">
             <span class="nav-step-label">Отображение</span>
+            <span class="nav-step-indicator"></span>
+        </div>
+        <div class="nav-step-divider"></div>
+        <div class="nav-step" data-step="4">
+            <span class="nav-step-label">Конфигуратор</span>
             <span class="nav-step-indicator"></span>
         </div>
     </div>
@@ -812,6 +858,139 @@
         </div>
 
     </section>
+</main>
+
+<!-- ═══════════════════════════════════════════════════ PAGE 4: Конфигуратор -->
+<main class="main-layout conf-layout" id="page-4" style="display:none;">
+
+    <section class="conf-canvas-area" id="confCanvasArea">
+        <canvas id="confCanvas" class="conf-canvas"></canvas>
+
+        <div class="conf-toolbar">
+            <button class="conf-tool-btn active" data-tool="select" onclick="confSelectTool('select')" title="Выделение">⊹</button>
+            <button class="conf-tool-btn" data-tool="camera" onclick="confSelectTool('camera')" title="Камера">◱</button>
+            <button class="conf-tool-btn" data-tool="zone" onclick="confSelectTool('zone')" title="Разметка">▦</button>
+            <button class="conf-tool-btn" data-tool="image" onclick="confSelectTool('image')" title="Рисунок">⊞</button>
+        </div>
+
+        <div class="conf-status-bar">
+            <span id="confFieldSize" class="meta-tag">Поле: —</span>
+            <span id="confSnapStepValue" class="meta-tag">Шаг: —</span>
+            <span id="confCursorPos" class="meta-tag">X: — Y: —</span>
+        </div>
+    </section>
+
+    <button class="conf-panel-tab" id="confPanelTab" onclick="confTogglePanel()">
+        <span class="conf-panel-tab-icon">⊞</span>
+        <span class="conf-panel-tab-label">Инструменты</span>
+    </button>
+
+    <div class="conf-panel" id="confPanel">
+        <div class="conf-panel-inner">
+
+            <!-- Поле -->
+            <details class="conf-section" id="confFieldSection" open>
+                <summary class="conf-section-header">
+                    <span>Поле</span>
+                    <span class="collapsible-arrow">›</span>
+                </summary>
+                <div class="conf-section-body">
+                    <div class="field-row">
+                        <div class="field-group">
+                            <label class="field-label">Ширина</label>
+                            <input id="confFieldW" class="field-input" type="number" value="1000" min="1"
+                                   onchange="confUpdateField()" />
+                        </div>
+                        <div class="field-group">
+                            <label class="field-label">Высота</label>
+                            <input id="confFieldH" class="field-input" type="number" value="1000" min="1"
+                                   onchange="confUpdateField()" />
+                        </div>
+                    </div>
+                    <div class="field-group">
+                        <label class="field-label">Шаг привязки</label>
+                        <input id="confSnapStep" class="field-input" type="number" value="10" min="1"
+                               oninput="confUpdateField()" onchange="confUpdateField()" />
+                    </div>
+                </div>
+            </details>
+
+            <!-- Камеры -->
+            <details class="conf-section" id="confCameraSection">
+                <summary class="conf-section-header">
+                    <span>Камеры</span>
+                    <span class="conf-section-count" id="confCamCount">0</span>
+                    <span class="collapsible-arrow">›</span>
+                </summary>
+                <div class="conf-section-body">
+                    <div class="conf-item-list" id="confCamList"></div>
+                    <button class="btn btn-ghost btn-sm" style="width:100%;" onclick="confAddCamera()">
+                        + Добавить камеру
+                    </button>
+                </div>
+            </details>
+
+            <!-- Разметочные области -->
+            <details class="conf-section" id="confZoneSection">
+                <summary class="conf-section-header">
+                    <span>Разметка</span>
+                    <span class="conf-section-count" id="confZoneCount">0</span>
+                    <span class="collapsible-arrow">›</span>
+                </summary>
+                <div class="conf-section-body">
+
+                    <label class="toggle-row" style="padding: 4px 0;">
+                        <span class="toggle-label">Фикс. размер</span>
+                        <input id="confFixedZoneToggle" class="toggle-input" type="checkbox"
+                               onchange="confToggleFixedZone(this.checked)" />
+                        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                    </label>
+                    <div id="confFixedZoneFields" class="conf-fixed-zone-fields" style="display:none;">
+                        <div class="field-row">
+                            <div class="field-group">
+                                <label class="field-label">Ширина</label>
+                                <input id="confFixedZoneW" class="field-input" type="number" value="100" min="1"
+                                       onchange="confUpdateFixedZone()" />
+                            </div>
+                            <div class="field-group">
+                                <label class="field-label">Высота</label>
+                                <input id="confFixedZoneH" class="field-input" type="number" value="100" min="1"
+                                       onchange="confUpdateFixedZone()" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="conf-item-list" id="confZoneList"></div>
+                    <button class="btn btn-ghost btn-sm" style="width:100%;" onclick="confAddZone()">
+                        + Добавить область
+                    </button>
+                </div>
+            </details>
+
+            <!-- Рисунки -->
+            <details class="conf-section" id="confImageSection">
+                <summary class="conf-section-header">
+                    <span>Рисунки</span>
+                    <span class="conf-section-count" id="confImgCount">0</span>
+                    <span class="collapsible-arrow">›</span>
+                </summary>
+                <div class="conf-section-body">
+                    <div class="conf-item-list" id="confImgList"></div>
+                    <button class="btn btn-ghost btn-sm" style="width:100%;" onclick="confAddImage()">
+                        + Загрузить рисунок
+                    </button>
+                    <input type="file" id="confImgFileInput" accept="image/*" style="display:none;"
+                           onchange="confOnImageFile(event)" />
+                </div>
+            </details>
+
+            <button class="btn conf-export-btn" onclick="confOpenExport()">
+                Рассчитать конфигурацию
+            </button>
+
+        </div>
+    </div>
+
 </main>
 
 <script type="module" src="../assets/js/pages/birdview.js"></script>

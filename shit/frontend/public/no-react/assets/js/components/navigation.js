@@ -8,6 +8,7 @@ import { showToast } from '../utils/utility.js';
 import { syncNoSignal } from '../ui/status.js';
 import { initProjPage } from '../pages/projection.js';
 import { initLinkerPage } from '../pages/linker.js';
+import { initConfiguratorPage } from '../pages/configurator.js';
 
 export function moveVideoTo(wrapperId) {
     const video   = document.getElementById('remoteVideo');
@@ -33,6 +34,7 @@ export function navigateTo(page) {
     if (page === 1) moveVideoTo('videoWrapper');
     if (page === 2) { moveVideoTo('uiCanvasLayer'); initProjPage(); }
     if (page === 3) initLinkerPage();
+    if (page === 4) initConfiguratorPage();
 
     syncNoSignal();
 }
