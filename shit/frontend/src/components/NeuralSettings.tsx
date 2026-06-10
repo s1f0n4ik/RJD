@@ -303,7 +303,7 @@ const NeuralSettings: React.FC = () => {
       <Paper sx={{ p: 3, mb: 3, borderRadius: 1, border: `1px solid ${RZD_COLORS.grey[200]}` }}>
         <Typography variant="h5" fontWeight={700}>Конфигурация нейронок</Typography>
         <Typography variant="body2" color="text.secondary">
-          Конфигурации • Установка (save-state) • Состояние
+          Конфигурации • Установка • Состояние
         </Typography>
       </Paper>
 
@@ -390,7 +390,7 @@ const NeuralSettings: React.FC = () => {
                     <Grid item xs={12} sm={6}>
                       <TextField
                         fullWidth
-                        label="Name"
+                        label="Имя"
                         value={editConfig.name}
                         onChange={(e) => setEditConfig({ ...editConfig, name: e.target.value })}
                       />
@@ -399,7 +399,7 @@ const NeuralSettings: React.FC = () => {
                       <TextField
                         fullWidth
                         type="number"
-                        label="model_width"
+                        label="ширина"
                         value={editConfig.model_width}
                         onChange={(e) => setEditConfig({ ...editConfig, model_width: Number(e.target.value) || 0 })}
                       />
@@ -408,7 +408,7 @@ const NeuralSettings: React.FC = () => {
                       <TextField
                         fullWidth
                         type="number"
-                        label="model_height"
+                        label="высота"
                         value={editConfig.model_height}
                         onChange={(e) => setEditConfig({ ...editConfig, model_height: Number(e.target.value) || 0 })}
                       />
@@ -417,21 +417,21 @@ const NeuralSettings: React.FC = () => {
                       <FormControl fullWidth>
                         <InputLabel>draw_groups</InputLabel>
                         <Select
-                          label="draw_groups"
+                          label="отрисовка групп"
                           value={editConfig.draw_groups ? 'true' : 'false'}
                           onChange={(e) =>
                             setEditConfig({ ...editConfig, draw_groups: e.target.value === 'true' })
                           }
                         >
-                          <MenuItem value="true">true</MenuItem>
-                          <MenuItem value="false">false</MenuItem>
+                          <MenuItem value="true">Да</MenuItem>
+                          <MenuItem value="false">Нет</MenuItem>
                         </Select>
                       </FormControl>
                     </Grid>
                     <Grid item xs={12}>
                       <TextField
                         fullWidth
-                        label="model_path"
+                        label="путь до модели"
                         value={editConfig.model_path}
                         onChange={(e) => setEditConfig({ ...editConfig, model_path: e.target.value })}
                       />
@@ -464,15 +464,15 @@ const NeuralSettings: React.FC = () => {
 
                   <Divider />
                   <Box display="flex" justifyContent="space-between" alignItems="center">
-                    <Typography variant="h6">Superclasses</Typography>
+                    <Typography variant="h6">Супер-классы</Typography>
                     <Button startIcon={<AddIcon />} onClick={addSuperclass}>Добавить группу</Button>
                   </Box>
                   <Table size="small">
                     <TableHead>
                       <TableRow>
                         <TableCell>ID</TableCell>
-                        <TableCell>Name</TableCell>
-                        <TableCell>Color</TableCell>
+                        <TableCell>Имя</TableCell>
+                        <TableCell>Цвет</TableCell>
                         <TableCell width={60} />
                       </TableRow>
                     </TableHead>
@@ -522,17 +522,17 @@ const NeuralSettings: React.FC = () => {
 
                   <Divider />
                   <Box display="flex" justifyContent="space-between" alignItems="center">
-                    <Typography variant="h6">Classes</Typography>
+                    <Typography variant="h6">Классы</Typography>
                     <Button startIcon={<AddIcon />} onClick={addClass}>Добавить класс</Button>
                   </Box>
                   <Table size="small">
                     <TableHead>
                       <TableRow>
                         <TableCell>ID</TableCell>
-                        <TableCell>Name</TableCell>
-                        <TableCell>server_id</TableCell>
-                        <TableCell>superclass</TableCell>
-                        <TableCell>Color</TableCell>
+                        <TableCell>Имя</TableCell>
+                        <TableCell>ID_сервера</TableCell>
+                        <TableCell>Супер-класс</TableCell>
+                        <TableCell>Цвет</TableCell>
                         <TableCell width={60} />
                       </TableRow>
                     </TableHead>
@@ -623,7 +623,7 @@ const NeuralSettings: React.FC = () => {
                       disabled={saving}
                       sx={{ bgcolor: RZD_COLORS.primary }}
                     >
-                      Сохранить (merge)
+                      Сохранить
                     </Button>
                   </Box>
                 </Stack>
