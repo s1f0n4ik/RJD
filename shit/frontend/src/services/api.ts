@@ -226,6 +226,13 @@ class ApiClient {
         });
     }
 
+    async postNeuralConfigurations(mode: 'merge' | 'replace', data: any): Promise<void> {
+        await this.fetchRaw('/neural/configurations', {
+            method: 'POST',
+            body: JSON.stringify({ mode, data }),
+        });
+    }
+
     async postNeuralStart(): Promise<void> {
         await this.fetchRaw('/neural/start', { method: 'POST' });
     }

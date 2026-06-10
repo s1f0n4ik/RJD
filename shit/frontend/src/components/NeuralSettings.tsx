@@ -92,15 +92,24 @@ const NeuralSettings: React.FC = () => {
 
   // Раздел 3: status
   const [statusItems, setStatusItems] = useState<NeuralRuntimeStatusItem[]>([]);
-
+  const coerceConfigBody = (raw: any): NeuralConfigurationBody => {
+    const def = defaultConfigBody();
+    return {
+      ...def,
+      ...(raw || {}),
+      thresholds: {
+        ...def.thresholds,
+        ...(raw?.thresholds || {}),
+      },
+      superclasses: raw?.superclasses || {},
+      classes: normalizeClassIds(raw?.classes || {}),
+    };
+  };
   const loadSelectedConfig = async (id: string) => {
     if (!id) return;
     const cfg = await api.getNeuralConfigurationById(id);
     setEditConfigId(id);
-    setEditConfig({
-      ...cfg,
-      classes: normalizeClassIds(cfg.classes || {}),
-    });
+    setEditConfig(coerceConfigBody(cfg));
   };
 
   const loadAll = async () => {
@@ -144,10 +153,7 @@ const NeuralSettings: React.FC = () => {
       try {
         const cfg = await api.getNeuralConfigurationById(selectedConfigId);
         setEditConfigId(selectedConfigId);
-        setEditConfig({
-          ...cfg,
-          classes: normalizeClassIds(cfg.classes || {}),
-        });
+        setEditConfig(coerceConfigBody(cfg));
       } catch (e: any) {
         setError(e?.message || 'Ошибка загрузки конфигурации');
       }
