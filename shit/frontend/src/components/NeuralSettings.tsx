@@ -44,7 +44,7 @@ import type {
   NeuralStateItem,
 } from '../types';
 
-type ImportMode = 'merge' | 'replace';
+type ImportMode = 'слияние' | 'замена';
 
 const defaultConfigBody = (): NeuralConfigurationBody => ({
   name: 'Новая конфигурация',
@@ -637,7 +637,7 @@ const NeuralSettings: React.FC = () => {
       {tab === 1 && (
         <Paper sx={{ p: 2 }}>
           <Box mb={2} display="flex" justifyContent="space-between">
-            <Typography variant="h6">Save-state слоты</Typography>
+            <Typography variant="h6">Слоты состояний</Typography>
             <Button startIcon={<AddIcon />} onClick={addStateSlot}>Добавить слот</Button>
           </Box>
 
@@ -743,7 +743,7 @@ const NeuralSettings: React.FC = () => {
               disabled={saving || duplicateCoreError}
               sx={{ bgcolor: RZD_COLORS.primary }}
             >
-              Сохранить save-state
+              Сохранить состояние
             </Button>
           </Box>
         </Paper>
@@ -768,10 +768,10 @@ const NeuralSettings: React.FC = () => {
           <Table>
             <TableHead>
               <TableRow>
-                <TableCell>Config ID</TableCell>
+                <TableCell>ID Конфигурации</TableCell>
                 <TableCell>Ядра</TableCell>
                 <TableCell>Камеры</TableCell>
-                <TableCell>running</TableCell>
+                <TableCell>Статус</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
