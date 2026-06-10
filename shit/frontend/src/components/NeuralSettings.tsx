@@ -415,7 +415,7 @@ const NeuralSettings: React.FC = () => {
                     </Grid>
                     <Grid item xs={12} sm={4}>
                       <FormControl fullWidth>
-                        <InputLabel>draw_groups</InputLabel>
+                        <InputLabel>отрисовка групп</InputLabel>
                         <Select
                           label="отрисовка групп"
                           value={editConfig.draw_groups ? 'true' : 'false'}
