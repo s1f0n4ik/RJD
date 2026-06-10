@@ -181,34 +181,42 @@ class ApiClient {
         return (await r.json()) as T;
     }
 
+    // добавь хелпер в ApiClient
+    private unwrapNeural<T = any>(payload: any): T {
+      // поддержка и raw-json, и {data: ...}
+      if (payload && typeof payload === 'object' && 'data' in payload) {
+        return payload.data as T;
+      }
+      return payload as T;
+    }
+
     async getNeuralConfigurations(): Promise<NeuralConfigurationListItem[]> {
-        const data = await this.fetchRaw<any>('/neural/configurations');
-        // ожидаем [{id,name}], но страхуемся:
-        if (Array.isArray(data)) return data;
-        if (Array.isArray(data?.configurations)) return data.configurations;
-        return [];
+      const raw = await this.fetchRaw<any>('/neural/configurations');
+      const data = this.unwrapNeural<any>(raw);
+
+      if (Array.isArray(data)) return data;
+      if (Array.isArray(data?.configurations)) return data.configurations;
+      return [];
     }
 
     async getNeuralConfigurationById(id: string): Promise<NeuralConfigurationBody> {
-        const data = await this.fetchRaw<any>(`/neural/configurations?id=${encodeURIComponent(id)}`);
+      const raw = await this.fetchRaw<any>(`/neural/configurations?id=${encodeURIComponent(id)}`);
+      const data = this.unwrapNeural<any>(raw);
 
-        // Вариант 1: сервер вернул { [id]: {...} }
-        if (data && typeof data === 'object' && data[id]) return data[id] as NeuralConfigurationBody;
-
-        // Вариант 2: сервер вернул сам body
-        return data as NeuralConfigurationBody;
-    }
-
-    async postNeuralConfigurations(mode: 'merge' | 'replace', data: any): Promise<void> {
-        await this.fetchRaw('/neural/configurations', {
-            method: 'POST',
-            body: JSON.stringify({ mode, data }),
-        });
+      if (data && typeof data === 'object' && data[id]) return data[id] as NeuralConfigurationBody;
+      return data as NeuralConfigurationBody;
     }
 
     async getNeuralState(): Promise<NeuralStateItem[]> {
-        const data = await this.fetchRaw<any>('/neural/state');
-        return Array.isArray(data) ? data : [];
+      const raw = await this.fetchRaw<any>('/neural/state');
+      const data = this.unwrapNeural<any>(raw);
+      return Array.isArray(data) ? data : [];
+    }
+
+    async getNeuralStatus(): Promise<NeuralRuntimeStatusItem[]> {
+      const raw = await this.fetchRaw<any>('/neural/status');
+      const data = this.unwrapNeural<any>(raw);
+      return Array.isArray(data) ? data : [];
     }
 
     async postNeuralState(payload: NeuralStateItem[]): Promise<void> {
@@ -216,11 +224,6 @@ class ApiClient {
             method: 'POST',
             body: JSON.stringify(payload),
         });
-    }
-
-    async getNeuralStatus(): Promise<NeuralRuntimeStatusItem[]> {
-        const data = await this.fetchRaw<any>('/neural/status');
-        return Array.isArray(data) ? data : [];
     }
 
     async postNeuralStart(): Promise<void> {
