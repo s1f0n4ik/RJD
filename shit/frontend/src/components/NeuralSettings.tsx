@@ -334,8 +334,8 @@ const NeuralSettings: React.FC = () => {
                     value={importMode}
                     onChange={(e) => setImportMode(e.target.value as ImportMode)}
                   >
-                    <MenuItem value="merge">merge</MenuItem>
-                    <MenuItem value="replace">replace</MenuItem>
+                    <MenuItem value="merge">слияние</MenuItem>
+                    <MenuItem value="replace">замена</MenuItem>
                   </Select>
                 </FormControl>
 
