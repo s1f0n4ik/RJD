@@ -1,6 +1,12 @@
 // api/client.ts
 
-import type { CPPCamera } from '../types';
+import type {
+  CPPCamera,
+  NeuralConfigurationBody,
+  NeuralConfigurationListItem,
+  NeuralRuntimeStatusItem,
+  NeuralStateItem,
+} from '../types';
 
 const cameraUrl = (id: string) => `/api/camera/${encodeURIComponent(id)}`;
 
@@ -153,6 +159,80 @@ class ApiClient {
             id,
             display_name: raw.display_name ?? raw.description ?? id,
         } as CPPCamera;
+    }
+
+        // ---------- Neural API (raw JSON, не CppResponse) ----------
+
+    private async fetchRaw<T = unknown>(url: string, init: RequestInit = {}): Promise<T> {
+        const hasBody = init.body !== undefined;
+        const r = await window.fetch(url, {
+            ...init,
+            headers: {
+                ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+                ...init.headers,
+            },
+        });
+
+        if (!r.ok) {
+            throw new Error(`${init.method ?? 'GET'} ${url} → HTTP ${r.status}`);
+        }
+
+        if (r.status === 204) return null as T;
+        return (await r.json()) as T;
+    }
+
+    async getNeuralConfigurations(): Promise<NeuralConfigurationListItem[]> {
+        const data = await this.fetchRaw<any>('/neural/configurations');
+        // ожидаем [{id,name}], но страхуемся:
+        if (Array.isArray(data)) return data;
+        if (Array.isArray(data?.configurations)) return data.configurations;
+        return [];
+    }
+
+    async getNeuralConfigurationById(id: string): Promise<NeuralConfigurationBody> {
+        const data = await this.fetchRaw<any>(`/neural/configurations?id=${encodeURIComponent(id)}`);
+
+        // Вариант 1: сервер вернул { [id]: {...} }
+        if (data && typeof data === 'object' && data[id]) return data[id] as NeuralConfigurationBody;
+
+        // Вариант 2: сервер вернул сам body
+        return data as NeuralConfigurationBody;
+    }
+
+    async postNeuralConfigurations(mode: 'merge' | 'replace', data: any): Promise<void> {
+        await this.fetchRaw('/neural/configurations', {
+            method: 'POST',
+            body: JSON.stringify({ mode, data }),
+        });
+    }
+
+    async getNeuralState(): Promise<NeuralStateItem[]> {
+        const data = await this.fetchRaw<any>('/neural/state');
+        return Array.isArray(data) ? data : [];
+    }
+
+    async postNeuralState(payload: NeuralStateItem[]): Promise<void> {
+        await this.fetchRaw('/neural/state', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        });
+    }
+
+    async getNeuralStatus(): Promise<NeuralRuntimeStatusItem[]> {
+        const data = await this.fetchRaw<any>('/neural/status');
+        return Array.isArray(data) ? data : [];
+    }
+
+    async postNeuralStart(): Promise<void> {
+        await this.fetchRaw('/neural/start', { method: 'POST' });
+    }
+
+    async postNeuralStop(): Promise<void> {
+        await this.fetchRaw('/neural/stop', { method: 'POST' });
+    }
+
+    async postNeuralRestart(): Promise<void> {
+        await this.fetchRaw('/neural/restart', { method: 'POST' });
     }
 }
 

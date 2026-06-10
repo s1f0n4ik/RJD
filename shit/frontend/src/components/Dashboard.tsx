@@ -59,7 +59,7 @@ const modules: Module[] = [
     icon: MemoryIcon,
     gradient: 'linear-gradient(135deg, #9c27b0 0%, #6a1b9a 100%)',
     tabIndex: 4, // LoaderSettings
-    disabled: true,
+    disabled: false,
   },
   {
     id: 'birdview',

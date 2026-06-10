@@ -70,3 +70,47 @@ export interface WebSocketMessage {
   timestamp?: string;
   message?: string;
 }
+
+export interface NeuralConfigurationListItem {
+  id: string;
+  name: string;
+}
+
+export interface NeuralSuperclass {
+  name: string;
+  color: string;
+}
+
+export interface NeuralClassItem {
+  name: string;
+  server_id: string;
+  superclass: string;
+  color: string;
+}
+
+export interface NeuralConfigurationBody {
+  name: string;
+  draw_groups: boolean;
+  model_path: string;
+  model_width: number;
+  model_height: number;
+  thresholds: {
+    nms: number;
+    confidence: number;
+  };
+  superclasses: Record<string, NeuralSuperclass>;
+  classes: Record<string, NeuralClassItem>;
+}
+
+export interface NeuralStateItem {
+  config_id: string;
+  camera_matrix: string[][];
+  cores: number[] | number;
+}
+
+export interface NeuralRuntimeStatusItem {
+  config_id: string;
+  camera_matrix: string[][];
+  cores: number[] | number;
+  running: boolean;
+}
