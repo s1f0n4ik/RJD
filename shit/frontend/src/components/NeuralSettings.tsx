@@ -44,7 +44,7 @@ import type {
   NeuralStateItem,
 } from '../types';
 
-type ImportMode = 'слияние' | 'замена';
+type ImportMode = 'merge' | 'replace';
 
 const defaultConfigBody = (): NeuralConfigurationBody => ({
   name: 'Новая конфигурация',
@@ -57,11 +57,23 @@ const defaultConfigBody = (): NeuralConfigurationBody => ({
   classes: {},
 });
 
+const normalizeClassIds = (classes: NeuralConfigurationBody['classes']) => {
+  const sorted = Object.entries(classes || {}).sort(
+    ([a], [b]) => Number(a) - Number(b)
+  );
+  const normalized: NeuralConfigurationBody['classes'] = {};
+  sorted.forEach(([, cls], idx) => {
+    normalized[String(idx)] = cls;
+  });
+  return normalized;
+};
+
 const NeuralSettings: React.FC = () => {
   const [tab, setTab] = useState(0);
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
@@ -118,7 +130,10 @@ const NeuralSettings: React.FC = () => {
       try {
         const cfg = await api.getNeuralConfigurationById(selectedConfigId);
         setEditConfigId(selectedConfigId);
-        setEditConfig(cfg);
+        setEditConfig({
+          ...cfg,
+          classes: normalizeClassIds(cfg.classes || {}),
+        });
       } catch (e: any) {
         setError(e?.message || 'Ошибка загрузки конфигурации');
       }
@@ -127,9 +142,11 @@ const NeuralSettings: React.FC = () => {
   }, [selectedConfigId]);
 
   const usedCores = useMemo(() => {
-    return stateSlots
-      .map((s) => (Array.isArray(s.cores) ? s.cores[0] : s.cores))
-      .filter((x): x is number => typeof x === 'number');
+    return stateSlots.flatMap((s) => {
+      if (Array.isArray(s.cores)) return s.cores;
+      if (typeof s.cores === 'number') return [s.cores];
+      return [];
+    });
   }, [stateSlots]);
 
   const duplicateCoreError = useMemo(() => {
@@ -150,13 +167,19 @@ const NeuralSettings: React.FC = () => {
 
   const handleSaveConfigMerge = async () => {
     if (!editConfig || !editConfigId.trim()) return;
+
     setSaving(true);
     setError('');
     setSuccess('');
+
     try {
       await api.postNeuralConfigurations('merge', {
-        [editConfigId.trim()]: editConfig,
+        [editConfigId.trim()]: {
+          ...editConfig,
+          classes: normalizeClassIds(editConfig.classes || {}),
+        },
       });
+
       setSuccess('Конфигурация сохранена');
       await loadAll();
       setSelectedConfigId(editConfigId.trim());
@@ -184,9 +207,20 @@ const NeuralSettings: React.FC = () => {
     }
   };
 
+  const generateUniqueSuperclassId = (base = 'group') => {
+    if (!editConfig) return `${base}_1`;
+    let i = 1;
+    let candidate = `${base}_${i}`;
+    while (editConfig.superclasses[candidate]) {
+      i += 1;
+      candidate = `${base}_${i}`;
+    }
+    return candidate;
+  };
+
   const addSuperclass = () => {
     if (!editConfig) return;
-    const nextId = `group_${Date.now()}`;
+    const nextId = generateUniqueSuperclassId('group');
     setEditConfig({
       ...editConfig,
       superclasses: {
@@ -196,11 +230,43 @@ const NeuralSettings: React.FC = () => {
     });
   };
 
+  const renameSuperclassId = (oldId: string, rawNewId: string) => {
+    if (!editConfig) return;
+
+    const newId = rawNewId.trim();
+    if (!newId || newId === oldId) return;
+
+    if (editConfig.superclasses[newId]) {
+      setError(`Superclass с id "${newId}" уже существует`);
+      return;
+    }
+
+    const nextSuperclasses: typeof editConfig.superclasses = {};
+    Object.entries(editConfig.superclasses).forEach(([k, v]) => {
+      nextSuperclasses[k === oldId ? newId : k] = v;
+    });
+
+    const nextClasses: typeof editConfig.classes = {};
+    Object.entries(editConfig.classes).forEach(([cid, cls]) => {
+      nextClasses[cid] = {
+        ...cls,
+        superclass: cls.superclass === oldId ? newId : cls.superclass,
+      };
+    });
+
+    setEditConfig({
+      ...editConfig,
+      superclasses: nextSuperclasses,
+      classes: nextClasses,
+    });
+  };
+
   const removeSuperclass = (id: string) => {
     if (!editConfig) return;
     const usedBy = Object.entries(editConfig.classes).filter(
       ([, cls]) => cls.superclass === id
     );
+
     if (usedBy.length > 0) {
       if (
         !window.confirm(
@@ -210,6 +276,7 @@ const NeuralSettings: React.FC = () => {
         return;
       }
     }
+
     const next = { ...editConfig.superclasses };
     delete next[id];
     setEditConfig({ ...editConfig, superclasses: next });
@@ -217,12 +284,15 @@ const NeuralSettings: React.FC = () => {
 
   const addClass = () => {
     if (!editConfig) return;
-    const nextId = String(Date.now());
+
+    const normalized = normalizeClassIds(editConfig.classes || {});
+    const nextId = String(Object.keys(normalized).length);
     const firstGroup = Object.keys(editConfig.superclasses)[0] || '';
+
     setEditConfig({
       ...editConfig,
       classes: {
-        ...editConfig.classes,
+        ...normalized,
         [nextId]: {
           name: 'Новый класс',
           server_id: 'new_class',
@@ -237,7 +307,10 @@ const NeuralSettings: React.FC = () => {
     if (!editConfig) return;
     const next = { ...editConfig.classes };
     delete next[id];
-    setEditConfig({ ...editConfig, classes: next });
+    setEditConfig({
+      ...editConfig,
+      classes: normalizeClassIds(next),
+    });
   };
 
   const addStateSlot = () => {
@@ -252,23 +325,33 @@ const NeuralSettings: React.FC = () => {
       setError('Одно и то же ядро назначено нескольким слотам');
       return;
     }
+
     setSaving(true);
     setError('');
     setSuccess('');
+
     try {
-      // normalize cores -> number[]
-      const payload = stateSlots.map((s) => ({
-        ...s,
-        cores: Array.isArray(s.cores) ? s.cores : [s.cores as any].filter((x) => x !== undefined),
-        camera_matrix:
-          s.camera_matrix?.length && s.camera_matrix[0]?.length
-            ? s.camera_matrix
-            : [['']],
-      }));
+      const payload = stateSlots.map((s) => {
+        const normalizedCores = (
+          Array.isArray(s.cores) ? s.cores : typeof s.cores === 'number' ? [s.cores] : []
+        )
+          .map(Number)
+          .filter((n) => [0, 1, 2].includes(n));
+
+        return {
+          ...s,
+          cores: Array.from(new Set(normalizedCores)).sort((a, b) => a - b),
+          camera_matrix:
+            s.camera_matrix?.length && s.camera_matrix[0]?.length
+              ? s.camera_matrix
+              : [['']],
+        };
+      });
+
       await api.postNeuralState(payload);
-      setSuccess('Save-state сохранён');
+      setSuccess('Состояние сохранено');
     } catch (e: any) {
-      setError(e?.message || 'Ошибка сохранения save-state');
+      setError(e?.message || 'Ошибка сохранения состояния');
     } finally {
       setSaving(false);
     }
@@ -300,15 +383,32 @@ const NeuralSettings: React.FC = () => {
 
   return (
     <Container maxWidth="xl">
-      <Paper sx={{ p: 3, mb: 3, borderRadius: 1, border: `1px solid ${RZD_COLORS.grey[200]}` }}>
-        <Typography variant="h5" fontWeight={700}>Конфигурация нейронок</Typography>
+      <Paper
+        sx={{
+          p: 3,
+          mb: 3,
+          borderRadius: 1,
+          border: `1px solid ${RZD_COLORS.grey[200]}`,
+        }}
+      >
+        <Typography variant="h5" fontWeight={700}>
+          Конфигурация нейронок
+        </Typography>
         <Typography variant="body2" color="text.secondary">
           Конфигурации • Установка • Состояние
         </Typography>
       </Paper>
 
-      {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
-      {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>
+          {error}
+        </Alert>
+      )}
+      {success && (
+        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>
+          {success}
+        </Alert>
+      )}
 
       <Paper sx={{ mb: 2 }}>
         <Tabs value={tab} onChange={(_, v) => setTab(v)}>
@@ -324,8 +424,13 @@ const NeuralSettings: React.FC = () => {
           <Grid item xs={12} md={3}>
             <Paper sx={{ p: 2 }}>
               <Stack spacing={1}>
-                <Button startIcon={<RefreshIcon />} onClick={loadAll} disabled={loading}>Обновить</Button>
-                <Button variant="contained" startIcon={<AddIcon />} onClick={handleCreateNewConfig}>Новая</Button>
+                <Button startIcon={<RefreshIcon />} onClick={loadAll} disabled={loading}>
+                  Обновить
+                </Button>
+
+                <Button variant="contained" startIcon={<AddIcon />} onClick={handleCreateNewConfig}>
+                  Новая
+                </Button>
 
                 <FormControl size="small" fullWidth>
                   <InputLabel>Импорт</InputLabel>
@@ -339,12 +444,10 @@ const NeuralSettings: React.FC = () => {
                   </Select>
                 </FormControl>
 
-                <Button
-                  startIcon={<UploadFileIcon />}
-                  onClick={() => fileInputRef.current?.click()}
-                >
+                <Button startIcon={<UploadFileIcon />} onClick={() => fileInputRef.current?.click()}>
                   Импорт JSON
                 </Button>
+
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -358,6 +461,7 @@ const NeuralSettings: React.FC = () => {
                 />
 
                 <Divider />
+
                 {configs.map((c) => (
                   <Button
                     key={c.id}
@@ -375,7 +479,9 @@ const NeuralSettings: React.FC = () => {
           <Grid item xs={12} md={9}>
             <Paper sx={{ p: 2 }}>
               {!editConfig ? (
-                <Typography color="text.secondary">Выберите конфигурацию или создайте новую</Typography>
+                <Typography color="text.secondary">
+                  Выберите конфигурацию или создайте новую
+                </Typography>
               ) : (
                 <Stack spacing={2}>
                   <Grid container spacing={2}>
@@ -395,13 +501,19 @@ const NeuralSettings: React.FC = () => {
                         onChange={(e) => setEditConfig({ ...editConfig, name: e.target.value })}
                       />
                     </Grid>
+
                     <Grid item xs={12} sm={4}>
                       <TextField
                         fullWidth
                         type="number"
                         label="ширина"
                         value={editConfig.model_width}
-                        onChange={(e) => setEditConfig({ ...editConfig, model_width: Number(e.target.value) || 0 })}
+                        onChange={(e) =>
+                          setEditConfig({
+                            ...editConfig,
+                            model_width: Number(e.target.value) || 0,
+                          })
+                        }
                       />
                     </Grid>
                     <Grid item xs={12} sm={4}>
@@ -410,7 +522,12 @@ const NeuralSettings: React.FC = () => {
                         type="number"
                         label="высота"
                         value={editConfig.model_height}
-                        onChange={(e) => setEditConfig({ ...editConfig, model_height: Number(e.target.value) || 0 })}
+                        onChange={(e) =>
+                          setEditConfig({
+                            ...editConfig,
+                            model_height: Number(e.target.value) || 0,
+                          })
+                        }
                       />
                     </Grid>
                     <Grid item xs={12} sm={4}>
@@ -420,7 +537,10 @@ const NeuralSettings: React.FC = () => {
                           label="отрисовка групп"
                           value={editConfig.draw_groups ? 'true' : 'false'}
                           onChange={(e) =>
-                            setEditConfig({ ...editConfig, draw_groups: e.target.value === 'true' })
+                            setEditConfig({
+                              ...editConfig,
+                              draw_groups: e.target.value === 'true',
+                            })
                           }
                         >
                           <MenuItem value="true">Да</MenuItem>
@@ -428,6 +548,7 @@ const NeuralSettings: React.FC = () => {
                         </Select>
                       </FormControl>
                     </Grid>
+
                     <Grid item xs={12}>
                       <TextField
                         fullWidth
@@ -436,26 +557,37 @@ const NeuralSettings: React.FC = () => {
                         onChange={(e) => setEditConfig({ ...editConfig, model_path: e.target.value })}
                       />
                     </Grid>
+
                     <Grid item xs={12} sm={6}>
                       <TextField
-                        fullWidth type="number" label="threshold nms"
+                        fullWidth
+                        type="number"
+                        label="threshold nms"
                         value={editConfig.thresholds.nms}
                         onChange={(e) =>
                           setEditConfig({
                             ...editConfig,
-                            thresholds: { ...editConfig.thresholds, nms: Number(e.target.value) || 0 },
+                            thresholds: {
+                              ...editConfig.thresholds,
+                              nms: Number(e.target.value) || 0,
+                            },
                           })
                         }
                       />
                     </Grid>
                     <Grid item xs={12} sm={6}>
                       <TextField
-                        fullWidth type="number" label="threshold confidence"
+                        fullWidth
+                        type="number"
+                        label="threshold confidence"
                         value={editConfig.thresholds.confidence}
                         onChange={(e) =>
                           setEditConfig({
                             ...editConfig,
-                            thresholds: { ...editConfig.thresholds, confidence: Number(e.target.value) || 0 },
+                            thresholds: {
+                              ...editConfig.thresholds,
+                              confidence: Number(e.target.value) || 0,
+                            },
                           })
                         }
                       />
@@ -463,10 +595,14 @@ const NeuralSettings: React.FC = () => {
                   </Grid>
 
                   <Divider />
+
                   <Box display="flex" justifyContent="space-between" alignItems="center">
                     <Typography variant="h6">Супер-классы</Typography>
-                    <Button startIcon={<AddIcon />} onClick={addSuperclass}>Добавить группу</Button>
+                    <Button startIcon={<AddIcon />} onClick={addSuperclass}>
+                      Добавить группу
+                    </Button>
                   </Box>
+
                   <Table size="small">
                     <TableHead>
                       <TableRow>
@@ -479,10 +615,23 @@ const NeuralSettings: React.FC = () => {
                     <TableBody>
                       {Object.entries(editConfig.superclasses).map(([id, sc]) => (
                         <TableRow key={id}>
-                          <TableCell>{id}</TableCell>
+                          <TableCell sx={{ minWidth: 190 }}>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              defaultValue={id}
+                              onBlur={(e) => renameSuperclassId(id, e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  (e.target as HTMLInputElement).blur();
+                                }
+                              }}
+                            />
+                          </TableCell>
                           <TableCell>
                             <TextField
-                              fullWidth size="small"
+                              fullWidth
+                              size="small"
                               value={sc.name}
                               onChange={(e) =>
                                 setEditConfig({
@@ -497,7 +646,8 @@ const NeuralSettings: React.FC = () => {
                           </TableCell>
                           <TableCell>
                             <TextField
-                              fullWidth size="small"
+                              fullWidth
+                              size="small"
                               value={sc.color}
                               onChange={(e) =>
                                 setEditConfig({
@@ -521,10 +671,18 @@ const NeuralSettings: React.FC = () => {
                   </Table>
 
                   <Divider />
+
                   <Box display="flex" justifyContent="space-between" alignItems="center">
                     <Typography variant="h6">Классы</Typography>
-                    <Button startIcon={<AddIcon />} onClick={addClass}>Добавить класс</Button>
+                    <Button startIcon={<AddIcon />} onClick={addClass}>
+                      Добавить класс
+                    </Button>
                   </Box>
+
+                  <Typography variant="caption" color="text.secondary">
+                    ID классов назначаются автоматически: 0, 1, 2, ... без пропусков.
+                  </Typography>
+
                   <Table size="small">
                     <TableHead>
                       <TableRow>
@@ -542,7 +700,8 @@ const NeuralSettings: React.FC = () => {
                           <TableCell>{id}</TableCell>
                           <TableCell>
                             <TextField
-                              fullWidth size="small"
+                              fullWidth
+                              size="small"
                               value={cls.name}
                               onChange={(e) =>
                                 setEditConfig({
@@ -557,7 +716,8 @@ const NeuralSettings: React.FC = () => {
                           </TableCell>
                           <TableCell>
                             <TextField
-                              fullWidth size="small"
+                              fullWidth
+                              size="small"
                               value={cls.server_id}
                               onChange={(e) =>
                                 setEditConfig({
@@ -585,14 +745,17 @@ const NeuralSettings: React.FC = () => {
                                 }
                               >
                                 {Object.keys(editConfig.superclasses).map((scid) => (
-                                  <MenuItem key={scid} value={scid}>{scid}</MenuItem>
+                                  <MenuItem key={scid} value={scid}>
+                                    {scid}
+                                  </MenuItem>
                                 ))}
                               </Select>
                             </FormControl>
                           </TableCell>
                           <TableCell>
                             <TextField
-                              fullWidth size="small"
+                              fullWidth
+                              size="small"
                               value={cls.color}
                               onChange={(e) =>
                                 setEditConfig({
@@ -638,19 +801,26 @@ const NeuralSettings: React.FC = () => {
         <Paper sx={{ p: 2 }}>
           <Box mb={2} display="flex" justifyContent="space-between">
             <Typography variant="h6">Слоты состояний</Typography>
-            <Button startIcon={<AddIcon />} onClick={addStateSlot}>Добавить слот</Button>
+            <Button startIcon={<AddIcon />} onClick={addStateSlot}>
+              Добавить слот
+            </Button>
           </Box>
 
           {duplicateCoreError && (
             <Alert severity="error" sx={{ mb: 2 }}>
-              Дублирование ядер недопустимо: одно ядро может использоваться только одним слотом.
+              Дублирование ядер недопустимо: одно и то же ядро нельзя назначить в разные слоты.
             </Alert>
           )}
 
           <Stack spacing={2}>
             {stateSlots.map((slot, idx) => {
-              const coreValue = Array.isArray(slot.cores) ? slot.cores[0] : (slot.cores as any);
+              const coreValue = Array.isArray(slot.cores)
+                ? slot.cores
+                : typeof slot.cores === 'number'
+                ? [slot.cores]
+                : [];
               const cameraValue = slot.camera_matrix?.[0]?.[0] ?? '';
+
               return (
                 <Paper key={idx} variant="outlined" sx={{ p: 2 }}>
                   <Grid container spacing={2} alignItems="center">
@@ -667,25 +837,33 @@ const NeuralSettings: React.FC = () => {
                           }
                         >
                           {configs.map((c) => (
-                            <MenuItem key={c.id} value={c.id}>{c.name || c.id}</MenuItem>
+                            <MenuItem key={c.id} value={c.id}>
+                              {c.name || c.id}
+                            </MenuItem>
                           ))}
                         </Select>
                       </FormControl>
                     </Grid>
 
-                    <Grid item xs={12} md={2}>
+                    <Grid item xs={12} md={3}>
                       <FormControl fullWidth size="small">
-                        <InputLabel>Ядро</InputLabel>
+                        <InputLabel>Ядра</InputLabel>
                         <Select
-                          label="Ядро"
-                          value={coreValue ?? ''}
-                          onChange={(e) =>
+                          multiple
+                          label="Ядра"
+                          value={coreValue}
+                          renderValue={(selected) => (selected as number[]).join(', ')}
+                          onChange={(e) => {
+                            const raw = e.target.value as Array<number | string>;
+                            const nextCores = raw
+                              .map(Number)
+                              .filter((n) => [0, 1, 2].includes(n))
+                              .sort((a, b) => a - b);
+
                             setStateSlots((prev) =>
-                              prev.map((s, i) =>
-                                i === idx ? { ...s, cores: [Number(e.target.value)] } : s
-                              )
-                            )
-                          }
+                              prev.map((s, i) => (i === idx ? { ...s, cores: nextCores } : s))
+                            );
+                          }}
                         >
                           {[0, 1, 2].map((core) => (
                             <MenuItem key={core} value={core}>
@@ -696,7 +874,7 @@ const NeuralSettings: React.FC = () => {
                       </FormControl>
                     </Grid>
 
-                    <Grid item xs={12} md={5}>
+                    <Grid item xs={12} md={4}>
                       <FormControl fullWidth size="small">
                         <InputLabel>Камера (type=2)</InputLabel>
                         <Select
@@ -753,16 +931,36 @@ const NeuralSettings: React.FC = () => {
       {tab === 2 && (
         <Paper sx={{ p: 2 }}>
           <Box mb={2} display="flex" gap={1} flexWrap="wrap">
-            <Button variant="contained" color="success" startIcon={<PlayIcon />} onClick={() => control('start')} disabled={saving}>
+            <Button
+              variant="contained"
+              color="success"
+              startIcon={<PlayIcon />}
+              onClick={() => control('start')}
+              disabled={saving}
+            >
               Старт
             </Button>
-            <Button variant="contained" color="error" startIcon={<StopIcon />} onClick={() => control('stop')} disabled={saving}>
+            <Button
+              variant="contained"
+              color="error"
+              startIcon={<StopIcon />}
+              onClick={() => control('stop')}
+              disabled={saving}
+            >
               Стоп
             </Button>
-            <Button variant="contained" color="warning" startIcon={<RestartIcon />} onClick={() => control('restart')} disabled={saving}>
+            <Button
+              variant="contained"
+              color="warning"
+              startIcon={<RestartIcon />}
+              onClick={() => control('restart')}
+              disabled={saving}
+            >
               Рестарт
             </Button>
-            <Button startIcon={<RefreshIcon />} onClick={refreshStatus}>Обновить статус</Button>
+            <Button startIcon={<RefreshIcon />} onClick={refreshStatus}>
+              Обновить статус
+            </Button>
           </Box>
 
           <Table>
@@ -778,7 +976,9 @@ const NeuralSettings: React.FC = () => {
               {statusItems.map((row, idx) => (
                 <TableRow key={`${row.config_id}-${idx}`}>
                   <TableCell>{row.config_id}</TableCell>
-                  <TableCell>{Array.isArray(row.cores) ? row.cores.join(', ') : String(row.cores)}</TableCell>
+                  <TableCell>
+                    {Array.isArray(row.cores) ? row.cores.join(', ') : String(row.cores)}
+                  </TableCell>
                   <TableCell>
                     {(row.camera_matrix || []).flat().map((cam) => (
                       <Chip key={cam} label={cam} size="small" sx={{ mr: 0.5 }} />
