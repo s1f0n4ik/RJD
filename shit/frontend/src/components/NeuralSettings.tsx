@@ -93,6 +93,16 @@ const NeuralSettings: React.FC = () => {
   // Раздел 3: status
   const [statusItems, setStatusItems] = useState<NeuralRuntimeStatusItem[]>([]);
 
+  const loadSelectedConfig = async (id: string) => {
+    if (!id) return;
+    const cfg = await api.getNeuralConfigurationById(id);
+    setEditConfigId(id);
+    setEditConfig({
+      ...cfg,
+      classes: normalizeClassIds(cfg.classes || {}),
+    });
+  };
+
   const loadAll = async () => {
     setLoading(true);
     setError('');
@@ -107,11 +117,15 @@ const NeuralSettings: React.FC = () => {
       setConfigs(cfgList);
       setStateSlots(st);
       setStatusItems(stt);
-      setCameras(cams.filter((c) => c.type === 2)); // только Neural-камеры
+      setCameras(cams.filter((c) => c.type === 2));
 
-      if (!selectedConfigId && cfgList.length > 0) {
-        setSelectedConfigId(cfgList[0].id);
+      const targetId = selectedConfigId || cfgList[0]?.id || '';
+      if (targetId) {
+        await loadSelectedConfig(targetId); // <-- ключевой момент
+        setSelectedConfigId(targetId);
       }
+
+      setSuccess('Обновлено');
     } catch (e: any) {
       setError(e?.message || 'Ошибка загрузки данных');
     } finally {
