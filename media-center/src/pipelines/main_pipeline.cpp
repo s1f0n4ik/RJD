@@ -217,10 +217,18 @@ bool UCameraMainPipeline::initialize() {
 		src, depay, parse, tee, fake_queue, fakesink, nullptr
 	);
 
+	auto fail = [&](const std::string& m) {
+		m_logger->error(m);
+		if (m_pipeline) {
+			gst_element_set_state(m_pipeline, GST_STATE_NULL);
+			gst_object_unref(m_pipeline); m_pipeline = nullptr;
+		}
+		return false;
+	};
+
 	// Связывание основного потока
 	if (!gst_element_link_many(depay, parse, tee, nullptr)) {
-		m_logger->error("Error with linking: src, depay, parse, tee!");
-		return false;
+		return fail("error link depay/parse/tee");
 	}
 
 	// Связывание ветки с декодером
@@ -229,14 +237,12 @@ bool UCameraMainPipeline::initialize() {
 	GstPad* queue_pad = gst_element_get_static_pad(fake_queue, "sink");
 
 	if (gst_pad_link(tee_pad, queue_pad) != GST_PAD_LINK_OK) {
-		m_logger->error("Failed to link tee to decoding queue");
-		return false;
+		return fail("error with pad link: tee_pad/queue_pad");
 	}
 	gst_object_unref(queue_pad);
 
 	if (!gst_element_link_many(fake_queue, fakesink, nullptr)) {
-		m_logger->error("Error with linking: queue, fakesink!");
-		return false;
+		return fail("error with link: fake_queue, fakesink");
 	}
 
 	// Динамическое связывание падов src с depay

@@ -112,6 +112,15 @@ namespace calibration {
 
                 // Отправляем список камер
                 boost::json::array cameras;
+                for (const auto& [camera_key, cam] : preset.cameras) {
+                    boost::json::object item;
+                    item[constants::META_PROJECTION_KEY] = camera_key;
+                    item[constants::PROJ_CAM_NAME] = cam.name;
+                    item[constants::META_PROJECTION_MAX_POINTS] = static_cast<int>(cam.dst_points.size());
+                    item[constants::META_PROJECTION_POINTS_COUNT] = static_cast<int>(cam.src_points.size());
+                    cameras.push_back(std::move(item));
+                }
+                /*
                 for (const auto& camera_key : constants::camera_position_keys()) {
                     auto it = preset.cameras.find(camera_key);
                     if (it == preset.cameras.end()) continue;
@@ -123,6 +132,7 @@ namespace calibration {
                     item[constants::META_PROJECTION_POINTS_COUNT] = static_cast<int>(cam.src_points.size());
                     cameras.push_back(std::move(item));
                 }
+                */
                 send_meta[constants::META_PROJECTION_CAMERAS] = std::move(cameras);
             }
 

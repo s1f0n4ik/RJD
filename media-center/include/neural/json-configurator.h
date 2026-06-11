@@ -15,11 +15,9 @@ namespace neural {
 		{
 			"<config_id>": {
 				"name": "Имя",
-				"camera_id": camera_1,
-				//"raw_width": 2560,
-				//"raw_height": 1440,
 				"model_width": 1024,
 				"model_height": 1024,
+				"fps": camera_1,
 				"thresholds": { "nms": 0.45, "confidence": 0.5 },
 				"model_path": "path/to/model.rknn",
 				"classes": {
@@ -60,14 +58,14 @@ namespace neural {
 				info.id = config_id;
 				if (auto* v = obj.if_contains("name"); v && v->is_string())
 					info.name = v->as_string().c_str();
-				if (auto* v = obj.if_contains("camera_id"); v && v->is_string())
-					info.camera_id = v->as_string().c_str();
 				if (auto* v = obj.if_contains("model_path"); v && v->is_string())
 					info.model_path = v->as_string().c_str();
 				if (auto* v = obj.if_contains("model_width"); v && v->is_int64())
 					info.model_width = static_cast<int>(v->as_int64());
 				if (auto* v = obj.if_contains("model_height"); v && v->is_int64())
 					info.model_height = static_cast<int>(v->as_int64());
+				if (auto* v = obj.if_contains("fps"); v && v->is_int64())
+					info.fps = static_cast<int>(v->as_int64());
 
 				if (auto* t = obj.if_contains("thresholds"); t && t->is_object()) {
 					const auto& to = t->as_object();
@@ -106,7 +104,7 @@ namespace neural {
 
 		const std::unordered_set<std::string>& allowed_fields() const override {
 			static const std::unordered_set<std::string> fields = {
-				"name", "camera_id", "model_path", "model_width", "model_height", "thresholds", "classes"
+				"name", "model_path", "model_width", "model_height", "fps", "thresholds", "classes"
 			};
 			return fields;
 		}

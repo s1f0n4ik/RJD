@@ -49,7 +49,7 @@ public:
         m_file_enabled = false;
     }
 
-    void log(ELoggerLevel level, const std::string& message) {
+    void log(ELoggerLevel level, const std::string& message) const {
         if (level < m_level) {
             return;
         }
@@ -83,22 +83,22 @@ public:
     }
 
     // алиасы
-    void trace(const std::string& msg) { log(ELoggerLevel::TRACE, msg); }
-    void debug(const std::string& msg) { log(ELoggerLevel::DEBUG, msg); }
-    void info(const std::string& msg) { log(ELoggerLevel::INFO, msg); }
-    void warn(const std::string& msg) { log(ELoggerLevel::WARNING, msg); }
-    void error(const std::string& msg) { log(ELoggerLevel::ERROR, msg); }
-    void send(const std::string& msg) { log(ELoggerLevel::SEND, msg); }
-    void receive(const std::string& msg) { log(ELoggerLevel::RECEIVE, msg); }
+    void trace(const std::string& msg) const { log(ELoggerLevel::TRACE, msg); }
+    void debug(const std::string& msg) const { log(ELoggerLevel::DEBUG, msg); }
+    void info(const std::string& msg) const { log(ELoggerLevel::INFO, msg); }
+    void warn(const std::string& msg) const { log(ELoggerLevel::WARNING, msg); }
+    void error(const std::string& msg) const { log(ELoggerLevel::ERROR, msg); }
+    void send(const std::string& msg) const { log(ELoggerLevel::SEND, msg); }
+    void receive(const std::string& msg) const { log(ELoggerLevel::RECEIVE, msg); }
 
 private:
     std::string m_object_name;
     ELoggerLevel m_level = ELoggerLevel::DEBUG;
 
-    std::ofstream m_file;
+    mutable std::ofstream m_file;
     bool m_file_enabled = false;
 
-    std::mutex m_mutex;
+    mutable std::mutex m_mutex;
 
     static std::string timestamp() {
         using namespace std::chrono;

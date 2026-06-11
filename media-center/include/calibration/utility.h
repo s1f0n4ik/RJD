@@ -54,6 +54,7 @@ namespace utility {
 	// Привязка одной камеры в пресете склейки
 	struct FProjectionCamera {
 		std::string key;    // Ключ камеры
+		std::string name;   // Отображаемое имя камеры
 
 		std::vector<cv::Point2f> src_points;     // Координаты точек на изображении
 		std::vector<cv::Point2f> dst_points;     // Координаты точек внутри roi канваса

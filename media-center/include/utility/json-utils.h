@@ -29,66 +29,103 @@ static T get_json_value(const boost::json::value& val, const std::string& field)
     }
 }
 
+static inline bool is_compact_array(const boost::json::array& arr) {
+    if (arr.size() > 4) return false;
+    for (const auto& v : arr) {
+        if (!v.is_int64() && !v.is_uint64() && !v.is_double()) return false;
+    }
+    return true;
+}
+
 static inline void pretty_print(std::ostream& os, const boost::json::value& value, std::string indent = "") {
-	switch (value.kind()) {
-	case boost::json::kind::object: {
-		os << "{\n";
+    switch (value.kind()) {
+    case boost::json::kind::object: {
+        os << "{\n";
+        auto const& obj = value.as_object();
+        for (auto it = obj.begin(); it != obj.end(); ++it) {
+            os << indent << "    " << boost::json::serialize(it->key()) << ": ";
+            pretty_print(os, it->value(), indent + "    ");
+            if (std::next(it) != obj.end()) os << ",";
+            os << "\n";
+        }
+        os << indent << "}";
+        break;
+    }
 
-		auto const& obj = value.as_object();
-		for (auto it = obj.begin(); it != obj.end(); ++it) {
-			os << indent << "    " << boost::json::serialize(it->key()) << ": ";
-			pretty_print(os, it->value(), indent + "    ");
-			if (std::next(it) != obj.end()) {
-				os << ",";
-			}
-			os << "\n";
-		}
-		os << indent << "}";
-		break;
-	}
+    case boost::json::kind::array: {
+        auto const& arr = value.as_array();
 
-	case boost::json::kind::array: {
-		os << "[\n";
-		auto const& arr = value.as_array();
-		for (auto it = arr.begin(); it != arr.end(); ++it) {
-			os << indent << "    ";
-			pretty_print(os, *it, indent + "    ");
-			if (std::next(it) != arr.end()) {
-				os << ",";
-			}
-			os << "\n";
-		}
-		os << indent << "]";
-		break;
-	}
+        // Компактный массив чисел — в одну строку
+        if (is_compact_array(arr)) {
+            os << "[";
+            for (auto it = arr.begin(); it != arr.end(); ++it) {
+                if (it != arr.begin()) os << ", ";
+                if (it->is_int64())       os << it->as_int64();
+                else if (it->is_uint64()) os << it->as_uint64();
+                else if (it->is_double()) os << it->as_double();
+            }
+            os << "]";
+            break;
+        }
 
-	case boost::json::kind::string:
-		os << boost::json::serialize(value.as_string());
-		break;
+        // Массив компактных массивов — каждая пара на своей строке
+        bool all_compact = !arr.empty();
+        for (const auto& v : arr) {
+            if (!v.is_array() || !is_compact_array(v.as_array())) {
+                all_compact = false;
+                break;
+            }
+        }
 
-	case boost::json::kind::uint64:
-		os << value.as_uint64();
-		break;
+        if (all_compact) {
+            os << "[\n";
+            for (auto it = arr.begin(); it != arr.end(); ++it) {
+                os << indent << "    ";
+                pretty_print(os, *it, indent + "    ");
+                if (std::next(it) != arr.end()) os << ",";
+                os << "\n";
+            }
+            os << indent << "]";
+            break;
+        }
 
-	case boost::json::kind::int64:
-		os << value.as_int64();
-		break;
+        // Обычный массив
+        os << "[\n";
+        for (auto it = arr.begin(); it != arr.end(); ++it) {
+            os << indent << "    ";
+            pretty_print(os, *it, indent + "    ");
+            if (std::next(it) != arr.end()) os << ",";
+            os << "\n";
+        }
+        os << indent << "]";
+        break;
+    }
 
-	case boost::json::kind::double_: {
-		std::streamsize old_precision = os.precision();
+    case boost::json::kind::string:
+        os << boost::json::serialize(value.as_string());
+        break;
 
-		os << std::setprecision(17) << value.as_double();
+    case boost::json::kind::uint64:
+        os << value.as_uint64();
+        break;
 
-		os.precision(old_precision);
-		break;
-	}
+    case boost::json::kind::int64:
+        os << value.as_int64();
+        break;
 
-	case boost::json::kind::bool_:
-		os << (value.as_bool() ? "true" : "false");
-		break;
+    case boost::json::kind::double_: {
+        std::streamsize old_precision = os.precision();
+        os << std::setprecision(17) << value.as_double();
+        os.precision(old_precision);
+        break;
+    }
 
-	case boost::json::kind::null:
-		os << "null";
-		break;
-	}
+    case boost::json::kind::bool_:
+        os << (value.as_bool() ? "true" : "false");
+        break;
+
+    case boost::json::kind::null:
+        os << "null";
+        break;
+    }
 }

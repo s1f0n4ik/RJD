@@ -12,6 +12,7 @@
 
 #include "logger.h"
 #include "utility/data-structs.h"
+#include "utility/json-utils.h"
 #include "constants.h"
 
 namespace varan {
@@ -267,7 +268,9 @@ namespace nvr {
             }
 
             // Безопасная запись
-            file << json::serialize(m_root);
+            std::ostringstream oss;
+            pretty_print(oss, m_root);
+            file << oss.str();
             file.close();
 
             // Переименовываем

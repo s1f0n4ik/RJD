@@ -66,19 +66,19 @@ private:
 	std::string m_client_id;
 	std::string m_camera_name;
 
-	GstElement* m_pipeline;
-	GstElement* m_tee;
+	GstElement* m_pipeline = nullptr;
+	GstElement* m_tee = nullptr;
 
-	GstPad* m_tee_pad_src;
+	GstPad* m_tee_pad_src = nullptr;
 
-	GstElement* m_queue;
-	GstElement* m_pay;
-	GstElement* m_webrtcbin;
+	GstElement* m_queue = nullptr;
+	GstElement* m_pay = nullptr;
+	GstElement* m_webrtcbin = nullptr;
 
 	CSendMessage m_send_callback;
 	CRemoveSession m_remove_callback;
 
-	ULogger* m_logger;
+	ULogger* m_logger = nullptr;
 
 	bool m_is_valid;
 	bool m_is_sub;

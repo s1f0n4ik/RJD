@@ -73,10 +73,10 @@ namespace calibration {
 					if (!cam_value.is_object()) continue;
 
 					std::string camera_key(cam_key);
-					if (!is_valid_position(camera_key)) {
-						log_warn("load_preset(): unknown camera camera_key <" + camera_key + "> — skipped");
-						continue;
-					}
+					//if (!is_valid_position(camera_key)) {
+					//	log_warn("load_preset(): unknown camera camera_key <" + camera_key + "> — skipped");
+					//	continue;
+					//}
 
 					auto cam = parse_camera(camera_key, cam_value.as_object());
 					if (cam.has_value()) {
@@ -186,10 +186,14 @@ namespace calibration {
 			return pts;
 		}
 
-		std::optional<FProjectionCamera> parse_camera(const std::string& key,
-			const boost::json::object& obj) const {
+		std::optional<FProjectionCamera> parse_camera(const std::string& key, const boost::json::object& obj) const {
 			FProjectionCamera cam;
 			cam.key = key;
+
+			if (auto* name = obj.if_contains(constants::PROJ_CAM_NAME); name && name->is_string()) {
+				cam.name = name->as_string();
+			}
+			else { cam.name = constants::PROJ_CAM_UNDEFINED; }
 
 			if (auto* sp = obj.if_contains(constants::PROJ_SRC_POINTS)) {
 				cam.src_points = parse_points(*sp);
@@ -241,6 +245,8 @@ namespace calibration {
 
 		static boost::json::object serialize_camera(const FProjectionCamera& cam) {
 			boost::json::object o;
+			o[constants::PROJ_CAM_KEY] = cam.key;
+			o[constants::PROJ_CAM_NAME] = cam.name;
 			o[constants::PROJ_SRC_POINTS] = serialize_points(cam.src_points);
 			o[constants::PROJ_DST_POINTS] = serialize_points(cam.dst_points);
 			o[constants::PROJ_CANVAS_REGION] = serialize_points(cam.canvas_region);

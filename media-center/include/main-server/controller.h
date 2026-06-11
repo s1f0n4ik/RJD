@@ -8,13 +8,14 @@
 #include <optional>
 
 #include "utility/json-definers.h"
+#include "logger.h"
 
 using namespace varan::neural;
 using namespace varan::rest;
 
 class UController {
 public:
-    explicit UController(std::shared_ptr<UMediaCenter> media_center);
+    explicit UController(std::shared_ptr<UMediaCenter> media_center, ULogger* logger = nullptr);
 
     boost::beast::http::response<boost::beast::http::string_body>
         get_camera(const boost::beast::http::request<boost::beast::http::string_body>& req);
@@ -30,6 +31,7 @@ public:
 
 private:
     std::shared_ptr<UMediaCenter> m_media_center;
+    ULogger* m_logger;
 
     boost::json::object make_camera_json(const FCameraStreamsData& data, const std::set<std::string>& fields);
 
@@ -70,6 +72,9 @@ private:
         }},
         { fields::USER, [](const FCameraStreamsData& data,  boost::json::object& obj) {
             obj[fields::USER] = data.camera.user;
+        }},
+        { fields::PASSWORD, [](const FCameraStreamsData& data,  boost::json::object& obj) {
+            obj[fields::PASSWORD] = data.camera.password;
         }},
         { fields::CAMERA_TYPE, [](const FCameraStreamsData& data,  boost::json::object& obj) {
             obj[fields::CAMERA_TYPE] = static_cast<int>(data.camera.type);

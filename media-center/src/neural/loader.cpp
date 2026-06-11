@@ -1,5 +1,6 @@
 #include "neural/loader.h"
 #include "neural/draw-detections.h"
+#include "neural/constants.h"
 
 #include <filesystem>
 
@@ -16,7 +17,11 @@ namespace neural {
         : UImageHandler(context, storage, level, "ImageHandler<NeuralLoader>")
         , m_ip(ip_address)
         , m_port(port)
-    {}
+        , m_config_path(constants::CONFIG_PATH)
+        , m_state_path(constants::STATE_PATH)
+    {
+        load_state();
+    }
 
     UNeuralLoader::~UNeuralLoader() {
         stop_async_run();
@@ -26,16 +31,13 @@ namespace neural {
         try {
             std::unique_lock<std::mutex> lock(m_loader_mutex);
 
-            auto config_path = std::filesystem::path("/home/orangepi/varan/neural/configurations.json");
-            std::filesystem::create_directories(config_path.parent_path());
-            if (!m_json_configurator.read(config_path)) {
-                throw std::runtime_error("Cannot read configurations at " + config_path.string());
+            if (m_active_config_id.empty() || m_active_camera_id.empty()) {
+                throw std::runtime_error("no active state: config_id or camera_id is empty");
             }
 
-            std::string conf_name = "railway_camera";
-            auto config = m_json_configurator.load_config(conf_name);
+            auto config = m_json_configurator.load_config(m_active_config_id);
             if (!config) {
-                throw std::runtime_error("No configuration with name=" + conf_name);
+                throw std::runtime_error("No configuration with name=" + m_active_config_id);
             }
             m_active_config = config.value();
 
@@ -43,7 +45,7 @@ namespace neural {
                 throw std::runtime_error("Cannot initialize Classifier");
             }
 
-            if (!start_handler_thread(m_active_config.camera_id, 10, nullptr)) {
+            if (!start_handler_thread(m_active_camera_id, m_active_config.fps, nullptr)) {
                 throw std::runtime_error("Cannot start processing thread");
             }
             return true;
@@ -214,6 +216,173 @@ namespace neural {
         }
 
         m_logger.info("supervisor: exiting");
+    }
+
+    bool UNeuralLoader::write_state(const std::string& config_id, const std::string& camera_id) {
+        if (config_id.empty() || camera_id.empty()) {
+            m_logger.error("write_state(): empty config_id or camera_id");
+            return false;
+        }
+        try {
+            boost::json::object root;
+            root["config_id"] = config_id;
+            root["camera_id"] = camera_id;
+
+            std::filesystem::create_directories(m_state_path.parent_path());
+            std::ofstream f(m_state_path);
+            f << boost::json::serialize(root);
+        }
+        catch (const std::exception& e) {
+            m_logger.error("write_state(): " + std::string(e.what()));
+            return false;
+        }
+
+        {
+            std::lock_guard<std::mutex> lk(m_loader_mutex);
+            m_active_config_id = config_id;
+            m_active_camera_id = camera_id;
+        }
+        m_logger.info("write_state(): config_id=" + config_id + " camera_id=" + camera_id);
+        return true;
+    }
+
+    boost::json::object UNeuralLoader::get_state_raw() const {
+        boost::json::object result;
+        try {
+            if (!std::filesystem::exists(m_state_path)) return result;
+            std::ifstream f(m_state_path);
+            std::stringstream ss; ss << f.rdbuf();
+            auto v = boost::json::parse(ss.str());
+            if (v.is_object()) result = v.as_object();
+        }
+        catch (const std::exception& e) {
+            m_logger.error("get_state_raw(): " + std::string(e.what()));
+        }
+        return result;
+    }
+
+    bool UNeuralLoader::load_state() {
+        try {
+            if (!std::filesystem::exists(m_state_path)) return false;
+            std::ifstream f(m_state_path);
+            std::stringstream ss; ss << f.rdbuf();
+            auto v = boost::json::parse(ss.str());
+            if (!v.is_object()) return false;
+            const auto& obj = v.as_object();
+
+            std::lock_guard<std::mutex> lk(m_loader_mutex);
+            if (auto* c = obj.if_contains("config_id"); c && c->is_string()) {
+                m_active_config_id = c->as_string().c_str();
+            }
+            if (auto* c = obj.if_contains("camera_id"); c && c->is_string()) {
+                m_active_camera_id = c->as_string().c_str();
+            }
+
+            m_logger.info("load_state(): config_id=" + m_active_config_id + " camera_id=" + m_active_camera_id);
+            return true;
+        }
+        catch (const std::exception& e) {
+            m_logger.error("load_state(): " + std::string(e.what()));
+            return false;
+        }
+    }
+
+    bool UNeuralLoader::reload_from_state() {
+        return load_state();
+    }
+
+    std::vector<UNeuralLoader::FNeuralExports> UNeuralLoader::list_configurations() const {
+        std::vector<FNeuralExports> result;
+        try {
+            if (!std::filesystem::exists(m_config_path)) return result;
+            std::ifstream f(m_config_path);
+            std::stringstream ss; ss << f.rdbuf();
+            auto v = boost::json::parse(ss.str());
+            if (!v.is_object()) return result;
+
+            for (const auto& [id, val] : v.as_object()) {
+                if (!val.is_object()) continue;
+                FNeuralExports info;
+                info.id = id;
+                if (auto* n = val.as_object().if_contains("name"); n && n->is_string()) {
+                    info.name = n->as_string().c_str();
+                }
+                else {
+                    info.name = info.id;
+                }
+                result.push_back(std::move(info));
+            }
+        }
+        catch (const std::exception& e) {
+            m_logger.error("list_configurations(): " + std::string(e.what()));
+        }
+        return result;
+    }
+
+    bool UNeuralLoader::import_configurations(const boost::json::value& json, EImportMode mode) {
+        if (!json.is_object()) {
+            m_logger.error("import_configurations(): payload must be object");
+            return false;
+        }
+
+        try {
+            boost::json::object final_obj;
+
+            if (mode == EImportMode::REPLACE_ALL) {
+                final_obj = json.as_object();
+            }
+            else { // MERGE
+                // Прочитать существующий файл, если есть
+                if (std::filesystem::exists(m_config_path)) {
+                    std::ifstream f(m_config_path);
+                    std::stringstream ss; ss << f.rdbuf();
+                    auto existing = boost::json::parse(ss.str());
+                    if (existing.is_object()) final_obj = existing.as_object();
+                }
+                // Дописать/перезаписать ключи из json
+                for (const auto& [k, v] : json.as_object()) {
+                    final_obj[std::string(k)] = v;
+                }
+            }
+
+            std::filesystem::create_directories(m_config_path.parent_path());
+            std::ofstream f(m_config_path);
+            f << boost::json::serialize(final_obj);
+        }
+        catch (const std::exception& e) {
+            m_logger.error("import_configurations(): " + std::string(e.what()));
+            return false;
+        }
+
+        m_logger.info("import_configurations(): mode=" + std::string(mode == EImportMode::REPLACE_ALL ? "REPLACE_ALL" : "MERGE"));
+        return true;
+    }
+
+    bool UNeuralLoader::is_running() const {
+        return m_supervisor_running.load();
+    }
+
+    bool UNeuralLoader::restart() {
+        if (!m_supervisor_running.load()) {
+            return async_run();
+        }
+        reload_from_state();
+        // Останавливаем активный handler — supervisor увидит и пойдёт на новый круг.
+        if (UImageHandler::is_running()) {
+            stop_handler_thread();
+        }
+        // supervisor сам поднимется
+        return true;
+    }
+
+    std::string UNeuralLoader::get_active_config_id() const {
+        std::lock_guard<std::mutex> lock(m_loader_mutex);
+        return m_active_config_id;
+    }
+
+    std::string UNeuralLoader::get_active_camera_id() const {
+        std::lock_guard<std::mutex> lock(m_loader_mutex);
+        return m_active_camera_id;
     }
 
 } // namespace neural

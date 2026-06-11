@@ -19,11 +19,9 @@ namespace neural {
 	struct FConfigInfo {
 		std::string id;
 		std::string name;
-		std::string camera_id = "camera_1";
-		// int raw_width = 2560;
-		// int raw_height = 1440;
 		int model_width = 640;
 		int model_height = 640;
+		int fps = 10;
 		FThresholds thresholds;
 		std::string model_path;
 		std::vector<FClassInfo> classes;

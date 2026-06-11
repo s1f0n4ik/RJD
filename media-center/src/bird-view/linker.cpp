@@ -417,6 +417,14 @@ namespace birdview {
 		m_context_manager->undone_current(&m_logger);
 	}
 
+	std::filesystem::path ULinker::get_configurations_path() {
+		return constants::LINKER_CONFIGURATIONS;
+	}
+
+	std::filesystem::path ULinker::get_images_list_path() {
+		return constants::LINKER_IMAGES_PATH;
+	}
+
 	/*
 	void ULinker::processing_cube_loop(uint32_t fps)
 	{

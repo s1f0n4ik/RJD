@@ -162,11 +162,6 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 		return m_is_valid;
 	}
 
-	// Синхронихируем состояние с основным пайплайном
-	gst_element_sync_state_with_parent(m_queue);
-	if (m_pay) gst_element_sync_state_with_parent(m_pay);
-	gst_element_sync_state_with_parent(m_webrtcbin);
-
 	// Привязываем сигналы протокола к только что созданной сессии
 	g_signal_handlers_disconnect_by_data(m_webrtcbin, this);
 	g_signal_connect(m_webrtcbin, "on-negotiation-needed", G_CALLBACK(&UWebRTCSession::on_negotiation_needed), this);
@@ -174,6 +169,11 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 
 	g_signal_connect(m_webrtcbin, "notify::connection-state", G_CALLBACK(&UWebRTCSession::on_connection_state_changed), this);
 	g_signal_connect(m_webrtcbin, "notify::ice-connection-state", G_CALLBACK(&UWebRTCSession::on_ice_state_changed), this);
+
+	// Синхронихируем состояние с основным пайплайном
+	gst_element_sync_state_with_parent(m_queue);
+	if (m_pay) gst_element_sync_state_with_parent(m_pay);
+	gst_element_sync_state_with_parent(m_webrtcbin);
 
 	std::string message = "Branch webrtc session " + get_session_name() + " has been created!";
 	boost::json::object opened_msg = UWebRTCSession::make_json(true, SIG_TYPE_CONNECT, message);

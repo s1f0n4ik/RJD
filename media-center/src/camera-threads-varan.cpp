@@ -91,7 +91,7 @@ int main(int argc, char* argv[])
 	center->set_bird_view_callback(std::move(gl_storage->get_callback()));
 	center->set_neural_callback(std::move(gl_storage->get_callback()));
 
-	auto rest_server = URestServer{ config.rest_port, center, linker_360 };
+	auto rest_server = URestServer{ config.rest_port, center, linker_360, loader };
 	rest_server.async_start();
 
 	/*
