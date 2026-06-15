@@ -276,7 +276,7 @@ const CameraSettings: React.FC = () => {
             sub_latency: camera.streams.sub.latency,
             sub_use_udp: camera.streams.sub.use_udp,
             sub_reconnect: camera.streams.sub.reconnect,
-            to_record: camera.streams.main.to_record,
+            to_record: camera.streams.main.to_record ?? false,
         });
         editOriginalRef.current = camera;
         setSelectedTab(0);
@@ -326,6 +326,7 @@ const CameraSettings: React.FC = () => {
                     latency: formData.main_latency,
                     use_udp: formData.main_use_udp,
                     reconnect: formData.main_reconnect,
+                    to_record: false,
                     record_path: '/storage/internal',
                     segment: 0,
                 },
@@ -335,6 +336,7 @@ const CameraSettings: React.FC = () => {
                     latency: formData.sub_latency,
                     use_udp: formData.sub_use_udp,
                     reconnect: formData.sub_reconnect,
+                    to_record: false,
                     record_path: '',
                     segment: 0,
                 },
@@ -649,8 +651,7 @@ const CameraSettings: React.FC = () => {
                             </TableRow>
                         ) : (
                             sortedCameras.map((camera, index) => {
-                                const recOn = (camera.streams?.main?.segment ?? 0) > 0 &&
-                                    (camera.streams?.main?.record_path ?? "") !== "";
+                                const recOn = camera.streams?.main?.to_record ?? false;
                                 return (
                                     <TableRow key={camera.id} hover>
                                         <TableCell>
