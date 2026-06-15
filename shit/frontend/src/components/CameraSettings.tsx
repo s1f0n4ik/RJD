@@ -1167,7 +1167,7 @@ const CameraSettings: React.FC = () => {
                                             <Box>
                                                 <Typography variant="caption" color="text.secondary">Запись</Typography>
                                                 <Typography sx={{ fontFamily: 'monospace' }}>
-                                                    {formData.to_record ? `вкл, ${formData.main_segment} мин` : 'выкл'}
+                                                    {formData.to_record ? `вкл, ${formData.main_segment} сек` : 'выкл'}
                                                 </Typography>
                                             </Box>
                                         </Box>
