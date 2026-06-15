@@ -1053,7 +1053,7 @@ const CameraSettings: React.FC = () => {
                                     <Grid item xs={12} sm={6}>
                                         <TextField
                                             fullWidth
-                                            label="Длительность сегмента, мин"
+                                            label="Длительность сегмента, сек"
                                             type="number"
                                             value={formData.main_segment}
                                             onChange={(e) => handleInputChange('main_segment', parseInt(e.target.value) || 0)}

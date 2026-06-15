@@ -727,13 +727,19 @@ const KioskView: React.FC = () => {
                     ? <CheckCircleIcon sx={{ color: 'success.main', fontSize: 18 }} />
                     : <ErrorIcon sx={{ color: 'grey.600', fontSize: 18 }} />}
                 </ListItemIcon>
-                <ListItemText
-                  primary={camera.id}
-                  primaryTypographyProps={{
-                    fontSize: '0.85rem',
-                    fontWeight: isSelected ? 600 : 400, // 🆕
-                  }}
-                />
+                  <ListItemText
+                      primary={camera.display_name || camera.id}
+                      secondary={camera.display_name ? camera.id : undefined}
+                      primaryTypographyProps={{
+                          fontSize: '0.85rem',
+                          fontWeight: isSelected ? 600 : 400,
+                      }}
+                      secondaryTypographyProps={{
+                          fontSize: '0.7rem',
+                          color: 'grey.600',
+                          fontFamily: 'monospace',
+                      }}
+                  />
               </ListItem>
             );
           })}
