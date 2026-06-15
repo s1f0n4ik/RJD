@@ -22,7 +22,7 @@ export function renderProjCamList() {
     }
 
     cams.forEach(cam => {
-        const baseLabel = cam.name || PROJ_POSITION_LABELS[cam.key] || cam.key;
+        const baseLabel = cam.name || cam.key || "undefined";
         const camId     = projState.camId?.[cam.key];
         const label     = camId
             ? `${baseLabel} <span class="proj-cam-id">[${camId}]</span>`
