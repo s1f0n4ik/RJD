@@ -9,6 +9,7 @@ import {
   FormControl,
   Grid,
   IconButton,
+  InputAdornment,
   InputLabel,
   MenuItem,
   Paper,
@@ -33,7 +34,10 @@ import {
   RestartAlt as RestartIcon,
   UploadFile as UploadFileIcon,
   Refresh as RefreshIcon,
+  Palette as PaletteIcon,
+  FolderOpen as FolderOpenIcon,
 } from '@mui/icons-material';
+
 import { RZD_COLORS } from '../theme';
 import { api } from '../services/api';
 import type {
@@ -57,10 +61,36 @@ const defaultConfigBody = (): NeuralConfigurationBody => ({
   classes: {},
 });
 
+const PRESET_COLORS = [
+  '#D82626',
+  '#4287F5',
+  '#2E7D32',
+  '#ED6C02',
+  '#9C27B0',
+  '#00ACC1',
+  '#FDD835',
+  '#6D4C41',
+  '#E91E63',
+  '#546E7A',
+];
+
+const normalizeHexColor = (v: string, fallback = '#4287F5') => {
+  const s = (v || '').trim();
+  const full = /^#([0-9a-fA-F]{6})$/;
+  const short = /^#([0-9a-fA-F]{3})$/;
+
+  if (full.test(s)) return s.toUpperCase();
+
+  if (short.test(s)) {
+    const c = s.slice(1);
+    return `#${c[0]}${c[0]}${c[1]}${c[1]}${c[2]}${c[2]}`.toUpperCase();
+  }
+
+  return fallback;
+};
+
 const normalizeClassIds = (classes: NeuralConfigurationBody['classes']) => {
-  const sorted = Object.entries(classes || {}).sort(
-    ([a], [b]) => Number(a) - Number(b)
-  );
+  const sorted = Object.entries(classes || {}).sort(([a], [b]) => Number(a) - Number(b));
   const normalized: NeuralConfigurationBody['classes'] = {};
   sorted.forEach(([, cls], idx) => {
     normalized[String(idx)] = cls;
@@ -77,21 +107,23 @@ const NeuralSettings: React.FC = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  // Раздел 1: конфигурации
+  // Раздел 1
   const [configs, setConfigs] = useState<NeuralConfigurationListItem[]>([]);
-  const [selectedConfigId, setSelectedConfigId] = useState<string>('');
-  const [editConfigId, setEditConfigId] = useState<string>('');
+  const [selectedConfigId, setSelectedConfigId] = useState('');
+  const [editConfigId, setEditConfigId] = useState('');
   const [editConfig, setEditConfig] = useState<NeuralConfigurationBody | null>(null);
 
   const [importMode, setImportMode] = useState<ImportMode>('merge');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const modelFileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Раздел 2: state
+  // Раздел 2
   const [stateSlots, setStateSlots] = useState<NeuralStateItem[]>([]);
   const [cameras, setCameras] = useState<CPPCamera[]>([]);
 
-  // Раздел 3: status
+  // Раздел 3
   const [statusItems, setStatusItems] = useState<NeuralRuntimeStatusItem[]>([]);
+
   const coerceConfigBody = (raw: any): NeuralConfigurationBody => {
     const def = defaultConfigBody();
     return {
@@ -105,6 +137,7 @@ const NeuralSettings: React.FC = () => {
       classes: normalizeClassIds(raw?.classes || {}),
     };
   };
+
   const loadSelectedConfig = async (id: string) => {
     if (!id) return;
     const cfg = await api.getNeuralConfigurationById(id);
@@ -130,8 +163,11 @@ const NeuralSettings: React.FC = () => {
 
       const targetId = selectedConfigId || cfgList[0]?.id || '';
       if (targetId) {
-        await loadSelectedConfig(targetId); // <-- ключевой момент
+        await loadSelectedConfig(targetId);
         setSelectedConfigId(targetId);
+      } else {
+        setEditConfig(null);
+        setEditConfigId('');
       }
 
       setSuccess('Обновлено');
@@ -148,7 +184,7 @@ const NeuralSettings: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const loadConfig = async () => {
+    const run = async () => {
       if (!selectedConfigId) return;
       try {
         const cfg = await api.getNeuralConfigurationById(selectedConfigId);
@@ -158,7 +194,7 @@ const NeuralSettings: React.FC = () => {
         setError(e?.message || 'Ошибка загрузки конфигурации');
       }
     };
-    loadConfig();
+    run();
   }, [selectedConfigId]);
 
   const usedCores = useMemo(() => {
@@ -170,10 +206,10 @@ const NeuralSettings: React.FC = () => {
   }, [stateSlots]);
 
   const duplicateCoreError = useMemo(() => {
-    const set = new Set<number>();
+    const s = new Set<number>();
     for (const c of usedCores) {
-      if (set.has(c)) return true;
-      set.add(c);
+      if (s.has(c)) return true;
+      s.add(c);
     }
     return false;
   }, [usedCores]);
@@ -227,6 +263,15 @@ const NeuralSettings: React.FC = () => {
     }
   };
 
+  const handlePickModelFile = (file?: File) => {
+    if (!file || !editConfig) return;
+    setEditConfig({
+      ...editConfig,
+      model_path: file.name,
+    });
+    setSuccess(`Выбран файл модели: ${file.name}`);
+  };
+
   const generateUniqueSuperclassId = (base = 'group') => {
     if (!editConfig) return `${base}_1`;
     let i = 1;
@@ -245,14 +290,13 @@ const NeuralSettings: React.FC = () => {
       ...editConfig,
       superclasses: {
         ...editConfig.superclasses,
-        [nextId]: { name: 'Новая группа', color: '#4287f5' },
+        [nextId]: { name: 'Новая группа', color: '#4287F5' },
       },
     });
   };
 
   const renameSuperclassId = (oldId: string, rawNewId: string) => {
     if (!editConfig) return;
-
     const newId = rawNewId.trim();
     if (!newId || newId === oldId) return;
 
@@ -283,18 +327,13 @@ const NeuralSettings: React.FC = () => {
 
   const removeSuperclass = (id: string) => {
     if (!editConfig) return;
-    const usedBy = Object.entries(editConfig.classes).filter(
-      ([, cls]) => cls.superclass === id
-    );
 
+    const usedBy = Object.entries(editConfig.classes).filter(([, cls]) => cls.superclass === id);
     if (usedBy.length > 0) {
-      if (
-        !window.confirm(
-          `Группа "${id}" используется в ${usedBy.length} класс(ах). Удалить всё равно?`
-        )
-      ) {
-        return;
-      }
+      const ok = window.confirm(
+        `Группа "${id}" используется в ${usedBy.length} класс(ах). Удалить всё равно?`
+      );
+      if (!ok) return;
     }
 
     const next = { ...editConfig.superclasses };
@@ -333,11 +372,36 @@ const NeuralSettings: React.FC = () => {
     });
   };
 
+  const updateSuperclassColor = (id: string, color: string, fallback = '#4287F5') => {
+    if (!editConfig) return;
+    const sc = editConfig.superclasses[id];
+    if (!sc) return;
+
+    setEditConfig({
+      ...editConfig,
+      superclasses: {
+        ...editConfig.superclasses,
+        [id]: { ...sc, color: normalizeHexColor(color, fallback) },
+      },
+    });
+  };
+
+  const updateClassColor = (id: string, color: string, fallback = '#D82626') => {
+    if (!editConfig) return;
+    const cls = editConfig.classes[id];
+    if (!cls) return;
+
+    setEditConfig({
+      ...editConfig,
+      classes: {
+        ...editConfig.classes,
+        [id]: { ...cls, color: normalizeHexColor(color, fallback) },
+      },
+    });
+  };
+
   const addStateSlot = () => {
-    setStateSlots((prev) => [
-      ...prev,
-      { config_id: '', camera_matrix: [['']], cores: [] },
-    ]);
+    setStateSlots((prev) => [...prev, { config_id: '', camera_matrix: [['']], cores: [] }]);
   };
 
   const saveState = async () => {
@@ -362,9 +426,7 @@ const NeuralSettings: React.FC = () => {
           ...s,
           cores: Array.from(new Set(normalizedCores)).sort((a, b) => a - b),
           camera_matrix:
-            s.camera_matrix?.length && s.camera_matrix[0]?.length
-              ? s.camera_matrix
-              : [['']],
+            s.camera_matrix?.length && s.camera_matrix[0]?.length ? s.camera_matrix : [['']],
         };
       });
 
@@ -392,6 +454,7 @@ const NeuralSettings: React.FC = () => {
       if (cmd === 'start') await api.postNeuralStart();
       if (cmd === 'stop') await api.postNeuralStop();
       if (cmd === 'restart') await api.postNeuralRestart();
+
       await refreshStatus();
       setSuccess(`Команда ${cmd.toUpperCase()} выполнена`);
     } catch (e: any) {
@@ -438,7 +501,6 @@ const NeuralSettings: React.FC = () => {
         </Tabs>
       </Paper>
 
-      {/* РАЗДЕЛ 1 */}
       {tab === 0 && (
         <Grid container spacing={2}>
           <Grid item xs={12} md={3}>
@@ -499,9 +561,7 @@ const NeuralSettings: React.FC = () => {
           <Grid item xs={12} md={9}>
             <Paper sx={{ p: 2 }}>
               {!editConfig ? (
-                <Typography color="text.secondary">
-                  Выберите конфигурацию или создайте новую
-                </Typography>
+                <Typography color="text.secondary">Выберите конфигурацию или создайте новую</Typography>
               ) : (
                 <Stack spacing={2}>
                   <Grid container spacing={2}>
@@ -513,6 +573,7 @@ const NeuralSettings: React.FC = () => {
                         onChange={(e) => setEditConfigId(e.target.value)}
                       />
                     </Grid>
+
                     <Grid item xs={12} sm={6}>
                       <TextField
                         fullWidth
@@ -529,13 +590,11 @@ const NeuralSettings: React.FC = () => {
                         label="ширина"
                         value={editConfig.model_width}
                         onChange={(e) =>
-                          setEditConfig({
-                            ...editConfig,
-                            model_width: Number(e.target.value) || 0,
-                          })
+                          setEditConfig({ ...editConfig, model_width: Number(e.target.value) || 0 })
                         }
                       />
                     </Grid>
+
                     <Grid item xs={12} sm={4}>
                       <TextField
                         fullWidth
@@ -543,13 +602,11 @@ const NeuralSettings: React.FC = () => {
                         label="высота"
                         value={editConfig.model_height}
                         onChange={(e) =>
-                          setEditConfig({
-                            ...editConfig,
-                            model_height: Number(e.target.value) || 0,
-                          })
+                          setEditConfig({ ...editConfig, model_height: Number(e.target.value) || 0 })
                         }
                       />
                     </Grid>
+
                     <Grid item xs={12} sm={4}>
                       <FormControl fullWidth>
                         <InputLabel>отрисовка групп</InputLabel>
@@ -575,6 +632,30 @@ const NeuralSettings: React.FC = () => {
                         label="путь до модели"
                         value={editConfig.model_path}
                         onChange={(e) => setEditConfig({ ...editConfig, model_path: e.target.value })}
+                        InputProps={{
+                          endAdornment: (
+                            <InputAdornment position="end">
+                              <IconButton
+                                size="small"
+                                title="Выбрать файл модели"
+                                onClick={() => modelFileInputRef.current?.click()}
+                              >
+                                <FolderOpenIcon fontSize="small" />
+                              </IconButton>
+                            </InputAdornment>
+                          ),
+                        }}
+                      />
+                      <input
+                        ref={modelFileInputRef}
+                        type="file"
+                        hidden
+                        accept=".rknn,.rcnn"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) handlePickModelFile(f);
+                          e.currentTarget.value = '';
+                        }}
                       />
                     </Grid>
 
@@ -595,6 +676,7 @@ const NeuralSettings: React.FC = () => {
                         }
                       />
                     </Grid>
+
                     <Grid item xs={12} sm={6}>
                       <TextField
                         fullWidth
@@ -648,6 +730,7 @@ const NeuralSettings: React.FC = () => {
                               }}
                             />
                           </TableCell>
+
                           <TableCell>
                             <TextField
                               fullWidth
@@ -664,22 +747,69 @@ const NeuralSettings: React.FC = () => {
                               }
                             />
                           </TableCell>
-                          <TableCell>
-                            <TextField
-                              fullWidth
-                              size="small"
-                              value={sc.color}
-                              onChange={(e) =>
-                                setEditConfig({
-                                  ...editConfig,
-                                  superclasses: {
-                                    ...editConfig.superclasses,
-                                    [id]: { ...sc, color: e.target.value },
-                                  },
-                                })
-                              }
-                            />
+
+                          <TableCell sx={{ minWidth: 320 }}>
+                            <Stack spacing={1}>
+                              <TextField
+                                fullWidth
+                                size="small"
+                                value={sc.color}
+                                onChange={(e) => updateSuperclassColor(id, e.target.value)}
+                                onBlur={(e) => updateSuperclassColor(id, e.target.value)}
+                                InputProps={{
+                                  startAdornment: (
+                                    <InputAdornment position="start">
+                                      <Box
+                                        sx={{
+                                          width: 16,
+                                          height: 16,
+                                          borderRadius: '3px',
+                                          border: '1px solid #999',
+                                          bgcolor: normalizeHexColor(sc.color, '#4287F5'),
+                                        }}
+                                      />
+                                    </InputAdornment>
+                                  ),
+                                  endAdornment: (
+                                    <InputAdornment position="end">
+                                      <IconButton component="label" size="small" title="Выбрать цвет">
+                                        <PaletteIcon fontSize="small" />
+                                        <input
+                                          hidden
+                                          type="color"
+                                          value={normalizeHexColor(sc.color, '#4287F5')}
+                                          onChange={(e) => updateSuperclassColor(id, e.target.value)}
+                                        />
+                                      </IconButton>
+                                    </InputAdornment>
+                                  ),
+                                }}
+                              />
+
+                              <Stack direction="row" spacing={0.5} flexWrap="wrap">
+                                {PRESET_COLORS.map((c) => (
+                                  <IconButton
+                                    key={c}
+                                    size="small"
+                                    sx={{ p: 0.25 }}
+                                    title={c}
+                                    onClick={() => updateSuperclassColor(id, c)}
+                                  >
+                                    <Box
+                                      sx={{
+                                        width: 18,
+                                        height: 18,
+                                        borderRadius: '3px',
+                                        border: '1px solid #999',
+                                        bgcolor: c,
+                                      }}
+                                    />
+                                  </IconButton>
+                                ))}
+                              </Stack>
+                            </Stack>
                           </TableCell>
+
                           <TableCell>
                             <IconButton color="error" onClick={() => removeSuperclass(id)}>
                               <DeleteIcon />
@@ -718,6 +848,7 @@ const NeuralSettings: React.FC = () => {
                       {Object.entries(editConfig.classes).map(([id, cls]) => (
                         <TableRow key={id}>
                           <TableCell>{id}</TableCell>
+
                           <TableCell>
                             <TextField
                               fullWidth
@@ -734,6 +865,7 @@ const NeuralSettings: React.FC = () => {
                               }
                             />
                           </TableCell>
+
                           <TableCell>
                             <TextField
                               fullWidth
@@ -750,6 +882,7 @@ const NeuralSettings: React.FC = () => {
                               }
                             />
                           </TableCell>
+
                           <TableCell>
                             <FormControl fullWidth size="small">
                               <Select
@@ -772,22 +905,69 @@ const NeuralSettings: React.FC = () => {
                               </Select>
                             </FormControl>
                           </TableCell>
-                          <TableCell>
-                            <TextField
-                              fullWidth
-                              size="small"
-                              value={cls.color}
-                              onChange={(e) =>
-                                setEditConfig({
-                                  ...editConfig,
-                                  classes: {
-                                    ...editConfig.classes,
-                                    [id]: { ...cls, color: e.target.value },
-                                  },
-                                })
-                              }
-                            />
+
+                          <TableCell sx={{ minWidth: 320 }}>
+                            <Stack spacing={1}>
+                              <TextField
+                                fullWidth
+                                size="small"
+                                value={cls.color}
+                                onChange={(e) => updateClassColor(id, e.target.value)}
+                                onBlur={(e) => updateClassColor(id, e.target.value)}
+                                InputProps={{
+                                  startAdornment: (
+                                    <InputAdornment position="start">
+                                      <Box
+                                        sx={{
+                                          width: 16,
+                                          height: 16,
+                                          borderRadius: '3px',
+                                          border: '1px solid #999',
+                                          bgcolor: normalizeHexColor(cls.color, '#D82626'),
+                                        }}
+                                      />
+                                    </InputAdornment>
+                                  ),
+                                  endAdornment: (
+                                    <InputAdornment position="end">
+                                      <IconButton component="label" size="small" title="Выбрать цвет">
+                                        <PaletteIcon fontSize="small" />
+                                        <input
+                                          hidden
+                                          type="color"
+                                          value={normalizeHexColor(cls.color, '#D82626')}
+                                          onChange={(e) => updateClassColor(id, e.target.value)}
+                                        />
+                                      </IconButton>
+                                    </InputAdornment>
+                                  ),
+                                }}
+                              />
+
+                              <Stack direction="row" spacing={0.5} flexWrap="wrap">
+                                {PRESET_COLORS.map((c) => (
+                                  <IconButton
+                                    key={c}
+                                    size="small"
+                                    sx={{ p: 0.25 }}
+                                    title={c}
+                                    onClick={() => updateClassColor(id, c)}
+                                  >
+                                    <Box
+                                      sx={{
+                                        width: 18,
+                                        height: 18,
+                                        borderRadius: '3px',
+                                        border: '1px solid #999',
+                                        bgcolor: c,
+                                      }}
+                                    />
+                                  </IconButton>
+                                ))}
+                              </Stack>
+                            </Stack>
                           </TableCell>
+
                           <TableCell>
                             <IconButton color="error" onClick={() => removeClass(id)}>
                               <DeleteIcon />
@@ -816,7 +996,6 @@ const NeuralSettings: React.FC = () => {
         </Grid>
       )}
 
-      {/* РАЗДЕЛ 2 */}
       {tab === 1 && (
         <Paper sx={{ p: 2 }}>
           <Box mb={2} display="flex" justifyContent="space-between">
@@ -918,12 +1097,7 @@ const NeuralSettings: React.FC = () => {
                     </Grid>
 
                     <Grid item xs={12} md={1}>
-                      <IconButton
-                        color="error"
-                        onClick={() =>
-                          setStateSlots((prev) => prev.filter((_, i) => i !== idx))
-                        }
-                      >
+                      <IconButton color="error" onClick={() => setStateSlots((prev) => prev.filter((_, i) => i !== idx))}>
                         <DeleteIcon />
                       </IconButton>
                     </Grid>
@@ -947,7 +1121,6 @@ const NeuralSettings: React.FC = () => {
         </Paper>
       )}
 
-      {/* РАЗДЕЛ 3 */}
       {tab === 2 && (
         <Paper sx={{ p: 2 }}>
           <Box mb={2} display="flex" gap={1} flexWrap="wrap">
@@ -996,9 +1169,7 @@ const NeuralSettings: React.FC = () => {
               {statusItems.map((row, idx) => (
                 <TableRow key={`${row.config_id}-${idx}`}>
                   <TableCell>{row.config_id}</TableCell>
-                  <TableCell>
-                    {Array.isArray(row.cores) ? row.cores.join(', ') : String(row.cores)}
-                  </TableCell>
+                  <TableCell>{Array.isArray(row.cores) ? row.cores.join(', ') : String(row.cores)}</TableCell>
                   <TableCell>
                     {(row.camera_matrix || []).flat().map((cam) => (
                       <Chip key={cam} label={cam} size="small" sx={{ mr: 0.5 }} />
