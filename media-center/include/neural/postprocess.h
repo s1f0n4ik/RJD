@@ -94,7 +94,8 @@ namespace  neural {
         letterbox_t* letter_box,
         const input_parameters_t& input_parameters,
         std::vector<FDetection>& out_detections,
-        ULogger* logger);
+        ULogger* logger
+    );
 
 } // neural
 } // varan

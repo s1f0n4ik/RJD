@@ -69,7 +69,6 @@ link_directories(
 
 pkg_check_modules(EGL REQUIRED egl)
 pkg_check_modules(GLESV2 REQUIRED glesv2)
-
 pkg_check_modules(GBM REQUIRED gbm)
 
 #include_directories(${GL_INCLUDE_DIRS})
@@ -90,7 +89,7 @@ set(BOOST_INCLUDEDIR ${BOOST_ROOT}/include)
 set(BOOST_LIBRARYDIR ${BOOST_ROOT}/lib)
 
 # Создание исполняемого файла
-add_executable(${PROJECT_NAME} ${SRC_FILES} "include/neural/loader.h")
+add_executable(${PROJECT_NAME} ${SRC_FILES} "include/neural/loader.h" "include/neural/matrix.h")
 
 # Директории для include
 target_include_directories(${PROJECT_NAME} PRIVATE

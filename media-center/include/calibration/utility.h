@@ -61,6 +61,12 @@ namespace utility {
 		std::vector<cv::Point2f> canvas_region;
 	};
 
+	struct FOverlayImageInfo {
+		std::string name;
+		std::filesystem::path path;
+		cv::Rect rect;  // x, y, width, height
+	};
+
 	// Полный пресет склейки
 	struct FProjectionPreset {
 		std::string key;      // ключ пресета в json (например, "default_stitching")
@@ -70,6 +76,8 @@ namespace utility {
 
 		// Камеры, индексированные по ключу
 		std::unordered_map<std::string, FProjectionCamera> cameras;
+
+		std::vector<FOverlayImageInfo> images;
 	};
 
 	class SBinary {

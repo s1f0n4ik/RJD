@@ -16,16 +16,24 @@ namespace neural {
 		float confidence = 0.5f;
 	};
 
+	struct FSuperclass {
+		std::string key; 
+		std::string name; 
+		std::string color; 
+	};
+
 	struct FConfigInfo {
 		std::string id;
 		std::string name;
 		int model_width = 640;
 		int model_height = 640;
-		int fps = 10;
+		int fps = 25;
 		FThresholds thresholds;
 		std::string model_path;
 		std::vector<FClassInfo> classes;
+		std::vector<FSuperclass> superclasses;   // группы для отрисовки
 	};
+
 
 }
 }

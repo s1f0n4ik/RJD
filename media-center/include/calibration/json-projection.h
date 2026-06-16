@@ -84,6 +84,9 @@ namespace calibration {
 					}
 				}
 
+				// Изображения
+				preset.images = parse_images(obj, m_logger);
+
 				return preset;
 			}
 			catch (const std::exception& error) {
@@ -125,12 +128,47 @@ namespace calibration {
 				}
 				obj[constants::PROJ_CAMERAS] = std::move(cameras_obj);
 
+				if (!preset.images.empty()) {
+					obj["images"] = serialize_images(preset.images);
+				}
+
 				return add_json_item(preset.key, std::move(obj));
 			}
 			catch (const std::exception& error) {
 				log_error("save_preset(): " + std::string(error.what()));
 				return false;
 			}
+		}
+
+		static std::vector<FOverlayImageInfo> parse_images(const boost::json::object& obj, ULogger* logger = nullptr) {
+			std::vector<FOverlayImageInfo> result;
+
+			auto* imgs = obj.if_contains(constants::PROJ_IMAGES);
+			if (!imgs || !imgs->is_array()) return result;
+
+			const auto& arr = imgs->as_array();
+			result.reserve(arr.size());
+
+			for (size_t idx = 0; idx < arr.size(); ++idx) {
+				if (!arr[idx].is_object()) {
+					if (logger) logger->warn("parse_images()[" + std::to_string(idx) + "]: not an object, skipped");
+					continue;
+				}
+				auto info = parse_image(idx, arr[idx].as_object());
+				if (!info.name.empty()) {
+					result.push_back(std::move(info));
+				}
+			}
+
+			return result;
+		}
+
+		static boost::json::array serialize_images(const std::vector<FOverlayImageInfo>& images) {
+			boost::json::array arr;
+			for (const auto& img : images) {
+				arr.push_back(serialize_image(img));
+			}
+			return arr;
 		}
 
 	protected:
@@ -140,7 +178,8 @@ namespace calibration {
 			static const std::unordered_set<std::string> fields = {
 				constants::PROJ_NAME,
 				constants::PROJ_CANVAS,
-				constants::PROJ_CAMERAS
+				constants::PROJ_CAMERAS,
+				constants::PROJ_IMAGES
 			};
 			return fields;
 		}
@@ -213,6 +252,60 @@ namespace calibration {
 			return cam;
 		}
 
+		static FOverlayImageInfo parse_image(size_t idx, const boost::json::object& img_obj, ULogger* logger = nullptr) {
+			FOverlayImageInfo info;
+
+			if (auto* n = img_obj.if_contains("name"); n && n->is_string()) {
+				info.name = n->as_string().c_str();
+			}
+			if (info.name.empty()) {
+				if (logger) logger->warn("parse_image()[" + std::to_string(idx) + "]: no name, skipped");
+				return {};
+			}
+
+			if (auto* p = img_obj.if_contains("path"); p && p->is_string()) {
+				info.path = p->as_string().c_str();
+			}
+			if (info.path.empty()) {
+				info.path = constants::PROJECTION_IMAGES_PATH / info.name;
+				if (logger) logger->debug("parse_image()[" + std::to_string(idx) + "]: path not set, default: " + info.path.string());
+			}
+
+			if (auto* r = img_obj.if_contains("rect"); r && r->is_array()) {
+				const auto& arr = r->as_array();
+				if (arr.size() >= 4) {
+					info.rect = cv::Rect(
+						static_cast<int>(arr[0].as_int64()),
+						static_cast<int>(arr[1].as_int64()),
+						static_cast<int>(arr[2].as_int64()),
+						static_cast<int>(arr[3].as_int64())
+					);
+				}
+				else {
+					if (logger) logger->warn("parse_image()[" + std::to_string(idx) + "]: rect < 4 elements, skipped");
+					return {};
+				}
+			}
+			else {
+				if (logger) logger->warn("parse_image()[" + std::to_string(idx) + "]: no rect, skipped");
+				return {};
+			}
+
+			if (info.rect.width <= 0 || info.rect.height <= 0) {
+				if (logger) logger->warn("parse_image()[" + std::to_string(idx) + "]: invalid rect size ("
+					+ std::to_string(info.rect.width) + "x" + std::to_string(info.rect.height) + "), skipped");
+				return {};
+			}
+
+			if (logger) logger->info(
+				"parse_image(): <" + info.name + "> path=" + info.path.string()
+				+ " rect=[" + std::to_string(info.rect.x) + "," + std::to_string(info.rect.y)
+				+ "," + std::to_string(info.rect.width) + "," + std::to_string(info.rect.height) + "]"
+			);
+
+			return info;
+		}
+
 		// ===== Сериализация структур обратно в json =====
 
 		static boost::json::object serialize_size(const cv::Size& s) {
@@ -250,6 +343,19 @@ namespace calibration {
 			o[constants::PROJ_SRC_POINTS] = serialize_points(cam.src_points);
 			o[constants::PROJ_DST_POINTS] = serialize_points(cam.dst_points);
 			o[constants::PROJ_CANVAS_REGION] = serialize_points(cam.canvas_region);
+			return o;
+		}
+
+		static boost::json::object serialize_image(const FOverlayImageInfo& img) {
+			boost::json::object o;
+			o["name"] = img.name;
+			o["path"] = img.path.string();
+			boost::json::array r;
+			r.emplace_back(img.rect.x);
+			r.emplace_back(img.rect.y);
+			r.emplace_back(img.rect.width);
+			r.emplace_back(img.rect.height);
+			o["rect"] = std::move(r);
 			return o;
 		}
 	};

@@ -17,6 +17,7 @@
     POST /neural/start                   запустить supervisor (если не запущен)
     POST /neural/restart                 стоп + перечитать state + старт
     POST /neural/stop                    остановить supervisor
+    GET  /neural/camera                  { "data": { "camera_id": "camera_3", "config_id": "railway_camera", "found": true } }
 */
 class UNeuralController {
 public:
@@ -45,6 +46,21 @@ public:
 
     boost::beast::http::response<boost::beast::http::string_body>
         post_stop(const boost::beast::http::request<boost::beast::http::string_body>& req);
+
+    boost::beast::http::response<boost::beast::http::string_body>
+        get_classes(const boost::beast::http::request<boost::beast::http::string_body>& req);
+
+    boost::beast::http::response<boost::beast::http::string_body>
+        get_superclasses(const boost::beast::http::request<boost::beast::http::string_body>& req);
+
+    boost::beast::http::response<boost::beast::http::string_body>
+        get_models(const boost::beast::http::request<boost::beast::http::string_body>& req);
+
+    boost::beast::http::response<boost::beast::http::string_body>
+        post_model(const boost::beast::http::request<boost::beast::http::string_body>& req);
+
+    boost::beast::http::response<boost::beast::http::string_body> 
+        get_camera_config(const boost::beast::http::request<boost::beast::http::string_body>& req);
 
 private:
     std::shared_ptr<varan::neural::UNeuralLoader> m_loader;

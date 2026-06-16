@@ -31,7 +31,7 @@ namespace calibration {
 
 		const std::unordered_set<std::string>& allowed_fields() const override {
 			static const std::unordered_set<std::string> fields = {
-				"name", "width", "height", "cameras"
+				"name", "width", "height", "cameras", "images"
 			};
 			return fields;
 		}

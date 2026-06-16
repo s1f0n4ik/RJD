@@ -30,6 +30,7 @@ namespace fields {
 	inline const std::string USE_UDP = "use_udp";            // "use_udp"
 	inline const std::string RTSP_URL = "rtsp";              // "rtsp"
 	inline const std::string LATENCY = "latency";            // "latency"
+	inline const std::string TO_RECORD = "to_record";        // "to_record"
 	inline const std::string RECORD_PATH = "record_path";    // "record_path"
 	inline const std::string SEGMENT_LENGTH = "segment";     // "segment"
 	inline const std::string RECONNECT = "reconnect";        // "reconnect"

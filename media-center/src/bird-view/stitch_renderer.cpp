@@ -4,6 +4,11 @@
 
 #include "utility/gl-maps.h"
 
+#include "calibration/json-projection.h"
+#include "calibration/constants.h"
+
+#include <opencv2/opencv.hpp>
+
 #include <boost/json.hpp>
 #include <fstream>
 #include <sstream>
@@ -20,13 +25,17 @@ namespace birdview {
             return false;
         }
 
-        // Шейдеры. Имена путей подставь свои (как в constants для cube).
+        // Загрузка шейдеров из статических путей
         auto vsh = constants::current_shader_path(constants::stitching_vsh);
         auto fs1 = constants::current_shader_path(constants::stitching_fsh);
         auto fs2 = constants::current_shader_path(constants::normalize_fsh);
 
+        auto overlay_vert = constants::current_shader_path(constants::overlay_vsh);
+        auto overlay_frag = constants::current_shader_path(constants::overlay_fsh);
+
         if (!m_stitch.load_from_files(vsh, fs1, m_logger)) return false;
         if (!m_normalize.load_from_files(vsh, fs2, m_logger)) return false;
+        if (!m_overlay_shader.load_from_files(vsh, overlay_frag, m_logger)) return false;
 
         return true;
     }
@@ -129,6 +138,72 @@ namespace birdview {
             m_cams.emplace(cam_key, c);
             m_ordered_keys.push_back(std::move(cam_key));
         }
+
+        // 3) Загрузка изображений для отображения на склейке
+        if (obj.contains(calibration::constants::PROJ_IMAGES)) {
+            try {
+                auto images = calibration::UJsonProjectionConfiguration::parse_images(obj, m_logger);
+                for (const auto& image : images) {
+                    if (!std::filesystem::exists(image.path)) {
+                        if (m_logger) m_logger->warn("load_export(): path of overlay image " + image.path.string() + " doesn't exists!");
+                        continue;
+                    }
+                    // Загрузка изображений
+                    cv::Mat img = cv::imread(image.path.string(), cv::IMREAD_UNCHANGED);
+                    if (img.empty()) {
+                        if (m_logger) m_logger->warn("load_export(): cannot read image: " + image.path.string());
+                        continue;
+                    }
+
+                    cv::Mat rgba;
+                    if (img.channels() == 4) {
+                        cv::cvtColor(img, rgba, cv::COLOR_BGRA2RGBA);
+                    }
+                    else if (img.channels() == 3) {
+                        cv::cvtColor(img, rgba, cv::COLOR_BGR2RGBA);
+                    }
+                    else if (img.channels() == 1) {
+                        cv::cvtColor(img, rgba, cv::COLOR_GRAY2RGBA);
+                    }
+                    else {
+                        continue;
+                    }
+
+                    if (rgba.cols != image.rect.width || rgba.rows != image.rect.height) {
+                        cv::resize(rgba, rgba, cv::Size(image.rect.width, image.rect.height), 0, 0, cv::INTER_LINEAR);
+                    }
+
+                    GLuint tex = 0;
+                    glGenTextures(1, &tex);
+                    glBindTexture(GL_TEXTURE_2D, tex);
+                    //glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+                    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, rgba.cols, rgba.rows, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+                    FOverlayImage overlay;
+                    overlay.texture = tex;
+                    overlay.x = image.rect.x;
+                    overlay.y = image.rect.y;
+                    overlay.width = image.rect.width;
+                    overlay.height = image.rect.height;
+                    m_overlays.push_back(overlay);
+
+                    if (m_logger) m_logger->info("load_export(): loaded overlay " + image.name +
+                        " at [" + std::to_string(image.rect.x) + "," + std::to_string(image.rect.y) +
+                        "," + std::to_string(image.rect.width) + "," + std::to_string(image.rect.height) + "]");
+                }
+            }
+            catch (const std::exception& error) {
+                if (m_logger) m_logger->error("Error: " + std::string(error.what()));
+            }
+        }
+        else {
+            if (m_logger) m_logger->warn("load_export(): no one image contains at stitching export!");
+        }
+
 
         if (m_cams.empty()) {
             if (m_logger) m_logger->error("load_export(): no cameras loaded");
@@ -235,10 +310,54 @@ namespace birdview {
 
         glDrawArrays(GL_TRIANGLES, 0, 3);
 
+        // Pass 3: отображение овелеев
+        render_overlays();
+
         GLenum err = glGetError();
         if (err != GL_NO_ERROR && m_logger) {
             m_logger->error("UStitchRenderer::render(): GL error 0x" + std::to_string(err));
         }
+    }
+
+    // Функция для рисовения изображений поверх панорамы
+    void UStitchRenderer::render_overlays() {
+        const int vp_w = m_rotate_ccw ? m_canvas_h : m_canvas_w;
+        const int vp_h = m_rotate_ccw ? m_canvas_w : m_canvas_h;
+
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glBlendEquation(GL_FUNC_ADD);
+
+        m_overlay_shader.use();
+        const GLint u_tex = glGetUniformLocation(m_overlay_shader.get_id(), "u_tex");
+        const GLint u_rotate = glGetUniformLocation(m_normalize.get_id(), "u_rotate_ccw");
+        //const GLint u_rect = glGetUniformLocation(m_overlay_shader.get_id(), "u_rect");
+        //const GLint u_canvas = glGetUniformLocation(m_overlay_shader.get_id(), "u_canvas");
+
+        glUniform1i(u_tex, 0);
+        glUniform1i(u_rotate, m_rotate_ccw ? 1 : 0);
+       // glUniform2f(u_canvas, static_cast<float>(vp_w), static_cast<float>(vp_h));
+
+        for (const auto& ov : m_overlays) {
+            if (!ov.texture) continue;
+
+            float rx = ov.x, ry = ov.y, rw = ov.width, rh = ov.height;
+
+            if (m_rotate_ccw) {
+                rx = ov.y;
+                ry = m_canvas_w - ov.x - ov.width;
+                rw = ov.height;
+                rh = ov.width;
+            }
+
+            glViewport(rx, ry, rw, rh);
+
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, ov.texture);
+            glDrawArrays(GL_TRIANGLES, 0, 6);  // 6 вершин — два треугольника
+        }
+
+        glDisable(GL_BLEND);
     }
 
     void UStitchRenderer::destroy_resources() {
@@ -248,6 +367,11 @@ namespace birdview {
         }
         m_cams.clear();
         m_ordered_keys.clear();
+
+        for (auto& ov : m_overlays) {
+            if (ov.texture) glDeleteTextures(1, &ov.texture);
+        }
+        m_overlays.clear();
 
         if (m_accum_tex) { glDeleteTextures(1, &m_accum_tex); m_accum_tex = 0; }
         if (m_accum_fbo) { glDeleteFramebuffers(1, &m_accum_fbo); m_accum_fbo = 0; }

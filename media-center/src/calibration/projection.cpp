@@ -715,6 +715,7 @@ namespace calibration {
 
         // Снапшот всего, что нам нужно из активного пресета.
         cv::Size canvas_size;
+        boost::json::array overlay_images;
         std::unordered_map<std::string, FProjectionCamera> cams_copy;
         {
             std::lock_guard<std::mutex> preset_lk(m_active_preset_mutex);
@@ -724,6 +725,12 @@ namespace calibration {
             }
             canvas_size = m_active_preset->canvas_size;
             cams_copy = m_active_preset->cameras;
+            try {
+                overlay_images = m_projection_config.serialize_images(m_active_preset->images);
+            }
+            catch (...) {
+                m_logger.warn("save_stitching_export(): cannot serialize images from active preset!");
+            }
         }
         if (canvas_size.width <= 0 || canvas_size.height <= 0) {
             error = "save_stitching_export(): invalid canvas size";
@@ -863,6 +870,7 @@ namespace calibration {
         record["width"] = canvas_size.width;
         record["height"] = canvas_size.height;
         record["cameras"] = std::move(cameras_json);
+        record["images"] = overlay_images;
 
         const auto json_path = export_root / constants::LINKER_CONFIGURATION_INDEX;
 

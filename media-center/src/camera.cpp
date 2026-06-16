@@ -72,6 +72,7 @@ namespace neural {
 			pipeline_setting.name = name;
 			pipeline_setting.rtsp_url = rtsp_url;
 			pipeline_setting.stream = stream_data.stream;
+			pipeline_setting.to_record = stream_data.to_record;
 
 			auto pipe_logger = std::make_unique<ULogger>(m_options.id + ": " + name, m_logger.get_level());
 			auto send_callback = [this](std::string msg) {this->send_message(std::move(msg)); };

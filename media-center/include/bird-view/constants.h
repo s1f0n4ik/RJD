@@ -40,6 +40,8 @@ namespace constants {
 	inline const std::filesystem::path stitching_vsh = "shaders/stitch.vert";          // "shaders/stitch.vert"
 	inline const std::filesystem::path stitching_fsh = "shaders/stitch.frag";          // "shaders/stitch.frag"
 	inline const std::filesystem::path normalize_fsh = "shaders/normalize.frag";       // "shaders/normalize.frag"
+	inline const std::filesystem::path overlay_fsh = "shaders/overlay.frag";       // "shaders/normalize.frag"
+	inline const std::filesystem::path overlay_vsh = "shaders/overlay.vert";       // "shaders/normalize.frag"
 
 	inline const std::filesystem::path LINKER_CONFIGURATIONS = "/home/orangepi/varan/calibration/projection.json";     // "/home/orangepi/varan/calibration/projection.json"
 	inline const std::filesystem::path LINKER_IMAGES_PATH = "/home/orangepi/varan/calibration/images";                 // "/home/orangepi/varan/calibration/images"

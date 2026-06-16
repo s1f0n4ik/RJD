@@ -321,6 +321,7 @@ namespace nvr {
                 {"latency", pipeline.latency},
                 {"use_udp", pipeline.use_udp},
                 {"reconnect_delay", reconnect_delay},
+                {"to_record", pipeline.to_record},
                 {"record_path", pipeline.record_path},
                 {"segment_length", pipeline.segment_length}
             };
@@ -337,6 +338,11 @@ namespace nvr {
             pipeline.latency = json::value_to<int>(obj.at("latency"));
             pipeline.use_udp = json::value_to<bool>(obj.at("use_udp"));
             pipeline.reconnect_delay = json::value_to<int>(obj.at("reconnect_delay"));
+            if (obj.contains("to_record")) {
+                pipeline.to_record = json::value_to<bool>(obj.at("to_record"));
+            } else {
+                pipeline.to_record = false;
+            }
             pipeline.record_path = json::value_to<std::string>(obj.at("record_path"));
             pipeline.segment_length = json::value_to<int>(obj.at("segment_length"));
 

@@ -22,6 +22,9 @@ namespace neural {
 				"model_path": "path/to/model.rknn",
 				"classes": {
 					"<class_id>": { "name", "server_id", "superclass", "color" }
+				},
+				"superclasses": {
+					"<superclass_id>": { "name", "color" }
 				}
 			}
 		}
@@ -75,6 +78,20 @@ namespace neural {
 						info.thresholds.confidence = static_cast<float>(v->to_number<double>());
 				}
 
+				if (auto* sc = obj.if_contains("superclasses"); sc && sc->is_object()) {
+					for (const auto& [key_str, sv] : sc->as_object()) {
+						if (!sv.is_object()) continue;
+						FSuperclass s;
+						s.key = key_str;
+						const auto& so = sv.as_object();
+						if (auto* v = so.if_contains("name"); v && v->is_string())
+							s.name = v->as_string().c_str();
+						if (auto* v = so.if_contains("color"); v && v->is_string())
+							s.color = v->as_string().c_str();
+						info.superclasses.push_back(std::move(s));
+					}
+				}
+
 				if (auto* cls = obj.if_contains("classes"); cls && cls->is_object()) {
 					for (const auto& [key_str, cv] : cls->as_object()) {
 						if (!cv.is_object()) continue;
@@ -104,7 +121,8 @@ namespace neural {
 
 		const std::unordered_set<std::string>& allowed_fields() const override {
 			static const std::unordered_set<std::string> fields = {
-				"name", "model_path", "model_width", "model_height", "fps", "thresholds", "classes"
+				"name", "model_path", "model_width", "model_height", 
+				"fps", "thresholds", "classes", "superclasses"
 			};
 			return fields;
 		}

@@ -123,6 +123,9 @@ private:
         { fields::LATENCY, [](const FPipelineData& data, boost::json::object& obj) {
             obj[fields::LATENCY] = data.latency;
         }},
+        { fields::TO_RECORD, [](const FPipelineData& data, boost::json::object& obj) {
+            obj[fields::TO_RECORD] = data.to_record;
+        }},
         { fields::RECORD_PATH, [](const FPipelineData& data, boost::json::object& obj) {
             obj[fields::RECORD_PATH] = data.record_path;
         }},
@@ -144,6 +147,6 @@ private:
 
     const std::vector<std::string> m_post_stream_fields = {
         fields::SUB_STREAM, fields::LATENCY, fields::USE_UDP, fields::RECONNECT,
-        fields::RECORD_PATH, fields::SEGMENT_LENGTH, fields::TYPE
+        fields::TO_RECORD, fields::RECORD_PATH, fields::SEGMENT_LENGTH, fields::TYPE
     };
 };

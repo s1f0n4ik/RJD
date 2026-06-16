@@ -40,6 +40,8 @@ URestServer::URestServer(
 
     m_router->add_route(http::verb::get, "/linker/exports", 
         [linker_ctrl](const auto& r) { return linker_ctrl->get_exports(r); });
+    m_router->add_route(http::verb::get, "/linker/export",
+        [linker_ctrl](const auto& r) { return linker_ctrl->get_export(r); });
     m_router->add_route(http::verb::get, "/linker/state", 
         [linker_ctrl](const auto& r) { return linker_ctrl->get_state(r); });
     m_router->add_route(http::verb::post, "/linker/state", 
@@ -76,6 +78,17 @@ URestServer::URestServer(
         [neural_ctrl](const auto& r) { return neural_ctrl->post_restart(r); });
     m_router->add_route(http::verb::post, "/neural/stop", 
         [neural_ctrl](const auto& r) { return neural_ctrl->post_stop(r); });
+    m_router->add_route(http::verb::get, "/neural/classes",
+        [neural_ctrl](const auto& r) {return neural_ctrl->get_classes(r); });
+    m_router->add_route(http::verb::get, "/neural/superclasses",
+        [neural_ctrl](const auto& r) {return neural_ctrl->get_superclasses(r); });
+    m_router->add_route(http::verb::post, "/neural/models",
+        [neural_ctrl](const auto& r) {return neural_ctrl->post_model(r); });
+    m_router->add_route(http::verb::get, "/neural/models",
+        [neural_ctrl](const auto& r) {return neural_ctrl->get_models(r); });
+    m_router->add_route(http::verb::get, "/neural/camera",
+        [neural_ctrl](const auto& r) {return neural_ctrl->get_camera_config(r); });
+
 }
 
 URestServer::~URestServer()

@@ -12,6 +12,37 @@ ULinkerController::ULinkerController(std::shared_ptr<varan::birdview::ULinker> l
     , m_logger(logger)
 {}
 
+
+// Хелпер для получения querry
+static std::optional<std::string>
+get_query_param(const std::string& target, const std::string& key) {
+    auto qpos = target.find('?');
+    if (qpos == std::string::npos) {
+        return std::nullopt;
+    }
+
+    std::string query = target.substr(qpos + 1);
+
+    std::stringstream ss(query);
+    std::string item;
+    while (std::getline(ss, item, '&')) {
+        auto eq = item.find('=');
+
+        if (eq == std::string::npos) {
+            continue;
+        }
+
+        auto k = item.substr(0, eq);
+        auto v = item.substr(eq + 1);
+
+        if (k == key) {
+            return v;
+        }
+    }
+
+    return std::nullopt;
+}
+
 // ─── GET /linker/exports ────────────────────────────────────
 http::response<http::string_body>
 ULinkerController::get_exports(const http::request<http::string_body>& req)
@@ -165,6 +196,48 @@ ULinkerController::post_stop(const http::request<http::string_body>& req)
     try {
         m_linker->stop();
         return json_ok(m_logger, req, boost::json::object{}, tag);
+    }
+    catch (const std::exception& e) {
+        return json_error(m_logger, req, http::status::internal_server_error, e.what(), tag);
+    }
+}
+
+// ─── GET /linker/export?id=XXX ─────────────────────────────────────
+http::response<http::string_body>
+ULinkerController::get_export(const http::request<http::string_body>& req) {
+    const std::string tag = "GET /linker/export?id=xxx";
+    log_request(m_logger, req, tag);
+
+    try {
+        auto export_id = get_query_param(std::string(req.target()), "id");
+        if (!export_id) {
+            return json_error(m_logger, req, http::status::bad_request, "missing id parameter", tag);
+        }
+
+        auto index_path = m_linker->get_configurations_path();
+        if (!std::filesystem::exists(index_path)) {
+            return json_error(m_logger, req, http::status::not_found, "configuration file not found", tag);
+        }
+
+        std::ifstream file(index_path);
+        std::stringstream ss;
+        ss << file.rdbuf();
+        auto parsed = boost::json::parse(ss.str());
+        if (!parsed.is_object())
+        {
+            return json_error(m_logger, req, http::status::internal_server_error, "invalid configuration file", tag);
+        }
+
+        auto& root = parsed.as_object();
+        auto it = root.find(*export_id);
+        if (it == root.end()) {
+            return json_error(m_logger, req, http::status::not_found, "export not found", tag);
+        }
+
+        boost::json::object body;
+        body["data"] = it->value();
+
+        return json_ok(m_logger, req, body, tag);
     }
     catch (const std::exception& e) {
         return json_error(m_logger, req, http::status::internal_server_error, e.what(), tag);
@@ -364,4 +437,56 @@ ULinkerController::post_upload_image(const http::request<http::string_body>& req
     catch (const std::exception& e) {
         return json_error(m_logger, req, http::status::internal_server_error, e.what(), tag);
     }
+}
+
+http::response<http::file_body>
+ULinkerController::get_image(const http::request<http::string_body>& req) {
+    namespace fs = std::filesystem;
+    const std::string tag = "GET /linker/image";
+
+    auto filename = get_query_param(std::string(req.target()), "name" );
+    if (!filename) {
+        http::response<http::file_body> res{http::status::bad_request, req.version()};
+        res.prepare_payload();
+        return res;
+    }
+
+    auto image_path = m_linker->get_images_list_path() / *filename;
+    if (!fs::exists(image_path)) {
+        http::response<http::file_body> res{http::status::not_found, req.version()};
+        res.prepare_payload();
+        return res;
+    }
+
+    boost::beast::error_code ec;
+    http::file_body::value_type body;
+    body.open(image_path.string().c_str(), boost::beast::file_mode::scan, ec);
+
+    if (ec){
+        http::response<http::file_body> res{http::status::internal_server_error, req.version()};
+        res.prepare_payload();
+        return res;
+    }
+
+    auto const size = body.size();
+    http::response<http::file_body> res{
+        std::piecewise_construct,
+        std::make_tuple(std::move(body)),
+        std::make_tuple(http::status::ok, req.version())
+    };
+
+    res.content_length(size);
+    res.keep_alive(req.keep_alive());
+    auto ext = image_path.extension().string();
+
+    if (ext == ".png")
+        res.set(http::field::content_type, "image/png");
+    else if (ext == ".jpg" || ext == ".jpeg")
+        res.set(http::field::content_type, "image/jpeg");
+    else if (ext == ".webp")
+        res.set(http::field::content_type, "image/webp");
+    else
+        res.set(http::field::content_type, "application/octet-stream");
+
+    return res;
 }

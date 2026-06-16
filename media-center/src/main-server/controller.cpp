@@ -186,6 +186,7 @@ UController::post_camera(const http::request<http::string_body>& req)
             pipeline_config.latency = get_json_value<int64_t>(stream_obj[fields::LATENCY], fields::LATENCY);
             pipeline_config.use_udp = get_json_value<bool>(stream_obj[fields::USE_UDP], fields::USE_UDP);
             pipeline_config.reconnect_delay = get_json_value<int64_t>(stream_obj[fields::RECONNECT], fields::RECONNECT);
+            pipeline_config.to_record = get_json_value<bool>(stream_obj[fields::TO_RECORD], fields::TO_RECORD);
             pipeline_config.record_path = get_json_value<std::string>(stream_obj[fields::RECORD_PATH], fields::RECORD_PATH);
             pipeline_config.segment_length = get_json_value<int64_t>(stream_obj[fields::SEGMENT_LENGTH], fields::SEGMENT_LENGTH);
 
@@ -352,7 +353,6 @@ UController::patch_camera(const http::request<http::string_body>& req)
             std::string password = crit.contains(fields::PASSWORD) ? get_json_value<std::string>(crit[fields::PASSWORD], fields::PASSWORD) 
                                                                    : current_camera_options.password;
             // Тип камеры
-            std::cout << json::serialize(crit) << std::endl;
             auto camera_type = int_to_count_enum<ECameraType>(get_json_value<int64_t>(crit[fields::TYPE], fields::TYPE));
             if (camera_type == std::nullopt) {
                 throw std::runtime_error("Camera type doesn't supported!");
@@ -401,8 +401,9 @@ UController::patch_camera(const http::request<http::string_body>& req)
                 pipeline_config.latency = get_json_value<int64_t>(stream_obj[fields::LATENCY], fields::LATENCY);
                 pipeline_config.use_udp = get_json_value<bool>(stream_obj[fields::USE_UDP], fields::USE_UDP);
                 pipeline_config.reconnect_delay = get_json_value<int64_t>(stream_obj[fields::RECONNECT], fields::RECONNECT);
-                pipeline_config.record_path = get_json_value<std::string>(stream_obj[fields::RECORD_PATH], fields::RECORD_PATH);
+                pipeline_config.to_record = get_json_value<bool>(stream_obj[fields::TO_RECORD], fields::TO_RECORD);
                 pipeline_config.segment_length = get_json_value<int64_t>(stream_obj[fields::SEGMENT_LENGTH], fields::SEGMENT_LENGTH);
+                pipeline_config.record_path = get_json_value<std::string>(stream_obj[fields::RECORD_PATH], fields::RECORD_PATH);
 
                 // Добавление структуры в камеру
                 pipelines[name_stream] = std::move(pipeline_config);
@@ -529,6 +530,7 @@ std::optional<FCameraStreamsData> UController::match_data_with_selectors(
                     else if (key_stream == fields::LATENCY) counter += std::stoi(value) == static_cast<int>(stream.latency);
                     else if (key_stream == fields::CODEC) counter += value == stream.codec;
 
+                    else if (key_stream == fields::TO_RECORD) counter += (value == "true" && stream.to_record) || (value == "false" && !stream.to_record);
                     else if (key_stream == fields::RECORD_PATH) counter += value == stream.record_path;
                     else if (key_stream == fields::SEGMENT_LENGTH) counter += std::stoi(value) == static_cast<int>(stream.segment_length);
                     else if (key_stream == fields::RECONNECT) counter += std::stoi(value) == static_cast<int>(stream.reconnect_time);

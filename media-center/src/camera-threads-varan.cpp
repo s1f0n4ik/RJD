@@ -82,8 +82,14 @@ int main(int argc, char* argv[])
 	calibrator->start_websocket_connection();
 
 	// Создание нейронного загрузчика
-	auto loader = std::make_shared<varan::neural::UNeuralLoader>(socket_options.ip_adress, socket_options.port, main_context.get(), gl_storage.get());
-	loader->async_run();
+	auto loader = std::make_shared<varan::neural::UNeuralLoader>(
+		socket_options.ip_adress, socket_options.port, 
+		main_context.get(), 
+		gl_storage.get(),
+		"/home/orangepi/varan/neural/configurations.json",
+		"/home/orangepi/varan/neural/loader_state.json",
+		ULogger::ELoggerLevel::DEBUG
+	);
 
 	// Создание центра видеонаблюдения
 	//auto center = std::make_shared<varan::neural::UMediaCenter>(socket_options);
@@ -91,73 +97,32 @@ int main(int argc, char* argv[])
 	center->set_bird_view_callback(std::move(gl_storage->get_callback()));
 	center->set_neural_callback(std::move(gl_storage->get_callback()));
 
+	// Привязываем к нейронке возмодность получать callback для камер
+	std::weak_ptr<varan::neural::UMediaCenter> weak_center = center;
+	loader->set_sender_provider(
+		[weak_center](const std::string& camera_id) -> varan::neural::FCameraMessageSender {
+			auto c = weak_center.lock();
+			if (!c) return {};
+
+			auto cam = c->get_camera(camera_id);
+			if (!cam) return {};
+
+			// weak_ptr на камеру — если камеру удалят пока слот жив,
+			// send станет no-op без UB
+			std::weak_ptr<varan::neural::UCamera> weak_cam = cam;
+			return [weak_cam](const std::string& msg) {
+				if (auto cam = weak_cam.lock()) {
+					cam->send_message(msg);
+				}
+			};
+		}
+	);
+
+	// Запуск neural
+	loader->async_run();
+
 	auto rest_server = URestServer{ config.rest_port, center, linker_360, loader };
 	rest_server.async_start();
-
-	/*
-	std::vector<std::map<std::string, FPipelineConfig>> streams_config = {
-		{
-			{"main", {"", "", "", 1, EPilelineType::MAIN, 0, false, 10, "/home/orangepi/records/camera_01", 60}},
-			{"sub", {"", "", "", 2, EPilelineType::SUB, 0, true, 10, "", 10}}
-		}, {
-			{"main", {"", "", "", 1, EPilelineType::MAIN, 0, false, 10, "/home/orangepi/records/camera_02", 60}},
-			{"sub", {"", "", "", 2, EPilelineType::SUB, 0, true, 10, "", 10}}
-		},{
-			{"main", {"", "", "", 1, EPilelineType::MAIN, 0, false, 10, "/home/orangepi/records/camera_03", 60}},
-			{"sub", {"", "", "", 2, EPilelineType::SUB, 0, true, 10, "", 10}}
-		},{
-			{"main", {"", "", "", 1, EPilelineType::MAIN, 0, false, 10, "/home/orangepi/records/camera_04", 60}},
-			{"sub", {"", "", "", 2, EPilelineType::SUB, 0, true, 10, "", 10}}
-		},{
-			{"main", {"", "", "", 1, EPilelineType::MAIN, 0, false, 10, "/home/orangepi/records/camera_10", 60}},
-			{"sub", {"", "", "", 2, EPilelineType::SUB, 0, true, 10, "", 10}}
-		},{
-			{"main", {"", "", "", 1, EPilelineType::MAIN, 0, false, 10, "/home/orangepi/records/camera_11", 60}},
-			{"sub", {"", "", "", 2, EPilelineType::SUB, 0, true, 10, "", 10}}
-		},{
-			{"main", {"", "", "", 1, EPilelineType::MAIN, 0, false, 10, "", 10}},
-			{"sub", {"", "", "", 2, EPilelineType::SUB, 0, true, 10, "", 10}}
-		},
-		{
-			{"main", {"", "", "", 1, EPilelineType::MAIN, 0, false, 10, "", 10}},
-			{"sub", {"", "", "", 2, EPilelineType::SUB, 0, true, 10, "", 10}}
-		},
-		{
-			{"main", {"", "", "", 1, EPilelineType::MAIN, 0, false, 10, "/home/orangepi/records", 10}},
-			{"sub", {"", "", "", 2, EPilelineType::SUB, 0, true, 10, "", 10}}
-		}
-	};
-
-	std::vector<varan::nvr::FCameraData> vector_options = {
-		{"camera_01", "Камера 1", "Описание", "192.168.1.11", "554", "admin", "VniiTest", ECameraType::BIRDVIEW, ERtspType::HIKVISION},
-		{"camera_02", "Камера 2", "Описание", "192.168.1.12", "554", "admin", "VniiTest", ECameraType::BIRDVIEW, ERtspType::HIKVISION},
-		{"camera_03", "Камера 3", "Описание", "192.168.1.13", "554", "admin", "VniiTest", ECameraType::BIRDVIEW, ERtspType::DAHUA},
-		{"camera_04", "Камера 4", "Описание", "192.168.1.14", "554", "admin", "VniiTest", ECameraType::GENERAL, ERtspType::DAHUA},
-		{"camera_06", "Камера 5", "Описание", "192.168.1.16", "554", "admin", "VniiTest", ECameraType::BIRDVIEW, ERtspType::HIKVISION},
-		{"camera_07", "Камера 6", "Описание", "192.168.1.17", "554", "admin", "VniiTest", ECameraType::BIRDVIEW, ERtspType::DAHUA},
-		{"camera_10", "Камера 10", "Описание", "192.168.1.31", "554", "admin", "VniiTest", ECameraType::BIRDVIEW, ERtspType::ACE},
-		{"camera_11", "Камера 11", "Описание", "192.168.1.32", "554", "admin", "VniiTest", ECameraType::BIRDVIEW, ERtspType::ACE},
-		{"camera_bird_test", "Камера апельсинчик", "Для теста калибровки", "192.168.1.64", "554", "admin", "VniiTest", ECameraType::BIRDVIEW, ERtspType::HIKVISION}
-	};
-
-	// Создание камер
-	for (size_t i = 0; i < vector_options.size(); ++i) {
-		center->add_camera(vector_options[i], streams_config[i < streams_config.size() ? i : streams_config.size() - 1]);
-	}
-
-	center->initialize_cameras();
-
-	// Запуск камер
-	center->start_cameras();
-
-	*/
-
-	//linker_360->set_render_camera(varan::birdview::EBirdCameraType::FRONT, "camera_1");
-	//linker_360->set_render_camera(varan::birdview::EBirdCameraType::BACK, "camera_2");
-	//linker_360->set_render_camera(varan::birdview::EBirdCameraType::LEFT_FRONT, "camera_3");
-	//linker_360->set_render_camera(varan::birdview::EBirdCameraType::RIGHT_FRONT, "camera_4");
-	//linker_360->set_render_camera(varan::birdview::EBirdCameraType::RIGHT_BACK, "camera_6");
-	//linker_360->set_render_camera(varan::birdview::EBirdCameraType::LEFT_BACK, "camera_7");
 
 	// Запуск Линкера
 	linker_360->async_start();

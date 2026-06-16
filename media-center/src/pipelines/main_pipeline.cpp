@@ -267,13 +267,18 @@ bool UCameraMainPipeline::initialize() {
 		}), depay);
 
 	// В случае, если передан путь для сохранения файлов
-	if (m_parameters.record_path.empty() || m_parameters.segment_length <= 0) {
-		m_logger->debug("inititalize(): record path not found. Record branch didn't create");
+	if (m_parameters.to_record) {
+		if (m_parameters.record_path.empty() || m_parameters.segment_length <= 0) {
+			m_logger->debug("inititalize(): record path not found. Record branch didn't create");
+		}
+		else {
+			m_record_path = m_parameters.record_path / m_parameters.camera_name;
+			create_record_branch(tee);
+			set_timer_check_record_branch();
+		}
 	}
 	else {
-		m_record_path = m_parameters.record_path / m_parameters.camera_name;
-		create_record_branch(tee);
-		set_timer_check_record_branch();
+		if (m_logger) m_logger->debug("inititalize(): recording didn't specify, skip");
 	}
 
 	// Добавить декодировщик
@@ -988,7 +993,8 @@ FPipelineData UCameraMainPipeline::get_pipeline_data() {
 	data.reconnect_time = m_parameters.reconnect_delay;
 	data.latency = m_parameters.latency;
 
-	data.record_path = m_record_path;
+	data.to_record = ((m_parameters.segment_length >= 0) && !m_parameters.record_path.string().empty()) ? m_parameters.to_record : false;
+	data.record_path = m_parameters.record_path;
 	data.segment_length = m_parameters.segment_length;
 
 	data.sub = m_parameters.stream;
