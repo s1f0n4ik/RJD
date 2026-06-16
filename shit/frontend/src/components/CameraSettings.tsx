@@ -677,7 +677,7 @@ const CameraSettings: React.FC = () => {
                                             {recOn ? (
                                                 <Chip
                                                     icon={<RecIcon sx={{ color: '#e53935 !important' }} />}
-                                                    label={`REC ${camera.streams.main.segment}мин`}
+                                                    label={`REC ${camera.streams.main.segment}сек`}
                                                     size="small"
                                                     variant="outlined"
                                                     sx={{ borderColor: '#e53935', color: '#e53935', borderRadius: 1 }}
