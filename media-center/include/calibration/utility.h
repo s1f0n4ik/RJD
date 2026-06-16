@@ -54,10 +54,17 @@ namespace utility {
 	// Привязка одной камеры в пресете склейки
 	struct FProjectionCamera {
 		std::string key;    // Ключ камеры
+		std::string name;   // Отображаемое имя камеры
 
 		std::vector<cv::Point2f> src_points;     // Координаты точек на изображении
 		std::vector<cv::Point2f> dst_points;     // Координаты точек внутри roi канваса
 		std::vector<cv::Point2f> canvas_region;
+	};
+
+	struct FOverlayImageInfo {
+		std::string name;
+		std::filesystem::path path;
+		cv::Rect rect;  // x, y, width, height
 	};
 
 	// Полный пресет склейки
@@ -69,6 +76,8 @@ namespace utility {
 
 		// Камеры, индексированные по ключу
 		std::unordered_map<std::string, FProjectionCamera> cameras;
+
+		std::vector<FOverlayImageInfo> images;
 	};
 
 	class SBinary {

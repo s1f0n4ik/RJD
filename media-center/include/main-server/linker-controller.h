@@ -25,6 +25,9 @@ public:
 		get_exports(const boost::beast::http::request<boost::beast::http::string_body>& req);
 
 	boost::beast::http::response<boost::beast::http::string_body>
+		get_export(const boost::beast::http::request<boost::beast::http::string_body>& req);
+
+	boost::beast::http::response<boost::beast::http::string_body>
 		get_state(const boost::beast::http::request<boost::beast::http::string_body>& req);
 
 	boost::beast::http::response<boost::beast::http::string_body>
@@ -41,6 +44,16 @@ public:
 
 	boost::beast::http::response<boost::beast::http::string_body>
 		post_stop(const boost::beast::http::request<boost::beast::http::string_body>& req);
+
+	boost::beast::http::response<boost::beast::http::string_body>
+		post_exports(const boost::beast::http::request<boost::beast::http::string_body>& req);
+
+	boost::beast::http::response<boost::beast::http::string_body>
+		post_upload_image(const boost::beast::http::request<boost::beast::http::string_body>& req);
+
+	boost::beast::http::response<boost::beast::http::file_body>
+		get_image(const boost::beast::http::request<boost::beast::http::string_body>& req);
+
 
 private:
 	std::shared_ptr<varan::birdview::ULinker> m_linker;

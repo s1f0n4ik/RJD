@@ -103,7 +103,7 @@ protected:
 	virtual void restart_loop();
 
 protected:
-	GstElement* m_pipeline;
+	GstElement* m_pipeline = nullptr;
 	guint m_bus_watch_id = 0;
 	// Словарь веток, которые есть в пайплайне
 	// Ключ - название ветки
@@ -282,7 +282,7 @@ public:
 	virtual EPilelineType get_type() override;
 
 private:
-	GstElement* m_appsrc;
+	GstElement* m_appsrc = nullptr;
 	std::mutex m_appsrc_mutex;
 
 	guint64 m_frame_count = 0;

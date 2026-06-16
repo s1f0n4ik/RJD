@@ -72,6 +72,7 @@ namespace neural {
 			pipeline_setting.name = name;
 			pipeline_setting.rtsp_url = rtsp_url;
 			pipeline_setting.stream = stream_data.stream;
+			pipeline_setting.to_record = stream_data.to_record;
 
 			auto pipe_logger = std::make_unique<ULogger>(m_options.id + ": " + name, m_logger.get_level());
 			auto send_callback = [this](std::string msg) {this->send_message(std::move(msg)); };
@@ -250,6 +251,10 @@ namespace neural {
 			return;
 		}
 
+		// Остановка вебсокета
+		stop_websocket_client();
+		m_logger.debug("stop(): stopped websocket");
+
 		// Запршиваем остановку пайплайлна
 		for (auto& [name, stream] : m_streams) {
 			stream->request_stop();
@@ -303,10 +308,6 @@ namespace neural {
 			m_logger.debug("stop(): simply delete streams");
 			m_streams.clear();
 		}
-
-		// Остановка вебсокета
-		stop_websocket_client();
-		m_logger.debug("stop(): stopped websocket");
 
 		m_running = false;
 		m_initialized = false;
@@ -381,6 +382,7 @@ namespace neural {
 
 	void UCamera::on_signaling_message(const std::string& msg) {
 		try {
+			if (m_stop_called.load()) return;
 			m_logger.debug("on_signaling_message(): proccessing message " + msg);
 			boost::json::value parsed = boost::json::parse(msg);
 			boost::json::object& json_object = parsed.as_object();

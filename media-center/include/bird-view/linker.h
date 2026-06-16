@@ -71,6 +71,9 @@ namespace birdview {
 		std::vector<FExportInfo> list_exports();
 		boost::json::object get_state_raw();
 
+		std::filesystem::path get_configurations_path();
+		std::filesystem::path get_images_list_path();
+
 	private:
 		void processing_loop(uint32_t fps);
 

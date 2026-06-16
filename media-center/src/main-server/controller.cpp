@@ -6,6 +6,8 @@
 #include "utility/rtsp-url.h"
 #include "utility/json-utils.h"
 
+#include "main-server/helpers.h"
+
 namespace http = boost::beast::http;
 namespace json = boost::json;
 
@@ -13,14 +15,18 @@ using namespace varan::neural;
 using namespace varan::nvr;
 using namespace varan::rest;
 
-UController::UController(std::shared_ptr<UMediaCenter> media_center)
-    : m_media_center(media_center) {
-}
+UController::UController(std::shared_ptr<UMediaCenter> media_center, ULogger* logger)
+    : m_media_center(media_center)
+    , m_logger(logger)
+{}
 
 // GET /camera?name=XXX
 http::response<http::string_body>
 UController::get_camera(const http::request<http::string_body>& req)
 {
+    const std::string tag = "GET /camera";
+    log_request(m_logger, req, tag);
+
     http::response<http::string_body> res{ http::status::ok, req.version() };
     res.set(http::field::content_type, "application/json");
     res.keep_alive(req.keep_alive());
@@ -69,9 +75,13 @@ UController::get_camera(const http::request<http::string_body>& req)
         }
         // Собираем итоговый
         body = create_answer_message(data, std::nullopt, std::nullopt);
-        res.body() = json::serialize(body);
+        const std::string body_str = json::serialize(body);
+        //if (m_logger) m_logger->send(tag + " → " + body_str);
+        res.body() = body_str;
     }
     catch (const std::exception& e) {
+        log_error(m_logger, tag, e.what());
+
         boost::json::object error;
         error[fields::ERROR_CODE] = 402;
         error[fields::ERROR_MESSAGE] = "Internatl error: " + std::string(e.what());
@@ -90,6 +100,9 @@ UController::get_camera(const http::request<http::string_body>& req)
 http::response<http::string_body>
 UController::post_camera(const http::request<http::string_body>& req) 
 {
+    const std::string tag = "POST /camera";
+    log_request(m_logger, req, tag);
+
     http::response<http::string_body> res{ http::status::created, req.version() };
     res.set(http::field::content_type, "application/json");
     res.keep_alive(req.keep_alive());
@@ -173,6 +186,7 @@ UController::post_camera(const http::request<http::string_body>& req)
             pipeline_config.latency = get_json_value<int64_t>(stream_obj[fields::LATENCY], fields::LATENCY);
             pipeline_config.use_udp = get_json_value<bool>(stream_obj[fields::USE_UDP], fields::USE_UDP);
             pipeline_config.reconnect_delay = get_json_value<int64_t>(stream_obj[fields::RECONNECT], fields::RECONNECT);
+            pipeline_config.to_record = get_json_value<bool>(stream_obj[fields::TO_RECORD], fields::TO_RECORD);
             pipeline_config.record_path = get_json_value<std::string>(stream_obj[fields::RECORD_PATH], fields::RECORD_PATH);
             pipeline_config.segment_length = get_json_value<int64_t>(stream_obj[fields::SEGMENT_LENGTH], fields::SEGMENT_LENGTH);
 
@@ -183,7 +197,10 @@ UController::post_camera(const http::request<http::string_body>& req)
             body[fields::RESULT] = "success";
             body[fields::ERROR_DETAILS] = "Camera \"" + id + "\" successfully added to nvr!";
 
-            res.body() = json::serialize(create_answer_message(body, std::nullopt, std::nullopt));
+            auto answer = create_answer_message(body, std::nullopt, std::nullopt);
+            const std::string body_str = json::serialize(answer);
+            if (m_logger) m_logger->send(tag + " → " + body_str);
+            res.body() = body_str;
         }
         else {
             throw std::runtime_error("Camera \"" + id + "\" cannot be added");
@@ -191,6 +208,8 @@ UController::post_camera(const http::request<http::string_body>& req)
 
     }
     catch (const std::exception& e) {
+        log_error(m_logger, tag, e.what());
+
         res.result(http::status::bad_request);
         json::object error;
         error[fields::ERROR_CODE] = 402;
@@ -210,6 +229,9 @@ UController::post_camera(const http::request<http::string_body>& req)
 http::response<http::string_body>
 UController::patch_camera(const http::request<http::string_body>& req)
 {
+    const std::string tag = "PATCH /camera?id=";
+    log_request(m_logger, req, tag);
+
     http::response<http::string_body> res{ http::status::created, req.version() };
     res.set(http::field::content_type, "application/json");
     res.keep_alive(req.keep_alive());
@@ -331,7 +353,6 @@ UController::patch_camera(const http::request<http::string_body>& req)
             std::string password = crit.contains(fields::PASSWORD) ? get_json_value<std::string>(crit[fields::PASSWORD], fields::PASSWORD) 
                                                                    : current_camera_options.password;
             // Тип камеры
-            std::cout << json::serialize(crit) << std::endl;
             auto camera_type = int_to_count_enum<ECameraType>(get_json_value<int64_t>(crit[fields::TYPE], fields::TYPE));
             if (camera_type == std::nullopt) {
                 throw std::runtime_error("Camera type doesn't supported!");
@@ -380,8 +401,9 @@ UController::patch_camera(const http::request<http::string_body>& req)
                 pipeline_config.latency = get_json_value<int64_t>(stream_obj[fields::LATENCY], fields::LATENCY);
                 pipeline_config.use_udp = get_json_value<bool>(stream_obj[fields::USE_UDP], fields::USE_UDP);
                 pipeline_config.reconnect_delay = get_json_value<int64_t>(stream_obj[fields::RECONNECT], fields::RECONNECT);
-                pipeline_config.record_path = get_json_value<std::string>(stream_obj[fields::RECORD_PATH], fields::RECORD_PATH);
+                pipeline_config.to_record = get_json_value<bool>(stream_obj[fields::TO_RECORD], fields::TO_RECORD);
                 pipeline_config.segment_length = get_json_value<int64_t>(stream_obj[fields::SEGMENT_LENGTH], fields::SEGMENT_LENGTH);
+                pipeline_config.record_path = get_json_value<std::string>(stream_obj[fields::RECORD_PATH], fields::RECORD_PATH);
 
                 // Добавление структуры в камеру
                 pipelines[name_stream] = std::move(pipeline_config);
@@ -394,13 +416,19 @@ UController::patch_camera(const http::request<http::string_body>& req)
             json::object body;
             body[fields::RESULT] = "success";
             body[fields::ERROR_DETAILS] = "Camera \"" + *camera_id + "\" successfully updated";
-            res.body() = json::serialize(create_answer_message(body, std::nullopt, std::nullopt));
+
+            auto answer = create_answer_message(body, std::nullopt, std::nullopt);
+            const std::string body_str = json::serialize(answer);
+            if (m_logger) m_logger->send(tag + " → " + body_str);
+            res.body() = body_str;
         }
         else {
             throw std::runtime_error("cannot update camera");
         }
     }
     catch (const std::exception& e) {
+        log_error(m_logger, tag, e.what());
+
         res.result(http::status::bad_request);
         json::object error;
         error[fields::ERROR_CODE] = 402;
@@ -414,9 +442,12 @@ UController::patch_camera(const http::request<http::string_body>& req)
     return res;
 }
 
-// DELETE /camera?name=XXX
+// DELETE /camera?id=XXX
 http::response<http::string_body>
 UController::delete_camera(const http::request<http::string_body>& req) {
+    const std::string tag = "DELETE /camera?id=XXX";
+    log_request(m_logger, req, tag);
+
     http::response<http::string_body> res{ http::status::ok, req.version() };
     res.set(http::field::content_type, "application/json");
     res.keep_alive(req.keep_alive());
@@ -449,13 +480,16 @@ UController::delete_camera(const http::request<http::string_body>& req) {
 
                     body[fields::RESULT] = "success";
                     body[fields::ERROR_DETAILS] = "Camera with name " + value + " successfully pended to delete!";
-                    res.body() = json::serialize(create_answer_message(body, std::nullopt, std::nullopt));
+                    const std::string body_str = json::serialize(create_answer_message(body, std::nullopt, std::nullopt));
+                    if (m_logger) m_logger->send(tag + " → " + body_str);
+                    res.body() = body_str;
                     break;
                 }
             }
         }
     }
     catch (const std::exception& e) {
+        log_error(m_logger, tag, e.what());
         res.result(http::status::bad_request);
         body[fields::ERROR_CODE] = 402;
         body[fields::ERROR_MESSAGE] = "Bad Request";
@@ -496,6 +530,7 @@ std::optional<FCameraStreamsData> UController::match_data_with_selectors(
                     else if (key_stream == fields::LATENCY) counter += std::stoi(value) == static_cast<int>(stream.latency);
                     else if (key_stream == fields::CODEC) counter += value == stream.codec;
 
+                    else if (key_stream == fields::TO_RECORD) counter += (value == "true" && stream.to_record) || (value == "false" && !stream.to_record);
                     else if (key_stream == fields::RECORD_PATH) counter += value == stream.record_path;
                     else if (key_stream == fields::SEGMENT_LENGTH) counter += std::stoi(value) == static_cast<int>(stream.segment_length);
                     else if (key_stream == fields::RECONNECT) counter += std::stoi(value) == static_cast<int>(stream.reconnect_time);
@@ -515,6 +550,7 @@ std::optional<FCameraStreamsData> UController::match_data_with_selectors(
             else if (field == fields::IP_ADRESS) camera_counts += value == data.camera.ip_adress;
             else if (field == fields::PORT) camera_counts += value == data.camera.port;
             else if (field == fields::USER) camera_counts += value == data.camera.user;
+            else if (field == fields::PASSWORD) camera_counts += value == data.camera.password;
         }
     }
     size_t previous_size = data.pipelines.size();
@@ -656,6 +692,8 @@ boost::json::object UController::create_answer_message(
     result["data"] = data.has_value() ? *data : boost::json::value(nullptr);
     result["meta"] = meta.has_value() ? *meta : boost::json::value(nullptr);
     result["error"] = error.has_value() ? *error : boost::json::value(nullptr);
+
+
 
     return result;
 }

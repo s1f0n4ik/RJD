@@ -11,7 +11,7 @@ namespace neural {
         : UCamera(id, socket_options, level_)
     {
         std::string pipeline_name = "nv12_encoder";
-        auto config = FPipelineConfig{ pipeline_name, id, "", 0, EPilelineType::NV12_ENCODER, 0, false, 10, "", 10};
+        auto config = FPipelineConfig{ pipeline_name, id, "", 0, EPilelineType::NV12_ENCODER, 0, false, 10, false, "", 10};
 
         m_options.id = id;
         m_options.type = ECameraType::VIRTUAL;

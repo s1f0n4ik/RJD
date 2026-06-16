@@ -68,6 +68,7 @@ namespace nvr {
 		int latency;
 		int reconnect_time;
 
+		bool to_record;
 		std::string record_path;
 		int segment_length;
 
@@ -88,6 +89,7 @@ namespace nvr {
 		bool use_udp = false;
 		int reconnect_delay = 10;
 
+		bool to_record = false;
 		std::filesystem::path record_path;
 		int segment_length = 600;
 	};

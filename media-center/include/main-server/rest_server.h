@@ -5,6 +5,7 @@
 
 #include "main-server/controller.h"
 #include "main-server/linker-controller.h"
+#include "main-server/neural-controller.h"
 #include "main-server/listener.h"
 
 class URestServer {
@@ -13,6 +14,7 @@ public:
         uint16_t port, 
         std::shared_ptr<varan::neural::UMediaCenter> media_center, 
         std::shared_ptr<varan::birdview::ULinker> linker,
+        std::shared_ptr<varan::neural::UNeuralLoader> loader,
         ULogger::ELoggerLevel level = ULogger::ELoggerLevel::DEBUG
     );
 

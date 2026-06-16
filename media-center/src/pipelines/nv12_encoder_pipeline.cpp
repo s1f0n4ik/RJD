@@ -311,6 +311,7 @@ FPipelineData UNV12EncodingPipeline::get_pipeline_data() {
 	data.reconnect_time = m_parameters.reconnect_delay;
 	data.latency = m_parameters.latency;
 
+	data.to_record = false;
 	data.record_path = "";
 	data.segment_length = -1;
 

@@ -11,6 +11,8 @@ namespace constants {
 	inline const std::string CALIBRATION_STREAM_ID = "calibration_stream"; // calibration_stream
 
 	inline const std::filesystem::path PROJECTION_CONFIGURES_PATH       = "/home/orangepi/varan/calibration/projection.json";         // "/home/orangepi/varan/calibration/projection.json"
+	inline const std::filesystem::path PROJECTION_IMAGES_PATH = "/home/orangepi/varan/calibration/images";                    // "/home/orangepi/varan/calibration/images"
+
 	inline const std::string CALIBRATION_CONFIGURES_PATH                = "/home/orangepi/varan/calibration/configurations.json";     // "/home/orangepi/varan/calibration/configurations.json"
 	inline const std::string CALIBRATION_MAPS_PATH                      = "/home/orangepi/varan/calibration/maps";                    // "/home/orangepi/varan/calibration/maps"
 
@@ -161,8 +163,11 @@ namespace constants {
 	inline const std::string PROJ_NAME = "name";             // name
 	inline const std::string PROJ_CANVAS = "canvas";         // canvas
 	inline const std::string PROJ_CAMERAS = "cameras";       // cameras
+	inline const std::string PROJ_IMAGES = "images";       // images
 
+	inline const std::string PROJ_CAM_KEY = "key";            // key
 	inline const std::string PROJ_CAM_NAME = "name";          // name
+	inline const std::string PROJ_CAM_UNDEFINED = "undefined";          // undefined
 	inline const std::string PROJ_CONFIG_KEY = "config_key";  // config_key ссылка на калибровочную запись <id>_<w>_<h>
 	inline const std::string PROJ_SRC_POINTS = "src_points";  // src_points
 	inline const std::string PROJ_DST_POINTS = "dst_points";  // dst_points

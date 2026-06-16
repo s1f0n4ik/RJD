@@ -131,10 +131,23 @@ namespace neural {
 		const std::vector<FDetection>& detections,
 		const std::vector<uint8_t>& mask,
 		const std::vector<FClassInfo>& classes,
+		const std::vector<FSuperclass>& superclasses,
 		float alpha = 0.4f)
 	{
 		if (frame_rgb.empty()) return;
 
+		// superclass key → color
+		std::unordered_map<std::string, cv::Scalar> sc_colors;
+		for (const auto& sc : superclasses)
+			sc_colors[sc.key] = hex_to_rgb(sc.color);
+		const cv::Scalar fallback(220, 0, 0);
+
+		auto color_of = [&](const std::string& sc_key) -> cv::Scalar {
+			auto it = sc_colors.find(sc_key);
+			return (it != sc_colors.end()) ? it->second : fallback;
+			};
+
+		// Маска
 		if (!mask.empty() &&
 			static_cast<int>(mask.size()) == frame_rgb.rows * frame_rgb.cols)
 		{
@@ -144,44 +157,38 @@ namespace neural {
 				cv::Vec3b* prow = overlay.ptr<cv::Vec3b>(y);
 				for (int x = 0; x < frame_rgb.cols; ++x) {
 					if (mrow[x] == 0) continue;
-					const int cls_id = mrow[x] - 1;
-					if (cls_id < 0 || cls_id >= (int)classes.size()) continue;
-					EGroupKind g = classify_group(classes[cls_id].superclass);
-					cv::Scalar col = group_color(g);
-					prow[x] = cv::Vec3b(
-						static_cast<uchar>(col[0]),
-						static_cast<uchar>(col[1]),
-						static_cast<uchar>(col[2]));
+					int cid = mrow[x] - 1;
+					if (cid < 0 || cid >= (int)classes.size()) continue;
+					cv::Scalar col = color_of(classes[cid].superclass);
+					prow[x] = cv::Vec3b((uchar)col[0], (uchar)col[1], (uchar)col[2]);
 				}
 			}
 			cv::addWeighted(overlay, alpha, frame_rgb, 1.0f - alpha, 0.0, frame_rgb);
 		}
 
+		// Bbox + подпись "id conf"
 		for (const auto& d : detections) {
-			const int cls_id = d.class_id;
-			if (cls_id < 0 || cls_id >= (int)classes.size()) continue;
+			if (d.class_id < 0 || d.class_id >= (int)classes.size()) continue;
 
-			EGroupKind g = classify_group(classes[cls_id].superclass);
-			cv::Scalar color = group_color(g);
-			const char* label_ascii = group_label_ascii(g);
+			cv::Scalar color = color_of(classes[d.class_id].superclass);
 
 			cv::Rect r(d.x1_coord, d.y1_coord,
 				d.x2_coord - d.x1_coord, d.y2_coord - d.y1_coord);
 			cv::rectangle(frame_rgb, r, color, 2);
 
-			char buf[64];
-			std::snprintf(buf, sizeof(buf), "%s %.2f", label_ascii, d.confidence);
-			const std::string label(buf);
+			char buf[32];
+			std::snprintf(buf, sizeof(buf), "%d %.2f", d.class_id, d.confidence);
 
 			int baseline = 0;
-			cv::Size ts = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 1.2, 2, &baseline);
-			const int ty1 = std::max(0, d.y1_coord - ts.height - 4);
+			cv::Size ts = cv::getTextSize(buf, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseline);
+			int ty = std::max(0, d.y1_coord - ts.height - 4);
+
 			cv::rectangle(frame_rgb,
-				cv::Rect(d.x1_coord, ty1, ts.width + 6, ts.height + 4),
+				cv::Rect(d.x1_coord, ty, ts.width + 6, ts.height + 4),
 				color, cv::FILLED);
-			cv::putText(frame_rgb, label,
-				cv::Point(d.x1_coord + 3, ty1 + ts.height),
-				cv::FONT_HERSHEY_SIMPLEX, 1.0,
+			cv::putText(frame_rgb, buf,
+				cv::Point(d.x1_coord + 3, ty + ts.height),
+				cv::FONT_HERSHEY_SIMPLEX, 0.5,
 				cv::Scalar(255, 255, 255), 1, cv::LINE_AA);
 		}
 	}

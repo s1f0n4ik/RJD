@@ -61,6 +61,8 @@ namespace birdview {
 		void update_textures(std::vector<NPFrame>& frames, EGLDisplay display = nullptr) override;
 		void render(float aspect) override;
 
+		void render_overlays();
+
 		// Загрузка экспорта из JSON-индекса.
 		bool load_export(const std::filesystem::path& exports_root,
 			const std::filesystem::path& index_json,
@@ -86,12 +88,20 @@ namespace birdview {
 			bool   has_frame = false;
 		};
 
+		struct FOverlayImage {
+			GLuint texture = 0;
+			int x = 0, y = 0;
+			int width = 0, height = 0;
+		};
+
 		void destroy_resources();
 		bool init_accum_fbo();
 
+
 	private:
-		UShader m_stitch;   // stitch
-		UShader m_normalize;   // normalize
+		UShader m_stitch;
+		UShader m_normalize;
+		UShader m_overlay_shader;
 
 		GLuint m_accum_fbo = 0;
 		GLuint m_accum_tex = 0;  // RGBA16F: accum.rgb + sum.weight в alpha
@@ -103,6 +113,7 @@ namespace birdview {
 		// Порядок камер из экспорта — фиксируется после load_export.
 		std::vector<std::string> m_ordered_keys;
 		std::unordered_map<std::string, FCameraGL> m_cams;
+		std::vector<FOverlayImage> m_overlays;
 
 		UEGLContextManager* m_context = nullptr;
 		ULogger* m_logger = nullptr;

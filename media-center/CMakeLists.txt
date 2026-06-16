@@ -1,12 +1,18 @@
 # CMakeLists.txt для media-center с GStreamer 1.28
 
 cmake_minimum_required(VERSION 3.18)
-project(media-center VERSION 1.0 LANGUAGES C CXX)
+project(media-center VERSION 1.1.0 LANGUAGES C CXX)
 
 # Стандарт C++
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+configure_file(
+    ${CMAKE_SOURCE_DIR}/version.h.in
+    ${CMAKE_BINARY_DIR}/generated/version.h
+    @ONLY
+)
 
 # Исходники
 file(GLOB_RECURSE SRC_FILES
@@ -63,7 +69,6 @@ link_directories(
 
 pkg_check_modules(EGL REQUIRED egl)
 pkg_check_modules(GLESV2 REQUIRED glesv2)
-
 pkg_check_modules(GBM REQUIRED gbm)
 
 #include_directories(${GL_INCLUDE_DIRS})
@@ -84,11 +89,12 @@ set(BOOST_INCLUDEDIR ${BOOST_ROOT}/include)
 set(BOOST_LIBRARYDIR ${BOOST_ROOT}/lib)
 
 # Создание исполняемого файла
-add_executable(${PROJECT_NAME} ${SRC_FILES} "include/neural/loader.h")
+add_executable(${PROJECT_NAME} ${SRC_FILES} "include/neural/loader.h" "include/neural/matrix.h")
 
 # Директории для include
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/generated
     ${GST_ALL_INCLUDE_DIRS}
     ${BOOST_INCLUDEDIR}
     ${GBM_INCLUDE_DIRS}

@@ -1,7 +1,5 @@
 // URestServer.cpp
 #include "main-server/rest_server.h"
-#include "main-server/linker-controller.h"
-#include "main-server/listener.h"
 #include <iostream>
 
 using namespace varan::neural;
@@ -15,6 +13,7 @@ URestServer::URestServer(
     uint16_t port,
     std::shared_ptr<UMediaCenter> media_center,
     std::shared_ptr<varan::birdview::ULinker> linker, 
+    std::shared_ptr<varan::neural::UNeuralLoader> loader,
     ULogger::ELoggerLevel level
 )
     : m_port(port)
@@ -24,7 +23,7 @@ URestServer::URestServer(
     // Сначала маршруты для камер
     m_router = std::make_shared<URouter>();
 
-    auto controller = std::make_shared<UController>(media_center);
+    auto controller = std::make_shared<UController>(media_center, &m_logger);
     
     // Регистрируем маршруты
     m_router->add_route(http::verb::get, "/camera",
@@ -37,10 +36,12 @@ URestServer::URestServer(
         [controller](const auto& req) { return controller->delete_camera(req); });
 
     // Маршруты для Линкер
-    auto linker_ctrl = std::make_shared<ULinkerController>(linker);
+    auto linker_ctrl = std::make_shared<ULinkerController>(linker, &m_logger);
 
     m_router->add_route(http::verb::get, "/linker/exports", 
         [linker_ctrl](const auto& r) { return linker_ctrl->get_exports(r); });
+    m_router->add_route(http::verb::get, "/linker/export",
+        [linker_ctrl](const auto& r) { return linker_ctrl->get_export(r); });
     m_router->add_route(http::verb::get, "/linker/state", 
         [linker_ctrl](const auto& r) { return linker_ctrl->get_state(r); });
     m_router->add_route(http::verb::post, "/linker/state", 
@@ -53,6 +54,41 @@ URestServer::URestServer(
         [linker_ctrl](const auto& r) { return linker_ctrl->post_restart(r); });
     m_router->add_route(http::verb::post, "/linker/stop", 
         [linker_ctrl](const auto& r) { return linker_ctrl->post_stop(r); });
+    m_router->add_route(http::verb::post, "/linker/exports",
+        [linker_ctrl](const auto& r) { return linker_ctrl->post_exports(r); });
+    m_router->add_route(http::verb::post, "/linker/upload",
+        [linker_ctrl](const auto& r) {return linker_ctrl->post_upload_image(r); });
+
+    // Маршруты для Нейронки
+    auto neural_ctrl = std::make_shared<UNeuralController>(loader, &m_logger);
+
+    m_router->add_route(http::verb::get, "/neural/configurations", 
+        [neural_ctrl](const auto& r) { return neural_ctrl->get_configurations(r); });
+    m_router->add_route(http::verb::post, "/neural/configurations", 
+        [neural_ctrl](const auto& r) { return neural_ctrl->post_configurations(r); });
+    m_router->add_route(http::verb::get, "/neural/state", 
+        [neural_ctrl](const auto& r) { return neural_ctrl->get_state(r); });
+    m_router->add_route(http::verb::post, "/neural/state", 
+        [neural_ctrl](const auto& r) { return neural_ctrl->post_state(r); });
+    m_router->add_route(http::verb::get, "/neural/status", 
+        [neural_ctrl](const auto& r) { return neural_ctrl->get_status(r); });
+    m_router->add_route(http::verb::post, "/neural/start", 
+        [neural_ctrl](const auto& r) { return neural_ctrl->post_start(r); });
+    m_router->add_route(http::verb::post, "/neural/restart", 
+        [neural_ctrl](const auto& r) { return neural_ctrl->post_restart(r); });
+    m_router->add_route(http::verb::post, "/neural/stop", 
+        [neural_ctrl](const auto& r) { return neural_ctrl->post_stop(r); });
+    m_router->add_route(http::verb::get, "/neural/classes",
+        [neural_ctrl](const auto& r) {return neural_ctrl->get_classes(r); });
+    m_router->add_route(http::verb::get, "/neural/superclasses",
+        [neural_ctrl](const auto& r) {return neural_ctrl->get_superclasses(r); });
+    m_router->add_route(http::verb::post, "/neural/models",
+        [neural_ctrl](const auto& r) {return neural_ctrl->post_model(r); });
+    m_router->add_route(http::verb::get, "/neural/models",
+        [neural_ctrl](const auto& r) {return neural_ctrl->get_models(r); });
+    m_router->add_route(http::verb::get, "/neural/camera",
+        [neural_ctrl](const auto& r) {return neural_ctrl->get_camera_config(r); });
+
 }
 
 URestServer::~URestServer()

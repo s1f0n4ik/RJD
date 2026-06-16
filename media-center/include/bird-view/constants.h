@@ -34,13 +34,18 @@ namespace constants {
 	constexpr int FOUR_BIRDVIEW_CAMERA_BACK_ID = 2;
 	constexpr int FOUR_BIRDVIEW_CAMERA_LEFT_ID = 3;
 
-	inline const std::filesystem::path cube_vsh = "shaders/cube.vert";
-	inline const std::filesystem::path cube_fsh = "shaders/cube.frag";
+	inline const std::filesystem::path cube_vsh = "shaders/cube.vert";                 // "shaders/cube.vert"
+	inline const std::filesystem::path cube_fsh = "shaders/cube.frag";                 // "shaders/cube.frag"
 
-	inline const std::filesystem::path stitching_vsh = "shaders/stitch.vert";
-	inline const std::filesystem::path stitching_fsh = "shaders/stitch.frag";
-	inline const std::filesystem::path normalize_fsh = "shaders/normalize.frag";
+	inline const std::filesystem::path stitching_vsh = "shaders/stitch.vert";          // "shaders/stitch.vert"
+	inline const std::filesystem::path stitching_fsh = "shaders/stitch.frag";          // "shaders/stitch.frag"
+	inline const std::filesystem::path normalize_fsh = "shaders/normalize.frag";       // "shaders/normalize.frag"
+	inline const std::filesystem::path overlay_fsh = "shaders/overlay.frag";       // "shaders/normalize.frag"
+	inline const std::filesystem::path overlay_vsh = "shaders/overlay.vert";       // "shaders/normalize.frag"
 
+	inline const std::filesystem::path LINKER_CONFIGURATIONS = "/home/orangepi/varan/calibration/projection.json";     // "/home/orangepi/varan/calibration/projection.json"
+	inline const std::filesystem::path LINKER_IMAGES_PATH = "/home/orangepi/varan/calibration/images";                 // "/home/orangepi/varan/calibration/images"
+	 
 	inline const std::filesystem::path current_shader_path(const std::filesystem::path& shader) {
 		return std::filesystem::current_path() / shader;
 	}
