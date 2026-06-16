@@ -48,7 +48,7 @@ interface CameraFormData {
 }
 
 type ProbeStatus = 'idle' | 'creating' | 'streaming' | 'error';
-const [ipManualMode, setIpManualMode] = useState(false);
+
 const RESERVED_PREFIXES = ['__probe_'];
 const NAME_REGEX = /^[a-zA-Z_][a-zA-Z0-9_-]{1,31}$/;
 const IP_REGEX = /^((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/;
@@ -154,7 +154,7 @@ const CameraSettings: React.FC = () => {
     const [openDialog, setOpenDialog] = useState(false);
     const [editMode, setEditMode] = useState(false);
     const [selectedTab, setSelectedTab] = useState(0);
-
+    const [ipManualMode, setIpManualMode] = useState(false);
     const [formData, setFormData] = useState<CameraFormData>(DEFAULT_FORM);
     const [showPassword, setShowPassword] = useState(false);
 
