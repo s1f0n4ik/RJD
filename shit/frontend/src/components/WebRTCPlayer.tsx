@@ -161,6 +161,15 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
     };
 
     useEffect(() => {
+      const el = videoRef.current;
+      if (!el) return;
+
+      if (status !== 'connected' && document.fullscreenElement === el) {
+        document.exitFullscreen().catch(() => {});
+      }
+    }, [status]);
+
+    useEffect(() => {
         isMountedRef.current = true;
         clientIdRef.current = `client_${Math.random().toString(36).substr(2, 9)}`;
 

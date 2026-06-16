@@ -248,15 +248,28 @@ const KioskView: React.FC = () => {
 
   // === Меню ячейки ===
   const handleCellFullscreen = (cellId: number | string) => {
-    const videoElement = document
-      .getElementById(`kiosk-cell-${cellId}`)
-      ?.querySelector('video');
-    if (videoElement && videoElement.requestFullscreen) {
-      videoElement.requestFullscreen().catch(err =>
+      const videoElement = document
+        .getElementById(`kiosk-cell-${cellId}`)
+        ?.querySelector('video') as HTMLVideoElement | null;
+
+      if (!videoElement) return;
+
+      const stream = videoElement.srcObject as MediaStream | null;
+      const hasLiveTrack =
+        !!stream && stream.getVideoTracks().some((t) => t.readyState === 'live');
+
+      const hasBufferedVideo = videoElement.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA;
+
+      // если нет живого потока — fullscreen не открываем
+      if (!hasLiveTrack || !hasBufferedVideo) {
+        console.warn(`[Kiosk] Fullscreen blocked: no live video in cell ${cellId}`);
+        return;
+      }
+
+      videoElement.requestFullscreen?.().catch((err) =>
         console.error('Fullscreen failed:', err)
       );
-    }
-  };
+    };
 
   const handleCellRemove = (cellId: number | string) => {
     if (!layout) return;

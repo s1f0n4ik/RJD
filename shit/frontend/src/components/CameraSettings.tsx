@@ -48,7 +48,7 @@ interface CameraFormData {
 }
 
 type ProbeStatus = 'idle' | 'creating' | 'streaming' | 'error';
-
+const [ipManualMode, setIpManualMode] = useState(false);
 const RESERVED_PREFIXES = ['__probe_'];
 const NAME_REGEX = /^[a-zA-Z_][a-zA-Z0-9_-]{1,31}$/;
 const IP_REGEX = /^((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/;
@@ -251,6 +251,7 @@ const CameraSettings: React.FC = () => {
     const handleOpenAddDialog = () => {
         setEditMode(false);
         setFormData({ ...DEFAULT_FORM });
+        setIpManualMode(false);
         setSelectedTab(0);
         setOpenDialog(true);
     };
@@ -278,6 +279,8 @@ const CameraSettings: React.FC = () => {
             sub_reconnect: camera.streams.sub.reconnect,
             to_record: camera.streams.main.to_record,
         });
+        const inPool = buildIpPool().includes(camera.ip_adress);
+        setIpManualMode(!inPool);
         editOriginalRef.current = camera;
         setSelectedTab(0);
         setOpenDialog(true);
@@ -807,37 +810,64 @@ const CameraSettings: React.FC = () => {
                                     </Grid>
 
                                     <Grid item xs={12} sm={8}>
-                                        <FormControl
-                                            fullWidth required
-                                            error={!!formData.ip_adress && !ipValidation.valid}
+                                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
+                                        <Typography variant="caption" color="text.secondary">IP-адрес</Typography>
+                                        <Button
+                                          size="small"
+                                          onClick={() => {
+                                            setIpManualMode((prev) => {
+                                              const next = !prev;
+                                              // если возвращаемся в режим пула и IP не из пула — очищаем
+                                              if (!next && !ipPool.includes(formData.ip_adress)) {
+                                                handleInputChange('ip_adress', '');
+                                              }
+                                              return next;
+                                            });
+                                          }}
                                         >
-                                            <InputLabel id="ip-select-label">IP-адрес</InputLabel>
-                                            <Select
-                                                labelId="ip-select-label"
-                                                label="IP-адрес"
-                                                value={formData.ip_adress}
-                                                onChange={(e) => handleInputChange('ip_adress', e.target.value)}
-                                                sx={{ fontFamily: 'monospace' }}
-                                            >
-                                                <MenuItem value="">
-                                                    <em>— не выбран —</em>
+                                          {ipManualMode ? 'Выбрать из пула' : 'Ввести вручную'}
+                                        </Button>
+                                      </Box>
+
+                                      {!ipManualMode ? (
+                                        <FormControl fullWidth required error={!!formData.ip_adress && !ipValidation.valid}>
+                                          <InputLabel id="ip-select-label">IP-адрес</InputLabel>
+                                          <Select
+                                            labelId="ip-select-label"
+                                            label="IP-адрес"
+                                            value={formData.ip_adress}
+                                            onChange={(e) => handleInputChange('ip_adress', e.target.value)}
+                                            sx={{ fontFamily: 'monospace' }}
+                                          >
+                                            <MenuItem value="">
+                                              <em>— не выбран —</em>
+                                            </MenuItem>
+                                            {ipPool.map(ip => {
+                                              const taken = usedIps.has(ip);
+                                              return (
+                                                <MenuItem key={ip} value={ip} disabled={taken} sx={{ fontFamily: 'monospace' }}>
+                                                  {ip}{taken ? ' — занят' : ''}
                                                 </MenuItem>
-                                                {ipPool.map(ip => {
-                                                    const taken = usedIps.has(ip);
-                                                    return (
-                                                        <MenuItem
-                                                            key={ip} value={ip} disabled={taken}
-                                                            sx={{ fontFamily: 'monospace' }}
-                                                        >
-                                                            {ip}{taken ? ' — занят' : ''}
-                                                        </MenuItem>
-                                                    );
-                                                })}
-                                            </Select>
-                                            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, ml: 1.5 }}>
-                                                Пул: {IP_POOL_PREFIX}{IP_POOL_FROM}–{IP_POOL_TO}
-                                            </Typography>
+                                              );
+                                            })}
+                                          </Select>
+                                          <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, ml: 1.5 }}>
+                                            Пул: {IP_POOL_PREFIX}{IP_POOL_FROM}–{IP_POOL_TO}
+                                          </Typography>
                                         </FormControl>
+                                      ) : (
+                                        <TextField
+                                          fullWidth
+                                          required
+                                          label="IP-адрес (ручной ввод)"
+                                          value={formData.ip_adress}
+                                          onChange={(e) => handleInputChange('ip_adress', e.target.value.trim())}
+                                          error={!ipValidation.valid}
+                                          helperText={ipValidation.error || ' '}
+                                          placeholder="192.168.1.50"
+                                          InputProps={{ sx: { fontFamily: 'monospace' } }}
+                                        />
+                                      )}
                                     </Grid>
                                     <Grid item xs={12} sm={4}>
                                         <TextField
