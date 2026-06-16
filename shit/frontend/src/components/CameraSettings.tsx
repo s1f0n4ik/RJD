@@ -277,7 +277,7 @@ const CameraSettings: React.FC = () => {
             sub_latency: camera.streams.sub.latency,
             sub_use_udp: camera.streams.sub.use_udp,
             sub_reconnect: camera.streams.sub.reconnect,
-            to_record: camera.streams.main.to_record,
+            to_record: camera.streams.main.to_record ?? false,
         });
         const inPool = buildIpPool().includes(camera.ip_adress);
         setIpManualMode(!inPool);
@@ -329,6 +329,7 @@ const CameraSettings: React.FC = () => {
                     latency: formData.main_latency,
                     use_udp: formData.main_use_udp,
                     reconnect: formData.main_reconnect,
+                    to_record: false,
                     record_path: '/storage/internal',
                     segment: 0,
                 },
@@ -338,6 +339,7 @@ const CameraSettings: React.FC = () => {
                     latency: formData.sub_latency,
                     use_udp: formData.sub_use_udp,
                     reconnect: formData.sub_reconnect,
+                    to_record: false,
                     record_path: '',
                     segment: 0,
                 },
@@ -652,8 +654,7 @@ const CameraSettings: React.FC = () => {
                             </TableRow>
                         ) : (
                             sortedCameras.map((camera, index) => {
-                                const recOn = (camera.streams?.main?.segment ?? 0) > 0 &&
-                                    (camera.streams?.main?.record_path ?? "") !== "";
+                                const recOn = camera.streams?.main?.to_record ?? false;
                                 return (
                                     <TableRow key={camera.id} hover>
                                         <TableCell>
@@ -679,7 +680,7 @@ const CameraSettings: React.FC = () => {
                                             {recOn ? (
                                                 <Chip
                                                     icon={<RecIcon sx={{ color: '#e53935 !important' }} />}
-                                                    label={`REC ${camera.streams.main.segment}мин`}
+                                                    label={`REC ${camera.streams.main.segment}сек`}
                                                     size="small"
                                                     variant="outlined"
                                                     sx={{ borderColor: '#e53935', color: '#e53935', borderRadius: 1 }}
@@ -1082,7 +1083,7 @@ const CameraSettings: React.FC = () => {
                                     <Grid item xs={12} sm={6}>
                                         <TextField
                                             fullWidth
-                                            label="Длительность сегмента, мин"
+                                            label="Длительность сегмента, сек"
                                             type="number"
                                             value={formData.main_segment}
                                             onChange={(e) => handleInputChange('main_segment', parseInt(e.target.value) || 0)}
@@ -1196,7 +1197,7 @@ const CameraSettings: React.FC = () => {
                                             <Box>
                                                 <Typography variant="caption" color="text.secondary">Запись</Typography>
                                                 <Typography sx={{ fontFamily: 'monospace' }}>
-                                                    {formData.to_record ? `вкл, ${formData.main_segment} мин` : 'выкл'}
+                                                    {formData.to_record ? `вкл, ${formData.main_segment} сек` : 'выкл'}
                                                 </Typography>
                                             </Box>
                                         </Box>
