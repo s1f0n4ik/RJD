@@ -15,7 +15,7 @@ import {
   Close as CloseIcon,
     Settings as SettingsIcon,
 } from '@mui/icons-material';
-import WebRTCPlayer from './WebRTCPlayer';
+import { PlayerFactory, makeCameraTypeGetter } from './WebRTCPlayerFactory';
 import { api } from '../services/api';
 import type { CPPCamera } from '../types';
 import { wsUrl } from '../utils/constants';
@@ -57,6 +57,8 @@ const KioskView: React.FC = () => {
 
   const [activeCellsOverride, setActiveCellsOverride] = useState<Record<number | string, string> | null>(null);
 
+  const getCameraType = makeCameraTypeGetter(cameras);
+
   // 🆕 Состояние drag-n-drop
   const [draggedCamera, setDraggedCamera] = useState<string | null>(null);
   const [dragOverCellId, setDragOverCellId] = useState<number | string | null>(null);
@@ -74,14 +76,6 @@ const KioskView: React.FC = () => {
             gridSize: "single",
             activeCells: {
                 single: "linker_360", // фиксированная камера
-            },
-            timestamp: Date.now(),
-        },
-        {
-            name: "Контроль опасностей на пути",
-            gridSize: "single",
-            activeCells: {
-                single: "neural_loader_1", // фиксированная камера
             },
             timestamp: Date.now(),
         }
@@ -397,13 +391,13 @@ const KioskView: React.FC = () => {
       >
         {cameraName ? (
           <>
-            <WebRTCPlayer
-              key={`kiosk-${cellId}-${cameraName}`}
-              cameraId={cameraName}
-              cameraName={getCameraDisplayName(cameraName)}
-              signalingUrl={wsUrl(`/signaling/client/${cameraName}`)}
-              onError={(err) => console.error(`Kiosk error ${cameraName}:`, err)}
-            />
+              <PlayerFactory
+                  cameraType={getCameraType(cameraName)}
+                  cameraId={cameraName}
+                  cameraName={getCameraDisplayName(cameraName)}
+                  signalingUrl={wsUrl(`/signaling/client/${cameraName}`)}
+                  onError={(e) => console.error(e)}
+              />
 
             <CellMenu
               cellId={cellId}
@@ -659,137 +653,164 @@ const KioskView: React.FC = () => {
       </Box>
 
       {/* Боковая панель: variant="persistent" + убран backdrop */}
-      <Drawer
-          anchor="left"
-          open={drawerOpen}
-          onClose={() => setDrawerOpen(false)}
-          variant="persistent"
-          ModalProps={{
-            keepMounted: true,
-            hideBackdrop: true,
-            disableEnforceFocus: true,
-            disableAutoFocus: true,
-            disableRestoreFocus: true,
-          }}
-          PaperProps={{
-            sx: {
-              width: 260,
-              bgcolor: '#1a1a1a',
-              color: 'white',
-              zIndex: 1300, // 🔑 выше шторки (1200)
-              pt: controlsVisible ? '56px' : 0, // 🔑 отступ сверху, когда шторка видна
-              transition: 'padding-top 0.25s ease',
-            }
-          }}
+        <Drawer
+            anchor="left"
+            open={drawerOpen}
+            onClose={() => setDrawerOpen(false)}
+            variant="persistent"
+            ModalProps={{
+                keepMounted: true,
+                hideBackdrop: true,
+                disableEnforceFocus: true,
+                disableAutoFocus: true,
+                disableRestoreFocus: true,
+            }}
+            PaperProps={{
+                sx: {
+                    width: 260,
+                    bgcolor: '#1a1a1a',
+                    color: 'white',
+                    zIndex: 1300,
+                    pt: controlsVisible ? '56px' : 0,
+                    transition: 'padding-top 0.25s ease',
+                    // Сам Drawer не скроллируется — только список внутри
+                    overflow: 'hidden',
+                    display: 'flex',
+                    flexDirection: 'column',
+                }
+            }}
         >
-        <Box sx={{ p: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Typography variant="subtitle1" fontWeight="bold">   Камеры</Typography>
-          <IconButton size="small" sx={{ color: 'white' }} onClick={() => setDrawerOpen(false)}>
-            <CloseIcon />
-          </IconButton>
-        </Box>
-        <Divider sx={{ borderColor: 'grey.800' }} />
-        <Typography variant="caption" sx={{ px: 2, pt: 1, color: 'grey.500', display: 'block' }}>
-          {isTouch
-            ? 'Тап по камере → тап по ячейке. Двойной тап — освободить.'
-            : 'Перетащите камеру в ячейку или: клик по камере → клик по ячейке. Двойной клик по ячейке — освободить.'}
-        </Typography>
-        <List dense>
-          {cameras.map(camera => {
-            const isActive = getCameraStatus(camera.id);
-            const isUsed = Object.values(effectiveActiveCells).includes(camera.id);
-            const isBeingDragged = draggedCamera === camera.id;
-            const isSelected = selectedCamera === camera.id;
-            return (
-              <ListItem
-                key={camera.id}
-                draggable
-                onDragStart={(e) => handleDragStart(e, camera.id)}
-                onDragEnd={handleDragEnd}
-                onClick={() => {
-                  setSelectedCamera(prev => (prev === camera.id ? null : camera.id));
-                }}
-                sx={{
-                  cursor: 'grab',
-                  opacity: isBeingDragged ? 0.5 : 1,
-                  // bgcolor: isUsed ? 'rgba(76,175,80,0.15)' : 'transparent',
-                  // borderLeft: isUsed ? '3px solid #4caf50' : '3px solid transparent',
-                  // '&:active': { cursor: 'grabbing' },
-                  // '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' },
-                  bgcolor: isSelected
-                  ? 'rgba(33, 150, 243, 0.35)'             // 🆕 выбранная — синяя
-                  : isUsed
-                  ? 'rgba(76,175,80,0.15)'
-                  : 'transparent',
-                borderLeft: isSelected
-                  ? '3px solid #2196f3'                    // 🆕
-                  : isUsed
-                  ? '3px solid #4caf50'
-                  : '3px solid transparent',
-                '&:active': { cursor: 'grabbing' },
-                '&:hover': {
-                  bgcolor: isSelected
-                    ? 'rgba(33, 150, 243, 0.45)'
-                    : 'rgba(255,255,255,0.08)'
-                },
-                }}
-              >
-                <ListItemIcon sx={{ minWidth: 32 }}>
-                  <DragIndicatorIcon sx={{ color: 'grey.600', fontSize: 16, mr: -0.5 }} />
-                  {isActive
-                    ? <CheckCircleIcon sx={{ color: 'success.main', fontSize: 18 }} />
-                    : <ErrorIcon sx={{ color: 'grey.600', fontSize: 18 }} />}
-                </ListItemIcon>
-                  <ListItemText
-                      primary={camera.display_name || camera.id}
-                      secondary={camera.display_name ? camera.id : undefined}
-                      primaryTypographyProps={{
-                          fontSize: '0.85rem',
-                          fontWeight: isSelected ? 600 : 400,
-                      }}
-                      secondaryTypographyProps={{
-                          fontSize: '0.7rem',
-                          color: 'grey.600',
-                          fontFamily: 'monospace',
-                      }}
-                  />
-              </ListItem>
-            );
-          })}
-          {cameras.length === 0 && (
-            <Box sx={{ p: 2 }}>
-              <Typography variant="caption" color="grey.500">
-                Нет доступных камер
-              </Typography>
+            {/* Заголовок — фиксированный, не скроллируется */}
+            <Box sx={{ p: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+                <Typography variant="subtitle1" fontWeight="bold">Камеры</Typography>
+                <IconButton size="small" sx={{ color: 'white' }} onClick={() => setDrawerOpen(false)}>
+                    <CloseIcon />
+                </IconButton>
             </Box>
-          )}
-        </List>
-          <Divider sx={{ borderColor: 'grey.800', mt: 1 }} />
-          <List dense>
-              <ListItem
-                  onClick={() => {
-                      // Если есть токен — в админку, иначе на логин
-                      const hasToken = !!localStorage.getItem('token');
-                      window.location.href = hasToken ? '/app' : '/app';
-                      // Если у тебя логин/админка на разных URL — поменяй второе значение
-                  }}
-                  sx={{
-                      cursor: 'pointer',
-                      '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' },
-                  }}
-              >
-                  <ListItemIcon sx={{ minWidth: 32 }}>
-                      <SettingsIcon sx={{ color: 'grey.400', fontSize: 18 }} />
-                  </ListItemIcon>
-                  <ListItemText
-                      primary="Настройки"
-                      primaryTypographyProps={{
-                          fontSize: '0.85rem',
-                      }}
-                  />
-              </ListItem>
-          </List>
-      </Drawer>
+            <Divider sx={{ borderColor: 'grey.800', flexShrink: 0 }} />
+            <Typography variant="caption" sx={{ px: 2, pt: 1, pb: 0.5, color: 'grey.500', display: 'block', flexShrink: 0 }}>
+                {isTouch
+                    ? 'Тап по камере → тап по ячейке.'
+                    : 'Перетащите или клик → клик по ячейке.'}
+            </Typography>
+
+            {/* Список камер — скроллируется, занимает всё доступное пространство */}
+            <List
+                dense
+                sx={{
+                    flexGrow: 1,
+                    overflowY: 'auto',
+                    overflowX: 'hidden',
+
+                    // Тонкий стилизованный скроллбар
+                    '&::-webkit-scrollbar': {
+                        width: '4px',
+                    },
+                    '&::-webkit-scrollbar-track': {
+                        background: 'transparent',
+                    },
+                    '&::-webkit-scrollbar-thumb': {
+                        background: 'rgba(255,255,255,0.15)',
+                        borderRadius: '2px',
+                        '&:hover': {
+                            background: 'rgba(255,255,255,0.3)',
+                        },
+                    },
+                    // Firefox
+                    scrollbarWidth: 'thin',
+                    scrollbarColor: 'rgba(255,255,255,0.15) transparent',
+                }}
+            >
+                {cameras.map(camera => {
+                    const isActive = getCameraStatus(camera.id);
+                    const isUsed = Object.values(effectiveActiveCells).includes(camera.id);
+                    const isBeingDragged = draggedCamera === camera.id;
+                    const isSelected = selectedCamera === camera.id;
+                    return (
+                        <ListItem
+                            key={camera.id}
+                            draggable
+                            onDragStart={(e) => handleDragStart(e, camera.id)}
+                            onDragEnd={handleDragEnd}
+                            onClick={() => {
+                                setSelectedCamera(prev => (prev === camera.id ? null : camera.id));
+                            }}
+                            sx={{
+                                cursor: 'grab',
+                                opacity: isBeingDragged ? 0.5 : 1,
+                                // bgcolor: isUsed ? 'rgba(76,175,80,0.15)' : 'transparent',
+                                // borderLeft: isUsed ? '3px solid #4caf50' : '3px solid transparent',
+                                // '&:active': { cursor: 'grabbing' },
+                                // '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' },
+                                bgcolor: isSelected
+                                    ? 'rgba(33, 150, 243, 0.35)'             // 🆕 выбранная — синяя
+                                    : isUsed
+                                        ? 'rgba(76,175,80,0.15)'
+                                        : 'transparent',
+                                borderLeft: isSelected
+                                    ? '3px solid #2196f3'                    // 🆕
+                                    : isUsed
+                                        ? '3px solid #4caf50'
+                                        : '3px solid transparent',
+                                '&:active': { cursor: 'grabbing' },
+                                '&:hover': {
+                                    bgcolor: isSelected
+                                        ? 'rgba(33, 150, 243, 0.45)'
+                                        : 'rgba(255,255,255,0.08)'
+                                },
+                            }}
+                        >
+                            <ListItemIcon sx={{ minWidth: 32 }}>
+                                <DragIndicatorIcon sx={{ color: 'grey.600', fontSize: 16, mr: -0.5 }} />
+                                {isActive
+                                    ? <CheckCircleIcon sx={{ color: 'success.main', fontSize: 18 }} />
+                                    : <ErrorIcon sx={{ color: 'grey.600', fontSize: 18 }} />}
+                            </ListItemIcon>
+                            <ListItemText
+                                primary={camera.display_name || camera.id}
+                                secondary={camera.display_name ? camera.id : undefined}
+                                primaryTypographyProps={{
+                                    fontSize: '0.85rem',
+                                    fontWeight: isSelected ? 600 : 400,
+                                }}
+                                secondaryTypographyProps={{
+                                    fontSize: '0.7rem',
+                                    color: 'grey.600',
+                                    fontFamily: 'monospace',
+                                }}
+                            />
+                        </ListItem>
+                    );
+                })}
+                {cameras.length === 0 && (
+                    <Box sx={{ p: 2 }}>
+                        <Typography variant="caption" color="grey.500">
+                            Нет доступных камер
+                        </Typography>
+                    </Box>
+                )}
+            </List>
+
+            {/* Футер — фиксированный, не скроллируется */}
+            <Divider sx={{ borderColor: 'grey.800', flexShrink: 0 }} />
+            <List dense sx={{ flexShrink: 0 }}>
+                <ListItem
+                    onClick={() => { window.location.href = '/app'; }}
+                    sx={{
+                        cursor: 'pointer',
+                        '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' },
+                    }}
+                >
+                    <ListItemIcon sx={{ minWidth: 32 }}>
+                        <SettingsIcon sx={{ color: 'grey.400', fontSize: 18 }} />
+                    </ListItemIcon>
+                    <ListItemText
+                        primary="Настройки"
+                        primaryTypographyProps={{ fontSize: '0.85rem' }}
+                    />
+                </ListItem>
+            </List>
+        </Drawer>
     </Box>
   );
 };
