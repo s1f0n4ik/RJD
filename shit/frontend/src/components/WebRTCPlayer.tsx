@@ -2,14 +2,25 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Box, Typography, CircularProgress, Paper } from '@mui/material';
 import { Error as ErrorIcon } from '@mui/icons-material';
 
+export interface Detection {
+    id:          number;
+    name:        string;
+    color:       string;       // hex из конфига класса
+    superclass:  string;
+    confidence?: number;       // 0..1, опционально
+    // rect: сервер шлёт либо массив [x1,y1,x2,y2], либо объект {x,y,w,h}
+    rect: [number, number, number, number] | { x: number; y: number; w: number; h: number };
+}
+
 interface WebRTCPlayerProps {
     cameraId: string;
     cameraName?: string;
     signalingUrl: string;
     onError?: (error: string) => void;
+    onDetections?:  (detections: Detection[]) => void;
 }
 
-const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signalingUrl, onError }) => {
+const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signalingUrl, onError, onDetections }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const [status, setStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
     const [errorMsg, setErrorMsg] = useState<string>('');
@@ -283,6 +294,12 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
 
                 if (msg.type === 'ice') {
                     await handleIceCandidate(msg);
+                }
+
+                if (msg.type === 'neural') {
+                    if (onDetections && Array.isArray(msg.meta?.detections)) {
+                        onDetections(msg.meta.detections);
+                    }
                 }
             };
 

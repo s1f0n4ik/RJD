@@ -36,7 +36,7 @@ import {
   Delete as DeleteIcon,
   Visibility as VisibilityIcon
 } from '@mui/icons-material';
-import WebRTCPlayer from './WebRTCPlayer';
+import { PlayerFactory, makeCameraTypeGetter } from './WebRTCPlayerFactory';
 import { api } from '../services/api';
 import { wsUrl } from '../utils/constants';
 import type { CPPCamera } from '../types';
@@ -472,6 +472,8 @@ const Observation: React.FC = () => {
     return camera?.streams?.main?.status === 3;
   };
 
+  const getCameraType = makeCameraTypeGetter(cameras);
+
   const isCameraUsedInGrid = (cameraName: string): boolean => {
       return Object.values(activeCells).includes(cameraName);
     };
@@ -547,13 +549,13 @@ const Observation: React.FC = () => {
             >
               {cameraName ? (
                 <>
-                  <WebRTCPlayer
-                    key={`player-${cell.id}-${cameraName}`}
+                <PlayerFactory
+                    cameraType={getCameraType(cameraName)}
                     cameraId={cameraName}
                     cameraName={getCameraDisplayName(cameraName)}
                     signalingUrl={wsUrl(`/signaling/client/${cameraName}`)}
-                    onError={(err) => console.error(`Error in ${cameraName}:`, err)}
-                  />
+                    onError={(e) => console.error(e)}
+                />
                   <CellMenu
                     cellId={cell.id}
                     onFullscreen={handleFullscreenCell}
@@ -610,12 +612,12 @@ const Observation: React.FC = () => {
       >
         {cameraName ? (
           <>
-          <WebRTCPlayer
-            key={`player-${cellId}-${cameraName}`}
-            cameraId={cameraName}
-            cameraName={getCameraDisplayName(cameraName)}
-            signalingUrl={wsUrl(`/signaling/client/${cameraName}`)}
-            onError={(err) => console.error(`Error in ${cameraName}:`, err)}
+          <PlayerFactory
+              cameraType={getCameraType(cameraName)}
+              cameraId={cameraName}
+              cameraName={getCameraDisplayName(cameraName)}
+              signalingUrl={wsUrl(`/signaling/client/${cameraName}`)}
+              onError={(e) => console.error(e)}
           />
             <CellMenu
               cellId={cellId}

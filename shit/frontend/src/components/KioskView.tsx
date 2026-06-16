@@ -15,7 +15,7 @@ import {
   Close as CloseIcon,
     Settings as SettingsIcon,
 } from '@mui/icons-material';
-import WebRTCPlayer from './WebRTCPlayer';
+import { PlayerFactory, makeCameraTypeGetter } from './WebRTCPlayerFactory';
 import { api } from '../services/api';
 import type { CPPCamera } from '../types';
 import { wsUrl } from '../utils/constants';
@@ -56,6 +56,8 @@ const KioskView: React.FC = () => {
   const hideTimerRef = useRef<number | null>(null);
 
   const [activeCellsOverride, setActiveCellsOverride] = useState<Record<number | string, string> | null>(null);
+
+  const getCameraType = makeCameraTypeGetter(cameras);
 
   // 🆕 Состояние drag-n-drop
   const [draggedCamera, setDraggedCamera] = useState<string | null>(null);
@@ -397,13 +399,13 @@ const KioskView: React.FC = () => {
       >
         {cameraName ? (
           <>
-            <WebRTCPlayer
-              key={`kiosk-${cellId}-${cameraName}`}
-              cameraId={cameraName}
-              cameraName={getCameraDisplayName(cameraName)}
-              signalingUrl={wsUrl(`/signaling/client/${cameraName}`)}
-              onError={(err) => console.error(`Kiosk error ${cameraName}:`, err)}
-            />
+              <PlayerFactory
+                  cameraType={getCameraType(cameraName)}
+                  cameraId={cameraName}
+                  cameraName={getCameraDisplayName(cameraName)}
+                  signalingUrl={wsUrl(`/signaling/client/${cameraName}`)}
+                  onError={(e) => console.error(e)}
+              />
 
             <CellMenu
               cellId={cellId}
