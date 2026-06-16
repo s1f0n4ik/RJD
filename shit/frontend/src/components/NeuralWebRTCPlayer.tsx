@@ -31,9 +31,9 @@ interface NeuralWebRTCPlayerProps {
 const FONT_SIZE    = 12;   // px
 const FONT_FAMILY  = 'monospace';
 const RECT_LINE_W  = 2;    // px
-const LABEL_PAD_H  = 4;    // px
+const LABEL_PAD_H  = 2;    // px
 const LABEL_PAD_W  = 6;    // px
-const LABEL_OFFSET = 2;    // px above rect
+const LABEL_OFFSET = -2;    // px above rect
 
 // Fallback palette when server doesn't provide color
 const FALLBACK_COLORS = [
