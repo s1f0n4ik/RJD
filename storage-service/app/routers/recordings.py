@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 from app.config import settings
 from app.services.jobs import JobStatus, jobs
-from app.services.merger import run_merge_job
+from app.services.merger import run_merge_job, run_archive_job
 from app.services.storage import storage
 
 logger = logging.getLogger(__name__)
