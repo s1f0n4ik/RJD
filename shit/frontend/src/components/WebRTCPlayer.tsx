@@ -337,6 +337,7 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:91.151.186.105:3478' },
+                { urls: 'stun:172.25.78.169:3478' },
                 {
                     urls: 'turn:91.151.186.105:3478',
                     username: 'niac',
