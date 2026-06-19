@@ -95,26 +95,28 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 	g_object_set(m_webrtcbin,
 		"latency", 0,
 		"bundle-policy", GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE,
-		"stun-server", "stun:stun.l.google.com:19302",
+		"stun-server", "stun://91.151.186.105:3478",  // свой STUN основной
 		nullptr
 	);
 
+	// Свой TURN — основной
 	gboolean ret_turn = FALSE;
-	g_signal_emit_by_name(
-		m_webrtcbin,
-		"add-turn-server",
-		"turn://niac:VniiTest@172.25.78.169:3478?transport=udp",
-		&ret_turn
-	);
-	if (m_logger) m_logger->debug("added turn server 172.25.78.169:3478: " + ret_turn ? "success" : "failed");
-
 	g_signal_emit_by_name(
 		m_webrtcbin,
 		"add-turn-server",
 		"turn://niac:VniiTest@91.151.186.105:3478?transport=udp",
 		&ret_turn
 	);
-	if (m_logger) m_logger->debug("added turn server 91.151.186.105:3478: " + ret_turn ? "success" : "failed");
+	if (m_logger) m_logger->debug(std::string("added turn server 91.151.186.105:3478: ") + (ret_turn ? "success" : "failed"));
+
+	// Внутренний TURN — запасной (если 172.25.78.169 доступен в локалке)
+	g_signal_emit_by_name(
+		m_webrtcbin,
+		"add-turn-server",
+		"turn://niac:VniiTest@172.25.78.169:3478?transport=udp",
+		&ret_turn
+	);
+	if (m_logger) m_logger->debug(std::string("added turn server 172.25.78.169:3478: ") + (ret_turn ? "success" : "failed"));
 
 	if (m_pay) {
 		gst_bin_add_many(GST_BIN(m_pipeline), m_queue, m_pay, m_webrtcbin, nullptr);
@@ -426,16 +428,16 @@ bool UWebRTCSession::add_ice_candidate(const boost::json::object& message, std::
 		m_logger->receive(oss.str());
 	}
 
-	//if (candidate.find(".local") != std::string::npos) {
-	//	description = get_session_name() + ": Ignore mDNS candidate: " + candidate;
-	//	m_logger->warn(description);
-	//	return true;
-	//}
-	//else {
-		g_signal_emit_by_name(m_webrtcbin, "add-ice-candidate", mline_index, candidate.c_str());
-		description = get_session_name() + ": Added ICE candidate!";
+	// Фильтруем mDNS .local кандидаты — камера не умеет их резолвить
+	if (candidate.find(".local") != std::string::npos) {
+		description = get_session_name() + ": Ignore mDNS candidate: " + candidate;
+		m_logger->warn(description);
 		return true;
-	//}
+	}
+
+	g_signal_emit_by_name(m_webrtcbin, "add-ice-candidate", mline_index, candidate.c_str());
+	description = get_session_name() + ": Added ICE candidate!";
+	return true;
 }
 
 void UWebRTCSession::on_negotiation_needed(GstElement* webrtcbin, gpointer data) {
