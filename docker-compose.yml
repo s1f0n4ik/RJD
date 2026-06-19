@@ -41,6 +41,7 @@ services:
       dockerfile: Dockerfile
     container_name: storage-service
     network_mode: host
+    user: "1000:1000"
     environment:
       - RECORDS_PATH=/storage/internal
       - MAX_STORAGE_GB=100
