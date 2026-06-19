@@ -428,7 +428,6 @@ bool UWebRTCSession::add_ice_candidate(const boost::json::object& message, std::
 		m_logger->receive(oss.str());
 	}
 
-	// Фильтруем mDNS .local кандидаты — камера не умеет их резолвить
 	if (candidate.find(".local") != std::string::npos) {
 		description = get_session_name() + ": Ignore mDNS candidate: " + candidate;
 		m_logger->warn(description);
