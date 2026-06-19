@@ -537,13 +537,15 @@ void UWebRTCSession::send_close_request(const std::string& client_id, std::strin
 void UWebRTCSession::on_ice_candidate(GstElement* webrtcbin, guint mlineindex, gchar* candidate, gpointer data) {
 	auto self = static_cast<UWebRTCSession*>(data);
 
+	// Добавить эту строку:
+	self->get_logger()->debug("Sending ICE candidate to client: " + std::string(candidate));
+
 	boost::json::object ice_msg = self->make_json(true, "ice", "Sending Ice candidate");
 	ice_msg[SIG_ICE_CANDIDATE] = std::string(candidate);
 	ice_msg[SIG_ICE_LINE_INDEX] = static_cast<int>(mlineindex);
 
 	std::string serialized_ice_message = boost::json::serialize(ice_msg);
 	self->send_message(serialized_ice_message);
-	//self->get_logger()->debug(self->get_session_name() + ": sended ICE candidate!");
 }
 
 void UWebRTCSession::on_connection_state_changed(GObject* obj, GParamSpec*, gpointer user_data)
