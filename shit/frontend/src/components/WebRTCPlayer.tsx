@@ -336,13 +336,14 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
         const pc = new RTCPeerConnection({
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:91.151.186.105:3478' },
                 {
-                    urls: 'turn:172.25.78.169:3478',
+                    urls: 'turn:91.151.186.105:3478',
                     username: 'niac',
                     credential: 'VniiTest'
                 },
                 {
-                    urls: 'turn:91.151.186.105:3478',
+                    urls: 'turn:172.25.78.169:3478',
                     username: 'niac',
                     credential: 'VniiTest'
                 }
