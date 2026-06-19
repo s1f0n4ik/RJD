@@ -2,5 +2,6 @@ out/
 .vs/
 .idea/
 media-center/build/
+docker-compose.yml
 
 CMakePresets.json
