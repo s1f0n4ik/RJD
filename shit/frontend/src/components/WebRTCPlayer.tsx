@@ -325,28 +325,6 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
                     setStatus('error');
                     setErrorMsg(humanMsg);
                     onError?.(errorCode);
-
-                    // Закрываем WebRTC если был установлен — поток всё равно умер
-                    // Не делаем scheduleReconnect: сервер сам перезапустит pipeline
-                    // и после этого пришлёт нормальный connection flow
-                    if (pcRef.current) {
-                        closeWebRTC();
-                        sendCloseRequest();
-                    }
-
-                    // Очищаем таймеры чтобы не было двойного reconnect
-                    if (connectionTimeoutRef.current) {
-                        clearTimeout(connectionTimeoutRef.current);
-                        connectionTimeoutRef.current = null;
-                    }
-                    if (connectionResponseTimeoutRef.current) {
-                        clearTimeout(connectionResponseTimeoutRef.current);
-                        connectionResponseTimeoutRef.current = null;
-                    }
-
-                    // Ждём пока сервер перезапустит pipeline, потом переподключаемся
-                    // Задержка больше чем обычный reconnect — даём серверу время на restart
-                    scheduleReconnect(`stream_error:${errorCode}`);
                 }
             };
 
