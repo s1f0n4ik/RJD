@@ -173,7 +173,7 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
         console.warn(`[${cameraId}] 🔁 Reconnect #${retryAttemptRef.current} in ${delay}ms (reason: ${reason})`);
 
         setStatus('error');
-        setErrorMsg(`Переподключение... (попытка ${retryAttemptRef.current})`);
+        //setErrorMsg(`Переподключение... (попытка ${retryAttemptRef.current})`);
 
         retryTimeoutRef.current = window.setTimeout(() => {
             retryTimeoutRef.current = null;
