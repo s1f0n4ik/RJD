@@ -62,6 +62,8 @@ public:
 
 	ULogger* get_logger();
 
+	bool is_timeout_triggered() const;
+
 private:
 	std::string m_client_id;
 	std::string m_camera_name;
@@ -86,6 +88,9 @@ private:
 	std::atomic<bool> m_is_connected{ false };
 	std::atomic<bool> m_close_requested{ false };
 
+	guint m_connection_timeout_id{ 0 };
+	std::atomic<bool> m_timeout_triggered{ false };
+
 	static void on_negotiation_needed(GstElement* webrtcbin, gpointer data);
 
 	static void on_offer_created(GstPromise* promise, gpointer data);
@@ -99,4 +104,7 @@ private:
 	static void on_ice_state_changed(GObject* obj, GParamSpec*, gpointer user_data);
 
 	void start_offer_timeout();
+
+	static gboolean on_connection_timeout(gpointer user_data);
+	void cancel_connection_timeout();
 };

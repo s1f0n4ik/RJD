@@ -250,6 +250,7 @@ void UWebRTCSession::teardown() {
 
 	m_logger->debug("teardown(): destroying session: " + m_client_id);
 
+	cancel_connection_timeout();
 	// Отключение сигналов
 	g_signal_handlers_disconnect_by_data(m_webrtcbin, this);
 
@@ -354,11 +355,24 @@ bool UWebRTCSession::make_offer(const boost::json::object& message, std::string&
 
 	GstWebRTCSessionDescription* offer = gst_webrtc_session_description_new(GST_WEBRTC_SDP_TYPE_OFFER, sdp);
 
-	g_signal_emit_by_name(m_webrtcbin, "set-remote-description", offer, nullptr);
+	// set-remote-description через Promise — создаём answer только после завершения
+	GstPromise* promise = gst_promise_new_with_change_func(
+		[](GstPromise* promise, gpointer user_data) {
+			auto* self = static_cast<UWebRTCSession*>(user_data);
+			gst_promise_unref(promise);
+
+			GstPromise* answer_promise = gst_promise_new_with_change_func(
+				&UWebRTCSession::on_offer_created, self, nullptr);
+			g_signal_emit_by_name(self->get_webrtcbin_element(),
+				"create-answer", nullptr, answer_promise);
+		},
+		this, nullptr
+	);
+
+	g_signal_emit_by_name(m_webrtcbin, "set-remote-description", offer, promise);
 	gst_webrtc_session_description_free(offer);
 
-	g_signal_emit_by_name(m_webrtcbin, "create-answer", nullptr);
-	description = "Successfully created offer!";
+	description = "Successfully processed offer, creating answer...";
 	return true;
 }
 
@@ -401,14 +415,14 @@ bool UWebRTCSession::add_ice_candidate(const boost::json::object& message, std::
 		candidate = cand_v->as_string();
 	}
 	else {
-		fail = false;
+		fail = true;
 	}
 
 	if (line_v && line_v->is_int64()) {
 		mline_index = static_cast<int>(line_v->as_int64());
 	}
 	else {
-		fail = false;
+		fail = true;
 	}
 
 	if (mid_v && mid_v->is_string()) {
@@ -424,7 +438,7 @@ bool UWebRTCSession::add_ice_candidate(const boost::json::object& message, std::
 		oss << "Recieve ICE candidate:"
 			<< "\n\tcandidate:" << candidate
 			<< "\n\tmline_index:" << mline_index
-			<< "\n\tsdpMid:" << sdpMid.empty() ? "NONE" : sdpMid;
+			<< "\n\tsdpMid:" << (sdpMid.empty() ? "NONE" : sdpMid);
 		m_logger->receive(oss.str());
 	}
 
@@ -450,6 +464,12 @@ void UWebRTCSession::on_negotiation_needed(GstElement* webrtcbin, gpointer data)
 		return;
 	}
 	self->get_logger()->debug("Negotiation needed: Session " + self->get_session_name() + " - creating offer");
+
+	// Запускаем таймаут — если за 10 сек не подключился, закрываем сессию
+	//if (self->m_connection_timeout_id == 0) {
+	//	self->m_connection_timeout_id = g_timeout_add_seconds(10, &UWebRTCSession::on_connection_timeout, self);
+	//	self->get_logger()->debug("Connection timeout timer started for " + self->get_session_name());
+	//}
 
 	auto promise = gst_promise_new_with_change_func(&UWebRTCSession::on_offer_created, self, nullptr);
 	if (!promise) {
@@ -480,10 +500,13 @@ void UWebRTCSession::on_offer_created(GstPromise* promise, gpointer data) {
 	}
 
 	GstWebRTCSessionDescription* offer = nullptr;
+	// Пробуем сначала "offer", потом "answer"
 	if (!gst_structure_get(reply, "offer", GST_TYPE_WEBRTC_SESSION_DESCRIPTION, &offer, nullptr) || !offer) {
-		self->get_logger()->error(self->get_session_name() + ": on_offer_created - cannot get offer from reply");
-		gst_promise_unref(promise);
-		return;
+		if (!gst_structure_get(reply, "answer", GST_TYPE_WEBRTC_SESSION_DESCRIPTION, &offer, nullptr) || !offer) {
+			self->get_logger()->error(self->get_session_name() + ": on_offer_created - cannot get offer/answer from reply");
+			gst_promise_unref(promise);
+			return;
+		}
 	}
 
 	// Устанавливаем локальное описание (offer)
@@ -625,6 +648,35 @@ void UWebRTCSession::on_ice_state_changed(GObject* obj, GParamSpec*, gpointer us
 	}
 }
 
+gboolean UWebRTCSession::on_connection_timeout(gpointer user_data) {
+	auto* self = static_cast<UWebRTCSession*>(user_data);
+	if (!self) return G_SOURCE_REMOVE;
+
+	self->m_connection_timeout_id = 0; // таймер уже сработал, не надо отменять
+
+	if (self->m_is_connected.load()) {
+		// Успели подключиться — всё хорошо
+		self->get_logger()->debug("Connection timeout fired but already connected: " + self->get_session_name());
+		return G_SOURCE_REMOVE;
+	}
+
+	self->get_logger()->warn("Connection timeout! No connection in 10s, closing session: " + self->get_session_name());
+
+	self->m_timeout_triggered.store(true);
+	std::string desc;
+	self->send_close_request(self->get_client_id(), desc);
+
+
+	return G_SOURCE_REMOVE;
+}
+
+void UWebRTCSession::cancel_connection_timeout() {
+	if (m_connection_timeout_id != 0) {
+		g_source_remove(m_connection_timeout_id);
+		m_connection_timeout_id = 0;
+		m_logger->debug("Connection timeout cancelled for " + get_session_name());
+	}
+}
 
 boost::json::object UWebRTCSession::make_json(
 	bool successed,
@@ -663,6 +715,11 @@ ULogger* UWebRTCSession::get_logger() {
 	return m_logger;
 }
 
+bool UWebRTCSession::is_timeout_triggered() const { return m_timeout_triggered.load(); }
+
 void UWebRTCSession::set_connected(bool is_connected) {
 	m_is_connected = is_connected;
+	if (is_connected) {
+		cancel_connection_timeout(); // соединение есть — таймер больше не нужен
+	}
 }

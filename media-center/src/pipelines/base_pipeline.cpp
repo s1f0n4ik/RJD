@@ -544,28 +544,30 @@ bool UCameraPipeline::close_webrtc_session(const std::string& client_id, std::st
         return false;
     }
 
-    // Забираем владение
     std::unique_ptr<UWebRTCSession> session = std::move(it->second);
     m_webrtc_sessions.erase(it);
 
-    // Передаём владение в GLib main loop
+    bool needs_restart = session->is_timeout_triggered();
+
     g_main_context_invoke(nullptr,
         [](gpointer data) -> gboolean {
-            // В data лежит уникальный указатель
             std::unique_ptr<UWebRTCSession> session_ptr(
                 static_cast<UWebRTCSession*>(data)
             );
-
-            // teardown будет вызван внутри main thread
             session_ptr->teardown();
-
-            // session_ptr уничтожится после выхода из лямбды
             return G_SOURCE_REMOVE;
         },
-        session.release() // release передаёт владение
+        session.release()
     );
 
-    description = "Session with " + client_id + " successfully closed!";
+    if (needs_restart) {
+        description = "Session with " + client_id + " closed by timeout, scheduling pipeline restart.";
+        shedule_restart();
+    }
+    else {
+        description = "Session with " + client_id + " closed successfully.";
+    }
+
     return true;
 }
 
