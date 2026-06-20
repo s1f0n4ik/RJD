@@ -131,7 +131,7 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
 
             if (!isMountedRef.current) return;
 
-            scheduleReconnect('no-connection-response');
+            scheduleReconnect('no-connection-response', "Превышено время ожидания ответа от сервера");
         }, 10000);
     };
 
@@ -162,7 +162,7 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
         }
     };
 
-    const scheduleReconnect = (reason: string) => {
+    const scheduleReconnect = (reason: string, display: string) => {
         if (!isMountedRef.current) return;
         if (intentionalCloseRef.current) return;
         if (isRetryingRef.current) return;  // уже запланирован
@@ -173,7 +173,7 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
         console.warn(`[${cameraId}] 🔁 Reconnect #${retryAttemptRef.current} in ${delay}ms (reason: ${reason})`);
 
         setStatus('error');
-        //setErrorMsg(`Переподключение... (попытка ${retryAttemptRef.current})`);
+        setErrorMsg(display ?? "Переподключение");
 
         retryTimeoutRef.current = window.setTimeout(() => {
             retryTimeoutRef.current = null;
@@ -332,7 +332,7 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
                 console.error(`[${cameraId}] ❌ WebSocket error:`, error);
                 if (!isMountedRef.current) return;
                 onError?.('WebSocket error');
-                scheduleReconnect('ws.onerror');
+                scheduleReconnect('ws.onerror', "Ошибка вебсокета");
             };
 
             ws.onclose = (event) => {
@@ -340,7 +340,7 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
                 if (!isMountedRef.current) return;
                 if (intentionalCloseRef.current) return; // мы сами закрыли — не ретраимся
 
-                scheduleReconnect(`ws.onclose code=${event.code}`);
+                scheduleReconnect(`ws.onclose code=${event.code}`, `Ошибка вебсокета ${event.code}`);
             };
 
         } catch (err) {
@@ -456,7 +456,7 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
                 closeWebRTC();
                 sendCloseRequest();
                 // Снова начинает спамить в надежде на ответ
-                scheduleReconnect(`pc=${s}`);
+                scheduleReconnect(`pc=${s}`, "Сессия оборвана");
                 //sendCreateRequest();
             }
         };
@@ -478,7 +478,7 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
             closeWebRTC();
             sendCloseRequest();
             // Снова начинаем срать в вебсокет
-            scheduleReconnect('connection-timeout');
+            scheduleReconnect('connection-timeout', "Превышено время ожидания соединения");
         }, 20000);
     };
 
