@@ -20,6 +20,19 @@ interface WebRTCPlayerProps {
     onDetections?:  (detections: Detection[]) => void;
 }
 
+const STREAM_ERROR_MESSAGES: Record<string, string> = {
+    'RTSP_TIMEOUT':       'Камера не отвечает (таймаут)',
+    'RTSP_NOT_FOUND':     'Поток не найден',
+    'RTSP_UNAUTHORIZED':  'Нет доступа к камере (401)',
+    'RTSP_DISCONNECTED':  'Соединение с камерой прервано',
+    'GST_ERROR':          'Ошибка медиапотока',
+    'EOS':                'Поток завершён',
+};
+
+const getStreamErrorMessage = (error_code: string): string => {
+    return STREAM_ERROR_MESSAGES[error_code] ?? `Ошибка потока: ${error_code}`;
+};
+
 const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signalingUrl, onError, onDetections }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const [status, setStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
@@ -301,6 +314,40 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
                         onDetections(msg.meta.detections);
                     }
                 }
+
+                if (msg.type === 'stream_error') {
+                    const errorCode: string = msg.error_code ?? 'UNKNOWN';
+                    const humanMsg = getStreamErrorMessage(errorCode);
+
+                    console.warn(`[${cameraId}] Stream error: ${errorCode} — ${msg.description}`);
+
+                    // Показываем ошибку пользователю
+                    setStatus('error');
+                    setErrorMsg(humanMsg);
+                    onError?.(errorCode);
+
+                    // Закрываем WebRTC если был установлен — поток всё равно умер
+                    // Не делаем scheduleReconnect: сервер сам перезапустит pipeline
+                    // и после этого пришлёт нормальный connection flow
+                    if (pcRef.current) {
+                        closeWebRTC();
+                        sendCloseRequest();
+                    }
+
+                    // Очищаем таймеры чтобы не было двойного reconnect
+                    if (connectionTimeoutRef.current) {
+                        clearTimeout(connectionTimeoutRef.current);
+                        connectionTimeoutRef.current = null;
+                    }
+                    if (connectionResponseTimeoutRef.current) {
+                        clearTimeout(connectionResponseTimeoutRef.current);
+                        connectionResponseTimeoutRef.current = null;
+                    }
+
+                    // Ждём пока сервер перезапустит pipeline, потом переподключаемся
+                    // Задержка больше чем обычный reconnect — даём серверу время на restart
+                    scheduleReconnect(`stream_error:${errorCode}`);
+                }
             };
 
             ws.onerror = (error) => {
@@ -568,7 +615,17 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
                     sx={{ flexGrow: 1, color: 'white' }}
                 >
                     <ErrorIcon sx={{ fontSize: 48, mb: 2, color: 'error.main' }} />
-                    <Typography>{errorMsg}</Typography>
+                    <Typography align="center" sx={{ px: 2 }}>
+                        {errorMsg}
+                    </Typography>
+                    {retryAttemptRef.current > 0 && (
+                        <Typography
+                            variant="caption"
+                            sx={{ mt: 1, color: 'grey.400' }}
+                        >
+                            Попытка переподключения #{retryAttemptRef.current}...
+                        </Typography>
+                    )}
                 </Box>
             )}
         </Paper>
