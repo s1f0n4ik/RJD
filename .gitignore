@@ -2,4 +2,4 @@ out/
 .vs/
 .idea/
 
-CMakePresets.json
+media-center/CMakePresets.json
