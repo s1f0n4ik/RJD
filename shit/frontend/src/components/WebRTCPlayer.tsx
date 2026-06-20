@@ -118,7 +118,7 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
 
             if (!isMountedRef.current) return;
 
-            sendCreateRequest(); // повторяем запрос
+            scheduleReconnect('no-connection-response');
         }, 10000);
     };
 
@@ -431,7 +431,8 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
                 closeWebRTC();
                 sendCloseRequest();
                 // Снова начинает спамить в надежде на ответ
-                sendCreateRequest();
+                scheduleReconnect(`pc=${s}`);
+                //sendCreateRequest();
             }
         };
 
@@ -452,7 +453,7 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
             closeWebRTC();
             sendCloseRequest();
             // Снова начинаем срать в вебсокет
-            sendCreateRequest();
+            scheduleReconnect('connection-timeout');
         }, 20000);
     };
 
