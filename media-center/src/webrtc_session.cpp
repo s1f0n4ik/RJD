@@ -164,6 +164,37 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 		return m_is_valid;
 	}
 
+	// Создаём структуру для передачи в probe
+	struct BlockCtx {
+		UWebRTCSession* session;
+		GstElement* webrtcbin;
+	};
+	auto* block_ctx = new BlockCtx{ this, m_webrtcbin };
+
+	// Probe который сам снимается когда webrtcbin готов
+	gst_pad_add_probe(m_tee_pad_src,
+		GST_PAD_PROBE_TYPE_BLOCK_DOWNSTREAM,
+		[](GstPad*, GstPadProbeInfo*, gpointer user_data) -> GstPadProbeReturn {
+			auto* ctx = static_cast<BlockCtx*>(user_data);
+
+			GstState cur, pend;
+			GstStateChangeReturn ret = gst_element_get_state(
+				ctx->webrtcbin, &cur, &pend, 0  // неблокирующая проверка
+			);
+
+			if (cur >= GST_STATE_PAUSED) {
+				// webrtcbin готов — снимаем блок
+				delete ctx;
+				return GST_PAD_PROBE_REMOVE;
+			}
+
+			// Ещё не готов — продолжаем блокировать
+			return GST_PAD_PROBE_DROP;
+		},
+		block_ctx,
+		nullptr
+	);
+
 	// Привязываем сигналы протокола к только что созданной сессии
 	g_signal_handlers_disconnect_by_data(m_webrtcbin, this);
 	g_signal_connect(m_webrtcbin, "on-negotiation-needed", G_CALLBACK(&UWebRTCSession::on_negotiation_needed), this);
@@ -176,6 +207,52 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 	gst_element_sync_state_with_parent(m_queue);
 	if (m_pay) gst_element_sync_state_with_parent(m_pay);
 	gst_element_sync_state_with_parent(m_webrtcbin);
+
+	GstPad* queue_src = gst_element_get_static_pad(m_queue, "src");
+	if (queue_src) {
+		struct QueueProbeCtx { UWebRTCSession* session; };
+		auto* qctx = new QueueProbeCtx{ this };
+
+		gst_pad_add_probe(queue_src,
+			static_cast<GstPadProbeType>(
+				GST_PAD_PROBE_TYPE_BUFFER |
+				GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM |
+				GST_PAD_PROBE_TYPE_QUERY_DOWNSTREAM
+			),
+			[](GstPad*, GstPadProbeInfo* info, gpointer user_data) -> GstPadProbeReturn {
+				auto* ctx = static_cast<QueueProbeCtx*>(user_data);
+
+				if (info->type & GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM) {
+					GstEvent* ev = GST_PAD_PROBE_INFO_EVENT(info);
+					ctx->session->get_logger()->debug(
+						"[queue→webrtcbin] EVENT: " + std::string(GST_EVENT_TYPE_NAME(ev))
+					);
+					if (GST_EVENT_TYPE(ev) == GST_EVENT_CAPS) {
+						GstCaps* caps = nullptr;
+						gst_event_parse_caps(ev, &caps);
+						gchar* s = gst_caps_to_string(caps);
+						ctx->session->get_logger()->info(
+							"[queue→webrtcbin] CAPS: " + std::string(s)
+						);
+						g_free(s);
+					}
+				}
+
+				if (info->type & GST_PAD_PROBE_TYPE_BUFFER) {
+					ctx->session->get_logger()->info(
+						"[queue→webrtcbin] BUFFER arrived — removing probe"
+					);
+					delete ctx;
+					return GST_PAD_PROBE_REMOVE;
+				}
+
+				return GST_PAD_PROBE_OK;
+			},
+			qctx,
+			nullptr
+		);
+		gst_object_unref(queue_src);
+	}
 
 	std::string message = "Branch webrtc session " + get_session_name() + " has been created!";
 	boost::json::object opened_msg = UWebRTCSession::make_json(true, SIG_TYPE_CONNECT, message);
@@ -203,6 +280,58 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 	}
 
 	m_is_valid = true;
+
+	// Принудительно тригерим negotiation из GLib main loop
+	// чтобы не зависеть от автоматического on-negotiation-needed
+	/*struct NegotiationCtx {
+		GstElement* webrtcbin;
+		UWebRTCSession* session;
+	};
+
+	auto* neg_ctx = new NegotiationCtx{ m_webrtcbin, this };
+
+	g_main_context_invoke(nullptr,
+		[](gpointer data) -> gboolean {
+			auto* ctx = static_cast<NegotiationCtx*>(data);
+
+			if (!ctx->session->is_valid() || ctx->session->m_offer_started.exchange(true)) {
+				delete ctx;
+				return G_SOURCE_REMOVE;
+			}
+
+			// Ждём PLAYING прямо здесь — мы уже в GLib main loop
+			GstState current, pending;
+			GstStateChangeReturn ret = gst_element_get_state(
+				ctx->webrtcbin, &current, &pending, 3 * GST_SECOND
+			);
+
+			if (ret == GST_STATE_CHANGE_FAILURE || current < GST_STATE_PAUSED) {
+				ctx->session->get_logger()->error(
+					"Manual negotiation: webrtcbin not ready, state=" +
+					std::string(gst_element_state_get_name(current))
+				);
+				// Сбрасываем флаг чтобы можно было попробовать снова
+				ctx->session->m_offer_started.store(false);
+				delete ctx;
+				return G_SOURCE_REMOVE;
+			}
+
+			ctx->session->get_logger()->debug(
+				"Manual negotiation trigger for " + ctx->session->get_session_name()
+			);
+
+			auto promise = gst_promise_new_with_change_func(
+				&UWebRTCSession::on_offer_created, ctx->session, nullptr
+			);
+			g_signal_emit_by_name(ctx->webrtcbin, "create-offer", nullptr, promise);
+
+			delete ctx;
+			return G_SOURCE_REMOVE;
+		},
+		neg_ctx
+	);
+	*/
+
 	return m_is_valid;
 }
 
@@ -463,6 +592,12 @@ void UWebRTCSession::on_negotiation_needed(GstElement* webrtcbin, gpointer data)
 		self->get_logger()->error("Negotioation needed: Session" + self->get_session_name() + " not valid webrtcbin!");
 		return;
 	}
+
+	if (self->m_offer_started.exchange(true)) {
+		self->get_logger()->debug("on_negotiation_needed: offer already in progress, skipping");
+		return;
+	}
+
 	self->get_logger()->debug("Negotiation needed: Session " + self->get_session_name() + " - creating offer");
 
 	// Запускаем таймаут — если за 10 сек не подключился, закрываем сессию

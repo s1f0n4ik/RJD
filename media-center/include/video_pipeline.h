@@ -102,6 +102,15 @@ protected:
 
 	virtual void restart_loop();
 
+	void setup_bus_watch(GstElement* pipeline, bool use_probe_handler = false);
+
+	// Логика для обработки ошибок
+	virtual void on_bus_error(const std::string& error_code, const std::string& description, bool is_probe = false);
+	// для сецифичной работы pipeline
+	virtual void on_bus_message(GstMessage* msg) = 0;
+
+	void broadcast_error(const std::string& error_code, const std::string& description);
+
 protected:
 	GstElement* m_pipeline = nullptr;
 	guint m_bus_watch_id = 0;
@@ -125,6 +134,8 @@ protected:
 	std::atomic<bool> m_has_initialized{false};
 	std::atomic<bool> m_is_playing{false};
 	std::atomic<EPipelineStatus> m_status{ EPipelineStatus::NONE };
+
+	std::set<std::string> m_pending_teardown_clients;
 
 	// Поток для рестарта
 	std::thread m_restart_thread;
@@ -209,6 +220,11 @@ public:
 
 	virtual EPilelineType get_type() override;
 
+protected:
+
+	virtual void on_bus_error(const std::string& error_code, const std::string& description, bool probe_handler = false);
+	virtual void on_bus_message(GstMessage* msg);
+
 private:
 
 	void create_gst_gl_context(varan::birdview::UEGLContextManager* gl_context_manager);
@@ -257,6 +273,11 @@ public:
 	virtual FPipelineData get_pipeline_data() override;
 
 	virtual EPilelineType get_type() override;
+
+protected:
+
+	virtual void on_bus_error(const std::string& error_code, const std::string& description, bool probe_handler = false);
+	virtual void on_bus_message(GstMessage* msg);
 };
 
 class UNV12EncodingPipeline : public UCameraPipeline {
@@ -280,6 +301,11 @@ public:
 	virtual FPipelineData get_pipeline_data() override;
 
 	virtual EPilelineType get_type() override;
+
+protected:
+
+	virtual void on_bus_error(const std::string& error_code, const std::string& description, bool probe_handler = false);
+	virtual void on_bus_message(GstMessage* msg);
 
 private:
 	GstElement* m_appsrc = nullptr;

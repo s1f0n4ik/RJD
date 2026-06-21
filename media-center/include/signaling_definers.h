@@ -27,6 +27,17 @@
 #define SIG_TYPE_ICE "ice"
 #define SIG_TYPE_OFFER "offer"
 #define SIG_TYPE_ANSWER "answer"
+#define SIG_TYPE_STREAM_ERROR "stream_error"
+
+#define SIG_ERROR_CODE "error_code"
+
+// Коды ошибок
+#define SIG_ERROR_RTSP_TIMEOUT       "RTSP_TIMEOUT"
+#define SIG_ERROR_RTSP_DISCONNECTED  "RTSP_DISCONNECTED"
+#define SIG_ERROR_RTSP_UNAUTHORIZED  "RTSP_UNAUTHORIZED"
+#define SIG_ERROR_RTSP_NOT_FOUND     "RTSP_NOT_FOUND"
+#define SIG_ERROR_GST_ERROR          "GST_ERROR"
+#define SIG_ERROR_EOS                "EOS"
 
 // Варианты полей sender
 #define SIG_SENDER_CLIENT "client"

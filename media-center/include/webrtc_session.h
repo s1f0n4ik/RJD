@@ -87,6 +87,7 @@ private:
 
 	std::atomic<bool> m_is_connected{ false };
 	std::atomic<bool> m_close_requested{ false };
+	std::atomic<bool> m_offer_started{ false };
 
 	guint m_connection_timeout_id{ 0 };
 	std::atomic<bool> m_timeout_triggered{ false };

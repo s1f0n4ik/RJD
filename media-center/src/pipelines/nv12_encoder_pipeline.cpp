@@ -25,32 +25,7 @@ bool UNV12EncodingPipeline::initialize() {
 
 	m_pipeline = gst_pipeline_new(m_parameters.name.c_str());
 
-	GstBus* bus = gst_element_get_bus(m_pipeline);
-	gst_bus_add_watch(bus,
-		+[](GstBus*, GstMessage* msg, gpointer data) -> gboolean {
-			auto* self = static_cast<UNV12EncodingPipeline*>(data);
-			switch (GST_MESSAGE_TYPE(msg)) {
-			case GST_MESSAGE_ERROR: {
-				GError* err = nullptr; gchar* dbg = nullptr;
-				gst_message_parse_error(msg, &err, &dbg);
-				self->m_logger->error("GStreamer ERROR: " +
-					std::string(err ? err->message : "unknown"));
-				if (err) g_error_free(err);
-				if (dbg) g_free(dbg);
-				// При необходимости: self->restart_async();
-				break;
-			}
-			case GST_MESSAGE_EOS:
-				self->m_logger->warn("GStreamer EOS received");
-				break;
-			default:
-				break;
-			}
-			return TRUE;
-		},
-		this
-	);
-	gst_object_unref(bus);
+	setup_bus_watch(m_pipeline, false);
 
 	auto appsrc = gst_element_factory_make("appsrc", "appsrc");
 	auto src_queue = gst_element_factory_make("queue", "src_queue");
@@ -162,6 +137,16 @@ bool UNV12EncodingPipeline::initialize() {
 	m_has_initialized = true;
 	m_logger->info("initialize(): virtual pipeline successfully initialized");
 	return true;
+}
+
+void UNV12EncodingPipeline::on_bus_error(const std::string& error_code, const std::string& description, bool probe_handler) {
+	broadcast_error(error_code, description);
+	if (!probe_handler) shedule_restart();
+}
+
+void UNV12EncodingPipeline::on_bus_message(GstMessage* msg) {
+	// без специфики
+	return;
 }
 
 bool UNV12EncodingPipeline::teardown_prefix() {

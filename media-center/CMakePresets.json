@@ -5,8 +5,8 @@
       "name": "windows-base",
       "hidden": true,
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/out/build/${presetName}",
-      "installDir": "${sourceDir}/out/install/${presetName}",
+      "binaryDir": "${sourceDir}/out-another/build/${presetName}",
+      "installDir": "${sourceDir}/out-another/install/${presetName}",
       "cacheVariables": {
         "CMAKE_C_COMPILER": "cl.exe",
         "CMAKE_CXX_COMPILER": "cl.exe"
@@ -66,14 +66,19 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_VERBOSE_MAKEFILE": "ON"
+      },
+      "vendor": {
+        "microsoft.com/VisualStudioRemoteSettings/CMake/1.0": {
+          "sourceDir": "$env{HOME}/.vs/media-center-home-ivan"
+        }
       }
     },
     {
       "name": "macos-debug",
       "displayName": "macOS Debug",
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/out/build/${presetName}",
-      "installDir": "${sourceDir}/out/install/${presetName}",
+      "binaryDir": "${sourceDir}/out-another/build/${presetName}",
+      "installDir": "${sourceDir}/out-another/install/${presetName}",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug"
       },
@@ -84,21 +89,21 @@
       },
       "vendor": {
         "microsoft.com/VisualStudioRemoteSettings/CMake/1.0": {
-          "sourceDir": "$env{HOME}/.vs/$ms{projectDirName}"
+          "sourceDir": "$env{HOME}/.vs/media-center-home-ivan"
         }
       }
     }
   ],
   "vendor": {
     "microsoft.com/VisualStudioRemoteSettings/CMake/1.0": {
-      "remoteMachineName": "orangepi@192.168.1.2",
+      "remoteMachineName": "orangepi@100.100.86.118",
       "remoteCopySourcesMethod": "rsync",
       "remoteConnection": {
         "username": "orangepi",
         "password": "orangepi",
         "port": 22
       },
-      "remoteDebuggerCommand": "gdbserver :1234",
+      "remoteDebuggerCommand": "gdbserver :1235",
       "remoteDebuggerPath": "/usr/bin/gdb",
       "targetArchitecture": "arm64",
       "remoteMachineIncludeDirectories": [
