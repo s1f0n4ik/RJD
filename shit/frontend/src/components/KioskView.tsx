@@ -55,6 +55,7 @@ const KioskView: React.FC = () => {
     const [activeCellsOverride, setActiveCellsOverride] = useState<Record<number | string, string> | null>(null);
     const [draggedCamera, setDraggedCamera]   = useState<string | null>(null);
     const [dragOverCellId, setDragOverCellId] = useState<number | string | null>(null);
+    const [fullscreenActive, setFullscreenActive] = useState(!!document.fullscreenElement);
 
     // Сетки с сервера
     const { layouts: serverLayouts, loading: layoutsLoading } = useLayouts();
@@ -114,7 +115,9 @@ const KioskView: React.FC = () => {
     }, []);
 
     useEffect(() => {
-        const handleFullscreenChange = () => {};
+        const handleFullscreenChange = () => {
+            setFullscreenActive(!!document.fullscreenElement);
+        };
         document.addEventListener('fullscreenchange', handleFullscreenChange);
         return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
     }, []);
@@ -457,15 +460,21 @@ const KioskView: React.FC = () => {
                     </Select>
                 </FormControl>
 
-                {activeCellsOverride && (
-                    <Typography variant="caption" color="warning.main">● изменения не сохранены</Typography>
-                )}
-
                 <Box sx={{ flexGrow: 1 }} />
 
-                <Tooltip title="Выйти из полноэкранного режима">
-                    <IconButton size="small" sx={{ color: 'white' }} onClick={() => document.exitFullscreen().catch(() => {})}>
-                        <FullscreenExitIcon />
+                <Tooltip title={fullscreenActive ? 'Выйти из полноэкранного режима' : 'Полноэкранный режим'}>
+                    <IconButton
+                        size="small"
+                        sx={{ color: 'white' }}
+                        onClick={() => {
+                            if (document.fullscreenElement) {
+                                document.exitFullscreen().catch(() => {});
+                            } else {
+                                document.documentElement.requestFullscreen().catch(() => {});
+                            }
+                        }}
+                    >
+                        {fullscreenActive ? <FullscreenExitIcon /> : <FullscreenIcon />}
                     </IconButton>
                 </Tooltip>
                 <Tooltip title="Вернуться на главную">
