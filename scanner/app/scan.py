@@ -15,7 +15,7 @@ from typing import List
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
-from onvif_discovery import (
+from app.onvif_discovery import (
     discover_cameras,
     enrich_device_info,
     camera_to_dict,
