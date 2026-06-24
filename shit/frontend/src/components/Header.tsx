@@ -116,7 +116,7 @@ const Header: React.FC<HeaderProps> = ({
         >
           <Tab label="Главная" />
           <Tab label="Камеры" />
-          <Tab label="Наблюдение" />
+          <Tab label="Отображение" />
           {/*<Tab label="Машинное зрение" />*/}
           <Tab label="Архив" />
         </Tabs>
