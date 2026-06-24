@@ -518,7 +518,11 @@ const KioskView: React.FC = () => {
 
             {/* Боковая панель */}
             <Drawer
-                anchor="left" open={drawerOpen} onClose={() => setDrawerOpen(false)}
+                anchor="left" open={drawerOpen}
+                onClose={() => {
+                    setDrawerOpen(false);
+                    setSelectedCamera(null);
+                }}
                 variant="persistent"
                 ModalProps={{ keepMounted: true, hideBackdrop: true, disableEnforceFocus: true, disableAutoFocus: true, disableRestoreFocus: true }}
                 PaperProps={{ sx: {
