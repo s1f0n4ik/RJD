@@ -1,18 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  Box, Typography, Button, Alert, IconButton, Drawer,
-  List, ListItem, ListItemIcon, ListItemText, Select, MenuItem,
-  FormControl, InputLabel, Divider, Tooltip,
+    Box, Typography, Button, Alert, IconButton, Drawer,
+    List, ListItem, ListItemIcon, ListItemText, Select, MenuItem,
+    FormControl, InputLabel, Divider, Tooltip, CircularProgress,
 } from '@mui/material';
 import {
-  Fullscreen as FullscreenIcon,
-  Menu as MenuIcon,
-  Home as HomeIcon,
-  FullscreenExit as FullscreenExitIcon,
-  CheckCircle as CheckCircleIcon,
-  Error as ErrorIcon,
-  DragIndicator as DragIndicatorIcon,
-  Close as CloseIcon,
+    Fullscreen as FullscreenIcon,
+    Menu as MenuIcon,
+    Home as HomeIcon,
+    FullscreenExit as FullscreenExitIcon,
+    CheckCircle as CheckCircleIcon,
+    Error as ErrorIcon,
+    DragIndicator as DragIndicatorIcon,
+    Close as CloseIcon,
     Settings as SettingsIcon,
 } from '@mui/icons-material';
 import { PlayerFactory, makeCameraTypeGetter } from './WebRTCPlayerFactory';
@@ -21,798 +21,523 @@ import type { CPPCamera } from '../types';
 import { wsUrl } from '../utils/constants';
 import CellMenu from './CellMenu';
 import { useTouchDevice } from '../utils/useTouchDevice';
+import { layouts, type SavedLayout } from '../hooks/Layouts.ts';
+
 interface CustomCell {
-  id: string;
-  row: number;
-  col: number;
-  rowSpan: number;
-  colSpan: number;
+    id: string;
+    row: number;
+    col: number;
+    rowSpan: number;
+    colSpan: number;
 }
 
-interface SavedLayout {
-  name: string;
-  gridSize: number | 'custom' | 'single';
-  customCells?: CustomCell[];
-  customGridRows?: number;
-  customGridCols?: number;
-  activeCells: Record<number | string, string>;
-  timestamp: number;
-}
-
-const STORAGE_KEY = 'observation_layouts';
 const CONTROLS_HIDE_DELAY = 3000;
 
+// Дефолтные лэйауты, которые всегда присутствуют (не хранятся на сервере)
+const DEFAULT_LAYOUTS: SavedLayout[] = [
+    {
+        name: 'Панорама сверху',
+        gridSize: 'single',
+        activeCells: { single: 'linker_360' },
+        timestamp: 0,
+    },
+];
 
 const KioskView: React.FC = () => {
-  const [layout, setLayout] = useState<SavedLayout | null>(null);
-  const [error, setError] = useState<string>('');
-  const [fullscreenActive, setFullscreenActive] = useState(false);
-  const [availableLayouts, setAvailableLayouts] = useState<SavedLayout[]>([]);
-  const [cameras, setCameras] = useState<CPPCamera[]>([]);
-  const isTouch = useTouchDevice();
-  const [selectedCamera, setSelectedCamera] = useState<string | null>(null);
-  const [controlsVisible, setControlsVisible] = useState(true);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const hideTimerRef = useRef<number | null>(null);
+    const [layout, setLayout]           = useState<SavedLayout | null>(null);
+    const [error, setError]             = useState<string>('');
+    const [cameras, setCameras]         = useState<CPPCamera[]>([]);
+    const isTouch                       = useTouchDevice();
+    const [selectedCamera, setSelectedCamera] = useState<string | null>(null);
+    const [controlsVisible, setControlsVisible] = useState(true);
+    const [drawerOpen, setDrawerOpen]   = useState(false);
+    const hideTimerRef                  = useRef<number | null>(null);
+    const [activeCellsOverride, setActiveCellsOverride] = useState<Record<number | string, string> | null>(null);
+    const [draggedCamera, setDraggedCamera]   = useState<string | null>(null);
+    const [dragOverCellId, setDragOverCellId] = useState<number | string | null>(null);
 
-  const [activeCellsOverride, setActiveCellsOverride] = useState<Record<number | string, string> | null>(null);
+    // Сетки с сервера
+    const { layouts: serverLayouts, loading: layoutsLoading } = layouts();
 
-  const getCameraType = makeCameraTypeGetter(cameras);
+    // Объединяем дефолтные + серверные
+    const availableLayouts: SavedLayout[] = [...serverLayouts, ...DEFAULT_LAYOUTS];
 
-  // 🆕 Состояние drag-n-drop
-  const [draggedCamera, setDraggedCamera] = useState<string | null>(null);
-  const [dragOverCellId, setDragOverCellId] = useState<number | string | null>(null);
+    const getCameraType       = makeCameraTypeGetter(cameras);
+    const effectiveActiveCells = activeCellsOverride ?? layout?.activeCells ?? {};
 
-  const getLayoutNameFromUrl = (): string | null => {
-    const match = window.location.pathname.match(/^\/kiosk\/?(.*)$/);
-    if (!match) return null;
-    const name = decodeURIComponent(match[1] || '').trim();
-    return name || null;
-  };
+    const getLayoutNameFromUrl = (): string | null => {
+        const match = window.location.pathname.match(/^\/kiosk\/?(.*)$/);
+        if (!match) return null;
+        const name = decodeURIComponent(match[1] || '').trim();
+        return name || null;
+    };
 
-    const DEFAULT_LAYOUTS: SavedLayout[] = [
-        {
-            name: "Панорама сверху",
-            gridSize: "single",
-            activeCells: {
-                single: "linker_360", // фиксированная камера
-            },
-            timestamp: Date.now(),
+    // Ждём загрузки сеток с сервера, затем выбираем нужную
+    useEffect(() => {
+        if (layoutsLoading) return;           // ждём пока придут с API
+
+        const requestedName = getLayoutNameFromUrl();
+
+        const found = requestedName
+            ? availableLayouts.find(l => l.name === requestedName)
+            : availableLayouts[0];
+
+        if (found) {
+            setLayout(found);
+        } else if (requestedName) {
+            setError(`Отображение "${requestedName}" не найдено`);
+        } else if (availableLayouts.length === 0) {
+            setError('Нет сохранённых отображений');
         }
-    ];
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [layoutsLoading, serverLayouts]);
 
     useEffect(() => {
-        try {
-            const stored = localStorage.getItem(STORAGE_KEY);
-
-            const savedLayouts: SavedLayout[] = stored
-                ? JSON.parse(stored)
-                : [];
-
-            // объединяем дефолтные + сохранённые
-            const mergedLayouts = [
-                ...savedLayouts,
-                ...DEFAULT_LAYOUTS,
-            ];
-
-            setAvailableLayouts(mergedLayouts);
-
-            const requestedName = getLayoutNameFromUrl();
-
-            const found = requestedName
-                ? mergedLayouts.find(l => l.name === requestedName)
-                : mergedLayouts[0];
-
-            if (found) {
-                setLayout(found);
-            } else {
-                setError("Отображение не найдено");
-            }
-
-        } catch (err) {
-            console.error(err);
-            setAvailableLayouts(DEFAULT_LAYOUTS);
-            setLayout(DEFAULT_LAYOUTS[0]);
-        }
-
         api.getCameras()
-            .then(data => {
-                if (Array.isArray(data)) setCameras(data);
-            })
-            .catch(err => console.error(err));
-
+            .then(data => { if (Array.isArray(data)) setCameras(data); })
+            .catch(err => console.error('Kiosk: failed to load cameras', err));
     }, []);
-  useEffect(() => {
-    api.getCameras()
-      .then(data => {
-        if (Array.isArray(data)) setCameras(data);
-      })
-      .catch(err => console.error('Kiosk: failed to load cameras', err));
-  }, []);
-  useEffect(() => {
-    const handleFullscreenChange = () => {
-      setFullscreenActive(!!document.fullscreenElement);
-    };
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
-  }, []);
 
-  useEffect(() => {
-    return () => {
-      if (document.fullscreenElement) {
-        document.exitFullscreen().catch(() => {});
-      }
-    };
-  }, []);
+    useEffect(() => {
+        const handleFullscreenChange = () => {};
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    }, []);
 
-  const scheduleHide = () => {
-    if (hideTimerRef.current) window.clearTimeout(hideTimerRef.current);
-    hideTimerRef.current = window.setTimeout(() => {
-      if (!drawerOpen && !draggedCamera) setControlsVisible(false);
-    }, CONTROLS_HIDE_DELAY);
-  };
+    useEffect(() => {
+        return () => { if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); };
+    }, []);
 
-  useEffect(() => {
-    const onMove = () => {
-      setControlsVisible(true);
-      scheduleHide();
-    };
-    window.addEventListener('mousemove', onMove);
-    scheduleHide();
-    return () => {
-      window.removeEventListener('mousemove', onMove);
-      if (hideTimerRef.current) window.clearTimeout(hideTimerRef.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drawerOpen, draggedCamera]);
-
-  const enterFullscreen = async () => {
-    try {
-      await document.documentElement.requestFullscreen();
-      setFullscreenActive(true);
-    } catch (err) {
-      console.error('Fullscreen failed:', err);
-    }
-  };
-
-  const exitKiosk = () => {
-    if (document.fullscreenElement) {
-      document.exitFullscreen().catch(() => {});
-    }
-    window.location.href = '/';
-  };
-
-  const handleSwitchLayout = (layoutName: string) => {
-    const found = availableLayouts.find(l => l.name === layoutName);
-    if (!found) return;
-    setLayout(found);
-    setActiveCellsOverride(null);
-    window.history.replaceState(null, '', `/kiosk/${encodeURIComponent(layoutName)}`);
-  };
-
-  // === Drag & Drop ===
-  const handleDragStart = (e: React.DragEvent, cameraName: string) => {
-    e.dataTransfer.effectAllowed = 'copy';
-    e.dataTransfer.setData('text/plain', cameraName);
-    setDraggedCamera(cameraName);
-  };
-
-  const handleDragEnd = () => {
-    setDraggedCamera(null);
-    setDragOverCellId(null);
-  };
-
-  const handleDragOver = (e: React.DragEvent, cellId: number | string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    e.dataTransfer.dropEffect = 'copy';
-    if (dragOverCellId !== cellId) {
-      setDragOverCellId(cellId);
-    }
-  };
-
-  const handleDragLeave = (e: React.DragEvent, cellId: number | string) => {
-    // проверяем, что уходим реально из ячейки, а не на её дочерний элемент
-    const related = e.relatedTarget as Node | null;
-    if (related && (e.currentTarget as Node).contains(related)) return;
-    if (dragOverCellId === cellId) {
-      setDragOverCellId(null);
-    }
-  };
-  // === Tap-режим (как в Observation) ===
-  const placeCameraInCell = (cellId: number | string, cameraName: string) => {
-    if (!layout) return;
-    const currentCells = activeCellsOverride ?? layout.activeCells;
-    const next = { ...currentCells };
-    // Если камера уже где-то — убираем её оттуда
-    Object.entries(next).forEach(([id, name]) => {
-      if (name === cameraName && id !== String(cellId)) {
-        delete next[id];
-      }
-    });
-    next[cellId] = cameraName;
-    setActiveCellsOverride(next);
-  };
-
-  const handleCellTap = (cellId: number | string) => {
-    if (!selectedCamera) return; // tap по ячейке без выбранной камеры — игнор
-    placeCameraInCell(cellId, selectedCamera);
-    // Камеру оставляем выбранной, чтобы можно было продолжать расставлять
-  };
-
-  // === Меню ячейки ===
-  const handleCellFullscreen = (cellId: number | string) => {
-      const videoElement = document
-        .getElementById(`kiosk-cell-${cellId}`)
-        ?.querySelector('video') as HTMLVideoElement | null;
-
-      if (!videoElement) return;
-
-      const stream = videoElement.srcObject as MediaStream | null;
-      const hasLiveTrack =
-        !!stream && stream.getVideoTracks().some((t) => t.readyState === 'live');
-
-      const hasBufferedVideo = videoElement.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA;
-
-      // если нет живого потока — fullscreen не открываем
-      if (!hasLiveTrack || !hasBufferedVideo) {
-        console.warn(`[Kiosk] Fullscreen blocked: no live video in cell ${cellId}`);
-        return;
-      }
-
-      videoElement.requestFullscreen?.().catch((err) =>
-        console.error('Fullscreen failed:', err)
-      );
+    const scheduleHide = () => {
+        if (hideTimerRef.current) window.clearTimeout(hideTimerRef.current);
+        hideTimerRef.current = window.setTimeout(() => {
+            if (!drawerOpen && !draggedCamera) setControlsVisible(false);
+        }, CONTROLS_HIDE_DELAY);
     };
 
-  const handleCellRemove = (cellId: number | string) => {
-    if (!layout) return;
-    const currentCells = activeCellsOverride ?? layout.activeCells;
-    if (!currentCells[cellId]) return;
-    const next = { ...currentCells };
-    delete next[cellId];
-    setActiveCellsOverride(next);
-  };
-  const handleDrop = (e: React.DragEvent, cellId: number | string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const cameraName = e.dataTransfer.getData('text/plain') || draggedCamera;
-    if (!cameraName || !layout) return;
+    useEffect(() => {
+        const onMove = () => { setControlsVisible(true); scheduleHide(); };
+        window.addEventListener('mousemove', onMove);
+        scheduleHide();
+        return () => {
+            window.removeEventListener('mousemove', onMove);
+            if (hideTimerRef.current) window.clearTimeout(hideTimerRef.current);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [drawerOpen, draggedCamera]);
 
-    const currentCells = activeCellsOverride ?? layout.activeCells;
-    const next = { ...currentCells };
-
-    Object.entries(next).forEach(([id, name]) => {
-      if (name === cameraName && id !== String(cellId)) {
-        delete next[id];
-      }
-    });
-    next[cellId] = cameraName;
-    setActiveCellsOverride(next);
-    setDraggedCamera(null);
-    setDragOverCellId(null);
-  };
-
-  const handleCellDoubleClick = (cellId: number | string) => {
-    if (!layout) return;
-    const currentCells = activeCellsOverride ?? layout.activeCells;
-    if (!currentCells[cellId]) return;
-    const next = { ...currentCells };
-    delete next[cellId];
-    setActiveCellsOverride(next);
-  };
-
-  const getCameraStatus = (cameraId: string): boolean => {
-    const camera = cameras.find(c => c.id === cameraId);
-    return camera?.streams?.main?.status === 3;
-  };
-  const getCameraDisplayName = (cameraId: string): string => {
-      const c = cameras.find(c => c.id === cameraId);
-      return c?.display_name || cameraId;
+    const exitKiosk = () => {
+        if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+        window.location.href = '/';
     };
 
-  // === РЕНДЕР ===
+    const handleSwitchLayout = (layoutName: string) => {
+        const found = availableLayouts.find(l => l.name === layoutName);
+        if (!found) return;
+        setLayout(found);
+        setActiveCellsOverride(null);
+        window.history.replaceState(null, '', `/kiosk/${encodeURIComponent(layoutName)}`);
+    };
 
-  if (error) {
-    return (
-      <Box sx={{
-        minHeight: '100vh', bgcolor: '#000', color: 'white',
-        display: 'flex', alignItems: 'center', justifyContent: 'center', p: 4,
-      }}>
-        <Box sx={{ maxWidth: 600, width: '100%' }}>
-          <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>
-          {availableLayouts.length > 0 && (
-            <Box>
-              <Typography variant="h6" sx={{ mb: 2 }}>Доступные отображения:</Typography>
-              {availableLayouts.map(l => (
-                <Button key={l.name} fullWidth variant="outlined"
-                  sx={{ mb: 1, color: 'white', borderColor: 'white' }}
-                  onClick={() => { window.location.href = `/kiosk/${encodeURIComponent(l.name)}`; }}>
-                  {l.name}
-                </Button>
-              ))}
-            </Box>
-          )}
-          <Button fullWidth variant="contained" sx={{ mt: 2 }}
-            onClick={() => (window.location.href = '/')}>
-            Вернуться на главную
-          </Button>
-        </Box>
-      </Box>
-    );
-  }
+    // ── Drag & Drop ───────────────────────────────────────────────
 
-  if (!layout) {
-    return (
-      <Box sx={{ minHeight: '100vh', bgcolor: '#000', color: 'white',
-        display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Typography>Загрузка...</Typography>
-      </Box>
-    );
-  }
+    const handleDragStart = (e: React.DragEvent, cameraName: string) => {
+        e.dataTransfer.effectAllowed = 'copy';
+        e.dataTransfer.setData('text/plain', cameraName);
+        setDraggedCamera(cameraName);
+    };
 
-    const effectiveActiveCells = activeCellsOverride ?? layout.activeCells;
+    const handleDragEnd = () => { setDraggedCamera(null); setDragOverCellId(null); };
 
-  const renderCellContent = (cellId: number | string) => {
-    const cameraName = layout.gridSize === 'single' ? effectiveActiveCells['single'] : effectiveActiveCells[cellId];
-    const isDropTarget = dragOverCellId === cellId;
-    const isDragging = !!draggedCamera;
-    const canPlaceByTap = !!selectedCamera;
+    const handleDragOver = (e: React.DragEvent, cellId: number | string) => {
+        e.preventDefault(); e.stopPropagation();
+        e.dataTransfer.dropEffect = 'copy';
+        if (dragOverCellId !== cellId) setDragOverCellId(cellId);
+    };
 
-    return (
-      <Box
-        id={`kiosk-cell-${cellId}`}
-        className="video-cell"
-        onDragOver={(e) => handleDragOver(e, cellId)}
-        onDragEnter={(e) => handleDragOver(e, cellId)}
-        onDragLeave={(e) => handleDragLeave(e, cellId)}
-        onDrop={(e) => handleDrop(e, cellId)}
-        onClick={() => handleCellTap(cellId)}
-        //onDoubleClick={() => handleCellDoubleClick(cellId)}
-        sx={{
-          position: 'relative',
-          width: '100%', height: '100%',
-          bgcolor: '#000',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          overflow: 'hidden',
-          border: isDropTarget
-            ? '3px solid #4caf50'
-            : canPlaceByTap
-            ? '2px dashed rgba(33, 150, 243, 0.6)'
-            : isDragging
-            ? '2px dashed rgba(76, 175, 80, 0.5)'
-            : '1px solid #222',
-          cursor: canPlaceByTap ? 'pointer' : 'default',
-          transition: 'border-color 0.15s',
-          '& video, & > div > video': (isDragging || canPlaceByTap) ? {
-            pointerEvents: 'none',
-          } : {},
-        }}
-      >
-        {cameraName ? (
-          <>
-              <PlayerFactory
-                  cameraType={getCameraType(cameraName)}
-                  cameraId={cameraName}
-                  cameraName={getCameraDisplayName(cameraName)}
-                  signalingUrl={wsUrl(`/signaling/client/${cameraName}`)}
-                  onError={(e) => console.error(e)}
-              />
+    const handleDragLeave = (e: React.DragEvent, cellId: number | string) => {
+        const related = e.relatedTarget as Node | null;
+        if (related && (e.currentTarget as Node).contains(related)) return;
+        if (dragOverCellId === cellId) setDragOverCellId(null);
+    };
 
-            <CellMenu
-              cellId={cellId}
-              onFullscreen={handleCellFullscreen}
-              onRemove={handleCellRemove}
-              alwaysVisible={isTouch}
-              variant="light"
-              mode="fullscreenOnly"
-              cameraName={getCameraDisplayName(cameraName)}
-            />
+    const placeCameraInCell = (cellId: number | string, cameraName: string) => {
+        const currentCells = activeCellsOverride ?? layout?.activeCells ?? {};
+        const next = { ...currentCells };
+        Object.entries(next).forEach(([id, name]) => {
+            if (name === cameraName && id !== String(cellId)) delete next[id];
+        });
+        next[cellId] = cameraName;
+        setActiveCellsOverride(next);
+    };
 
-            {isDragging && (
-              <Box
+    const handleCellTap = (cellId: number | string) => {
+        if (!selectedCamera) return;
+        placeCameraInCell(cellId, selectedCamera);
+    };
+
+    const handleCellFullscreen = (cellId: number | string) => {
+        const video = document.getElementById(`kiosk-cell-${cellId}`)?.querySelector('video') as HTMLVideoElement | null;
+        if (!video) return;
+        const stream = video.srcObject as MediaStream | null;
+        const hasLive = !!stream && stream.getVideoTracks().some(t => t.readyState === 'live');
+        if (!hasLive || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
+        video.requestFullscreen?.().catch(err => console.error('Fullscreen failed:', err));
+    };
+
+    const handleCellRemove = (cellId: number | string) => {
+        const currentCells = activeCellsOverride ?? layout?.activeCells ?? {};
+        if (!currentCells[cellId]) return;
+        const next = { ...currentCells };
+        delete next[cellId];
+        setActiveCellsOverride(next);
+    };
+
+    const handleDrop = (e: React.DragEvent, cellId: number | string) => {
+        e.preventDefault(); e.stopPropagation();
+        const cameraName = e.dataTransfer.getData('text/plain') || draggedCamera;
+        if (!cameraName) return;
+        placeCameraInCell(cellId, cameraName);
+        setDraggedCamera(null);
+        setDragOverCellId(null);
+    };
+
+    const getCameraStatus      = (cameraId: string) => cameras.find(c => c.id === cameraId)?.streams?.main?.status === 3;
+    const getCameraDisplayName = (cameraId: string) => cameras.find(c => c.id === cameraId)?.display_name || cameraId;
+
+    // ── Cell render ───────────────────────────────────────────────
+
+    const renderCellContent = (cellId: number | string) => {
+        const cameraName  = layout?.gridSize === 'single' ? effectiveActiveCells['single'] : effectiveActiveCells[cellId];
+        const isDropTarget = dragOverCellId === cellId;
+        const isDragging   = !!draggedCamera;
+        const canPlaceByTap = !!selectedCamera;
+
+        return (
+            <Box
+                id={`kiosk-cell-${cellId}`}
+                className="video-cell"
                 onDragOver={(e) => handleDragOver(e, cellId)}
                 onDragEnter={(e) => handleDragOver(e, cellId)}
                 onDragLeave={(e) => handleDragLeave(e, cellId)}
                 onDrop={(e) => handleDrop(e, cellId)}
+                onClick={() => handleCellTap(cellId)}
                 sx={{
-                  position: 'absolute', inset: 0, zIndex: 5,
-                  bgcolor: isDropTarget ? 'rgba(76, 175, 80, 0.25)' : 'rgba(0, 0, 0, 0.15)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  transition: 'background-color 0.15s',
+                    position: 'relative', width: '100%', height: '100%',
+                    bgcolor: '#000',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    overflow: 'hidden',
+                    border: isDropTarget ? '3px solid #4caf50'
+                        : canPlaceByTap ? '2px dashed rgba(33,150,243,0.6)'
+                            : isDragging    ? '2px dashed rgba(76,175,80,0.5)'
+                                : '1px solid #222',
+                    cursor: canPlaceByTap ? 'pointer' : 'default',
+                    transition: 'border-color 0.15s',
+                    '& video, & > div > video': (isDragging || canPlaceByTap) ? { pointerEvents: 'none' } : {},
                 }}
-              >
-                <Typography
-                  variant="body2"
-                  sx={{
-                    color: 'white', bgcolor: 'rgba(0,0,0,0.7)',
-                    px: 2, py: 0.5, borderRadius: 1, fontSize: '0.85rem',
-                  }}
-                >
-                  {isDropTarget ? `Заменить на «${getCameraDisplayName(draggedCamera!)}»` : 'Отпустите для замены'}
-                </Typography>
-              </Box>
-            )}
-
-            {/* Overlay для tap-режима */}
-            {canPlaceByTap && !isDragging && (
-              <Box
-                sx={{
-                  position: 'absolute', inset: 0, zIndex: 4,
-                  bgcolor: 'rgba(33, 150, 243, 0.15)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  pointerEvents: 'none',
-                }}
-              >
-                <Typography
-                  variant="body2"
-                  sx={{
-                    color: 'white', bgcolor: 'rgba(0,0,0,0.7)',
-                    px: 2, py: 0.5, borderRadius: 1, fontSize: '0.85rem',
-                  }}
-                >
-                  Тап — заменить на «${getCameraDisplayName(selectedCamera!)}»
-                </Typography>
-              </Box>
-            )}
-          </>
-        ) : (
-          <Box sx={{ textAlign: 'center', pointerEvents: 'none' }}>
-            <Typography
-              variant="body2"
-              sx={{
-                color: isDropTarget
-                  ? '#4caf50'
-                  : canPlaceByTap
-                  ? '#2196f3'
-                  : 'grey.600',
-                fontWeight: (isDropTarget || canPlaceByTap) ? 'bold' : 'normal',
-              }}
             >
-              {isDropTarget
-                ? `✓ Отпустите «${getCameraDisplayName(selectedCamera!)}»`
-                : canPlaceByTap
-                ? `Тап — поставить «${getCameraDisplayName(selectedCamera!)}»`
-                : isDragging
-                ? 'Перетащите сюда'
-                : 'Пусто'}
-            </Typography>
-          </Box>
-        )}
-      </Box>
-    );
-  };
-
-    const renderSingleView = () => {
-        return (
-            <Box sx={{
-                width: '100vw',
-                height: '100vh',
-                bgcolor: '#000',
-            }}>
-                {renderCellContent('single')}
+                {cameraName ? (
+                    <>
+                        <PlayerFactory
+                            cameraType={getCameraType(cameraName)}
+                            cameraId={cameraName}
+                            cameraName={getCameraDisplayName(cameraName)}
+                            signalingUrl={wsUrl(`/signaling/client/${cameraName}`)}
+                            onError={(e) => console.error(e)}
+                        />
+                        <CellMenu
+                            cellId={cellId}
+                            onFullscreen={handleCellFullscreen}
+                            onRemove={handleCellRemove}
+                            alwaysVisible={isTouch}
+                            variant="light"
+                            mode="fullscreenOnly"
+                            cameraName={getCameraDisplayName(cameraName)}
+                        />
+                        {isDragging && (
+                            <Box
+                                onDragOver={(e) => handleDragOver(e, cellId)}
+                                onDragEnter={(e) => handleDragOver(e, cellId)}
+                                onDragLeave={(e) => handleDragLeave(e, cellId)}
+                                onDrop={(e) => handleDrop(e, cellId)}
+                                sx={{
+                                    position: 'absolute', inset: 0, zIndex: 5,
+                                    bgcolor: isDropTarget ? 'rgba(76,175,80,0.25)' : 'rgba(0,0,0,0.15)',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    transition: 'background-color 0.15s',
+                                }}
+                            >
+                                <Typography variant="body2" sx={{ color: 'white', bgcolor: 'rgba(0,0,0,0.7)', px: 2, py: 0.5, borderRadius: 1, fontSize: '0.85rem' }}>
+                                    {isDropTarget ? `Заменить на «${getCameraDisplayName(draggedCamera!)}»` : 'Отпустите для замены'}
+                                </Typography>
+                            </Box>
+                        )}
+                        {canPlaceByTap && !isDragging && (
+                            <Box sx={{ position: 'absolute', inset: 0, zIndex: 4, bgcolor: 'rgba(33,150,243,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+                                <Typography variant="body2" sx={{ color: 'white', bgcolor: 'rgba(0,0,0,0.7)', px: 2, py: 0.5, borderRadius: 1, fontSize: '0.85rem' }}>
+                                    Тап — заменить на «{getCameraDisplayName(selectedCamera!)}»
+                                </Typography>
+                            </Box>
+                        )}
+                    </>
+                ) : (
+                    <Box sx={{ textAlign: 'center', pointerEvents: 'none' }}>
+                        <Typography variant="body2" sx={{
+                            color: isDropTarget ? '#4caf50' : canPlaceByTap ? '#2196f3' : 'grey.600',
+                            fontWeight: (isDropTarget || canPlaceByTap) ? 'bold' : 'normal',
+                        }}>
+                            {isDropTarget      ? `✓ Отпустите «${getCameraDisplayName(draggedCamera ?? '')}»`
+                                : canPlaceByTap ? `Тап — поставить «${getCameraDisplayName(selectedCamera!)}»`
+                                    : isDragging    ? 'Перетащите сюда'
+                                        : 'Пусто'}
+                        </Typography>
+                    </Box>
+                )}
             </Box>
         );
     };
 
-  const renderStandardGrid = () => {
-    const gridSize = layout.gridSize as number;
-    const cols = Math.sqrt(gridSize);
-    return (
-      <Box sx={{
-        width: '100vw', height: '100vh',
-        display: 'grid',
-        gridTemplateColumns: `repeat(${cols}, 1fr)`,
-        gap: 0.5, bgcolor: '#000', p: 0.5, boxSizing: 'border-box',
-      }}>
-        {Array.from({ length: gridSize }).map((_, index) => (
-          <Box key={index} sx={{ minHeight: 0, minWidth: 0 }}>
-            {renderCellContent(index)}
-          </Box>
-        ))}
-      </Box>
+    // ── Grid renders ──────────────────────────────────────────────
+
+    const renderSingleView = () => (
+        <Box sx={{ width: '100vw', height: '100vh', bgcolor: '#000' }}>
+            {renderCellContent('single')}
+        </Box>
     );
-  };
 
-  const renderCustomGrid = () => {
-    const rows = layout.customGridRows || 3;
-    const cols = layout.customGridCols || 3;
-    return (
-      <Box sx={{
-        width: '100vw', height: '100vh',
-        display: 'grid',
-        gridTemplateColumns: `repeat(${cols}, 1fr)`,
-        gridTemplateRows: `repeat(${rows}, 1fr)`,
-        gap: 0.5, bgcolor: '#000', p: 0.5, boxSizing: 'border-box',
-      }}>
-        {(layout.customCells || []).map(cell => (
-          <Box key={cell.id} sx={{
-            gridColumn: `${cell.col} / span ${cell.colSpan}`,
-            gridRow: `${cell.row} / span ${cell.rowSpan}`,
-            minHeight: 0, minWidth: 0,
-          }}>
-            {renderCellContent(cell.id)}
-          </Box>
-        ))}
-      </Box>
-    );
-  };
-
-  return (
-    <Box sx={{ position: 'relative', width: '100vw', height: '100vh', bgcolor: '#000' }}>
-        {layout.gridSize === 'custom'
-            ? renderCustomGrid()
-            : layout.gridSize === 'single'
-                ? renderSingleView()
-                : renderStandardGrid()
-        }
-
-      {/* Верхняя шторка */}
-      <Box
-        sx={{
-          position: 'fixed', top: 0, left: 0, right: 0,
-          bgcolor: 'rgba(0,0,0,0.85)',
-          color: 'white',
-          px: 2, py: 1,
-          display: 'flex', alignItems: 'center', gap: 2,
-          transform: controlsVisible ? 'translateY(0)' : 'translateY(-100%)',
-          transition: 'transform 0.25s ease',
-          zIndex: 1200,
-          // Когда шторка скрыта — не мешаем кликать/дропать под ней
-          pointerEvents: controlsVisible ? 'auto' : 'none',
-        }}
-      >
-        <IconButton size="small" sx={{ color: 'white' }} onClick={() => setDrawerOpen(true)}>
-          <MenuIcon />
-        </IconButton>
-
-        <Typography variant="subtitle2">Трансляция</Typography>
-        {selectedCamera && (
-          <Box
-            sx={{
-              bgcolor: 'rgba(33,150,243,0.25)',
-              border: '1px solid #2196f3',
-              borderRadius: 1,
-              px: 1.5,
-              py: 0.25,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 1,
-            }}
-          >
-            <Typography variant="caption" sx={{ color: 'white' }}>
-              {getCameraDisplayName(selectedCamera)}
-            </Typography>
-            <IconButton
-              size="small"
-              onClick={() => setSelectedCamera(null)}
-              sx={{ color: 'white', p: 0.25 }}
-            >
-              <CloseIcon sx={{ fontSize: 14 }} />
-            </IconButton>
-          </Box>
-        )}
-          <FormControl size="small" sx={{ minWidth: 180 }}>
-              <InputLabel sx={{ color: 'grey.400' }}>Отображение</InputLabel>
-              <Select
-                  value={layout.name}
-                  label="Отображение"
-                  onChange={(e) => handleSwitchLayout(e.target.value)}
-                  sx={{
-                      color: 'white',
-                      borderRadius: 0,                                            // ← квадратный
-                      bgcolor: '#1a1a1a',                                         // ← как у списка камер
-                      '& .MuiOutlinedInput-notchedOutline': {
-                          borderColor: 'grey.900',
-                          borderRadius: 0,                                          // ← на всякий случай и для notched
-                      },
-                      '& .MuiSvgIcon-root': { color: 'white' },
-                      '&:hover .MuiOutlinedInput-notchedOutline': {
-                          borderColor: 'grey.700',
-                      },
-                  }}
-                  MenuProps={{
-                      PaperProps: {
-                          sx: {
-                              borderRadius: 0,                                        // ← выпадающее меню тоже квадратное
-                              bgcolor: '#1a1a1a',
-                              color: 'white',
-                              '& .MuiMenuItem-root:hover': {
-                                  bgcolor: 'rgba(255,255,255,0.08)',
-                              },
-                          },
-                      },
-                  }}
-              >
-                  {availableLayouts.map(l => (
-                      <MenuItem key={l.name} value={l.name}>{l.name}</MenuItem>
-                  ))}
-              </Select>
-          </FormControl>
-
-        {activeCellsOverride && (
-          <Typography variant="caption" color="warning.main">
-            ● изменения не сохранены
-          </Typography>
-        )}
-
-        <Box sx={{ flexGrow: 1 }} />
-
-        <Tooltip title="Выйти из полноэкранного режима">
-          <IconButton size="small" sx={{ color: 'white' }}
-            onClick={() => document.exitFullscreen().catch(() => {})}>
-            <FullscreenExitIcon />
-          </IconButton>
-        </Tooltip>
-
-        <Tooltip title="Вернуться на главную">
-          <IconButton size="small" sx={{ color: 'white' }} onClick={exitKiosk}>
-            <HomeIcon />
-          </IconButton>
-        </Tooltip>
-      </Box>
-
-      {/* Боковая панель: variant="persistent" + убран backdrop */}
-        <Drawer
-            anchor="left"
-            open={drawerOpen}
-            onClose={() => setDrawerOpen(false)}
-            variant="persistent"
-            ModalProps={{
-                keepMounted: true,
-                hideBackdrop: true,
-                disableEnforceFocus: true,
-                disableAutoFocus: true,
-                disableRestoreFocus: true,
-            }}
-            PaperProps={{
-                sx: {
-                    width: 260,
-                    bgcolor: '#1a1a1a',
-                    color: 'white',
-                    zIndex: 1300,
-                    pt: controlsVisible ? '56px' : 0,
-                    transition: 'padding-top 0.25s ease',
-                    // Сам Drawer не скроллируется — только список внутри
-                    overflow: 'hidden',
-                    display: 'flex',
-                    flexDirection: 'column',
-                }
-            }}
-        >
-            {/* Заголовок — фиксированный, не скроллируется */}
-            <Box sx={{ p: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-                <Typography variant="subtitle1" fontWeight="bold">Камеры</Typography>
-                <IconButton size="small" sx={{ color: 'white' }} onClick={() => setDrawerOpen(false)}>
-                    <CloseIcon />
-                </IconButton>
+    const renderStandardGrid = () => {
+        const gs   = layout!.gridSize as number;
+        const cols = Math.sqrt(gs);
+        return (
+            <Box sx={{ width: '100vw', height: '100vh', display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 0.5, bgcolor: '#000', p: 0.5, boxSizing: 'border-box' }}>
+                {Array.from({ length: gs }).map((_, index) => (
+                    <Box key={index} sx={{ minHeight: 0, minWidth: 0 }}>{renderCellContent(index)}</Box>
+                ))}
             </Box>
-            <Divider sx={{ borderColor: 'grey.800', flexShrink: 0 }} />
-            <Typography variant="caption" sx={{ px: 2, pt: 1, pb: 0.5, color: 'grey.500', display: 'block', flexShrink: 0 }}>
-                {isTouch
-                    ? 'Тап по камере → тап по ячейке.'
-                    : 'Перетащите или клик → клик по ячейке.'}
-            </Typography>
+        );
+    };
 
-            {/* Список камер — скроллируется, занимает всё доступное пространство */}
-            <List
-                dense
-                sx={{
-                    flexGrow: 1,
-                    overflowY: 'auto',
-                    overflowX: 'hidden',
+    const renderCustomGrid = () => {
+        const rows = layout!.customGridRows || 3;
+        const cols = layout!.customGridCols || 3;
+        return (
+            <Box sx={{ width: '100vw', height: '100vh', display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gridTemplateRows: `repeat(${rows}, 1fr)`, gap: 0.5, bgcolor: '#000', p: 0.5, boxSizing: 'border-box' }}>
+                {(layout!.customCells || []).map(cell => (
+                    <Box key={cell.id} sx={{ gridColumn: `${cell.col} / span ${cell.colSpan}`, gridRow: `${cell.row} / span ${cell.rowSpan}`, minHeight: 0, minWidth: 0 }}>
+                        {renderCellContent(cell.id)}
+                    </Box>
+                ))}
+            </Box>
+        );
+    };
 
-                    // Тонкий стилизованный скроллбар
-                    '&::-webkit-scrollbar': {
-                        width: '4px',
-                    },
-                    '&::-webkit-scrollbar-track': {
-                        background: 'transparent',
-                    },
-                    '&::-webkit-scrollbar-thumb': {
-                        background: 'rgba(255,255,255,0.15)',
-                        borderRadius: '2px',
-                        '&:hover': {
-                            background: 'rgba(255,255,255,0.3)',
-                        },
-                    },
-                    // Firefox
-                    scrollbarWidth: 'thin',
-                    scrollbarColor: 'rgba(255,255,255,0.15) transparent',
-                }}
-            >
-                {cameras.map(camera => {
-                    const isActive = getCameraStatus(camera.id);
-                    const isUsed = Object.values(effectiveActiveCells).includes(camera.id);
-                    const isBeingDragged = draggedCamera === camera.id;
-                    const isSelected = selectedCamera === camera.id;
-                    return (
-                        <ListItem
-                            key={camera.id}
-                            draggable
-                            onDragStart={(e) => handleDragStart(e, camera.id)}
-                            onDragEnd={handleDragEnd}
-                            onClick={() => {
-                                setSelectedCamera(prev => (prev === camera.id ? null : camera.id));
-                            }}
-                            sx={{
-                                cursor: 'grab',
-                                opacity: isBeingDragged ? 0.5 : 1,
-                                // bgcolor: isUsed ? 'rgba(76,175,80,0.15)' : 'transparent',
-                                // borderLeft: isUsed ? '3px solid #4caf50' : '3px solid transparent',
-                                // '&:active': { cursor: 'grabbing' },
-                                // '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' },
-                                bgcolor: isSelected
-                                    ? 'rgba(33, 150, 243, 0.35)'             // 🆕 выбранная — синяя
-                                    : isUsed
-                                        ? 'rgba(76,175,80,0.15)'
-                                        : 'transparent',
-                                borderLeft: isSelected
-                                    ? '3px solid #2196f3'                    // 🆕
-                                    : isUsed
-                                        ? '3px solid #4caf50'
-                                        : '3px solid transparent',
-                                '&:active': { cursor: 'grabbing' },
-                                '&:hover': {
-                                    bgcolor: isSelected
-                                        ? 'rgba(33, 150, 243, 0.45)'
-                                        : 'rgba(255,255,255,0.08)'
-                                },
-                            }}
-                        >
-                            <ListItemIcon sx={{ minWidth: 32 }}>
-                                <DragIndicatorIcon sx={{ color: 'grey.600', fontSize: 16, mr: -0.5 }} />
-                                {isActive
-                                    ? <CheckCircleIcon sx={{ color: 'success.main', fontSize: 18 }} />
-                                    : <ErrorIcon sx={{ color: 'grey.600', fontSize: 18 }} />}
-                            </ListItemIcon>
-                            <ListItemText
-                                primary={camera.display_name || camera.id}
-                                secondary={camera.display_name ? camera.id : undefined}
-                                primaryTypographyProps={{
-                                    fontSize: '0.85rem',
-                                    fontWeight: isSelected ? 600 : 400,
-                                }}
-                                secondaryTypographyProps={{
-                                    fontSize: '0.7rem',
-                                    color: 'grey.600',
-                                    fontFamily: 'monospace',
-                                }}
-                            />
-                        </ListItem>
-                    );
-                })}
-                {cameras.length === 0 && (
-                    <Box sx={{ p: 2 }}>
-                        <Typography variant="caption" color="grey.500">
-                            Нет доступных камер
-                        </Typography>
+    // ── Error / Loading ───────────────────────────────────────────
+
+    if (layoutsLoading) {
+        return (
+            <Box sx={{ minHeight: '100vh', bgcolor: '#000', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
+                <CircularProgress color="inherit" size={28} />
+                <Typography>Загрузка отображений...</Typography>
+            </Box>
+        );
+    }
+
+    if (error) {
+        return (
+            <Box sx={{ minHeight: '100vh', bgcolor: '#000', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', p: 4 }}>
+                <Box sx={{ maxWidth: 600, width: '100%' }}>
+                    <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>
+                    {availableLayouts.length > 0 && (
+                        <Box>
+                            <Typography variant="h6" sx={{ mb: 2 }}>Доступные отображения:</Typography>
+                            {availableLayouts.map(l => (
+                                <Button key={l.name} fullWidth variant="outlined"
+                                        sx={{ mb: 1, color: 'white', borderColor: 'white' }}
+                                        onClick={() => { window.location.href = `/kiosk/${encodeURIComponent(l.name)}`; }}>
+                                    {l.name}
+                                </Button>
+                            ))}
+                        </Box>
+                    )}
+                    <Button fullWidth variant="contained" sx={{ mt: 2 }} onClick={() => window.location.href = '/'}>
+                        Вернуться на главную
+                    </Button>
+                </Box>
+            </Box>
+        );
+    }
+
+    if (!layout) {
+        return (
+            <Box sx={{ minHeight: '100vh', bgcolor: '#000', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Typography>Загрузка...</Typography>
+            </Box>
+        );
+    }
+
+    // ── Main render ───────────────────────────────────────────────
+
+    return (
+        <Box sx={{ position: 'relative', width: '100vw', height: '100vh', bgcolor: '#000' }}>
+            {layout.gridSize === 'custom'
+                ? renderCustomGrid()
+                : layout.gridSize === 'single'
+                    ? renderSingleView()
+                    : renderStandardGrid()}
+
+            {/* Верхняя шторка */}
+            <Box sx={{
+                position: 'fixed', top: 0, left: 0, right: 0,
+                bgcolor: 'rgba(0,0,0,0.85)', color: 'white',
+                px: 2, py: 1,
+                display: 'flex', alignItems: 'center', gap: 2,
+                transform: controlsVisible ? 'translateY(0)' : 'translateY(-100%)',
+                transition: 'transform 0.25s ease',
+                zIndex: 1200,
+                pointerEvents: controlsVisible ? 'auto' : 'none',
+            }}>
+                <IconButton size="small" sx={{ color: 'white' }} onClick={() => setDrawerOpen(true)}>
+                    <MenuIcon />
+                </IconButton>
+                <Typography variant="subtitle2">Трансляция</Typography>
+
+                {selectedCamera && (
+                    <Box sx={{ bgcolor: 'rgba(33,150,243,0.25)', border: '1px solid #2196f3', borderRadius: 1, px: 1.5, py: 0.25, display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography variant="caption" sx={{ color: 'white' }}>{getCameraDisplayName(selectedCamera)}</Typography>
+                        <IconButton size="small" onClick={() => setSelectedCamera(null)} sx={{ color: 'white', p: 0.25 }}>
+                            <CloseIcon sx={{ fontSize: 14 }} />
+                        </IconButton>
                     </Box>
                 )}
-            </List>
 
-            {/* Футер — фиксированный, не скроллируется */}
-            <Divider sx={{ borderColor: 'grey.800', flexShrink: 0 }} />
-            <List dense sx={{ flexShrink: 0 }}>
-                <ListItem
-                    onClick={() => { window.location.href = '/app'; }}
-                    sx={{
-                        cursor: 'pointer',
-                        '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' },
-                    }}
-                >
-                    <ListItemIcon sx={{ minWidth: 32 }}>
-                        <SettingsIcon sx={{ color: 'grey.400', fontSize: 18 }} />
-                    </ListItemIcon>
-                    <ListItemText
-                        primary="Настройки"
-                        primaryTypographyProps={{ fontSize: '0.85rem' }}
-                    />
-                </ListItem>
-            </List>
-        </Drawer>
-    </Box>
-  );
+                <FormControl size="small" sx={{ minWidth: 180 }}>
+                    <InputLabel sx={{ color: 'grey.400' }}>Отображение</InputLabel>
+                    <Select
+                        value={layout.name}
+                        label="Отображение"
+                        onChange={(e) => handleSwitchLayout(e.target.value)}
+                        sx={{
+                            color: 'white', borderRadius: 0, bgcolor: '#1a1a1a',
+                            '& .MuiOutlinedInput-notchedOutline': { borderColor: 'grey.900', borderRadius: 0 },
+                            '& .MuiSvgIcon-root': { color: 'white' },
+                            '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'grey.700' },
+                        }}
+                        MenuProps={{ PaperProps: { sx: { borderRadius: 0, bgcolor: '#1a1a1a', color: 'white', '& .MuiMenuItem-root:hover': { bgcolor: 'rgba(255,255,255,0.08)' } } } }}
+                    >
+                        {availableLayouts.map(l => (
+                            <MenuItem key={l.name} value={l.name}>{l.name}</MenuItem>
+                        ))}
+                    </Select>
+                </FormControl>
+
+                {activeCellsOverride && (
+                    <Typography variant="caption" color="warning.main">● изменения не сохранены</Typography>
+                )}
+
+                <Box sx={{ flexGrow: 1 }} />
+
+                <Tooltip title="Выйти из полноэкранного режима">
+                    <IconButton size="small" sx={{ color: 'white' }} onClick={() => document.exitFullscreen().catch(() => {})}>
+                        <FullscreenExitIcon />
+                    </IconButton>
+                </Tooltip>
+                <Tooltip title="Вернуться на главную">
+                    <IconButton size="small" sx={{ color: 'white' }} onClick={exitKiosk}>
+                        <HomeIcon />
+                    </IconButton>
+                </Tooltip>
+            </Box>
+
+            {/* Боковая панель */}
+            <Drawer
+                anchor="left" open={drawerOpen} onClose={() => setDrawerOpen(false)}
+                variant="persistent"
+                ModalProps={{ keepMounted: true, hideBackdrop: true, disableEnforceFocus: true, disableAutoFocus: true, disableRestoreFocus: true }}
+                PaperProps={{ sx: {
+                        width: 260, bgcolor: '#1a1a1a', color: 'white',
+                        zIndex: 1300,
+                        pt: controlsVisible ? '56px' : 0,
+                        transition: 'padding-top 0.25s ease',
+                        overflow: 'hidden', display: 'flex', flexDirection: 'column',
+                    }}}
+            >
+                {/* Заголовок */}
+                <Box sx={{ p: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+                    <Typography variant="subtitle1" fontWeight="bold">Камеры</Typography>
+                    <IconButton size="small" sx={{ color: 'white' }} onClick={() => setDrawerOpen(false)}>
+                        <CloseIcon />
+                    </IconButton>
+                </Box>
+                <Divider sx={{ borderColor: 'grey.800', flexShrink: 0 }} />
+                <Typography variant="caption" sx={{ px: 2, pt: 1, pb: 0.5, color: 'grey.500', display: 'block', flexShrink: 0 }}>
+                    {isTouch ? 'Тап по камере → тап по ячейке.' : 'Перетащите или клик → клик по ячейке.'}
+                </Typography>
+
+                {/* Список камер — только он скроллируется */}
+                <List dense sx={{
+                    flexGrow: 1, overflowY: 'auto', overflowX: 'hidden',
+                    '&::-webkit-scrollbar': { width: '4px' },
+                    '&::-webkit-scrollbar-track': { background: 'transparent' },
+                    '&::-webkit-scrollbar-thumb': {
+                        background: 'rgba(255,255,255,0.15)', borderRadius: '2px',
+                        '&:hover': { background: 'rgba(255,255,255,0.3)' },
+                    },
+                    scrollbarWidth: 'thin',
+                    scrollbarColor: 'rgba(255,255,255,0.15) transparent',
+                }}>
+                    {cameras.map(camera => {
+                        const isActive       = getCameraStatus(camera.id);
+                        const isUsed         = Object.values(effectiveActiveCells).includes(camera.id);
+                        const isBeingDragged = draggedCamera === camera.id;
+                        const isSelected     = selectedCamera === camera.id;
+                        return (
+                            <ListItem key={camera.id} draggable
+                                      onDragStart={(e) => handleDragStart(e, camera.id)}
+                                      onDragEnd={handleDragEnd}
+                                      onClick={() => setSelectedCamera(prev => prev === camera.id ? null : camera.id)}
+                                      sx={{
+                                          cursor: 'grab', opacity: isBeingDragged ? 0.5 : 1,
+                                          bgcolor: isSelected ? 'rgba(33,150,243,0.35)' : isUsed ? 'rgba(76,175,80,0.15)' : 'transparent',
+                                          borderLeft: isSelected ? '3px solid #2196f3' : isUsed ? '3px solid #4caf50' : '3px solid transparent',
+                                          '&:active': { cursor: 'grabbing' },
+                                          '&:hover': { bgcolor: isSelected ? 'rgba(33,150,243,0.45)' : 'rgba(255,255,255,0.08)' },
+                                      }}
+                            >
+                                <ListItemIcon sx={{ minWidth: 32 }}>
+                                    <DragIndicatorIcon sx={{ color: 'grey.600', fontSize: 16, mr: -0.5 }} />
+                                    {isActive
+                                        ? <CheckCircleIcon sx={{ color: 'success.main', fontSize: 18 }} />
+                                        : <ErrorIcon sx={{ color: 'grey.600', fontSize: 18 }} />}
+                                </ListItemIcon>
+                                <ListItemText
+                                    primary={camera.display_name || camera.id}
+                                    secondary={camera.display_name ? camera.id : undefined}
+                                    primaryTypographyProps={{ fontSize: '0.85rem', fontWeight: isSelected ? 600 : 400 }}
+                                    secondaryTypographyProps={{ fontSize: '0.7rem', color: 'grey.600', fontFamily: 'monospace' }}
+                                />
+                            </ListItem>
+                        );
+                    })}
+                    {cameras.length === 0 && (
+                        <Box sx={{ p: 2 }}>
+                            <Typography variant="caption" color="grey.500">Нет доступных камер</Typography>
+                        </Box>
+                    )}
+                </List>
+
+                {/* Футер */}
+                <Divider sx={{ borderColor: 'grey.800', flexShrink: 0 }} />
+                <List dense sx={{ flexShrink: 0 }}>
+                    <ListItem onClick={() => { window.location.href = '/app'; }} sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' } }}>
+                        <ListItemIcon sx={{ minWidth: 32 }}>
+                            <SettingsIcon sx={{ color: 'grey.400', fontSize: 18 }} />
+                        </ListItemIcon>
+                        <ListItemText primary="Настройки" primaryTypographyProps={{ fontSize: '0.85rem' }} />
+                    </ListItem>
+                </List>
+            </Drawer>
+        </Box>
+    );
 };
 
 export default KioskView;
