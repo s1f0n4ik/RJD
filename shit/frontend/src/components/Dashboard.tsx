@@ -43,7 +43,8 @@ const modules: Module[] = [
     description: 'Просмотр камер в реальном времени',
     icon: VideocamIcon,
     gradient: 'linear-gradient(135deg, #4caf50 0%, #2e7d32 100%)',
-    tabIndex: 5, // Observation
+    tabIndex: 5,
+    kiosk: true,
   },
     {
         id: 'maintain',
@@ -68,7 +69,6 @@ const modules: Module[] = [
         icon: AddToQueueIcon,
         gradient: 'linear-gradient(135deg, #757575 0%, #424242 100%)',
         tabIndex: 2,
-        kiosk: true,
     },
   {
     id: 'ai',
