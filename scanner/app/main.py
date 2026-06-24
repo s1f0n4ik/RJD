@@ -9,7 +9,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.scan import router
+from app.routers.scan import router
 
 logging.basicConfig(
     level=logging.INFO,

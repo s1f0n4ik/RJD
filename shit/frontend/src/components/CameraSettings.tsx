@@ -199,9 +199,12 @@ const CameraSettings: React.FC = () => {
 
     // Сканер камер
     const [scanOpen, setScanOpen] = useState(false);
-    const [scanning, setScanning] = useState(false);
-    const [scanResults, setScanResults] = useState<Array<{ ip: string; port: number; name?: string; model?: string; manufacturer?: string }>>([]);
-    const [scanError, setScanError] = useState('');
+    const [scanStage, setScanStage] = useState<'idle' | 'onvif' | 'ports' | 'done'>('idle');
+    const [scanProgress, setScanProgress] = useState<{ scanned: number; total: number }>({ scanned: 0, total: 0 });
+    // ONVIF-камеры (с моделью) и найденные по портам (только IP/вендор)
+    const [onvifCameras, setOnvifCameras] = useState<Array<{ ip: string; port: number; name?: string; model?: string; manufacturer?: string }>>([]);
+    const [portCameras, setPortCameras] = useState<Array<{ ip: string; open_ports: number[]; has_rtsp: boolean; vendor?: string }>>([]);
+    const scanSourceRef = useRef<EventSource | null>(null);
 
     useEffect(() => {
         loadCameras();
@@ -614,33 +617,68 @@ const CameraSettings: React.FC = () => {
     );
 
     // Хедперы для скана камер в сети
-    const handleScanNetwork = async () => {
-        setScanning(true);
-        setScanError('');
-        setScanResults([]);
-        try {
-            const res = await fetch('/api/scan/cameras?timeout=4');
-            if (!res.ok) throw new Error(`Ошибка сканирования: ${res.status}`);
-            const data = await res.json();
-            setScanResults(data.cameras || []);
-            if ((data.cameras || []).length === 0) {
-                setScanError('Камеры не найдены. Убедитесь, что они в той же сети и поддерживают ONVIF.');
-            }
-        } catch (e) {
-            setScanError(e instanceof Error ? e.message : String(e));
-        } finally {
-            setScanning(false);
-        }
-    };
+    useEffect(() => {
+        return () => { scanSourceRef.current?.close(); };
+    }, []);
 
     const handleOpenScan = () => {
         setScanOpen(true);
-        handleScanNetwork();   // сразу запускаем при открытии
+        startScan();
+    };
+
+    const startScan = () => {
+        scanSourceRef.current?.close();
+        setScanStage('onvif');
+        setScanProgress({ scanned: 0, total: 0 });
+        setOnvifCameras([]);
+        setPortCameras([]);
+
+        // Без параметров — сервер определит подсеть сам и просканирует всю (1–254)
+        const es = new EventSource('/api/scan/stream');
+        scanSourceRef.current = es;
+
+        es.onmessage = (e) => {
+            const msg = JSON.parse(e.data);
+            switch (msg.stage) {
+                case 'onvif_start':  setScanStage('onvif'); break;
+                case 'onvif_done':   setOnvifCameras(msg.cameras || []); break;
+                case 'ports_start':
+                    setScanStage('ports');
+                    setScanProgress({ scanned: 0, total: msg.total });
+                    break;
+                case 'ports_progress':
+                    setScanProgress({ scanned: msg.scanned, total: msg.total });
+                    if (msg.found?.length) setPortCameras(prev => [...prev, ...msg.found]);
+                    break;
+                case 'error':
+                    setScanStage('done');
+                    es.close();
+                    scanSourceRef.current = null;
+                    break;
+                case 'done':
+                    setScanStage('done');
+                    es.close();
+                    scanSourceRef.current = null;
+                    break;
+            }
+        };
+
+        es.onerror = () => {
+            setScanStage('done');
+            es.close();
+            scanSourceRef.current = null;
+        };
+    };
+
+    const handleCloseScan = () => {
+        scanSourceRef.current?.close();
+        scanSourceRef.current = null;
+        setScanOpen(false);
     };
 
     const handlePickScanned = (ip: string) => {
         handleInputChange('ip_adress', ip);
-        setScanOpen(false);
+        handleCloseScan();
     };
 
     return (
@@ -1292,7 +1330,9 @@ const CameraSettings: React.FC = () => {
                     </Box>
                 </DialogActions>
             </Dialog>
-            <Dialog open={scanOpen} onClose={() => setScanOpen(false)} maxWidth="sm" fullWidth
+
+            {/*Форма для скана */}
+            <Dialog open={scanOpen} onClose={handleCloseScan} maxWidth="sm" fullWidth
                     PaperProps={{ sx: { borderRadius: 1 } }}>
                 <DialogTitle sx={{
                     bgcolor: RZD_COLORS.primary, color: 'white', py: 1.25, fontSize: '1rem',
@@ -1301,76 +1341,122 @@ const CameraSettings: React.FC = () => {
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <WifiIcon fontSize="small" /> Поиск камер в сети
                     </Box>
-                    <IconButton size="small" onClick={handleScanNetwork} disabled={scanning} sx={{ color: 'white' }}>
+                    <IconButton size="small" onClick={startScan}
+                                disabled={scanStage === 'onvif' || scanStage === 'ports'} sx={{ color: 'white' }}>
                         <RefreshIcon fontSize="small" />
                     </IconButton>
                 </DialogTitle>
-                <DialogContent sx={{
-                    pt: 2,
-                    minHeight: 240,
-                    display: 'flex',
-                    flexDirection: 'column',
-                }}>
-                    {scanning && (
-                        <Box sx={{
-                            flexGrow: 1,
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            justifyContent: 'center',   // ← центр по вертикали
-                            gap: 2,
-                        }}>
-                            <CircularProgress />
-                            <Typography variant="body2" color="text.secondary">
-                                Сканирование сети (ONVIF)...
-                            </Typography>
+
+                <DialogContent sx={{ pt: 2, minHeight: 280, display: 'flex', flexDirection: 'column' }}>
+
+                    {/* Прогресс-индикатор этапа */}
+                    {(scanStage === 'onvif' || scanStage === 'ports') && (
+                        <Box sx={{ mb: 2 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}>
+                                <CircularProgress size={18} />
+                                <Typography variant="body2" color="text.secondary">
+                                    {scanStage === 'onvif'
+                                        ? 'Поиск ONVIF-камер...'
+                                        : `Сканирование портов: ${scanProgress.scanned}/${scanProgress.total}`}
+                                </Typography>
+                            </Box>
+                            {scanStage === 'ports' && scanProgress.total > 0 && (
+                                <Box sx={{ width: '100%', height: 4, bgcolor: RZD_COLORS.grey[200], borderRadius: 2, overflow: 'hidden' }}>
+                                    <Box sx={{
+                                        height: '100%', bgcolor: RZD_COLORS.primary,
+                                        width: `${(scanProgress.scanned / scanProgress.total) * 100}%`,
+                                        transition: 'width 0.3s ease',
+                                    }} />
+                                </Box>
+                            )}
                         </Box>
                     )}
 
-                    {!scanning && scanError && (
-                        <Box sx={{
-                            flexGrow: 1,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',   // ← центр
-                        }}>
-                            <Alert severity="info" sx={{ borderRadius: 1, width: '100%' }}>{scanError}</Alert>
+                    {/* Группа 1: ONVIF-камеры */}
+                    {onvifCameras.length > 0 && (
+                        <Box sx={{ mb: 2 }}>
+                            <Typography variant="caption" fontWeight={700} color="text.secondary"
+                                        sx={{ display: 'block', mb: 0.5 }}>
+                                ONVIF-КАМЕРЫ ({onvifCameras.length})
+                            </Typography>
+                            <List dense disablePadding>
+                                {onvifCameras.map((cam) => {
+                                    const taken = usedIps.has(cam.ip);
+                                    return (
+                                        <ListItem key={`onvif-${cam.ip}`} disablePadding>
+                                            <ListItemButton onClick={() => handlePickScanned(cam.ip)} disabled={taken}
+                                                            sx={{ borderRadius: 1, mb: 0.5, border: `1px solid ${RZD_COLORS.grey[200]}` }}>
+                                                <ListItemText
+                                                    primary={
+                                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                            <Typography sx={{ fontFamily: 'monospace', fontWeight: 600 }}>{cam.ip}</Typography>
+                                                            {taken && <Chip label="уже добавлена" size="small" sx={{ height: 18 }} />}
+                                                        </Box>
+                                                    }
+                                                    secondary={[cam.manufacturer, cam.model || cam.name].filter(Boolean).join(' · ') || 'ONVIF-камера'}
+                                                    secondaryTypographyProps={{ fontSize: '0.75rem' }}
+                                                />
+                                            </ListItemButton>
+                                        </ListItem>
+                                    );
+                                })}
+                            </List>
                         </Box>
                     )}
-                    {!scanning && scanResults.length > 0 && (
-                        <List dense sx={{ flexGrow: 1, overflowY: 'auto', maxHeight: 360 }}>
-                            {scanResults.map((cam) => {
-                                const taken = usedIps.has(cam.ip);
-                                return (
-                                    <ListItem key={cam.ip} disablePadding>
-                                        <ListItemButton
-                                            onClick={() => handlePickScanned(cam.ip)}
-                                            disabled={taken}
-                                            sx={{ borderRadius: 1, mb: 0.5, border: `1px solid ${RZD_COLORS.grey[200]}` }}
-                                        >
-                                            <ListItemText
-                                                primary={
-                                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                                        <Typography sx={{ fontFamily: 'monospace', fontWeight: 600 }}>{cam.ip}</Typography>
-                                                        {taken && <Chip label="уже добавлена" size="small" sx={{ height: 18 }} />}
-                                                    </Box>
-                                                }
-                                                secondary={
-                                                    [cam.manufacturer, cam.model || cam.name].filter(Boolean).join(' · ') || 'ONVIF-камера'
-                                                }
-                                                secondaryTypographyProps={{ fontSize: '0.75rem' }}
-                                            />
-                                        </ListItemButton>
-                                    </ListItem>
-                                );
-                            })}
-                        </List>
+
+                    {/* Группа 2: найдены по портам (без ONVIF) */}
+                    {portCameras.length > 0 && (
+                        <Box sx={{ mb: 2 }}>
+                            <Typography variant="caption" fontWeight={700} color="text.secondary"
+                                        sx={{ display: 'block', mb: 0.5 }}>
+                                ОБНАРУЖЕНЫ ПО RTSP/HTTP ({portCameras.length})
+                            </Typography>
+                            <List dense disablePadding>
+                                {portCameras.map((cam) => {
+                                    const taken = usedIps.has(cam.ip);
+                                    return (
+                                        <ListItem key={`port-${cam.ip}`} disablePadding>
+                                            <ListItemButton onClick={() => handlePickScanned(cam.ip)} disabled={taken}
+                                                            sx={{ borderRadius: 1, mb: 0.5, border: `1px solid ${RZD_COLORS.grey[200]}` }}>
+                                                <ListItemText
+                                                    primary={
+                                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                            <Typography sx={{ fontFamily: 'monospace', fontWeight: 600 }}>{cam.ip}</Typography>
+                                                            {cam.has_rtsp && <Chip label="RTSP" size="small" color="success" variant="outlined" sx={{ height: 18 }} />}
+                                                            {taken && <Chip label="уже добавлена" size="small" sx={{ height: 18 }} />}
+                                                        </Box>
+                                                    }
+                                                    secondary={cam.vendor || `Порты: ${cam.open_ports.join(', ')}`}
+                                                    secondaryTypographyProps={{ fontSize: '0.75rem' }}
+                                                />
+                                            </ListItemButton>
+                                        </ListItem>
+                                    );
+                                })}
+                            </List>
+                        </Box>
+                    )}
+
+                    {/* Сообщения по итогу */}
+                    {scanStage === 'done' && onvifCameras.length === 0 && portCameras.length === 0 && (
+                        <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <Alert severity="info" sx={{ borderRadius: 1, width: '100%' }}>
+                                Камеры не обнаружены. Проверьте, что они подключены к той же сети.
+                            </Alert>
+                        </Box>
+                    )}
+                    {scanStage === 'done' && onvifCameras.length > 0 && portCameras.length === 0 && (
+                        <Alert severity="success" sx={{ borderRadius: 1, mt: 1 }}>
+                            Камер без ONVIF не обнаружено — все найденные устройства поддерживают ONVIF.
+                        </Alert>
                     )}
                 </DialogContent>
+
                 <DialogActions sx={{ px: 3, pb: 2 }}>
-                    <Button onClick={() => setScanOpen(false)}>Закрыть</Button>
+                    <Button onClick={handleCloseScan}>Закрыть</Button>
                 </DialogActions>
             </Dialog>
+
         </Container>
     );
 };
