@@ -1358,7 +1358,6 @@ const CameraSettings: React.FC = () => {
                                 padding: '2px 10px',
                                 '&:hover': {
                                     borderColor: 'white',
-                                    border: '1px solid',
                                     borderRadius: 1,
                                     bgcolor: 'rgba(255,255,255,0.12)',
                                 },
@@ -1396,7 +1395,7 @@ const CameraSettings: React.FC = () => {
 
                     {/* Компактный прогресс — для этапа портов, или когда уже что-то найдено */}
                     {(scanStage === 'ports' || ((scanStage === 'onvif') && (onvifCameras.length > 0 || portCameras.length > 0))) && (
-                        <Box sx={{ mb: 2 }}>
+                        <Box sx={{ mt: 1.5 }}>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}>
                                 <CircularProgress size={18} />
                                 <Typography variant="body2" color="text.secondary">
