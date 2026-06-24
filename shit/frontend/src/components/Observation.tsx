@@ -492,7 +492,7 @@ const Observation: React.FC = () => {
             {/* LEFT PANEL */}
             <Paper elevation={3} sx={{ width: 200, flexShrink: 0, overflow: 'auto', borderRadius: 0 }}>
                 <Box sx={{ p: 2, borderBottom: `1px solid ${RZD_COLORS.grey[200]}` }}>
-                    <Typography variant="subtitle2" fontWeight="bold">📹 Камеры</Typography>
+                    <Typography variant="subtitle2" fontWeight="bold">Камеры</Typography>
                     <Typography variant="caption" color="text.secondary">Перетащите в сетку</Typography>
                 </Box>
                 {loadError && <Alert severity="error" sx={{ m: 1 }}>{loadError}</Alert>}

@@ -37,13 +37,21 @@ interface Module {
 
 const modules: Module[] = [
   {
-    id: 'live',
-    title: 'Прямой эфир',
+    id: 'kiosk',
+    title: 'Режим просмотра',
     description: 'Просмотр камер в реальном времени',
     icon: VideocamIcon,
     gradient: 'linear-gradient(135deg, #4caf50 0%, #2e7d32 100%)',
     tabIndex: 2, // Observation
   },
+    {
+        id: 'maintain',
+        title: 'Настройки',
+        description: 'Настройки камер',
+        icon: SettingsIcon,
+        gradient: 'linear-gradient(135deg, #ff9800 0%, #e65100 100%)',
+        tabIndex: 1, // CameraSettings
+    },
   {
     id: 'search',
     title: 'Поиск',
@@ -52,6 +60,15 @@ const modules: Module[] = [
     gradient: 'linear-gradient(135deg, #2196f3 0%, #1565c0 100%)',
     tabIndex: 3, // Recordings
   },
+    {
+        id: 'live',
+        title: 'Редактор сеток',
+        description: 'Изменение сеток просмотра камер для режима просмотра',
+        icon: StoreIcon,
+        gradient: 'linear-gradient(135deg, #757575 0%, #424242 100%)',
+        tabIndex: 5,
+        kiosk: true,
+    },
   {
     id: 'ai',
     title: 'AI',
@@ -69,23 +86,6 @@ const modules: Module[] = [
     gradient: 'linear-gradient(135deg, #00bcd4 0%, #0097a7 100%)',
     tabIndex: -1,
       externalUrl: '/no-react/pages/birdview.html'
-  },
-  {
-    id: 'maintain',
-    title: 'Настройки',
-    description: 'Настройки камер',
-    icon: SettingsIcon,
-    gradient: 'linear-gradient(135deg, #ff9800 0%, #e65100 100%)',
-    tabIndex: 1, // CameraSettings
-  },
-  {
-    id: 'kiosk',
-    title: 'Киоск',
-    description: 'Переход в полноэкранный режим',
-    icon: StoreIcon,
-    gradient: 'linear-gradient(135deg, #757575 0%, #424242 100%)',
-    tabIndex: 5,
-    kiosk: true,
   },
 ];
 

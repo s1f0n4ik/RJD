@@ -23,14 +23,6 @@ import CellMenu from './CellMenu';
 import { useTouchDevice } from '../utils/useTouchDevice';
 import { useLayouts, type SavedLayout } from '../hooks/Layouts';
 
-interface CustomCell {
-    id: string;
-    row: number;
-    col: number;
-    rowSpan: number;
-    colSpan: number;
-}
-
 const CONTROLS_HIDE_DELAY = 3000;
 
 // Дефолтные лэйауты, которые всегда присутствуют (не хранятся на сервере)
@@ -506,7 +498,7 @@ const KioskView: React.FC = () => {
                 </Box>
                 <Divider sx={{ borderColor: 'grey.800', flexShrink: 0 }} />
                 <Typography variant="caption" sx={{ px: 2, pt: 1, pb: 0.5, color: 'grey.500', display: 'block', flexShrink: 0 }}>
-                    {isTouch ? 'Тап по камере → тап по ячейке.' : 'Перетащите или клик → клик по ячейке.'}
+                    Перетащите камеру в ячейку или нажмите на камеру, потом в нужную ячейку.
                 </Typography>
 
                 {/* Список камер — только он скроллируется */}

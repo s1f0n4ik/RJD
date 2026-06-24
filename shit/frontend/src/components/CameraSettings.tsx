@@ -879,7 +879,7 @@ const CameraSettings: React.FC = () => {
                                                         sx={{ fontFamily: 'monospace' }}
                                                     >
                                                         <MenuItem
-                                                            value="__manual_trigger__"
+                                                            value=""
                                                             onClick={() => handleInputChange('ip_adress', ' ')}
                                                             sx={{ fontStyle: 'italic', color: 'text.secondary' }}
                                                         >
