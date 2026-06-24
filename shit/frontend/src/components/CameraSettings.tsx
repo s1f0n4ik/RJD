@@ -51,6 +51,7 @@ import {
 } from '@mui/icons-material';
 import { Search as SearchIcon, Refresh as RefreshIcon, Wifi as WifiIcon } from '@mui/icons-material';
 import { List, ListItem, ListItemButton, ListItemText } from '@mui/material';
+import { Close as CloseIcon } from '@mui/icons-material';
 import {RZD_COLORS} from '../theme';
 import {wsUrl} from '../utils/constants';
 import {type CPPCamera} from '../types'
@@ -1341,16 +1342,60 @@ const CameraSettings: React.FC = () => {
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <WifiIcon fontSize="small" /> Поиск камер в сети
                     </Box>
-                    <IconButton size="small" onClick={startScan}
-                                disabled={scanStage === 'onvif' || scanStage === 'ports'} sx={{ color: 'white' }}>
-                        <RefreshIcon fontSize="small" />
-                    </IconButton>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <IconButton size="small" onClick={startScan}
+                                    disabled={scanStage === 'onvif' || scanStage === 'ports'}
+                                    sx={{ color: 'white' }}>
+                            <RefreshIcon fontSize="small" />
+                        </IconButton>
+                        <Button
+                            size="small"
+                            onClick={handleCloseScan}
+                            startIcon={<CloseIcon fontSize="small" />}
+                            sx={{
+                                color: 'white',
+                                borderColor: 'rgba(255,255,255,0.5)',
+                                border: '1px solid',
+                                borderRadius: 1,
+                                px: 1.5,
+                                '&:hover': {
+                                    borderColor: 'white',
+                                    bgcolor: 'rgba(255,255,255,0.12)',
+                                },
+                            }}
+                        >
+                            Закрыть
+                        </Button>
+                    </Box>
                 </DialogTitle>
 
-                <DialogContent sx={{ pt: 2, minHeight: 280, display: 'flex', flexDirection: 'column' }}>
+                <DialogContent sx={{
+                    pt: 3,
+                    pb: 3,        // ← вместо отступа от DialogActions
+                    minHeight: 320,
+                    display: 'flex',
+                    flexDirection: 'column',
+                }}>
 
                     {/* Прогресс-индикатор этапа */}
-                    {(scanStage === 'onvif' || scanStage === 'ports') && (
+                    {scanStage === 'onvif' && onvifCameras.length === 0 && portCameras.length === 0 && (
+                        <Box sx={{
+                            flexGrow: 1,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 3,
+                        }}>
+                            <CircularProgress size={56} thickness={4} />
+                            <Typography variant="h6" color="text.secondary" fontWeight={500}>
+                                Поиск ONVIF-камер
+                            </Typography>
+                        </Box>
+                    )}
+
+                    {/* Компактный прогресс — для этапа портов, или когда уже что-то найдено */}
+                    {(scanStage === 'ports' || ((scanStage === 'onvif') && (onvifCameras.length > 0 || portCameras.length > 0))) && (
                         <Box sx={{ mb: 2 }}>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}>
                                 <CircularProgress size={18} />
@@ -1452,9 +1497,6 @@ const CameraSettings: React.FC = () => {
                     )}
                 </DialogContent>
 
-                <DialogActions sx={{ px: 3, pb: 2 }}>
-                    <Button onClick={handleCloseScan}>Закрыть</Button>
-                </DialogActions>
             </Dialog>
 
         </Container>
