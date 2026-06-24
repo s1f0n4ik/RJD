@@ -30,7 +30,7 @@ import {
     TableContainer,
     TableHead,
     TableRow,
-    TextField,
+    TextField, Tooltip,
     Typography
 } from '@mui/material';
 import {
@@ -49,6 +49,8 @@ import {
     Visibility as VisibilityIcon,
     VisibilityOff as VisibilityOffIcon,
 } from '@mui/icons-material';
+import { Search as SearchIcon, Refresh as RefreshIcon, Wifi as WifiIcon } from '@mui/icons-material';
+import { List, ListItem, ListItemButton, ListItemText } from '@mui/material';
 import {RZD_COLORS} from '../theme';
 import {wsUrl} from '../utils/constants';
 import {type CPPCamera} from '../types'
@@ -194,6 +196,12 @@ const CameraSettings: React.FC = () => {
     const [probeName, setProbeName] = useState<string | null>(null);
     const probeNameRef = useRef<string | null>(null);
     const editOriginalRef = useRef<Camera | null>(null);
+
+    // Сканер камер
+    const [scanOpen, setScanOpen] = useState(false);
+    const [scanning, setScanning] = useState(false);
+    const [scanResults, setScanResults] = useState<Array<{ ip: string; port: number; name?: string; model?: string; manufacturer?: string }>>([]);
+    const [scanError, setScanError] = useState('');
 
     useEffect(() => {
         loadCameras();
@@ -605,6 +613,36 @@ const CameraSettings: React.FC = () => {
         [cameras]
     );
 
+    // Хедперы для скана камер в сети
+    const handleScanNetwork = async () => {
+        setScanning(true);
+        setScanError('');
+        setScanResults([]);
+        try {
+            const res = await fetch('/api/scan/cameras?timeout=4');
+            if (!res.ok) throw new Error(`Ошибка сканирования: ${res.status}`);
+            const data = await res.json();
+            setScanResults(data.cameras || []);
+            if ((data.cameras || []).length === 0) {
+                setScanError('Камеры не найдены. Убедитесь, что они в той же сети и поддерживают ONVIF.');
+            }
+        } catch (e) {
+            setScanError(e instanceof Error ? e.message : String(e));
+        } finally {
+            setScanning(false);
+        }
+    };
+
+    const handleOpenScan = () => {
+        setScanOpen(true);
+        handleScanNetwork();   // сразу запускаем при открытии
+    };
+
+    const handlePickScanned = (ip: string) => {
+        handleInputChange('ip_adress', ip);
+        setScanOpen(false);
+    };
+
     return (
         <Container maxWidth="xl">
             {/* Header */}
@@ -837,71 +875,33 @@ const CameraSettings: React.FC = () => {
                                     </Grid>
 
                                     <Grid item xs={12} sm={8}>
-                                        {/* ipManualMode теперь локальный — определяем по значению вне пула */}
-                                        {(() => {
-                                            const showManualInput = formData.ip_adress !== '' && !ipPool.includes(formData.ip_adress);
-
-                                            return showManualInput ? (
-                                                <TextField
-                                                    fullWidth
-                                                    required
-                                                    autoFocus
-                                                    label="IP-адрес"
-                                                    value={formData.ip_adress}
-                                                    onChange={(e) => handleInputChange('ip_adress', e.target.value.trim())}
-                                                    error={!ipValidation.valid}
-                                                    helperText={ipValidation.error || ' '}
-                                                    placeholder="192.168.1.50"
-                                                    InputProps={{
-                                                        sx: { fontFamily: 'monospace' },
-                                                        endAdornment: (
-                                                            <InputAdornment position="end">
-                                                                <IconButton
-                                                                    size="small"
-                                                                    tabIndex={-1}
-                                                                    title="Вернуться к выбору из пула"
-                                                                    onClick={() => handleInputChange('ip_adress', '')}
-                                                                >
-                                                                    <ArrowBackIcon fontSize="small" />
-                                                                </IconButton>
-                                                            </InputAdornment>
-                                                        ),
-                                                    }}
-                                                />
-                                            ) : (
-                                                <FormControl fullWidth required error={!!formData.ip_adress && !ipValidation.valid}>
-                                                    <InputLabel id="ip-select-label">IP-адрес</InputLabel>
-                                                    <Select
-                                                        labelId="ip-select-label"
-                                                        label="IP-адрес"
-                                                        value={formData.ip_adress}
-                                                        onChange={(e) => handleInputChange('ip_adress', e.target.value)}
-                                                        sx={{ fontFamily: 'monospace' }}
-                                                    >
-                                                        <MenuItem
-                                                            value=""
-                                                            onClick={() => handleInputChange('ip_adress', ' ')}
-                                                            sx={{ fontStyle: 'italic', color: 'text.secondary' }}
-                                                        >
-                                                            ✏ Ввести вручную
-                                                        </MenuItem>
-                                                        <Divider />
-                                                        <MenuItem value=""><em>— не выбран —</em></MenuItem>
-                                                        {ipPool.map(ip => {
-                                                            const taken = usedIps.has(ip);
-                                                            return (
-                                                                <MenuItem key={ip} value={ip} disabled={taken} sx={{ fontFamily: 'monospace' }}>
-                                                                    {ip}{taken ? ' — занят' : ''}
-                                                                </MenuItem>
-                                                            );
-                                                        })}
-                                                    </Select>
-                                                    <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, ml: 1.5 }}>
-                                                        Пул: {IP_POOL_PREFIX}{IP_POOL_FROM}–{IP_POOL_TO}
-                                                    </Typography>
-                                                </FormControl>
-                                            );
-                                        })()}
+                                        <TextField
+                                            fullWidth
+                                            required
+                                            label="IP-адрес"
+                                            value={formData.ip_adress}
+                                            onChange={(e) => handleInputChange('ip_adress', e.target.value.trim())}
+                                            error={!!formData.ip_adress && !ipValidation.valid}
+                                            helperText={ipValidation.error || ' '}
+                                            placeholder="192.168.1.50"
+                                            InputProps={{
+                                                sx: { fontFamily: 'monospace' },
+                                                endAdornment: (
+                                                    <InputAdornment position="end">
+                                                        <Tooltip title="Поиск камер в сети" arrow>
+                                                            <IconButton
+                                                                size="small"
+                                                                edge="end"
+                                                                onClick={handleOpenScan}
+                                                                sx={{ color: RZD_COLORS.primary }}
+                                                            >
+                                                                <SearchIcon fontSize="small" />
+                                                            </IconButton>
+                                                        </Tooltip>
+                                                    </InputAdornment>
+                                                ),
+                                            }}
+                                        />
                                     </Grid>
 
                                     <Grid item xs={12} sm={4}>
@@ -1290,6 +1290,65 @@ const CameraSettings: React.FC = () => {
                             </Button>
                         )}
                     </Box>
+                </DialogActions>
+            </Dialog>
+            <Dialog open={scanOpen} onClose={() => setScanOpen(false)} maxWidth="sm" fullWidth
+                    PaperProps={{ sx: { borderRadius: 1 } }}>
+                <DialogTitle sx={{
+                    bgcolor: RZD_COLORS.primary, color: 'white', py: 1.25, fontSize: '1rem',
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <WifiIcon fontSize="small" /> Поиск камер в сети
+                    </Box>
+                    <IconButton size="small" onClick={handleScanNetwork} disabled={scanning} sx={{ color: 'white' }}>
+                        <RefreshIcon fontSize="small" />
+                    </IconButton>
+                </DialogTitle>
+                <DialogContent sx={{ pt: 2, minHeight: 200 }}>
+                    {scanning && (
+                        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 4, gap: 2 }}>
+                            <CircularProgress />
+                            <Typography variant="body2" color="text.secondary">
+                                Сканирование сети (ONVIF)...
+                            </Typography>
+                        </Box>
+                    )}
+                    {!scanning && scanError && (
+                        <Alert severity="info" sx={{ borderRadius: 1 }}>{scanError}</Alert>
+                    )}
+                    {!scanning && scanResults.length > 0 && (
+                        <List dense>
+                            {scanResults.map((cam) => {
+                                const taken = usedIps.has(cam.ip);
+                                return (
+                                    <ListItem key={cam.ip} disablePadding>
+                                        <ListItemButton
+                                            onClick={() => handlePickScanned(cam.ip)}
+                                            disabled={taken}
+                                            sx={{ borderRadius: 1, mb: 0.5, border: `1px solid ${RZD_COLORS.grey[200]}` }}
+                                        >
+                                            <ListItemText
+                                                primary={
+                                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                        <Typography sx={{ fontFamily: 'monospace', fontWeight: 600 }}>{cam.ip}</Typography>
+                                                        {taken && <Chip label="уже добавлена" size="small" sx={{ height: 18 }} />}
+                                                    </Box>
+                                                }
+                                                secondary={
+                                                    [cam.manufacturer, cam.model || cam.name].filter(Boolean).join(' · ') || 'ONVIF-камера'
+                                                }
+                                                secondaryTypographyProps={{ fontSize: '0.75rem' }}
+                                            />
+                                        </ListItemButton>
+                                    </ListItem>
+                                );
+                            })}
+                        </List>
+                    )}
+                </DialogContent>
+                <DialogActions sx={{ px: 3, pb: 2 }}>
+                    <Button onClick={() => setScanOpen(false)}>Закрыть</Button>
                 </DialogActions>
             </Dialog>
         </Container>

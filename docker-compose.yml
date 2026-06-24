@@ -56,6 +56,22 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # ========== Camera Scanner (ONVIF WS-Discovery) ==========
+  camera-scanner:
+    build:
+      context: ./scanner
+      dockerfile: Dockerfile
+    container_name: camera-scanner
+    network_mode: host  # обязательно для multicast WS-Discovery
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   # ========== React Frontend ==========
   frontend:
     build:
