@@ -17,6 +17,7 @@ import {
 } from '@mui/icons-material';
 import type { SystemState } from '../types';
 import StoreIcon from '@mui/icons-material/Store' ;
+import AddToQueueIcon from '@mui/icons-material/AddToQueue';
 interface DashboardProps {
   state: SystemState;
   onNavigate: (tabIndex: number) => void;
@@ -64,7 +65,7 @@ const modules: Module[] = [
         id: 'live',
         title: 'Редактор сеток',
         description: 'Изменение сеток просмотра камер для режима просмотра',
-        icon: StoreIcon,
+        icon: AddToQueueIcon,
         gradient: 'linear-gradient(135deg, #757575 0%, #424242 100%)',
         tabIndex: 2,
         kiosk: true,
