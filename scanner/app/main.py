@@ -9,7 +9,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-import scan
+from scan import router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -31,7 +31,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(scan.router, prefix="/scan", tags=["Scan"])
+app.include_router(router, prefix="/scan", tags=["Scan"])
 
 
 @app.get("/health", tags=["Health"])
