@@ -1424,15 +1424,13 @@ const CameraSettings: React.FC = () => {
                                                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                                             <Typography sx={{ fontFamily: 'monospace', fontWeight: 600 }}>{cam.ip}</Typography>
                                                             {taken && (
-                                                                <Chip label="уже добавлена" size="small" color="success" variant="outlined"
+                                                                <Chip label="В системе" size="small" color="success" variant="outlined"
                                                                       sx={{ height: 18 }} />
                                                             )}
                                                         </Box>
                                                     }
                                                     secondary={
-                                                        taken
-                                                            ? 'Уже в системе'
-                                                            : ([cam.manufacturer, cam.model || cam.name].filter(Boolean).join(' · ') || 'ONVIF-камера')
+                                                        [cam.manufacturer, cam.model || cam.name].filter(Boolean).join(' · ') || 'ONVIF-камера'
                                                     }
                                                     secondaryTypographyProps={{ fontSize: '0.75rem' }}
                                                 />
@@ -1470,18 +1468,16 @@ const CameraSettings: React.FC = () => {
                                                                 <Chip label="RTSP" size="small" color="success" variant="outlined" sx={{ height: 18 }} />
                                                             )}
                                                             {taken ? (
-                                                                <Chip label="уже добавлена" size="small" color="success" variant="outlined"
+                                                                <Chip label="В системе" size="small" color="success" variant="outlined"
                                                                       sx={{ height: 18 }} />
                                                             ) : cam.has_rtsp && (
-                                                                <Chip label="возможно камера" size="small" color="warning" variant="outlined"
+                                                                <Chip label="вероятно камера" size="small" color="warning" variant="outlined"
                                                                       sx={{ height: 18 }} />
                                                             )}
                                                         </Box>
                                                     }
                                                     secondary={
-                                                        taken
-                                                            ? 'Уже в системе'
-                                                            : (cam.vendor || `Порты: ${cam.open_ports.join(', ')}`)
+                                                        cam.vendor || `Порты: ${cam.open_ports.join(', ')}`
                                                     }
                                                     secondaryTypographyProps={{ fontSize: '0.75rem' }}
                                                 />
