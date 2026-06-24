@@ -1351,15 +1351,15 @@ const CameraSettings: React.FC = () => {
                         <Button
                             size="small"
                             onClick={handleCloseScan}
-                            startIcon={<CloseIcon fontSize="small" />}
                             sx={{
                                 color: 'white',
                                 borderColor: 'rgba(255,255,255,0.5)',
-                                border: '1px solid',
-                                borderRadius: 1,
-                                px: 1.5,
+                                border: 'none',
+                                padding: '2px 10px',
                                 '&:hover': {
                                     borderColor: 'white',
+                                    border: '1px solid',
+                                    borderRadius: 1,
                                     bgcolor: 'rgba(255,255,255,0.12)',
                                 },
                             }}
@@ -1419,7 +1419,7 @@ const CameraSettings: React.FC = () => {
 
                     {/* Группа 1: ONVIF-камеры */}
                     {onvifCameras.length > 0 && (
-                        <Box sx={{ mb: 2 }}>
+                        <Box sx={{ mb: 1.5, mt: 1.5 }}>
                             <Typography variant="caption" fontWeight={700} color="text.secondary"
                                         sx={{ display: 'block', mb: 0.5 }}>
                                 ONVIF-КАМЕРЫ ({onvifCameras.length})
@@ -1451,7 +1451,7 @@ const CameraSettings: React.FC = () => {
 
                     {/* Группа 2: найдены по портам (без ONVIF) */}
                     {portCameras.length > 0 && (
-                        <Box sx={{ mb: 2 }}>
+                        <Box sx={{ mb: 1.5, mt: 1.5 }}>
                             <Typography variant="caption" fontWeight={700} color="text.secondary"
                                         sx={{ display: 'block', mb: 0.5 }}>
                                 ОБНАРУЖЕНЫ ПО RTSP/HTTP ({portCameras.length})
