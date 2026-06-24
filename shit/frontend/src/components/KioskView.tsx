@@ -155,15 +155,16 @@ const KioskView: React.FC = () => {
         e.dataTransfer.effectAllowed = 'copy';
         e.dataTransfer.setData('text/plain', cameraName);
         setDraggedCamera(cameraName);
+        setSelectedCamera(null);   // режимы tap и drag не должны смешиваться
     };
 
     const handleDragEnd = () => {
-        // Вызывается всегда после drag — и при дропе в ячейку, и при дропе мимо.
-        // handleDrop уже поставил камеру если дроп был в ячейку,
-        // здесь просто чистим визуальное состояние в обоих случаях.
+        // Срабатывает в конце любого drag (в т.ч. при дропе мимо ячеек).
+        // Чистим всё состояние режимов, чтобы ничего не «зависало».
         setDraggedCamera(null);
         setDragOverCellId(null);
-    };
+        setSelectedCamera(null);
+    }
 
     const handleDragOver = (e: React.DragEvent, cellId: number | string) => {
         e.preventDefault(); e.stopPropagation();
@@ -228,6 +229,8 @@ const KioskView: React.FC = () => {
     const getCameraStatus      = (cameraId: string) => cameras.find(c => c.id === cameraId)?.streams?.main?.status === 3;
     const getCameraDisplayName = (cameraId: string) => cameras.find(c => c.id === cameraId)?.display_name || cameraId;
 
+    const activeModeCamera = draggedCamera ?? selectedCamera;
+
     // ── Cell render ───────────────────────────────────────────────
 
     const renderCellContent = (cellId: number | string) => {
@@ -235,15 +238,21 @@ const KioskView: React.FC = () => {
         const isDropTarget = dragOverCellId === cellId;
         const isDragging   = !!draggedCamera;
         const isSelecting  = !!selectedCamera;
+        const isModeActive = isDragging || isSelecting;
 
-        // Цвет обводки свободных ячеек когда активен какой-либо режим
-        const borderStyle = isDropTarget
-            ? '2px solid #4caf50'
-            : isDragging
-                ? '1px solid rgba(76,175,80,0.45)'
-                : isSelecting
-                    ? '1px solid rgba(33,150,243,0.45)'
-                    : '1px solid #222';
+        // Эта ячейка уже содержит активную (выбранную/перетаскиваемую) камеру
+        const hasActiveCamera = !!activeModeCamera && cameraName === activeModeCamera;
+
+        // Цвет обводки
+        const borderStyle = hasActiveCamera
+            ? '2px solid #f44336'                       // красный — здесь уже стоит эта камера
+            : isDropTarget
+                ? '2px solid #4caf50'                    // зелёный — цель дропа
+                : isDragging
+                    ? '1px solid rgba(76,175,80,0.45)'
+                    : isSelecting
+                        ? '1px solid rgba(33,150,243,0.45)'
+                        : '1px solid #222';
 
         return (
             <Box
@@ -260,11 +269,16 @@ const KioskView: React.FC = () => {
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     overflow: 'hidden',
                     border: borderStyle,
-                    // В режиме выбора камеры курсор pointer на всех ячейках
                     cursor: isSelecting ? 'pointer' : 'default',
-                    transition: 'border-color 0.12s',
-                    // Блокируем pointer-events видео во время drag/tap-режима
-                    '& video, & > div > video': (isDragging || isSelecting) ? { pointerEvents: 'none' } : {},
+                    transition: 'border-color 0.12s, box-shadow 0.12s',
+                    '& video, & > div > video': isModeActive ? { pointerEvents: 'none' } : {},
+                    // Усиленный hover в режиме выбора — заметная синяя подсветка
+                    ...(isSelecting && !hasActiveCamera && {
+                        '&:hover': {
+                            border: '2px solid #2196f3',
+                            boxShadow: 'inset 0 0 0 9999px rgba(33,150,243,0.22)',
+                        },
+                    }),
                 }}
             >
                 {cameraName ? (
@@ -415,6 +429,32 @@ const KioskView: React.FC = () => {
                 : layout.gridSize === 'single'
                     ? renderSingleView()
                     : renderStandardGrid()}
+
+            {/* Подсказка по центру при активном режиме выбора/перетаскивания */}
+            {(selectedCamera || draggedCamera) && (
+                <Box sx={{
+                    position: 'fixed',
+                    top: '50%', left: '50%',
+                    transform: 'translate(-50%, -50%)',
+                    zIndex: 1100,
+                    pointerEvents: 'none',
+                    bgcolor: 'rgba(0,0,0,0.82)',
+                    color: 'white',
+                    px: 3, py: 1.5,
+                    borderRadius: 2,
+                    border: `1px solid ${draggedCamera ? 'rgba(76,175,80,0.6)' : 'rgba(33,150,243,0.6)'}`,
+                    display: 'flex', alignItems: 'center', gap: 1.5,
+                    maxWidth: '80vw',
+                    textAlign: 'center',
+                    boxShadow: '0 4px 24px rgba(0,0,0,0.5)',
+                }}>
+                    <Typography variant="body1" fontWeight={500}>
+                        {draggedCamera
+                            ? `Перетащите «${getCameraDisplayName(draggedCamera)}» в нужную ячейку`
+                            : `Нажмите на ячейку, чтобы поставить «${getCameraDisplayName(selectedCamera!)}»`}
+                    </Typography>
+                </Box>
+            )}
 
             {/* Верхняя шторка */}
             <Box sx={{

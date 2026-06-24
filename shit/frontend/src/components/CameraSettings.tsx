@@ -10,7 +10,6 @@ import {
     DialogActions,
     DialogContent,
     DialogTitle,
-    Divider,
     FormControl,
     FormControlLabel,
     Grid,
@@ -51,7 +50,6 @@ import {
 } from '@mui/icons-material';
 import { Search as SearchIcon, Refresh as RefreshIcon, Wifi as WifiIcon } from '@mui/icons-material';
 import { List, ListItem, ListItemButton, ListItemText } from '@mui/material';
-import { Close as CloseIcon } from '@mui/icons-material';
 import {RZD_COLORS} from '../theme';
 import {wsUrl} from '../utils/constants';
 import {type CPPCamera} from '../types'
@@ -88,18 +86,6 @@ type ProbeStatus = 'idle' | 'creating' | 'streaming' | 'error';
 const RESERVED_PREFIXES = ['__probe_'];
 const NAME_REGEX = /^[a-zA-Z_][a-zA-Z0-9_-]{1,31}$/;
 const IP_REGEX = /^((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/;
-
-const IP_POOL_PREFIX = '192.168.1.';
-const IP_POOL_FROM = 11;
-const IP_POOL_TO = 39;
-
-const buildIpPool = (): string[] => {
-    const arr: string[] = [];
-    for (let i = IP_POOL_FROM; i <= IP_POOL_TO; i++) {
-        arr.push(`${IP_POOL_PREFIX}${i}`);
-    }
-    return arr;
-};
 
 const DEFAULT_FORM: CameraFormData = {
     id: '',
@@ -244,7 +230,6 @@ const CameraSettings: React.FC = () => {
         ),
         [cameras, editMode]
     );
-    const ipPool = useMemo(() => buildIpPool(), []);
 
     const nameValidation = useMemo(
         () => validateCameraName(formData.id, existingNames, editMode),
@@ -1429,15 +1414,26 @@ const CameraSettings: React.FC = () => {
                                     return (
                                         <ListItem key={`onvif-${cam.ip}`} disablePadding>
                                             <ListItemButton onClick={() => handlePickScanned(cam.ip)} disabled={taken}
-                                                            sx={{ borderRadius: 1, mb: 0.5, border: `1px solid ${RZD_COLORS.grey[200]}` }}>
+                                                            sx={{
+                                                                borderRadius: 1, mb: 0.5,
+                                                                border: `1px solid ${taken ? RZD_COLORS.success : RZD_COLORS.grey[200]}`,
+                                                                bgcolor: taken ? `${RZD_COLORS.success}0a` : 'transparent',
+                                                            }}>
                                                 <ListItemText
                                                     primary={
                                                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                                             <Typography sx={{ fontFamily: 'monospace', fontWeight: 600 }}>{cam.ip}</Typography>
-                                                            {taken && <Chip label="уже добавлена" size="small" sx={{ height: 18 }} />}
+                                                            {taken && (
+                                                                <Chip label="уже добавлена" size="small" color="success" variant="outlined"
+                                                                      sx={{ height: 18 }} />
+                                                            )}
                                                         </Box>
                                                     }
-                                                    secondary={[cam.manufacturer, cam.model || cam.name].filter(Boolean).join(' · ') || 'ONVIF-камера'}
+                                                    secondary={
+                                                        taken
+                                                            ? 'Уже в системе'
+                                                            : ([cam.manufacturer, cam.model || cam.name].filter(Boolean).join(' · ') || 'ONVIF-камера')
+                                                    }
                                                     secondaryTypographyProps={{ fontSize: '0.75rem' }}
                                                 />
                                             </ListItemButton>
@@ -1461,16 +1457,32 @@ const CameraSettings: React.FC = () => {
                                     return (
                                         <ListItem key={`port-${cam.ip}`} disablePadding>
                                             <ListItemButton onClick={() => handlePickScanned(cam.ip)} disabled={taken}
-                                                            sx={{ borderRadius: 1, mb: 0.5, border: `1px solid ${RZD_COLORS.grey[200]}` }}>
+                                                            sx={{
+                                                                borderRadius: 1, mb: 0.5,
+                                                                border: `1px solid ${taken ? RZD_COLORS.success : RZD_COLORS.grey[200]}`,
+                                                                bgcolor: taken ? `${RZD_COLORS.success}0a` : 'transparent',
+                                                            }}>
                                                 <ListItemText
                                                     primary={
-                                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
                                                             <Typography sx={{ fontFamily: 'monospace', fontWeight: 600 }}>{cam.ip}</Typography>
-                                                            {cam.has_rtsp && <Chip label="RTSP" size="small" color="success" variant="outlined" sx={{ height: 18 }} />}
-                                                            {taken && <Chip label="уже добавлена" size="small" sx={{ height: 18 }} />}
+                                                            {cam.has_rtsp && (
+                                                                <Chip label="RTSP" size="small" color="success" variant="outlined" sx={{ height: 18 }} />
+                                                            )}
+                                                            {taken ? (
+                                                                <Chip label="уже добавлена" size="small" color="success" variant="outlined"
+                                                                      sx={{ height: 18 }} />
+                                                            ) : cam.has_rtsp && (
+                                                                <Chip label="возможно камера" size="small" color="warning" variant="outlined"
+                                                                      sx={{ height: 18 }} />
+                                                            )}
                                                         </Box>
                                                     }
-                                                    secondary={cam.vendor || `Порты: ${cam.open_ports.join(', ')}`}
+                                                    secondary={
+                                                        taken
+                                                            ? 'Уже в системе'
+                                                            : (cam.vendor || `Порты: ${cam.open_ports.join(', ')}`)
+                                                    }
                                                     secondaryTypographyProps={{ fontSize: '0.75rem' }}
                                                 />
                                             </ListItemButton>
