@@ -118,6 +118,12 @@ const KioskView: React.FC = () => {
         return () => { if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); };
     }, []);
 
+    useEffect(() => {
+        if (!drawerOpen) {
+            setSelectedCamera(null);
+        }
+    }, [drawerOpen]);
+
     const scheduleHide = () => {
         if (hideTimerRef.current) window.clearTimeout(hideTimerRef.current);
         hideTimerRef.current = window.setTimeout(() => {
@@ -519,10 +525,9 @@ const KioskView: React.FC = () => {
             {/* Боковая панель */}
             <Drawer
                 anchor="left" open={drawerOpen}
-                onClose={() => {
-                    setDrawerOpen(false);
-                    setSelectedCamera(null);
-                }}
+                onClose={() =>
+                    setDrawerOpen(false)
+                }
                 variant="persistent"
                 ModalProps={{ keepMounted: true, hideBackdrop: true, disableEnforceFocus: true, disableAutoFocus: true, disableRestoreFocus: true }}
                 PaperProps={{ sx: {
