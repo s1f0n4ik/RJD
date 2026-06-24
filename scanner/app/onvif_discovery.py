@@ -103,11 +103,24 @@ def _parse_scope_value(scopes: List[str], key: str) -> Optional[str]:
 
 
 def _ip_from_xaddr(xaddr: str) -> tuple[str, int]:
-    """http://192.168.1.10/onvif/device_service → (192.168.1.10, 80)"""
+    """
+    http://192.168.1.10/onvif/device_service → (192.168.1.10, 80)
+    IPv6-адреса (http://[fe80::...]/...) отбрасываем — возвращаем ("", 0).
+    """
+    # Явно отсекаем IPv6 в квадратных скобках
+    if "[" in xaddr:
+        return "", 0
+
     m = re.match(r"https?://([^:/]+)(?::(\d+))?", xaddr)
     if not m:
         return "", 0
     ip = m.group(1)
+
+    # Проверяем что это валидный IPv4
+    parts = ip.split(".")
+    if len(parts) != 4 or not all(p.isdigit() and 0 <= int(p) <= 255 for p in parts):
+        return "", 0
+
     port = int(m.group(2)) if m.group(2) else 80
     return ip, port
 

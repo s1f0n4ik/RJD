@@ -1305,20 +1305,40 @@ const CameraSettings: React.FC = () => {
                         <RefreshIcon fontSize="small" />
                     </IconButton>
                 </DialogTitle>
-                <DialogContent sx={{ pt: 2, minHeight: 200 }}>
+                <DialogContent sx={{
+                    pt: 2,
+                    minHeight: 240,
+                    display: 'flex',
+                    flexDirection: 'column',
+                }}>
                     {scanning && (
-                        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 4, gap: 2 }}>
+                        <Box sx={{
+                            flexGrow: 1,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',   // ← центр по вертикали
+                            gap: 2,
+                        }}>
                             <CircularProgress />
                             <Typography variant="body2" color="text.secondary">
                                 Сканирование сети (ONVIF)...
                             </Typography>
                         </Box>
                     )}
+
                     {!scanning && scanError && (
-                        <Alert severity="info" sx={{ borderRadius: 1 }}>{scanError}</Alert>
+                        <Box sx={{
+                            flexGrow: 1,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',   // ← центр
+                        }}>
+                            <Alert severity="info" sx={{ borderRadius: 1, width: '100%' }}>{scanError}</Alert>
+                        </Box>
                     )}
                     {!scanning && scanResults.length > 0 && (
-                        <List dense>
+                        <List dense sx={{ flexGrow: 1, overflowY: 'auto', maxHeight: 360 }}>
                             {scanResults.map((cam) => {
                                 const taken = usedIps.has(cam.ip);
                                 return (
