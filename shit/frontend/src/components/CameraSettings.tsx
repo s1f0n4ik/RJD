@@ -1,25 +1,58 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
-    Container, Paper, Typography, Box, Button, Table, TableBody, TableCell,
-    TableContainer, TableHead, TableRow, IconButton, Chip, Alert, Dialog,
-    DialogTitle, DialogContent, DialogActions, TextField, Grid, FormControl,
-    InputLabel, Select, MenuItem, FormControlLabel, Switch, Tabs, Tab,
-    Divider, CircularProgress, Stack, Stepper, Step, StepLabel, InputAdornment
+    Alert,
+    Box,
+    Button,
+    Chip,
+    CircularProgress,
+    Container,
+    Dialog,
+    DialogActions,
+    DialogContent,
+    DialogTitle,
+    Divider,
+    FormControl,
+    FormControlLabel,
+    Grid,
+    IconButton,
+    InputAdornment,
+    InputLabel,
+    MenuItem,
+    Paper,
+    Select,
+    Step,
+    StepLabel,
+    Stepper,
+    Switch,
+    Table,
+    TableBody,
+    TableCell,
+    TableContainer,
+    TableHead,
+    TableRow,
+    TextField,
+    Typography
 } from '@mui/material';
 import {
-    Add as AddIcon, Delete as DeleteIcon, Edit as EditIcon,
-    Settings as SettingsIcon, Videocam as VideocamIcon,
-    FiberManualRecord as RecIcon, PlayArrow as PlayIcon, Stop as StopIcon,
-    CheckCircle as CheckIcon, Error as ErrorIcon,
-    ArrowBack as ArrowBackIcon, ArrowForward as ArrowForwardIcon,
+    Add as AddIcon,
+    ArrowBack as ArrowBackIcon,
+    ArrowForward as ArrowForwardIcon,
+    CheckCircle as CheckIcon,
+    Delete as DeleteIcon,
+    Edit as EditIcon,
+    Error as ErrorIcon,
+    FiberManualRecord as RecIcon,
+    PlayArrow as PlayIcon,
     Save as SaveIcon,
+    Settings as SettingsIcon,
+    Videocam as VideocamIcon,
     Visibility as VisibilityIcon,
     VisibilityOff as VisibilityOffIcon,
 } from '@mui/icons-material';
-import { RZD_COLORS } from '../theme';
-import { wsUrl } from '../utils/constants';
-import { type CPPCamera} from '../types'
-import { api, MediaCenterError, type CameraPatchBody } from '../services/api';
+import {RZD_COLORS} from '../theme';
+import {wsUrl} from '../utils/constants';
+import {type CPPCamera} from '../types'
+import {api, type CameraPatchBody, MediaCenterError} from '../services/api';
 import WebRTCPlayer from './WebRTCPlayer';
 
 // Используем CPPCamera из api как основной тип камеры
@@ -153,8 +186,6 @@ const CameraSettings: React.FC = () => {
     const [success, setSuccess] = useState('');
     const [openDialog, setOpenDialog] = useState(false);
     const [editMode, setEditMode] = useState(false);
-    const [selectedTab, setSelectedTab] = useState(0);
-    const [ipManualMode, setIpManualMode] = useState(false);
     const [formData, setFormData] = useState<CameraFormData>(DEFAULT_FORM);
     const [showPassword, setShowPassword] = useState(false);
 
@@ -251,8 +282,6 @@ const CameraSettings: React.FC = () => {
     const handleOpenAddDialog = () => {
         setEditMode(false);
         setFormData({ ...DEFAULT_FORM });
-        setIpManualMode(false);
-        setSelectedTab(0);
         setOpenDialog(true);
     };
 
@@ -279,10 +308,7 @@ const CameraSettings: React.FC = () => {
             sub_reconnect: camera.streams.sub.reconnect,
             to_record: camera.streams.main.to_record ?? false,
         });
-        const inPool = buildIpPool().includes(camera.ip_adress);
-        setIpManualMode(!inPool);
         editOriginalRef.current = camera;
-        setSelectedTab(0);
         setOpenDialog(true);
     };
 
@@ -811,65 +837,73 @@ const CameraSettings: React.FC = () => {
                                     </Grid>
 
                                     <Grid item xs={12} sm={8}>
-                                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
-                                        <Typography variant="caption" color="text.secondary">IP-адрес</Typography>
-                                        <Button
-                                          size="small"
-                                          onClick={() => {
-                                            setIpManualMode((prev) => {
-                                              const next = !prev;
-                                              // если возвращаемся в режим пула и IP не из пула — очищаем
-                                              if (!next && !ipPool.includes(formData.ip_adress)) {
-                                                handleInputChange('ip_adress', '');
-                                              }
-                                              return next;
-                                            });
-                                          }}
-                                        >
-                                          {ipManualMode ? 'Выбрать из пула' : 'Ввести вручную'}
-                                        </Button>
-                                      </Box>
+                                        {/* ipManualMode теперь локальный — определяем по значению вне пула */}
+                                        {(() => {
+                                            const showManualInput = formData.ip_adress !== '' && !ipPool.includes(formData.ip_adress);
 
-                                      {!ipManualMode ? (
-                                        <FormControl fullWidth required error={!!formData.ip_adress && !ipValidation.valid}>
-                                          <InputLabel id="ip-select-label">IP-адрес</InputLabel>
-                                          <Select
-                                            labelId="ip-select-label"
-                                            label="IP-адрес"
-                                            value={formData.ip_adress}
-                                            onChange={(e) => handleInputChange('ip_adress', e.target.value)}
-                                            sx={{ fontFamily: 'monospace' }}
-                                          >
-                                            <MenuItem value="">
-                                              <em>— не выбран —</em>
-                                            </MenuItem>
-                                            {ipPool.map(ip => {
-                                              const taken = usedIps.has(ip);
-                                              return (
-                                                <MenuItem key={ip} value={ip} disabled={taken} sx={{ fontFamily: 'monospace' }}>
-                                                  {ip}{taken ? ' — занят' : ''}
-                                                </MenuItem>
-                                              );
-                                            })}
-                                          </Select>
-                                          <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, ml: 1.5 }}>
-                                            Пул: {IP_POOL_PREFIX}{IP_POOL_FROM}–{IP_POOL_TO}
-                                          </Typography>
-                                        </FormControl>
-                                      ) : (
-                                        <TextField
-                                          fullWidth
-                                          required
-                                          label="IP-адрес (ручной ввод)"
-                                          value={formData.ip_adress}
-                                          onChange={(e) => handleInputChange('ip_adress', e.target.value.trim())}
-                                          error={!ipValidation.valid}
-                                          helperText={ipValidation.error || ' '}
-                                          placeholder="192.168.1.50"
-                                          InputProps={{ sx: { fontFamily: 'monospace' } }}
-                                        />
-                                      )}
+                                            return showManualInput ? (
+                                                <TextField
+                                                    fullWidth
+                                                    required
+                                                    autoFocus
+                                                    label="IP-адрес"
+                                                    value={formData.ip_adress}
+                                                    onChange={(e) => handleInputChange('ip_adress', e.target.value.trim())}
+                                                    error={!ipValidation.valid}
+                                                    helperText={ipValidation.error || ' '}
+                                                    placeholder="192.168.1.50"
+                                                    InputProps={{
+                                                        sx: { fontFamily: 'monospace' },
+                                                        endAdornment: (
+                                                            <InputAdornment position="end">
+                                                                <IconButton
+                                                                    size="small"
+                                                                    tabIndex={-1}
+                                                                    title="Вернуться к выбору из пула"
+                                                                    onClick={() => handleInputChange('ip_adress', '')}
+                                                                >
+                                                                    <ArrowBackIcon fontSize="small" />
+                                                                </IconButton>
+                                                            </InputAdornment>
+                                                        ),
+                                                    }}
+                                                />
+                                            ) : (
+                                                <FormControl fullWidth required error={!!formData.ip_adress && !ipValidation.valid}>
+                                                    <InputLabel id="ip-select-label">IP-адрес</InputLabel>
+                                                    <Select
+                                                        labelId="ip-select-label"
+                                                        label="IP-адрес"
+                                                        value={formData.ip_adress}
+                                                        onChange={(e) => handleInputChange('ip_adress', e.target.value)}
+                                                        sx={{ fontFamily: 'monospace' }}
+                                                    >
+                                                        <MenuItem
+                                                            value="__manual_trigger__"
+                                                            onClick={() => handleInputChange('ip_adress', ' ')}
+                                                            sx={{ fontStyle: 'italic', color: 'text.secondary' }}
+                                                        >
+                                                            ✏ Ввести вручную
+                                                        </MenuItem>
+                                                        <Divider />
+                                                        <MenuItem value=""><em>— не выбран —</em></MenuItem>
+                                                        {ipPool.map(ip => {
+                                                            const taken = usedIps.has(ip);
+                                                            return (
+                                                                <MenuItem key={ip} value={ip} disabled={taken} sx={{ fontFamily: 'monospace' }}>
+                                                                    {ip}{taken ? ' — занят' : ''}
+                                                                </MenuItem>
+                                                            );
+                                                        })}
+                                                    </Select>
+                                                    <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, ml: 1.5 }}>
+                                                        Пул: {IP_POOL_PREFIX}{IP_POOL_FROM}–{IP_POOL_TO}
+                                                    </Typography>
+                                                </FormControl>
+                                            );
+                                        })()}
                                     </Grid>
+
                                     <Grid item xs={12} sm={4}>
                                         <TextField
                                             fullWidth

@@ -568,7 +568,7 @@ const Observation: React.FC = () => {
                                             Зачем нужны сетки?
                                         </Typography>
                                         <Typography variant="caption">
-                                            Сохранённые сетки доступны в режиме трансляции (Kiosk).
+                                            Сохранённые сетки доступны в режиме трансляции.
                                             Сохраните текущую расстановку камер, затем откройте её
                                             в полноэкранном режиме — переключение между сетками
                                             доступно прямо в трансляции без выхода в настройки.
@@ -599,11 +599,11 @@ const Observation: React.FC = () => {
                             {layoutsLoading && <CircularProgress size={18} />}
 
                             {/* Выбор сохранённой сетки */}
-                            <FormControl size="small" sx={{ minWidth: 150 }}>
-                                <InputLabel>Сохранённые сетки</InputLabel>
+                            <FormControl size="small" sx={{ minWidth: '200px' }}>
+                                <InputLabel sx={{fontSize: '14px'}}>Сохраненные сетки</InputLabel>
                                 <Select
                                     value={currentLayoutName}
-                                    label="Сохранённые сетки"
+                                    label="Сохраненные сетки"
                                     onChange={(e) => loadLayout(e.target.value)}
                                 >
                                     <MenuItem value=""><em>Не выбрано</em></MenuItem>
@@ -642,7 +642,7 @@ const Observation: React.FC = () => {
                       startIcon={<FullscreenIcon />}
                       disabled={!currentLayoutName}
                       onClick={() => window.open(`/kiosk/${encodeURIComponent(currentLayoutName)}`, '_blank')}
-                      sx={{ ml: 1, borderRadius: 1 }}
+                      sx={{ ml: 1, borderRadius: 1, padding: '5px 15px', fontSize: '14px' }}
                   >
                     Режим трансляции
                   </Button>
