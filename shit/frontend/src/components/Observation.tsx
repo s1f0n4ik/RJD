@@ -46,7 +46,7 @@ import type { CPPCamera } from '../types';
 import { isProbeCamera } from '../utils/probeFilter';
 import CellMenu from './CellMenu';
 import { useTouchDevice } from '../utils/useTouchDevice';
-import { layouts, type SavedLayout } from '../hooks/Layouts.ts';
+import { useLayouts, type SavedLayout } from '../hooks/Layouts.ts';
 import { RZD_COLORS } from '../theme';
 
 type GridSize = 1 | 4 | 9 | 16 | 'custom';
@@ -87,11 +87,19 @@ const Observation: React.FC = () => {
     const [selectedCellId, setSelectedCellId]     = useState<string | null>(null);
 
     // Layouts — теперь через API
-    const { layouts: savedLayouts, loading: layoutsLoading, error: layoutsError, save: saveLayout, remove: removeLayout } = layouts();
+    const {
+        layouts: savedLayouts,
+        loading: layoutsLoading,
+        loadError: layoutsLoadError,
+        opError: layoutsSaveError,
+        clearOpError: clearLayoutsError,
+        save: saveLayout,
+        remove: removeLayout,
+    } = useLayouts();
+    const [saveLoading, setSaveLoading] = useState(false);
     const [currentLayoutName, setCurrentLayoutName] = useState('');
     const [saveDialogOpen, setSaveDialogOpen]       = useState(false);
     const [newLayoutName, setNewLayoutName]         = useState('');
-    const [saveLoading, setSaveLoading]             = useState(false);
 
     const [_, setDraggedCamera] = useState<string | null>(null);
     const isTouch = useTouchDevice();
@@ -133,25 +141,23 @@ const Observation: React.FC = () => {
     const handleSaveCurrentLayout = async () => {
         if (!newLayoutName.trim()) return;
         setSaveLoading(true);
-        try {
-            const layout: SavedLayout = {
-                name:           newLayoutName.trim(),
-                gridSize:       gridSize,
-                customCells:    gridSize === 'custom' ? customCells : undefined,
-                customGridRows: gridSize === 'custom' ? customGridRows : undefined,
-                customGridCols: gridSize === 'custom' ? customGridCols : undefined,
-                activeCells:    activeCells as Record<string, string>,
-                timestamp:      Date.now(),
-            };
-            await saveLayout(layout);
+        const layout: SavedLayout = {
+            name:           newLayoutName.trim(),
+            gridSize,
+            customCells:    gridSize === 'custom' ? customCells : undefined,
+            customGridRows: gridSize === 'custom' ? customGridRows : undefined,
+            customGridCols: gridSize === 'custom' ? customGridCols : undefined,
+            activeCells:    activeCells as Record<string, string>,
+            timestamp:      Date.now(),
+        };
+        const ok = await saveLayout(layout);
+        setSaveLoading(false);
+        if (ok) {
             setCurrentLayoutName(layout.name);
             setSaveDialogOpen(false);
             setNewLayoutName('');
-        } catch (e) {
-            // ошибка покажется через layoutsError
-        } finally {
-            setSaveLoading(false);
         }
+        // если !ok — opError уже установлен в хуке, покажется в Alert ниже
     };
 
     const loadLayout = (layoutName: string) => {
@@ -169,8 +175,8 @@ const Observation: React.FC = () => {
 
     const handleDeleteLayout = async (layoutName: string) => {
         if (!confirm(`Удалить отображение "${layoutName}"?`)) return;
-        await removeLayout(layoutName);
-        if (currentLayoutName === layoutName) setCurrentLayoutName('');
+        const ok = await removeLayout(layoutName);
+        if (ok && currentLayoutName === layoutName) setCurrentLayoutName('');
     };
 
     // ── Grid ─────────────────────────────────────────────────────
@@ -357,7 +363,7 @@ const Observation: React.FC = () => {
             onDrop={(e) => handleDrop(e, cellId)}
             sx={{
                 aspectRatio: '16/9',
-                border: cameraName ? `2px solid ${RZD_COLORS.primary}` : '2px dashed #9e9e9e',
+                border: cameraName ? 'none' : '2px dashed #9e9e9e',
                 borderRadius: 1,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 bgcolor: cameraName ? 'black' : '#fafafa',
@@ -437,7 +443,7 @@ const Observation: React.FC = () => {
                         sx={{
                             gridColumn: `${cell.col} / span ${cell.colSpan}`,
                             gridRow: `${cell.row} / span ${cell.rowSpan}`,
-                            border: cameraName ? `2px solid ${RZD_COLORS.primary}` : '2px dashed #9e9e9e',
+                            border: cameraName ? 'none' : '2px dashed #9e9e9e',
                             borderRadius: 1,
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
                             bgcolor: cameraName ? 'black' : '#fafafa',
@@ -645,8 +651,18 @@ const Observation: React.FC = () => {
                         </Box>
                     </Box>
 
-                    {layoutsError && (
-                        <Alert severity="error" sx={{ mb: 2, borderRadius: 1 }}>{layoutsError}</Alert>
+                    {/* Ошибка загрузки — предупреждение, сетки просто недоступны */}
+                    {layoutsLoadError && (
+                        <Alert severity="warning" sx={{ mb: 2, borderRadius: 1 }} onClose={() => {}}>
+                            Не удалось загрузить сетки с сервера: {layoutsLoadError}
+                        </Alert>
+                    )}
+
+                    {/* Ошибка операции save/remove — кратко, закрываемая */}
+                    {layoutsSaveError && (
+                        <Alert severity="error" sx={{ mb: 2, borderRadius: 1 }} onClose={clearLayoutsError}>
+                            {layoutsSaveError}
+                        </Alert>
                     )}
 
                     <ToggleButtonGroup
@@ -691,6 +707,9 @@ const Observation: React.FC = () => {
                     Сохранить сетку
                 </DialogTitle>
                 <DialogContent sx={{ pt: 2 }}>
+                    {layoutsSaveError && (
+                        <Alert severity="error" sx={{ mb: 1, borderRadius: 1 }}>{layoutsSaveError}</Alert>
+                    )}
                     <TextField
                         autoFocus
                         margin="dense"

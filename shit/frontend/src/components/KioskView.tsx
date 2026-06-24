@@ -21,7 +21,7 @@ import type { CPPCamera } from '../types';
 import { wsUrl } from '../utils/constants';
 import CellMenu from './CellMenu';
 import { useTouchDevice } from '../utils/useTouchDevice';
-import { layouts, type SavedLayout } from '../hooks/Layouts.ts';
+import { useLayouts, type SavedLayout } from '../hooks/Layouts.ts';
 
 interface CustomCell {
     id: string;
@@ -57,7 +57,7 @@ const KioskView: React.FC = () => {
     const [dragOverCellId, setDragOverCellId] = useState<number | string | null>(null);
 
     // Сетки с сервера
-    const { layouts: serverLayouts, loading: layoutsLoading } = layouts();
+    const { layouts: serverLayouts, loading: layoutsLoading, loadError: layoutsLoadError } = useLayouts();
 
     // Объединяем дефолтные + серверные
     const availableLayouts: SavedLayout[] = [...serverLayouts, ...DEFAULT_LAYOUTS];
@@ -335,11 +335,18 @@ const KioskView: React.FC = () => {
 
     if (layoutsLoading) {
         return (
-            <Box sx={{ minHeight: '100vh', bgcolor: '#000', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
+            <Box sx={{ minHeight: '100vh', bgcolor: '#000', color: 'white', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
                 <CircularProgress color="inherit" size={28} />
                 <Typography>Загрузка отображений...</Typography>
             </Box>
         );
+    }
+
+    // Ошибка загрузки — не крашим киоск, работаем только с дефолтными лэйаутами
+    if (layoutsLoadError) {
+        console.warn('[KioskView] layouts load error:', layoutsLoadError);
+        // Не рендерим ошибку в полный экран — просто продолжаем с DEFAULT_LAYOUTS
+        // availableLayouts уже содержит DEFAULT_LAYOUTS, layout выберется из них
     }
 
     if (error) {
