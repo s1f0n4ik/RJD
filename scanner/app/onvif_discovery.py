@@ -112,17 +112,17 @@ def _ip_from_xaddr(xaddr: str) -> tuple[str, int]:
     return ip, port
 
 
-async def discover_cameras(timeout: float = WSD_TIMEOUT) -> List[DiscoveredCamera]:
+def _discover_sync(timeout: float) -> List[DiscoveredCamera]:
     """
-    Рассылает WS-Discovery probe и собирает ответы камер.
-    Возвращает список уникальных по IP камер.
+    Синхронная реализация WS-Discovery на блокирующем сокете.
+    Вызывается в executor'е — не зависит от реализации event-loop
+    (uvloop не поддерживает loop.sock_sendto для датаграмм).
     """
-    loop = asyncio.get_event_loop()
+    import time
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
-    sock.setblocking(False)
 
     try:
         sock.bind(("", 0))
@@ -136,21 +136,22 @@ async def discover_cameras(timeout: float = WSD_TIMEOUT) -> List[DiscoveredCamer
     # Отправляем probe несколько раз — UDP ненадёжен
     for _ in range(2):
         try:
-            await loop.sock_sendto(sock, probe, (WSD_MULTICAST_ADDR, WSD_PORT))
+            sock.sendto(probe, (WSD_MULTICAST_ADDR, WSD_PORT))
         except OSError as e:
             logger.warning(f"WSD send failed: {e}")
-        await asyncio.sleep(0.1)
+        time.sleep(0.1)
 
     found: dict[str, DiscoveredCamera] = {}
-    deadline = loop.time() + timeout
+    deadline = time.monotonic() + timeout
 
-    while loop.time() < deadline:
-        remaining = deadline - loop.time()
+    while True:
+        remaining = deadline - time.monotonic()
         if remaining <= 0:
             break
+        sock.settimeout(remaining)
         try:
-            data = await asyncio.wait_for(loop.sock_recv(sock, 65535), timeout=remaining)
-        except asyncio.TimeoutError:
+            data, _addr = sock.recvfrom(65535)
+        except socket.timeout:
             break
         except OSError:
             break
@@ -181,6 +182,15 @@ async def discover_cameras(timeout: float = WSD_TIMEOUT) -> List[DiscoveredCamer
     sock.close()
     logger.info(f"WSD discovery: found {len(found)} camera(s)")
     return list(found.values())
+
+
+async def discover_cameras(timeout: float = WSD_TIMEOUT) -> List[DiscoveredCamera]:
+    """
+    Асинхронная обёртка: синхронный discovery выполняется в executor'е,
+    чтобы не блокировать event-loop и не зависеть от uvloop.
+    """
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _discover_sync, timeout)
 
 
 async def enrich_device_info(camera: DiscoveredCamera, username: str = "", password: str = "") -> DiscoveredCamera:
