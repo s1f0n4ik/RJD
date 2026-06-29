@@ -6,20 +6,78 @@ from datetime import datetime, timedelta
 from pydantic import BaseModel
 import subprocess
 import logging
-import os
 import tempfile
+import time
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 RECORDS_PATH = Path("/storage/internal")
+TEMP_EXPORT_DIR = Path(tempfile.gettempdir()) / "rjd_recordings_exports"
+TEMP_EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+
+ALLOWED_VIDEO_SUFFIXES = {'.mp4', '.mkv', '.avi', '.ts'}
+
 
 class MergeRequest(BaseModel):
-    """Запрос на склейку видео"""
     camera: str
-    date: str  # YYYY-MM-DD
+    date: str
     start_minutes: float
     end_minutes: float
+
+
+def cleanup_old_exports(max_age_seconds: int = 3600):
+    """Удаляем старые временные файлы экспорта."""
+    now = time.time()
+
+    try:
+        for p in TEMP_EXPORT_DIR.glob("*"):
+            try:
+                if not p.is_file():
+                    continue
+
+                age = now - p.stat().st_mtime
+                if age > max_age_seconds:
+                    p.unlink(missing_ok=True)
+                    logger.info(f"🗑️ Removed old temp export: {p}")
+            except Exception as e:
+                logger.warning(f"Failed to cleanup temp file {p}: {e}")
+    except Exception as e:
+        logger.warning(f"Failed to scan temp export dir {TEMP_EXPORT_DIR}: {e}")
+
+
+def is_valid_video_file(path: Path) -> bool:
+    """Проверяем, что файл читается и содержит видеопоток."""
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v", "error",
+                "-select_streams", "v:0",
+                "-show_entries", "stream=codec_type",
+                "-of", "csv=p=0",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+
+        stdout = (result.stdout or "").strip().lower()
+        return result.returncode == 0 and "video" in stdout
+
+    except subprocess.TimeoutExpired:
+        logger.warning(f"⚠️ ffprobe timeout for file: {path}")
+        return False
+    except Exception as e:
+        logger.warning(f"⚠️ ffprobe failed for {path}: {e}")
+        return False
+
+
+def quote_ffmpeg_concat_path(path: Path) -> str:
+    """Безопасное экранирование пути для concat list."""
+    escaped = str(path.absolute()).replace("'", "'\\''")
+    return f"file '{escaped}'\n"
 
 
 @router.get("/recordings")
@@ -43,7 +101,7 @@ async def get_all_recordings() -> Dict[str, Any]:
             files = []
 
             for video_file in camera_dir.glob("*"):
-                if video_file.is_file() and video_file.suffix.lower() in ['.mp4', '.mkv', '.avi', '.ts']:
+                if video_file.is_file() and video_file.suffix.lower() in ALLOWED_VIDEO_SUFFIXES:
                     stat = video_file.stat()
                     files.append({
                         "filename": video_file.name,
@@ -52,7 +110,6 @@ async def get_all_recordings() -> Dict[str, Any]:
                         "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
                     })
 
-            # Сортируем по времени создания (новые сверху)
             files.sort(key=lambda x: x['created'], reverse=True)
             recordings[camera_name] = files
 
@@ -74,7 +131,7 @@ async def get_camera_recordings(camera_name: str):
 
     files = []
     for video_file in camera_path.glob("*"):
-        if video_file.is_file() and video_file.suffix.lower() in ['.mp4', '.mkv', '.avi', '.ts']:
+        if video_file.is_file() and video_file.suffix.lower() in ALLOWED_VIDEO_SUFFIXES:
             stat = video_file.stat()
             files.append({
                 "filename": video_file.name,
@@ -90,7 +147,6 @@ async def get_camera_recordings(camera_name: str):
 @router.get("/recordings/download/{camera_name}/{filename}")
 async def download_recording(camera_name: str, filename: str):
     """Скачать файл записи"""
-    # Защита от path traversal
     if ".." in filename or "/" in filename:
         raise HTTPException(status_code=400, detail="Invalid filename")
 
@@ -109,7 +165,6 @@ async def download_recording(camera_name: str, filename: str):
 @router.get("/recordings/stream/{camera_name}/{filename}")
 async def stream_recording(camera_name: str, filename: str):
     """Stream видео для проигрывания в браузере"""
-    # Защита от path traversal
     if ".." in filename or "/" in filename:
         raise HTTPException(status_code=400, detail="Invalid filename")
 
@@ -127,25 +182,21 @@ async def stream_recording(camera_name: str, filename: str):
 @router.post("/recordings/merge")
 async def merge_recordings(request: MergeRequest):
     """
-    Склеить видео в указанном диапазоне времени
-
-    Принимает:
-    - camera: имя камеры
-    - date: дата в формате YYYY-MM-DD
-    - start_minutes: начало диапазона в минутах от начала дня (например, 600 = 10:00)
-    - end_minutes: конец диапазона в минутах от начала дня
-
-    Возвращает: склеенный MP4 файл
+    Склеить видео в указанном диапазоне времени.
+    Битые сегменты пропускаются.
     """
 
-    logger.info(f"🎬 Merge request: {request.camera}, {request.date}, {request.start_minutes}-{request.end_minutes} min")
+    cleanup_old_exports()
 
-    # 1. Проверяем существование камеры
+    logger.info(
+        f"🎬 Merge request: {request.camera}, {request.date}, "
+        f"{request.start_minutes}-{request.end_minutes} min"
+    )
+
     camera_path = RECORDS_PATH / request.camera
     if not camera_path.exists():
         raise HTTPException(status_code=404, detail=f"Camera '{request.camera}' not found")
 
-    # 2. Находим все видео файлы камеры
     all_files = sorted(
         [f for f in camera_path.glob("*.mp4") if f.is_file()],
         key=lambda x: x.name
@@ -156,34 +207,26 @@ async def merge_recordings(request: MergeRequest):
 
     logger.info(f"📁 Found {len(all_files)} total files for {request.camera}")
 
-    # 3. Фильтруем файлы по дате и времени
     try:
         date_obj = datetime.strptime(request.date, "%Y-%m-%d")
         start_time = date_obj + timedelta(minutes=request.start_minutes)
         end_time = date_obj + timedelta(minutes=request.end_minutes)
 
         logger.info(f"⏰ Range: {start_time.isoformat()} to {end_time.isoformat()}")
-
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid date format: {e}")
 
-    # 4. Отбираем файлы в диапазоне
     relevant_files = []
 
     for video_file in all_files:
         try:
-            # Предполагаем формат файла: camera_YYYYMMDD_HHMMSS.mp4
-            # Или просто используем время создания файла
             stat = video_file.stat()
             file_time = datetime.fromtimestamp(stat.st_ctime)
-
-            # Каждый файл примерно 10 минут
             file_end_time = file_time + timedelta(minutes=10)
 
-            # Проверяем пересечение с запрошенным диапазоном
             if file_time <= end_time and file_end_time >= start_time:
                 relevant_files.append(video_file)
-                logger.info(f"  ✅ {video_file.name} (created: {file_time.strftime('%H:%M:%S')})")
+                logger.info(f"  ✅ selected: {video_file.name} (created: {file_time.strftime('%H:%M:%S')})")
 
         except Exception as e:
             logger.warning(f"  ⚠️ Skipping {video_file.name}: {e}")
@@ -195,41 +238,56 @@ async def merge_recordings(request: MergeRequest):
             detail=f"No recordings found in time range {start_time.strftime('%H:%M')}-{end_time.strftime('%H:%M')}"
         )
 
-    logger.info(f"🎯 Selected {len(relevant_files)} files for merging")
+    logger.info(f"🎯 Selected {len(relevant_files)} files before validation")
 
-    # 5. Создаем временные файлы
-    temp_dir = Path(tempfile.gettempdir())
+    valid_files = []
+    skipped_files = []
+
+    for video_file in relevant_files:
+        if is_valid_video_file(video_file):
+            valid_files.append(video_file)
+            logger.info(f"  ✅ valid: {video_file.name}")
+        else:
+            skipped_files.append(video_file.name)
+            logger.warning(f"  ❌ broken, skipped: {video_file.name}")
+
+    if not valid_files:
+        raise HTTPException(
+            status_code=422,
+            detail="Все выбранные сегменты повреждены, склейка невозможна"
+        )
+
+    logger.info(
+        f"🎯 Valid files for merge: {len(valid_files)}; "
+        f"skipped broken: {len(skipped_files)}"
+    )
+
     timestamp = int(datetime.now().timestamp())
-
-    # Файл со списком для FFmpeg
-    list_file = temp_dir / f"merge_{request.camera}_{timestamp}.txt"
-
-    # Выходной файл
-    output_file = temp_dir / f"{request.camera}_{request.date}_{int(request.start_minutes):04d}-{int(request.end_minutes):04d}.mp4"
+    list_file = TEMP_EXPORT_DIR / f"merge_{request.camera}_{timestamp}.txt"
+    output_file = TEMP_EXPORT_DIR / (
+        f"{request.camera}_{request.date}_"
+        f"{int(request.start_minutes):04d}-{int(request.end_minutes):04d}.mp4"
+    )
 
     try:
-        # 6. Создаем список файлов для FFmpeg
-        with open(list_file, 'w') as f:
-            for video_file in relevant_files:
-                # FFmpeg требует абсолютные пути и экранирование
-                f.write(f"file '{video_file.absolute()}'\n")
+        with open(list_file, 'w', encoding='utf-8') as f:
+            for video_file in valid_files:
+                f.write(quote_ffmpeg_concat_path(video_file))
 
         logger.info(f"📝 Created concat list: {list_file}")
 
-        # 7. Запускаем FFmpeg для склейки
         ffmpeg_cmd = [
             "ffmpeg",
             "-f", "concat",
             "-safe", "0",
             "-i", str(list_file),
-            "-c", "copy",  # Копируем без перекодирования (БЫСТРО!)
-            "-y",  # Перезаписать если существует
+            "-c", "copy",
+            "-y",
             str(output_file)
         ]
 
         logger.info(f"🎬 Running FFmpeg: {' '.join(ffmpeg_cmd)}")
 
-        # Запускаем с таймаутом 5 минут
         result = subprocess.run(
             ffmpeg_cmd,
             capture_output=True,
@@ -241,58 +299,58 @@ async def merge_recordings(request: MergeRequest):
             logger.error(f"❌ FFmpeg error: {result.stderr}")
             raise HTTPException(
                 status_code=500,
-                detail=f"FFmpeg failed: {result.stderr[:200]}"
+                detail=f"FFmpeg failed: {result.stderr[:500]}"
             )
 
         logger.info(f"✅ Merge complete: {output_file}")
 
-        # 8. Проверяем результат
         if not output_file.exists():
             raise HTTPException(status_code=500, detail="Output file was not created")
 
         file_size = output_file.stat().st_size
         logger.info(f"📦 Output file size: {file_size / 1024 / 1024:.2f} MB")
 
-        # 9. Отправляем файл клиенту
-        def cleanup():
-            """Удаляем временные файлы после отправки"""
-            try:
-                if list_file.exists():
-                    list_file.unlink()
-                    logger.info(f"🗑️ Removed list file: {list_file}")
-                if output_file.exists():
-                    output_file.unlink()
-                    logger.info(f"🗑️ Removed output file: {output_file}")
-            except Exception as e:
-                logger.error(f"Failed to cleanup: {e}")
+        if list_file.exists():
+            list_file.unlink(missing_ok=True)
 
-        return FileResponse(
+        response = FileResponse(
             path=output_file,
             media_type="video/mp4",
-            filename=output_file.name,
-            background=cleanup  # Автоматическая очистка после отправки
+            filename=output_file.name
         )
+
+        if skipped_files:
+            response.headers["X-Skipped-Segments"] = str(len(skipped_files))
+            response.headers["X-Skipped-Files"] = ", ".join(skipped_files[:20])
+
+        return response
 
     except subprocess.TimeoutExpired:
         logger.error("❌ FFmpeg timeout (>5 minutes)")
-        # Очистка
+
         if list_file.exists():
-            list_file.unlink()
+            list_file.unlink(missing_ok=True)
         if output_file.exists():
-            output_file.unlink()
+            output_file.unlink(missing_ok=True)
 
         raise HTTPException(
             status_code=500,
             detail="Video merge timeout (>5 minutes). Try shorter time range."
         )
 
+    except HTTPException:
+        if list_file.exists():
+            list_file.unlink(missing_ok=True)
+        if output_file.exists():
+            output_file.unlink(missing_ok=True)
+        raise
+
     except Exception as e:
         logger.error(f"❌ Merge failed: {e}")
 
-        # Очистка
         if list_file.exists():
-            list_file.unlink()
+            list_file.unlink(missing_ok=True)
         if output_file.exists():
-            output_file.unlink()
+            output_file.unlink(missing_ok=True)
 
         raise HTTPException(status_code=500, detail=str(e))
