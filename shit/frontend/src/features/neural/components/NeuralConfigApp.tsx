@@ -41,3 +41,5 @@ export function NeuralConfigApp() {
         </div>
     );
 }
+
+export default NeuralConfigApp;
