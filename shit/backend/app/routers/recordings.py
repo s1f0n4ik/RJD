@@ -74,6 +74,40 @@ def is_valid_video_file(path: Path) -> bool:
         return False
 
 
+def remux_segment_to_ts(input_file: Path, output_ts: Path) -> bool:
+    """
+    Перегоняет ОДИН сегмент в MPEG-TS, максимально терпимо к битому хвосту.
+    Если хвост битый — ffmpeg запишет то, что смог прочитать, и выйдет.
+    Возвращает True, если получился непустой .ts.
+    """
+    cmd = [
+        "ffmpeg",
+        "-v", "error",
+        "-err_detect", "ignore_err",   # не падать на битых пакетах
+        "-fflags", "+discardcorrupt+genpts",  # выбрасывать битые пакеты, генерить PTS
+        "-i", str(input_file),
+        "-c", "copy",
+        "-bsf:v", "h264_mp4toannexb",  # нужно для корректного mp4->ts
+        "-f", "mpegts",
+        "-y",
+        str(output_ts),
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        # returncode может быть !=0 даже когда часть данных записалась —
+        # поэтому ориентируемся на факт наличия непустого файла.
+        ok = output_ts.exists() and output_ts.stat().st_size > 1024
+        if not ok:
+            logger.warning(f"❌ ts remux produced nothing for {input_file.name}: {result.stderr[:300]}")
+        return ok
+    except subprocess.TimeoutExpired:
+        logger.warning(f"⚠️ ts remux timeout for {input_file.name}")
+        return output_ts.exists() and output_ts.stat().st_size > 1024
+    except Exception as e:
+        logger.warning(f"⚠️ ts remux exception for {input_file.name}: {e}")
+        return False
+
+
 def quote_ffmpeg_concat_path(path: Path) -> str:
     """Безопасное экранирование пути для concat list."""
     escaped = str(path.absolute()).replace("'", "'\\''")
@@ -269,88 +303,99 @@ async def merge_recordings(request: MergeRequest):
         f"{int(request.start_minutes):04d}-{int(request.end_minutes):04d}.mp4"
     )
 
+    ts_files: list[Path] = []
+
+    def cleanup_ts():
+        for ts in ts_files:
+            try:
+                ts.unlink(missing_ok=True)
+            except Exception as e:
+                logger.warning(f"Failed to remove temp ts {ts}: {e}")
+
     try:
+        # 1) Нормализуем каждый валидный сегмент в отдельный .ts
+        for idx, video_file in enumerate(valid_files):
+            ts_path = TEMP_EXPORT_DIR / f"seg_{request.camera}_{timestamp}_{idx:04d}.ts"
+            if remux_segment_to_ts(video_file, ts_path):
+                ts_files.append(ts_path)
+                logger.info(f"  ✅ ts ok: {video_file.name} -> {ts_path.name}")
+            else:
+                skipped_files.append(video_file.name)
+                logger.warning(f"  ❌ ts skipped: {video_file.name}")
+
+        if not ts_files:
+            raise HTTPException(
+                status_code=422,
+                detail="После нормализации не осталось ни одного пригодного сегмента"
+            )
+
+        # 2) concat-список уже из .ts
         with open(list_file, 'w', encoding='utf-8') as f:
-            for video_file in valid_files:
-                f.write(quote_ffmpeg_concat_path(video_file))
+            for ts in ts_files:
+                f.write(quote_ffmpeg_concat_path(ts))
 
-        logger.info(f"📝 Created concat list: {list_file}")
+        logger.info(f"📝 Created concat list: {list_file} ({len(ts_files)} ts segments)")
 
+        # 3) Финальная склейка. genpts + разрыв timestamps => обрыв не ломает хвост.
         ffmpeg_cmd = [
             "ffmpeg",
+            "-v", "error",
+            "-err_detect", "ignore_err",
+            "-fflags", "+genpts+discardcorrupt",
             "-f", "concat",
             "-safe", "0",
             "-i", str(list_file),
             "-c", "copy",
+            "-bsf:a", "aac_adtstoasc",  # убери, если аудио нет и ffmpeg ругается
+            "-movflags", "+faststart",
             "-y",
             str(output_file)
         ]
 
         logger.info(f"🎬 Running FFmpeg: {' '.join(ffmpeg_cmd)}")
 
-        result = subprocess.run(
-            ffmpeg_cmd,
-            capture_output=True,
-            text=True,
-            timeout=300
-        )
+        result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True, timeout=300)
 
         if result.returncode != 0:
             logger.error(f"❌ FFmpeg error: {result.stderr}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"FFmpeg failed: {result.stderr[:500]}"
-            )
+            raise HTTPException(status_code=500, detail=f"FFmpeg failed: {result.stderr[:500]}")
 
-        logger.info(f"✅ Merge complete: {output_file}")
-
-        if not output_file.exists():
+        if not output_file.exists() or output_file.stat().st_size == 0:
             raise HTTPException(status_code=500, detail="Output file was not created")
 
         file_size = output_file.stat().st_size
         logger.info(f"📦 Output file size: {file_size / 1024 / 1024:.2f} MB")
 
-        if list_file.exists():
-            list_file.unlink(missing_ok=True)
+        # чистим промежуточное
+        list_file.unlink(missing_ok=True)
+        cleanup_ts()
 
         response = FileResponse(
             path=output_file,
             media_type="video/mp4",
             filename=output_file.name
         )
-
         if skipped_files:
             response.headers["X-Skipped-Segments"] = str(len(skipped_files))
             response.headers["X-Skipped-Files"] = ", ".join(skipped_files[:20])
-
         return response
 
     except subprocess.TimeoutExpired:
         logger.error("❌ FFmpeg timeout (>5 minutes)")
-
-        if list_file.exists():
-            list_file.unlink(missing_ok=True)
-        if output_file.exists():
-            output_file.unlink(missing_ok=True)
-
-        raise HTTPException(
-            status_code=500,
-            detail="Video merge timeout (>5 minutes). Try shorter time range."
-        )
+        list_file.unlink(missing_ok=True)
+        cleanup_ts()
+        output_file.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail="Video merge timeout (>5 minutes).")
 
     except HTTPException:
-        if list_file.exists():
-            list_file.unlink(missing_ok=True)
-        if output_file.exists():
-            output_file.unlink(missing_ok=True)
+        list_file.unlink(missing_ok=True)
+        cleanup_ts()
+        output_file.unlink(missing_ok=True)
         raise
 
     except Exception as e:
         logger.error(f"❌ Merge failed: {e}")
-
-        if list_file.exists():
-            list_file.unlink(missing_ok=True)
-        if output_file.exists():
-            output_file.unlink(missing_ok=True)
-
+        list_file.unlink(missing_ok=True)
+        cleanup_ts()
+        output_file.unlink(missing_ok=True)
         raise HTTPException(status_code=500, detail=str(e))
