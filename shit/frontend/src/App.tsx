@@ -14,7 +14,8 @@ import Header from './components/Header';
 import Dashboard from './components/Dashboard';
 import CameraSettings from './components/CameraSettings';
 // import LoaderSettings from './components/LoaderSettings';
-import NeuralSettings from './components/NeuralSettings';
+// import NeuralSettings from './components/NeuralSettings';
+import NeuralConfigApp from './features/neural/components/NeuralConfigApp';
 import Login from './components/Login';
 import KioskView from './components/KioskView';
 import { wsService } from './services/websocket';
@@ -222,7 +223,7 @@ const AppContent: React.FC = () => {
       case 3:
         return <RecordingsView />;
       case 4:
-        return <NeuralSettings />;
+        return <NeuralConfigApp />;
       default:
         return <Dashboard state={state} onNavigate={handleTabChange} />;
     }
