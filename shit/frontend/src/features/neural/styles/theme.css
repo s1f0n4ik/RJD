@@ -35,15 +35,21 @@
     --radius-lg:     10px;
 }
 
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+.neural-config-root *,
+.neural-config-root *::before,
+.neural-config-root *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
 
-body {
+.neural-config-root {
     background: var(--bg-base);
     color: var(--text-primary);
     font-family: var(--font-ui);
     font-size: 14px;
     height: 100vh;
-    overflow: hidden;
+    overflow: hidden;   /* теперь скроллом управляет .page внутри нейронки, а не body */
     background-image:
             linear-gradient(rgba(49,60,84,0.45) 1px, transparent 1px),
             linear-gradient(90deg, rgba(49,60,84,0.45) 1px, transparent 1px);
