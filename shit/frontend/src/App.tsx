@@ -60,6 +60,7 @@ const AppContent: React.FC = () => {
   const isKioskRoute = window.location.pathname.startsWith('/kiosk');
   const isAdminRoute = pathname.startsWith('/app'); // 🆕
   const isLandingRoute = !isKioskRoute && !isAdminRoute; // 🆕
+  const isNeuralRoute = pathname.startsWith('/app/neural');
 
   const [currentTab, setCurrentTab] = useState(0);
   const [wsConnected, setWsConnected] = useState(false);
@@ -157,7 +158,7 @@ const AppContent: React.FC = () => {
   };
 
   useEffect(() => {
-    if (isKioskRoute || isLandingRoute) return; // В киоск-режиме WS не нужен
+    if (isKioskRoute || isLandingRoute || isNeuralRoute) return; // В киоск-режиме WS не нужен
     if (token) {
       wsService.connect(
         (newState) => setState(newState),
@@ -167,7 +168,7 @@ const AppContent: React.FC = () => {
     return () => {
       wsService.disconnect();
     };
-  }, [token, isKioskRoute, isLandingRoute]);
+  }, [token, isKioskRoute, isLandingRoute, isNeuralRoute]);
 
   if (isLandingRoute) {
     return (
@@ -191,6 +192,16 @@ const AppContent: React.FC = () => {
       <OnScreenKeyboard />
     </>
   );
+  }
+  if (isNeuralRoute) {
+    // при желании — гейт по admin-праву:
+    // if (role !== 'admin') return renderDenied();
+    return (
+      <>
+        <NeuralConfigApp />
+        <OnScreenKeyboard />
+      </>
+    );
   }
 
   const hasAccessToTab = (tab: number): boolean => {
@@ -222,8 +233,8 @@ const AppContent: React.FC = () => {
       //   return hasAccessToTab(3) ? <LoaderSettings /> : renderDenied();
       case 3:
         return <RecordingsView />;
-      case 4:
-        return <NeuralConfigApp />;
+      // case 4:
+      //   return <NeuralConfigApp />;
       default:
         return <Dashboard state={state} onNavigate={handleTabChange} />;
     }

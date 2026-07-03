@@ -71,14 +71,15 @@ const modules: Module[] = [
         tabIndex: 2,
     },
   {
-    id: 'ai',
-    title: 'AI',
-    description: 'Компьютерное зрение',
-    icon: MemoryIcon,
-    gradient: 'linear-gradient(135deg, #9c27b0 0%, #6a1b9a 100%)',
-    tabIndex: 4, // LoaderSettings
-    disabled: false,
-  },
+      id: 'ai',
+      title: 'AI',
+      description: 'Компьютерное зрение',
+      icon: MemoryIcon,
+      gradient: 'linear-gradient(135deg, #9c27b0 0%, #6a1b9a 100%)',
+      tabIndex: -1,               // ← больше не вкладка
+      externalUrl: '/app/neural', // ← переход на отдельную страницу
+      disabled: false,
+    },
   {
     id: 'birdview',
     title: '360°',
