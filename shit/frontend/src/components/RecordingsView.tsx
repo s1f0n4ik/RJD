@@ -1,4 +1,4 @@
-import React, {useState, useEffect, useMemo, useCallback} from 'react';
+import React, {useState, useEffect, useMemo, useCallback, useRef} from 'react';
 import {
     Container, Paper, Box, Grid, Typography, CircularProgress, Alert,
     FormControl, InputLabel, Select, MenuItem, Chip, Button
@@ -12,6 +12,7 @@ import { RZD_COLORS } from '../theme';
 import RecordingsCalendar from './RecordingsCalendar';
 import RecordingsPlayer from './RecordingsPlayer';
 import RecordingsTimeline from './RecordingsTimeline';
+import DiskUsage from './DiskUsage';
 import { isProbeCamera } from '../utils/probeFilter';
 import type { CPPCamera } from '../types';
 import { api, MediaCenterError} from '../services/api';
@@ -23,6 +24,16 @@ interface Recording {
     created: string;
     modified: string;
 }
+
+// Локальный ключ даты YYYY-MM-DD. Файлы с бэка приходят в локальном времени,
+// поэтому берём локальные компоненты, а не toISOString (там UTC, из-за чего
+// вблизи полуночи дата уезжала на день и записи «пропадали»).
+const toLocalDateKey = (d: Date): string => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+};
 
 const RecordingsView: React.FC = () => {
     const { activeJob, startJob } = useMergeJobs();
@@ -39,7 +50,9 @@ const RecordingsView: React.FC = () => {
     const [selectionMode, setSelectionMode] = useState(false);
     const [selectedRange, setSelectedRange] = useState<{ start: number; end: number } | null>(null);
 
-    //const wsRef = useRef<WebSocket | null>(null);
+    // Пропустить авто-подбор файла, когда дату сменил клик по таймлайну —
+    // там мы уже сами включаем нужный сегмент.
+    const skipDateAutoPlayRef = useRef(false);
 
     useEffect(() => {
         loadData();
@@ -54,6 +67,10 @@ const RecordingsView: React.FC = () => {
     }, [recordings]);
 
     useEffect(() => {
+        if (skipDateAutoPlayRef.current) {
+            skipDateAutoPlayRef.current = false;
+            return;
+        }
         if (selectedCamera && selectedDate) {
             const files = getFilesForSelectedDate();
             if (files.length > 1) {
@@ -163,9 +180,24 @@ const RecordingsView: React.FC = () => {
     };
 
     const handleTimelineSeek = (file: Recording) => {
-        const files = getFilesForSelectedDate();
-        const index = files.findIndex(f => f.filename === file.filename);
-        if (index !== -1) playFile(file, index);
+        // Клик по сегменту другого дня — выбираем этот день в календаре.
+        const fileDay = new Date(file.created);
+        fileDay.setHours(0, 0, 0, 0);
+        const curDay = new Date(selectedDate);
+        curDay.setHours(0, 0, 0, 0);
+        if (fileDay.getTime() !== curDay.getTime()) {
+            skipDateAutoPlayRef.current = true;
+            setSelectedDate(fileDay);
+        }
+        const dayFiles = (recordings[selectedCamera] ?? [])
+            .filter(f => {
+                const d = new Date(f.created);
+                d.setHours(0, 0, 0, 0);
+                return d.getTime() === fileDay.getTime();
+            })
+            .sort((a, b) => a.created.localeCompare(b.created));
+        const index = dayFiles.findIndex(f => f.filename === file.filename);
+        playFile(file, index);
     };
 
 
@@ -177,7 +209,7 @@ const RecordingsView: React.FC = () => {
 
     const handleMergeRange = async () => {
         if (!selectedRange || !selectedCamera) return;
-        const dateStr = selectedDate.toISOString().split('T')[0];
+        const dateStr = toLocalDateKey(selectedDate);
         try {
             await startJob('/api/recordings/merge', {
                 camera: selectedCamera,
@@ -194,7 +226,7 @@ const RecordingsView: React.FC = () => {
 
     const handleArchiveRange = async () => {
         if (!selectedRange || !selectedCamera) return;
-        const dateStr = selectedDate.toISOString().split('T')[0];
+        const dateStr = toLocalDateKey(selectedDate);
         try {
             await startJob('/api/recordings/archive', {
                 camera: selectedCamera,
@@ -212,7 +244,7 @@ const RecordingsView: React.FC = () => {
 
     const handleArchiveDay = async () => {
         if (!selectedCamera) return;
-        const dateStr = selectedDate.toISOString().split('T')[0];
+        const dateStr = toLocalDateKey(selectedDate);
         try {
             await startJob('/api/recordings/archive', {
                 camera: selectedCamera,
@@ -225,7 +257,7 @@ const RecordingsView: React.FC = () => {
     };
     const getFilesForSelectedDate = (): Recording[] => {
         if (!selectedCamera || !recordings[selectedCamera]) return [];
-        const dateStr = selectedDate.toISOString().split('T')[0];
+        const dateStr = toLocalDateKey(selectedDate);
         return recordings[selectedCamera]
             .filter(f => f.created.startsWith(dateStr))
             .sort((a, b) => a.created.localeCompare(b.created));
@@ -414,7 +446,7 @@ const RecordingsView: React.FC = () => {
                             <RecordingsTimeline
                                 camera={selectedCamera}
                                 date={selectedDate}
-                                files={filesForDate}
+                                files={recordings[selectedCamera] ?? []}
                                 currentFileName={currentFile?.filename}
                                 onSeek={handleTimelineSeek}
                                 selectionMode={selectionMode}
@@ -438,6 +470,10 @@ const RecordingsView: React.FC = () => {
                             <Alert severity="info" sx={{ mt: 2 }} icon={false}>
                                 <strong>Синие дни</strong> = есть записи
                             </Alert>
+                        </Paper>
+
+                        <Paper sx={{ p: 2, mb: 2 }}>
+                            <DiskUsage />
                         </Paper>
 
                         <Paper sx={{ p: 2, mb: 2 }}>

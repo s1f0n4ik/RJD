@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useEffect, useState } from 'react';
+import React, { useMemo, useRef, useEffect, useState, useCallback } from 'react';
 import { Box, Slider, Typography, ToggleButtonGroup, ToggleButton, IconButton, Tooltip } from '@mui/material';
 import { MyLocation } from '@mui/icons-material';
 import { RZD_COLORS } from '../theme';
@@ -14,8 +14,8 @@ interface Recording {
 interface RecordingsTimelineProps {
     camera: string;
     date: Date;
+    // Все файлы камеры (не только за выбранный день) — чтобы листать соседние дни.
     files: Recording[];
-    /** Имя текущего файла — нужно для подсветки сегмента и авто-центрирования */
     currentFileName?: string;
     onSeek: (file: Recording) => void;
     selectionMode: boolean;
@@ -24,15 +24,58 @@ interface RecordingsTimelineProps {
 }
 
 const DEFAULT_SEGMENT_MINUTES = 10;
+// Верхний предел длительности одного сегмента. Длину берём как интервал до
+// следующего файла (нарезка у камер разная — 1, 10 минут и т.д.), но ограничиваем
+// этим значением, чтобы сегмент перед разрывом не растягивался на всю паузу.
+const MAX_SEGMENT_MINUTES = 20;
+const MINUTES_PER_DAY = 1440;
+const PREVIEW_DELAY_MS = 220;
 
 const ZOOM_OPTIONS: { label: string; minutes: number }[] = [
+    { label: '2д', minutes: 48 * 60 },
     { label: '24ч', minutes: 24 * 60 },
     { label: '6ч', minutes: 6 * 60 },
     { label: '1ч', minutes: 60 },
     { label: '15м', minutes: 15 },
 ];
 
+const startOfDayEpochMinutes = (d: Date): number => {
+    const s = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    return s.getTime() / 60000;
+};
+
+const clockFromAbs = (absMinutes: number): string => {
+    const d = new Date(absMinutes * 60000);
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+};
+
+const pickStep = (windowMinutes: number): number => {
+    if (windowMinutes <= 10) return 2;
+    if (windowMinutes <= 30) return 5;
+    if (windowMinutes <= 120) return 15;
+    if (windowMinutes <= 360) return 30;
+    if (windowMinutes <= 720) return 60;
+    if (windowMinutes <= 1440) return 120;
+    if (windowMinutes <= 2880) return 180;
+    return 360;
+};
+
+const roundRect = (
+    ctx: CanvasRenderingContext2D,
+    x: number, y: number, w: number, h: number, r: number,
+) => {
+    const rr = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y);
+    ctx.arcTo(x + w, y, x + w, y + h, rr);
+    ctx.arcTo(x + w, y + h, x, y + h, rr);
+    ctx.arcTo(x, y + h, x, y, rr);
+    ctx.arcTo(x, y, x + w, y, rr);
+    ctx.closePath();
+};
+
 const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
+                                                                   camera,
                                                                    date,
                                                                    files,
                                                                    currentFileName,
@@ -41,177 +84,341 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
                                                                    selectedRange,
                                                                    onRangeSelected,
                                                                }) => {
+    // Внутренние координаты — абсолютное время в минутах эпохи. За счёт этого
+    // смена выбранной даты не сдвигает окно, а листать можно бесконечно.
+    const dayAnchor = useMemo(() => startOfDayEpochMinutes(date), [date]);
 
     const [windowMinutes, setWindowMinutes] = useState<number>(24 * 60);
-    const [windowStart, setWindowStart] = useState<number>(0);
+    const [viewStart, setViewStart] = useState<number>(() => startOfDayEpochMinutes(date));
+    const [containerWidth, setContainerWidth] = useState(0);
     const [userScrolled, setUserScrolled] = useState(false);
 
-    // Отслеживание Drag
     const containerRef = useRef<HTMLDivElement>(null);
+    const canvasRef = useRef<HTMLCanvasElement>(null);
     const isDraggingRef = useRef(false);
-    const dragStartRef = useRef<{ x: number; windowStart: number } | null>(null);
-    const wasDraggingRef = useRef(false);     // ← НОВОЕ: был ли реальный drag
-    const lastCenteredFileRef = useRef<string | undefined>(undefined);
-    const lastCenteredZoomRef = useRef<number>(windowMinutes);
+    const dragStartRef = useRef<{ x: number; viewStart: number } | null>(null);
+    const wasDraggingRef = useRef(false);
+    const hoverNameRef = useRef<string | undefined>(undefined);
 
-    // currentTime теперь живёт локально и подписан на шину
-    const [currentTime, setCurrentTime] = useState<number | undefined>(
-        currentTimeBus.get()
-    );
-    useEffect(() => {
-        const unsub = currentTimeBus.subscribe(setCurrentTime);
-        return unsub;
-    }, []);
+    const [currentAbs, setCurrentAbs] = useState<number | undefined>(currentTimeBus.get());
+    useEffect(() => currentTimeBus.subscribe(setCurrentAbs), []);
+    const playhead = selectionMode ? undefined : currentAbs;
 
-    // В режиме выбора диапазона playhead не нужен — гасим
-    const effectiveCurrentTime = selectionMode ? undefined : currentTime;
+    // Наведение: hoverAbs — позиция курсора во времени (для палки и превью),
+    // previewFile — запись под курсором (для видео).
+    const [hoverAbs, setHoverAbs] = useState<number | undefined>(undefined);
+    const [previewFile, setPreviewFile] = useState<Recording | undefined>(undefined);
+    const previewTimerRef = useRef<number | null>(null);
 
-    const fileToMinutes = (iso: string): number => {
-        const d = new Date(iso);
-        return d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60;
-    };
+    const viewEnd = viewStart + windowMinutes;
 
+    // Сегменты в абсолютных минутах, отсортированы по времени.
+    // Конец сегмента — начало следующего файла (реальная длительность), но не
+    // больше MAX_SEGMENT_MINUTES, чтобы не тянуть его через разрыв записи.
     const segments = useMemo(() => {
-        return files.map(f => {
-            const start = fileToMinutes(f.created);
-            return { file: f, start, end: start + DEFAULT_SEGMENT_MINUTES };
+        const arr = files
+            .map(f => ({ file: f, start: new Date(f.created).getTime() / 60000 }))
+            .sort((a, b) => a.start - b.start);
+        return arr.map((s, i) => {
+            const next = arr[i + 1];
+            const end = next
+                ? Math.min(next.start, s.start + MAX_SEGMENT_MINUTES)
+                : s.start + DEFAULT_SEGMENT_MINUTES;
+            return { file: s.file, start: s.start, end };
         });
     }, [files]);
 
-    const centerWindowOn = (minute: number) => {
-        const half = windowMinutes / 2;
-        let ws = minute - half;
-        ws = Math.max(0, Math.min(Math.max(0, 1440 - windowMinutes), ws));
-        setWindowStart(ws);
-    };
+    // Непрерывные интервалы записи — рисуем одной полосой вместо сотен сегментов.
+    const spans = useMemo(() => {
+        const res: { start: number; end: number }[] = [];
+        for (const s of segments) {
+            const last = res[res.length - 1];
+            if (last && s.start <= last.end + 0.5) last.end = Math.max(last.end, s.end);
+            else res.push({ start: s.start, end: s.end });
+        }
+        return res;
+    }, [segments]);
 
+    const absToPx = useCallback(
+        (abs: number): number => ((abs - viewStart) / windowMinutes) * containerWidth,
+        [viewStart, windowMinutes, containerWidth],
+    );
+    const pxToAbs = useCallback(
+        (px: number): number => viewStart + (px / containerWidth) * windowMinutes,
+        [viewStart, windowMinutes, containerWidth],
+    );
+
+    const clearPreview = useCallback(() => {
+        if (previewTimerRef.current) {
+            window.clearTimeout(previewTimerRef.current);
+            previewTimerRef.current = null;
+        }
+        hoverNameRef.current = undefined;
+        setHoverAbs(undefined);
+        setPreviewFile(undefined);
+    }, []);
+
+    // Ширина контейнера через ResizeObserver.
     useEffect(() => {
-        const fileChanged = currentFileName !== lastCenteredFileRef.current;
-        const zoomChanged = windowMinutes !== lastCenteredZoomRef.current;
+        const el = containerRef.current;
+        if (!el) return;
+        setContainerWidth(el.clientWidth);
+        const ro = new ResizeObserver(entries => {
+            for (const e of entries) setContainerWidth(e.contentRect.width);
+        });
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, []);
 
-        if (!fileChanged && !zoomChanged) return;
-
-        lastCenteredFileRef.current = currentFileName;
-        lastCenteredZoomRef.current = windowMinutes;
-
-        if (fileChanged) setUserScrolled(false);
-
-        if (!userScrolled || fileChanged) {
-            if (effectiveCurrentTime !== undefined) {
-                centerWindowOn(effectiveCurrentTime);
-            } else if (segments.length > 0) {
-                centerWindowOn(segments[0].start);
-            }
+    // Смена даты в календаре — перецентрируемся только если выбранный день не виден.
+    // Если пользователь кликнул сегмент видимого дня — окно не дёргается.
+    useEffect(() => {
+        const dayStart = startOfDayEpochMinutes(date);
+        const dayEnd = dayStart + MINUTES_PER_DAY;
+        if (dayEnd < viewStart || dayStart > viewEnd) {
+            const first = segments.find(s => s.start >= dayStart && s.start < dayEnd);
+            const focus = first ? first.start : dayStart + MINUTES_PER_DAY / 2;
+            setViewStart(focus - windowMinutes / 2);
+            setUserScrolled(false);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [currentFileName, windowMinutes]);
-
-    useEffect(() => {
-        setUserScrolled(false);
-        setWindowStart(0);
-        lastCenteredFileRef.current = undefined;
     }, [date]);
 
-    const windowEnd = windowStart + windowMinutes;
+    // Следование за playhead — сдвигаем окно только когда линия у края.
+    useEffect(() => {
+        if (playhead === undefined || userScrolled) return;
+        const margin = windowMinutes * 0.1;
+        if (playhead < viewStart + margin || playhead > viewEnd - margin) {
+            setViewStart(playhead - windowMinutes * 0.3);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [playhead]);
 
-    const minuteToPx = (minute: number, containerWidth: number): number => {
-        return ((minute - windowStart) / windowMinutes) * containerWidth;
+    // Отрисовка дорожки на canvas — тысячи сегментов за один проход, без DOM.
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas || !containerWidth) return;
+        const H = 64;
+        const dpr = window.devicePixelRatio || 1;
+        const bw = Math.round(containerWidth * dpr);
+        const bh = Math.round(H * dpr);
+        if (canvas.width !== bw) canvas.width = bw;
+        if (canvas.height !== bh) canvas.height = bh;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, containerWidth, H);
+        ctx.fillStyle = RZD_COLORS.grey[100];
+        ctx.fillRect(0, 0, containerWidth, H);
+
+        // Тики с подписью времени
+        const step = pickStep(windowMinutes);
+        const d0 = new Date(viewStart * 60000);
+        d0.setHours(0, 0, 0, 0);
+        const anchorAbs = d0.getTime() / 60000;
+        const firstTick = anchorAbs + Math.ceil((viewStart - anchorAbs) / step) * step;
+        ctx.font = '10px Verdana, sans-serif';
+        ctx.textBaseline = 'top';
+        for (let t = firstTick; t <= viewEnd; t += step) {
+            const x = absToPx(t);
+            ctx.strokeStyle = RZD_COLORS.grey[200];
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(Math.round(x) + 0.5, 0);
+            ctx.lineTo(Math.round(x) + 0.5, H);
+            ctx.stroke();
+            ctx.fillStyle = RZD_COLORS.grey[700];
+            ctx.fillText(clockFromAbs(t), x + 3, 3);
+        }
+
+        // Границы суток с датой
+        const dm = new Date(viewStart * 60000);
+        dm.setHours(0, 0, 0, 0);
+        while (dm.getTime() / 60000 <= viewEnd) {
+            const absM = dm.getTime() / 60000;
+            if (absM >= viewStart) {
+                const x = absToPx(absM);
+                ctx.strokeStyle = RZD_COLORS.secondary;
+                ctx.globalAlpha = 0.5;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(Math.round(x), 0);
+                ctx.lineTo(Math.round(x), H);
+                ctx.stroke();
+                ctx.globalAlpha = 1;
+                ctx.fillStyle = RZD_COLORS.secondary;
+                ctx.font = 'bold 10px Verdana, sans-serif';
+                ctx.textBaseline = 'bottom';
+                ctx.fillText(dm.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }), x + 4, H - 2);
+                ctx.font = '10px Verdana, sans-serif';
+                ctx.textBaseline = 'top';
+            }
+            dm.setDate(dm.getDate() + 1);
+        }
+
+        // Полоса записей (слитые непрерывные интервалы)
+        const top = 22, sh = 30;
+        ctx.fillStyle = RZD_COLORS.secondary;
+        ctx.globalAlpha = 0.7;
+        for (const sp of spans) {
+            if (sp.end < viewStart || sp.start > viewEnd) continue;
+            const x = absToPx(Math.max(sp.start, viewStart));
+            const xe = absToPx(Math.min(sp.end, viewEnd));
+            roundRect(ctx, x, top, Math.max(1.5, xe - x), sh, 2);
+            ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+
+        // Текущий сегмент
+        const cur = currentFileName ? segments.find(s => s.file.filename === currentFileName) : undefined;
+        if (cur && cur.end >= viewStart && cur.start <= viewEnd) {
+            const x = absToPx(Math.max(cur.start, viewStart));
+            const xe = absToPx(Math.min(cur.end, viewEnd));
+            ctx.fillStyle = RZD_COLORS.primary;
+            roundRect(ctx, x, top, Math.max(2, xe - x), sh, 2);
+            ctx.fill();
+        }
+
+        // Playhead
+        if (playhead !== undefined && playhead >= viewStart && playhead <= viewEnd) {
+            const x = absToPx(playhead);
+            ctx.strokeStyle = RZD_COLORS.primary;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, H);
+            ctx.stroke();
+        }
+
+        // Полупрозрачная палка под курсором
+        if (hoverAbs !== undefined && !selectionMode && hoverAbs >= viewStart && hoverAbs <= viewEnd) {
+            const x = absToPx(hoverAbs);
+            ctx.strokeStyle = 'rgba(226, 26, 26, 0.45)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, H);
+            ctx.stroke();
+        }
+    }, [viewStart, windowMinutes, containerWidth, spans, segments, currentFileName, playhead, hoverAbs, selectionMode, absToPx]);
+
+    // Нативный wheel-слушатель (passive:false) — зум к курсору без прокрутки страницы.
+    useEffect(() => {
+        const el = containerRef.current;
+        if (!el) return;
+        const onWheel = (e: WheelEvent) => {
+            e.preventDefault();
+            const rect = el.getBoundingClientRect();
+            const width = rect.width || 1;
+            const px = e.clientX - rect.left;
+            const absUnder = viewStart + (px / width) * windowMinutes;
+            const factor = e.deltaY > 0 ? 1.2 : 1 / 1.2;
+            const newWin = Math.min(14 * MINUTES_PER_DAY, Math.max(5, windowMinutes * factor));
+            setViewStart(absUnder - (px / width) * newWin);
+            setWindowMinutes(newWin);
+            setUserScrolled(true);
+        };
+        el.addEventListener('wheel', onWheel, { passive: false });
+        return () => el.removeEventListener('wheel', onWheel);
+    }, [viewStart, windowMinutes]);
+
+    // Запись под курсором: самый правый сегмент с началом <= abs, если abs ещё
+    // внутри его длительности. Так превью соответствует именно точке под палкой.
+    const segmentAtAbs = (abs: number) => {
+        for (let i = segments.length - 1; i >= 0; i--) {
+            if (segments[i].start <= abs) {
+                return abs <= segments[i].end ? segments[i] : null;
+            }
+        }
+        return null;
+    };
+
+    const absFromClientX = (clientX: number): number | null => {
+        const el = containerRef.current;
+        if (!el) return null;
+        return pxToAbs(clientX - el.getBoundingClientRect().left);
     };
 
     const handleMouseDown = (e: React.MouseEvent) => {
-        // убрана блокировка по selectionMode — drag доступен всегда
         isDraggingRef.current = true;
         wasDraggingRef.current = false;
-        dragStartRef.current = { x: e.clientX, windowStart };
+        dragStartRef.current = { x: e.clientX, viewStart };
+        clearPreview();
     };
 
     const handleMouseMove = (e: React.MouseEvent) => {
-        if (!isDraggingRef.current || !dragStartRef.current || !containerRef.current) return;
-        const dx = e.clientX - dragStartRef.current.x;
-
-        // Если сдвинули мышь хоть на 3px — это уже настоящий drag
-        if (Math.abs(dx) > 3) {
-            wasDraggingRef.current = true;
+        if (isDraggingRef.current && dragStartRef.current && containerWidth) {
+            const dx = e.clientX - dragStartRef.current.x;
+            if (Math.abs(dx) > 3) wasDraggingRef.current = true;
+            const dMinutes = -(dx / containerWidth) * windowMinutes;
+            setViewStart(dragStartRef.current.viewStart + dMinutes);
+            setUserScrolled(true);
+            return;
         }
-
-        const w = containerRef.current.clientWidth;
-        const dMinutes = -(dx / w) * windowMinutes;
-        let ws = dragStartRef.current.windowStart + dMinutes;
-        ws = Math.max(0, Math.min(Math.max(0, 1440 - windowMinutes), ws));
-        setWindowStart(ws);
-        setUserScrolled(true);
+        if (selectionMode) { clearPreview(); return; }
+        const abs = absFromClientX(e.clientX);
+        if (abs === null) return;
+        // Палка следует за курсором сразу.
+        setHoverAbs(abs);
+        // Видео-превью меняем только при смене сегмента и с небольшой задержкой,
+        // чтобы при быстром проведении не дёргать загрузку.
+        const seg = segmentAtAbs(abs);
+        const name = seg?.file.filename;
+        if (name === hoverNameRef.current) return;
+        hoverNameRef.current = name;
+        if (previewTimerRef.current) window.clearTimeout(previewTimerRef.current);
+        if (!seg) { setPreviewFile(undefined); return; }
+        previewTimerRef.current = window.setTimeout(() => {
+            setPreviewFile(seg.file);
+        }, PREVIEW_DELAY_MS);
     };
 
     const endDrag = () => {
         isDraggingRef.current = false;
         dragStartRef.current = null;
-        // wasDraggingRef НЕ сбрасываем здесь — он нужен в handleSegmentClick,
-        // который вызовется СРАЗУ после mouseup. Сбросим в следующем tick.
         if (wasDraggingRef.current) {
             setTimeout(() => { wasDraggingRef.current = false; }, 0);
         }
     };
 
-    const handleWheel = (e: React.WheelEvent) => {
-        // убрана блокировка по selectionMode — zoom доступен всегда
-        const delta = e.deltaY > 0 ? windowMinutes * 0.1 : -windowMinutes * 0.1;
-        let ws = windowStart + delta;
-        ws = Math.max(0, Math.min(Math.max(0, 1440 - windowMinutes), ws));
-        setWindowStart(ws);
-        setUserScrolled(true);
-    };
-
-    const handleSegmentClick = (e: React.MouseEvent, file: Recording) => {
-        // Защита от "ложного клика" после drag — браузер триггерит click
-        // на элементе, над которым отпустили mouse, даже если был drag.
-        if (wasDraggingRef.current) return;
-
-        // В режиме выбора клик по сегменту запрещён — чтобы случайно не сбить выбор.
-        if (selectionMode) return;
-
-        e.stopPropagation();
-        onSeek(file);
-        setUserScrolled(false);
-    };
-
-    const recenterOnPlayhead = () => {
-        if (effectiveCurrentTime !== undefined) {
-            centerWindowOn(effectiveCurrentTime);
+    const handleClick = (e: React.MouseEvent) => {
+        if (wasDraggingRef.current || selectionMode) return;
+        const abs = absFromClientX(e.clientX);
+        if (abs === null) return;
+        const seg = segmentAtAbs(abs);
+        if (seg) {
+            onSeek(seg.file);
             setUserScrolled(false);
         }
     };
 
-    const formatMinutes = (m: number): string => {
-        const h = Math.floor(m / 60);
-        const min = Math.floor(m % 60);
-        return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+    const handleZoomPreset = (next: number) => {
+        const center = viewStart + windowMinutes / 2;
+        setViewStart(center - next / 2);
+        setWindowMinutes(next);
     };
 
-    const ticks = useMemo(() => {
-        let step = 60;
-        if (windowMinutes <= 30) step = 5;
-        else if (windowMinutes <= 120) step = 15;
-        else if (windowMinutes <= 360) step = 30;
-        else if (windowMinutes <= 720) step = 60;
-        else step = 120;
-
-        const result: number[] = [];
-        const firstTick = Math.ceil(windowStart / step) * step;
-        for (let t = firstTick; t <= windowEnd; t += step) {
-            result.push(t);
+    const recenterOnPlayhead = () => {
+        if (playhead !== undefined) {
+            setViewStart(playhead - windowMinutes / 2);
+            setUserScrolled(false);
         }
-        return result;
-    }, [windowStart, windowMinutes, windowEnd]);
+    };
 
     const handleRangeSliderChange = (_: Event, value: number | number[]) => {
         if (!Array.isArray(value)) return;
-        const [start, end] = value;
-        onRangeSelected({ start, end });
+        onRangeSelected({ start: value[0] - dayAnchor, end: value[1] - dayAnchor });
     };
 
     const sliderValue: [number, number] = selectedRange
-        ? [selectedRange.start, selectedRange.end]
-        : [windowStart + windowMinutes * 0.25, windowStart + windowMinutes * 0.75];
+        ? [dayAnchor + selectedRange.start, dayAnchor + selectedRange.end]
+        : [viewStart + windowMinutes * 0.25, viewStart + windowMinutes * 0.75];
+
+    const showPreview = previewFile !== undefined && hoverAbs !== undefined;
+    const previewLeft = hoverAbs !== undefined
+        ? Math.min(Math.max(absToPx(hoverAbs), 130), Math.max(130, containerWidth - 130))
+        : 0;
 
     return (
         <Box>
@@ -221,9 +428,9 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
                 </Typography>
                 <Box display="flex" alignItems="center" gap={1}>
                     <Typography variant="caption" color="text.secondary">
-                        {formatMinutes(windowStart)} – {formatMinutes(windowEnd)}
+                        {clockFromAbs(viewStart)} – {clockFromAbs(viewEnd)}
                     </Typography>
-                    {effectiveCurrentTime !== undefined && userScrolled && (
+                    {playhead !== undefined && userScrolled && (
                         <Tooltip title="Вернуться к текущей позиции">
                             <IconButton size="small" onClick={recenterOnPlayhead} color="error">
                                 <MyLocation fontSize="small" />
@@ -234,7 +441,7 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
                         size="small"
                         exclusive
                         value={windowMinutes}
-                        onChange={(_, v) => v && setWindowMinutes(v)}
+                        onChange={(_, v) => v && handleZoomPreset(v)}
                     >
                         {ZOOM_OPTIONS.map(opt => (
                             <ToggleButton key={opt.minutes} value={opt.minutes}>
@@ -245,143 +452,85 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
                 </Box>
             </Box>
 
-            <Box
-                ref={containerRef}
-                onMouseDown={handleMouseDown}
-                onMouseMove={handleMouseMove}
-                onMouseUp={endDrag}
-                onMouseLeave={endDrag}
-                onWheel={handleWheel}
-                sx={{
-                    position: 'relative',
-                    width: '100%',
-                    height: 64,
-                    bgcolor: 'grey.100',
-                    borderRadius: 1,
-                    overflow: 'hidden',
-                    cursor: 'grab',
-                    userSelect: 'none',
-                    '&:active': {
-                        cursor: 'grabbing',
-                    },
-                }}
-            >
-                {containerRef.current &&
-                    ticks.map(t => {
-                        const w = containerRef.current!.clientWidth;
-                        const x = minuteToPx(t, w);
-                        return (
-                            <Box
-                                key={t}
-                                sx={{
-                                    position: 'absolute',
-                                    left: x,
-                                    top: 0,
-                                    bottom: 0,
-                                    width: '1px',
-                                    bgcolor: 'grey.300',
-                                }}
-                            >
-                                <Typography
-                                    variant="caption"
-                                    sx={{
-                                        position: 'absolute',
-                                        top: 2,
-                                        left: 3,
-                                        fontSize: '0.65rem',
-                                        color: 'text.secondary',
-                                        pointerEvents: 'none',
-                                    }}
-                                >
-                                    {formatMinutes(t)}
-                                </Typography>
-                            </Box>
-                        );
-                    })}
-
-                {containerRef.current &&
-                    segments.map(seg => {
-                        const w = containerRef.current!.clientWidth;
-                        if (seg.end < windowStart || seg.start > windowEnd) return null;
-                        const visibleStart = Math.max(seg.start, windowStart);
-                        const visibleEnd = Math.min(seg.end, windowEnd);
-                        const x = minuteToPx(visibleStart, w);
-                        const width = Math.max(2, minuteToPx(visibleEnd, w) - x);
-                        const isCurrentSegment = seg.file.filename === currentFileName;
-
-                        return (
-                            <Box
-                                key={seg.file.filename}
-                                onClick={(e) => handleSegmentClick(e, seg.file)}
-                                sx={{
-                                    position: 'absolute',
-                                    top: 20,
-                                    height: 32,
-                                    left: x,
-                                    width,
-                                    bgcolor: isCurrentSegment ? RZD_COLORS.primary : RZD_COLORS.secondary,
-                                    opacity: isCurrentSegment ? 0.9 : 0.7,
-                                    borderRadius: 0.5,
-                                    cursor: selectionMode ? 'grab' : 'pointer',   // ← в режиме выбора курсор drag
-                                    transition: 'opacity 0.15s',
-                                    '&:hover': {
-                                        opacity: selectionMode ? 0.7 : 1,           // ← без hover-эффекта в selectionMode
-                                    },
-                                }}
-                                title={`${seg.file.filename} • ${formatMinutes(seg.start)}`}
-                            />
-                        );
-                    })}
-
-                {effectiveCurrentTime !== undefined &&
-                    effectiveCurrentTime >= windowStart &&
-                    effectiveCurrentTime <= windowEnd &&
-                    containerRef.current && (
-                        <Box
-                            sx={{
-                                position: 'absolute',
-                                top: 0,
-                                bottom: 0,
-                                left: minuteToPx(effectiveCurrentTime, containerRef.current.clientWidth),
-                                width: '2px',
-                                bgcolor: 'error.main',
-                                boxShadow: '0 0 4px rgba(255,0,0,0.5)',
-                                pointerEvents: 'none',
-                                zIndex: 3,
-                            }}
+            <Box sx={{ position: 'relative' }}>
+                {/* Видео-превью в точке под курсором */}
+                {showPreview && (
+                    <Box
+                        sx={{
+                            position: 'absolute',
+                            bottom: 'calc(100% + 8px)',
+                            left: previewLeft,
+                            transform: 'translateX(-50%)',
+                            width: 240,
+                            bgcolor: 'black',
+                            borderRadius: 1,
+                            overflow: 'hidden',
+                            boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
+                            zIndex: 20,
+                            pointerEvents: 'none',
+                            border: `1px solid ${RZD_COLORS.grey[700]}`,
+                        }}
+                    >
+                        <video
+                            key={previewFile!.filename}
+                            src={`/api/recordings/stream/${camera}/${previewFile!.filename}`}
+                            muted
+                            autoPlay
+                            loop
+                            playsInline
+                            style={{ width: '100%', height: 135, objectFit: 'cover', display: 'block' }}
                         />
-                    )}
+                        <Box sx={{ px: 1, py: 0.5, bgcolor: 'rgba(0,0,0,0.85)' }}>
+                            <Typography variant="caption" sx={{ color: 'white', fontWeight: 700 }}>
+                                {clockFromAbs(hoverAbs!)}
+                            </Typography>
+                        </Box>
+                    </Box>
+                )}
+
+                <Box
+                    ref={containerRef}
+                    onMouseDown={handleMouseDown}
+                    onMouseMove={handleMouseMove}
+                    onMouseUp={endDrag}
+                    onMouseLeave={() => { endDrag(); clearPreview(); }}
+                    onClick={handleClick}
+                    sx={{
+                        position: 'relative',
+                        width: '100%',
+                        height: 64,
+                        borderRadius: 1,
+                        overflow: 'hidden',
+                        cursor: 'grab',
+                        userSelect: 'none',
+                        '&:active': { cursor: 'grabbing' },
+                    }}
+                >
+                    <canvas
+                        ref={canvasRef}
+                        style={{ width: '100%', height: '100%', display: 'block' }}
+                    />
+                </Box>
             </Box>
 
             {selectionMode && (
-                <Box sx={{ mt: 0, px: 0.0}}>
-                    <Box display="flex" alignItems="center" gap={1.5}>
-                        <Slider
-                            value={sliderValue}
-                            onChange={handleRangeSliderChange}
-                            min={windowStart}
-                            max={windowEnd}
-                            step={1}
-                            valueLabelDisplay="auto"
-                            valueLabelFormat={(v) => formatMinutes(v)}
-                            size="small"
-                            sx={{
-                                py: 0,                  // убираем вертикальные отступы
-                                '& .MuiSlider-rail': {
-                                    // делаем rail тонким и прозрачным, чтобы он не выделялся
-                                    height: 2,
-                                    opacity: 0.3,
-                                },
-                                '& .MuiSlider-track': {
-                                    height: 4,            // активный диапазон чуть толще
-                                },
-                                '& .MuiSlider-thumb': {
-                                    width: 12,
-                                    height: 12,
-                                },
-                            }}
-                        />
-                    </Box>
+                <Box sx={{ mt: 0 }}>
+                    <Slider
+                        value={sliderValue}
+                        onChange={handleRangeSliderChange}
+                        min={viewStart}
+                        max={viewEnd}
+                        step={1}
+                        valueLabelDisplay="auto"
+                        valueLabelFormat={(v) => clockFromAbs(v)}
+                        size="small"
+                        sx={{
+                            py: 0,
+                            '& .MuiSlider-rail': { height: 2, opacity: 0.3 },
+                            '& .MuiSlider-track': { height: 4 },
+                            '& .MuiSlider-thumb': { width: 12, height: 12 },
+                        }}
+                    />
                 </Box>
             )}
         </Box>

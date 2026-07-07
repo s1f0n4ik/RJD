@@ -72,13 +72,11 @@ const RecordingsPlayer: React.FC<RecordingsPlayerProps> = ({
 
     const handleTimeUpdate = () => {
         if (!videoRef.current) return;
-        const fileStart = new Date(file.created);
-        const fileStartMinutes =
-            fileStart.getHours() * 60 +
-            fileStart.getMinutes() +
-            fileStart.getSeconds() / 60;
+        // Публикуем абсолютное время в минутах эпохи, чтобы timeline мог
+        // позиционировать playhead на любой дате, а не только в пределах суток.
+        const fileStartEpochMinutes = new Date(file.created).getTime() / 60000;
         const offsetMinutes = videoRef.current.currentTime / 60;
-        publishCurrentTime(fileStartMinutes + offsetMinutes);
+        publishCurrentTime(fileStartEpochMinutes + offsetMinutes);
     };
 
     const effectiveDisplayName = displayName || camera;
