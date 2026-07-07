@@ -3,6 +3,8 @@
 #include <vector>
 #include <optional>
 
+#include "tracker/tracking-types.h"
+#include "tracker/iou-tracker.h"
 #include "utility/json-reader.h"
 #include "neural/utility.h"
 
@@ -67,8 +69,6 @@ namespace neural {
 					info.model_width = static_cast<int>(v->as_int64());
 				if (auto* v = obj.if_contains("model_height"); v && v->is_int64())
 					info.model_height = static_cast<int>(v->as_int64());
-				if (auto* v = obj.if_contains("fps"); v && v->is_int64())
-					info.fps = static_cast<int>(v->as_int64());
 
 				if (auto* t = obj.if_contains("thresholds"); t && t->is_object()) {
 					const auto& to = t->as_object();
@@ -108,6 +108,35 @@ namespace neural {
 					std::sort(info.classes.begin(), info.classes.end(),
 						[](const auto& a, const auto& b) { return a.id < b.id; });
 				}
+
+				if (auto* track_config = obj.if_contains("tracker"); track_config && track_config->is_object()) {
+					auto track_object = track_config->as_object();
+					if (auto* t = track_object.if_contains("type"); t && t->is_string()) {
+						const std::string config_type = t->as_string().c_str();
+						if (config_type == "iou") {
+							FIoUTrackerConfig iou_config;
+							if (auto* v = track_object.if_contains("iou_threshold"); v && v->is_number()) iou_config.iou_threshold = (float)v->as_double();
+							if (auto* v = track_object.if_contains("min_hits"); v && v->is_int64()) iou_config.min_hits = v->as_int64();
+							if (auto* v = track_object.if_contains("max_lost"); v && v->is_int64()) iou_config.max_lost = v->as_int64();
+							if (auto* v = track_object.if_contains("move_threshold"); v && v->is_number()) iou_config.move_threshold = (float)v->as_double();
+
+							info.tracker_config = std::make_shared<FTrackerConfig>(std::move(iou_config));
+						}
+						else {
+							log_warn("load_config(): cannot load tracker config; type " + config_type + " doesn't implement!");
+							info.tracker_config = nullptr;
+						}
+					}
+					else {
+						log_warn("load_config(): cannot load tracker config; no field with name type at tracker object!");
+						info.tracker_config = nullptr;
+					}
+				}
+				else {
+					log_warn("load_config(): cannot load tracker config; loader will start without tracking detectionss!");
+					info.tracker_config = nullptr;
+				}
+
 				return info;
 			}
 			catch (const std::exception& e) {
@@ -122,7 +151,7 @@ namespace neural {
 		const std::unordered_set<std::string>& allowed_fields() const override {
 			static const std::unordered_set<std::string> fields = {
 				"name", "model_path", "model_width", "model_height", 
-				"fps", "thresholds", "classes", "superclasses"
+				"thresholds", "classes", "superclasses", "tracker"
 			};
 			return fields;
 		}

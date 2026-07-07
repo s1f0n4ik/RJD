@@ -1,3 +1,5 @@
+#pragma once
+
 #include <vector>
 #include <string>
 #include <map>
@@ -5,6 +7,7 @@
 #include "rknn_api.h"
 #include "neural/common.h"
 #include "neural/utility.h"
+#include "neural/detection.h"
 #include "image-utils.h"
 
 #include "logger.h"
@@ -41,20 +44,6 @@ namespace  neural {
         const std::vector<FClassInfo>& classes;
 
     } input_parameters_t;
-
-    struct FDetection
-    {
-        int x1_coord;
-        int y1_coord;
-        int x2_coord;
-        int y2_coord;
-        float confidence;
-
-        int class_id;
-
-        std::vector<float> mask_coefficients;
-        std::vector<float> cropped_cords;
-    };
 
     void run_postprocess_int8_segmentation(
         const rknn_context& ctx,

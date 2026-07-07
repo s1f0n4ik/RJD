@@ -55,7 +55,7 @@ static boost::json::array serialize_matrix(const varan::neural::FCameraMatrix& m
 
 // Сериализация списка дескрипторов в новый формат
 static boost::json::array serialize_descs(
-    const std::vector<varan::neural::UNeuralLoader::FActiveDesc>& descs)
+    const std::vector<varan::neural::FNeuralCoreConfig>& descs)
 {
     boost::json::array arr;
     for (const auto& d : descs) {
@@ -172,7 +172,7 @@ UNeuralController::post_state(const http::request<http::string_body>& req) {
     const std::string tag = "POST /neural/state";
     log_request(m_logger, req, tag);
 
-    std::vector<varan::neural::UNeuralLoader::FActiveDesc> active;
+    std::vector<varan::neural::FNeuralCoreConfig> active;
     try {
         auto v = boost::json::parse(req.body());
 
@@ -187,7 +187,7 @@ UNeuralController::post_state(const http::request<http::string_body>& req) {
                     "each entry must be object", tag);
 
             const auto& eo = entry.as_object();
-            varan::neural::UNeuralLoader::FActiveDesc d;
+            varan::neural::FNeuralCoreConfig d;
 
             // config_id — обязательный
             if (!eo.contains("config_id") || !eo.at("config_id").is_string())
@@ -234,8 +234,28 @@ UNeuralController::post_state(const http::request<http::string_body>& req) {
         return json_error(m_logger, req, http::status::bad_request, e.what(), tag);
     }
 
-    if (!m_loader->write_state(active))
+    // Проверка на уникальность камер
+    {
+        std::set<std::string> seen_cameras;
+        for (const auto& d : active) {
+            for (const auto& row : d.cameras) {
+                for (const auto& cam : row) {
+                    if (!seen_cameras.insert(cam).second) {
+                        return json_error(m_logger, req, http::status::bad_request,
+                            "camera '" + cam + "' used in multiple slots", tag);
+                    }
+                }
+            }
+        }
+    }
+
+    if (!m_loader->write_state(active)) {
         return json_error(m_logger, req, http::status::bad_request, "invalid state", tag);
+    }
+
+    if (!m_loader->restart()) {
+        return json_error(m_logger, req, http::status::bad_request, "state saved but restart failed", tag);
+    }
 
     return json_ok(m_logger, req, boost::json::object{}, tag);
 }

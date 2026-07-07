@@ -21,13 +21,14 @@ namespace neural {
         , m_config_path(std::move(config_path))
         , m_state_path(std::move(state_path))
         , m_logger("NeuralLoader", level)
+        , m_json_configurator(&m_logger)
     {
         load_state();
     }
 
     UNeuralLoader::~UNeuralLoader() { stop_async_run(); }
 
-    // ── Matrix helpers ──
+    // Хелпер для парсинга матрицы камер
     FCameraMatrix UNeuralLoader::parse_camera_matrix(const boost::json::value& v) {
         FCameraMatrix result;
         if (!v.is_array()) return result;
@@ -54,11 +55,11 @@ namespace neural {
         return result;
     }
 
-    std::string UNeuralLoader::make_stream_id(const std::string& config_id) const {
-        return "stream_" + config_id;
+    std::string UNeuralLoader::make_stream_id(const std::string& config_id, const std::string& camera_id) const {
+        return "stream_" + config_id + "_" + camera_id;
     }
 
-    // ── State ──
+    // Загрузка текущего состояния с файла
     bool UNeuralLoader::load_state() {
         try {
             if (!std::filesystem::exists(m_state_path)) return false;
@@ -66,15 +67,15 @@ namespace neural {
             std::stringstream ss; ss << f.rdbuf();
             auto v = boost::json::parse(ss.str());
 
-            // Новый формат: массив напрямую
             if (!v.is_array()) return false;
 
-            std::vector<FActiveDesc> parsed;
+            std::vector<FNeuralCoreConfig> parsed;
             for (const auto& entry : v.as_array()) {
                 if (!entry.is_object()) continue;
                 const auto& eo = entry.as_object();
 
-                FActiveDesc d;
+                FNeuralCoreConfig d;
+                // Основные параметры слота
                 if (auto* c = eo.if_contains("config_id"); c && c->is_string())
                     d.config_id = c->as_string().c_str();
                 if (auto* c = eo.if_contains("camera_matrix"); c)
@@ -82,6 +83,19 @@ namespace neural {
                 if (auto* c = eo.if_contains("cores"); c && c->is_array()) {
                     for (const auto& ci : c->as_array())
                         if (ci.is_int64()) d.npu_cores.push_back((int)ci.as_int64());
+                }
+
+                // Доп параметры
+                if (auto* c = eo.if_contains("fps"); c && c->is_int64())
+                    d.fps = (int)c->as_int64();
+                if (auto* c = eo.if_contains("streaming"); c && c->is_object()) {
+                    auto st_o = c->as_object();
+                    FStreamingDesc stream_desc;
+                    if (auto* s_o = st_o.if_contains("name"); s_o && s_o->is_object())
+                        stream_desc.name = s_o->as_string().c_str();
+                    if (auto* s_o = st_o.if_contains("id"); s_o && s_o->is_object())
+                        stream_desc.id = s_o->as_string().c_str();
+                    d.streaming = stream_desc;
                 }
 
                 if (!d.config_id.empty() && !d.cameras.empty())
@@ -101,7 +115,8 @@ namespace neural {
 
     bool UNeuralLoader::reload_from_state() { return load_state(); }
 
-    bool UNeuralLoader::write_state(const std::vector<FActiveDesc>& active) {
+    // Запись сохранения состояния в файл
+    bool UNeuralLoader::write_state(const std::vector<FNeuralCoreConfig>& active) {
         for (const auto& d : active) {
             if (d.config_id.empty()) {
                 m_logger.error("write_state(): empty config_id");
@@ -123,7 +138,6 @@ namespace neural {
         }
 
         try {
-            // Новый формат: массив напрямую
             boost::json::array arr;
             for (const auto& d : active) {
                 boost::json::object entry;
@@ -155,9 +169,9 @@ namespace neural {
         return true;
     }
 
-    // ── Core conflict validation — теперь по FActiveDesc ──
+    // Обнаружение ошибок ядра (если ядро повторяется в разных контекстах)
     bool UNeuralLoader::validate_no_core_conflicts(
-        const std::vector<FActiveDesc>& descs, std::string& err) const
+        const std::vector<FNeuralCoreConfig>& descs, std::string& err) const
     {
         std::map<int, std::string> core_owner;
         for (const auto& d : descs) {
@@ -182,8 +196,8 @@ namespace neural {
         return true;
     }
 
-    // ── Конфигурации ──
-    std::vector<UNeuralLoader::FNeuralExports> UNeuralLoader::list_configurations() const {
+    // вывод список конфигурации
+    std::vector<FNeuralExports> UNeuralLoader::list_configurations() const {
         std::vector<FNeuralExports> result;
         try {
             if (!std::filesystem::exists(m_config_path)) return result;
@@ -259,7 +273,7 @@ namespace neural {
         return true;
     }
 
-    // ── start_loader — npu_cores берутся из FActiveDesc ──
+    // Запуск всех ядер конфигураий сразу
     bool UNeuralLoader::start_loader() {
         try {
             std::unique_lock<std::mutex> lock(m_loader_mutex);
@@ -271,47 +285,60 @@ namespace neural {
 
             // Проверяем конфликты ядер до старта
             std::string err;
-            if (!validate_no_core_conflicts(m_active_descs, err))
+            if (!validate_no_core_conflicts(m_active_descs, err)) {
                 throw std::runtime_error("core conflict: " + err);
+            }
+
+            // Проваерка на уникальность камер внутри слотов
+            {
+                std::set<std::string> seen_cameras;
+                for (const auto& d : m_active_descs) {
+                    for (const auto& row : d.cameras) {
+                        for (const auto& cam : row) {
+                            if (!seen_cameras.insert(cam).second) {
+                                throw std::runtime_error("duplicate camera '" + cam + "' across slots");
+                            }
+                        }
+                    }
+                }
+            }
 
             // Загружаем конфиги и создаём слоты
             m_slots.clear();
             m_slots.reserve(m_active_descs.size());
 
-            for (const auto& desc : m_active_descs) {
-                auto cfg = m_json_configurator.load_config(desc.config_id);
-                if (!cfg) throw std::runtime_error("No config: " + desc.config_id);
-
-                auto config = cfg.value();
-                // npu_cores теперь из state, не из конфига модели
-                for (size_t i = 0; i < m_active_descs.size(); ++i) {
-                    auto cfg = m_json_configurator.load_config(m_active_descs[i].config_id);
-                    if (!cfg) throw std::runtime_error("No config: " + m_active_descs[i].config_id);
-
-                    if (m_active_descs[i].cameras.empty()) {
-                        throw std::runtime_error("No camera at matix, cannot start " + m_active_descs[i].config_id);
-                    }
-                    const std::string& camera_id = m_active_descs[i].cameras[0][0];
-                    FCameraMessageSender sender;
-                    if (m_sender_provider) {
-                        sender = m_sender_provider(camera_id);
-                    }
-
-                    auto slot = std::make_unique<USlot>(
-                        cfg.value(),
-                        m_active_descs[i].cameras,
-                        m_active_descs[i].npu_cores,         // ← из state, отдельным параметром
-                        make_stream_id(m_active_descs[i].config_id),
-                        m_ip, m_port,
-                        m_context, m_storage, 
-                        std::move(sender),
-                        m_level);
-
-                    if (!slot->start())
-                        throw std::runtime_error("Cannot start slot: " + m_active_descs[i].config_id);
-
-                    m_slots.push_back(std::move(slot));
+            for (size_t i = 0; i < m_active_descs.size(); ++i) {
+                // Проверяем флаг остановки, чтобы не создавать лишние слоты при shutdown
+                if (!m_supervisor_running.load()) {
+                    throw std::runtime_error("shutdown requested during start");
                 }
+
+                auto cfg = m_json_configurator.load_config(m_active_descs[i].config_id);
+                if (!cfg) throw std::runtime_error("No config: " + m_active_descs[i].config_id);
+
+                if (m_active_descs[i].cameras.empty()) {
+                    throw std::runtime_error("No camera in matrix, cannot start " + m_active_descs[i].config_id);
+                }
+
+                const std::string& camera_id = m_active_descs[i].cameras[0][0];
+                FCameraMessageSender sender;
+                if (m_sender_provider) {
+                    sender = m_sender_provider(camera_id);
+                }
+
+                auto slot = std::make_unique<USlot>(
+                    cfg.value(),
+                    m_active_descs[i],
+                    m_context, 
+                    m_storage,
+                    std::move(sender),
+                    m_level
+                );
+
+                if (!slot->start())
+                    throw std::runtime_error("Cannot start slot: " + m_active_descs[i].config_id);
+
+                m_slots.push_back(std::move(slot));
             }
 
             m_logger.info("start_loader(): " + std::to_string(m_slots.size()) + " slot(s)");
@@ -329,7 +356,7 @@ namespace neural {
         m_slots.clear();
     }
 
-    // ── Управление (без изменений) ──
+    // Фкнкции управления
     bool UNeuralLoader::async_run() {
         if (m_supervisor_running.exchange(true)) return false;
         m_supervisor = std::thread(&UNeuralLoader::supervisor_loop, this);
@@ -358,7 +385,6 @@ namespace neural {
         return true;
     }
 
-    // ── Геттеры ──
     std::optional<std::string> UNeuralLoader::find_camera_config(const std::string& camera_id) const {
         std::lock_guard<std::mutex> lk(m_loader_mutex);
         for (const auto& desc : m_active_descs) {
@@ -372,7 +398,7 @@ namespace neural {
         return std::nullopt;
     }
 
-    std::vector<UNeuralLoader::FActiveDesc> UNeuralLoader::get_active_descriptors() const {
+    std::vector<FNeuralCoreConfig> UNeuralLoader::get_active_descriptors() const {
         std::lock_guard<std::mutex> lk(m_loader_mutex);
         return m_active_descs;
     }
@@ -387,7 +413,7 @@ namespace neural {
         return result;
     }
 
-    // ── Supervisor (без изменений) ──
+    // Работчник, который постоянно запускает потоки конфигураций
     void UNeuralLoader::supervisor_loop() {
         using namespace std::chrono;
         int backoff_ms = 1000;
