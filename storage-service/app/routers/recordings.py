@@ -2,6 +2,7 @@ import logging
 import asyncio
 import json
 import re
+from pathlib import Path
 from typing import Literal
 
 
@@ -35,9 +36,49 @@ class ArchiveRequest(BaseModel):
     start_minutes: float | None = None
     end_minutes: float | None = None
 
+class PathChangeRequest(BaseModel):
+    path: str
+
 @router.get("/recordings")
 async def list_all():
     return {"recordings": storage.list_all()}
+
+@router.get("/recordings/disk")
+async def disk_state():
+    """Текущее состояние диска по пути записей."""
+    usage = storage.disk_usage()
+    if usage is None:
+        raise HTTPException(status_code=500, detail="Cannot read disk usage for records path")
+
+    loop = asyncio.get_running_loop()
+    records_bytes = await loop.run_in_executor(None, storage.total_size_bytes)
+    used_percent = usage.used / usage.total * 100 if usage.total else 0.0
+
+    return {
+        "path": str(storage.root),
+        "exists": storage.root.exists(),
+        "total_bytes": usage.total,
+        "used_bytes": usage.used,
+        "free_bytes": usage.free,
+        "records_bytes": records_bytes,
+        "total_gb": round(usage.total / 1024 ** 3, 2),
+        "used_gb": round(usage.used / 1024 ** 3, 2),
+        "free_gb": round(usage.free / 1024 ** 3, 2),
+        "records_gb": round(records_bytes / 1024 ** 3, 2),
+        "used_percent": round(used_percent, 1),
+        "max_used_percent": settings.MAX_USED_PERCENT,
+    }
+
+@router.post("/recordings/path")
+async def change_path(req: PathChangeRequest):
+    """Сменить путь просмотра записей в рантайме."""
+    new_root = Path(req.path)
+    if not new_root.exists():
+        raise HTTPException(status_code=400, detail=f"Path does not exist: {req.path}")
+    if not new_root.is_dir():
+        raise HTTPException(status_code=400, detail=f"Not a directory: {req.path}")
+    storage.set_root(new_root)
+    return {"ok": True, "path": str(storage.root)}
 
 @router.get("/recordings/jobs")
 async def list_active_jobs():
@@ -255,9 +296,21 @@ class MergeRequest(BaseModel):
 
 
 async def _finalize_job(job_id: str):
-    """Помечаем как скачано и чистим временные файлы."""
+    """
+    Помечаем как скачано. Файл удаляем не сразу, а с задержкой, чтобы клиент
+    успел дописать большой архив на диск, иначе он не успевал скачаться,
+    а файл на сервере уже удалялся.
+    """
     job = await jobs.get(job_id)
     if job is None:
         return
     await jobs.update(job, status=JobStatus.DOWNLOADED)
+    asyncio.create_task(_delayed_cleanup(job_id, settings.DOWNLOAD_CLEANUP_DELAY_SEC))
+
+
+async def _delayed_cleanup(job_id: str, delay: int):
+    await asyncio.sleep(delay)
+    job = await jobs.get(job_id)
+    if job is None:
+        return
     await jobs.cleanup(job)

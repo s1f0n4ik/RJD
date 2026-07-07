@@ -17,6 +17,20 @@ class StorageService:
     def __init__(self, root: Path):
         self.root = root
 
+    def set_root(self, new_root: Path) -> None:
+        """Сменить корневой каталог записей в рантайме."""
+        self.root = new_root
+        logger.info("Storage root changed to %s", new_root)
+
+    def disk_usage(self):
+        """Занятость диска, на котором лежит корень записей.
+        Возвращает namedtuple с полями total, used, free либо None."""
+        try:
+            return shutil.disk_usage(self.root)
+        except OSError as e:
+            logger.warning("disk_usage failed for %s: %s", self.root, e)
+            return None
+
     # ── Чтение ──
 
     def list_all(self) -> dict:

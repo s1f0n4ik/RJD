@@ -12,11 +12,12 @@ export default defineConfig({
     port: 3000,
     strictPort: true,
     proxy: {
-      '/neural': { target: DEV_BACKEND, changeOrigin: true },
-      '/api':    { target: DEV_BACKEND, changeOrigin: true },
-      '/auth':   { target: DEV_BACKEND, changeOrigin: true },
-      // если WebSocket-сигналинг тоже ходит через тот же origin — добавь ws:
-      // '/ws': { target: DEV_BACKEND, changeOrigin: true, ws: true },
+      '/neural':    { target: DEV_BACKEND, changeOrigin: true },
+      '/api':       { target: DEV_BACKEND, changeOrigin: true },
+      '/auth':      { target: DEV_BACKEND, changeOrigin: true },
+      '/linker':    { target: DEV_BACKEND, changeOrigin: true },
+      '/ws':        { target: DEV_BACKEND, changeOrigin: true, ws: true },
+      '/signaling': { target: DEV_BACKEND, changeOrigin: true, ws: true },
     },
   },
 });

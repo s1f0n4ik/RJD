@@ -9,9 +9,9 @@ logger = logging.getLogger(__name__)
 
 class StorageCleaner:
     """
-    Фоновая задача, следящая за объёмом записей.
-    Если превышен MAX_STORAGE_GB — удаляет самые старые файлы
-    до CLEANUP_TARGET_RATIO * лимит.
+    Фоновая задача, следящая за занятостью диска с записями.
+    Когда занято больше MAX_USED_PERCENT — удаляет самые старые файлы,
+    пока занятость не опустится до порога * CLEANUP_TARGET_RATIO.
     """
 
     def __init__(self):
@@ -19,13 +19,13 @@ class StorageCleaner:
         self._stop = asyncio.Event()
 
     async def start(self):
-        if settings.MAX_STORAGE_GB <= 0:
-            logger.info("Cleanup disabled (MAX_STORAGE_GB=0)")
+        if settings.MAX_USED_PERCENT <= 0:
+            logger.info("Cleanup disabled (MAX_USED_PERCENT=0)")
             return
         logger.info(
-            "Starting cleaner: limit=%sGB, target=%.0f%%, interval=%ss",
-            settings.MAX_STORAGE_GB,
-            settings.CLEANUP_TARGET_RATIO * 100,
+            "Starting cleaner: threshold=%.0f%% used, target=%.0f%% used, interval=%ss",
+            settings.MAX_USED_PERCENT,
+            settings.MAX_USED_PERCENT * settings.CLEANUP_TARGET_RATIO,
             settings.CLEANUP_INTERVAL_SEC,
             )
         self._task = asyncio.create_task(self._run())
@@ -51,41 +51,44 @@ class StorageCleaner:
                 pass
 
     async def _check_once(self):
-        # storage.total_size_bytes() — синхронный, может блокировать loop на больших каталогах.
-        # Выносим в thread executor.
         loop = asyncio.get_running_loop()
-        total_bytes = await loop.run_in_executor(None, storage.total_size_bytes)
+        usage = await loop.run_in_executor(None, storage.disk_usage)
+        if usage is None:
+            return
 
-        limit_bytes = int(settings.MAX_STORAGE_GB * 1024 ** 3)
-        target_bytes = int(limit_bytes * settings.CLEANUP_TARGET_RATIO)
+        used_percent = usage.used / usage.total * 100 if usage.total else 0.0
 
-        if total_bytes <= limit_bytes:
+        if used_percent <= settings.MAX_USED_PERCENT:
             logger.debug(
-                "Storage OK: %.2fGB / %.2fGB",
-                total_bytes / 1024 ** 3, settings.MAX_STORAGE_GB,
+                "Disk OK: %.1f%% used (free %.2fGB)",
+                used_percent, usage.free / 1024 ** 3,
                 )
             return
 
+        # Чистим пока занятость не упадёт до порога с запасом.
+        # target_free_bytes — сколько свободного места нужно достичь.
+        target_used_percent = settings.MAX_USED_PERCENT * settings.CLEANUP_TARGET_RATIO
+        target_free_bytes = int(usage.total * (1 - target_used_percent / 100))
+
         logger.warning(
-            "Storage limit exceeded: %.2fGB / %.2fGB. Cleaning to %.2fGB",
-            total_bytes / 1024 ** 3,
-            settings.MAX_STORAGE_GB,
-            target_bytes / 1024 ** 3,
+            "Disk usage over threshold: %.1f%% > %.1f%%. Freeing down to %.1f%% used",
+            used_percent, settings.MAX_USED_PERCENT, target_used_percent,
             )
 
-        await loop.run_in_executor(None, self._delete_until, target_bytes, total_bytes)
+        await loop.run_in_executor(None, self._free_until, target_free_bytes, usage.free)
 
-    def _delete_until(self, target_bytes: int, current_bytes: int):
+    def _free_until(self, target_free_bytes: int, start_free_bytes: int):
         """
         Синхронная процедура удаления.
-        Идём по всем файлам от самых старых до новых и удаляем,
-        пока не уложимся в target_bytes.
+        Идём от самых старых файлов к новым и удаляем, пока оценка свободного
+        места не достигнет target_free_bytes. Запись параллельно занимает место,
+        поэтому это оценка, финальную коррекцию делает следующий цикл.
         """
         deleted_count = 0
         freed_bytes = 0
 
         for file_path in storage.all_files_oldest_first():
-            if current_bytes - freed_bytes <= target_bytes:
+            if start_free_bytes + freed_bytes >= target_free_bytes:
                 break
             try:
                 size = file_path.stat().st_size
@@ -96,7 +99,6 @@ class StorageCleaner:
             except OSError as e:
                 logger.warning("Failed to delete %s: %s", file_path, e)
 
-        # После удаления файлов — чистим пустые подкаталоги
         removed_dirs = storage.remove_empty_subdirs()
 
         logger.info(

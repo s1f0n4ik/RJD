@@ -70,29 +70,58 @@ async def run_merge_job(
 
         job.temp_files.extend([list_file, progress_file])
 
-        with open(list_file, "w") as f:
-            for v in relevant:
-                f.write(f"file '{v.absolute()}'\n")
-
-        if job.cancelled:
-            return
-
-        # ── Фаза 3: ffmpeg с прогрессом ──
+        # ── Фаза 3: нормализация сегментов в MPEG-TS ──
+        # Каждый сегмент перегоняем в ts терпимо к битому хвосту. Это спасает
+        # оборванный при выключении питания сегмент и убирает разрывы таймстампов,
+        # из-за которых обычный concat останавливался на месте разрыва.
         await jobs.update(
             job,
             status=JobStatus.MERGING,
             progress=0.0,
-            message=f"Склейка {len(relevant)} файлов...",
+            message=f"Подготовка {len(relevant)} фрагментов...",
         )
+
+        ts_files: list[Path] = []
+        skipped = 0
+        for idx, seg in enumerate(relevant):
+            if job.cancelled:
+                return
+            ts_path = temp_dir / f"seg_{camera}_{timestamp}_{idx:04d}.ts"
+            job.temp_files.append(ts_path)
+            if await _remux_segment_to_ts(seg, ts_path, job):
+                ts_files.append(ts_path)
+            else:
+                skipped += 1
+                logger.warning("Job %s: skipped broken segment %s", job.id, seg.name)
+            job.files_processed = idx + 1
+            await jobs.update(job, progress=0.4 * ((idx + 1) / len(relevant)))
+
+        if not ts_files:
+            raise RuntimeError("Все выбранные фрагменты повреждены, склейка невозможна")
+
+        with open(list_file, "w") as f:
+            for ts in ts_files:
+                escaped = str(ts.absolute()).replace("'", "'\\''")
+                f.write(f"file '{escaped}'\n")
+
+        if job.cancelled:
+            return
+
+        # ── Фаза 4: финальная склейка TS в mp4 ──
+        merge_msg = f"Склейка {len(ts_files)} фрагментов..."
+        if skipped:
+            merge_msg += f" (пропущено битых: {skipped})"
+        await jobs.update(job, status=JobStatus.MERGING, progress=0.4, message=merge_msg)
 
         await _run_ffmpeg_with_progress(
             list_file=list_file,
             output_file=output_mp4,
             progress_file=progress_file,
             expected_seconds=expected_seconds,
-            on_progress=lambda p: jobs.update(job, progress=p),
+            # прогресс склейки масштабируем в остаток шкалы после нормализации
+            on_progress=lambda p: jobs.update(job, progress=0.4 + p * 0.59),
             job=job,
-            files_count=len(relevant),
+            files_count=len(ts_files),
         )
 
         if not output_mp4.exists():
@@ -276,15 +305,59 @@ def _collect_files(camera_path: Path, start: datetime, end: datetime) -> list[Pa
 _TIME_RE = re.compile(r"out_time_ms=(\d+)")
 
 
+async def _remux_segment_to_ts(input_file: Path, output_ts: Path, job) -> bool:
+    """
+    Перегоняет один сегмент в MPEG-TS терпимо к битому хвосту.
+    Если конец файла оборван (выключилось питание) — ffmpeg запишет то, что
+    смог прочитать, и выйдет. Bitstream-фильтр не задаём: mpegts-муксер сам
+    подставит нужный для h264/h265. Возвращает True, если получился непустой ts.
+    """
+    cmd = [
+        "ffmpeg", "-v", "error",
+        "-err_detect", "ignore_err",
+        "-fflags", "+discardcorrupt+genpts",
+        "-i", str(input_file),
+        "-c", "copy",
+        "-f", "mpegts",
+        "-y", str(output_ts),
+    ]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        job.process = proc
+        try:
+            await asyncio.wait_for(proc.communicate(), timeout=settings.MERGE_TIMEOUT_SEC)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            logger.warning("ts remux timeout for %s", input_file.name)
+        finally:
+            job.process = None
+    except Exception as e:
+        logger.warning("ts remux failed for %s: %s", input_file.name, e)
+        return False
+
+    try:
+        return output_ts.exists() and output_ts.stat().st_size > 1024
+    except OSError:
+        return False
+
+
 async def _run_ffmpeg_with_progress(
         *, list_file, output_file, progress_file, expected_seconds,
         on_progress, job, files_count,
 ):
     cmd = [
         "ffmpeg",
+        "-err_detect", "ignore_err",
+        "-fflags", "+genpts+discardcorrupt",
         "-f", "concat", "-safe", "0",
         "-i", str(list_file),
         "-c", "copy",
+        "-movflags", "+faststart",
         "-progress", str(progress_file),
         "-y",
         str(output_file),
