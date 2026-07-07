@@ -1,6 +1,7 @@
 out/
 .vs/
 .idea/
+.claude/
 media-center/build/
 docker-compose.yml
 
