@@ -3,6 +3,7 @@
 #include <vector>
 #include <algorithm>
 #include <cmath>
+#include <map>
 
 #include "tracker-interface.h"
 
@@ -162,7 +163,8 @@ namespace neural {
                 if (det_matched[d]) continue;
 
                 FTrack track;
-                track.id = m_next_id++;
+                track.class_id = detections[d].class_id;
+                track.id = m_next_id_by_class[track.class_id]++;
                 track.detection = detections[d];
                 track.class_id = detections[d].class_id;
                 track.confidence = detections[d].confidence;
@@ -193,7 +195,7 @@ namespace neural {
 
         void reset() override {
             m_tracks.clear();
-            m_next_id = 0;
+            m_next_id_by_class.clear();
         }
 
     private:
@@ -223,7 +225,7 @@ namespace neural {
     private:
         FIoUTrackerConfig m_config;
         std::vector<FTrack> m_tracks;
-        int m_next_id = 0;
+        std::map<int, int> m_next_id_by_class;
     };
 
 } // namespace neural
