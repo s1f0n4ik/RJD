@@ -42,7 +42,6 @@ async def run_merge_job(
 
         start_time = date_obj + timedelta(minutes=start_minutes)
         end_time = date_obj + timedelta(minutes=end_minutes)
-        expected_seconds = (end_time - start_time).total_seconds()
 
         relevant = _collect_files(camera_path, start_time, end_time)
         if not relevant:
@@ -54,11 +53,6 @@ async def run_merge_job(
             return
 
         # ── Фаза 2: подготовка ──
-        total_input_bytes = sum(f.stat().st_size for f in relevant)
-        job.files_total = len(relevant)
-        job.duration_seconds = expected_seconds
-        job.bytes_total = total_input_bytes   # на этапе merging обновим по факту выходному
-
         temp_dir = Path(tempfile.gettempdir())
         timestamp = int(datetime.now().timestamp())
         list_file = temp_dir / f"merge_{camera}_{timestamp}.txt"
@@ -67,61 +61,52 @@ async def run_merge_job(
             f"{int(start_minutes):04d}-{int(end_minutes):04d}.mp4"
         )
         progress_file = temp_dir / f"progress_{job.id}.txt"
-
         job.temp_files.extend([list_file, progress_file])
 
-        # ── Фаза 3: нормализация сегментов в MPEG-TS ──
-        # Каждый сегмент перегоняем в ts терпимо к битому хвосту. Это спасает
-        # оборванный при выключении питания сегмент и убирает разрывы таймстампов,
-        # из-за которых обычный concat останавливался на месте разрыва.
+        # ── Фаза 3: отсев битых фрагментов ──
+        # Проверяем файлы параллельно (ffprobe читает только заголовки и длину),
+        # битые выкидываем. Метрики считаем по фактически годным файлам, а не по
+        # выбранному отрезку: длительность — сумма их длительностей, число файлов —
+        # общее минус битые. Целые фрагменты склеиваются одним проходом, поэтому
+        # разрыв записи (система была выключена) не останавливает склейку.
         await jobs.update(
             job,
-            status=JobStatus.MERGING,
-            progress=0.0,
-            message=f"Подготовка {len(relevant)} фрагментов...",
+            status=JobStatus.PARSING,
+            message=f"Проверка {len(relevant)} фрагментов...",
         )
 
-        ts_files: list[Path] = []
-        skipped = 0
-        for idx, seg in enumerate(relevant):
-            if job.cancelled:
-                return
-            ts_path = temp_dir / f"seg_{camera}_{timestamp}_{idx:04d}.ts"
-            job.temp_files.append(ts_path)
-            if await _remux_segment_to_ts(seg, ts_path, job):
-                ts_files.append(ts_path)
-            else:
-                skipped += 1
-                logger.warning("Job %s: skipped broken segment %s", job.id, seg.name)
-            job.files_processed = idx + 1
-            await jobs.update(job, progress=0.4 * ((idx + 1) / len(relevant)))
-
-        if not ts_files:
-            raise RuntimeError("Все выбранные фрагменты повреждены, склейка невозможна")
-
-        with open(list_file, "w") as f:
-            for ts in ts_files:
-                escaped = str(ts.absolute()).replace("'", "'\\''")
-                f.write(f"file '{escaped}'\n")
-
+        checked = await _probe_all(relevant, job)
         if job.cancelled:
             return
+        valid_files = [f for f, dur in checked if dur is not None]
+        if not valid_files:
+            raise RuntimeError("Все выбранные фрагменты повреждены, склейка невозможна")
 
-        # ── Фаза 4: финальная склейка TS в mp4 ──
-        merge_msg = f"Склейка {len(ts_files)} фрагментов..."
+        total_duration = sum(dur for _, dur in checked if dur is not None)
+        skipped = len(relevant) - len(valid_files)
+        job.files_total = len(valid_files)
+        job.duration_seconds = total_duration
+        job.bytes_total = 0
+
+        with open(list_file, "w") as f:
+            for v in valid_files:
+                escaped = str(v.absolute()).replace("'", "'\\''")
+                f.write(f"file '{escaped}'\n")
+
+        # ── Фаза 4: склейка одним проходом с живым прогрессом ──
+        merge_msg = f"Склейка {len(valid_files)} фрагментов..."
         if skipped:
             merge_msg += f" (пропущено битых: {skipped})"
-        await jobs.update(job, status=JobStatus.MERGING, progress=0.4, message=merge_msg)
+        await jobs.update(job, status=JobStatus.MERGING, progress=0.0, message=merge_msg)
 
         await _run_ffmpeg_with_progress(
             list_file=list_file,
             output_file=output_mp4,
             progress_file=progress_file,
-            expected_seconds=expected_seconds,
-            # прогресс склейки масштабируем в остаток шкалы после нормализации
-            on_progress=lambda p: jobs.update(job, progress=0.4 + p * 0.59),
+            expected_seconds=total_duration,
+            on_progress=lambda p: jobs.update(job, progress=p),
             job=job,
-            files_count=len(ts_files),
+            files_count=len(valid_files),
         )
 
         if not output_mp4.exists():
@@ -132,7 +117,10 @@ async def run_merge_job(
         job.result_filename = output_mp4.name
         job.result_media_type = "video/mp4"
 
-        size_mb = output_mp4.stat().st_size / 1024 ** 2
+        out_size = output_mp4.stat().st_size
+        job.files_processed = len(valid_files)
+        job.bytes_total = out_size
+        size_mb = out_size / 1024 ** 2
         await jobs.update(
             job,
             status=JobStatus.READY,
@@ -305,45 +293,65 @@ def _collect_files(camera_path: Path, start: datetime, end: datetime) -> list[Pa
 _TIME_RE = re.compile(r"out_time_ms=(\d+)")
 
 
-async def _remux_segment_to_ts(input_file: Path, output_ts: Path, job) -> bool:
+async def _probe_duration(path: Path) -> float | None:
     """
-    Перегоняет один сегмент в MPEG-TS терпимо к битому хвосту.
-    Если конец файла оборван (выключилось питание) — ffmpeg запишет то, что
-    смог прочитать, и выйдет. Bitstream-фильтр не задаём: mpegts-муксер сам
-    подставит нужный для h264/h265. Возвращает True, если получился непустой ts.
+    Длительность видеофайла в секундах или None, если файл пустой либо битый.
+    ffprobe читает только заголовки, поэтому дёшево — заодно служит проверкой
+    целостности: оборванный при выключении питания файл длину не отдаст.
     """
+    try:
+        if path.stat().st_size < 1024:
+            return None
+    except OSError:
+        return None
+
     cmd = [
-        "ffmpeg", "-v", "error",
-        "-err_detect", "ignore_err",
-        "-fflags", "+discardcorrupt+genpts",
-        "-i", str(input_file),
-        "-c", "copy",
-        "-f", "mpegts",
-        "-y", str(output_ts),
+        "ffprobe", "-v", "error",
+        "-show_entries", "format=duration",
+        "-of", "csv=p=0",
+        str(path),
     ]
+    proc = None
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
         )
-        job.process = proc
-        try:
-            await asyncio.wait_for(proc.communicate(), timeout=settings.MERGE_TIMEOUT_SEC)
-        except asyncio.TimeoutError:
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=15)
+        if proc.returncode != 0:
+            return None
+        text = out.decode(errors="replace").strip()
+        dur = float(text) if text and text.lower() != "n/a" else 0.0
+        return dur if dur > 0 else None
+    except asyncio.TimeoutError:
+        if proc:
             proc.kill()
             await proc.wait()
-            logger.warning("ts remux timeout for %s", input_file.name)
-        finally:
-            job.process = None
+        return None
     except Exception as e:
-        logger.warning("ts remux failed for %s: %s", input_file.name, e)
-        return False
+        logger.warning("ffprobe failed for %s: %s", path.name, e)
+        return None
 
-    try:
-        return output_ts.exists() and output_ts.stat().st_size > 1024
-    except OSError:
-        return False
+
+async def _probe_all(files: list[Path], job) -> list[tuple[Path, float | None]]:
+    """
+    Параллельно измеряет длительность и целостность файлов. Порядок сохраняется.
+    Возвращает пары (файл, длительность|None); None — битый файл.
+    """
+    sem = asyncio.Semaphore(8)
+
+    async def check(f: Path):
+        async with sem:
+            if job.cancelled:
+                return f, None
+            return f, await _probe_duration(f)
+
+    results = await asyncio.gather(*[check(f) for f in files])
+    for f, dur in results:
+        if dur is None:
+            logger.warning("Job %s: skipped broken segment %s", job.id, f.name)
+    return results
 
 
 async def _run_ffmpeg_with_progress(

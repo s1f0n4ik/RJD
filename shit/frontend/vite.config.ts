@@ -13,7 +13,9 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       '/neural':    { target: DEV_BACKEND, changeOrigin: true },
-      '/api':       { target: DEV_BACKEND, changeOrigin: true },
+      // ws:true — под /api живёт прогресс-сокет склейки
+      // /api/recordings/jobs/{id}/progress, без него панель зависает в ожидании.
+      '/api':       { target: DEV_BACKEND, changeOrigin: true, ws: true },
       '/auth':      { target: DEV_BACKEND, changeOrigin: true },
       '/linker':    { target: DEV_BACKEND, changeOrigin: true },
       '/ws':        { target: DEV_BACKEND, changeOrigin: true, ws: true },
