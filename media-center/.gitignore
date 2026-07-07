@@ -34,3 +34,5 @@
 # Folders
 /out
 /.vs
+
+CMakePresets.json

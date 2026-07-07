@@ -29,51 +29,7 @@ bool UCameraSubPipeline::initialize() {
 	m_pipeline = gst_pipeline_new(m_parameters.name.c_str());
 
 	// Привязываем рестарт к пайплайну
-	GstBus* bus = gst_element_get_bus(m_pipeline);
-	gst_bus_add_watch(bus,
-		+[](GstBus* bus, GstMessage* msg, gpointer data) -> gboolean
-		{
-			auto self = static_cast<UCameraSubPipeline*>(data);
-
-			switch (GST_MESSAGE_TYPE(msg)) {
-				case GST_MESSAGE_ERROR: {
-					// обработка ошибки записи
-					GError* err = nullptr;
-					gchar* debug = nullptr;
-					gst_message_parse_error(msg, &err, &debug);
-
-					self->m_logger->error(
-						"GStreamer ERROR: " + std::string(err ? err->message : "unknown")
-					);
-
-					if (err) g_error_free(err);
-					if (debug) g_free(debug);
-
-					//self->shedule_restart();
-					break;
-				}
-				case GST_MESSAGE_EOS: {
-					self->m_logger->warn("GStreamer EOS received");
-					//self->destroy();
-					break;
-				}
-				case GST_MESSAGE_ELEMENT: {
-					const GstStructure* s = gst_message_get_structure(msg);
-					if (s && gst_structure_has_name(s, "GstRTSPSrcTimeout"))
-					{
-						self->m_logger->warn("RTSP timeout detected");
-						self->shedule_restart();
-					}
-					break;
-				}
-				default:
-					break;
-			}
-			return TRUE;
-		},
-		this
-	);
-	gst_object_unref(bus);
+	setup_bus_watch(m_pipeline, false);
 
 	std::string depay_str = m_probe.codec_name == std::string("H264") ? "rtph264depay" : "rtph265depay";
 	std::string parse_str = m_probe.codec_name == std::string("H264") ? "h264parse" : "h265parse";
@@ -149,9 +105,12 @@ bool UCameraSubPipeline::initialize() {
 	g_object_set(pay_queue,
 		"max-size-buffers", 0,
 		"max-size-bytes", 0,
-		"max-size-time", 0,
+		"max-size-time", (guint64)500 * GST_MSECOND,
+		"leaky", 2,   // ← downstream leaky, дропает старые буферы
 		nullptr
 	);
+
+	g_object_set(tee, "allow-not-linked", TRUE, nullptr);
 
 	g_object_set(queue,
 		"max-size-buffers", 0,
@@ -217,6 +176,16 @@ bool UCameraSubPipeline::initialize() {
 	m_has_initialized = true;
 	m_logger->info("initialize(): pipeline successfully initialized!");
 	return m_has_initialized;
+}
+
+void UCameraSubPipeline::on_bus_error(const std::string& error_code, const std::string& description, bool probe_handler) {
+	broadcast_error(error_code, description);
+	if (!probe_handler) shedule_restart();
+}
+
+void UCameraSubPipeline::on_bus_message(GstMessage* msg) {
+	// без специфики
+	return;
 }
 
 bool UCameraSubPipeline::create_webrtc_session(const std::string& client_id, std::string& description)

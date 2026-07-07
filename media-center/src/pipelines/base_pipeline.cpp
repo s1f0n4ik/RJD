@@ -1,4 +1,5 @@
 #include "video_pipeline.h"
+#include "signaling_definers.h"
 #include <thread>
 
 #include <gst/rtsp/gstrtsptransport.h>
@@ -322,6 +323,8 @@ bool UCameraPipeline::probe_video_stream(int timeout_sec) {
     m_logger->debug("Setting probe pipeline to PLAYING state...");
     gst_element_set_state(pipeline, GST_STATE_PLAYING);
 
+    setup_bus_watch(pipeline, true);
+
     GstBus* bus = gst_element_get_bus(pipeline);
     gint64 deadline = g_get_monotonic_time() + timeout_sec * G_TIME_SPAN_SECOND;
     while (!m_probe.ready() && !m_stop_requested.load() && g_get_monotonic_time() < deadline) {
@@ -331,6 +334,7 @@ bool UCameraPipeline::probe_video_stream(int timeout_sec) {
             continue;
         }
 
+        /*
         if (GST_MESSAGE_TYPE(msg) == GST_MESSAGE_ERROR) {
             GError* err = nullptr;
             gchar* debug_info = nullptr;
@@ -350,6 +354,7 @@ bool UCameraPipeline::probe_video_stream(int timeout_sec) {
             gst_message_unref(msg);
             break;
         }
+        */
 
         gst_message_unref(msg);
     }
@@ -374,6 +379,123 @@ bool UCameraPipeline::probe_video_stream(int timeout_sec) {
     oss << "Probe succeeded:\n\tcodec=" << m_probe.codec_name << "\n\twidth=" << m_probe.width << "\n\theight=" << m_probe.height;
     if (m_logger) m_logger->info(oss.str());
     return true;
+}
+
+void UCameraPipeline::setup_bus_watch(GstElement* pipeline, bool use_probe_handler) {
+    if (!pipeline) return;
+
+    struct FBusWatchContext {
+        UCameraPipeline* pipeline;
+        bool use_probe_handler;
+    };
+
+    auto* ctx = new FBusWatchContext {
+        this,
+        use_probe_handler
+    };
+
+    GstBus* bus = gst_element_get_bus(pipeline);
+    m_bus_watch_id = gst_bus_add_watch_full(
+        bus,
+        G_PRIORITY_DEFAULT,
+        +[](GstBus*, GstMessage* msg, gpointer data) -> gboolean {
+            auto ctx = static_cast<FBusWatchContext*>(data);
+            if (!ctx) return FALSE;
+
+            auto self = ctx->pipeline;
+            auto probe_handler = ctx->use_probe_handler;
+
+            switch (GST_MESSAGE_TYPE(msg)) {
+            case GST_MESSAGE_ERROR: {
+                GError* err = nullptr;
+                gchar* debug = nullptr;
+                gst_message_parse_error(msg, &err, &debug);
+
+                std::string err_msg = err ? err->message : "unknown";
+                std::string dbg_msg = debug ? debug : "none";
+                self->m_logger->error("GST ERROR: " + err_msg + " | debug: " + dbg_msg);
+
+                // Определяем код ошибки
+                std::string error_code = SIG_ERROR_GST_ERROR;
+                if (err) {
+                    std::string msg_lower = err_msg;
+                    std::transform(msg_lower.begin(), msg_lower.end(),
+                        msg_lower.begin(), ::tolower);
+
+                    if (msg_lower.find("unauthorized") != std::string::npos ||
+                        msg_lower.find("401") != std::string::npos) {
+                        error_code = SIG_ERROR_RTSP_UNAUTHORIZED;
+                    }
+                    else if (msg_lower.find("not found") != std::string::npos ||
+                        msg_lower.find("404") != std::string::npos ||
+                        msg_lower.find("no route") != std::string::npos) {
+                        error_code = SIG_ERROR_RTSP_NOT_FOUND;
+                    }
+                    else if (msg_lower.find("timeout") != std::string::npos ||
+                        msg_lower.find("timed out") != std::string::npos) {
+                        error_code = SIG_ERROR_RTSP_TIMEOUT;
+                    }
+                    else if (msg_lower.find("end-of-file") != std::string::npos ||
+                        msg_lower.find("received end") != std::string::npos ||
+                        msg_lower.find("could not receive message") != std::string::npos) {
+                        error_code = SIG_ERROR_RTSP_DISCONNECTED;
+                    }
+                }
+
+                if (err) g_error_free(err);
+                if (debug) g_free(debug);
+
+                self->on_bus_error(error_code, err_msg, probe_handler);
+                break;
+            }
+            case GST_MESSAGE_EOS: {
+                self->m_logger->warn("GST EOS received");
+                self->on_bus_error(SIG_ERROR_EOS, "End of stream", probe_handler);
+                break;
+            }
+            case GST_MESSAGE_ELEMENT: {
+                const GstStructure* s = gst_message_get_structure(msg);
+                if (s && gst_structure_has_name(s, "GstRTSPSrcTimeout")) {
+                    self->m_logger->warn("RTSP timeout detected");
+                    self->on_bus_error(SIG_ERROR_RTSP_TIMEOUT, "RTSP connection timed out", probe_handler);
+                }
+                break;
+            }
+            default:
+                break;
+            }
+
+            // Вызываем виртуальный хук для специфики подкласса
+            self->on_bus_message(msg);
+
+            return TRUE;
+        },
+        ctx,
+        [](gpointer data) {
+            delete static_cast<FBusWatchContext*>(data);
+        }
+    );
+    gst_object_unref(bus);
+}
+
+void UCameraPipeline::on_bus_error(const std::string& error_code, const std::string& description, bool is_probe) {
+    broadcast_error(error_code, description);
+    // Не рестартим
+    //shedule_restart();
+}
+
+void UCameraPipeline::broadcast_error(const std::string& error_code, const std::string& description) {
+    if (!m_send_callback) return;
+
+    boost::json::object msg;
+    msg[SIG_TYPE] = SIG_TYPE_STREAM_ERROR;
+    msg[SIG_SENDER] = SIG_SENDER_CAMERA;
+    msg[SIG_CAMERA] = m_parameters.camera_name;
+    msg[SIG_ERROR_CODE] = error_code;
+    msg[SIG_DECRIPTION] = description;
+    msg[SIG_RET] = SIG_RET_FAULT;
+
+    m_send_callback(boost::json::serialize(msg));
 }
 
 const GstStructure* UCameraPipeline::extract_caps_structure(GstPadProbeInfo* info, ULogger* logger)
@@ -527,6 +649,11 @@ bool UCameraPipeline::create_webrtc_session(const std::string& client_id, std::s
         return false;
     }
 
+    if (m_pending_teardown_clients.count(client_id)) {
+        description = "Session with " + client_id + " is still tearing down, try again later.";
+        return false;
+    }
+
     auto ses_it = m_webrtc_sessions.find(client_id);
     if (ses_it != m_webrtc_sessions.end()) {
         oss_error << "Session with " << client_id << " in " << m_parameters.name << " pipeline already exists!";
@@ -544,28 +671,45 @@ bool UCameraPipeline::close_webrtc_session(const std::string& client_id, std::st
         return false;
     }
 
-    // Забираем владение
     std::unique_ptr<UWebRTCSession> session = std::move(it->second);
     m_webrtc_sessions.erase(it);
 
-    // Передаём владение в GLib main loop
+    // Помечаем что сессия с этим клиентом ещё рвётся
+    m_pending_teardown_clients.insert(client_id);
+
+    bool needs_restart = session->is_timeout_triggered();
+
+    struct TeardownCtx {
+        UCameraPipeline* pipeline;
+        std::unique_ptr<UWebRTCSession> session;
+        std::string client_id;
+    };
+
+    auto* ctx = new TeardownCtx{
+        this,
+        std::move(session),
+        client_id
+    };
+
     g_main_context_invoke(nullptr,
         [](gpointer data) -> gboolean {
-            // В data лежит уникальный указатель
-            std::unique_ptr<UWebRTCSession> session_ptr(
-                static_cast<UWebRTCSession*>(data)
-            );
-
-            // teardown будет вызван внутри main thread
-            session_ptr->teardown();
-
-            // session_ptr уничтожится после выхода из лямбды
+            auto* ctx = static_cast<TeardownCtx*>(data);
+            ctx->session->teardown();
+            ctx->pipeline->m_pending_teardown_clients.erase(ctx->client_id);
+            delete ctx;
             return G_SOURCE_REMOVE;
         },
-        session.release() // release передаёт владение
+        ctx
     );
 
-    description = "Session with " + client_id + " successfully closed!";
+    if (needs_restart) {
+        description = "Session with " + client_id + " closed by timeout, scheduling pipeline restart.";
+        shedule_restart();
+    }
+    else {
+        description = "Session with " + client_id + " closed successfully.";
+    }
+
     return true;
 }
 

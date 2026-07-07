@@ -5,4 +5,4 @@ out/
 media-center/build/
 docker-compose.yml
 
-CMakePresets.json
+media-center/CMakePresets.json

@@ -27,17 +27,7 @@ namespace neural {
 
 	class UNeuralLoader {
 	public:
-		struct FNeuralExports {
-			std::string id;
-			std::string name;
-		};
-
-		struct FActiveDesc {
-			std::string   config_id;
-			FCameraMatrix cameras;
-			std::vector<int> npu_cores;   // ← теперь здесь, не в конфиге
-		};
-
+		
 		enum class EImportMode {
 			MERGE,
 			REPLACE_ALL,
@@ -71,14 +61,14 @@ namespace neural {
 		bool import_configurations(const boost::json::value& json, EImportMode mode);
 
 		// State
-		bool write_state(const std::vector<FActiveDesc>& active);
+		bool write_state(const std::vector<FNeuralCoreConfig>& active);
 		boost::json::object get_state_raw() const;
 		bool reload_from_state();
 
 		void set_sender_provider(FCameraSenderProvider provider);
 
 		// Геттеры
-		std::vector<FActiveDesc> get_active_descriptors() const;
+		std::vector<FNeuralCoreConfig> get_active_descriptors() const;
 		struct FSlotStatus {
 			std::string config_id;
 			FCameraMatrix cameras;
@@ -98,13 +88,13 @@ namespace neural {
 
 		static FCameraMatrix parse_camera_matrix(const boost::json::value& v);
 		static boost::json::array serialize_camera_matrix(const FCameraMatrix& m);
-		bool validate_no_core_conflicts(const std::vector<FActiveDesc>& descs,
+		bool validate_no_core_conflicts(const std::vector<FNeuralCoreConfig>& descs,
 			std::string& err) const;
-		std::string make_stream_id(const std::string& config_id) const;
+		std::string make_stream_id(const std::string& config_id, const std::string& camera_id) const;
 
 	private:
 		UJsonNeuralConfiguration m_json_configurator;
-		std::vector<FActiveDesc> m_active_descs;
+		std::vector<FNeuralCoreConfig> m_active_descs;
 		std::vector<std::unique_ptr<USlot>> m_slots;
 
 		mutable std::mutex m_loader_mutex;

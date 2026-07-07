@@ -68,89 +68,7 @@ bool UCameraMainPipeline::initialize() {
 	m_pipeline = gst_pipeline_new(m_parameters.name.c_str());
 
 	// Привязываем рестарт к пайплайну
-	GstBus* bus = gst_element_get_bus(m_pipeline);
-
-	gst_bus_add_watch(bus,
-		+[](GstBus* bus, GstMessage* msg, gpointer data) -> gboolean
-		{
-			auto self = static_cast<UCameraMainPipeline*>(data);
-
-			switch (GST_MESSAGE_TYPE(msg))
-			{
-			case GST_MESSAGE_ERROR: {
-				// обработка ошибки записи
-				if (self->m_record_branch.is_deployed.load() &&
-					(GST_MESSAGE_SRC(msg) == GST_OBJECT(self->m_record_branch.get_element(varan::nvr::RECORD_SPLITMUXSINK)))) {
-					self->m_logger->error("splitmux error detected, restarting record branch");
-					self->destroy_branch(self->m_record_branch);
-					self->create_record_branch(self->m_tees[MAIN_TEE]);
-					return TRUE;
-				}
-
-				GError* err = nullptr;
-				gchar* debug = nullptr;
-				gst_message_parse_error(msg, &err, &debug);
-
-				self->m_logger->error(
-					"GStreamer ERROR: " + std::string(err ? err->message : "unknown")
-				);
-
-				if (err) g_error_free(err);
-				if (debug) g_free(debug);
-
-
-				//self->shedule_restart();
-				break;
-			}
-
-			case GST_MESSAGE_NEED_CONTEXT: {
-				const gchar* type = nullptr;
-				gst_message_parse_context_type(msg, &type);
-
-				GstElement* element = GST_ELEMENT(msg->src);
-
-				if (g_strcmp0(type, GST_GL_DISPLAY_CONTEXT_TYPE) == 0) {
-					if (!self->m_gl_context.display) {
-						self->m_logger->error("Cannot handle GST_MESSAGE_NEED_CONTEXT: there is not display context!");
-						break;
-					}
-					gst_element_set_context(element, self->m_gl_context.display);
-				}
-				else if (g_strcmp0(type, "gst.gl.app_context") == 0) {
-					if (!self->m_gl_context.app) {
-						self->m_logger->error("Cannot handle GST_MESSAGE_NEED_CONTEXT: there is not app context!");
-						break;
-					}
-					gst_element_set_context(element, self->m_gl_context.app);
-				}
-
-				break;
-			}
-
-			case GST_MESSAGE_EOS: {
-				self->m_logger->warn("GStreamer EOS received");
-				//self->destroy();
-				break;
-			}
-			case GST_MESSAGE_ELEMENT: {
-				const GstStructure* s = gst_message_get_structure(msg);
-				if (s && gst_structure_has_name(s, "GstRTSPSrcTimeout"))
-				{
-					self->m_logger->warn("RTSP timeout detected");
-					self->shedule_restart();
-				}
-				break;
-			}
-			default:
-				break;
-			}
-
-			return TRUE;
-		},
-		this
-	);
-
-	gst_object_unref(bus);
+	setup_bus_watch(m_pipeline, false);
 
 	std::string depay_str = m_probe.codec_name == std::string("H264") ? "rtph264depay" : "rtph265depay";
 	std::string parse_str = m_probe.codec_name == std::string("H264") ? "h264parse" : "h265parse";
@@ -295,6 +213,51 @@ bool UCameraMainPipeline::initialize() {
 	m_logger->info("Pipeline type main successfully creatad!");
 
 	return true;
+}
+
+void UCameraMainPipeline::on_bus_error(const std::string& error_code, const std::string& description, bool probe_handler) {
+	// Не отправляем сооббщения в основном пайплайне
+	//broadcast_error(error_code, description);
+	if (!probe_handler) shedule_restart();
+}
+
+void UCameraMainPipeline::on_bus_message(GstMessage* msg) {
+	switch (GST_MESSAGE_TYPE(msg)) {
+	case GST_MESSAGE_NEED_CONTEXT: {
+		const gchar* type = nullptr;
+		gst_message_parse_context_type(msg, &type);
+		GstElement* element = GST_ELEMENT(msg->src);
+
+		if (g_strcmp0(type, GST_GL_DISPLAY_CONTEXT_TYPE) == 0 && m_gl_context.display) {
+			gst_element_set_context(element, m_gl_context.display);
+		}
+		else if (g_strcmp0(type, "gst.gl.app_context") == 0 && m_gl_context.app) {
+			gst_element_set_context(element, m_gl_context.app);
+		}
+		break;
+	}
+	case GST_MESSAGE_ERROR: {
+		// Специфика main: проверяем splitmux
+		GError* err = nullptr;
+		gchar* debug = nullptr;
+		gst_message_parse_error(msg, &err, &debug);
+
+		if (m_record_branch.is_deployed.load() &&
+			(GST_MESSAGE_SRC(msg) == GST_OBJECT(
+				m_record_branch.get_element(varan::nvr::RECORD_SPLITMUXSINK))))
+		{
+			m_logger->error("splitmux error, restarting record branch");
+			destroy_branch(m_record_branch);
+			create_record_branch(m_tees[MAIN_TEE]);
+		}
+
+		if (err) g_error_free(err);
+		if (debug) g_free(debug);
+		break;
+	}
+	default:
+		break;
+	}
 }
 
 bool UCameraMainPipeline::create_decoder_branch(GstElement* tee) {
