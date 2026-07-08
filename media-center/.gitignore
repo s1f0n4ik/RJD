@@ -36,3 +36,7 @@
 /.vs
 
 CMakePresets.json
+
+# IntelliSense: локальное зеркало заголовков с Orange Pi (генерируется скриптом)
+/compile_commands.json
+/.intellisense-sysroot/

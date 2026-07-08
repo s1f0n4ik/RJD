@@ -7,3 +7,6 @@ media-center/build/
 docker-compose.yml
 
 media-center/CMakePresets.json
+
+# IntelliSense: генерируется gen-intellisense.sh, содержит абсолютные пути машины
+.vscode/c_cpp_properties.json

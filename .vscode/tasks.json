@@ -1,0 +1,99 @@
+{
+    "version": "2.0.0",
+    "options": {
+        "shell": {
+            "executable": "C:\\Program Files\\Git\\bin\\bash.exe",
+            "args": ["-c"]
+        }
+    },
+    "tasks": [
+        {
+            "label": "media-center: Deploy (sync + build)",
+            "detail": "Заливка кода на Orange Pi и сборка",
+            "type": "shell",
+            "command": "bash media-center/scripts/deploy.sh",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": ["$gcc"],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true
+            }
+        },
+        {
+            "label": "media-center: Sync",
+            "detail": "Заливка исходников на Orange Pi (только код)",
+            "type": "shell",
+            "command": "bash media-center/scripts/sync.sh",
+            "problemMatcher": [],
+            "presentation": { "reveal": "always", "panel": "dedicated" }
+        },
+        {
+            "label": "media-center: Sync (+ 3rdparty)",
+            "detail": "Заливка исходников и зависимостей 3rdparty",
+            "type": "shell",
+            "command": "bash media-center/scripts/sync.sh --deps",
+            "problemMatcher": [],
+            "presentation": { "reveal": "always", "panel": "dedicated" }
+        },
+        {
+            "label": "media-center: Build (Release)",
+            "detail": "Сборка на Orange Pi без заливки",
+            "type": "shell",
+            "command": "bash media-center/scripts/build.sh Release",
+            "problemMatcher": ["$gcc"],
+            "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+        },
+        {
+            "label": "media-center: Build (Debug)",
+            "detail": "Сборка в Debug на Orange Pi без заливки",
+            "type": "shell",
+            "command": "bash media-center/scripts/build.sh Debug",
+            "problemMatcher": ["$gcc"],
+            "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+        },
+        {
+            "label": "media-center: Clean build",
+            "detail": "Полная пересборка на Orange Pi",
+            "type": "shell",
+            "command": "bash media-center/scripts/build.sh --clean",
+            "problemMatcher": ["$gcc"],
+            "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+        },
+        {
+            "label": "media-center: Run",
+            "detail": "Запуск собранного media-center на Orange Pi",
+            "type": "shell",
+            "command": "bash media-center/scripts/run.sh",
+            "problemMatcher": [],
+            "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+        },
+        {
+            "label": "media-center: Deploy + Run",
+            "detail": "Заливка, сборка и запуск на Orange Pi",
+            "type": "shell",
+            "command": "bash media-center/scripts/deploy.sh --run",
+            "problemMatcher": ["$gcc"],
+            "presentation": { "reveal": "always", "panel": "dedicated", "clear": true }
+        },
+        {
+            "label": "media-center: Update IntelliSense",
+            "detail": "Обновить compile_commands.json со сборки",
+            "type": "shell",
+            "command": "bash media-center/scripts/gen-intellisense.sh",
+            "problemMatcher": [],
+            "presentation": { "reveal": "always", "panel": "dedicated" }
+        },
+        {
+            "label": "media-center: Update IntelliSense (+ headers)",
+            "detail": "Перезеркалировать системные заголовки Orange Pi и обновить IntelliSense",
+            "type": "shell",
+            "command": "bash media-center/scripts/gen-intellisense.sh --headers",
+            "problemMatcher": [],
+            "presentation": { "reveal": "always", "panel": "dedicated" }
+        }
+    ]
+}
