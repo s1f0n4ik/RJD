@@ -2,6 +2,7 @@ out/
 .vs/
 .idea/
 .claude/
+__pycache__/
 media-center/build/
 docker-compose.yml
 

@@ -74,6 +74,21 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # ========== Message Gateway (CAN/WebSocket/Modbus шлюз) ==========
+  message-gateway:
+    build:
+      context: ./message-gateway
+      dockerfile: Dockerfile
+    container_name: message-gateway
+    network_mode: host  # REST 9090 и gRPC 50051 на localhost + сеть КАУС
+    command: ["--rest-port", "9090", "--grpc-port", "50051", "--heartbeat", "5"]
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   # ========== React Frontend ==========
   frontend:
     build:

@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package varan.gateway.rpc;
+
+// Высокочастотный ingress кадров: media-center отдаёт семантику кадра, шлюз
+// кодирует под протокол и шлёт в транспорт. gRPC вместо HTTP POST, т.к. кадры
+// с изображением идут часто и тяжёлые.
+service FrameIngress {
+    // Потоковая отправка: одно соединение, много кадров, подтверждение на каждый.
+    // Предпочтительный путь для видеопотока.
+    rpc StreamFrames(stream FrameRequest) returns (stream FrameReply);
+
+    // Одиночная отправка для редких/простых вызовов.
+    rpc SendFrame(FrameRequest) returns (FrameReply);
+}
+
+message Detection {
+    int32 cid = 1;            // числовой id класса
+    string cls = 2;           // имя класса
+    double cf = 3;            // confidence 0..1
+    repeated int32 box = 4;   // x, y, w, h
+    string scls = 5;          // подкатегория (info/warning/danger), опционально
+}
+
+message FrameRequest {
+    int32 ver = 1;            // версия протокола, запрошенная клиентом
+    int64 id = 2;
+    int64 ts = 3;
+    int32 width = 4;
+    int32 height = 5;
+    string format = 6;        // jpeg / png / webp
+    repeated Detection dets = 7;
+    bytes image = 8;          // сырые байты изображения
+}
+
+message FrameReply {
+    bool accepted = 1;
+    string error = 2;
+    int32 ver = 3;
+    string transport = 4;
+    int64 wire_size = 5;
+}
