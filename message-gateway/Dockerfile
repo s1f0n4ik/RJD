@@ -6,6 +6,7 @@ ENV TZ=Etc/UTC
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
+    pkg-config \
     ca-certificates \
     # boost: beast/asio (header-only) + json (скомпилированная часть)
     libboost-dev \

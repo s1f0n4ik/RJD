@@ -8,15 +8,22 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # header-only, из json нужна скомпилированная часть.
 find_package(Threads REQUIRED)
 find_package(Boost REQUIRED COMPONENTS json)
-find_package(Protobuf CONFIG REQUIRED)
-find_package(gRPC CONFIG REQUIRED)
+
+# Пакеты Ubuntu (libprotobuf-dev / libgrpc++-dev) не кладут CMake-конфиги,
+# поэтому protobuf ищем module-режимом (FindProtobuf), а gRPC — через pkg-config.
+find_package(Protobuf REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(GRPCPP REQUIRED IMPORTED_TARGET grpc++)
+
+# Плагин генерации gRPC-кода идёт бинарником из protobuf-compiler-grpc.
+find_program(GRPC_CPP_PLUGIN grpc_cpp_plugin REQUIRED)
 
 # Генерация protobuf + gRPC из proto/frame-ingress.proto в build-дерево.
 set(GENERATED_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
 file(MAKE_DIRECTORY ${GENERATED_DIR})
 
 add_library(gateway-proto OBJECT proto/frame-ingress.proto)
-target_link_libraries(gateway-proto PUBLIC protobuf::libprotobuf gRPC::grpc++)
+target_link_libraries(gateway-proto PUBLIC protobuf::libprotobuf PkgConfig::GRPCPP)
 target_include_directories(gateway-proto PUBLIC ${GENERATED_DIR})
 
 protobuf_generate(
@@ -28,7 +35,7 @@ protobuf_generate(
     TARGET gateway-proto
     LANGUAGE grpc
     GENERATE_EXTENSIONS .grpc.pb.h .grpc.pb.cc
-    PLUGIN "protoc-gen-grpc=$<TARGET_FILE:gRPC::grpc_cpp_plugin>"
+    PLUGIN "protoc-gen-grpc=${GRPC_CPP_PLUGIN}"
     PROTOC_OUT_DIR ${GENERATED_DIR}
 )
 
@@ -49,7 +56,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     Boost::json
     Boost::headers
     protobuf::libprotobuf
-    gRPC::grpc++
+    PkgConfig::GRPCPP
     Threads::Threads
 )
 
