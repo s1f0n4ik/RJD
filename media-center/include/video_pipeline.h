@@ -54,6 +54,12 @@ protected:
 		ULogger* logger;
 	};
 
+	struct FBusWatchContext {
+		std::mutex mutex;
+		UCameraPipeline* pipeline;
+		bool use_probe_handler;
+	};
+
 public:
 	UCameraPipeline(
 		const FPipelineConfig& parameters,
@@ -111,9 +117,16 @@ protected:
 
 	void broadcast_error(const std::string& error_code, const std::string& description);
 
+	// Првоверка шины на существуюший пайплайн
+	void invalidate_bus_watch();
+
 protected:
 	GstElement* m_pipeline = nullptr;
+
+	// Структура шины
+	std::shared_ptr<FBusWatchContext> m_bus_ctx;
 	guint m_bus_watch_id = 0;
+
 	// Словарь веток, которые есть в пайплайне
 	// Ключ - название ветки
 	std::map<std::string, GstElement*> m_tees;

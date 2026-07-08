@@ -121,6 +121,10 @@ bool UCameraPipeline::teardown(bool is_blocking)
         if (m_logger) m_logger->warn("teardown(): pipeline already destroyed!");
         return true;
     }
+
+    // Без вариантов уничтожаем bus, чтобы он не вызвал несуществующие методы
+    invalidate_bus_watch();
+
     // Если уничтожающий - вызываем стоп сигнал
     if (is_blocking) {
         (m_stop_requested.exchange(true));
@@ -151,12 +155,6 @@ bool UCameraPipeline::teardown(bool is_blocking)
     // Останавливаем сетевые потоки
     //gst_element_send_event(m_pipeline, gst_event_new_flush_start());
     //gst_element_send_event(m_pipeline, gst_event_new_flush_stop(TRUE));
-
-    // Отвязывает pipeline
-    if (m_bus_watch_id != 0) {
-        g_source_remove(m_bus_watch_id);
-        m_bus_watch_id = 0;
-    }
 
     // Переводим pipeline в NULL
     if (!m_pipeline || !GST_IS_ELEMENT(m_pipeline)) {
@@ -384,25 +382,25 @@ bool UCameraPipeline::probe_video_stream(int timeout_sec) {
 void UCameraPipeline::setup_bus_watch(GstElement* pipeline, bool use_probe_handler) {
     if (!pipeline) return;
 
-    struct FBusWatchContext {
-        UCameraPipeline* pipeline;
-        bool use_probe_handler;
-    };
+    m_bus_ctx = std::make_shared<FBusWatchContext>();
+    m_bus_ctx->pipeline = this;
+    m_bus_ctx->use_probe_handler = use_probe_handler;
 
-    auto* ctx = new FBusWatchContext {
-        this,
-        use_probe_handler
-    };
+    // Делаем копию и передаем ее в шину. Пока жив хотя бы один источник - оно работает
+    auto* ctx_holder = new std::shared_ptr<FBusWatchContext>(m_bus_ctx);
 
     GstBus* bus = gst_element_get_bus(pipeline);
     m_bus_watch_id = gst_bus_add_watch_full(
         bus,
         G_PRIORITY_DEFAULT,
         +[](GstBus*, GstMessage* msg, gpointer data) -> gboolean {
-            auto ctx = static_cast<FBusWatchContext*>(data);
-            if (!ctx) return FALSE;
+            auto ctx = *static_cast<std::shared_ptr<FBusWatchContext>*>(data);
+            if (!ctx) return TRUE;
 
+            std::lock_guard<std::mutex> lock(ctx->mutex);
             auto self = ctx->pipeline;
+            if (!self) return TRUE;
+
             auto probe_handler = ctx->use_probe_handler;
 
             switch (GST_MESSAGE_TYPE(msg)) {
@@ -470,12 +468,26 @@ void UCameraPipeline::setup_bus_watch(GstElement* pipeline, bool use_probe_handl
 
             return TRUE;
         },
-        ctx,
+        ctx_holder,
         [](gpointer data) {
-            delete static_cast<FBusWatchContext*>(data);
+            delete static_cast<std::shared_ptr<FBusWatchContext>*>(data);
         }
     );
     gst_object_unref(bus);
+}
+
+void UCameraPipeline::invalidate_bus_watch() {
+    if (m_bus_ctx) {
+        std::lock_guard<std::mutex> lock(m_bus_ctx->mutex);
+        m_bus_ctx->pipeline = nullptr; // после этой строки колбэк никогда не тронет `self`
+    }
+
+    if (m_bus_watch_id) {
+        g_source_remove(m_bus_watch_id);
+        m_bus_watch_id = 0;
+    }
+
+    m_bus_ctx.reset();
 }
 
 void UCameraPipeline::on_bus_error(const std::string& error_code, const std::string& description, bool is_probe) {
