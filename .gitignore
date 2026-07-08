@@ -10,3 +10,4 @@ media-center/CMakePresets.json
 
 # IntelliSense: генерируется gen-intellisense.sh, содержит абсолютные пути машины
 .vscode/c_cpp_properties.json
+.vscode/settings.json
