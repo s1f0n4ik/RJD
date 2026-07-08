@@ -26,9 +26,12 @@ add_library(gateway-proto OBJECT proto/frame-ingress.proto)
 target_link_libraries(gateway-proto PUBLIC protobuf::libprotobuf PkgConfig::GRPCPP)
 target_include_directories(gateway-proto PUBLIC ${GENERATED_DIR})
 
+# IMPORT_DIRS = каталог proto/, чтобы protoc считал путь относительно него и
+# клал .pb.h/.grpc.pb.h плоско в GENERATED_DIR (без подкаталога proto/).
 protobuf_generate(
     TARGET gateway-proto
     LANGUAGE cpp
+    IMPORT_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/proto
     PROTOC_OUT_DIR ${GENERATED_DIR}
 )
 protobuf_generate(
@@ -36,6 +39,7 @@ protobuf_generate(
     LANGUAGE grpc
     GENERATE_EXTENSIONS .grpc.pb.h .grpc.pb.cc
     PLUGIN "protoc-gen-grpc=${GRPC_CPP_PLUGIN}"
+    IMPORT_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/proto
     PROTOC_OUT_DIR ${GENERATED_DIR}
 )
 
