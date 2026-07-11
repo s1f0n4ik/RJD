@@ -47,6 +47,7 @@ add_executable(${PROJECT_NAME}
     src/main.cpp
     src/gateway.cpp
     src/frame-codec-v1.cpp
+    src/rsm2000-integration.cpp
     src/grpc-ingress.cpp
     $<TARGET_OBJECTS:gateway-proto>
 )

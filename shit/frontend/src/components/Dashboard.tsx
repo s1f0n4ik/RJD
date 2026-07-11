@@ -14,6 +14,7 @@ import {
   Memory as MemoryIcon,
   ThreeSixty as ThreeSixtyIcon,
   Settings as SettingsIcon,
+  Hub as HubIcon,
 } from '@mui/icons-material';
 import type { SystemState } from '../types';
 import StoreIcon from '@mui/icons-material/Store' ;
@@ -88,6 +89,15 @@ const modules: Module[] = [
     gradient: 'linear-gradient(135deg, #00bcd4 0%, #0097a7 100%)',
     tabIndex: -1,
       externalUrl: '/no-react/pages/birdview.html'
+  },
+  {
+    id: 'krsps',
+    title: 'АС КРСПС',
+    description: 'Интеграция и передача обнаружений (шлюз сообщений)',
+    icon: HubIcon,
+    gradient: 'linear-gradient(135deg, #E21A1A 0%, #B31515 100%)',
+    tabIndex: -1,
+    externalUrl: '/app/krsps',
   },
 ];
 
