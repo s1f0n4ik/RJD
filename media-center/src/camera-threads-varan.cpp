@@ -17,6 +17,7 @@
 #include "bird-view/linker.h"
 #include "bird-view/egl-context.h"
 #include "neural/loader.h"
+#include "core/platform.h"
 
 #include "calibration/calibrator.h"
 
@@ -67,6 +68,14 @@ int main(int argc, char* argv[])
 	main_logger.info((std::ostringstream() << "REST port: " << config.rest_port).str());
 	main_logger.info((std::ostringstream() << "Signaling: " << config.signaling_ip << ":" << config.signaling_port).str());
 
+	// Определяем площадку в самом начале и логируем — дальше передаём в нейронку.
+	const auto platform_info = varan::detect_platform();
+	main_logger.info((std::ostringstream()
+		<< "Platform: " << platform_info.label
+		<< " (" << platform_info.platform << "), mode=" << platform_info.mode
+		<< ", npu_cores=" << platform_info.npu_cores
+		<< ", max_streams=" << platform_info.max_streams).str());
+
 	auto socket_options = varan::nvr::FWebSocketOptions(config.signaling_ip, std::to_string(config.signaling_port));
 
 	// Контекст и хранилище для OpenGL
@@ -83,11 +92,12 @@ int main(int argc, char* argv[])
 
 	// Создание нейронного загрузчика
 	auto loader = std::make_shared<varan::neural::UNeuralLoader>(
-		socket_options.ip_adress, socket_options.port, 
-		main_context.get(), 
+		socket_options.ip_adress, socket_options.port,
+		main_context.get(),
 		gl_storage.get(),
 		"/home/orangepi/varan/neural/configurations.json",
 		"/home/orangepi/varan/neural/loader_state.json",
+		platform_info,
 		ULogger::ELoggerLevel::DEBUG
 	);
 

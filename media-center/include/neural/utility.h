@@ -55,15 +55,16 @@ namespace neural {
 		std::vector<FSuperclass> superclasses;   // группы для отрисовки
 	};
 
-	// Структура для описания активного ядра
+	// Структура для описания активного потока (дескриптора)
 	struct FNeuralCoreConfig {
 		std::string   config_id;
-		FCameraMatrix cameras;
+		FCameraLayout camera_layout;  // ← богатая раскладка камер (пока обрабатывается только single)
 		std::vector<int> npu_cores;   // ← теперь здесь, не в конфиге
 
 		// Доп настройки для дескриптора
 		int fps = 10;  // Отвечает за фпс неронки, если включен и стрим, то и на него
-		std::optional<FStreamingDesc> streaming; // есть есть стриминг, то он хранит в себе id и name
+		std::optional<FStreamingDesc> streaming; // если есть стриминг, то он хранит в себе id и name
+		std::vector<std::string> event_mask;     // маска событий (пока просто прокидывается дальше)
 	};
 
 }

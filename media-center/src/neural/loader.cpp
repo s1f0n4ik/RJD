@@ -1,4 +1,5 @@
 #include "neural/loader.h"
+#include "neural/camera-layout-json.h"
 
 #include <fstream>
 #include <sstream>
@@ -15,11 +16,13 @@ namespace neural {
         FFrameStorage<IFrame>* storage,
         std::filesystem::path config_path,
         std::filesystem::path state_path,
+        FPlatformInfo platform,
         ULogger::ELoggerLevel level)
         : m_ip(ip_address), m_port(port)
         , m_context(context), m_storage(storage), m_level(level)
         , m_config_path(std::move(config_path))
         , m_state_path(std::move(state_path))
+        , m_platform(std::move(platform))
         , m_logger("NeuralLoader", level)
         , m_json_configurator(&m_logger)
     {
@@ -78,8 +81,11 @@ namespace neural {
                 // Основные параметры слота
                 if (auto* c = eo.if_contains("config_id"); c && c->is_string())
                     d.config_id = c->as_string().c_str();
-                if (auto* c = eo.if_contains("camera_matrix"); c)
-                    d.cameras = parse_camera_matrix(*c);
+                // Раскладка камер: новый формат camera_layout, иначе фоллбэк на camera_matrix.
+                if (auto* c = eo.if_contains("camera_layout"); c && c->is_object())
+                    d.camera_layout = parse_layout(*c);
+                else if (auto* c = eo.if_contains("camera_matrix"); c)
+                    d.camera_layout = layout_from_matrix(parse_camera_matrix(*c));
                 if (auto* c = eo.if_contains("cores"); c && c->is_array()) {
                     for (const auto& ci : c->as_array())
                         if (ci.is_int64()) d.npu_cores.push_back((int)ci.as_int64());
@@ -89,16 +95,24 @@ namespace neural {
                 if (auto* c = eo.if_contains("fps"); c && c->is_int64())
                     d.fps = (int)c->as_int64();
                 if (auto* c = eo.if_contains("streaming"); c && c->is_object()) {
-                    auto st_o = c->as_object();
-                    FStreamingDesc stream_desc;
-                    if (auto* s_o = st_o.if_contains("name"); s_o && s_o->is_object())
-                        stream_desc.name = s_o->as_string().c_str();
-                    if (auto* s_o = st_o.if_contains("id"); s_o && s_o->is_object())
-                        stream_desc.id = s_o->as_string().c_str();
-                    d.streaming = stream_desc;
+                    const auto& st_o = c->as_object();
+                    bool enabled = true;
+                    if (auto* e = st_o.if_contains("enabled"); e && e->is_bool()) enabled = e->as_bool();
+                    if (enabled) {
+                        FStreamingDesc stream_desc;
+                        if (auto* s = st_o.if_contains("name"); s && s->is_string())
+                            stream_desc.name = s->as_string().c_str();
+                        if (auto* s = st_o.if_contains("id"); s && s->is_string())
+                            stream_desc.id = s->as_string().c_str();
+                        d.streaming = std::move(stream_desc);
+                    }
+                }
+                if (auto* c = eo.if_contains("event_mask"); c && c->is_array()) {
+                    for (const auto& ev : c->as_array())
+                        if (ev.is_string()) d.event_mask.emplace_back(ev.as_string().c_str());
                 }
 
-                if (!d.config_id.empty() && !d.cameras.empty())
+                if (!d.config_id.empty() && !layout_cameras(d.camera_layout).empty())
                     parsed.push_back(std::move(d));
             }
 
@@ -123,7 +137,7 @@ namespace neural {
                 return false;
             }
             std::string err;
-            if (!is_valid_matrix(d.cameras, &err)) {
+            if (!is_valid_layout(d.camera_layout, &err)) {
                 m_logger.error("write_state(): " + d.config_id + ": " + err);
                 return false;
             }
@@ -142,10 +156,22 @@ namespace neural {
             for (const auto& d : active) {
                 boost::json::object entry;
                 entry["config_id"] = d.config_id;
-                entry["camera_matrix"] = serialize_camera_matrix(d.cameras);
+                entry["camera_layout"] = serialize_layout(d.camera_layout);
                 boost::json::array cores;
                 for (int c : d.npu_cores) cores.emplace_back(c);
                 entry["cores"] = std::move(cores);
+                if (d.streaming) {
+                    boost::json::object st;
+                    st["enabled"] = true;
+                    st["name"] = d.streaming->name;
+                    if (!d.streaming->id.empty()) st["id"] = d.streaming->id;
+                    entry["streaming"] = std::move(st);
+                }
+                if (!d.event_mask.empty()) {
+                    boost::json::array em;
+                    for (const auto& e : d.event_mask) em.emplace_back(e);
+                    entry["event_mask"] = std::move(em);
+                }
                 arr.push_back(std::move(entry));
             }
 
@@ -175,15 +201,12 @@ namespace neural {
     {
         std::map<int, std::string> core_owner;
         for (const auto& d : descs) {
-            std::vector<int> cores = d.npu_cores;
-            if (cores.empty() && descs.size() > 1) {
-                err = "'" + d.config_id + "' wants all cores but other slots are active";
-                return false;
-            }
-            if (cores.empty()) cores = { 0, 1, 2 };
+            // Пустой список ядер — поток не резервирует конкретные NPU-ядра
+            // (например, GPU/NVIDIA без ограничения по ядрам). Пропускаем.
+            if (d.npu_cores.empty()) continue;
 
-            for (int c : cores) {
-                if (c < 0 || c > 2) { err = "invalid core index " + std::to_string(c); return false; }
+            for (int c : d.npu_cores) {
+                if (c < 0) { err = "invalid core index " + std::to_string(c); return false; }
                 auto it = core_owner.find(c);
                 if (it != core_owner.end()) {
                     err = "core " + std::to_string(c) + " claimed by '" +
@@ -289,15 +312,13 @@ namespace neural {
                 throw std::runtime_error("core conflict: " + err);
             }
 
-            // Проваерка на уникальность камер внутри слотов
+            // Проверка на уникальность камер между слотами
             {
                 std::set<std::string> seen_cameras;
                 for (const auto& d : m_active_descs) {
-                    for (const auto& row : d.cameras) {
-                        for (const auto& cam : row) {
-                            if (!seen_cameras.insert(cam).second) {
-                                throw std::runtime_error("duplicate camera '" + cam + "' across slots");
-                            }
+                    for (const auto& cam : layout_cameras(d.camera_layout)) {
+                        if (!seen_cameras.insert(cam).second) {
+                            throw std::runtime_error("duplicate camera '" + cam + "' across slots");
                         }
                     }
                 }
@@ -316,11 +337,16 @@ namespace neural {
                 auto cfg = m_json_configurator.load_config(m_active_descs[i].config_id);
                 if (!cfg) throw std::runtime_error("No config: " + m_active_descs[i].config_id);
 
-                if (m_active_descs[i].cameras.empty()) {
-                    throw std::runtime_error("No camera in matrix, cannot start " + m_active_descs[i].config_id);
+                // Пер-стримовая маска событий переопределяет маску трекера конфигурации.
+                if (cfg->tracker_config && !m_active_descs[i].event_mask.empty()) {
+                    cfg->tracker_config->event_mask = event_mask_from_types(m_active_descs[i].event_mask);
                 }
 
-                const std::string& camera_id = m_active_descs[i].cameras[0][0];
+                const std::string camera_id = layout_first_camera(m_active_descs[i].camera_layout);
+                if (camera_id.empty()) {
+                    throw std::runtime_error("No camera in layout, cannot start " + m_active_descs[i].config_id);
+                }
+
                 FCameraMessageSender sender;
                 if (m_sender_provider) {
                     sender = m_sender_provider(camera_id);
@@ -388,11 +414,9 @@ namespace neural {
     std::optional<std::string> UNeuralLoader::find_camera_config(const std::string& camera_id) const {
         std::lock_guard<std::mutex> lk(m_loader_mutex);
         for (const auto& desc : m_active_descs) {
-            for (const auto& row : desc.cameras) {
-                for (const auto& cam : row) {
-                    if (cam == camera_id)
-                        return desc.config_id;
-                }
+            for (const auto& cam : layout_cameras(desc.camera_layout)) {
+                if (cam == camera_id)
+                    return desc.config_id;
             }
         }
         return std::nullopt;
@@ -408,7 +432,7 @@ namespace neural {
         std::vector<FSlotStatus> result;
         for (const auto& s : m_slots) {
             if (!s) continue;
-            result.push_back({ s->config_id(), s->cameras(), s->stream_id(), s->is_running(), s->cores() });
+            result.push_back({ s->config_id(), s->cameras(), s->layout(), s->stream_id(), s->is_running(), s->cores() });
         }
         return result;
     }

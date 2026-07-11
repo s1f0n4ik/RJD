@@ -104,8 +104,7 @@ namespace neural {
                 track.lost_frames = 0;
 
                 // TENTATIVE -> CONFIRMED
-                if (track.state == ETrackState::TENTATIVE &&
-                    track.hits >= m_config.min_hits)
+                if (track.state == ETrackState::TENTATIVE && track.hits >= m_config.min_hits)
                 {
                     track.state = ETrackState::CONFIRMED;
                     events.push_back({ ETrackEvent::CONFIRMED, track });
@@ -118,15 +117,20 @@ namespace neural {
                 }
             }
 
-            // Треки, которые не получилось сопоставить считаются потерянными LOST
+            // Несопоставленные треки — коастинг. CONFIRMED-трек остаётся
+            // CONFIRMED (рисуется сплошным) во время коротких пропусков и
+            // становится LOST только после grace-кадров подряд без сопоставления.
+            // Иначе одиночный пропуск детекции сбрасывал бы трек в LOST и всё
+            // мигало бы пунктиром.
+            const int lost_grace = std::max(1, m_config.max_lost / 2);
             for (int t = 0; t < n_tracks; ++t) {
                 if (track_matched[t]) continue;
                 auto& track = m_tracks[t];
                 track.lost_frames++;
                 track.age++;
-                
-                // Генерация события LOST
-                if (track.state == ETrackState::CONFIRMED && track.lost_frames == 1) {
+
+                // Генерация события LOST по истечении grace
+                if (track.state == ETrackState::CONFIRMED && track.lost_frames >= lost_grace) {
                     track.state = ETrackState::LOST;
                     events.push_back({ ETrackEvent::LOST, track });
                 }

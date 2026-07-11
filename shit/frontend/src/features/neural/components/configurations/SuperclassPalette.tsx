@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import type { SuperclassDef } from '../../api/types';
+import { ColorPicker } from '../common/ColorPicker';
 
 interface SuperclassPaletteProps {
   superclasses: Record<string, SuperclassDef>;
   editing: boolean;
   onChange: (key: string, patch: Partial<SuperclassDef>) => void;
   onRenameKey: (oldKey: string, newKey: string) => void;
-  onAdd: (key: string) => void;
+  onAdd: () => string;
   onRemove: (key: string) => void;
 }
 
@@ -19,14 +20,12 @@ export function SuperclassPalette({
   onAdd,
   onRemove,
 }: SuperclassPaletteProps) {
-  const [newKey, setNewKey] = useState('');
+  const [justAdded, setJustAdded] = useState<string | null>(null);
   const keys = Object.keys(superclasses);
 
-  function add() {
-    const key = newKey.trim();
-    if (!key || superclasses[key]) return;
-    onAdd(key);
-    setNewKey('');
+  // Добавление сразу создаёт строку с дефолтным ключом — правим её inline.
+  function handleAdd() {
+    setJustAdded(onAdd());
   }
 
   return (
@@ -49,12 +48,15 @@ export function SuperclassPalette({
         </div>
       ) : (
         <>
+          <button className="pal-add" onClick={handleAdd}>+ добавить суперкласс</button>
           <div className="row-list">
+            {keys.length === 0 && <span className="hint">суперклассов пока нет — добавьте первый</span>}
             {keys.map((key) => (
               <SuperRow
                 key={key}
                 k={key}
                 def={superclasses[key]}
+                autoFocus={key === justAdded}
                 exists={(candidate) => candidate !== key && candidate in superclasses}
                 onColor={(color) => onChange(key, { color })}
                 onName={(name) => onChange(key, { name })}
@@ -62,17 +64,6 @@ export function SuperclassPalette({
                 onRemove={() => onRemove(key)}
               />
             ))}
-          </div>
-          <div className="add-row">
-            <input
-              className="row-input"
-              placeholder="ключ (human, animal…)"
-              value={newKey}
-              onChange={(e) => setNewKey(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && add()}
-              style={{ maxWidth: 240 }}
-            />
-            <button className="btn btn-ghost btn-sm" onClick={add}>+ суперкласс</button>
           </div>
         </>
       )}
@@ -83,6 +74,7 @@ export function SuperclassPalette({
 interface SuperRowProps {
   k: string;
   def: SuperclassDef;
+  autoFocus?: boolean;
   exists: (candidate: string) => boolean;
   onColor: (c: string) => void;
   onName: (n: string) => void;
@@ -92,7 +84,7 @@ interface SuperRowProps {
 
 /** Строка суперкласса. Ключ редактируется с коммитом по blur/Enter, чтобы
  *  промежуточные значения не ломали ссылки в классах. */
-function SuperRow({ k, def, exists, onColor, onName, onRename, onRemove }: SuperRowProps) {
+function SuperRow({ k, def, autoFocus, exists, onColor, onName, onRename, onRemove }: SuperRowProps) {
   const [keyBuf, setKeyBuf] = useState(k);
 
   function commit() {
@@ -110,6 +102,8 @@ function SuperRow({ k, def, exists, onColor, onName, onRename, onRemove }: Super
       <input
         className="row-input key"
         title="id суперкласса"
+        autoFocus={autoFocus}
+        onFocus={(e) => e.target.select()}
         value={keyBuf}
         onChange={(e) => setKeyBuf(e.target.value)}
         onBlur={commit}
@@ -118,15 +112,9 @@ function SuperRow({ k, def, exists, onColor, onName, onRename, onRemove }: Super
           if (e.key === 'Escape') setKeyBuf(k);
         }}
       />
-      <label className="row-swatch" style={{ background: def.color }}>
-        <input type="color" value={hex(def.color)} onChange={(e) => onColor(e.target.value)} />
-      </label>
+      <ColorPicker value={def.color} onChange={onColor} title={`Цвет суперкласса ${k}`} />
       <input className="row-input" placeholder="название" value={def.name} onChange={(e) => onName(e.target.value)} />
       <button className="row-del" title="Удалить" onClick={onRemove}>✕</button>
     </div>
   );
-}
-
-function hex(c: string): string {
-  return /^#[0-9a-fA-F]{6}$/.test(c) ? c : '#888888';
 }

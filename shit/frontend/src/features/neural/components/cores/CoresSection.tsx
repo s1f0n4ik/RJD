@@ -1,476 +1,424 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { neuralApi } from '../../api/client';
-import { NPU_CORES } from '../../api/types';
 import type {
-  ActiveDesc,
-  CameraMatrix,
-  CameraStreamInfo,
-  ConfigSummary,
-  CoreId,
-  SlotStatus,
+    ActiveDesc,
+    CameraLayout,
+    CameraInfo,
+    CameraStreamInfo,
+    ConfigSummary,
+    SlotStatus,
+    StreamingDesc,
+    SystemInfo,
 } from '../../api/types';
-import { CoreCard } from './CoreCard';
+import { StreamCard } from './StreamCard';
+import { CameraModal } from './CameraModal';
 
-type Mode = 'view' | 'edit';
-type DropMode = 'move' | 'copy';
-type DragKind = 'core' | 'list' | null;
 export interface CamOption { id: string; name: string; resolution?: string }
 
-/**
- * Слот = один конфиг + одна матрица камер, работающий на наборе NPU-ядер.
- * Несколько ядер в одном слоте — это параллелизм одного слота (cores:[0,1]).
- * Один и тот же config_id в разных слотах с разными камерами — разные слоты.
- */
-interface Slot {
-  configId: string;
-  cameras: CameraMatrix;
-  cores: CoreId[];
+/** Поток нейросети: конфигурация + камера(ы) + ядра + доставка. */
+export interface Stream {
+    key: string;
+    configId: string;
+    cores: number[];
+    layout: CameraLayout;
+    streaming: StreamingDesc;
+    mask: string[];
 }
 
-const isCore = (c: number): c is CoreId => (NPU_CORES as readonly number[]).includes(c);
-const clone = (s: Slot[]): Slot[] => s.map((x) => ({ ...x, cameras: x.cameras.map((r) => [...r]), cores: [...x.cores] }));
-const slotKey = (configId: string, cameras: CameraMatrix) => configId + '|' + JSON.stringify(cameras);
+const DEFAULT_SYSTEM: SystemInfo = {
+    platform: 'unknown', label: '—', npu_cores: 0, max_streams: -1, mode: 'unlimited',
+};
 
-function slotsFromDescs(descs: ActiveDesc[]): Slot[] {
-  return descs
-    .map((d) => ({ configId: d.config_id, cameras: d.camera_matrix ?? [], cores: (d.cores ?? []).filter(isCore) }))
-    .filter((s) => s.cores.length > 0);
-}
+// Человекочитаемые названия событий — идентификаторы приходят с бэкенда.
+const EVENT_NAMES: Record<string, string> = {
+    created: 'Создан', confirmed: 'Подтверждён', updated: 'Движение',
+    lost: 'Потерян', recovered: 'Восстановлен', removed: 'Удалён',
+};
+const FALLBACK_EVENTS = ['created', 'confirmed', 'updated', 'lost', 'recovered', 'removed'];
 
-/** core → подпись слота (config + камеры), для подсветки изменений. */
-function coreSig(slots: Slot[]): Record<CoreId, string | null> {
-  const m: Record<CoreId, string | null> = { 0: null, 1: null, 2: null };
-  for (const s of slots) for (const c of s.cores) m[c] = slotKey(s.configId, s.cameras);
-  return m;
-}
+// ── раскладка (пока single) ─────────────────────────────────
+const singleCam = (l: CameraLayout | undefined): string | null =>
+    l?.single || l?.tiles?.[0]?.camera || null;
 
-/** Разрешение основного потока — берём поток с наибольшим разрешением. */
+const layoutOf = (camId: string | null): CameraLayout => ({
+    mode: 'single', rows: 1, cols: 1,
+    single: camId ?? undefined,
+    tiles: camId ? [{ camera: camId, rect: [0, 0, 1, 1] }] : [],
+});
+
+const clone = (s: Stream[]): Stream[] => s.map((x) => ({ ...x, cores: [...x.cores], mask: [...x.mask], streaming: { ...x.streaming }, layout: JSON.parse(JSON.stringify(x.layout)) }));
+
+/** Разрешение основного потока камеры. */
 function mainResolution(streams?: Record<string, CameraStreamInfo>): string | undefined {
-  if (!streams) return undefined;
-  let best: CameraStreamInfo | null = null;
-  for (const s of Object.values(streams)) {
-    if (!s.width || !s.height) continue;
-    if (!best || s.width * s.height > best.width! * best.height!) best = s;
-  }
-  return best ? `${best.width}×${best.height}` : undefined;
+    if (!streams) return undefined;
+    let best: CameraStreamInfo | null = null;
+    for (const s of Object.values(streams)) {
+        if (!s.width || !s.height) continue;
+        if (!best || s.width * s.height > best.width! * best.height!) best = s;
+    }
+    return best ? `${best.width}×${best.height}` : undefined;
 }
 
 export function CoresSection() {
-  const [mode, setMode] = useState<Mode>('view');
-  const [slots, setSlots] = useState<Slot[]>([]);
-  const [savedSlots, setSavedSlots] = useState<Slot[]>([]);
-  const [available, setAvailable] = useState<ConfigSummary[]>([]);
-  const [status, setStatus] = useState<SlotStatus[]>([]);
-  const [availableCameras, setAvailableCameras] = useState<CamOption[]>([]);
-  const [dragging, setDragging] = useState(false);
-  const [dragKind, setDragKind] = useState<DragKind>(null);
-  const [cfgLoading, setCfgLoading] = useState(false);
-  const [cfgCooldown, setCfgCooldown] = useState(false);
-  const [switchModal, setSwitchModal] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+    const [system, setSystem] = useState<SystemInfo>(DEFAULT_SYSTEM);
+    const [streams, setStreams] = useState<Stream[]>([]);
+    const [saved, setSaved] = useState<Stream[]>([]);
+    const [configs, setConfigs] = useState<ConfigSummary[]>([]);
+    const [trackerBy, setTrackerBy] = useState<Record<string, boolean>>({});
+    const [cameras, setCameras] = useState<CamOption[]>([]);
+    const [eventTypes, setEventTypes] = useState<string[]>(FALLBACK_EVENTS);
+    const [status, setStatus] = useState<SlotStatus[]>([]);
+    const [camModalFor, setCamModalFor] = useState<string | null>(null);
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState<string | null>(null);
 
-  const dragSource = useRef<{ configId: string; sourceCoreId: CoreId | null } | null>(null);
+    const nextKey = useRef(1);
+    const uid = () => `s${nextKey.current++}`;
 
-  // ── загрузка ───────────────────────────────────────────────
-  const loadState = useCallback(async () => {
-    const [descs, cfgs] = await Promise.all([
-      neuralApi.getState(),
-      neuralApi.listConfigurations().then((r) => r.configurations).catch(() => [] as ConfigSummary[]),
-    ]);
-    const s = slotsFromDescs(descs);
-    setSlots(clone(s));
-    setSavedSlots(clone(s));
-    setAvailable(cfgs);
-  }, []);
+    const hasTracker = useCallback((cid: string) => !!trackerBy[cid], [trackerBy]);
 
-  const loadCameras = useCallback(async () => {
-    try {
-      const res = await neuralApi.listCameras();
-      if (res.cameras) {
-        const cams = Object.entries(res.cameras)
-          .filter(([, v]) => (v.type ?? v.camera_type) === 2)
-          .map(([id, v]) => ({ id, name: v.display_name ?? id, resolution: mainResolution(v.streams) }));
-        setAvailableCameras(cams);
-      }
-    } catch {
-      // сервер недоступен — список камер останется пустым
-    }
-  }, []);
+    // ── загрузка ───────────────────────────────────────────────
+    const descToStream = useCallback((d: ActiveDesc): Stream => {
+        const cam = singleCam(d.camera_layout) ?? d.camera_matrix?.[0]?.[0] ?? null;
+        return {
+            key: uid(),
+            configId: d.config_id,
+            cores: d.cores ?? [],
+            layout: layoutOf(cam),
+            streaming: d.streaming ?? { enabled: false, name: '' },
+            mask: d.event_mask ?? [],
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
-  const loadStatus = useCallback(() => {
-    neuralApi.getStatus().then(setStatus).catch(() => setStatus([]));
-  }, []);
+    const reloadState = useCallback(async () => {
+        const descs = await neuralApi.getState().catch(() => [] as ActiveDesc[]);
+        const s = descs.map(descToStream);
+        setStreams(clone(s));
+        setSaved(clone(s));
+    }, [descToStream]);
 
-  useEffect(() => {
-    loadState();
-    loadCameras();
-    loadStatus();
-    const t = setInterval(loadStatus, 3000);
-    return () => clearInterval(t);
-  }, [loadState, loadCameras, loadStatus]);
+    const reloadConfigs = useCallback(async () => {
+        const { configurations } = await neuralApi.listConfigurations();
+        setConfigs(configurations);
+        // подтягиваем полные конфиги, чтобы знать, у кого есть трекер (фильтр)
+        const entries = await Promise.all(
+            configurations.map(async (c) => {
+                try {
+                    const full = await neuralApi.getConfiguration(c.id);
+                    return [c.id, !!full.tracker] as const;
+                } catch {
+                    return [c.id, false] as const;
+                }
+            }),
+        );
+        setTrackerBy(Object.fromEntries(entries));
+    }, []);
 
-  // глобальный конец перетаскивания
-  useEffect(() => {
-    const end = () => { setDragging(false); setDragKind(null); };
-    document.addEventListener('dragend', end);
-    return () => document.removeEventListener('dragend', end);
-  }, []);
+    const reloadCameras = useCallback(async () => {
+        try {
+            const res = await neuralApi.listCameras();
+            if (res.cameras) {
+                const cams = Object.entries(res.cameras)
+                    .filter(([, v]: [string, CameraInfo]) => (v.type ?? v.camera_type) === 2)
+                    .map(([id, v]) => ({ id, name: v.display_name ?? id, resolution: mainResolution(v.streams) }));
+                setCameras(cams);
+            }
+        } catch { /* сервер недоступен */ }
+    }, []);
 
-  // ── обновление списка конфигураций ─────────────────────────
-  async function refreshConfigs() {
-    setCfgCooldown(true);
-    setTimeout(() => setCfgCooldown(false), 2000);
-    setCfgLoading(true);
-    setErr(null);
-    try {
-      await Promise.all([loadState(), loadCameras()]);
-    } finally {
-      setCfgLoading(false);
-    }
-  }
+    const loadStatus = useCallback(() => {
+        neuralApi.getStatus().then(setStatus).catch(() => setStatus([]));
+    }, []);
 
-  // ── производные ────────────────────────────────────────────
-  const slotByCore = useMemo(() => {
-    const m: Record<CoreId, Slot | undefined> = { 0: undefined, 1: undefined, 2: undefined };
-    for (const s of slots) for (const c of s.cores) m[c] = s;
-    return m;
-  }, [slots]);
+    useEffect(() => {
+        neuralApi.getSystem().then(setSystem).catch(() => setSystem(DEFAULT_SYSTEM));
+        neuralApi.getEventTypes().then((r) => r.events?.length && setEventTypes(r.events.map((e) => e.type))).catch(() => {});
+        reloadConfigs().catch(() => {});
+        reloadState().catch(() => {});
+        reloadCameras();
+        loadStatus();
+        const t = setInterval(loadStatus, 3000);
+        return () => clearInterval(t);
+    }, [reloadConfigs, reloadState, reloadCameras, loadStatus]);
 
-  // running по ключу слота (config + камеры)
-  const runningKeys = useMemo(() => {
-    const set = new Set<string>();
-    for (const s of status) if (s.running) set.add(slotKey(s.config_id, s.camera_matrix ?? []));
-    return set;
-  }, [status]);
-  const isSupervisorRunning = status.some((s) => s.running);
+    // ── производные ────────────────────────────────────────────
+    const occupiedCoresAll = useMemo(() => {
+        const s = new Set<number>();
+        for (const st of streams) for (const c of st.cores) s.add(c);
+        return s;
+    }, [streams]);
 
-  // ядра, занятые каждым config_id (для индикатора в списке)
-  const coresByConfigId = useMemo(() => {
-    const m: Record<string, CoreId[]> = {};
-    for (const s of slots) (m[s.configId] ??= []).push(...s.cores);
-    for (const k of Object.keys(m)) m[k].sort();
-    return m;
-  }, [slots]);
+    const usedCameras = useMemo(() => {
+        const m: Record<string, string> = {};
+        for (const st of streams) { const c = singleCam(st.layout); if (c) m[st.key] = c; }
+        return m;
+    }, [streams]);
 
-  const curSig = useMemo(() => coreSig(slots), [slots]);
-  const savedSig = useMemo(() => coreSig(savedSlots), [savedSlots]);
-  const hasPendingChanges = NPU_CORES.some((c) => curSig[c] !== savedSig[c]);
+    const dirty = useMemo(() => JSON.stringify(streams) !== JSON.stringify(saved), [streams, saved]);
 
-  // ── операции над слотами ───────────────────────────────────
-  const removeCore = (list: Slot[], core: CoreId): Slot[] =>
-    list
-      .map((s) => (s.cores.includes(core) ? { ...s, cores: s.cores.filter((c) => c !== core) } : s))
-      .filter((s) => s.cores.length > 0);
-
-  const startDrag = useCallback((configId: string, sourceCoreId: CoreId | null, kind: DragKind) => {
-    dragSource.current = { configId, sourceCoreId };
-    setTimeout(() => { setDragging(true); setDragKind(kind); }, 0);
-  }, []);
-
-  const finishDrag = () => { dragSource.current = null; setDragging(false); setDragKind(null); };
-
-  const dropConfig = useCallback((targetCore: CoreId, configId: string, dropMode: DropMode) => {
-    const src = dragSource.current;
-    const srcCore = src?.sourceCoreId ?? null;
-
-    setSlots((list) => {
-      // источник — ядро
-      if (srcCore != null) {
-        if (srcCore === targetCore) return list; // на себя
-        const srcSlot = list.find((s) => s.cores.includes(srcCore));
-        if (!srcSlot) return list;
-        if (dropMode === 'copy' && srcSlot.cores.includes(targetCore)) return list;
-
-        let next = removeCore(list, targetCore);
-        if (dropMode === 'copy') {
-          // подключаем целевое ядро к слоту источника (параллелизм)
-          next = next.map((s) =>
-            s.cores.includes(srcCore) ? { ...s, cores: [...s.cores, targetCore].sort() } : s,
-          );
-        } else {
-          // перемещаем размещение источника на целевое ядро
-          next = next.map((s) =>
-            s.cores.includes(srcCore)
-              ? { ...s, cores: s.cores.map((c) => (c === srcCore ? targetCore : c)).sort() }
-              : s,
-          );
+    const runningKeys = useMemo(() => {
+        const set = new Set<string>();
+        for (const s of status) {
+            if (!s.running) continue;
+            const cam = singleCam(s.camera_layout) ?? s.camera_matrix?.[0]?.[0] ?? '';
+            set.add(s.config_id + '|' + cam);
         }
-        return next;
-      }
+        return set;
+    }, [status]);
+    const supervisorRunning = status.some((s) => s.running);
 
-      // источник — список конфигураций (только move): новый слот без камер
-      const cfg = configId || src?.configId;
-      if (!cfg) return list;
-      const next = removeCore(list, targetCore);
-      next.push({ configId: cfg, cameras: [], cores: [targetCore] });
-      return next;
-    });
+    const canCreate = useMemo(() => {
+        if (system.mode === 'single') return streams.length < 1;
+        if (system.mode === 'cores') return occupiedCoresAll.size < system.npu_cores;
+        return true;
+    }, [system, streams.length, occupiedCoresAll]);
 
-    finishDrag();
-  }, []);
+    // ── мутации потоков ────────────────────────────────────────
+    const patchStream = useCallback((key: string, patch: Partial<Stream>) => {
+        setStreams((list) => list.map((s) => (s.key === key ? { ...s, ...patch } : s)));
+    }, []);
 
-  const removeFromCore = useCallback((core: CoreId) => {
-    setSlots((list) => removeCore(list, core));
-  }, []);
+    const freeCore = useCallback(() => {
+        for (let c = 0; c < system.npu_cores; c++) if (!occupiedCoresAll.has(c)) return c;
+        return null;
+    }, [system.npu_cores, occupiedCoresAll]);
 
-  const setCameras = useCallback((core: CoreId, matrix: CameraMatrix) => {
-    setSlots((list) => list.map((s) => (s.cores.includes(core) ? { ...s, cameras: matrix } : s)));
-  }, []);
+    const createStream = useCallback((configId?: string) => {
+        if (!canCreate || configs.length === 0) return;
+        const cid = configId ?? configs[0].id;
+        const cores = system.mode === 'cores' ? [freeCore()].filter((c): c is number => c != null)
+            : system.mode === 'single' ? [0] : [];
+        setStreams((list) => [
+            ...list,
+            { key: uid(), configId: cid, cores, layout: layoutOf(null), streaming: { enabled: false, name: '' }, mask: [] },
+        ]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [canCreate, configs, system.mode, freeCore]);
 
-  // задействовать все ядра для слота этого ядра
-  const expandToAll = useCallback((core: CoreId) => {
-    setSlots((list) => {
-      const slot = list.find((s) => s.cores.includes(core));
-      if (!slot) return list;
-      return [{ configId: slot.configId, cameras: slot.cameras, cores: [0, 1, 2] }];
-    });
-  }, []);
+    const removeStream = useCallback((key: string) => {
+        setStreams((list) => list.filter((s) => s.key !== key));
+        setCamModalFor((k) => (k === key ? null : k));
+    }, []);
 
-  // камеры, занятые в других слотах (для уникальности)
-  const excludedFor = useCallback(
-    (core: CoreId): Set<string> => {
-      const set = new Set<string>();
-      for (const s of slots) {
-        if (s.cores.includes(core)) continue;
-        for (const row of s.cameras) for (const cam of row) set.add(cam);
-      }
-      return set;
-    },
-    [slots],
-  );
+    const toggleCore = useCallback((key: string, core: number) => {
+        setStreams((list) => {
+            const occByOthers = new Set<number>();
+            for (const s of list) if (s.key !== key) for (const c of s.cores) occByOthers.add(c);
+            return list.map((s) => {
+                if (s.key !== key) return s;
+                if (s.cores.includes(core)) return s.cores.length > 1 ? { ...s, cores: s.cores.filter((c) => c !== core) } : s;
+                if (occByOthers.has(core)) return s;
+                return { ...s, cores: [...s.cores, core].sort((a, b) => a - b) };
+            });
+        });
+    }, []);
 
-  // ── сохранение ─────────────────────────────────────────────
-  function buildDescs(): ActiveDesc[] {
-    return slots.map((s) => ({
-      config_id: s.configId,
-      cores: [...s.cores],
-      camera_matrix: s.cameras
-        .map((row) => row.map((x) => x.trim()).filter(Boolean))
-        .filter((row) => row.length > 0),
-    }));
-  }
+    const pickCamera = useCallback((key: string, camId: string | null) => {
+        patchStream(key, { layout: layoutOf(camId) });
+    }, [patchStream]);
 
-  function validate(descs: ActiveDesc[]): string | null {
-    for (const d of descs) {
-      if (d.camera_matrix.length === 0) return `'${d.config_id}': не задана ни одна камера`;
+    // ── сохранение / супервизор ────────────────────────────────
+    function streamToDesc(s: Stream): ActiveDesc {
+        const cam = singleCam(s.layout);
+        return {
+            config_id: s.configId,
+            camera_layout: layoutOf(cam),
+            cores: s.cores,
+            streaming: { enabled: s.streaming.enabled, name: s.streaming.name },
+            event_mask: hasTracker(s.configId) ? s.mask : [],
+        };
     }
-    return null;
-  }
 
-  async function saveState(): Promise<boolean> {
-    const descs = buildDescs();
-    const problem = validate(descs);
-    if (problem) { setErr(problem); return false; }
-    setBusy(true); setErr(null);
-    try {
-      await neuralApi.setState(descs);
-      setSavedSlots(clone(slots));
-      loadStatus();
-      return true;
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
-      return false;
-    } finally {
-      setBusy(false);
+    function validate(): string | null {
+        for (const s of streams) {
+            if (!singleCam(s.layout)) {
+                const name = configs.find((c) => c.id === s.configId)?.name ?? s.configId;
+                return `Поток «${name}»: не выбрана камера`;
+            }
+        }
+        return null;
     }
-  }
 
-  function tryGoView() {
-    if (hasPendingChanges) setSwitchModal(true);
-    else setMode('view');
-  }
-  async function applyAndView() {
-    if (await saveState()) { setSwitchModal(false); setMode('view'); }
-  }
-  function discardEdits() {
-    setSlots(clone(savedSlots));
-    setErr(null);
-  }
-  function discardAndView() {
-    discardEdits();
-    setSwitchModal(false);
-    setMode('view');
-  }
-
-  async function control(action: 'start' | 'restart' | 'stop') {
-    setBusy(true); setErr(null);
-    try {
-      await neuralApi[action]();
-      loadStatus();
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
+    async function apply() {
+        const problem = validate();
+        if (problem) { setErr(problem); return; }
+        setBusy(true); setErr(null);
+        try {
+            await neuralApi.setState(streams.map(streamToDesc));
+            setSaved(clone(streams));
+            loadStatus();
+        } catch (e) {
+            setErr(e instanceof Error ? e.message : String(e));
+        } finally {
+            setBusy(false);
+        }
     }
-  }
 
-  const editable = mode === 'edit';
+    function reset() {
+        setStreams(clone(saved));
+        setErr(null);
+    }
 
-  return (
-    <div className="cores-section">
-      <div className="cores-layout">
-        {/* ── Левая колонка: прокручиваемый список ядер ─────── */}
-        <div className="cores-col">
-          {NPU_CORES.map((core) => {
-            const slot = slotByCore[core];
-            const running = slot ? runningKeys.has(slotKey(slot.configId, slot.cameras)) : false;
-            return (
-              <CoreCard
-                key={core}
-                coreId={core}
-                configId={slot?.configId ?? null}
-                pending={curSig[core] !== savedSig[core]}
-                cameraMatrix={slot?.cameras ?? []}
-                availableCameras={availableCameras}
-                excludedCameras={excludedFor(core)}
-                occupiedCores={slot?.cores ?? []}
-                running={running}
-                editable={editable}
-                dragging={dragging}
-                dragKind={dragKind}
-                onDropConfig={dropConfig}
-                onCamerasChange={setCameras}
-                onRemove={removeFromCore}
-                onDragStart={(configId, sourceCoreId) => startDrag(configId, sourceCoreId, 'core')}
-                onExpandAll={expandToAll}
-              />
-            );
-          })}
-        </div>
+    async function control(action: 'start' | 'restart' | 'stop') {
+        setBusy(true); setErr(null);
+        try {
+            await neuralApi[action]();
+            loadStatus();
+        } catch (e) {
+            setErr(e instanceof Error ? e.message : String(e));
+        } finally {
+            setBusy(false);
+        }
+    }
 
-        {/* ── Правая колонка: список конфигураций ──────────── */}
-        <div className="configs-col">
-          <div className="configs-head">
-            <span className="section-label" style={{ margin: 0 }}>Конфигурации</span>
-            <button
-              className="btn-refresh"
-              disabled={cfgCooldown || busy}
-              title="Обновить список"
-              onClick={refreshConfigs}
-            >
-              обновить
-            </button>
-          </div>
-          <div className="cfg-list">
-            {cfgLoading ? (
-              <div className="cfg-loader">
-                <span className="cfg-spinner" />
-                <span>загрузка конфигураций…</span>
-              </div>
-            ) : available.length === 0 ? (
-              <span className="hint">нет конфигураций</span>
-            ) : (
-              available.map((c) => {
-                const assignedCores = coresByConfigId[c.id] ?? [];
+    // ── рендер шапки занятости ─────────────────────────────────
+    function renderAlloc() {
+        if (system.mode === 'cores') {
+            return Array.from({ length: system.npu_cores }, (_, c) => {
+                const owner = streams.find((s) => s.cores.includes(c));
+                const name = owner ? (configs.find((cf) => cf.id === owner.configId)?.name ?? owner.configId) : 'свободно';
                 return (
-                  <div
-                    key={c.id}
-                    className={`cfg-list-item${assignedCores.length > 0 ? ' cfg-list-item-used' : ''}${editable ? ' draggable' : ''}`}
-                    draggable={editable}
-                    onDragStart={(e) => {
-                      if (!editable) return;
-                      e.dataTransfer.setData('application/x-config', c.id);
-                      e.dataTransfer.effectAllowed = 'move';
-                      startDrag(c.id, null, 'list');
-                    }}
-                  >
-                    <div className="cfg-list-item-name">{c.name || c.id}</div>
-                    <div className="cfg-list-item-meta">
-                      <span className="cfg-list-item-id">{c.id}</span>
-                      {assignedCores.length > 0 && (
-                        <span className="cfg-list-item-cores">
-                          {assignedCores.map((n) => `C${n}`).join(', ')}
-                        </span>
-                      )}
+                    <div key={c} className={`core-pill${owner ? ' alloc-busy' : ''}`}>
+                        <span className="cn">C{c}</span>
+                        <span className="cs">{name}</span>
                     </div>
-                  </div>
                 );
-              })
+            });
+        }
+        if (system.mode === 'single') {
+            const busyS = streams.length > 0;
+            return (
+                <span className={`slot-ind ${busyS ? 'busy' : 'free'}`}>
+                    <span className="d" />{busyS ? 'СЛОТ ЗАНЯТ' : 'СЛОТ СВОБОДЕН'}
+                </span>
+            );
+        }
+        return (
+            <span className="pl-badge"><span className="gpu">◆</span> {system.label} · {streams.length} поток(ов)</span>
+        );
+    }
+
+    const subOf = system.mode === 'cores' ? `${occupiedCoresAll.size} из ${system.npu_cores} ядер занято`
+        : system.mode === 'single' ? 'одно ядро NPU · не более 1 потока' : 'без ограничений';
+
+    const modalStream = streams.find((s) => s.key === camModalFor) ?? null;
+
+    return (
+        <div className="cores-section">
+            {/* Шапка платформы */}
+            <div className="pl-bar">
+                <div className="pl-titles">
+                    <span className="pl-title">{system.label}</span>
+                    <span className="pl-sub">{subOf}</span>
+                </div>
+                <div className="pl-body">{renderAlloc()}</div>
+            </div>
+
+            {/* Каталог + доска */}
+            <div className="strm-layout">
+                <div className="strm-catalog">
+                    <span className="section-label" style={{ margin: 0 }}>Конфигурации</span>
+                    {configs.length === 0 && <span className="hint">нет конфигураций</span>}
+                    {configs.map((c) => {
+                        const used = streams.filter((s) => s.configId === c.id).length;
+                        return (
+                            <div
+                                key={c.id}
+                                className={`cat-item${canCreate ? ' click' : ''}`}
+                                onClick={() => canCreate && createStream(c.id)}
+                                title={canCreate ? 'Создать поток с этой конфигурацией' : undefined}
+                            >
+                                <div className="n">{c.name || c.id}</div>
+                                <div className="m">
+                                    <span className="id">{c.id}</span>
+                                    {used > 0 && <span className="strm-badge filt" style={{ padding: '2px 8px' }}>×{used}</span>}
+                                </div>
+                            </div>
+                        );
+                    })}
+                    <button className="btn btn-accent" style={{ marginTop: 4 }} disabled={!canCreate} onClick={() => createStream()}>
+                        + поток
+                    </button>
+                    {!canCreate && (
+                        <span className="hint" style={{ textAlign: 'center' }}>
+                            {system.mode === 'single' ? 'лимит: 1 поток' : 'все ядра заняты'}
+                        </span>
+                    )}
+                </div>
+
+                <div className="strm-board">
+                    {streams.length === 0 ? (
+                        <div className="strm-empty">Потоков нет — выберите конфигурацию слева или нажмите «+ поток»</div>
+                    ) : (
+                        <div className="strm-board-grid">
+                            {streams.map((s) => {
+                                const cam = singleCam(s.layout);
+                                const camName = cam ? (cameras.find((c) => c.id === cam)?.name ?? cam) : null;
+                                const occOthers = new Set<number>();
+                                for (const o of streams) if (o.key !== s.key) for (const c of o.cores) occOthers.add(c);
+                                const running = runningKeys.has(s.configId + '|' + (cam ?? ''));
+                                return (
+                                    <StreamCard
+                                        key={s.key}
+                                        stream={s}
+                                        configOptions={configs.map((c) => ({ id: c.id, name: c.name || c.id }))}
+                                        hasTracker={hasTracker(s.configId)}
+                                        editable
+                                        running={running}
+                                        platform={system}
+                                        occupiedCores={occOthers}
+                                        cameraName={camName}
+                                        eventTypes={eventTypes}
+                                        eventNames={EVENT_NAMES}
+                                        onPatch={(p) => patchStream(s.key, p)}
+                                        onToggleCore={(c) => toggleCore(s.key, c)}
+                                        onRemove={() => removeStream(s.key)}
+                                        onOpenCamera={() => setCamModalFor(s.key)}
+                                    />
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {err && <div className="error-box" style={{ margin: '14px 0' }}>{err}</div>}
+
+            {/* Подвал */}
+            <div className="strm-footer">
+                <span className={`sup-badge ${supervisorRunning ? 'on' : 'off'}`}>
+                    <span className="d" />{supervisorRunning ? 'В РАБОТЕ' : 'ОСТАНОВЛЕНО'}
+                </span>
+                {dirty && <span className="pending-badge">изменения не применены</span>}
+
+                <div className="strm-footer-actions">
+                    <button className="btn btn-ghost" disabled={busy || !dirty} onClick={reset}>Сбросить</button>
+                    <button className="btn btn-primary" disabled={busy || !dirty} onClick={apply}>Применить</button>
+                    {!supervisorRunning ? (
+                        <button className="btn btn-accent" disabled={busy} onClick={() => control('start')}>Start</button>
+                    ) : (
+                        <>
+                            <button className="btn btn-ghost" disabled={busy} onClick={() => control('restart')}>Перезапуск</button>
+                            <button className="btn btn-danger" disabled={busy} onClick={() => control('stop')}>Остановить</button>
+                        </>
+                    )}
+                </div>
+            </div>
+
+            {/* Модалка выбора камеры */}
+            {modalStream && (
+                <CameraModal
+                    configName={configs.find((c) => c.id === modalStream.configId)?.name ?? modalStream.configId}
+                    cams={cameras}
+                    current={singleCam(modalStream.layout)}
+                    excluded={new Set(
+                        Object.entries(usedCameras).filter(([k]) => k !== modalStream.key).map(([, v]) => v),
+                    )}
+                    onPick={(camId) => pickCamera(modalStream.key, camId)}
+                    onClose={() => setCamModalFor(null)}
+                />
             )}
-          </div>
         </div>
-      </div>
-
-      {err && <div className="error-box" style={{ margin: '12px 0' }}>{err}</div>}
-
-      {/* ── Подвал ──────────────────────────────────────────── */}
-      <div className="cores-footer">
-        <div className="cores-footer-status">
-          <div className="mode-toggle">
-            <button
-              className={`mode-toggle-btn${mode === 'view' ? ' active' : ''}`}
-              onClick={tryGoView}
-            >
-              Просмотр
-            </button>
-            <button
-              className={`mode-toggle-btn${mode === 'edit' ? ' active' : ''}`}
-              onClick={() => setMode('edit')}
-            >
-              Редактирование
-            </button>
-          </div>
-
-          <span className={`supervisor-badge ${isSupervisorRunning ? 'supervisor-running' : 'supervisor-stopped'}`}>
-            <span className="supervisor-dot" />
-            {isSupervisorRunning ? 'SUPERVISOR RUNNING' : 'SUPERVISOR STOPPED'}
-          </span>
-          {editable && hasPendingChanges && <span className="pending-badge">изменения не применены</span>}
-        </div>
-
-        <div className="cores-footer-actions">
-          {editable && (
-            <>
-              <button className="btn btn-ghost" disabled={busy || !hasPendingChanges} onClick={discardEdits}>
-                Сбросить
-              </button>
-              <button className="btn btn-primary" disabled={busy || !hasPendingChanges} onClick={saveState}>
-                Применить
-              </button>
-            </>
-          )}
-
-          {!isSupervisorRunning ? (
-            <button className="btn btn-accent" disabled={busy} onClick={() => control('start')}>
-              Start
-            </button>
-          ) : (
-            <>
-              <button className="btn btn-ghost" disabled={busy} onClick={() => control('restart')}>
-                Restart
-              </button>
-              <button className="btn btn-danger" disabled={busy} onClick={() => control('stop')}>
-                Stop
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* ── Модалка: несохранённые изменения при переходе в просмотр ── */}
-      {switchModal && (
-        <div className="modal-overlay" onClick={() => setSwitchModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-title">Несохранённые изменения</div>
-            <div className="modal-body">
-              Есть изменения, которые не были применены. Сохраните их или сбросьте,
-              прежде чем перейти в режим просмотра.
-            </div>
-            <div className="modal-actions">
-              <button className="btn btn-ghost" disabled={busy} onClick={() => setSwitchModal(false)}>
-                Отмена
-              </button>
-              <button className="btn btn-danger" disabled={busy} onClick={discardAndView}>
-                Сбросить
-              </button>
-              <button className="btn btn-primary" disabled={busy} onClick={applyAndView}>
-                Применить
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+    );
 }

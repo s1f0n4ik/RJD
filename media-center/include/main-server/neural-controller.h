@@ -54,6 +54,15 @@ public:
         get_superclasses(const boost::beast::http::request<boost::beast::http::string_body>& req);
 
     boost::beast::http::response<boost::beast::http::string_body>
+        get_tracker_types(const boost::beast::http::request<boost::beast::http::string_body>& req);
+
+    boost::beast::http::response<boost::beast::http::string_body>
+        get_system(const boost::beast::http::request<boost::beast::http::string_body>& req);
+
+    boost::beast::http::response<boost::beast::http::string_body>
+        get_event_types(const boost::beast::http::request<boost::beast::http::string_body>& req);
+
+    boost::beast::http::response<boost::beast::http::string_body>
         get_models(const boost::beast::http::request<boost::beast::http::string_body>& req);
 
     boost::beast::http::response<boost::beast::http::string_body>

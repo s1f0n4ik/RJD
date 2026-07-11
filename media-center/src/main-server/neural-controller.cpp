@@ -2,6 +2,8 @@
 #include "main-server/helpers.h"
 
 #include "neural/constants.h"
+#include "neural/camera-layout-json.h"
+#include "neural/tracker/tracking-types.h"
 
 #include <boost/json.hpp>
 
@@ -53,7 +55,9 @@ static boost::json::array serialize_matrix(const varan::neural::FCameraMatrix& m
     return result;
 }
 
-// Сериализация списка дескрипторов в новый формат
+// Сериализация списка дескрипторов потоков.
+// camera_layout — источник правды (нормализованные тайлы); camera_matrix
+// отдаём производным (первая камера) для обратной совместимости старого фронта.
 static boost::json::array serialize_descs(
     const std::vector<varan::neural::FNeuralCoreConfig>& descs)
 {
@@ -61,10 +65,26 @@ static boost::json::array serialize_descs(
     for (const auto& d : descs) {
         boost::json::object item;
         item["config_id"] = d.config_id;
-        item["camera_matrix"] = serialize_matrix(d.cameras);
+        item["camera_layout"] = varan::neural::serialize_layout(d.camera_layout);
+        item["camera_matrix"] = serialize_matrix(varan::neural::layout_to_matrix(d.camera_layout));
         boost::json::array cores;
         for (int c : d.npu_cores) cores.emplace_back(c);
         item["cores"] = std::move(cores);
+        if (d.streaming) {
+            boost::json::object st;
+            st["enabled"] = true;
+            st["name"] = d.streaming->name;
+            item["streaming"] = std::move(st);
+        }
+        else {
+            boost::json::object st;
+            st["enabled"] = false;
+            st["name"] = "";
+            item["streaming"] = std::move(st);
+        }
+        boost::json::array em;
+        for (const auto& e : d.event_mask) em.emplace_back(e);
+        item["event_mask"] = std::move(em);
         arr.push_back(std::move(item));
     }
     return arr;
@@ -195,36 +215,58 @@ UNeuralController::post_state(const http::request<http::string_body>& req) {
                     "missing config_id", tag);
             d.config_id = eo.at("config_id").as_string().c_str();
 
-            // camera_matrix — обязательный (раньше было cameras)
-            auto* cams = eo.if_contains("camera_matrix");
-            if (!cams || !cams->is_array())
-                return json_error(m_logger, req, http::status::bad_request,
-                    "missing camera_matrix", tag);
-
-            for (const auto& row_v : cams->as_array()) {
-                if (!row_v.is_array())
-                    return json_error(m_logger, req, http::status::bad_request,
-                        "camera_matrix row must be array", tag);
-                std::vector<std::string> row;
-                for (const auto& cell : row_v.as_array()) {
-                    if (!cell.is_string())
-                        return json_error(m_logger, req, http::status::bad_request,
-                            "camera id must be string", tag);
-                    row.emplace_back(cell.as_string().c_str());
-                }
-                d.cameras.push_back(std::move(row));
+            // Раскладка камер: предпочтительно camera_layout (ячейки/тайлы),
+            // иначе фоллбэк на старый camera_matrix (первая камера как single).
+            if (auto* cl = eo.if_contains("camera_layout"); cl && cl->is_object()) {
+                d.camera_layout = varan::neural::parse_layout(*cl);
             }
-
-            // cores — опциональный (раньше было npu_cores)
-            if (auto* c = eo.if_contains("cores"); c && c->is_array()) {
-                for (const auto& ci : c->as_array())
-                    if (ci.is_int64()) {
-                        d.npu_cores.push_back(static_cast<int>(ci.as_int64()));
+            else if (auto* cm = eo.if_contains("camera_matrix"); cm && cm->is_array()) {
+                std::string first;
+                for (const auto& row_v : cm->as_array()) {
+                    if (row_v.is_array() && !row_v.as_array().empty() && row_v.as_array()[0].is_string()) {
+                        first = row_v.as_array()[0].as_string().c_str();
+                        break;
                     }
+                }
+                if (!first.empty()) {
+                    d.camera_layout.mode = varan::neural::ECameraLayoutMode::SINGLE;
+                    d.camera_layout.tiles.push_back(
+                        varan::neural::FCameraTile{ first, 0.0f, 0.0f, 1.0f, 1.0f });
+                }
             }
             else {
                 return json_error(m_logger, req, http::status::bad_request,
-                    "cores doesn't exist, or its not json-array", tag);
+                    "missing camera_layout", tag);
+            }
+
+            if (varan::neural::layout_cameras(d.camera_layout).empty())
+                return json_error(m_logger, req, http::status::bad_request,
+                    "'" + d.config_id + "': camera layout has no camera", tag);
+
+            // cores — опциональный массив (пустой допустим для платформ без NPU-ядер)
+            if (auto* c = eo.if_contains("cores"); c && c->is_array()) {
+                for (const auto& ci : c->as_array())
+                    if (ci.is_int64())
+                        d.npu_cores.push_back(static_cast<int>(ci.as_int64()));
+            }
+
+            // streaming — { enabled, name }
+            if (auto* s = eo.if_contains("streaming"); s && s->is_object()) {
+                const auto& so = s->as_object();
+                bool enabled = false;
+                if (auto* e = so.if_contains("enabled"); e && e->is_bool()) enabled = e->as_bool();
+                if (enabled) {
+                    varan::neural::FStreamingDesc sd;
+                    if (auto* n = so.if_contains("name"); n && n->is_string())
+                        sd.name = n->as_string().c_str();
+                    d.streaming = std::move(sd);
+                }
+            }
+
+            // event_mask — массив строк (пока просто сохраняется)
+            if (auto* em = eo.if_contains("event_mask"); em && em->is_array()) {
+                for (const auto& ev : em->as_array())
+                    if (ev.is_string()) d.event_mask.emplace_back(ev.as_string().c_str());
             }
 
             active.push_back(std::move(d));
@@ -234,19 +276,44 @@ UNeuralController::post_state(const http::request<http::string_body>& req) {
         return json_error(m_logger, req, http::status::bad_request, e.what(), tag);
     }
 
-    // Проверка на уникальность камер
+    // Проверка на уникальность камер между потоками
     {
         std::set<std::string> seen_cameras;
         for (const auto& d : active) {
-            for (const auto& row : d.cameras) {
-                for (const auto& cam : row) {
-                    if (!seen_cameras.insert(cam).second) {
-                        return json_error(m_logger, req, http::status::bad_request,
-                            "camera '" + cam + "' used in multiple slots", tag);
-                    }
+            for (const auto& cam : varan::neural::layout_cameras(d.camera_layout)) {
+                if (!seen_cameras.insert(cam).second) {
+                    return json_error(m_logger, req, http::status::bad_request,
+                        "camera '" + cam + "' used in multiple streams", tag);
                 }
             }
         }
+    }
+
+    // Ограничения по платформе
+    {
+        const auto& plat = m_loader->platform();
+        if (plat.mode == "single") {
+            if (active.size() > 1)
+                return json_error(m_logger, req, http::status::bad_request,
+                    plat.label + ": разрешён только один поток", tag);
+        }
+        else if (plat.mode == "cores") {
+            if (static_cast<int>(active.size()) > plat.npu_cores)
+                return json_error(m_logger, req, http::status::bad_request,
+                    plat.label + ": потоков больше, чем ядер (" + std::to_string(plat.npu_cores) + ")", tag);
+            std::set<int> used;
+            for (const auto& d : active) {
+                for (int c : d.npu_cores) {
+                    if (c < 0 || c >= plat.npu_cores)
+                        return json_error(m_logger, req, http::status::bad_request,
+                            plat.label + ": ядро " + std::to_string(c) + " вне диапазона", tag);
+                    if (!used.insert(c).second)
+                        return json_error(m_logger, req, http::status::bad_request,
+                            plat.label + ": ядро " + std::to_string(c) + " занято несколькими потоками", tag);
+                }
+            }
+        }
+        // unlimited (nvidia/unknown) — без ограничений
     }
 
     if (!m_loader->write_state(active)) {
@@ -272,6 +339,7 @@ UNeuralController::get_status(const http::request<http::string_body>& req) {
             item["config_id"] = s.config_id;
             item["running"] = s.running;
             item["camera_matrix"] = serialize_matrix(s.cameras);
+            item["camera_layout"] = varan::neural::serialize_layout(s.camera_layout);
             boost::json::array cores;
             for (int c : s.npu_cores) cores.emplace_back(c);
             item["cores"] = std::move(cores);
@@ -391,6 +459,91 @@ UNeuralController::get_superclasses(const http::request<http::string_body>& req)
     catch (const std::exception& e) {
         return json_error(m_logger, req,
             http::status::internal_server_error, e.what(), tag);
+    }
+}
+
+// ─── GET /neural/tracker-types ──────────────────────────────
+// Реализованные типы трекеров с человекочитаемыми названиями (RU).
+http::response<http::string_body>
+UNeuralController::get_tracker_types(const http::request<http::string_body>& req) {
+    const std::string tag = "GET /neural/tracker-types";
+    log_request(m_logger, req, tag);
+
+    // Единый источник правды по реализованным трекерам. Значение "type"
+    // должно совпадать с разбором в UJsonNeuralConfiguration::load_config().
+    static const std::vector<std::pair<std::string, std::string>> kTrackerTypes = {
+        { "iou", "IoU-трекер" },
+    };
+
+    try {
+        boost::json::array types_arr;
+        for (const auto& [type, name] : kTrackerTypes) {
+            boost::json::object item;
+            item["type"] = type;
+            item["name"] = name;
+            types_arr.push_back(std::move(item));
+        }
+        boost::json::object data;
+        data["types"] = std::move(types_arr);
+        boost::json::object body;
+        body["data"] = std::move(data);
+        return json_ok(m_logger, req, body, tag);
+    }
+    catch (const std::exception& e) {
+        return json_error(m_logger, req, http::status::internal_server_error, e.what(), tag);
+    }
+}
+
+// ─── GET /neural/system ─────────────────────────────────────
+// Тип платформы и лимиты на число потоков.
+//   platform: rk3566 | rk3588 | nvidia | unknown
+//   mode:     single (1 поток) | cores (по ядрам) | unlimited
+//   max_streams: -1 — без ограничений
+http::response<http::string_body>
+UNeuralController::get_system(const http::request<http::string_body>& req) {
+    const std::string tag = "GET /neural/system";
+    log_request(m_logger, req, tag);
+
+    try {
+        const auto& p = m_loader->platform();
+        boost::json::object data;
+        data["platform"] = p.platform;
+        data["label"] = p.label;
+        data["npu_cores"] = p.npu_cores;
+        data["max_streams"] = p.max_streams;
+        data["mode"] = p.mode;
+        boost::json::object body;
+        body["data"] = std::move(data);
+        return json_ok(m_logger, req, body, tag);
+    }
+    catch (const std::exception& e) {
+        return json_error(m_logger, req, http::status::internal_server_error, e.what(), tag);
+    }
+}
+
+// ─── GET /neural/event-types ────────────────────────────────
+// Все возможные события трека (идентификаторы). Человекочитаемые
+// названия задаёт фронт. Порядок и значения совпадают с ETrackEvent.
+http::response<http::string_body>
+UNeuralController::get_event_types(const http::request<http::string_body>& req) {
+    const std::string tag = "GET /neural/event-types";
+    log_request(m_logger, req, tag);
+
+    try {
+        boost::json::array events;
+        for (auto e : varan::neural::all_track_events()) {
+            boost::json::object item;
+            item["type"] = varan::neural::track_event_str(e);
+            events.push_back(std::move(item));
+        }
+        boost::json::object data;
+        data["events"] = std::move(events);
+        boost::json::object body;
+        body["data"] = std::move(data);
+        return json_ok(m_logger, req, body, tag);
+    }
+    catch (const std::exception& e) {
+        return json_error(m_logger, req, http::status::internal_server_error, e.what(), tag);
     }
 }
 

@@ -1,9 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { neuralApi } from '../../api/client';
-import type { ClassDef, ModelFile, NeuralConfig, SuperclassDef } from '../../api/types';
+import type { ClassDef, ModelFile, NeuralConfig, SuperclassDef, TrackerConfig } from '../../api/types';
 import { ClassPalette } from './ClassPalette';
 import { SuperclassPalette } from './SuperclassPalette';
+import { TrackerPanel } from './TrackerPanel';
 import { ModelUpload } from './ModelUpload';
+
+// Дефолт трекера при включении «фильтра» — совпадает с FIoUTrackerConfig на сервере.
+const DEFAULT_TRACKER: TrackerConfig = {
+    type: 'iou',
+    iou_threshold: 0.3,
+    min_hits: 4,
+    max_lost: 8,
+    move_threshold: 0.05,
+};
 
 interface ConfigEditorProps {
     configId: string | null;
@@ -75,6 +85,10 @@ export function ConfigEditor({
     // ── патчи ──────────────────────────────────────────────────
     const patch = useCallback((p: Partial<NeuralConfig>) => setDraft((d) => (d ? { ...d, ...p } : d)), []);
 
+    const patchTracker = useCallback((p: Partial<TrackerConfig>) => {
+        setDraft((d) => (d && d.tracker ? { ...d, tracker: { ...d.tracker, ...p } } : d));
+    }, []);
+
     const patchClass = useCallback((id: string, cp: Partial<ClassDef>) => {
         setDraft((d) => (d ? { ...d, classes: { ...d.classes, [id]: { ...d.classes[id], ...cp } } } : d));
     }, []);
@@ -98,11 +112,16 @@ export function ConfigEditor({
         });
     }, []);
 
-    const addSuper = useCallback((key: string) => {
-        setDraft((d) =>
-            d ? { ...d, superclasses: { ...d.superclasses, [key]: { name: key, color: '#4aa8ff' } } } : d,
-        );
-    }, []);
+    // Добавление сразу создаёт готовую строку (ключ генерируется), которую правят inline.
+    const addSuper = useCallback((): string => {
+        if (!draft) return '';
+        let i = 1;
+        let key = `super_${i}`;
+        while (key in draft.superclasses) key = `super_${++i}`;
+        // новый ключ — первым, чтобы строка появилась вверху списка
+        setDraft({ ...draft, superclasses: { [key]: { name: '', color: '#4d8bff' }, ...draft.superclasses } });
+        return key;
+    }, [draft]);
 
     const removeSuper = useCallback((key: string) => {
         setDraft((d) => {
@@ -117,16 +136,14 @@ export function ConfigEditor({
         });
     }, []);
 
-    const addClass = useCallback(() => {
-        setDraft((d) => {
-            if (!d) return d;
-            const nums = Object.keys(d.classes).map(Number).filter((n) => !Number.isNaN(n));
-            const nextId = String(nums.length ? Math.max(...nums) + 1 : 0);
-            const superKey = Object.keys(d.superclasses)[0] ?? '';
-            const fresh: ClassDef = { name: 'Новый класс', server_id: '', superclass: superKey, color: '#4aa8ff' };
-            return { ...d, classes: { ...d.classes, [nextId]: fresh } };
-        });
-    }, []);
+    const addClass = useCallback((superclass: string): string => {
+        if (!draft) return '';
+        const nums = Object.keys(draft.classes).map(Number).filter((n) => !Number.isNaN(n));
+        const nextId = String(nums.length ? Math.max(...nums) + 1 : 0);
+        const fresh: ClassDef = { name: '', server_id: '', superclass, color: '#4d8bff' };
+        setDraft({ ...draft, classes: { ...draft.classes, [nextId]: fresh } });
+        return nextId;
+    }, [draft]);
 
     const removeClass = useCallback((id: string) => {
         setDraft((d) => {
@@ -222,25 +239,42 @@ export function ConfigEditor({
                     <label className="field-group">
                         <span className="field-label">Width</span>
                         <input className="field-input" type="number" disabled={!editing} value={draft.model_width}
+                               onWheel={(e) => e.currentTarget.blur()}
                                onChange={(e) => patch({ model_width: Number(e.target.value) })} />
                     </label>
                     <label className="field-group">
                         <span className="field-label">Height</span>
                         <input className="field-input" type="number" disabled={!editing} value={draft.model_height}
+                               onWheel={(e) => e.currentTarget.blur()}
                                onChange={(e) => patch({ model_height: Number(e.target.value) })} />
+                    </label>
+                    <label className="field-group">
+                        <span className="field-label">FPS</span>
+                        <input className="field-input" type="number" disabled={!editing} value={draft.fps ?? 25}
+                               onWheel={(e) => e.currentTarget.blur()}
+                               onChange={(e) => patch({ fps: Number(e.target.value) })} />
                     </label>
                     <label className="field-group">
                         <span className="field-label">Confidence</span>
                         <input className="field-input" type="number" step="0.01" disabled={!editing} value={draft.thresholds.confidence}
+                               onWheel={(e) => e.currentTarget.blur()}
                                onChange={(e) => patch({ thresholds: { ...draft.thresholds, confidence: Number(e.target.value) } })} />
                     </label>
                     <label className="field-group">
                         <span className="field-label">NMS</span>
                         <input className="field-input" type="number" step="0.01" disabled={!editing} value={draft.thresholds.nms}
+                               onWheel={(e) => e.currentTarget.blur()}
                                onChange={(e) => patch({ thresholds: { ...draft.thresholds, nms: Number(e.target.value) } })} />
                     </label>
                 </div>
             </div>
+
+            <TrackerPanel
+                editing={editing}
+                tracker={draft.tracker}
+                onTypeChange={(type) => patch({ tracker: type ? { ...(draft.tracker ?? DEFAULT_TRACKER), type } : null })}
+                onTrackerChange={patchTracker}
+            />
 
             <SuperclassPalette
                 superclasses={draft.superclasses}

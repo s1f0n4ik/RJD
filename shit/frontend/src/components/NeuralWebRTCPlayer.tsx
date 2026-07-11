@@ -11,7 +11,7 @@ import {
     VisibilityOff as VisibilityOffIcon,
     Warning as WarningIcon,
 } from '@mui/icons-material';
-import WebRTCPlayer, { type Detection } from './WebRTCPlayer';
+import WebRTCPlayer, { type Detection, type Track } from './WebRTCPlayer';
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -59,6 +59,7 @@ const NeuralWebRTCPlayer: React.FC<NeuralWebRTCPlayerProps> = ({
     const canvasRef       = useRef<HTMLCanvasElement>(null);
     const videoRef        = useRef<HTMLVideoElement | null>(null);
     const detectionsRef   = useRef<Detection[]>([]);
+    const tracksRef       = useRef<Track[]>([]);
     const rafRef          = useRef<number | null>(null);
     const prevVideoRect   = useRef<DOMRect | null>(null);
 
@@ -99,9 +100,15 @@ const NeuralWebRTCPlayer: React.FC<NeuralWebRTCPlayerProps> = ({
         return () => clearInterval(poll);
     }, []);
 
-    // ── Коллбэк детекций ─────────────────────────────────────────
+    // ── Коллбэки распознавания ───────────────────────────────────
     const handleDetections = useCallback((dets: Detection[]) => {
         detectionsRef.current = dets;
+        if (dets.length) tracksRef.current = []; // приходит либо detections, либо tracks
+    }, []);
+
+    const handleTracks = useCallback((tracks: Track[]) => {
+        tracksRef.current = tracks;
+        if (tracks.length) detectionsRef.current = [];
     }, []);
 
     // ─────────────────────────────────────────────────────────────
@@ -187,11 +194,12 @@ const NeuralWebRTCPlayer: React.FC<NeuralWebRTCPlayerProps> = ({
 
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            if (!showDetections || detectionsRef.current.length === 0) return;
+            if (!showDetections) return;
+            const dets   = detectionsRef.current;
+            const tracks = tracksRef.current;
+            if (dets.length === 0 && tracks.length === 0) return;
 
             const dpr = window.devicePixelRatio || 1;
-            const W   = canvas.width;
-            const H   = canvas.height;
 
             ctx.save();
             ctx.scale(dpr, dpr);
@@ -200,65 +208,69 @@ const NeuralWebRTCPlayer: React.FC<NeuralWebRTCPlayerProps> = ({
             const cssW = canvas.width  / dpr;
             const cssH = canvas.height / dpr;
 
-            for (const det of detectionsRef.current) {
-                const rect  = det.rect;
-
-                // rect — массив [x1, y1, x2, y2] в нормализованных координатах
-                // пространства видеоконтента (сервер уже убрал letterbox)
+            // rect → пиксели видеоконтента
+            const toPx = (rect: Detection['rect']): [number, number, number, number] => {
                 const [nx1, ny1, nx2, ny2] = Array.isArray(rect)
                     ? rect
-                    : [rect.x, rect.y, (rect as any).x + (rect as any).w, (rect as any).y + (rect as any).h];
+                    : [rect.x, rect.y, rect.x + rect.w, rect.y + rect.h];
+                const x1 = nx1 * cssW, y1 = ny1 * cssH;
+                return [x1, y1, nx2 * cssW - x1, ny2 * cssH - y1];
+            };
 
-                const x1 = nx1 * cssW;
-                const y1 = ny1 * cssH;
-                const x2 = nx2 * cssW;
-                const y2 = ny2 * cssH;
-                const bw = x2 - x1;
-                const bh = y2 - y1;
-
-                const color = det.color || colorForId(det.id);
-
-                // ── Рамка ─────────────────────────────────────────────
-                ctx.strokeStyle = color;
-                ctx.lineWidth   = RECT_LINE_W;
-                ctx.strokeRect(x1, y1, bw, bh);
-
-                // ── Подложка рамки (тонкая тень) ──────────────────────
+            // Рамка с чёрной подложкой; dashed — пунктир для tentative/lost.
+            const drawBox = (x1: number, y1: number, bw: number, bh: number, color: string, dashed: boolean) => {
+                ctx.setLineDash(dashed ? [6, 4] : []);
                 ctx.strokeStyle = 'rgba(0,0,0,0.5)';
                 ctx.lineWidth   = RECT_LINE_W + 1.5;
                 ctx.strokeRect(x1, y1, bw, bh);
                 ctx.strokeStyle = color;
                 ctx.lineWidth   = RECT_LINE_W;
                 ctx.strokeRect(x1, y1, bw, bh);
+                ctx.setLineDash([]);
+            };
 
-                // ── Лейбл: "Имя класса  92%" ──────────────────────────
-                const conf    = det.confidence != null
-                    ? ` ${Math.round(det.confidence * 100)}%`
-                    : '';
-                const label   = (det.name || `class ${det.id}`) + conf;
-
+            const drawLabel = (x1: number, y1: number, label: string, color: string) => {
                 ctx.font = `bold ${FONT_SIZE}px ${FONT_FAMILY}`;
-                const textW  = ctx.measureText(label).width;
-                const textH  = FONT_SIZE;
-                const lw     = textW + LABEL_PAD_W * 2;
-                const lh     = textH + LABEL_PAD_H * 2;
-
-                // Позиция лейбла: над рамкой если есть место, иначе внутри сверху
-                const labelY = y1 - LABEL_OFFSET >= lh
-                    ? y1 - LABEL_OFFSET - lh
-                    : y1 + LABEL_OFFSET;
-
-                // Фон лейбла
+                const lw = ctx.measureText(label).width + LABEL_PAD_W * 2;
+                const lh = FONT_SIZE + LABEL_PAD_H * 2;
+                const labelY = y1 - LABEL_OFFSET >= lh ? y1 - LABEL_OFFSET - lh : y1 + LABEL_OFFSET;
                 ctx.fillStyle = color;
                 ctx.beginPath();
                 ctx.roundRect(x1, labelY, lw, lh, 0);
                 ctx.fill();
-
-                // Текст
                 ctx.fillStyle    = '#ffffff';
                 ctx.textBaseline = 'top';
                 ctx.textAlign    = 'left';
                 ctx.fillText(label, x1 + LABEL_PAD_W, labelY + LABEL_PAD_H);
+            };
+
+            // ── Детекции (без трекера) ────────────────────────────────
+            for (const det of dets) {
+                const [x1, y1, bw, bh] = toPx(det.rect);
+                const color = det.color || colorForId(det.id);
+                drawBox(x1, y1, bw, bh, color, false);
+                const conf = det.confidence != null ? ` ${Math.round(det.confidence * 100)}%` : '';
+                drawLabel(x1, y1, (det.name || `class ${det.id}`) + conf, color);
+            }
+
+            // ── Треки (с трекером) ────────────────────────────────────
+            //   tentative — пунктир, цвет класса, без подписи
+            //   confirmed — сплошной, «Имя #id», + вероятность если есть текущее обнаружение
+            //   lost      — пунктир, «Имя L» (нет текущего обнаружения → без вероятности)
+            for (const t of tracks) {
+                const [x1, y1, bw, bh] = toPx(t.rect);
+                const color = t.color || colorForId(t.class_id);
+                const dashed = t.state !== 'confirmed';
+                drawBox(x1, y1, bw, bh, color, dashed);
+
+                const clsName = t.name || `class ${t.class_id}`;
+                // Текущее обнаружение есть, только если трек сопоставлён в этом кадре.
+                const hasCurrent = (t.lost_frames ?? 0) === 0;
+                const conf = hasCurrent && t.confidence != null ? ` ${Math.round(t.confidence * 100)}%` : '';
+
+                if (t.state === 'confirmed')      drawLabel(x1, y1, `${clsName} #${t.track_id}${conf}`, color);
+                else if (t.state === 'lost')      drawLabel(x1, y1, `${clsName} L`, color);
+                // tentative — без подписи
             }
 
             ctx.restore();
@@ -288,6 +300,7 @@ const NeuralWebRTCPlayer: React.FC<NeuralWebRTCPlayerProps> = ({
                 signalingUrl={signalingUrl}
                 onError={onError}
                 onDetections={handleDetections}
+                onTracks={handleTracks}
             />
 
             {/*

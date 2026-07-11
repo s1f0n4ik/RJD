@@ -77,5 +77,72 @@ namespace neural {
 		return true;
 	}
 
+	// Богатая раскладка камер потока.
+	//
+	// Фронт редактирует и присылает занятые ячейки сетки (rows x cols, каждая
+	// область — row/col/row_span/col_span). Бэкенд переводит их в нормализованные
+	// тайлы [x, y, w, h] в долях кадра [0..1] — так рендеру сразу известно, где
+	// отрисовывать каждую камеру. rows/cols сохраняются, чтобы редактор мог
+	// восстановить ячейки из нормализованных координат.
+	//
+	// Сейчас конвейер обрабатывает только одну камеру (SINGLE — один тайл на весь
+	// кадр). Многокамерная сетка хранится и валидируется, но её обработка — задел
+	// на будущее (как мозаика в FCameraMatrix).
+	enum class ECameraLayoutMode { SINGLE, GRID };
+
+	struct FCameraTile {
+		std::string camera;
+		float x = 0.0f;   // левый край, доля ширины кадра
+		float y = 0.0f;   // верхний край, доля высоты кадра
+		float w = 1.0f;   // ширина, доля кадра
+		float h = 1.0f;   // высота, доля кадра
+	};
+
+	struct FCameraLayout {
+		ECameraLayoutMode mode = ECameraLayoutMode::SINGLE;
+		int rows = 1;                     // размер сетки редактора
+		int cols = 1;
+		std::vector<FCameraTile> tiles;   // нормализованные тайлы камер
+	};
+
+	// Все камеры раскладки (для проверки уникальности и поиска по камере).
+	inline std::vector<std::string> layout_cameras(const FCameraLayout& l) {
+		std::vector<std::string> out;
+		for (const auto& t : l.tiles)
+			if (!t.camera.empty()) out.push_back(t.camera);
+		return out;
+	}
+
+	// Первая камера раскладки — для текущего одно-камерного конвейера.
+	inline std::string layout_first_camera(const FCameraLayout& l) {
+		for (const auto& t : l.tiles)
+			if (!t.camera.empty()) return t.camera;
+		return {};
+	}
+
+	// Привести раскладку к матрице для существующего конвейера обработки.
+	// Пока берём только первую камеру (SINGLE); сетка ещё не обрабатывается.
+	inline FCameraMatrix layout_to_matrix(const FCameraLayout& l) {
+		auto camera = layout_first_camera(l);
+		if (camera.empty()) return {};
+		return { { camera } };
+	}
+
+	// Валидность раскладки: есть хотя бы один тайл, у каждого непустая камера,
+	// нет дубликатов камер.
+	inline bool is_valid_layout(const FCameraLayout& l, std::string* err = nullptr) {
+		if (l.tiles.empty()) { if (err) *err = "layout has no cameras"; return false; }
+		std::set<std::string> seen;
+		for (const auto& t : l.tiles) {
+			if (t.camera.empty()) { if (err) *err = "empty camera in tile"; return false; }
+			if (!seen.insert(t.camera).second) { if (err) *err = "duplicate camera: " + t.camera; return false; }
+		}
+		if (l.mode == ECameraLayoutMode::GRID && (l.rows < 1 || l.cols < 1)) {
+			if (err) *err = "grid dimensions invalid";
+			return false;
+		}
+		return true;
+	}
+
 } // namespace neural
 } // namespace varan

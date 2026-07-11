@@ -82,6 +82,12 @@ URestServer::URestServer(
         [neural_ctrl](const auto& r) {return neural_ctrl->get_classes(r); });
     m_router->add_route(http::verb::get, "/neural/superclasses",
         [neural_ctrl](const auto& r) {return neural_ctrl->get_superclasses(r); });
+    m_router->add_route(http::verb::get, "/neural/tracker-types",
+        [neural_ctrl](const auto& r) {return neural_ctrl->get_tracker_types(r); });
+    m_router->add_route(http::verb::get, "/neural/system",
+        [neural_ctrl](const auto& r) {return neural_ctrl->get_system(r); });
+    m_router->add_route(http::verb::get, "/neural/event-types",
+        [neural_ctrl](const auto& r) {return neural_ctrl->get_event_types(r); });
     m_router->add_route(http::verb::post, "/neural/models",
         [neural_ctrl](const auto& r) {return neural_ctrl->post_model(r); });
     m_router->add_route(http::verb::get, "/neural/models",

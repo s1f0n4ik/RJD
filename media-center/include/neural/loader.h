@@ -16,6 +16,7 @@
 #include "neural/json-configurator.h"
 #include "neural/slot.h"
 #include "neural/matrix.h"
+#include "core/platform.h"
 
 #include "logger.h"
 #include "camera.h"
@@ -44,6 +45,7 @@ namespace neural {
 			FFrameStorage<IFrame>* storage,
 			std::filesystem::path config_path,
 			std::filesystem::path state_path,
+			FPlatformInfo platform,
 			ULogger::ELoggerLevel level = ULogger::ELoggerLevel::DEBUG
 		);
 
@@ -72,6 +74,7 @@ namespace neural {
 		struct FSlotStatus {
 			std::string config_id;
 			FCameraMatrix cameras;
+			FCameraLayout camera_layout;
 			std::string stream_id;
 			bool running = false;
 			std::vector<int> npu_cores;
@@ -79,6 +82,8 @@ namespace neural {
 		std::vector<FSlotStatus> get_slots() const;
 
 		std::optional<std::string> find_camera_config(const std::string& camera_id) const;
+
+		const FPlatformInfo& platform() const { return m_platform; }
 
 	private:
 		bool start_loader();
@@ -110,6 +115,7 @@ namespace neural {
 		ULogger::ELoggerLevel m_level;
 		std::filesystem::path m_config_path;
 		std::filesystem::path m_state_path;
+		FPlatformInfo m_platform;
 		ULogger m_logger;
 
 		FCameraSenderProvider m_sender_provider;

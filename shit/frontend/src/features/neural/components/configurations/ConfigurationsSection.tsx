@@ -10,7 +10,9 @@ const blankConfig = (): NeuralConfig => ({
     model_path: '',
     model_width: 640,
     model_height: 640,
+    fps: 25,
     thresholds: { nms: 0.45, confidence: 0.5 },
+    tracker: null,
     superclasses: {},
     classes: {},
 });

@@ -12,12 +12,29 @@ export interface Detection {
     rect: [number, number, number, number] | { x: number; y: number; w: number; h: number };
 }
 
+export type TrackState = 'tentative' | 'confirmed' | 'lost';
+
+/** Трек из neural_tracks (slot.cpp send_tracks). */
+export interface Track {
+    track_id:    number;
+    class_id:    number;
+    name:        string;
+    color:       string;
+    superclass:  string;
+    confidence?: number;
+    state:       TrackState;
+    age?:        number;
+    lost_frames?: number;
+    rect: [number, number, number, number] | { x: number; y: number; w: number; h: number };
+}
+
 interface WebRTCPlayerProps {
     cameraId: string;
     cameraName?: string;
     signalingUrl: string;
     onError?: (error: string) => void;
     onDetections?:  (detections: Detection[]) => void;
+    onTracks?:      (tracks: Track[]) => void;
 }
 
 const STREAM_ERROR_MESSAGES: Record<string, string> = {
@@ -33,7 +50,7 @@ const getStreamErrorMessage = (error_code: string): string => {
     return STREAM_ERROR_MESSAGES[error_code] ?? `Ошибка потока: ${error_code}`;
 };
 
-const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signalingUrl, onError, onDetections }) => {
+const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signalingUrl, onError, onDetections, onTracks }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const [status, setStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
     const [errorMsg, setErrorMsg] = useState<string>('');
@@ -312,6 +329,12 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
                 if (msg.type === 'neural') {
                     if (onDetections && Array.isArray(msg.meta?.detections)) {
                         onDetections(msg.meta.detections);
+                    }
+                }
+
+                if (msg.type === 'neural_tracks') {
+                    if (onTracks && Array.isArray(msg.meta?.tracks)) {
+                        onTracks(msg.meta.tracks);
                     }
                 }
 

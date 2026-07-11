@@ -19,9 +19,16 @@ namespace neural {
 				"name": "Имя",
 				"model_width": 1024,
 				"model_height": 1024,
-				"fps": camera_1,
+				"fps": 25,
 				"thresholds": { "nms": 0.45, "confidence": 0.5 },
 				"model_path": "path/to/model.rknn",
+				"tracker": {
+					"type": "iou",    // Тип трекинга
+					"iou_threshold": 0.5,  // Степень наложения, когда детекция попадает в трек
+					"min_hits": 4,   // Сколько необходимо сопоставлений, чтобы трек стал Confirmed
+					"max_lost": 8,   // Сколько дрпускается пропусков для одного трека
+					"move_threshold": 0.1,  // Момент, когда разница в позиции превываешь данное значение
+				},
 				"classes": {
 					"<class_id>": { "name", "server_id", "superclass", "color" }
 				},
@@ -69,6 +76,8 @@ namespace neural {
 					info.model_width = static_cast<int>(v->as_int64());
 				if (auto* v = obj.if_contains("model_height"); v && v->is_int64())
 					info.model_height = static_cast<int>(v->as_int64());
+				if (auto* v = obj.if_contains("fps"); v && v->is_int64())
+					info.fps = static_cast<int>(v->as_int64());
 
 				if (auto* t = obj.if_contains("thresholds"); t && t->is_object()) {
 					const auto& to = t->as_object();
@@ -150,7 +159,7 @@ namespace neural {
 
 		const std::unordered_set<std::string>& allowed_fields() const override {
 			static const std::unordered_set<std::string> fields = {
-				"name", "model_path", "model_width", "model_height", 
+				"name", "model_path", "model_width", "model_height", "fps",
 				"thresholds", "classes", "superclasses", "tracker"
 			};
 			return fields;

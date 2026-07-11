@@ -79,6 +79,34 @@ namespace neural {
         return "unknown";
     }
 
+    // Все события в порядке объявления — единый источник вариантов для выдачи
+    // на фронт (идентификаторы; человекочитаемые названия живут во фронте).
+    inline std::vector<ETrackEvent> all_track_events() {
+        return {
+            ETrackEvent::CREATED, ETrackEvent::CONFIRMED, ETrackEvent::UPDATED,
+            ETrackEvent::LOST, ETrackEvent::RECOVERED, ETrackEvent::REMOVED,
+        };
+    }
+
+    // Бит маски по идентификатору события (обратно к track_event_str).
+    inline uint32_t event_bit_from_type(const std::string& type) {
+        if (type == "created")   return EVENT_CREATED;
+        if (type == "confirmed") return EVENT_CONFIRMED;
+        if (type == "updated")   return EVENT_UPDATED;
+        if (type == "lost")      return EVENT_LOST;
+        if (type == "recovered") return EVENT_RECOVERED;
+        if (type == "removed")   return EVENT_REMOVED;
+        return EVENT_NONE;
+    }
+
+    // Перевод списка идентификаторов (с фронта) в битовую маску для кода.
+    // Пустой список — маска не задана, трекер оставляет свой дефолт (EVENT_ALL).
+    inline uint32_t event_mask_from_types(const std::vector<std::string>& types) {
+        uint32_t mask = EVENT_NONE;
+        for (const auto& t : types) mask |= event_bit_from_type(t);
+        return mask;
+    }
+
     // Структура трекируемого объекта
     struct FTrack {
         int id = -1;

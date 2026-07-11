@@ -8,6 +8,9 @@ import type {
   NeuralConfig,
   SlotStatus,
   SuperclassDef,
+  SystemInfo,
+  TrackEventType,
+  TrackerType,
 } from './types';
 
 // ═════════════════════════════════════════════════════════════
@@ -98,6 +101,21 @@ export const neuralApi = {
     configId: string,
   ): Promise<{ config_id: string; superclasses: (SuperclassDef & { key: string })[] }> {
     return fetch(url(`/neural/superclasses?config_id=${encodeURIComponent(configId)}`)).then(unwrap);
+  },
+
+  // ── Типы трекеров («фильтров») ─────────────────────────────
+  getTrackerTypes(): Promise<{ types: TrackerType[] }> {
+    return fetch(url('/neural/tracker-types')).then(unwrap);
+  },
+
+  // ── Тип платформы и лимиты потоков ─────────────────────────
+  getSystem(): Promise<SystemInfo> {
+    return fetch(url('/neural/system')).then(unwrap);
+  },
+
+  // ── Возможные события трека (идентификаторы) ───────────────
+  getEventTypes(): Promise<{ events: TrackEventType[] }> {
+    return fetch(url('/neural/event-types')).then(unwrap);
   },
 
   // ── Модели ─────────────────────────────────────────────────

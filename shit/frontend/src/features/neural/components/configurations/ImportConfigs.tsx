@@ -47,13 +47,13 @@ export function ImportConfigs({ onImported }: ImportConfigsProps) {
           className={`btn btn-sm ${mode === 'merge' ? 'btn-primary' : 'btn-ghost'}`}
           onClick={() => setMode('merge')}
         >
-          merge
+          Добавить
         </button>
         <button
           className={`btn btn-sm ${mode === 'replace' ? 'btn-primary' : 'btn-ghost'}`}
           onClick={() => setMode('replace')}
         >
-          replace all
+          Заменить
         </button>
       </div>
       <button className="btn btn-accent" disabled={busy} onClick={() => fileRef.current?.click()}>

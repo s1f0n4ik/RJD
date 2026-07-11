@@ -42,6 +42,7 @@ namespace neural {
         const std::string& config_id() const { return m_config.id; }
         const std::string& stream_id() const { return m_stream_id; }
         const FCameraMatrix& cameras() const { return m_cameras; }
+        const FCameraLayout& layout() const { return m_layout; }
         const std::vector<int>& cores() const { return m_npu_cores; }
 
     protected:
@@ -62,6 +63,7 @@ namespace neural {
     private:
         FConfigInfo m_config;
         FCameraMatrix m_cameras;
+        FCameraLayout m_layout;
         std::vector<int> m_npu_cores;
         std::string m_stream_id;
 

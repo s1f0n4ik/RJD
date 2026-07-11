@@ -20,7 +20,8 @@ namespace neural {
         ULogger::ELoggerLevel level)
         : UImageHandler(context, storage, level, "ImageHandler<Slot:" + config.id + ">")
         , m_config(config)
-        , m_cameras(core_config.cameras)
+        , m_cameras(layout_to_matrix(core_config.camera_layout))
+        , m_layout(core_config.camera_layout)
         , m_npu_cores(core_config.npu_cores)
         , m_sender(std::move(sender))
     {

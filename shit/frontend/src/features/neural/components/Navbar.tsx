@@ -17,9 +17,7 @@ export function Navbar({ active, onChange, conn }: NavbarProps) {
   return (
     <div className="navbar">
       <div className="nav-brand">
-        <span className="nav-logo">◈</span>
-        <span className="nav-title">Varan</span>
-        <span className="nav-version">/ neural</span>
+        <span className="nav-title">Техническое зрение</span>
       </div>
 
       <div className="nav-steps">
@@ -33,7 +31,7 @@ export function Navbar({ active, onChange, conn }: NavbarProps) {
           className={`nav-step${active === 'cores' ? ' active' : ''}`}
           onClick={() => onChange('cores')}
         >
-          <span className="step-num">02</span> Ядра NPU
+          <span className="step-num">02</span> Настройка потоков
         </button>
       </div>
 
@@ -43,6 +41,10 @@ export function Navbar({ active, onChange, conn }: NavbarProps) {
           {CONN_LABEL[conn]}
         </div>
       </div>
+
+      <a className="nav-home" href="/app" title="Вернуться на главную">
+        <span className="nav-home-ic">←</span> На главную
+      </a>
     </div>
   );
 }
