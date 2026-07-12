@@ -38,6 +38,9 @@ namespace varan {
             // Приём кадра из gRPC-ингресса: делегирование активной интеграции.
             FSubmitResult submit_frame(const FFrameMessage& msg) override;
 
+            // Точное время + GPS (для gRPC GetTime, зеркалирует REST /time).
+            FTimeGpsSnapshot get_time_gps() const override;
+
         private:
             void setup_integrations();
             void setup_routes();

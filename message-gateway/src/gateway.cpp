@@ -306,5 +306,9 @@ namespace varan {
             return make_json(req, http::status::ok, m_time.snapshot());
         }
 
+        FTimeGpsSnapshot UGateway::get_time_gps() const {
+            return m_time.snapshot_struct();
+        }
+
     } // namespace gateway
 } // namespace varan

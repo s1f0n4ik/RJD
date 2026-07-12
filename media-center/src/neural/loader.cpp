@@ -29,12 +29,32 @@ namespace neural {
     {
         if (gateway.enabled && !gateway.host.empty() && !gateway.port.empty()) {
             m_gateway = std::make_shared<UGatewayClient>(gateway, level);
+            m_gateway->set_time_callback([this](const FGatewayTimeGps& t) { on_gateway_time(t); });
             m_logger.info("gateway ingress -> " + gateway.host + ":" + gateway.port);
         }
         load_state();
     }
 
     UNeuralLoader::~UNeuralLoader() { stop_async_run(); }
+
+    void UNeuralLoader::on_gateway_time(const FGatewayTimeGps& t) {
+        std::lock_guard<std::mutex> lk(m_time_mutex);
+        m_time_base = t;
+        m_time_base_at = std::chrono::steady_clock::now();
+        m_time_synced = true;
+    }
+
+    FGatewayTimeGps UNeuralLoader::current_synced_time() const {
+        std::lock_guard<std::mutex> lk(m_time_mutex);
+        if (!m_time_synced) {
+            return {};
+        }
+        FGatewayTimeGps t = m_time_base;
+        const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - m_time_base_at).count();
+        t.unix_ms += elapsed_ms;
+        return t;
+    }
 
     // Хелпер для парсинга матрицы камер
     FCameraMatrix UNeuralLoader::parse_camera_matrix(const boost::json::value& v) {
@@ -369,9 +389,11 @@ namespace neural {
                 // Отправка в message-gateway идёт через общий клиент загрузчика;
                 // id камеры проставляет сам слот в теле сообщения.
                 FGatewayFrameSender gateway_sender;
+                FGatewayTimeProvider time_provider;
                 if (m_gateway) {
                     auto gw = m_gateway;
                     gateway_sender = [gw](FGatewayFrame frame) { gw->send(std::move(frame)); };
+                    time_provider = [this]() { return current_synced_time(); };
                 }
 
                 auto slot = std::make_unique<USlot>(
@@ -381,6 +403,7 @@ namespace neural {
                     m_storage,
                     std::move(sender),
                     std::move(gateway_sender),
+                    std::move(time_provider),
                     m_level
                 );
 

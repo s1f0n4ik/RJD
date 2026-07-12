@@ -42,6 +42,20 @@ namespace varan {
                 return msg;
             }
 
+            rpc::TimeReply to_time_reply(const FTimeGpsSnapshot& s) {
+                rpc::TimeReply reply;
+                reply.set_unix_ms(s.unix_ms);
+                auto* gps = reply.mutable_gps();
+                gps->set_lat(s.lat);
+                gps->set_lon(s.lon);
+                gps->set_alt(s.alt);
+                gps->set_valid(s.valid);
+                gps->set_sats(s.sats);
+                gps->set_speed(s.speed);
+                gps->set_course(s.course);
+                return reply;
+            }
+
             rpc::FrameReply to_reply(const FSubmitResult& r) {
                 rpc::FrameReply reply;
                 reply.set_ver(r.ver);
@@ -92,6 +106,15 @@ namespace varan {
                         }
                         req.Clear();
                     }
+                    return grpc::Status::OK;
+                }
+
+                grpc::Status GetTime(
+                    grpc::ServerContext*,
+                    const rpc::TimeRequest*,
+                    rpc::TimeReply* reply) override
+                {
+                    *reply = to_time_reply(m_sink.get_time_gps());
                     return grpc::Status::OK;
                 }
 

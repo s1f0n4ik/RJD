@@ -36,6 +36,7 @@ namespace neural {
             FFrameStorage<IFrame>* storage,
             FCameraMessageSender sender,
             FGatewayFrameSender gateway_sender = {},
+            FGatewayTimeProvider time_provider = {},
             ULogger::ELoggerLevel level = ULogger::ELoggerLevel::DEBUG
         );
 
@@ -72,6 +73,11 @@ namespace neural {
         std::vector<FGatewayDetection> gateway_dets_from_tracks(const std::vector<FTrack>& tracks) const;
         void send_to_gateway(std::vector<FGatewayDetection> dets, const cv::Mat& rgb_pixels);
 
+        // Отрисовка на кадре, уходящем в message-gateway: бокс + название класса
+        // (кириллица через m_text_renderer) и время/GPS в левом верхнем углу.
+        void draw_gateway_overlay(cv::Mat& frame_bgr, const std::vector<FGatewayDetection>& dets,
+            const FGatewayTimeGps& time_gps);
+
     private:
         FConfigInfo m_config;
         FCameraMatrix m_cameras;
@@ -91,6 +97,10 @@ namespace neural {
         // Отправка кадров в message-gateway (по протоколу РСМ-2000). Пустой —
         // если шлюз не сконфигурирован.
         FGatewayFrameSender m_gateway_sender;
+        // Синхронизированное время+GPS от загрузчика (см. FGatewayTimeProvider).
+        // Пустой — если шлюз не сконфигурирован, тогда используются локальные часы.
+        FGatewayTimeProvider m_time_provider;
+        std::unique_ptr<UTextRenderer> m_text_renderer;
         std::string m_camera_id;
         std::atomic<std::int64_t> m_frame_seq{ 0 };
 

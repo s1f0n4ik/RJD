@@ -12,6 +12,10 @@ service FrameIngress {
 
     // Одиночная отправка для редких/простых вызовов.
     rpc SendFrame(FrameRequest) returns (FrameReply);
+
+    // Точное время + GPS шлюза. media-center опрашивает раз в 10с и
+    // синхронизирует по этому значению свои локальные часы.
+    rpc GetTime(TimeRequest) returns (TimeReply);
 }
 
 message Detection {
@@ -40,4 +44,22 @@ message FrameReply {
     int32 ver = 3;
     string transport = 4;
     int64 wire_size = 5;
+}
+
+message GpsData {
+    double lat = 1;
+    double lon = 2;
+    double alt = 3;
+    bool valid = 4;
+    int32 sats = 5;
+    double speed = 6;    // м/с
+    double course = 7;   // градусы
+}
+
+message TimeRequest {
+}
+
+message TimeReply {
+    int64 unix_ms = 1;
+    GpsData gps = 2;
 }

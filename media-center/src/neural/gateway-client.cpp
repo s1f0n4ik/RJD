@@ -59,6 +59,7 @@ namespace neural {
             return;
         }
         m_thread = std::thread(&UGatewayClient::worker_loop, this);
+        m_time_thread = std::thread(&UGatewayClient::time_sync_loop, this);
     }
 
     void UGatewayClient::stop() {
@@ -66,11 +67,19 @@ namespace neural {
             return;
         }
         m_cv.notify_all();
+        m_time_cv.notify_all();
         if (m_thread.joinable()) {
             m_thread.join();
         }
+        if (m_time_thread.joinable()) {
+            m_time_thread.join();
+        }
         std::lock_guard<std::mutex> lk(m_mutex);
         m_queue.clear();
+    }
+
+    void UGatewayClient::set_time_callback(FGatewayTimeCallback callback) {
+        m_time_callback = std::move(callback);
     }
 
     void UGatewayClient::send(FGatewayFrame frame) {
@@ -158,6 +167,42 @@ namespace neural {
 
         m_connected.store(false);
         m_logger.info("worker stopped");
+    }
+
+    void UGatewayClient::time_sync_loop() {
+        const std::string target = m_host + ":" + m_port;
+        auto channel = grpc::CreateChannel(target, grpc::InsecureChannelCredentials());
+        auto stub = rpc::FrameIngress::NewStub(channel);
+
+        while (m_running.load()) {
+            grpc::ClientContext ctx;
+            ctx.set_deadline(std::chrono::system_clock::now() + std::chrono::seconds(3));
+
+            rpc::TimeRequest request;
+            rpc::TimeReply reply;
+            const grpc::Status status = stub->GetTime(&ctx, request, &reply);
+
+            if (status.ok()) {
+                if (m_time_callback) {
+                    FGatewayTimeGps t;
+                    t.unix_ms = reply.unix_ms();
+                    t.lat = reply.gps().lat();
+                    t.lon = reply.gps().lon();
+                    t.alt = reply.gps().alt();
+                    t.valid = reply.gps().valid();
+                    t.sats = reply.gps().sats();
+                    t.speed = reply.gps().speed();
+                    t.course = reply.gps().course();
+                    m_time_callback(t);
+                }
+            }
+            else {
+                m_logger.warn("time sync with " + target + " failed: " + status.error_message());
+            }
+
+            std::unique_lock<std::mutex> lk(m_time_mutex);
+            m_time_cv.wait_for(lk, std::chrono::seconds(10), [&] { return !m_running.load(); });
+        }
     }
 
 } // namespace neural

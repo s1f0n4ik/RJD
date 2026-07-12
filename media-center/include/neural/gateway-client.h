@@ -45,8 +45,13 @@ namespace neural {
 
         void send(FGatewayFrame frame);
 
+        // Регистрирует получателя снимков времени/GPS (см. FGatewayTimeCallback).
+        // Вызывать до start() — набор потоков ещё не запущен, гонок нет.
+        void set_time_callback(FGatewayTimeCallback callback);
+
     private:
         void worker_loop();
+        void time_sync_loop();
 
         std::string m_host;
         std::string m_port;
@@ -60,6 +65,13 @@ namespace neural {
         std::thread m_thread;
         std::atomic_bool m_running{ false };
         std::atomic_bool m_connected{ false };
+
+        // Опрос времени/GPS — отдельный поток и соединение, независимое от
+        // потока стрима кадров (лёгкий unary-вызов раз в 10с).
+        FGatewayTimeCallback m_time_callback;
+        std::thread m_time_thread;
+        std::mutex m_time_mutex;
+        std::condition_variable m_time_cv;
     };
 
 } // namespace neural

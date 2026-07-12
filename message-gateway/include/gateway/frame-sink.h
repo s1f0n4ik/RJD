@@ -34,6 +34,7 @@ namespace varan {
             virtual ~IFrameSink() = default;
 
             virtual FSubmitResult submit_frame(const FFrameMessage& msg) = 0;
+            virtual FTimeGpsSnapshot get_time_gps() const = 0;
         };
 
     } // namespace gateway

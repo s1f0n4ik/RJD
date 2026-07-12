@@ -152,6 +152,8 @@ target_link_libraries(${PROJECT_NAME}
     opencv_videoio
     opencv_highgui
     opencv_calib3d
+    # Требует freetype (libfreetype-dev на устройстве)
+    opencv_freetype
     ${BOOST_LIBRARYDIR}/libboost_json.a
     ${BOOST_LIBRARYDIR}/libboost_filesystem.a
     ${BOOST_LIBRARYDIR}/libboost_thread.a
@@ -161,6 +163,11 @@ target_link_libraries(${PROJECT_NAME}
 
 # Копирование шейдеров в папку с билдом
 file(COPY ${CMAKE_SOURCE_DIR}/shaders DESTINATION ${CMAKE_BINARY_DIR})
+
+# Копирование шрифтов (кириллица для отрисовки на кадре, см. UTextRenderer)
+# в папку с билдом — путь ищем от рабочей директории приложения, без опоры
+# на системные шрифты устройства.
+file(COPY ${CMAKE_SOURCE_DIR}/fonts DESTINATION ${CMAKE_BINARY_DIR})
 
 # Неустойчивая API GStreamer
 add_definitions(-DGST_USE_UNSTABLE_API)

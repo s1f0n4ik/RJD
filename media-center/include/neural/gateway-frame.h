@@ -36,5 +36,27 @@ namespace neural {
     // Неблокирующая отправка кадра в шлюз (перемещаемый, т.к. несёт изображение).
     using FGatewayFrameSender = std::function<void(FGatewayFrame)>;
 
+    // Точное время + GPS шлюза (см. UGatewayClient::GetTime). UNeuralLoader
+    // опрашивает раз в 10с и держит локальный тикающий таймер поверх последнего
+    // снимка — тот же приём, что и в krsps-панели времени на фронте.
+    struct FGatewayTimeGps {
+        std::int64_t unix_ms = 0;
+        double lat = 0.0;
+        double lon = 0.0;
+        double alt = 0.0;
+        bool valid = false;
+        int sats = 0;
+        double speed = 0.0;   // м/с
+        double course = 0.0;  // градусы
+    };
+
+    // Колбэк, которым UGatewayClient сообщает загрузчику свежий снимок времени/GPS.
+    using FGatewayTimeCallback = std::function<void(const FGatewayTimeGps&)>;
+
+    // Колбэк, которым загрузчик отдаёт слоту текущее (синхронизированное локальным
+    // таймером) время + GPS одной структурой — именно её слот использует для
+    // простановки времени в сообщении шлюзу.
+    using FGatewayTimeProvider = std::function<FGatewayTimeGps()>;
+
 } // namespace neural
 } // namespace varan

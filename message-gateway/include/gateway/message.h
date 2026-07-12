@@ -32,5 +32,18 @@ namespace varan {
             std::string camera_id;            // идентификатор камеры-источника
         };
 
+        // Точный снимок времени + GPS шлюза. Единый источник для REST (/time,
+        // /gps) и gRPC (GetTime) — оба транспорта форматируют один и тот же снимок.
+        struct FTimeGpsSnapshot {
+            std::int64_t unix_ms = 0;
+            double lat = 0.0;
+            double lon = 0.0;
+            double alt = 0.0;
+            bool valid = false;
+            int sats = 0;
+            double speed = 0.0;    // м/с
+            double course = 0.0;  // градусы
+        };
+
     } // namespace gateway
 } // namespace varan
