@@ -16,6 +16,7 @@
 #include "neural/json-configurator.h"
 #include "neural/slot.h"
 #include "neural/matrix.h"
+#include "neural/gateway-client.h"
 #include "core/platform.h"
 
 #include "logger.h"
@@ -46,6 +47,7 @@ namespace neural {
 			std::filesystem::path config_path,
 			std::filesystem::path state_path,
 			FPlatformInfo platform,
+			FGatewayConfig gateway = {},
 			ULogger::ELoggerLevel level = ULogger::ELoggerLevel::DEBUG
 		);
 
@@ -119,6 +121,9 @@ namespace neural {
 		ULogger m_logger;
 
 		FCameraSenderProvider m_sender_provider;
+
+		// Клиент message-gateway: жив, пока жив загрузчик; общий для всех слотов.
+		std::shared_ptr<UGatewayClient> m_gateway;
 	};
 
 } // namespace neural

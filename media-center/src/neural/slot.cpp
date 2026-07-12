@@ -6,7 +6,19 @@
 #include "neural/tracker/iou-tracker.h"
 #include "neural/utility.h"
 
+#include <opencv2/imgcodecs.hpp>
+
 #include <stdexcept>
+#include <chrono>
+#include <cmath>
+#include <algorithm>
+
+namespace {
+    std::int64_t now_ms() {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+    }
+}
 
 namespace varan {
 namespace neural {
@@ -17,6 +29,7 @@ namespace neural {
         birdview::UEGLContextManager* context,
         FFrameStorage<IFrame>* storage,
         FCameraMessageSender sender,
+        FGatewayFrameSender gateway_sender,
         ULogger::ELoggerLevel level)
         : UImageHandler(context, storage, level, "ImageHandler<Slot:" + config.id + ">")
         , m_config(config)
@@ -24,12 +37,28 @@ namespace neural {
         , m_layout(core_config.camera_layout)
         , m_npu_cores(core_config.npu_cores)
         , m_sender(std::move(sender))
+        , m_gateway_sender(std::move(gateway_sender))
     {
+        // Камера-источник для тела сообщения шлюзу.
+        if (!m_cameras.empty() && !m_cameras[0].empty()) {
+            m_camera_id = m_cameras[0][0];
+        }
+
         if (auto tr_cfg = static_cast<FIoUTrackerConfig*>(config.tracker_config.get()); tr_cfg) {
             m_tracker = std::make_shared<UIoUTracker>(UIoUTracker(*tr_cfg));
         }
         else {
             m_tracker = nullptr;
+        }
+
+        // Стриминг включается только если у дескриптора задан блок streaming.
+        // id/ip/port проставляет загрузчик до создания слота.
+        if (core_config.streaming) {
+            m_streaming_enabled = true;
+            m_stream_name = core_config.streaming->name;
+            m_stream_id = core_config.streaming->id;
+            m_stream_ip = core_config.streaming->ip;
+            m_stream_port = core_config.streaming->port;
         }
     }
 
@@ -57,19 +86,30 @@ namespace neural {
     }
 
     bool USlot::ensure_streamer(int width, int height) {
-        return false;
         // Вызывающий ДОЛЖЕН держать m_resource_mutex.
-        /*
         if (m_streamer) return true;
+
+        if (m_stream_id.empty() || m_stream_ip.empty() || m_stream_port.empty()) {
+            m_logger.error("ensure_streamer(): stream_id/ip/port not set");
+            return false;
+        }
+
         try {
             m_streamer = std::make_unique<UVirtualCamera>(
-                m_stream_id, FWebSocketOptions{ m_ip, m_port });
+                m_stream_id, FWebSocketOptions{ m_stream_ip, m_stream_port }, m_logger.get_level());
             if (!m_streamer->set_parameters(width, height, 10))
                 throw std::runtime_error("set_parameters failed");
             if (!m_streamer->initialize())
                 throw std::runtime_error("initialize failed");
             if (!m_streamer->start())
                 throw std::runtime_error("start failed");
+
+            // Отображаемое имя стрима, если задано.
+            if (!m_stream_name.empty())
+                m_streamer->update_metadata(m_stream_name, "");
+
+            m_logger.info("ensure_streamer(): started stream_id=" + m_stream_id +
+                (m_stream_name.empty() ? "" : " name=" + m_stream_name));
         }
         catch (const std::exception& e) {
             m_logger.error("ensure_streamer(): " + std::string(e.what()));
@@ -77,7 +117,6 @@ namespace neural {
             return false;
         }
         return true;
-        */
     }
 
     bool USlot::start() {
@@ -227,7 +266,7 @@ namespace neural {
             rect.emplace_back(img_w > 0 ? t.detection.x2_coord / img_w : 0.0f);
             rect.emplace_back(img_h > 0 ? t.detection.y2_coord / img_h : 0.0f);
             obj["rect"] = std::move(rect);
-
+            
             tracks_arr.push_back(std::move(obj));
         }
 
@@ -238,12 +277,13 @@ namespace neural {
         m_sender(msg);
     }
 
-    // Логирование событий
+    // Логирование событий, прошедших маску трекера (filter_events в update()).
+    // Пока просто пишем в лог; позже здесь будет реальная реакция на событие.
     void USlot::log_events(const std::vector<FTrackEventRecord>& events) {
         for (const auto& e : events) {
             std::ostringstream ss;
-            ss << "track[" << e.track.id << "] "
-                << track_event_str(e.event)
+            ss << "Event: " << track_event_str(e.event)
+                << " track=" << e.track.id
                 << " class=" << e.track.class_id
                 << " conf=" << std::fixed << std::setprecision(2) << e.track.confidence
                 << " bbox=("
@@ -251,8 +291,79 @@ namespace neural {
                 << e.track.detection.y1_coord << ","
                 << e.track.detection.x2_coord << ","
                 << e.track.detection.y2_coord << ")";
-            m_logger.trace(ss.str());
+            m_logger.debug(ss.str());
         }
+    }
+
+    FGatewayDetection USlot::make_gateway_detection(int class_id, double confidence, const FDetection& det) const {
+        FGatewayDetection g;
+        g.cid = class_id;
+        g.cf = confidence;
+
+        for (const auto& cls : m_config.classes) {
+            if (cls.id == class_id) {
+                g.cls = cls.name;
+                if (!cls.superclass.empty()) g.scls = cls.superclass;
+                break;
+            }
+        }
+
+        // Пиксельные координаты x, y, w, h — как ждёт протокол шлюза.
+        const int x1 = static_cast<int>(std::lround(det.x1_coord));
+        const int y1 = static_cast<int>(std::lround(det.y1_coord));
+        const int x2 = static_cast<int>(std::lround(det.x2_coord));
+        const int y2 = static_cast<int>(std::lround(det.y2_coord));
+        g.box = { x1, y1, std::max(0, x2 - x1), std::max(0, y2 - y1) };
+        return g;
+    }
+
+    std::vector<FGatewayDetection> USlot::gateway_dets_from_detections(const std::vector<FDetection>& dets) const {
+        std::vector<FGatewayDetection> result;
+        result.reserve(dets.size());
+        for (const auto& d : dets) {
+            result.push_back(make_gateway_detection(d.class_id, d.confidence, d));
+        }
+        return result;
+    }
+
+    std::vector<FGatewayDetection> USlot::gateway_dets_from_tracks(const std::vector<FTrack>& tracks) const {
+        std::vector<FGatewayDetection> result;
+        result.reserve(tracks.size());
+        for (const auto& t : tracks) {
+            // В шлюз идут подтверждённые объекты (и недавно потерянные) — как то,
+            // что реально отображается; неподтверждённые треки не шлём.
+            if (t.state != ETrackState::CONFIRMED && t.state != ETrackState::LOST) continue;
+            result.push_back(make_gateway_detection(t.class_id, t.confidence, t.detection));
+        }
+        return result;
+    }
+
+    // Кодирование кадра в JPEG и неблокирующая отправка в message-gateway.
+    void USlot::send_to_gateway(std::vector<FGatewayDetection> dets, const cv::Mat& rgb_pixels) {
+        if (!m_gateway_sender || rgb_pixels.empty()) return;
+
+        cv::Mat bgr;
+        cv::cvtColor(rgb_pixels, bgr, cv::COLOR_RGB2BGR);
+
+        std::vector<uchar> buf;
+        const std::vector<int> params{ cv::IMWRITE_JPEG_QUALITY, 80 };
+        if (!cv::imencode(".jpg", bgr, buf, params)) {
+            m_logger.warn("send_to_gateway(): jpeg encode failed");
+            return;
+        }
+
+        FGatewayFrame frame;
+        frame.ver = 1;
+        frame.id = ++m_frame_seq;
+        frame.ts = now_ms();
+        frame.width = rgb_pixels.cols;
+        frame.height = rgb_pixels.rows;
+        frame.format = "jpeg";
+        frame.camera_id = m_camera_id;
+        frame.image.assign(reinterpret_cast<const char*>(buf.data()), buf.size());
+        frame.dets = std::move(dets);
+
+        m_gateway_sender(std::move(frame));
     }
 
     void USlot::internal_handle_image(cv::Mat rgb_pixels) {
@@ -271,15 +382,25 @@ namespace neural {
             auto update_result = m_tracker->update(result.detections, rgb_pixels.cols, rgb_pixels.rows);
             if (update_result.has_events()) {
                 log_events(update_result.events);
+
+                // Отправка кадра по протоколу в message-gateway (после отдачи в камеру).
+                if (m_gateway_sender) {
+                    send_to_gateway(gateway_dets_from_tracks(m_tracker->tracks()), rgb_pixels);
+                }
             }
 
             send_tracks(m_tracker->tracks(), cv::Size(rgb_pixels.cols, rgb_pixels.rows));
         }
         else {
             send_detections(result.detections, cv::Size(rgb_pixels.cols, rgb_pixels.rows));
+
+            // Нельзя отправлять каждый кадр, будет спам и просадка производительности
+            //if (m_gateway_sender) {
+            //    send_to_gateway(gateway_dets_from_detections(result.detections), rgb_pixels);
+            //}
         }
 
-        if (m_config.enable_raw_stream) {
+        if (m_streaming_enabled) {
             std::vector<FDetection> draw_dets;
 
             if (m_tracker) {

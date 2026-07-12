@@ -14,6 +14,10 @@
 #include "neural/matrix.h"
 #include "neural/utility.h"
 #include "neural/tracker/tracker-interface.h"
+#include "neural/gateway-frame.h"
+
+#include <atomic>
+#include <cstdint>
 
 #include "logger.h"
 #include "camera.h"
@@ -31,6 +35,7 @@ namespace neural {
             birdview::UEGLContextManager* context,
             FFrameStorage<IFrame>* storage,
             FCameraMessageSender sender,
+            FGatewayFrameSender gateway_sender = {},
             ULogger::ELoggerLevel level = ULogger::ELoggerLevel::DEBUG
         );
 
@@ -60,14 +65,34 @@ namespace neural {
 
         void log_events(const std::vector<FTrackEventRecord>& events);
 
+        // Отправка кадра (детекции + изображение + id камеры) в message-gateway
+        // по протоколу. Формирование FGatewayDetection из детекций/треков.
+        FGatewayDetection make_gateway_detection(int class_id, double confidence, const FDetection& box) const;
+        std::vector<FGatewayDetection> gateway_dets_from_detections(const std::vector<FDetection>& dets) const;
+        std::vector<FGatewayDetection> gateway_dets_from_tracks(const std::vector<FTrack>& tracks) const;
+        void send_to_gateway(std::vector<FGatewayDetection> dets, const cv::Mat& rgb_pixels);
+
     private:
         FConfigInfo m_config;
         FCameraMatrix m_cameras;
         FCameraLayout m_layout;
         std::vector<int> m_npu_cores;
+
+        // Стриминг аннотированного видео через виртуальную камеру.
+        // Включается, если у дескриптора задан streaming.
         std::string m_stream_id;
+        std::string m_stream_name;
+        std::string m_stream_ip;
+        std::string m_stream_port;
+        bool m_streaming_enabled = false;
 
         FCameraMessageSender m_sender;
+
+        // Отправка кадров в message-gateway (по протоколу РСМ-2000). Пустой —
+        // если шлюз не сконфигурирован.
+        FGatewayFrameSender m_gateway_sender;
+        std::string m_camera_id;
+        std::atomic<std::int64_t> m_frame_seq{ 0 };
 
         // FIX: мьютекс защищает m_classifier и m_streamer от гонки
         // между internal_handle_image() (рабочий поток) и stop() (внешний поток).

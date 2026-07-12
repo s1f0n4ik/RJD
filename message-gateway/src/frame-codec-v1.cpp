@@ -23,6 +23,9 @@ namespace varan {
                 header["type"] = "frame";
                 header["id"] = msg.id;
                 header["ts"] = msg.ts;
+                if (!msg.camera_id.empty()) {
+                    header["cam"] = msg.camera_id;
+                }
 
                 json::object img;
                 img["width"] = msg.width;

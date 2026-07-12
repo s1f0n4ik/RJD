@@ -1,18 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import {
-  Box,
-  Grid,
-  Typography,
-  TextField,
-  Button,
-  Switch,
-  FormControlLabel,
-} from '@mui/material';
-import CheckRoundedIcon from '@mui/icons-material/CheckRounded';
-import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
-import FavoriteBorderRoundedIcon from '@mui/icons-material/FavoriteBorderRounded';
-import { SOFT, SoftCard, PanelHead, Pill } from '../ui';
-import type { PillState } from '../ui';
+import { IconCheck, IconClose, IconHeart } from '../icons';
 import type { GwModule, GwMessageRecord, GwWsConfigPatch } from '../types';
 import { formatInt, formatBytes, formatClock } from '../utils/format';
 
@@ -23,6 +10,8 @@ interface Props {
   onConnect: () => void;
   onDisconnect: () => void;
 }
+
+type PillState = 'ok' | 'wait' | 'off';
 
 // Разбор адреса вида ws://host:port/target (схема и target опциональны).
 function parseWsUrl(raw: string): { host: string; port: string; target: string } | null {
@@ -46,46 +35,23 @@ function connState(m: GwModule): PillState {
   return 'off';
 }
 
-const inputSx = {
-  '& .MuiOutlinedInput-root': {
-    borderRadius: SOFT.radiusXs,
-    bgcolor: SOFT.panel2,
-    '& fieldset': { borderColor: SOFT.border },
-    '&:hover fieldset': { borderColor: SOFT.borderStrong },
-    '&.Mui-focused fieldset': { borderColor: SOFT.accent },
-  },
-} as const;
+const PILL_LABEL: Record<PillState, string> = { ok: 'Соединено', wait: 'Подключение', off: 'Нет связи' };
+
+const Pill: React.FC<{ state: PillState }> = ({ state }) => (
+  <span className={`krsps-pill krsps-pill--${state}`}>
+    <span className="krsps-pill__dot" />
+    {PILL_LABEL[state]}
+  </span>
+);
 
 const Kpi: React.FC<{ label: string; value: string; unit?: string }> = ({ label, value, unit }) => (
-  <Box
-    sx={{
-      bgcolor: SOFT.panel,
-      boxShadow: SOFT.shadow,
-      borderRadius: SOFT.radiusSm,
-      px: 1.75,
-      py: 1.5,
-      height: '100%',
-    }}
-  >
-    <Typography sx={{ fontSize: '0.72rem', color: SOFT.dim, fontWeight: 600 }}>{label}</Typography>
-    <Typography
-      sx={{
-        fontSize: '1.55rem',
-        fontWeight: 800,
-        letterSpacing: '-0.02em',
-        mt: 0.4,
-        color: SOFT.ink,
-        fontVariantNumeric: 'tabular-nums',
-      }}
-    >
+  <div className="krsps-kpi">
+    <div className="krsps-kpi__label">{label}</div>
+    <div className="krsps-kpi__value">
       {value}
-      {unit && (
-        <Typography component="span" sx={{ fontSize: '0.82rem', fontWeight: 600, color: SOFT.mute, ml: 0.4 }}>
-          {unit}
-        </Typography>
-      )}
-    </Typography>
-  </Box>
+      {unit && <span className="krsps-kpi__unit">{unit}</span>}
+    </div>
+  </div>
 );
 
 function detWord(n: number): string {
@@ -97,20 +63,17 @@ function detWord(n: number): string {
   return 'обнаружений';
 }
 
+function bytesShort(n: number): string {
+  const { value, unit } = formatBytes(n);
+  return `${value} ${unit}`;
+}
+
 const RecordRow: React.FC<{ r: GwMessageRecord }> = ({ r }) => {
   const rejected = r.status === 'rejected';
   const heartbeat = r.kind === 'heartbeat';
 
-  const icon = rejected ? (
-    <CloseRoundedIcon sx={{ fontSize: 15 }} />
-  ) : heartbeat ? (
-    <FavoriteBorderRoundedIcon sx={{ fontSize: 14 }} />
-  ) : (
-    <CheckRoundedIcon sx={{ fontSize: 15 }} />
-  );
-
-  const fg = rejected ? SOFT.accent : heartbeat ? SOFT.dim : SOFT.ok;
-  const bg = rejected ? SOFT.accentTint : heartbeat ? SOFT.panel2 : SOFT.okTint;
+  const kind = rejected ? 'err' : heartbeat ? 'hb' : 'ok';
+  const icon = rejected ? <IconClose /> : heartbeat ? <IconHeart /> : <IconCheck />;
 
   const title = heartbeat
     ? 'heartbeat'
@@ -124,36 +87,15 @@ const RecordRow: React.FC<{ r: GwMessageRecord }> = ({ r }) => {
     ? `${formatClock(r.ts)} · v${r.ver} · служебное`
     : `${formatClock(r.ts)} · v${r.ver} · КАУС принял`;
 
-  const size = rejected ? '—' : bytesShort(r.wire_size);
-
   return (
-    <Box
-      sx={{
-        display: 'grid',
-        gridTemplateColumns: 'auto 1fr auto',
-        gap: 1.4,
-        alignItems: 'center',
-        px: 2.25,
-        py: 1.15,
-        borderBottom: `1px solid ${SOFT.border}`,
-        '&:last-of-type': { borderBottom: 0 },
-      }}
-    >
-      <Box sx={{ width: 26, height: 26, borderRadius: SOFT.radiusXs, display: 'grid', placeItems: 'center', color: fg, bgcolor: bg }}>
-        {icon}
-      </Box>
-      <Box sx={{ minWidth: 0 }}>
-        <Typography sx={{ fontSize: '0.82rem', fontWeight: 600, color: SOFT.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {title}
-        </Typography>
-        <Typography sx={{ fontSize: '0.72rem', color: SOFT.mute, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {sub}
-        </Typography>
-      </Box>
-      <Typography sx={{ fontSize: '0.8rem', color: SOFT.dim, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-        {size}
-      </Typography>
-    </Box>
+    <div className="krsps-feed__row">
+      <div className={`krsps-feed__ico krsps-feed__ico--${kind}`}>{icon}</div>
+      <div className="krsps-feed__main">
+        <div className="krsps-feed__title">{title}</div>
+        <div className="krsps-feed__sub">{sub}</div>
+      </div>
+      <div className="krsps-feed__size">{rejected ? '—' : bytesShort(r.wire_size)}</div>
+    </div>
   );
 };
 
@@ -190,119 +132,110 @@ const WebSocketModulePanel: React.FC<Props> = ({ module, busy, onSave, onConnect
   const bytes = formatBytes(stats.bytes);
 
   return (
-    <Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
-        <Typography sx={{ fontSize: '1.2rem', fontWeight: 800, color: SOFT.ink, letterSpacing: '-0.01em' }}>
-          WebSocket → КАУС
-        </Typography>
+    <div>
+      <div className="krsps-module__head">
+        <div className="krsps-module__title">WebSocket → КАУС</div>
         <Pill state={connState(module)} />
-        <Typography sx={{ ml: 'auto', fontSize: '0.75rem', color: SOFT.mute }}>
+        <div className="krsps-module__meta">
           протокол {module.protocol_versions.map((v) => `v${v}`).join(', ') || '—'}
-        </Typography>
-      </Box>
+        </div>
+      </div>
 
-      <Grid container spacing={2.5}>
-        {/* Настройки — прямо здесь, на главной странице модуля. */}
-        <Grid item xs={12} md={5}>
-          <SoftCard>
-            <PanelHead title="Настройки передачи" />
-            <Box sx={{ p: 2.25, display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <TextField
-                label="Адрес WebSocket (КАУС)"
+      {/* Настройки — целой строкой. */}
+      <div className="krsps-card">
+        <div className="krsps-panel__head">
+          <div className="krsps-panel__title">Настройки передачи</div>
+        </div>
+        <div className="krsps-panel__body">
+          <div className="krsps-form">
+            <div className="krsps-field krsps-field--grow">
+              <label className="krsps-field__label" htmlFor="krsps-ws-url">
+                Адрес WebSocket (КАУС)
+              </label>
+              <input
+                id="krsps-ws-url"
+                className={`krsps-input${urlError ? ' krsps-input--error' : ''}`}
                 value={url}
+                spellCheck={false}
                 onChange={(e) => setUrl(e.target.value)}
                 placeholder="ws://192.168.1.50:8080/ws/frames"
-                fullWidth
-                size="small"
-                error={!!urlError}
-                helperText={urlError || 'Можно менять как угодно'}
-                sx={inputSx}
-                InputProps={{ sx: { fontFamily: 'monospace', fontSize: '0.85rem' } }}
               />
-              <TextField
-                label="Сообщение heartbeat, с"
-                value={heartbeat}
-                onChange={(e) => setHeartbeat(e.target.value.replace(/[^\d]/g, ''))}
-                size="small"
-                sx={{ ...inputSx, width: 180 }}
-                InputProps={{ sx: { fontFamily: 'monospace' } }}
-              />
-              <FormControlLabel
-                control={<Switch checked={enabled} onChange={(e) => setEnabled(e.target.checked)} color="primary" />}
-                label="Передача обнаружений включена"
-                sx={{ '& .MuiFormControlLabel-label': { fontSize: '0.85rem', color: SOFT.dim } }}
-              />
-              <Box sx={{ display: 'flex', gap: 1.25, flexWrap: 'wrap', pt: 0.25 }}>
-                <Button
-                  variant="contained"
-                  onClick={handleSave}
-                  disabled={busy}
-                  sx={{ bgcolor: SOFT.accent, borderRadius: SOFT.radiusXs, boxShadow: 'none', textTransform: 'none', fontWeight: 700, '&:hover': { bgcolor: SOFT.accentDark, boxShadow: 'none' } }}
-                >
+              <div className={`krsps-field__hint${urlError ? ' krsps-field__hint--error' : ''}`}>
+                {urlError || 'Можно менять как угодно'}
+              </div>
+            </div>
+
+            <div className="krsps-form__row">
+              <div className="krsps-field">
+                <label className="krsps-field__label" htmlFor="krsps-ws-hb">
+                  Сообщение heartbeat, с
+                </label>
+                <input
+                  id="krsps-ws-hb"
+                  className="krsps-input krsps-input--sm"
+                  value={heartbeat}
+                  inputMode="numeric"
+                  onChange={(e) => setHeartbeat(e.target.value.replace(/[^\d]/g, ''))}
+                />
+              </div>
+
+              <button
+                type="button"
+                className={`krsps-switch${enabled ? ' krsps-switch--on' : ''}`}
+                role="switch"
+                aria-checked={enabled}
+                onClick={() => setEnabled((v) => !v)}
+              >
+                <span className="krsps-switch__track" />
+                Передача обнаружений включена
+              </button>
+
+              <div className="krsps-actions">
+                <button type="button" className="krsps-btn krsps-btn--primary" onClick={handleSave} disabled={busy}>
                   Сохранить
-                </Button>
-                <Button
-                  variant="outlined"
-                  onClick={onConnect}
-                  disabled={busy}
-                  sx={{ borderRadius: SOFT.radiusXs, textTransform: 'none', fontWeight: 700, color: SOFT.dim, borderColor: SOFT.borderStrong, '&:hover': { borderColor: SOFT.dim } }}
-                >
+                </button>
+                <button type="button" className="krsps-btn krsps-btn--ghost" onClick={onConnect} disabled={busy}>
                   Переподключить
-                </Button>
-                <Button
-                  variant="text"
-                  onClick={onDisconnect}
-                  disabled={busy}
-                  sx={{ borderRadius: SOFT.radiusXs, textTransform: 'none', fontWeight: 700, color: SOFT.mute, '&:hover': { color: SOFT.accent, bgcolor: SOFT.accentTint } }}
-                >
+                </button>
+                <button type="button" className="krsps-btn krsps-btn--text" onClick={onDisconnect} disabled={busy}>
                   Отключить
-                </Button>
-              </Box>
-            </Box>
-          </SoftCard>
-        </Grid>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
 
-        {/* Состояние: счётчики + последние сообщения. */}
-        <Grid item xs={12} md={7}>
-          <Grid container spacing={1.75} sx={{ mb: 2.25 }}>
-            <Grid item xs={6} sm={3}><Kpi label="Отдано" value={formatInt(stats.messages)} /></Grid>
-            <Grid item xs={6} sm={3}><Kpi label="Обнаружений" value={formatInt(stats.detections)} /></Grid>
-            <Grid item xs={6} sm={3}><Kpi label="Изображений" value={formatInt(stats.images)} /></Grid>
-            <Grid item xs={6} sm={3}><Kpi label="Передано" value={bytes.value} unit={bytes.unit} /></Grid>
-          </Grid>
+      {/* Состояние — единым блоком: счётчики + лента сообщений. */}
+      <div className="krsps-card">
+        <div className="krsps-panel__head">
+          <div className="krsps-panel__title">Состояние</div>
+          <div className="krsps-panel__meta">
+            отклонено {formatInt(stats.rejected)} · heartbeat {formatInt(stats.heartbeats)}
+          </div>
+        </div>
+        <div className="krsps-panel__body">
+          <div className="krsps-kpis">
+            <Kpi label="Отдано" value={formatInt(stats.messages)} />
+            <Kpi label="Обнаружений" value={formatInt(stats.detections)} />
+            <Kpi label="Изображений" value={formatInt(stats.images)} />
+            <Kpi label="Передано" value={bytes.value} unit={bytes.unit} />
+          </div>
 
-          <SoftCard>
-            <PanelHead
-              title="Последние сообщения"
-              right={
-                <Typography sx={{ fontSize: '0.72rem', color: SOFT.mute }}>
-                  отклонено {formatInt(stats.rejected)} · {stats.recent.length} записей
-                </Typography>
-              }
-            />
-            {stats.recent.length > 0 ? (
-              <Box>
-                {stats.recent.map((r) => (
-                  <RecordRow key={r.seq} r={r} />
-                ))}
-              </Box>
-            ) : (
-              <Box sx={{ px: 2.25, py: 5, textAlign: 'center' }}>
-                <Typography sx={{ color: SOFT.mute, fontSize: '0.85rem' }}>
-                  Сообщений пока не было
-                </Typography>
-              </Box>
-            )}
-          </SoftCard>
-        </Grid>
-      </Grid>
-    </Box>
+          <div className="krsps-feed__label">Последние сообщения · {stats.recent.length}</div>
+          {stats.recent.length > 0 ? (
+            <div className="krsps-feed">
+              {stats.recent.map((r) => (
+                <RecordRow key={r.seq} r={r} />
+              ))}
+            </div>
+          ) : (
+            <div className="krsps-empty">Сообщений пока не было</div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 };
-
-function bytesShort(n: number): string {
-  const { value, unit } = formatBytes(n);
-  return `${value} ${unit}`;
-}
 
 export default WebSocketModulePanel;

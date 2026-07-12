@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Box, Container, Snackbar, Alert } from '@mui/material';
+import '../styles/theme.css';
 import TopBar from './TopBar';
 import type { KrspsView } from './TopBar';
 import ModuleRail, { TIME_SECTION } from './ModuleRail';
@@ -8,10 +8,11 @@ import TimeGpsPanel from './TimeGpsPanel';
 import ConfigCards from './ConfigCards';
 import { krspsApi } from '../api/client';
 import type { GwIntegrations, GwStatus, GwTime, GwWsConfigPatch } from '../types';
-import { SOFT } from '../ui';
 
 const STATUS_POLL_MS = 2000;
 const TIME_POLL_MS = 5000;
+
+type Toast = { msg: string; sev: 'success' | 'error' | 'info' };
 
 const KrspsApp: React.FC = () => {
   const [view, setView] = useState<KrspsView>('modules');
@@ -22,7 +23,7 @@ const KrspsApp: React.FC = () => {
   const [offsetMs, setOffsetMs] = useState(0);
   const [synced, setSynced] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [toast, setToast] = useState<{ msg: string; sev: 'success' | 'error' | 'info' } | null>(null);
+  const [toast, setToast] = useState<Toast | null>(null);
 
   const alive = useRef(true);
   useEffect(() => {
@@ -32,7 +33,14 @@ const KrspsApp: React.FC = () => {
     };
   }, []);
 
-  // Держим выбранный раздел валидным: модуль из активной конфигурации или «Время и GPS».
+  // Автоскрытие тоста.
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 3500);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  // Держим выбранный раздел валидным: модуль активной конфигурации или «Время и GPS».
   useEffect(() => {
     if (!status) return;
     const ids = status.modules.map((m) => m.id);
@@ -130,7 +138,7 @@ const KrspsApp: React.FC = () => {
   const selectedModule = status?.modules.find((m) => m.id === selected) ?? null;
 
   return (
-    <Box sx={{ minHeight: '100vh', bgcolor: SOFT.bg }}>
+    <div className="krsps-root">
       <TopBar
         configTitle={activeTitle}
         view={view}
@@ -138,7 +146,7 @@ const KrspsApp: React.FC = () => {
         onBackToModules={() => setView('modules')}
       />
 
-      <Container maxWidth="xl" sx={{ py: 3 }}>
+      <div className="krsps-container">
         {view === 'configs' ? (
           <ConfigCards
             integrations={integrations}
@@ -147,16 +155,9 @@ const KrspsApp: React.FC = () => {
             onOpenModules={() => setView('modules')}
           />
         ) : (
-          <Box
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: { xs: '1fr', md: '236px minmax(0, 1fr)' },
-              gap: 2.5,
-              alignItems: 'start',
-            }}
-          >
+          <div className="krsps-layout">
             <ModuleRail modules={status?.modules ?? []} selected={selected} onSelect={setSelected} />
-            <Box sx={{ minWidth: 0 }}>
+            <div style={{ minWidth: 0 }}>
               {selected === TIME_SECTION ? (
                 <TimeGpsPanel time={time} offsetMs={offsetMs} synced={synced} />
               ) : selectedModule ? (
@@ -168,28 +169,15 @@ const KrspsApp: React.FC = () => {
                   onDisconnect={handleDisconnect}
                 />
               ) : (
-                <Box sx={{ py: 8, textAlign: 'center', color: SOFT.mute, fontSize: '0.9rem' }}>
-                  Загрузка состояния шлюза…
-                </Box>
+                <div className="krsps-empty">Загрузка состояния шлюза…</div>
               )}
-            </Box>
-          </Box>
+            </div>
+          </div>
         )}
-      </Container>
+      </div>
 
-      <Snackbar
-        open={!!toast}
-        autoHideDuration={3500}
-        onClose={() => setToast(null)}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-      >
-        {toast ? (
-          <Alert severity={toast.sev} onClose={() => setToast(null)} variant="filled">
-            {toast.msg}
-          </Alert>
-        ) : undefined}
-      </Snackbar>
-    </Box>
+      {toast && <div className={`krsps-toast krsps-toast--${toast.sev}`}>{toast.msg}</div>}
+    </div>
   );
 };
 

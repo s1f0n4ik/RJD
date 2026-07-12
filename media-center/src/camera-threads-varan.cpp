@@ -32,6 +32,11 @@ struct AppConfig {
 	uint16_t rest_port;
 	std::string signaling_ip;
 	uint16_t signaling_port;
+
+	// Опциональное подключение к message-gateway (ingress кадров).
+	bool gateway_enabled = false;
+	std::string gateway_ip;
+	std::string gateway_port;
 };
 
 void signal_handler(int signal);
@@ -67,6 +72,8 @@ int main(int argc, char* argv[])
 		<< GST_VERSION_MICRO).str());
 	main_logger.info((std::ostringstream() << "REST port: " << config.rest_port).str());
 	main_logger.info((std::ostringstream() << "Signaling: " << config.signaling_ip << ":" << config.signaling_port).str());
+	main_logger.info((std::ostringstream() << "Gateway: "
+		<< (config.gateway_enabled ? config.gateway_ip + ":" + config.gateway_port : std::string("disabled"))).str());
 
 	// Определяем площадку в самом начале и логируем — дальше передаём в нейронку.
 	const auto platform_info = varan::detect_platform();
@@ -90,6 +97,12 @@ int main(int argc, char* argv[])
 	auto calibrator = std::make_shared<varan::calibration::UCalibrator>(socket_options.ip_adress, socket_options.port, main_context.get(), gl_storage.get());
 	calibrator->start_websocket_connection();
 
+	// Параметры подключения к message-gateway (передаём в загрузчик).
+	varan::neural::FGatewayConfig gateway_config;
+	gateway_config.enabled = config.gateway_enabled;
+	gateway_config.host = config.gateway_ip;
+	gateway_config.port = config.gateway_port;
+
 	// Создание нейронного загрузчика
 	auto loader = std::make_shared<varan::neural::UNeuralLoader>(
 		socket_options.ip_adress, socket_options.port,
@@ -98,6 +111,7 @@ int main(int argc, char* argv[])
 		"/home/orangepi/varan/neural/configurations.json",
 		"/home/orangepi/varan/neural/loader_state.json",
 		platform_info,
+		gateway_config,
 		ULogger::ELoggerLevel::DEBUG
 	);
 
@@ -200,8 +214,10 @@ void signal_handler(int signal) {
 }
 
 bool parse_arguments(int argc, char* argv[], AppConfig& config, ULogger* logger) {
-	if (argc != 4) {
-		if (logger) logger->error("Usage: " + std::string(argv[0]) + " <rest_server_port> <signaling_ip> <signaling_port>\n");
+	// gateway_ip/gateway_port — опциональны: без них интеграция со шлюзом выключена.
+	if (argc != 4 && argc != 6) {
+		if (logger) logger->error("Usage: " + std::string(argv[0]) +
+			" <rest_server_port> <signaling_ip> <signaling_port> [<gateway_ip> <gateway_port>]\n");
 		return false;
 	}
 
@@ -219,6 +235,22 @@ bool parse_arguments(int argc, char* argv[], AppConfig& config, ULogger* logger)
 	if (!parse_port(argv[3], config.signaling_port)) {
 		if (logger) logger->error("Invalid signaling port\n");
 		return false;
+	}
+
+	if (argc == 6) {
+		config.gateway_ip = argv[4];
+		if (!is_valid_ipv4(config.gateway_ip)) {
+			if (logger) logger->error("Invalid gateway IP address\n");
+			return false;
+		}
+
+		uint16_t gateway_port = 0;
+		if (!parse_port(argv[5], gateway_port)) {
+			if (logger) logger->error("Invalid gateway port\n");
+			return false;
+		}
+		config.gateway_port = std::to_string(gateway_port);
+		config.gateway_enabled = true;
 	}
 
 	return true;

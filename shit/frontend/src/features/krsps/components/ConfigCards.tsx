@@ -1,7 +1,5 @@
 import React from 'react';
-import { Box, Typography, Button } from '@mui/material';
-import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
-import { SOFT } from '../ui';
+import { IconCheckCircle } from '../icons';
 import type { GwIntegrations, GwIntegrationItem } from '../types';
 
 interface Props {
@@ -11,27 +9,6 @@ interface Props {
   onOpenModules: () => void;
 }
 
-const Chip: React.FC<{ label: string }> = ({ label }) => (
-  <Box
-    sx={{
-      display: 'inline-flex',
-      alignItems: 'center',
-      gap: 0.6,
-      px: 1.1,
-      py: 0.5,
-      borderRadius: 999,
-      bgcolor: SOFT.panel2,
-      border: `1px solid ${SOFT.border}`,
-      fontSize: '0.72rem',
-      fontWeight: 600,
-      color: SOFT.dim,
-    }}
-  >
-    <Box sx={{ width: 5, height: 5, borderRadius: '50%', bgcolor: SOFT.accent }} />
-    {label}
-  </Box>
-);
-
 const ConfigCard: React.FC<{
   item: GwIntegrationItem;
   active: boolean;
@@ -39,70 +16,53 @@ const ConfigCard: React.FC<{
   onSelect: () => void;
   onOpenModules: () => void;
 }> = ({ item, active, busy, onSelect, onOpenModules }) => (
-  <Box
-    sx={{
-      position: 'relative',
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 1.5,
-      p: 2.5,
-      bgcolor: SOFT.panel,
-      borderRadius: SOFT.radius,
-      boxShadow: active ? SOFT.shadowLg : SOFT.shadow,
-      border: `1.5px solid ${active ? SOFT.accent : 'transparent'}`,
-      overflow: 'hidden',
-    }}
-  >
-    <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
-      <Box>
-        <Typography sx={{ fontSize: '1.1rem', fontWeight: 800, color: SOFT.ink }}>{item.title}</Typography>
-        <Typography sx={{ fontSize: '0.72rem', color: SOFT.mute, fontFamily: 'monospace', mt: 0.25 }}>{item.id}</Typography>
-      </Box>
+  <div className={`krsps-cfg-card${active ? ' krsps-cfg-card--active' : ''}`}>
+    <div className="krsps-cfg__top">
+      <div>
+        <div className="krsps-cfg__name">{item.title}</div>
+        <div className="krsps-cfg__code">{item.id}</div>
+      </div>
       {active ? (
-        <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, px: 1, py: 0.5, borderRadius: 999, bgcolor: SOFT.okTint, color: SOFT.ok, fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-          <CheckCircleRoundedIcon sx={{ fontSize: 14 }} /> Активна
-        </Box>
+        <span className="krsps-badge krsps-badge--on">
+          <IconCheckCircle />Активна
+        </span>
       ) : (
-        <Box sx={{ px: 1, py: 0.5, borderRadius: 999, bgcolor: SOFT.panel2, border: `1px solid ${SOFT.border}`, color: SOFT.mute, fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-          Доступна
-        </Box>
+        <span className="krsps-badge krsps-badge--off">Доступна</span>
       )}
-    </Box>
+    </div>
 
-    <Typography sx={{ fontSize: '0.82rem', color: SOFT.dim, lineHeight: 1.5, minHeight: 38 }}>
-      {item.description || 'Конфигурация интеграции с АС КРСПС.'}
-    </Typography>
+    <div className="krsps-cfg__desc">{item.description || 'Конфигурация интеграции с АС КРСПС.'}</div>
 
-    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
-      {item.modules.map((m) => (
-        <Chip key={m.id} label={m.title} />
-      ))}
-      {item.modules.length === 0 && <Chip label="без модулей" />}
-    </Box>
-
-    <Box sx={{ mt: 'auto', pt: 0.5 }}>
-      {active ? (
-        <Button
-          fullWidth
-          variant="outlined"
-          onClick={onOpenModules}
-          sx={{ borderRadius: SOFT.radiusXs, textTransform: 'none', fontWeight: 700, color: SOFT.accentDark, borderColor: SOFT.accentTint2, '&:hover': { borderColor: SOFT.accent, bgcolor: SOFT.accentTint } }}
-        >
-          Настроить модули
-        </Button>
+    <div className="krsps-chips">
+      {item.modules.length > 0 ? (
+        item.modules.map((m) => (
+          <span key={m.id} className="krsps-chip">
+            <span className="krsps-chip__dot" />
+            {m.title}
+          </span>
+        ))
       ) : (
-        <Button
-          fullWidth
-          variant="contained"
-          disabled={busy}
+        <span className="krsps-chip">без модулей</span>
+      )}
+    </div>
+
+    <div className="krsps-cfg__foot">
+      {active ? (
+        <button type="button" className="krsps-btn krsps-btn--ghost krsps-btn--block" onClick={onOpenModules}>
+          Настроить модули
+        </button>
+      ) : (
+        <button
+          type="button"
+          className="krsps-btn krsps-btn--primary krsps-btn--block"
           onClick={onSelect}
-          sx={{ borderRadius: SOFT.radiusXs, textTransform: 'none', fontWeight: 700, boxShadow: 'none', bgcolor: SOFT.accent, '&:hover': { bgcolor: SOFT.accentDark, boxShadow: 'none' } }}
+          disabled={busy}
         >
           Сделать активной
-        </Button>
+        </button>
       )}
-    </Box>
-  </Box>
+    </div>
+  </div>
 );
 
 const ConfigCards: React.FC<Props> = ({ integrations, busy, onSelect, onOpenModules }) => {
@@ -110,24 +70,16 @@ const ConfigCards: React.FC<Props> = ({ integrations, busy, onSelect, onOpenModu
   const activeId = integrations?.active;
 
   return (
-    <Box>
-      <Box sx={{ mb: 2.5 }}>
-        <Typography sx={{ fontSize: '1.3rem', fontWeight: 800, color: SOFT.ink, letterSpacing: '-0.01em' }}>
-          Конфигурации
-        </Typography>
-        <Typography sx={{ fontSize: '0.85rem', color: SOFT.dim, mt: 0.5 }}>
-          Конфигурация задаёт набор модулей и их настройки по умолчанию. Активная конфигурация обрабатывает
-          кадры от других сервисов.
-        </Typography>
-      </Box>
+    <div>
+      <div>
+        <div className="krsps-section__title">Конфигурации</div>
+        <div className="krsps-section__sub">
+          Конфигурация задаёт набор модулей и их настройки по умолчанию. Активная конфигурация обрабатывает кадры
+          от других сервисов.
+        </div>
+      </div>
 
-      <Box
-        sx={{
-          display: 'grid',
-          gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', lg: 'repeat(3, 1fr)' },
-          gap: 2,
-        }}
-      >
+      <div className="krsps-cfg-grid">
         {items.map((it) => (
           <ConfigCard
             key={it.id}
@@ -138,11 +90,9 @@ const ConfigCards: React.FC<Props> = ({ integrations, busy, onSelect, onOpenModu
             onOpenModules={onOpenModules}
           />
         ))}
-        {items.length === 0 && (
-          <Typography sx={{ color: SOFT.mute, fontSize: '0.85rem' }}>Нет доступных конфигураций</Typography>
-        )}
-      </Box>
-    </Box>
+        {items.length === 0 && <div className="krsps-empty">Нет доступных конфигураций</div>}
+      </div>
+    </div>
   );
 };
 

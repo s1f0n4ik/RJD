@@ -40,6 +40,42 @@ find_package(OpenCV REQUIRED)
 # Pkg-config
 find_package(PkgConfig REQUIRED)
 
+# Требуются пакеты: libprotobuf-dev protobuf-compiler libgrpc++-dev
+#                   protobuf-compiler-grpc
+find_package(Protobuf REQUIRED)
+pkg_check_modules(GRPCPP REQUIRED IMPORTED_TARGET grpc++)
+find_program(GRPC_CPP_PLUGIN grpc_cpp_plugin REQUIRED)
+
+# Генерация protobuf + gRPC из proto/frame-ingress.proto в build-дерево.
+# Вызываем protoc напрямую:
+set(GATEWAY_PROTO_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated-proto)
+file(MAKE_DIRECTORY ${GATEWAY_PROTO_DIR})
+
+set(GW_PROTO_FILE ${CMAKE_CURRENT_SOURCE_DIR}/proto/frame-ingress.proto)
+set(GW_PROTO_SRCS
+    ${GATEWAY_PROTO_DIR}/frame-ingress.pb.cc
+    ${GATEWAY_PROTO_DIR}/frame-ingress.grpc.pb.cc)
+set(GW_PROTO_HDRS
+    ${GATEWAY_PROTO_DIR}/frame-ingress.pb.h
+    ${GATEWAY_PROTO_DIR}/frame-ingress.grpc.pb.h)
+
+add_custom_command(
+    OUTPUT ${GW_PROTO_SRCS} ${GW_PROTO_HDRS}
+    COMMAND ${Protobuf_PROTOC_EXECUTABLE}
+        --proto_path=${CMAKE_CURRENT_SOURCE_DIR}/proto
+        --cpp_out=${GATEWAY_PROTO_DIR}
+        --grpc_out=${GATEWAY_PROTO_DIR}
+        --plugin=protoc-gen-grpc=${GRPC_CPP_PLUGIN}
+        ${GW_PROTO_FILE}
+    DEPENDS ${GW_PROTO_FILE}
+    COMMENT "Generating gRPC/protobuf from frame-ingress.proto"
+    VERBATIM
+)
+
+add_library(mc-gateway-proto STATIC ${GW_PROTO_SRCS} ${GW_PROTO_HDRS})
+target_include_directories(mc-gateway-proto PUBLIC ${GATEWAY_PROTO_DIR})
+target_link_libraries(mc-gateway-proto PUBLIC protobuf::libprotobuf PkgConfig::GRPCPP)
+
 # GStreamer 1.28 — явно через pkg-config
 set(ENV{PKG_CONFIG_PATH} "/opt/gstreamer-1.28/lib/aarch64-linux-gnu/pkgconfig:$ENV{PKG_CONFIG_PATH}")
 
@@ -89,12 +125,13 @@ set(BOOST_INCLUDEDIR ${BOOST_ROOT}/include)
 set(BOOST_LIBRARYDIR ${BOOST_ROOT}/lib)
 
 # Создание исполняемого файла
-add_executable(${PROJECT_NAME} ${SRC_FILES} "include/neural/loader.h" "include/neural/matrix.h")
+add_executable(${PROJECT_NAME} ${SRC_FILES})
 
 # Директории для include
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/generated
+    ${GATEWAY_PROTO_DIR}
     ${GST_ALL_INCLUDE_DIRS}
     ${BOOST_INCLUDEDIR}
     ${GBM_INCLUDE_DIRS}
@@ -118,6 +155,7 @@ target_link_libraries(${PROJECT_NAME}
     ${BOOST_LIBRARYDIR}/libboost_json.a
     ${BOOST_LIBRARYDIR}/libboost_filesystem.a
     ${BOOST_LIBRARYDIR}/libboost_thread.a
+    mc-gateway-proto
     rknnrt
 )
 

@@ -23,6 +23,7 @@ namespace varan {
                 msg.height = req.height();
                 msg.format = req.format();
                 msg.image = req.image();
+                msg.camera_id = req.camera_id();
 
                 msg.dets.reserve(req.dets_size());
                 for (const auto& d : req.dets()) {

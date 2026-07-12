@@ -129,7 +129,7 @@ namespace neural {
 							if (auto* v = track_object.if_contains("max_lost"); v && v->is_int64()) iou_config.max_lost = v->as_int64();
 							if (auto* v = track_object.if_contains("move_threshold"); v && v->is_number()) iou_config.move_threshold = (float)v->as_double();
 
-							info.tracker_config = std::make_shared<FTrackerConfig>(std::move(iou_config));
+							info.tracker_config = std::make_shared<FIoUTrackerConfig>(std::move(iou_config));
 						}
 						else {
 							log_warn("load_config(): cannot load tracker config; type " + config_type + " doesn't implement!");

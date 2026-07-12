@@ -29,6 +29,7 @@ namespace varan {
             std::string format;               // jpeg / png / webp
             std::vector<FDetection> dets;
             std::string image;                // сырые байты изображения
+            std::string camera_id;            // идентификатор камеры-источника
         };
 
     } // namespace gateway

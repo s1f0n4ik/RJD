@@ -2,12 +2,12 @@ syntax = "proto3";
 
 package varan.gateway.rpc;
 
-// Высокочастотный ingress кадров: media-center отдаёт семантику кадра, шлюз
-// кодирует под протокол и шлёт в транспорт. gRPC вместо HTTP POST, т.к. кадры
-// с изображением идут часто и тяжёлые.
+// Копия контракта ingress сервиса message-gateway. media-center выступает
+// клиентом FrameIngress: отдаёт семантику кадра (детекции + изображение),
+// шлюз кодирует под протокол РСМ-2000 и шлёт в КАУС. Должна совпадать с
+// message-gateway/proto/frame-ingress.proto.
 service FrameIngress {
     // Потоковая отправка: одно соединение, много кадров, подтверждение на каждый.
-    // Предпочтительный путь для видеопотока.
     rpc StreamFrames(stream FrameRequest) returns (stream FrameReply);
 
     // Одиночная отправка для редких/простых вызовов.

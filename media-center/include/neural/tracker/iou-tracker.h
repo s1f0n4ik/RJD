@@ -107,6 +107,7 @@ namespace neural {
                 if (track.state == ETrackState::TENTATIVE && track.hits >= m_config.min_hits)
                 {
                     track.state = ETrackState::CONFIRMED;
+                    track.id = m_next_id_by_class[track.class_id]++;
                     events.push_back({ ETrackEvent::CONFIRMED, track });
                 }
 
@@ -168,7 +169,7 @@ namespace neural {
 
                 FTrack track;
                 track.class_id = detections[d].class_id;
-                track.id = m_next_id_by_class[track.class_id]++;
+                track.id = -1;
                 track.detection = detections[d];
                 track.class_id = detections[d].class_id;
                 track.confidence = detections[d].confidence;
@@ -178,6 +179,7 @@ namespace neural {
 
                 if (m_config.min_hits <= 1) {
                     track.state = ETrackState::CONFIRMED;
+                    track.id = m_next_id_by_class[track.class_id]++;
                     events.push_back({ ETrackEvent::CONFIRMED, track });
                 }
                 else {

@@ -21,6 +21,7 @@ ITEMS=(
     src
     include
     shaders
+    proto
     server
     gstreamer-mpp
 )

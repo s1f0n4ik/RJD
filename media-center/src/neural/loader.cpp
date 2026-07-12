@@ -17,6 +17,7 @@ namespace neural {
         std::filesystem::path config_path,
         std::filesystem::path state_path,
         FPlatformInfo platform,
+        FGatewayConfig gateway,
         ULogger::ELoggerLevel level)
         : m_ip(ip_address), m_port(port)
         , m_context(context), m_storage(storage), m_level(level)
@@ -26,6 +27,10 @@ namespace neural {
         , m_logger("NeuralLoader", level)
         , m_json_configurator(&m_logger)
     {
+        if (gateway.enabled && !gateway.host.empty() && !gateway.port.empty()) {
+            m_gateway = std::make_shared<UGatewayClient>(gateway, level);
+            m_logger.info("gateway ingress -> " + gateway.host + ":" + gateway.port);
+        }
         load_state();
     }
 
@@ -347,17 +352,35 @@ namespace neural {
                     throw std::runtime_error("No camera in layout, cannot start " + m_active_descs[i].config_id);
                 }
 
+                // Стриминг: подставляем адрес сигналинг-сервера и генерируем
+                // stream_id, если они не заданы явно в дескрипторе.
+                if (m_active_descs[i].streaming) {
+                    auto& st = *m_active_descs[i].streaming;
+                    if (st.ip.empty())   st.ip = m_ip;
+                    if (st.port.empty()) st.port = m_port;
+                    if (st.id.empty())   st.id = make_stream_id(m_active_descs[i].config_id, camera_id);
+                }
+
                 FCameraMessageSender sender;
                 if (m_sender_provider) {
                     sender = m_sender_provider(camera_id);
                 }
 
+                // Отправка в message-gateway идёт через общий клиент загрузчика;
+                // id камеры проставляет сам слот в теле сообщения.
+                FGatewayFrameSender gateway_sender;
+                if (m_gateway) {
+                    auto gw = m_gateway;
+                    gateway_sender = [gw](FGatewayFrame frame) { gw->send(std::move(frame)); };
+                }
+
                 auto slot = std::make_unique<USlot>(
                     cfg.value(),
                     m_active_descs[i],
-                    m_context, 
+                    m_context,
                     m_storage,
                     std::move(sender),
+                    std::move(gateway_sender),
                     m_level
                 );
 
@@ -385,6 +408,7 @@ namespace neural {
     // Фкнкции управления
     bool UNeuralLoader::async_run() {
         if (m_supervisor_running.exchange(true)) return false;
+        if (m_gateway) m_gateway->start();
         m_supervisor = std::thread(&UNeuralLoader::supervisor_loop, this);
         return true;
     }
@@ -395,6 +419,7 @@ namespace neural {
         { std::lock_guard<std::mutex> lk(m_loader_mutex); for (auto& s : m_slots) if (s) s->stop(); }
         if (m_supervisor.joinable()) m_supervisor.join();
         cleanup_after_failure();
+        if (m_gateway) m_gateway->stop();
     }
 
     bool UNeuralLoader::is_running() const { return m_supervisor_running.load(); }
