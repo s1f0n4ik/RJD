@@ -70,6 +70,7 @@ namespace varan {
             };
 
             void start_tx();
+            void heartbeat();
             void on_bus_frame(const FCanFrame& frame);
             // Собирает кадр из живых вкладов камер и шлёт его. Зовётся таймером,
             // а при выключенной постоянной передаче — на каждый кадр gRPC.
@@ -95,6 +96,10 @@ namespace varan {
 
             boost::asio::steady_timer m_tx_timer;
             std::atomic_bool m_active{ false };
+
+            // Момент последнего сердцебиения в лог. Живёт в потоке io_context
+            // (таймер передачи), поэтому без атомарности.
+            std::int64_t m_last_hb_mono = 0;
 
             // Вклады камер. Пишет поток gRPC, читает поток шины.
             mutable std::mutex m_payload_mutex;

@@ -351,6 +351,43 @@ namespace varan {
             m_log.push(frame, true, ts, note, "");
         }
 
+        // Раз в 5 секунд пишем в лог, сколько кадров ушло и сколько пришло.
+        // Главное здесь — приём: если суммарный RX (координаты + время + чужие)
+        // держится на нуле при растущем TX, значит на шину физически ничего не
+        // приходит, и разбираться надо не в коде, а в проводах и скорости шины.
+        void UCanModule::heartbeat() {
+            const std::int64_t now = mono_ms();
+            if (m_last_hb_mono != 0 && now - m_last_hb_mono < 5000) {
+                return;
+            }
+            m_last_hb_mono = now;
+
+            std::int64_t gps = 0, gps_err = 0, tm = 0, tm_err = 0, tx = 0, tx_err = 0;
+            {
+                std::lock_guard<std::mutex> lock(m_sum_mutex);
+                gps = m_sum_gps.count; gps_err = m_sum_gps.errors;
+                tm = m_sum_time.count; tm_err = m_sum_time.errors;
+                tx = m_sum_tx.count; tx_err = m_sum_tx.errors;
+            }
+            const std::int64_t other = m_rx_other.load();
+            const std::int64_t rx_total = gps + tm + other;
+
+            std::string msg = "tx=" + std::to_string(tx) + " (ошибок " + std::to_string(tx_err) + ")"
+                + " | rx всего=" + std::to_string(rx_total)
+                + " [координаты " + std::to_string(gps) + "/ош " + std::to_string(gps_err)
+                + ", время " + std::to_string(tm) + "/ош " + std::to_string(tm_err)
+                + ", чужих " + std::to_string(other) + "]";
+
+            if (rx_total == 0) {
+                msg += " — с шины не пришло ни одного кадра: проверьте провода, "
+                    "терминаторы 120 Ом и скорость шины на обоих узлах";
+                ULog::warn(TAG, msg);
+            }
+            else {
+                ULog::info(TAG, msg);
+            }
+        }
+
         void UCanModule::start_tx() {
             if (!m_active.load()) {
                 return;
@@ -372,6 +409,7 @@ namespace varan {
                     std::lock_guard<std::mutex> lock(m_payload_mutex);
                     expire_cameras_locked(cfg);
                 }
+                heartbeat();
                 start_tx();
             });
         }

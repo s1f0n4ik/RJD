@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>can-server: Садко на шине</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #1b1d21; color: #e7e7e7; margin: 0; padding: 24px; }
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
+  .sub { color: #9a9ea6; font-size: 13px; margin-bottom: 20px; }
+
+  .cards { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; }
+  .card { background: #24272c; border: 1px solid #33373d; border-radius: 8px; padding: 14px 16px; min-width: 190px; flex: 1; }
+  .card h2 { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #9a9ea6; margin: 0 0 8px; }
+  .big { font-size: 20px; font-variant-numeric: tabular-nums; }
+  .muted { color: #9a9ea6; font-size: 12px; margin-top: 4px; }
+
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; vertical-align: 1px; }
+  .dot.on { background: #7fd3a3; }
+  .dot.off { background: #d97070; }
+  .err { color: #d97070; }
+
+  .bits { display: flex; gap: 4px; margin-top: 8px; }
+  .bit { flex: 1; text-align: center; padding: 5px 0; border-radius: 4px; background: #16181b; border: 1px solid #33373d; font-size: 11px; color: #666; }
+  .bit.on { background: #2c4a3a; border-color: #7fd3a3; color: #7fd3a3; }
+
+  .tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+  .tab { background: #24272c; border: 1px solid #33373d; color: #9a9ea6; border-radius: 6px; padding: 6px 14px; font-size: 12px; cursor: pointer; font-family: inherit; }
+  .tab.on { background: #33373d; color: #e7e7e7; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { text-align: left; color: #9a9ea6; font-weight: 600; padding: 0 10px 8px; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+  td { padding: 7px 10px; border-top: 1px solid #2b2e33; vertical-align: top; }
+  tr.rx td:first-child { color: #7fd3a3; }
+  tr.tx td:first-child { color: #6fa8dc; }
+  tr.bad td { color: #d97070; }
+  .mono { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .empty { color: #666; padding: 16px 10px; }
+</style>
+</head>
+<body>
+  <h1>can-server — Садко на шине</h1>
+  <div class="sub" id="sub">запуск…</div>
+
+  <div class="cards">
+    <div class="card">
+      <h2>Шина</h2>
+      <div id="conn"><span class="dot off"></span>нет связи</div>
+      <div class="muted" id="bus">—</div>
+    </div>
+    <div class="card">
+      <h2>Отправлено</h2>
+      <div class="big" id="sent">0</div>
+      <div class="muted" id="period">время и координаты</div>
+    </div>
+    <div class="card">
+      <h2>Принято обнаружений</h2>
+      <div class="big" id="received">0</div>
+      <div class="muted" id="foreign">чужих кадров 0</div>
+    </div>
+    <div class="card">
+      <h2>Координаты, которые шлём</h2>
+      <div class="big mono" id="gps">—</div>
+      <div class="muted" id="speed">заглушка, случайное блуждание</div>
+    </div>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <h2>Последнее обнаружение</h2>
+      <div class="big" id="det">кадров ещё не было</div>
+      <div class="muted" id="det-note">ждём 0x00EF0071 от технического зрения</div>
+      <div class="bits" id="bits"></div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab on" data-f="all">Все</button>
+    <button class="tab" data-f="tx">Отправленные</button>
+    <button class="tab" data-f="rx">Принятые</button>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width:44px">Дир</th>
+        <th style="width:100px">Время</th>
+        <th style="width:98px">ID</th>
+        <th style="width:220px">Байты</th>
+        <th style="width:110px">Сообщение</th>
+        <th>Расшифровка</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+
+<script>
+let filter = 'all';
+
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('on'));
+    tab.classList.add('on');
+    filter = tab.dataset.f;
+  });
+});
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+function render(state, entries) {
+  const conn = document.getElementById('conn');
+  conn.innerHTML = state.connected
+    ? '<span class="dot on"></span>подключена'
+    : `<span class="dot off"></span>нет связи${state.error ? ' — <span class="err">' + escapeHtml(state.error) + '</span>' : ''}`;
+  document.getElementById('bus').textContent = state.bus;
+
+  document.getElementById('sent').textContent = state.sent;
+  document.getElementById('period').textContent = `время и координаты раз в ${state.period_ms} мс`;
+  document.getElementById('received').textContent = state.received;
+  document.getElementById('foreign').textContent =
+    `чужих кадров ${state.foreign}` + (state.errors ? ` · ошибок ${state.errors}` : '');
+
+  if (state.gps) {
+    document.getElementById('gps').textContent = `${state.gps.lat}, ${state.gps.lon}`;
+    document.getElementById('speed').textContent = `${state.gps.speed} м/с — заглушка, случайное блуждание`;
+  }
+
+  const det = state.detection;
+  if (det) {
+    document.getElementById('det').textContent =
+      `${det.count} обн. · ${det.type_title} · ${det.danger_title}`;
+    document.getElementById('det-note').textContent =
+      `в ${state.detection_at} · тип ${det.type}, опасность ${det.danger}, маска камер 0x${det.camera_mask.toString(16).toUpperCase().padStart(2, '0')}`;
+  }
+
+  document.getElementById('bits').innerHTML = Array.from({ length: 8 }, (_, i) => {
+    const bit = 8 - i;
+    const on = det && (det.camera_mask & (1 << (bit - 1)));
+    return `<div class="bit${on ? ' on' : ''}">камера ${bit}</div>`;
+  }).join('');
+
+  const shown = entries.filter(e => filter === 'all' || e.dir === filter);
+  const rows = document.getElementById('rows');
+
+  if (shown.length === 0) {
+    rows.innerHTML = '<tr><td colspan="6" class="empty">Кадров пока нет.</td></tr>';
+    return;
+  }
+
+  rows.innerHTML = shown.map(e => `
+    <tr class="${e.dir}${e.error ? ' bad' : ''}">
+      <td>${e.error ? '!' : e.dir.toUpperCase()}</td>
+      <td class="mono">${e.ts}</td>
+      <td class="mono">${e.id}</td>
+      <td class="mono">${e.data}</td>
+      <td>${escapeHtml(e.title)}</td>
+      <td>${escapeHtml(e.error || e.note)}</td>
+    </tr>`).join('');
+}
+
+async function poll() {
+  try {
+    const res = await fetch('/messages');
+    const data = await res.json();
+    document.getElementById('sub').textContent =
+      'шлём 0x18FF0161 (время) и 0x18FF0061 (координаты), принимаем 0x00EF0071 (обнаружения)';
+    render(data.state, data.entries);
+  } catch (e) {
+    console.error('poll failed', e);
+  } finally {
+    setTimeout(poll, 500);
+  }
+}
+
+poll();
+</script>
+</body>
+</html>
