@@ -459,6 +459,7 @@ namespace neural {
         frame.height = rgb_pixels.rows;
         frame.format = "jpeg";
         frame.camera_id = m_camera_id;
+        frame.config_id = config_id();
         frame.image.assign(reinterpret_cast<const char*>(buf.data()), buf.size());
         frame.dets = std::move(dets);
 

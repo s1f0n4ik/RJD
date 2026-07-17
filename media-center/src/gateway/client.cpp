@@ -27,6 +27,7 @@ namespace gateway {
             req.set_height(f.height);
             req.set_format(f.format);
             req.set_camera_id(f.camera_id);
+            req.set_config_id(f.config_id);
             req.set_image(f.image);
 
             for (const auto& d : f.dets) {

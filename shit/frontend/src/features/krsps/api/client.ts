@@ -1,5 +1,6 @@
 import type {
   GwCanConfigPatch,
+  GwDevices,
   GwIntegrations,
   GwModule,
   GwStatus,
@@ -111,6 +112,11 @@ export const krspsApi = {
         body: JSON.stringify(patch),
       }),
     );
+  },
+
+  // Что шлюз видит на машине: интерфейсы CAN и serial-порты.
+  async getDevices(): Promise<GwDevices> {
+    return unwrap<GwDevices>(await fetch(url('/devices')));
   },
 
   async getTime(): Promise<GwTime> {

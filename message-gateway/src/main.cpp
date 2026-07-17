@@ -38,8 +38,10 @@ int main(int argc, char** argv) {
     config.can.device = arg(argc, argv, "--can-device", config.can.device);
     config.can.bitrate = std::stoi(arg(argc, argv, "--can-bitrate", std::to_string(config.can.bitrate)));
     // Адреса задаются шестнадцатеричными, как в описании протокола (0x71, 0x61).
-    config.can.src_addr = std::stoi(arg(argc, argv, "--can-src", "0x71"), nullptr, 0);
-    config.can.peer_addr = std::stoi(arg(argc, argv, "--can-peer", "0x61"), nullptr, 0);
+    config.can.tx_detections.addr = std::stoi(arg(argc, argv, "--can-src", "0x71"), nullptr, 0);
+    const int peer = std::stoi(arg(argc, argv, "--can-peer", "0x61"), nullptr, 0);
+    config.can.rx_gps.addr = peer;
+    config.can.rx_time.addr = peer;
     config.can.enabled = arg(argc, argv, "--can-enabled", "1") != "0";
 
     UGateway gateway(config);

@@ -69,7 +69,7 @@ namespace varan {
             f.data[0] = static_cast<std::uint8_t>(std::clamp(p.count, 0, 255));
             f.data[1] = static_cast<std::uint8_t>(std::clamp(p.type, 0, 255));
             f.data[2] = static_cast<std::uint8_t>(std::clamp(p.danger, 0, 255));
-            f.data[3] = static_cast<std::uint8_t>(std::clamp(p.camera, 0, 255));
+            f.data[3] = static_cast<std::uint8_t>(p.camera_mask & 0xFF);
             return f;
         }
 

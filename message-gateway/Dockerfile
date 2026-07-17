@@ -3,7 +3,13 @@ FROM ubuntu:26.04
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Etc/UTC
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# docker-clean удаляет скачанные пакеты после установки и обесценивает
+# кеш-маунт, поэтому его убираем. Списки apt лежат на маунте и в слой образа
+# не попадают, чистить их вручную не нужно.
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean && \
+    apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
     pkg-config \
@@ -15,8 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     protobuf-compiler \
     protobuf-compiler-grpc \
     libprotobuf-dev \
-    libgrpc++-dev \
-    && rm -rf /var/lib/apt/lists/*
+    libgrpc++-dev
 
 WORKDIR /app
 

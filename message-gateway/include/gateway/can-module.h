@@ -4,6 +4,7 @@
 #include <mutex>
 #include <atomic>
 #include <string>
+#include <vector>
 #include <cstdint>
 
 #include <boost/asio.hpp>
@@ -11,6 +12,7 @@
 #include "gateway/module.h"
 #include "gateway/can-bus.h"
 #include "gateway/can-codec.h"
+#include "gateway/can-log.h"
 #include "gateway/config.h"
 #include "gateway/stats.h"
 #include "gateway/taxonomy.h"
@@ -25,10 +27,15 @@ namespace varan {
         // (PGN 0xFF00) и дату/время UTC со скоростью (PGN 0xFF01) — и отдаёт их в
         // UTimeSource, откуда время и GPS забирают остальные сервисы.
         //
-        // Передача: кадр обнаружений (PGN 0xEF00, SA 0x71) уходит на шину строго по
-        // таймеру раз в tx_period_ms, независимо от gRPC. Кадр от media-center не
-        // вызывает отправку, а только обновляет нагрузку — так период на шине
-        // остаётся ровным и не зависит от частоты работы нейросети.
+        // Передача: кадр обнаружений (PGN 0xEF00, SA 0x71) уходит на шину по
+        // таймеру раз в tx_period_ms. Кадр от media-center не вызывает отправку, а
+        // только обновляет нагрузку — так период на шине ровный и не зависит от
+        // частоты работы нейросети.
+        //
+        // Нагрузка копится по камерам: у каждой камеры свой поток кадров и свой
+        // бит в байте камер, поэтому в одном кадре видно сразу несколько камер,
+        // поймавших обнаружение. Вклад камеры живёт payload_ttl_ms — молчащая
+        // камера гаснет сама, не утаскивая за собой остальные.
         class UCanModule : public IModule {
         public:
             UCanModule(boost::asio::io_context& ioc, FCanConfig config,
@@ -52,13 +59,30 @@ namespace varan {
             bool apply_config(const boost::json::object& patch, std::string& err) override;
 
         private:
+            // Вклад одной камеры в общую нагрузку.
+            struct FCameraState {
+                std::string key;      // camera_id от media-center
+                int bit = 0;          // 0 — камеры нет в таблице соответствий
+                int count = 0;
+                int type = 0;
+                int danger = 0;
+                std::int64_t mono = 0; // монотонный момент последнего кадра
+            };
+
             void start_tx();
             void on_bus_frame(const FCanFrame& frame);
+            // Собирает кадр из живых вкладов камер и шлёт его. Зовётся таймером,
+            // а при выключенной постоянной передаче — на каждый кадр gRPC.
+            void transmit(const FCanConfig& cfg, bool from_grpc);
 
-            // Пересобирает шину под текущий режим и поднимает её, если модуль включён.
+            // Сводит вклады камер в одну нагрузку, попутно отбрасывая протухшие.
+            FCanDetectionPayload build_payload_locked(const FCanConfig& cfg) const;
+            void expire_cameras_locked(const FCanConfig& cfg);
+
             void rebuild_bus_locked();
-
             FCanConfig config() const;
+
+            std::vector<UCanLog::FSummary> summaries() const;
 
         private:
             boost::asio::io_context& m_ioc;
@@ -72,30 +96,24 @@ namespace varan {
             boost::asio::steady_timer m_tx_timer;
             std::atomic_bool m_active{ false };
 
-            // Текущая нагрузка исходящего кадра — то, что уйдёт на шину следующим
-            // тиком. Обновляется из gRPC-потока, читается из потока шины.
+            // Вклады камер. Пишет поток gRPC, читает поток шины.
             mutable std::mutex m_payload_mutex;
-            FCanDetectionPayload m_payload;
-            std::int64_t m_payload_mono = 0;   // монотонный момент последнего кадра gRPC
+            std::vector<FCameraState> m_cameras;
+            // Кадры, которым не нашлось камеры в таблице: бит поставить некуда,
+            // но обнаружения терять нельзя — считаем и показываем на странице.
+            std::atomic<std::int64_t> m_unmapped_cameras{ 0 };
+            // Обнаружения из конфигураций без таблицы: числа ушли как есть.
+            std::atomic<std::int64_t> m_passthrough_frames{ 0 };
 
-            // Кадр gRPC, который ещё не уходил на шину. Кладём его в ленту только
-            // после реальной отправки: CAN отдаёт лишь последнюю нагрузку, и кадр,
-            // вытесненный следующим за 100 мс, на шину не попадал.
-            bool m_pending = false;
-            std::int64_t m_pending_id = 0;
-            std::int64_t m_pending_ts = 0;
-            int m_pending_dets = 0;
-            bool m_pending_image = false;
+            // Состояние каждого типа сообщения — сводка над лентой.
+            mutable std::mutex m_sum_mutex;
+            UCanLog::FSummary m_sum_tx;
+            UCanLog::FSummary m_sum_gps;
+            UCanLog::FSummary m_sum_time;
 
-            // Что слышно от Садко — показывается на странице, чтобы было видно,
-            // жива ли встречная сторона.
-            std::atomic<std::int64_t> m_rx_gps{ 0 };
-            std::atomic<std::int64_t> m_rx_time{ 0 };
-            std::atomic<std::int64_t> m_rx_errors{ 0 };
             std::atomic<std::int64_t> m_rx_other{ 0 };
-            mutable std::mutex m_rx_mutex;
-            std::string m_rx_last_error;
 
+            UCanLog m_log;
             UStats m_stats;
         };
 

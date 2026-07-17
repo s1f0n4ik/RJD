@@ -29,6 +29,10 @@ namespace gateway {
         int height = 0;
         std::string format;                 // jpeg / png / webp
         std::string camera_id;              // источник кадра
+        // Конфигурация нейросети, которой получены обнаружения. Имена классов
+        // (cls/scls) осмысленны только внутри своей конфигурации, поэтому шлюз
+        // по этому id выбирает таблицу соответствий.
+        std::string config_id;
         std::string image;                  // закодированные байты изображения
         std::vector<FGatewayDetection> dets;
     };

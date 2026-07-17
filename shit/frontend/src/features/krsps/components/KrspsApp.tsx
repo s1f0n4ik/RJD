@@ -8,9 +8,11 @@ import CanModulePanel from './CanModulePanel';
 import TaxonomyPanel from './TaxonomyPanel';
 import TimeGpsPanel from './TimeGpsPanel';
 import ConfigCards from './ConfigCards';
+import PanelBoundary from './PanelBoundary';
 import { krspsApi } from '../api/client';
 import type {
   GwCanConfigPatch,
+  GwDevices,
   GwIntegrations,
   GwStatus,
   GwTaxonomy,
@@ -30,6 +32,7 @@ const KrspsApp: React.FC = () => {
   const [status, setStatus] = useState<GwStatus | null>(null);
   const [integrations, setIntegrations] = useState<GwIntegrations | null>(null);
   const [taxonomy, setTaxonomy] = useState<GwTaxonomy | null>(null);
+  const [devices, setDevices] = useState<GwDevices | null>(null);
   const [time, setTime] = useState<GwTime | null>(null);
   const [offsetMs, setOffsetMs] = useState(0);
   const [synced, setSynced] = useState(false);
@@ -120,10 +123,24 @@ const KrspsApp: React.FC = () => {
     }
   }, []);
 
+  // Устройства перечитываем вместе со статусом: адаптер могли воткнуть уже
+  // после запуска, и список должен это подхватывать сам.
+  const refreshDevices = useCallback(async () => {
+    try {
+      const d = await krspsApi.getDevices();
+      if (alive.current) setDevices(d);
+    } catch {
+      /* список устройств не критичен: имя всегда можно ввести руками */
+    }
+  }, []);
+
   useEffect(() => {
     refreshIntegrations();
     refreshTaxonomy();
-  }, [refreshIntegrations, refreshTaxonomy]);
+    refreshDevices();
+    const t = setInterval(refreshDevices, 10000);
+    return () => clearInterval(t);
+  }, [refreshIntegrations, refreshTaxonomy, refreshDevices]);
 
   const run = useCallback(
     async (fn: () => Promise<unknown>, okMsg: string) => {
@@ -189,6 +206,7 @@ const KrspsApp: React.FC = () => {
           <div className="krsps-layout">
             <ModuleRail modules={status?.modules ?? []} selected={selected} onSelect={setSelected} />
             <div style={{ minWidth: 0 }}>
+              <PanelBoundary resetKey={selected}>
               {selected === TIME_SECTION ? (
                 <TimeGpsPanel time={time} offsetMs={offsetMs} synced={synced} />
               ) : selected === TAXONOMY_SECTION ? (
@@ -196,6 +214,7 @@ const KrspsApp: React.FC = () => {
               ) : selectedModule?.transport === 'can' ? (
                 <CanModulePanel
                   module={selectedModule}
+                  devices={devices}
                   busy={busy}
                   onSave={handleSaveCan}
                   onConnect={handleConnect}
@@ -212,6 +231,7 @@ const KrspsApp: React.FC = () => {
               ) : (
                 <div className="krsps-empty">Загрузка состояния шлюза…</div>
               )}
+              </PanelBoundary>
             </div>
           </div>
         )}

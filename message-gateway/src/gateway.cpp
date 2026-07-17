@@ -1,6 +1,7 @@
 #include "gateway/gateway.h"
 #include "gateway/rsm2000-integration.h"
 #include "gateway/grpc-ingress.h"
+#include "gateway/devices.h"
 #include "gateway/log.h"
 
 #include <boost/json.hpp>
@@ -82,6 +83,10 @@ namespace varan {
                 [this](const auto& r) { return handle_get_taxonomy(r); });
             m_router->add_route(http::verb::put, "/taxonomy",
                 [this](const auto& r) { return handle_put_taxonomy(r); });
+
+            // Что видно на машине: интерфейсы CAN и serial-порты.
+            m_router->add_route(http::verb::get, "/devices",
+                [this](const auto& r) { return handle_devices(r); });
 
             m_router->add_route(http::verb::post, "/ws/connect",
                 [this](const auto& r) { return handle_ws_connect(r); });
@@ -374,6 +379,10 @@ namespace varan {
                 }
             }
             return make_json(req, http::status::ok, json::object{ {"versions", arr} });
+        }
+
+        URouter::FResponse UGateway::handle_devices(const URouter::FRequest& req) {
+            return make_json(req, http::status::ok, list_devices());
         }
 
         URouter::FResponse UGateway::handle_time(const URouter::FRequest& req) {

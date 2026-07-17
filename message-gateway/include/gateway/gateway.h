@@ -66,6 +66,7 @@ namespace varan {
             URouter::FResponse handle_time(const URouter::FRequest& req);
             URouter::FResponse handle_get_taxonomy(const URouter::FRequest& req);
             URouter::FResponse handle_put_taxonomy(const URouter::FRequest& req);
+            URouter::FResponse handle_devices(const URouter::FRequest& req);
 
         private:
             FGatewayConfig m_config;

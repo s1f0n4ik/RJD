@@ -8,19 +8,26 @@
 #
 # Bridge-сеть (по умолчанию) НЕ пропускает multicast — камеры не найдутся.
 
-FROM python:3.11-slim
+# Версия питона общая с остальными сервисами, чтобы слои базы переиспользовались
+FROM python:3.12-slim
 
-# Системные зависимости для onvif-zeep (lxml требует libxml2/libxslt)
-RUN apt-get update && apt-get install -y --no-install-recommends \
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Системные зависимости для onvif-zeep (lxml требует libxml2/libxslt).
+# docker-clean обесценивает кеш-маунт, убираем его.
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean && \
+    apt-get update && apt-get install -y --no-install-recommends \
         libxml2 \
-        libxslt1.1 \
-        && rm -rf /var/lib/apt/lists/*
+        libxslt1.1
 
 WORKDIR /app
 
 # Сначала зависимости — кешируется отдельным слоем
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -r requirements.txt
 
 # Код приложения
 COPY /app ./app/

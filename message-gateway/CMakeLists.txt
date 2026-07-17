@@ -52,6 +52,8 @@ add_executable(${PROJECT_NAME}
     src/can-module.cpp
     src/can-bus.cpp
     src/can-codec.cpp
+    src/can-log.cpp
+    src/devices.cpp
     src/rsm2000-integration.cpp
     src/grpc-ingress.cpp
     $<TARGET_OBJECTS:gateway-proto>

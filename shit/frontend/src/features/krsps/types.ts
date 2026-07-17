@@ -42,23 +42,38 @@ export interface GwConnection {
   error?: string;
 }
 
-// Адресация J1939 модуля CAN.
-export interface GwCanAddressing {
-  src_addr: number;
+// Одно сообщение на шине. Состав полей задан протоколом и не редактируется —
+// настраивается только адрес, из которого собирается 29-битный id, и разбор
+// (или отправка) сообщения целиком.
+export interface GwCanMessage {
+  key: 'tx_detections' | 'rx_gps' | 'rx_time';
+  title: string;
+  dir: 'tx' | 'rx';
+  priority: number;
+  pgn: number;
+  addr: number;
   dst_addr: number;
-  peer_addr: number;
-  tx_pgn: number;
-  tx_priority: number;
-  tx_dlc: number;
-  tx_period_ms: number;
+  enabled: boolean;
+  id: string;        // готовый 29-битный id, напр. "0x00EF0071"
+  pgn_hex: string;
+  addr_hex: string;
+}
+
+// Параметры выдачи кадра обнаружений.
+export interface GwCanTx {
+  continuous: boolean;   // слать по таймеру, а не только на новые обнаружения
+  period_ms: number;
+  dlc: number;
   payload_ttl_ms: number;
-  gps_pgn: number;
-  time_pgn: number;
-  tx_id: string;         // готовый 29-битный id, напр. "0x00EF0071"
-  gps_id: string;
-  time_id: string;
-  src_addr_hex: string;
-  peer_addr_hex: string;
+}
+
+// Вклад одной камеры в общую нагрузку.
+export interface GwCanPayloadCamera {
+  key: string;       // camera_id от media-center
+  bit: number;       // 0 — камеры нет в таблице соответствий
+  count: number;
+  active: boolean;
+  age_ms: number;    // -1 — кадров от этой камеры ещё не было
 }
 
 // Нагрузка, которая прямо сейчас уходит на шину.
@@ -66,19 +81,44 @@ export interface GwCanPayload {
   count: number;
   type: number;
   danger: number;
-  camera: number;
+  camera_mask: number;
+  camera_bits: string;   // поднятые биты как "1, 2"
   type_title: string;
   danger_title: string;
-  age_ms: number;        // -1 — кадров от media-center ещё не было
+  cameras: GwCanPayloadCamera[];
+  unmapped_cameras: number;   // кадры с камерой не из таблицы
+  passthrough_frames: number; // кадры из конфигураций без таблицы
 }
 
-// Что слышно от стороннего устройства (Садко).
-export interface GwCanRx {
-  gps: number;
-  time: number;
+// Текущее состояние одного типа сообщения — сводка над лентой.
+export interface GwCanSummary {
+  key: string;
+  title: string;
+  dir: 'tx' | 'rx';
+  enabled: boolean;
+  id: string;
+  count: number;
   errors: number;
-  other: number;
-  last_error: string;
+  data: string;      // байты как "02 01 04 01 FF FF FF FF"
+  note: string;      // расшифровка
+  age_ms: number;    // -1 — кадров этого типа ещё не было
+}
+
+// Запись ленты: каждый кадр шины с полным id и байтами.
+export interface GwCanLogRecord {
+  seq: number;
+  ts: number;
+  dir: 'tx' | 'rx';
+  id: string;
+  data: string;
+  note: string;
+  error?: string;
+}
+
+// Устройства, которые сервис видит на машине.
+export interface GwDevices {
+  can: Array<{ name: string; up: boolean; kind: 'can' | 'vcan' }>;
+  serial: Array<{ name: string }>;
 }
 
 export type GwRecordKind = 'frame' | 'heartbeat';
@@ -108,8 +148,8 @@ export interface GwStats {
   recent: GwMessageRecord[];
 }
 
-// Модуль доставки внутри активной конфигурации. addressing/payload/rx есть
-// только у CAN — страница рисует их, когда transport === 'can'.
+// Модуль доставки внутри активной конфигурации. messages/tx/payload/summaries/log
+// есть только у CAN — страница рисует их, когда transport === 'can'.
 export interface GwModule {
   id: string;            // "websocket" | "can"
   title: string;
@@ -118,9 +158,12 @@ export interface GwModule {
   protocol_versions: number[];
   connection: GwConnection;
   stats: GwStats;
-  addressing?: GwCanAddressing;
+  messages?: GwCanMessage[];
+  tx?: GwCanTx;
   payload?: GwCanPayload;
-  rx?: GwCanRx;
+  summaries?: GwCanSummary[];
+  log?: GwCanLogRecord[];
+  rx_other?: number;
 }
 
 // Полный снимок активной конфигурации со всеми её модулями (/status, /config).
@@ -160,6 +203,15 @@ export interface GwWsConfigPatch {
   heartbeat_sec?: number;
 }
 
+// Адрес сообщения в заплате настроек.
+export interface GwCanMessagePatch {
+  priority?: number;
+  pgn?: number;
+  addr?: number;
+  dst_addr?: number;
+  enabled?: boolean;
+}
+
 // Частичное обновление настроек CAN-модуля активной конфигурации.
 export interface GwCanConfigPatch {
   mode?: 'socketcan' | 'slcan';
@@ -167,16 +219,13 @@ export interface GwCanConfigPatch {
   device?: string;
   bitrate?: number;
   enabled?: boolean;
-  src_addr?: number;
-  dst_addr?: number;
-  peer_addr?: number;
-  tx_pgn?: number;
-  tx_priority?: number;
+  tx_continuous?: boolean;
   tx_period_ms?: number;
   tx_dlc?: number;
   payload_ttl_ms?: number;
-  gps_pgn?: number;
-  time_pgn?: number;
+  tx_detections?: GwCanMessagePatch;
+  rx_gps?: GwCanMessagePatch;
+  rx_time?: GwCanMessagePatch;
 }
 
 // ---------------------------------------------------------------- таблица
@@ -200,25 +249,34 @@ export interface GwTaxonomyRule {
   danger: number;
 }
 
+// Таблица одной конфигурации нейросети. Имена классов задаются конфигом модели
+// и осмысленны только внутри своей конфигурации, поэтому таблица у каждой своя.
+export interface GwTaxonomyConfig {
+  id: string;      // config_id, каким его шлёт media-center
+  title: string;
+  classes: GwTaxonomyRule[];
+  superclasses: GwTaxonomyRule[];
+}
+
+// Камера. Вне конфигураций: камера физическая, от модели не зависит.
 export interface GwTaxonomyCamera {
   key: string;    // camera_id, каким его шлёт media-center
   title: string;
-  id: number;     // номер камеры в протоколе: 1 или 2
+  bit: number;    // номер бита в байте камер, 1..8
+  mask?: number;  // 1 << (bit - 1) — считает шлюз
 }
 
 export interface GwTaxonomy {
   types: GwTaxonomyDictItem[];
   dangers: GwTaxonomyDictItem[];
-  classes: GwTaxonomyRule[];
-  superclasses: GwTaxonomyRule[];
+  configs: GwTaxonomyConfig[];
   cameras: GwTaxonomyCamera[];
   defaults: { type: number; danger: number };
 }
 
 // Секции заменяются целиком; отсутствующая остаётся как была.
 export interface GwTaxonomyPatch {
-  classes?: GwTaxonomyRule[];
-  superclasses?: GwTaxonomyRule[];
+  configs?: GwTaxonomyConfig[];
   cameras?: GwTaxonomyCamera[];
   defaults?: { type: number; danger: number };
 }

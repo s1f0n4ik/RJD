@@ -2,6 +2,7 @@
 #include "gateway/clock.h"
 #include "gateway/log.h"
 
+#include <algorithm>
 #include <cstdio>
 
 namespace varan {
@@ -13,16 +14,32 @@ namespace varan {
 
             const char* TAG = "module:can";
 
-            std::string hex_id(std::uint32_t id) {
-                char buf[16];
-                std::snprintf(buf, sizeof(buf), "0x%08X", id);
-                return buf;
-            }
-
             std::string hex_byte(int v) {
                 char buf[8];
                 std::snprintf(buf, sizeof(buf), "0x%02X", v & 0xFF);
                 return buf;
+            }
+
+            std::uint32_t id_of(const FCanMessageId& m) {
+                return make_j1939_id(m.priority, m.pgn, m.addr, m.dst_addr);
+            }
+
+            std::string coord(double v, const char* pos, const char* neg) {
+                char buf[32];
+                std::snprintf(buf, sizeof(buf), "%.4f° %s", v < 0 ? -v : v, v < 0 ? neg : pos);
+                return buf;
+            }
+
+            // Список камер маски как "1, 2" — на странице читается лучше, чем 0x03.
+            std::string mask_note(int mask) {
+                std::string out;
+                for (int b = 1; b <= 8; ++b) {
+                    if (mask & (1 << (b - 1))) {
+                        if (!out.empty()) out += ", ";
+                        out += std::to_string(b);
+                    }
+                }
+                return out;
             }
 
         } // namespace
@@ -34,7 +51,11 @@ namespace varan {
             , m_time(time_source)
             , m_config(std::move(config))
             , m_tx_timer(ioc)
-        {}
+        {
+            m_sum_tx = { "tx_detections", "Обнаружения", true, true, 0, 0, 0, 0, 0, {}, "" };
+            m_sum_gps = { "rx_gps", "Координаты", false, true, 0, 0, 0, 0, 0, {}, "" };
+            m_sum_time = { "rx_time", "Дата, время и скорость", false, true, 0, 0, 0, 0, 0, {}, "" };
+        }
 
         FCanConfig UCanModule::config() const {
             std::lock_guard<std::mutex> lock(m_mutex);
@@ -89,54 +110,123 @@ namespace varan {
             return m_bus && m_bus->connected();
         }
 
-        // Приём кадров с шины. Интересуют только сообщения Садко: по ним
-        // синхронизируются время и координаты всего сервиса.
+        // Приём кадров с шины. Интересуют только сообщения стороннего устройства:
+        // по ним синхронизируются время и координаты всего сервиса.
         void UCanModule::on_bus_frame(const FCanFrame& frame) {
             const FCanConfig cfg = config();
-            const FJ1939Id j = parse_j1939_id(frame.id);
+            const std::int64_t ts = now_ms();
 
-            if (j.src != cfg.peer_addr) {
+            const bool is_gps = cfg.rx_gps.enabled && frame.id == id_of(cfg.rx_gps);
+            const bool is_time = cfg.rx_time.enabled && frame.id == id_of(cfg.rx_time);
+
+            if (!is_gps && !is_time) {
+                // Чужой трафик на шине — норма, в ленту его не пишем, чтобы не
+                // топить в нём свои сообщения. Считаем, чтобы было видно жизнь.
                 m_rx_other.fetch_add(1);
                 return;
             }
 
             std::string err;
-            if (j.pgn == cfg.gps_pgn) {
+            if (is_gps) {
                 FCanGps gps;
                 if (!decode_gps_frame(frame, gps, err)) {
-                    m_rx_errors.fetch_add(1);
-                    std::lock_guard<std::mutex> lock(m_rx_mutex);
-                    m_rx_last_error = err;
+                    std::lock_guard<std::mutex> lock(m_sum_mutex);
+                    m_sum_gps.errors++;
+                    m_log.push(frame, false, ts, "", err);
                     return;
                 }
                 // Скорость приходит в сообщении времени, здесь её нет: берём ту,
                 // что уже известна источнику, чтобы не затирать нулём.
                 m_time.update_gps(gps.lat, gps.lon, m_time.snapshot_struct().speed);
-                m_rx_gps.fetch_add(1);
-                return;
-            }
 
-            if (j.pgn == cfg.time_pgn) {
-                FCanTime t;
-                if (!decode_time_frame(frame, t, err)) {
-                    m_rx_errors.fetch_add(1);
-                    std::lock_guard<std::mutex> lock(m_rx_mutex);
-                    m_rx_last_error = err;
-                    return;
+                const std::string note = coord(gps.lat, "N", "S") + " · " + coord(gps.lon, "E", "W");
+                {
+                    std::lock_guard<std::mutex> lock(m_sum_mutex);
+                    m_sum_gps.count++;
+                    m_sum_gps.id = frame.id;
+                    m_sum_gps.dlc = frame.dlc;
+                    m_sum_gps.data = frame.data;
+                    m_sum_gps.note = note;
+                    m_sum_gps.last_mono = mono_ms();
                 }
-                m_time.update_time(t.unix_ms);
-                // Скорость идёт вместе с временем, а координаты — отдельным
-                // сообщением: обновляем её, сохранив последние координаты.
-                const auto snap = m_time.snapshot_struct();
-                m_time.update_gps(snap.lat, snap.lon, t.speed);
-                m_rx_time.fetch_add(1);
+                m_log.push(frame, false, ts, note, "");
                 return;
             }
 
-            m_rx_other.fetch_add(1);
+            FCanTime t;
+            if (!decode_time_frame(frame, t, err)) {
+                std::lock_guard<std::mutex> lock(m_sum_mutex);
+                m_sum_time.errors++;
+                m_log.push(frame, false, ts, "", err);
+                return;
+            }
+            m_time.update_time(t.unix_ms);
+            // Скорость идёт вместе с временем, а координаты — отдельным
+            // сообщением: обновляем её, сохранив последние координаты.
+            const auto snap = m_time.snapshot_struct();
+            m_time.update_gps(snap.lat, snap.lon, t.speed);
+
+            char buf[96];
+            const std::time_t tt = static_cast<std::time_t>(t.unix_ms / 1000);
+            std::tm tm{};
+#if defined(_WIN32)
+            gmtime_s(&tm, &tt);
+#else
+            gmtime_r(&tt, &tm);
+#endif
+            std::snprintf(buf, sizeof(buf), "%02d.%02d.%04d %02d:%02d:%02d UTC · %.2f м/с",
+                tm.tm_mday, tm.tm_mon + 1, tm.tm_year + 1900,
+                tm.tm_hour, tm.tm_min, tm.tm_sec, t.speed);
+
+            {
+                std::lock_guard<std::mutex> lock(m_sum_mutex);
+                m_sum_time.count++;
+                m_sum_time.id = frame.id;
+                m_sum_time.dlc = frame.dlc;
+                m_sum_time.data = frame.data;
+                m_sum_time.note = buf;
+                m_sum_time.last_mono = mono_ms();
+            }
+            m_log.push(frame, false, ts, buf, "");
         }
 
-        // Кадр от media-center только обновляет нагрузку. Отправку делает таймер.
+        void UCanModule::expire_cameras_locked(const FCanConfig& cfg) {
+            const std::int64_t now = mono_ms();
+            for (auto& c : m_cameras) {
+                if (c.mono != 0 && (now - c.mono) > cfg.payload_ttl_ms) {
+                    // Камера замолчала: гасим её вклад, но саму запись оставляем —
+                    // страница должна показывать, что камера известна и молчит.
+                    c.count = 0;
+                    c.type = 0;
+                    c.danger = 0;
+                    c.mono = 0;
+                }
+            }
+        }
+
+        FCanDetectionPayload UCanModule::build_payload_locked(const FCanConfig&) const {
+            FCanDetectionPayload p;
+            for (const auto& c : m_cameras) {
+                if (c.mono == 0 || c.count == 0) {
+                    continue;
+                }
+                p.count += c.count;
+                if (c.bit >= 1 && c.bit <= 8) {
+                    p.camera_mask |= (1 << (c.bit - 1));
+                }
+                // Тип отдаём у обнаружения с самым высоким классом опасности: в
+                // четыре байта помещается только одно, и это должно быть самое
+                // опасное — по всем камерам сразу.
+                if (c.danger > p.danger) {
+                    p.danger = c.danger;
+                    p.type = c.type;
+                }
+            }
+            return p;
+        }
+
+        // Кадр от media-center обновляет вклад своей камеры. Отправку делает
+        // таймер, а при выключенной постоянной передаче — этот же вызов.
         FSubmitResult UCanModule::handle_frame(const FFrameMessage& msg) {
             FSubmitResult result;
             result.ver = msg.ver;
@@ -144,19 +234,27 @@ namespace varan {
 
             const std::int64_t ts_recv = now_ms();
             const int det_count = static_cast<int>(msg.dets.size());
+            const FCanConfig cfg = config();
 
-            FCanDetectionPayload p;
-            p.count = det_count;
-            p.camera = m_taxonomy.resolve_camera(msg.camera_id);
-
-            // Тип отдаём у обнаружения с самым высоким классом опасности: в четыре
-            // байта помещается только одно, и это должно быть самое опасное.
+            int type = 0, danger = 0;
+            bool passthrough = false;
             for (const auto& d : msg.dets) {
-                const auto r = m_taxonomy.resolve(d);
-                if (r.danger > p.danger) {
-                    p.danger = r.danger;
-                    p.type = r.type;
+                const auto r = m_taxonomy.resolve(msg.config_id, d);
+                passthrough = passthrough || r.passthrough;
+                if (r.danger > danger) {
+                    danger = r.danger;
+                    type = r.type;
                 }
+            }
+            if (passthrough) {
+                m_passthrough_frames.fetch_add(1);
+            }
+
+            const int bit = m_taxonomy.camera_bit(msg.camera_id);
+            if (bit == 0 && det_count > 0) {
+                // Камеры нет в таблице — бит ставить некуда. Обнаружения попадут
+                // в счётчик кадра, но какая камера сработала, приёмник не узнает.
+                m_unmapped_cameras.fetch_add(1);
             }
 
             if (!connected()) {
@@ -168,19 +266,89 @@ namespace varan {
 
             {
                 std::lock_guard<std::mutex> lock(m_payload_mutex);
-                m_payload = p;
-                m_payload_mono = mono_ms();
+                auto it = std::find_if(m_cameras.begin(), m_cameras.end(),
+                    [&](const FCameraState& c) { return c.key == msg.camera_id; });
+                if (it == m_cameras.end()) {
+                    m_cameras.push_back(FCameraState{ msg.camera_id, bit, 0, 0, 0, 0 });
+                    it = std::prev(m_cameras.end());
+                }
+                // Бит перечитываем каждый раз: таблицу могли поправить по REST
+                // уже после того, как камера впервые дала о себе знать.
+                it->bit = bit;
+                it->count = det_count;
+                it->type = type;
+                it->danger = danger;
+                it->mono = mono_ms();
+            }
 
-                m_pending = true;
-                m_pending_id = msg.id;
-                m_pending_ts = ts_recv;
-                m_pending_dets = det_count;
-                m_pending_image = !msg.image.empty();
+            m_stats.on_frame_sent(msg.id, ts_recv, msg.ver, det_count, cfg.tx_dlc, !msg.image.empty());
+
+            if (!cfg.tx_continuous) {
+                transmit(cfg, true);
             }
 
             result.status = ESubmitStatus::Accepted;
-            result.wire_size = config().tx_dlc;
+            result.wire_size = cfg.tx_dlc;
             return result;
+        }
+
+        void UCanModule::transmit(const FCanConfig& cfg, bool) {
+            if (!cfg.tx_detections.enabled) {
+                return;
+            }
+
+            std::shared_ptr<ICanBus> bus;
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                bus = m_bus;
+            }
+            // Пока шины нет, кадры не копим: на шину уходит только актуальное
+            // состояние, очередь тут не нужна.
+            if (!bus || !bus->connected()) {
+                return;
+            }
+
+            FCanDetectionPayload payload;
+            {
+                std::lock_guard<std::mutex> lock(m_payload_mutex);
+                expire_cameras_locked(cfg);
+                payload = build_payload_locked(cfg);
+            }
+
+            const FCanFrame frame = encode_detection_frame(
+                payload, cfg.tx_detections.priority, cfg.tx_detections.pgn,
+                cfg.tx_detections.addr, cfg.tx_detections.dst_addr, cfg.tx_dlc);
+
+            const std::int64_t ts = now_ms();
+            if (!bus->send(frame)) {
+                std::lock_guard<std::mutex> lock(m_sum_mutex);
+                m_sum_tx.errors++;
+                m_log.push(frame, true, ts, "",
+                    bus->last_error().empty() ? "can write failed" : bus->last_error());
+                return;
+            }
+
+            std::string note;
+            if (payload.count == 0) {
+                note = "обнаружений нет";
+            }
+            else {
+                note = std::to_string(payload.count) + " обн. · " +
+                    UTaxonomy::type_title(payload.type) + " · " +
+                    UTaxonomy::danger_title(payload.danger) +
+                    " · камеры " + mask_note(payload.camera_mask);
+            }
+
+            {
+                std::lock_guard<std::mutex> lock(m_sum_mutex);
+                m_sum_tx.count++;
+                m_sum_tx.id = frame.id;
+                m_sum_tx.dlc = frame.dlc;
+                m_sum_tx.data = frame.data;
+                m_sum_tx.note = note;
+                m_sum_tx.last_mono = mono_ms();
+            }
+            m_log.push(frame, true, ts, note, "");
         }
 
         void UCanModule::start_tx() {
@@ -194,62 +362,37 @@ namespace varan {
                 if (ec || !m_active.load()) {
                     return;
                 }
-
                 const FCanConfig cfg = config();
-
-                std::shared_ptr<ICanBus> bus;
-                {
-                    std::lock_guard<std::mutex> lock(m_mutex);
-                    bus = m_bus;
+                // Без постоянной передачи таймер только гасит протухшие камеры;
+                // сам кадр уходит из handle_frame по приходу обнаружений.
+                if (cfg.tx_continuous) {
+                    transmit(cfg, false);
                 }
-
-                // Пока шины нет, кадры не копим: на шину уходит только актуальное
-                // состояние, очередь тут не нужна.
-                if (bus && bus->connected()) {
-                    FCanDetectionPayload payload;
-                    bool pending = false;
-                    std::int64_t pid = 0, pts = 0;
-                    int pdets = 0;
-                    bool pimage = false;
-
-                    {
-                        std::lock_guard<std::mutex> lock(m_payload_mutex);
-                        // Протухшую нагрузку обнуляем: поток обнаружений встал, и
-                        // старая тревога на шине уже не соответствует реальности.
-                        if (m_payload_mono != 0 &&
-                            (mono_ms() - m_payload_mono) > cfg.payload_ttl_ms) {
-                            m_payload = FCanDetectionPayload{};
-                            m_payload_mono = 0;
-                        }
-                        payload = m_payload;
-
-                        pending = m_pending;
-                        pid = m_pending_id;
-                        pts = m_pending_ts;
-                        pdets = m_pending_dets;
-                        pimage = m_pending_image;
-                        m_pending = false;
-                    }
-
-                    const FCanFrame frame = encode_detection_frame(
-                        payload, cfg.tx_priority, cfg.tx_pgn, cfg.src_addr, cfg.dst_addr, cfg.tx_dlc);
-
-                    if (bus->send(frame)) {
-                        if (pending) {
-                            m_stats.on_frame_sent(pid, pts, 0, pdets, frame.dlc, pimage);
-                        }
-                        else {
-                            m_stats.on_frame_repeated(frame.dlc);
-                        }
-                    }
-                    else if (pending) {
-                        m_stats.on_frame_rejected(pid, pts, 0, pdets, bus->last_error().empty()
-                            ? "can write failed" : bus->last_error());
-                    }
+                else {
+                    std::lock_guard<std::mutex> lock(m_payload_mutex);
+                    expire_cameras_locked(cfg);
                 }
-
                 start_tx();
             });
+        }
+
+        std::vector<UCanLog::FSummary> UCanModule::summaries() const {
+            const FCanConfig cfg = config();
+            std::lock_guard<std::mutex> lock(m_sum_mutex);
+
+            UCanLog::FSummary tx = m_sum_tx;
+            tx.enabled = cfg.tx_detections.enabled;
+            tx.id = id_of(cfg.tx_detections);
+
+            UCanLog::FSummary gps = m_sum_gps;
+            gps.enabled = cfg.rx_gps.enabled;
+            gps.id = id_of(cfg.rx_gps);
+
+            UCanLog::FSummary tm = m_sum_time;
+            tm.enabled = cfg.rx_time.enabled;
+            tm.id = id_of(cfg.rx_time);
+
+            return { tx, gps, tm };
         }
 
         boost::json::object UCanModule::to_json() const {
@@ -275,33 +418,53 @@ namespace varan {
                 : (cfg.mode == "slcan" ? cfg.device : cfg.iface);
             connection["error"] = bus ? bus->last_error() : std::string();
 
-            // Адресация J1939 — и числами, и готовым id: на шине искать проще по id.
-            json::object addressing;
-            addressing["src_addr"] = cfg.src_addr;
-            addressing["dst_addr"] = cfg.dst_addr;
-            addressing["peer_addr"] = cfg.peer_addr;
-            addressing["tx_pgn"] = cfg.tx_pgn;
-            addressing["tx_priority"] = cfg.tx_priority;
-            addressing["tx_dlc"] = cfg.tx_dlc;
-            addressing["tx_period_ms"] = cfg.tx_period_ms;
-            addressing["payload_ttl_ms"] = cfg.payload_ttl_ms;
-            addressing["gps_pgn"] = cfg.gps_pgn;
-            addressing["time_pgn"] = cfg.time_pgn;
-            addressing["tx_id"] = hex_id(make_j1939_id(cfg.tx_priority, cfg.tx_pgn, cfg.src_addr, cfg.dst_addr));
-            addressing["gps_id"] = hex_id(make_j1939_id(6, cfg.gps_pgn, cfg.peer_addr, 0));
-            addressing["time_id"] = hex_id(make_j1939_id(6, cfg.time_pgn, cfg.peer_addr, 0));
-            addressing["src_addr_hex"] = hex_byte(cfg.src_addr);
-            addressing["peer_addr_hex"] = hex_byte(cfg.peer_addr);
+            // Сообщения: адресация целиком, чтобы страница собрала раздел без
+            // догадок, плюс готовый id — на шине искать проще по нему.
+            auto message_json = [](const char* key, const char* title, bool tx,
+                const FCanMessageId& m) {
+                    json::object o;
+                    o["key"] = key;
+                    o["title"] = title;
+                    o["dir"] = tx ? "tx" : "rx";
+                    o["priority"] = m.priority;
+                    o["pgn"] = m.pgn;
+                    o["addr"] = m.addr;
+                    o["dst_addr"] = m.dst_addr;
+                    o["enabled"] = m.enabled;
+                    o["id"] = UCanLog::hex_id(id_of(m));
+                    o["pgn_hex"] = [&] {
+                        char b[8]; std::snprintf(b, sizeof(b), "0x%04X", m.pgn & 0xFFFF); return std::string(b);
+                    }();
+                    o["addr_hex"] = hex_byte(m.addr);
+                    return o;
+                };
 
-            // Текущая нагрузка — то, что прямо сейчас уходит на шину. Расшифровку
-            // берём из общей таблицы, чтобы на странице были названия, а не числа.
+            json::array messages;
+            messages.push_back(message_json("tx_detections", "Обнаружения", true, cfg.tx_detections));
+            messages.push_back(message_json("rx_gps", "Координаты", false, cfg.rx_gps));
+            messages.push_back(message_json("rx_time", "Дата, время и скорость", false, cfg.rx_time));
+
+            json::object tx;
+            tx["continuous"] = cfg.tx_continuous;
+            tx["period_ms"] = cfg.tx_period_ms;
+            tx["dlc"] = cfg.tx_dlc;
+            tx["payload_ttl_ms"] = cfg.payload_ttl_ms;
+
+            // Текущая нагрузка — то, что прямо сейчас уходит на шину, вместе с
+            // вкладом каждой камеры: по нему видно, чей бит поднят и почему.
             FCanDetectionPayload payload;
-            std::int64_t age = -1;
+            json::array cams;
             {
                 std::lock_guard<std::mutex> lock(m_payload_mutex);
-                payload = m_payload;
-                if (m_payload_mono != 0) {
-                    age = mono_ms() - m_payload_mono;
+                payload = build_payload_locked(cfg);
+                for (const auto& c : m_cameras) {
+                    json::object o;
+                    o["key"] = c.key;
+                    o["bit"] = c.bit;
+                    o["count"] = c.count;
+                    o["active"] = c.mono != 0 && c.count > 0;
+                    o["age_ms"] = c.mono ? (mono_ms() - c.mono) : -1;
+                    cams.push_back(std::move(o));
                 }
             }
 
@@ -309,31 +472,32 @@ namespace varan {
             pj["count"] = payload.count;
             pj["type"] = payload.type;
             pj["danger"] = payload.danger;
-            pj["camera"] = payload.camera;
+            pj["camera_mask"] = payload.camera_mask;
+            pj["camera_bits"] = mask_note(payload.camera_mask);
             pj["type_title"] = payload.type ? UTaxonomy::type_title(payload.type) : std::string("—");
             pj["danger_title"] = payload.danger ? UTaxonomy::danger_title(payload.danger) : std::string("—");
-            pj["age_ms"] = age;
+            pj["cameras"] = std::move(cams);
+            pj["unmapped_cameras"] = m_unmapped_cameras.load();
+            pj["passthrough_frames"] = m_passthrough_frames.load();
 
-            json::object rx;
-            rx["gps"] = m_rx_gps.load();
-            rx["time"] = m_rx_time.load();
-            rx["errors"] = m_rx_errors.load();
-            rx["other"] = m_rx_other.load();
-            {
-                std::lock_guard<std::mutex> lock(m_rx_mutex);
-                rx["last_error"] = m_rx_last_error;
+            json::array summaries;
+            for (const auto& s : this->summaries()) {
+                summaries.push_back(UCanLog::summary_json(s));
             }
 
             json::object m;
             m["id"] = id();
             m["title"] = title();
             m["transport"] = transport();
-            m["heartbeat_sec"] = 0;  // у CAN своя периодика — tx_period_ms
+            m["heartbeat_sec"] = 0;  // у CAN своя периодика — tx.period_ms
             m["protocol_versions"] = json::array{};
             m["connection"] = std::move(connection);
-            m["addressing"] = std::move(addressing);
+            m["messages"] = std::move(messages);
+            m["tx"] = std::move(tx);
             m["payload"] = std::move(pj);
-            m["rx"] = std::move(rx);
+            m["summaries"] = std::move(summaries);
+            m["log"] = m_log.to_json();
+            m["rx_other"] = m_rx_other.load();
             m["stats"] = m_stats.to_json();
             return m;
         }
@@ -346,10 +510,17 @@ namespace varan {
 
             {
                 std::lock_guard<std::mutex> lock(m_mutex);
+                const bool bus_changed =
+                    m_config.mode != updated.mode ||
+                    m_config.iface != updated.iface ||
+                    m_config.device != updated.device ||
+                    m_config.bitrate != updated.bitrate ||
+                    m_config.enabled != updated.enabled;
+
                 m_config = updated;
-                // Режим, устройство и скорость меняют саму шину, поэтому её проще
-                // поднять заново, чем править на ходу.
-                if (m_active.load()) {
+                // Шину дёргаем только когда поменялось то, что её определяет:
+                // правка PGN не должна ронять живое соединение.
+                if (m_active.load() && bus_changed) {
                     rebuild_bus_locked();
                 }
             }

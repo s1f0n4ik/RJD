@@ -4,8 +4,11 @@ FROM node:20-alpine AS build
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm install --legacy-peer-deps
-RUN npm install react-simple-keyboard
+
+# npm ci ставит ровно дерево из lockfile. Кеш-маунт держит скачанные пакеты
+# между сборками, поэтому сеть не дёргается повторно.
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --legacy-peer-deps
 
 COPY . .
 RUN npm run build

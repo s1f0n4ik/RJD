@@ -42,13 +42,8 @@ namespace varan {
                 return s;
             }
 
-            bool valid_type(int t) {
-                return t >= 1 && t <= 8;
-            }
-
-            bool valid_danger(int d) {
-                return d >= 1 && d <= 4;
-            }
+            bool valid_type(int t) { return t >= 1 && t <= 8; }
+            bool valid_danger(int d) { return d >= 1 && d <= 4; }
 
             json::object rule_json(const UTaxonomy::FRule& r) {
                 json::object o;
@@ -61,29 +56,10 @@ namespace varan {
 
         } // namespace
 
-        // Значения по умолчанию покрывают суперклассы, которые сейчас отдаёт конфиг
-        // модели (human/animal), и восемь канонических групп протокола. Реальные
-        // имена классов зависят от модели, поэтому список классов пуст: он
-        // заполняется на странице под конкретную модель.
-        UTaxonomy::UTaxonomy() {
-            m_superclasses = {
-                { "human",     "Человек",                            1, 4 },
-                { "person",    "Человек",                            1, 4 },
-                { "animal",    "Животное",                           8, 3 },
-                { "tool",      "Инструмент",                         2, 2 },
-                { "metal",     "Металлический предмет",              3, 3 },
-                { "stone",     "Каменные и бетонные материалы",      4, 2 },
-                { "wood",      "Древесные материалы",                5, 2 },
-                { "polymer",   "Полимерные и текстильные материалы", 6, 2 },
-                { "seasonal",  "Сезонные и погодные объекты",        7, 1 },
-                { "rsm",       "Предметы работ РСМ",                 8, 1 },
-            };
-
-            m_cameras = {
-                { "path", "Камера контроля опасности на пути", 1 },
-                { "work", "Камера контроля рабочей зоны",      2 },
-            };
-        }
+        // Из коробки таблиц нет вовсе: имена классов зависят от конфига модели,
+        // угадывать их за пользователя нечем. Пока таблицы не заведены, модуль
+        // работает passthrough — этого достаточно, чтобы шина ожила сразу.
+        UTaxonomy::UTaxonomy() = default;
 
         const UTaxonomy::FRule* UTaxonomy::find(const std::vector<FRule>& rules, const std::string& key) {
             if (key.empty()) {
@@ -98,21 +74,52 @@ namespace varan {
             return nullptr;
         }
 
-        UTaxonomy::FResolved UTaxonomy::resolve(const FDetection& det) const {
+        const UTaxonomy::FConfigTable* UTaxonomy::find_config(const std::string& config_id) const {
+            if (config_id.empty()) {
+                return nullptr;
+            }
+            const std::string needle = lower(config_id);
+            for (const auto& c : m_configs) {
+                if (lower(c.id) == needle) {
+                    return &c;
+                }
+            }
+            return nullptr;
+        }
+
+        bool UTaxonomy::has_config(const std::string& config_id) const {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            return find_config(config_id) != nullptr;
+        }
+
+        UTaxonomy::FResolved UTaxonomy::resolve(const std::string& config_id, const FDetection& det) const {
             std::lock_guard<std::mutex> lock(m_mutex);
 
             FResolved out;
+            const FConfigTable* cfg = find_config(config_id);
+
+            if (!cfg) {
+                // Таблицы нет — переводить имена нечем. Берём то, что пришло по
+                // gRPC: числовой id класса как тип. Опасность модель не отдаёт,
+                // поэтому она из умолчаний.
+                out.passthrough = true;
+                out.type = valid_type(det.cid) ? det.cid : m_default_type;
+                out.danger = m_default_danger;
+                out.type_title = type_title(out.type);
+                out.danger_title = danger_title(out.danger);
+                return out;
+            }
 
             // Класс перекрывает суперкласс, но только теми полями, которые в нём
             // заданы: правило класса может уточнять лишь опасность, оставляя тип
             // от группы.
-            if (const FRule* c = find(m_classes, det.cls)) {
+            if (const FRule* c = find(cfg->classes, det.cls)) {
                 if (valid_type(c->type))     out.type = c->type;
                 if (valid_danger(c->danger)) out.danger = c->danger;
             }
 
             if (det.scls) {
-                if (const FRule* s = find(m_superclasses, *det.scls)) {
+                if (const FRule* s = find(cfg->superclasses, *det.scls)) {
                     if (out.type == 0 && valid_type(s->type))       out.type = s->type;
                     if (out.danger == 0 && valid_danger(s->danger)) out.danger = s->danger;
                 }
@@ -126,7 +133,7 @@ namespace varan {
             return out;
         }
 
-        int UTaxonomy::resolve_camera(const std::string& camera_id) const {
+        int UTaxonomy::camera_bit(const std::string& camera_id) const {
             std::lock_guard<std::mutex> lock(m_mutex);
             if (camera_id.empty()) {
                 return 0;
@@ -134,7 +141,7 @@ namespace varan {
             const std::string needle = lower(camera_id);
             for (const auto& c : m_cameras) {
                 if (lower(c.key) == needle) {
-                    return c.id;
+                    return c.bit;
                 }
             }
             return 0;
@@ -168,17 +175,29 @@ namespace varan {
                 dangers.push_back(json::object{ {"id", d}, {"title", danger_title(d)} });
             }
 
-            json::array classes;
-            for (const auto& r : m_classes) {
-                classes.push_back(rule_json(r));
+            json::array configs;
+            for (const auto& c : m_configs) {
+                json::array classes;
+                for (const auto& r : c.classes) {
+                    classes.push_back(rule_json(r));
+                }
+                json::array supers;
+                for (const auto& r : c.superclasses) {
+                    supers.push_back(rule_json(r));
+                }
+                json::object o;
+                o["id"] = c.id;
+                o["title"] = c.title;
+                o["classes"] = std::move(classes);
+                o["superclasses"] = std::move(supers);
+                configs.push_back(std::move(o));
             }
-            json::array superclasses;
-            for (const auto& r : m_superclasses) {
-                superclasses.push_back(rule_json(r));
-            }
+
             json::array cameras;
             for (const auto& c : m_cameras) {
-                cameras.push_back(json::object{ {"key", c.key}, {"title", c.title}, {"id", c.id} });
+                cameras.push_back(json::object{
+                    {"key", c.key}, {"title", c.title}, {"bit", c.bit},
+                    {"mask", 1 << (c.bit - 1)} });
             }
 
             json::object defaults;
@@ -188,8 +207,7 @@ namespace varan {
             json::object o;
             o["types"] = std::move(types);
             o["dangers"] = std::move(dangers);
-            o["classes"] = std::move(classes);
-            o["superclasses"] = std::move(superclasses);
+            o["configs"] = std::move(configs);
             o["cameras"] = std::move(cameras);
             o["defaults"] = std::move(defaults);
             return o;
@@ -250,6 +268,60 @@ namespace varan {
             return true;
         }
 
+        bool UTaxonomy::parse_configs(const json::value& v, std::vector<FConfigTable>& out, std::string& err) {
+            if (!v.is_array()) {
+                err = "expected array of config tables";
+                return false;
+            }
+            std::vector<FConfigTable> parsed;
+            for (const auto& item : v.as_array()) {
+                if (!item.is_object()) {
+                    err = "config table must be an object";
+                    return false;
+                }
+                const auto& o = item.as_object();
+
+                FConfigTable c;
+                if (auto* k = o.if_contains("id"); k && k->is_string()) {
+                    c.id = json::value_to<std::string>(*k);
+                }
+                if (c.id.empty()) {
+                    err = "config table requires non-empty 'id'";
+                    return false;
+                }
+                if (auto* t = o.if_contains("title"); t && t->is_string()) {
+                    c.title = json::value_to<std::string>(*t);
+                }
+                if (auto* r = o.if_contains("classes")) {
+                    if (!parse_rules(*r, c.classes, err)) {
+                        err = "config '" + c.id + "': " + err;
+                        return false;
+                    }
+                }
+                if (auto* r = o.if_contains("superclasses")) {
+                    if (!parse_rules(*r, c.superclasses, err)) {
+                        err = "config '" + c.id + "': " + err;
+                        return false;
+                    }
+                }
+                parsed.push_back(std::move(c));
+            }
+
+            // Две таблицы на один config_id — это молча неработающая вторая:
+            // искать будем первую, а на странице обе выглядят настроенными.
+            for (std::size_t i = 0; i < parsed.size(); ++i) {
+                for (std::size_t j = i + 1; j < parsed.size(); ++j) {
+                    if (lower(parsed[i].id) == lower(parsed[j].id)) {
+                        err = "duplicate config table '" + parsed[j].id + "'";
+                        return false;
+                    }
+                }
+            }
+
+            out = std::move(parsed);
+            return true;
+        }
+
         bool UTaxonomy::parse_cameras(const json::value& v, std::vector<FCamera>& out, std::string& err) {
             if (!v.is_array()) {
                 err = "expected array of cameras";
@@ -275,20 +347,37 @@ namespace varan {
                     c.title = json::value_to<std::string>(*t);
                 }
                 try {
-                    if (auto* i = o.if_contains("id"); i && !i->is_null()) {
-                        c.id = i->to_number<int>();
+                    if (auto* i = o.if_contains("bit"); i && !i->is_null()) {
+                        c.bit = i->to_number<int>();
                     }
                 }
                 catch (const std::exception& e) {
                     err = std::string("camera '") + c.key + "': " + e.what();
                     return false;
                 }
-                if (c.id < 1 || c.id > 2) {
-                    err = "camera '" + c.key + "': id must be 1 or 2";
+                if (c.bit < 1 || c.bit > 8) {
+                    err = "camera '" + c.key + "': bit must be 1..8";
                     return false;
                 }
                 parsed.push_back(std::move(c));
             }
+
+            // Один бит на две камеры — обнаружения слились бы в одну, и понять
+            // по кадру, какая камера сработала, стало бы невозможно.
+            for (std::size_t i = 0; i < parsed.size(); ++i) {
+                for (std::size_t j = i + 1; j < parsed.size(); ++j) {
+                    if (parsed[i].bit == parsed[j].bit) {
+                        err = "cameras '" + parsed[i].key + "' and '" + parsed[j].key +
+                            "' share bit " + std::to_string(parsed[i].bit);
+                        return false;
+                    }
+                    if (lower(parsed[i].key) == lower(parsed[j].key)) {
+                        err = "duplicate camera '" + parsed[j].key + "'";
+                        return false;
+                    }
+                }
+            }
+
             out = std::move(parsed);
             return true;
         }
@@ -297,18 +386,13 @@ namespace varan {
             // Разбираем всё во временные значения и подменяем только после того,
             // как вся заплата признана валидной: иначе таблица останется наполовину
             // обновлённой и обнаружения поедут не в тот тип.
-            std::vector<FRule> classes;
-            std::vector<FRule> superclasses;
+            std::vector<FConfigTable> configs;
             std::vector<FCamera> cameras;
-            bool has_classes = false, has_superclasses = false, has_cameras = false;
+            bool has_configs = false, has_cameras = false;
 
-            if (auto* v = patch.if_contains("classes")) {
-                if (!parse_rules(*v, classes, err)) return false;
-                has_classes = true;
-            }
-            if (auto* v = patch.if_contains("superclasses")) {
-                if (!parse_rules(*v, superclasses, err)) return false;
-                has_superclasses = true;
+            if (auto* v = patch.if_contains("configs")) {
+                if (!parse_configs(*v, configs, err)) return false;
+                has_configs = true;
             }
             if (auto* v = patch.if_contains("cameras")) {
                 if (!parse_cameras(*v, cameras, err)) return false;
@@ -340,9 +424,8 @@ namespace varan {
 
             {
                 std::lock_guard<std::mutex> lock(m_mutex);
-                if (has_classes)      m_classes = std::move(classes);
-                if (has_superclasses) m_superclasses = std::move(superclasses);
-                if (has_cameras)      m_cameras = std::move(cameras);
+                if (has_configs) m_configs = std::move(configs);
+                if (has_cameras) m_cameras = std::move(cameras);
                 if (has_defaults) {
                     if (def_type != 0)   m_default_type = def_type;
                     if (def_danger != 0) m_default_danger = def_danger;
