@@ -1,6 +1,7 @@
 #include "gateway/rsm2000-integration.h"
-#include "gateway/frame-codec-v1.h"
 #include "gateway/log.h"
+
+#include <algorithm>
 
 namespace varan {
     namespace gateway {
@@ -11,145 +12,110 @@ namespace varan {
             const char* TAG = "integration:rsm-2000";
         }
 
-        URsm2000Integration::URsm2000Integration(boost::asio::io_context& ioc, FWsConfig ws, int heartbeat_sec)
-            : m_ioc(ioc)
-            , m_heartbeat_timer(ioc)
-            , m_heartbeat_sec(heartbeat_sec)
+        URsm2000Integration::URsm2000Integration(boost::asio::io_context& ioc, FWsConfig ws,
+            FCanConfig can, int heartbeat_sec, const UTaxonomy& taxonomy, UTimeSource& time_source)
         {
-            m_registry.register_codec(std::make_shared<UFrameCodecV1>());
-            m_ws = std::make_shared<UWsTransport>(m_ioc, std::move(ws));
+            m_modules.push_back(std::make_shared<UWsModule>(ioc, std::move(ws), heartbeat_sec));
+            m_modules.push_back(std::make_shared<UCanModule>(ioc, std::move(can), taxonomy, time_source));
+        }
+
+        std::shared_ptr<IModule> URsm2000Integration::find_module(const std::string& id) const {
+            for (const auto& m : m_modules) {
+                if (m->id() == id) {
+                    return m;
+                }
+            }
+            return nullptr;
         }
 
         void URsm2000Integration::start() {
-            if (m_active.exchange(true)) {
-                return;
+            for (const auto& m : m_modules) {
+                m->start();
             }
-            m_ws->connect();
-            // Таймер живёт на m_ioc; трогаем его только из потока этого ioc, чтобы
-            // не ловить гонку при вызове start() из REST-потока.
-            boost::asio::post(m_ioc, [this] { start_heartbeat(); });
             ULog::info(TAG, "Started");
         }
 
         void URsm2000Integration::stop() {
-            if (!m_active.exchange(false)) {
-                return;
+            for (const auto& m : m_modules) {
+                m->stop();
             }
-            boost::asio::post(m_ioc, [this] { m_heartbeat_timer.cancel(); });
-            m_ws->disconnect();
             ULog::info(TAG, "Stopped");
         }
 
         bool URsm2000Integration::connected() const {
-            return m_ws->connected();
+            return std::any_of(m_modules.begin(), m_modules.end(),
+                [](const auto& m) { return m->connected(); });
         }
 
-        FSubmitResult URsm2000Integration::handle_frame(const FFrameMessage& msg) {
-            FSubmitResult result;
-            result.ver = msg.ver;
-
-            const std::int64_t ts_recv = now_ms();
-            const int det_count = static_cast<int>(msg.dets.size());
-
-            auto codec = m_registry.find(msg.ver);
-            if (!codec) {
-                result.status = ESubmitStatus::UnsupportedVersion;
-                result.error = "unsupported message version";
-                result.supported = m_registry.versions();
-                m_stats.on_frame_rejected(msg.id, ts_recv, msg.ver, det_count, result.error);
-                return result;
-            }
-
-            auto encoded = codec->encode_frame(msg);
-            if (!encoded.ok) {
-                result.status = ESubmitStatus::EncodeError;
-                result.error = encoded.error;
-                m_stats.on_frame_rejected(msg.id, ts_recv, msg.ver, det_count, result.error);
-                return result;
-            }
-
-            if (!m_ws->connected()) {
-                result.status = ESubmitStatus::NotConnected;
-                result.error = "websocket not connected";
-                m_stats.on_frame_rejected(msg.id, ts_recv, msg.ver, det_count, result.error);
-                return result;
-            }
-
-            const std::int64_t wire_size = static_cast<std::int64_t>(encoded.wire.size());
-            m_ws->send(encoded.wire, encoded.binary);
-            m_last_send_ms = now_ms();
-
-            m_stats.on_frame_sent(msg.id, ts_recv, msg.ver, det_count, wire_size, !msg.image.empty());
-
-            result.status = ESubmitStatus::Accepted;
-            result.transport = m_ws->name();
-            result.wire_size = wire_size;
-            return result;
-        }
-
-        void URsm2000Integration::start_heartbeat() {
-            const int period = m_heartbeat_sec.load();
-            if (period <= 0 || !m_active.load()) {
-                return;
-            }
-
-            m_heartbeat_timer.expires_after(std::chrono::seconds(period));
-            m_heartbeat_timer.async_wait([this, period](const boost::system::error_code& ec) {
-                if (ec || !m_active.load()) {
-                    return;
-                }
-                // Heartbeat только при живом соединении и простое канала period секунд.
-                if (m_ws->connected()) {
-                    const std::int64_t idle = now_ms() - m_last_send_ms.load();
-                    if (idle >= static_cast<std::int64_t>(period) * 1000) {
-                        auto versions = m_registry.versions();
-                        if (!versions.empty()) {
-                            auto codec = m_registry.find(versions.back());
-                            const std::int64_t ts = now_ms();
-                            std::string wire = codec->encode_heartbeat(ts);
-                            const std::int64_t wire_size = static_cast<std::int64_t>(wire.size());
-                            m_ws->send(wire, false);
-                            m_last_send_ms = ts;
-                            m_stats.on_heartbeat_sent(ts, versions.back(), wire_size);
-                        }
+        std::vector<int> URsm2000Integration::protocol_versions() const {
+            std::vector<int> all;
+            for (const auto& m : m_modules) {
+                for (int v : m->protocol_versions()) {
+                    if (std::find(all.begin(), all.end(), v) == all.end()) {
+                        all.push_back(v);
                     }
                 }
-                start_heartbeat();
-            });
+            }
+            std::sort(all.begin(), all.end());
+            return all;
         }
 
-        boost::json::object URsm2000Integration::module_json() const {
-            auto cfg = m_ws->config();
+        // Кадр уходит во все модули: WebSocket и CAN — независимые каналы, и
+        // молчание одного не должно мешать другому. Ответ ingress'у сводим так:
+        // доставка хотя бы одним каналом — это успех, потому что media-center по
+        // этому ответу решает только, слать ли дальше.
+        FSubmitResult URsm2000Integration::handle_frame(const FFrameMessage& msg) {
+            FSubmitResult combined;
+            combined.ver = msg.ver;
 
-            json::object connection;
-            connection["connected"] = m_ws->connected();
-            connection["enabled"] = cfg.enabled;
-            connection["url"] = "ws://" + cfg.host + ":" + cfg.port + cfg.target;
-            connection["host"] = cfg.host;
-            connection["port"] = cfg.port;
-            connection["target"] = cfg.target;
+            bool any_accepted = false;
+            std::string transports;
+            std::string errors;
+            bool all_unsupported = true;
 
-            json::array versions;
-            for (int v : m_registry.versions()) {
-                versions.push_back(v);
+            for (const auto& m : m_modules) {
+                const FSubmitResult r = m->handle_frame(msg);
+
+                if (r.status == ESubmitStatus::Accepted) {
+                    any_accepted = true;
+                    all_unsupported = false;
+                    combined.wire_size += r.wire_size;
+                    if (!transports.empty()) transports += "+";
+                    transports += r.transport.empty() ? m->transport() : r.transport;
+                    continue;
+                }
+
+                if (r.status != ESubmitStatus::UnsupportedVersion) {
+                    all_unsupported = false;
+                }
+                if (!errors.empty()) errors += "; ";
+                errors += m->id() + ": " + r.error;
+
+                if (r.status == ESubmitStatus::UnsupportedVersion && combined.supported.empty()) {
+                    combined.supported = r.supported;
+                }
             }
 
-            json::object m;
-            m["id"] = "websocket";
-            m["title"] = "WebSocket";
-            m["transport"] = "websocket";
-            m["heartbeat_sec"] = m_heartbeat_sec.load();
-            m["protocol_versions"] = std::move(versions);
-            m["connection"] = std::move(connection);
-            m["stats"] = m_stats.to_json();
-            return m;
+            if (any_accepted) {
+                combined.status = ESubmitStatus::Accepted;
+                combined.transport = transports;
+                return combined;
+            }
+
+            // Ни один канал не взял кадр. Версию протокола выделяем отдельно:
+            // media-center по ней понимает, что дело не в связи, а в контракте.
+            combined.status = all_unsupported
+                ? ESubmitStatus::UnsupportedVersion
+                : ESubmitStatus::NotConnected;
+            combined.error = errors.empty() ? "no delivery modules" : errors;
+            return combined;
         }
 
-        // Конверт конфигурации: перечень её модулей. Сейчас модуль один (WebSocket);
-        // при добавлении CAN/Modbus в набор конфигурации массив modules расширяется.
         boost::json::object URsm2000Integration::config_json() const {
             json::array modules;
-            modules.push_back(module_json());
+            for (const auto& m : m_modules) {
+                modules.push_back(m->to_json());
+            }
 
             json::object o;
             o["id"] = id();
@@ -161,26 +127,6 @@ namespace varan {
 
         boost::json::object URsm2000Integration::status_json() const {
             return config_json();
-        }
-
-        bool URsm2000Integration::apply_config(const boost::json::object& patch, std::string& err) {
-            FWsConfig updated = m_ws->config();
-            if (!apply_json(updated, patch, err)) {
-                return false;
-            }
-            if (auto* v = patch.if_contains("heartbeat_sec")) {
-                try {
-                    m_heartbeat_sec = static_cast<int>(v->to_number<int>());
-                }
-                catch (const std::exception& e) {
-                    err = e.what();
-                    return false;
-                }
-            }
-
-            m_ws->reconfigure(updated);
-            ULog::info(TAG, "Reconfigured -> ws://" + updated.host + ":" + updated.port + updated.target);
-            return true;
         }
 
     } // namespace gateway

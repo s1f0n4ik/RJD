@@ -8,7 +8,7 @@
 #include <cstdint>
 
 namespace varan {
-namespace neural {
+namespace gateway {
 
     // Семантика кадра для отправки в message-gateway. Без protobuf/gRPC-типов,
     // чтобы слот и загрузчик не тянули зависимости gRPC — трансляцию в proto
@@ -58,5 +58,5 @@ namespace neural {
     // простановки времени в сообщении шлюзу.
     using FGatewayTimeProvider = std::function<FGatewayTimeGps()>;
 
-} // namespace neural
+} // namespace gateway
 } // namespace varan

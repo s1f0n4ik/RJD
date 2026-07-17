@@ -15,6 +15,7 @@
 #include "gateway/frame-sink.h"
 #include "gateway/integration.h"
 #include "gateway/timesource.h"
+#include "gateway/taxonomy.h"
 
 namespace varan {
     namespace gateway {
@@ -53,12 +54,18 @@ namespace varan {
             URouter::FResponse handle_select_integration(const URouter::FRequest& req);
             URouter::FResponse handle_status(const URouter::FRequest& req);
             URouter::FResponse handle_get_config(const URouter::FRequest& req);
-            URouter::FResponse handle_put_ws_config(const URouter::FRequest& req);
+            // Настройки конкретного модуля активной конфигурации. Роутер путей с
+            // параметрами не умеет, поэтому id модуля приходит из замыкания.
+            URouter::FResponse handle_put_module_config(const URouter::FRequest& req,
+                const std::string& module_id);
+            URouter::FResponse handle_module_connect(const URouter::FRequest& req, bool connect);
             URouter::FResponse handle_ws_connect(const URouter::FRequest& req);
             URouter::FResponse handle_ws_disconnect(const URouter::FRequest& req);
             URouter::FResponse handle_ws_status(const URouter::FRequest& req);
             URouter::FResponse handle_versions(const URouter::FRequest& req);
             URouter::FResponse handle_time(const URouter::FRequest& req);
+            URouter::FResponse handle_get_taxonomy(const URouter::FRequest& req);
+            URouter::FResponse handle_put_taxonomy(const URouter::FRequest& req);
 
         private:
             FGatewayConfig m_config;
@@ -72,6 +79,11 @@ namespace varan {
             std::shared_ptr<IIntegration> m_active;
             mutable std::mutex m_active_mutex;
 
+            // Общие для всего шлюза: таблица соответствий (её применяют модули всех
+            // интеграций) и источник времени/GPS (его наполняет модуль CAN).
+            // Живут здесь, а не внутри интеграции, потому что настраиваются один
+            // раз и переживают переключение конфигурации.
+            UTaxonomy m_taxonomy;
             UTimeSource m_time;
 
             std::unique_ptr<UGrpcIngress> m_grpc;

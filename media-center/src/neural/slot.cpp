@@ -57,8 +57,8 @@ namespace neural {
         birdview::UEGLContextManager* context,
         FFrameStorage<IFrame>* storage,
         FCameraMessageSender sender,
-        FGatewayFrameSender gateway_sender,
-        FGatewayTimeProvider time_provider,
+        gateway::FGatewayFrameSender gateway_sender,
+        gateway::FGatewayTimeProvider time_provider,
         ULogger::ELoggerLevel level)
         : UImageHandler(context, storage, level, "ImageHandler<Slot:" + config.id + ">")
         , m_config(config)
@@ -69,17 +69,13 @@ namespace neural {
         , m_gateway_sender(std::move(gateway_sender))
         , m_time_provider(std::move(time_provider))
     {
-        // Камера-источник для тела сообщения шлюзу.
+        // Камера-источник для тела сообщения шлюзу
         if (!m_cameras.empty() && !m_cameras[0].empty()) {
             m_camera_id = m_cameras[0][0];
         }
 
-        // Шрифт грузится только если слот реально отправляет кадры в шлюз.
-        // Высота здесь — запасной вариант; draw_gateway_overlay() всегда передаёт
-        // явную высоту (GATEWAY_DETECTION_FONT_HEIGHT / GATEWAY_OVERLAY_FONT_HEIGHT).
-        if (m_gateway_sender) {
-            m_text_renderer = std::make_unique<UTextRenderer>(constants::GATEWAY_DETECTION_FONT_HEIGHT, level);
-        }
+        // Загрузка шрифта
+        m_text_renderer = std::make_unique<UTextRenderer>(constants::GATEWAY_DETECTION_FONT_HEIGHT, level);
 
         if (auto tr_cfg = static_cast<FIoUTrackerConfig*>(config.tracker_config.get()); tr_cfg) {
             m_tracker = std::make_shared<UIoUTracker>(UIoUTracker(*tr_cfg));
@@ -88,8 +84,7 @@ namespace neural {
             m_tracker = nullptr;
         }
 
-        // Стриминг включается только если у дескриптора задан блок streaming.
-        // id/ip/port проставляет загрузчик до создания слота.
+        // Стриминг включается только если у дескриптора задан блок streaming
         if (core_config.streaming) {
             m_streaming_enabled = true;
             m_stream_name = core_config.streaming->name;
@@ -113,7 +108,8 @@ namespace neural {
                 m_config.thresholds.nms,
                 m_config.thresholds.confidence,
                 m_npu_cores,
-                &m_logger);
+                &m_logger
+            );
         }
         catch (const std::exception& e) {
             m_logger.error("ensure_classifier(): " + std::string(e.what()));
@@ -141,7 +137,7 @@ namespace neural {
             if (!m_streamer->start())
                 throw std::runtime_error("start failed");
 
-            // Отображаемое имя стрима, если задано.
+            // Отображаемое имя стрима, если задано
             if (!m_stream_name.empty())
                 m_streamer->update_metadata(m_stream_name, "");
 
@@ -190,7 +186,7 @@ namespace neural {
 
     void USlot::stop() {
         // Сначала останавливаем поток обработки — после этого
-        // internal_handle_image() гарантированно не вызывается.
+        // internal_handle_image() гарантированно не вызывается
         if (is_running()) stop_handler_thread();
 
         // Теперь безопасно освобождаем ресурсы.
@@ -314,8 +310,7 @@ namespace neural {
         m_sender(msg);
     }
 
-    // Логирование событий, прошедших маску трекера (filter_events в update()).
-    // Пока просто пишем в лог; позже здесь будет реальная реакция на событие.
+    // Логирование событий, прошедших маску трекера filter_events
     void USlot::log_events(const std::vector<FTrackEventRecord>& events) {
         for (const auto& e : events) {
             std::ostringstream ss;
@@ -332,8 +327,8 @@ namespace neural {
         }
     }
 
-    FGatewayDetection USlot::make_gateway_detection(int class_id, double confidence, const FDetection& det) const {
-        FGatewayDetection g;
+    gateway::FGatewayDetection USlot::make_gateway_detection(int class_id, double confidence, const FDetection& det) const {
+        gateway::FGatewayDetection g;
         g.cid = class_id;
         g.cf = confidence;
 
@@ -354,8 +349,8 @@ namespace neural {
         return g;
     }
 
-    std::vector<FGatewayDetection> USlot::gateway_dets_from_detections(const std::vector<FDetection>& dets) const {
-        std::vector<FGatewayDetection> result;
+    std::vector<gateway::FGatewayDetection> USlot::gateway_dets_from_detections(const std::vector<FDetection>& dets) const {
+        std::vector<gateway::FGatewayDetection> result;
         result.reserve(dets.size());
         for (const auto& d : dets) {
             result.push_back(make_gateway_detection(d.class_id, d.confidence, d));
@@ -363,12 +358,11 @@ namespace neural {
         return result;
     }
 
-    std::vector<FGatewayDetection> USlot::gateway_dets_from_tracks(const std::vector<FTrack>& tracks) const {
-        std::vector<FGatewayDetection> result;
+    std::vector<gateway::FGatewayDetection> USlot::gateway_dets_from_tracks(const std::vector<FTrack>& tracks) const {
+        std::vector<gateway::FGatewayDetection> result;
         result.reserve(tracks.size());
         for (const auto& t : tracks) {
-            // В шлюз идут подтверждённые объекты (и недавно потерянные) — как то,
-            // что реально отображается; неподтверждённые треки не шлём.
+            // В шлюз идут подтверждённые объекты и недавно потерянные
             if (t.state != ETrackState::CONFIRMED && t.state != ETrackState::LOST) continue;
             result.push_back(make_gateway_detection(t.class_id, t.confidence, t.detection));
         }
@@ -378,8 +372,8 @@ namespace neural {
     // Отрисовка на кадре, уходящем в message-gateway: бокс (цвет — по классу,
     // см. m_config.classes) + название класса (кириллица через m_text_renderer)
     // и время/GPS в левом верхнем углу.
-    void USlot::draw_gateway_overlay(cv::Mat& frame_bgr, const std::vector<FGatewayDetection>& dets,
-        const FGatewayTimeGps& time_gps)
+    void USlot::draw_gateway_overlay(cv::Mat& frame_bgr, const std::vector<gateway::FGatewayDetection>& dets,
+        const gateway::FGatewayTimeGps& time_gps)
     {
         if (frame_bgr.empty() || !m_text_renderer || !m_text_renderer->available()) return;
 
@@ -434,17 +428,16 @@ namespace neural {
         m_text_renderer->put_text(frame_bgr, gps_line, cv::Point(pad * 2, line_y), text_color, constants::GATEWAY_OVERLAY_FONT_HEIGHT);
     }
 
-    // Кодирование кадра в JPEG и неблокирующая отправка в message-gateway.
-    void USlot::send_to_gateway(std::vector<FGatewayDetection> dets, const cv::Mat& rgb_pixels) {
+    // Кодирование кадра в JPEG и неблокирующая отправка в message-gateway
+    void USlot::send_to_gateway(std::vector<gateway::FGatewayDetection> dets, const cv::Mat& rgb_pixels) {
         if (!m_gateway_sender || rgb_pixels.empty()) return;
 
         cv::Mat bgr;
         cv::cvtColor(rgb_pixels, bgr, cv::COLOR_RGB2BGR);
 
-        // Синхронизированное время шлюза, если доступно (точнее локальных часов
-        // media-center); иначе локальное системное время как запасной вариант
-        // (например, ещё не пришёл первый ответ GetTime после старта).
-        FGatewayTimeGps time_gps = m_time_provider ? m_time_provider() : FGatewayTimeGps{};
+        // Синхронизированное время шлюза, если доступно 
+        // иначе локальное системное время как запасной вариант
+        gateway::FGatewayTimeGps time_gps = m_time_provider ? m_time_provider() : gateway::FGatewayTimeGps{};
         if (time_gps.unix_ms == 0) {
             time_gps.unix_ms = now_ms();
         }
@@ -458,7 +451,7 @@ namespace neural {
             return;
         }
 
-        FGatewayFrame frame;
+        gateway::FGatewayFrame frame;
         frame.ver = 1;
         frame.id = ++m_frame_seq;
         frame.ts = time_gps.unix_ms;
@@ -476,9 +469,8 @@ namespace neural {
         if (rgb_pixels.empty()) return;
 
         // FIX: весь доступ к m_classifier и m_streamer под мьютексом.
-        // Это предотвращает гонку с stop(), который делает reset().
+        // Это предотвращает гонку с stop(), который делает reset()
         std::lock_guard<std::mutex> lk(m_resource_mutex);
-
         if (!ensure_classifier()) return;
 
         std::vector<uint8_t> mask;

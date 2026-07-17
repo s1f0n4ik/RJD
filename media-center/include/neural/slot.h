@@ -14,7 +14,7 @@
 #include "neural/matrix.h"
 #include "neural/utility.h"
 #include "neural/tracker/tracker-interface.h"
-#include "neural/gateway-frame.h"
+#include "gateway/frame.h"
 
 #include <atomic>
 #include <cstdint>
@@ -35,8 +35,8 @@ namespace neural {
             birdview::UEGLContextManager* context,
             FFrameStorage<IFrame>* storage,
             FCameraMessageSender sender,
-            FGatewayFrameSender gateway_sender = {},
-            FGatewayTimeProvider time_provider = {},
+            gateway::FGatewayFrameSender gateway_sender = {},
+            gateway::FGatewayTimeProvider time_provider = {},
             ULogger::ELoggerLevel level = ULogger::ELoggerLevel::DEBUG
         );
 
@@ -68,15 +68,15 @@ namespace neural {
 
         // Отправка кадра (детекции + изображение + id камеры) в message-gateway
         // по протоколу. Формирование FGatewayDetection из детекций/треков.
-        FGatewayDetection make_gateway_detection(int class_id, double confidence, const FDetection& box) const;
-        std::vector<FGatewayDetection> gateway_dets_from_detections(const std::vector<FDetection>& dets) const;
-        std::vector<FGatewayDetection> gateway_dets_from_tracks(const std::vector<FTrack>& tracks) const;
-        void send_to_gateway(std::vector<FGatewayDetection> dets, const cv::Mat& rgb_pixels);
+        gateway::FGatewayDetection make_gateway_detection(int class_id, double confidence, const FDetection& box) const;
+        std::vector<gateway::FGatewayDetection> gateway_dets_from_detections(const std::vector<FDetection>& dets) const;
+        std::vector<gateway::FGatewayDetection> gateway_dets_from_tracks(const std::vector<FTrack>& tracks) const;
+        void send_to_gateway(std::vector<gateway::FGatewayDetection> dets, const cv::Mat& rgb_pixels);
 
         // Отрисовка на кадре, уходящем в message-gateway: бокс + название класса
         // (кириллица через m_text_renderer) и время/GPS в левом верхнем углу.
-        void draw_gateway_overlay(cv::Mat& frame_bgr, const std::vector<FGatewayDetection>& dets,
-            const FGatewayTimeGps& time_gps);
+        void draw_gateway_overlay(cv::Mat& frame_bgr, const std::vector<gateway::FGatewayDetection>& dets,
+            const gateway::FGatewayTimeGps& time_gps);
 
     private:
         FConfigInfo m_config;
@@ -96,10 +96,10 @@ namespace neural {
 
         // Отправка кадров в message-gateway (по протоколу РСМ-2000). Пустой —
         // если шлюз не сконфигурирован.
-        FGatewayFrameSender m_gateway_sender;
+        gateway::FGatewayFrameSender m_gateway_sender;
         // Синхронизированное время+GPS от загрузчика (см. FGatewayTimeProvider).
         // Пустой — если шлюз не сконфигурирован, тогда используются локальные часы.
-        FGatewayTimeProvider m_time_provider;
+        gateway::FGatewayTimeProvider m_time_provider;
         std::unique_ptr<UTextRenderer> m_text_renderer;
         std::string m_camera_id;
         std::atomic<std::int64_t> m_frame_seq{ 0 };

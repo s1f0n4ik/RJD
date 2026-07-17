@@ -43,9 +43,10 @@ namespace varan {
         }
 
         void UGateway::setup_integrations() {
-            // Пока одна конфигурация — РСМ-2000 (WebSocket). Новые (CAN/Modbus)
+            // Пока одна конфигурация — РСМ-2000 (модули WebSocket и CAN). Новые
             // добавляются push_back новой реализации IIntegration.
-            auto rsm = std::make_shared<URsm2000Integration>(m_ws_ioc, m_config.ws, m_config.heartbeat_sec);
+            auto rsm = std::make_shared<URsm2000Integration>(
+                m_ws_ioc, m_config.ws, m_config.can, m_config.heartbeat_sec, m_taxonomy, m_time);
             m_integrations.push_back(rsm);
             m_active = rsm;
         }
@@ -65,7 +66,22 @@ namespace varan {
             m_router->add_route(http::verb::get, "/config",
                 [this](const auto& r) { return handle_get_config(r); });
             m_router->add_route(http::verb::put, "/config/websocket",
-                [this](const auto& r) { return handle_put_ws_config(r); });
+                [this](const auto& r) { return handle_put_module_config(r, "websocket"); });
+            m_router->add_route(http::verb::put, "/config/can",
+                [this](const auto& r) { return handle_put_module_config(r, "can"); });
+
+            // Подключение отдельного модуля: тело { "module": "can" }.
+            m_router->add_route(http::verb::post, "/modules/connect",
+                [this](const auto& r) { return handle_module_connect(r, true); });
+            m_router->add_route(http::verb::post, "/modules/disconnect",
+                [this](const auto& r) { return handle_module_connect(r, false); });
+
+            // Общая таблица соответствий: одна на весь шлюз, применяется всеми
+            // модулями всех конфигураций.
+            m_router->add_route(http::verb::get, "/taxonomy",
+                [this](const auto& r) { return handle_get_taxonomy(r); });
+            m_router->add_route(http::verb::put, "/taxonomy",
+                [this](const auto& r) { return handle_put_taxonomy(r); });
 
             m_router->add_route(http::verb::post, "/ws/connect",
                 [this](const auto& r) { return handle_ws_connect(r); });
@@ -240,10 +256,16 @@ namespace varan {
             return make_json(req, http::status::ok, a->config_json());
         }
 
-        URouter::FResponse UGateway::handle_put_ws_config(const URouter::FRequest& req) {
+        URouter::FResponse UGateway::handle_put_module_config(const URouter::FRequest& req,
+            const std::string& module_id) {
             auto a = active();
             if (!a) {
                 return make_error(req, http::status::service_unavailable, "no active integration");
+            }
+            auto m = a->find_module(module_id);
+            if (!m) {
+                return make_error(req, http::status::not_found,
+                    "active integration has no module '" + module_id + "'");
             }
             boost::system::error_code ec;
             auto parsed = json::parse(req.body(), ec);
@@ -251,10 +273,62 @@ namespace varan {
                 return make_error(req, http::status::bad_request, "invalid json body");
             }
             std::string err;
-            if (!a->apply_config(parsed.as_object(), err)) {
+            if (!m->apply_config(parsed.as_object(), err)) {
                 return make_error(req, http::status::bad_request, err);
             }
             return make_json(req, http::status::ok, a->config_json());
+        }
+
+        URouter::FResponse UGateway::handle_module_connect(const URouter::FRequest& req, bool connect) {
+            auto a = active();
+            if (!a) {
+                return make_error(req, http::status::service_unavailable, "no active integration");
+            }
+
+            boost::system::error_code ec;
+            auto parsed = json::parse(req.body(), ec);
+            if (ec || !parsed.is_object()) {
+                return make_error(req, http::status::bad_request, "invalid json body");
+            }
+            auto* idv = parsed.as_object().if_contains("module");
+            if (!idv || !idv->is_string()) {
+                return make_error(req, http::status::bad_request, "missing 'module'");
+            }
+            const std::string module_id = json::value_to<std::string>(*idv);
+
+            auto m = a->find_module(module_id);
+            if (!m) {
+                return make_error(req, http::status::not_found,
+                    "active integration has no module '" + module_id + "'");
+            }
+
+            if (connect) {
+                // start() у поднятого модуля — no-op, поэтому для переподключения
+                // сначала гасим: иначе кнопка "Переподключить" ничего не сделает.
+                m->stop();
+                m->start();
+            }
+            else {
+                m->stop();
+            }
+            return make_json(req, http::status::ok, m->to_json());
+        }
+
+        URouter::FResponse UGateway::handle_get_taxonomy(const URouter::FRequest& req) {
+            return make_json(req, http::status::ok, m_taxonomy.to_json());
+        }
+
+        URouter::FResponse UGateway::handle_put_taxonomy(const URouter::FRequest& req) {
+            boost::system::error_code ec;
+            auto parsed = json::parse(req.body(), ec);
+            if (ec || !parsed.is_object()) {
+                return make_error(req, http::status::bad_request, "invalid json body");
+            }
+            std::string err;
+            if (!m_taxonomy.apply_json(parsed.as_object(), err)) {
+                return make_error(req, http::status::bad_request, err);
+            }
+            return make_json(req, http::status::ok, m_taxonomy.to_json());
         }
 
         URouter::FResponse UGateway::handle_ws_connect(const URouter::FRequest& req) {

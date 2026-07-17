@@ -1,8 +1,9 @@
 import React from 'react';
-import { IconSwap, IconPlug, IconClock } from '../icons';
+import { IconSwap, IconPlug, IconClock, IconBus, IconTune } from '../icons';
 import type { GwModule } from '../types';
 
 export const TIME_SECTION = 'time';
+export const TAXONOMY_SECTION = 'taxonomy';
 
 interface Props {
   modules: GwModule[];
@@ -11,7 +12,9 @@ interface Props {
 }
 
 function moduleIcon(transport: string) {
-  return transport === 'websocket' ? <IconSwap /> : <IconPlug />;
+  if (transport === 'websocket') return <IconSwap />;
+  if (transport === 'can') return <IconBus />;
+  return <IconPlug />;
 }
 
 const ModuleRail: React.FC<Props> = ({ modules, selected, onSelect }) => (
@@ -34,6 +37,16 @@ const ModuleRail: React.FC<Props> = ({ modules, selected, onSelect }) => (
     <div className="krsps-rail__sep" />
 
     <div className="krsps-rail__label">Сервис</div>
+    {/* Таблица соответствий и время общие для всех модулей, поэтому лежат
+        отдельным разделом, а не внутри конкретного канала. */}
+    <button
+      type="button"
+      className={`krsps-rail__item${selected === TAXONOMY_SECTION ? ' krsps-rail__item--active' : ''}`}
+      onClick={() => onSelect(TAXONOMY_SECTION)}
+    >
+      <IconTune />
+      <span className="krsps-rail__grow">Таблица соответствий</span>
+    </button>
     <button
       type="button"
       className={`krsps-rail__item${selected === TIME_SECTION ? ' krsps-rail__item--active' : ''}`}

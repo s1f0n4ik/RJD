@@ -1,4 +1,4 @@
-#include "neural/gateway-client.h"
+#include "gateway/client.h"
 
 #include <chrono>
 #include <algorithm>
@@ -8,12 +8,14 @@
 #include "frame-ingress.grpc.pb.h"
 
 namespace varan {
-namespace neural {
+namespace gateway {
 
-    namespace rpc = varan::gateway::rpc;
+    // Пакет proto — varan.gateway.rpc, так что rpc:: здесь ищется сразу в
+    // varan::gateway и алиас не нужен (он бы конфликтовал по имени).
 
     namespace {
 
+        // Максимальный размер сообщения - 64МБ
         constexpr int MAX_MESSAGE_BYTES = 64 * 1024 * 1024;
 
         rpc::FrameRequest to_proto(const FGatewayFrame& f) {
@@ -205,5 +207,5 @@ namespace neural {
         }
     }
 
-} // namespace neural
+} // namespace gateway
 } // namespace varan

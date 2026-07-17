@@ -8,11 +8,11 @@
 #include <atomic>
 #include <cstddef>
 
-#include "neural/gateway-frame.h"
+#include "gateway/frame.h"
 #include "logger.h"
 
 namespace varan {
-namespace neural {
+namespace gateway {
 
     // Параметры подключения к message-gateway. enabled=false — интеграция со
     // шлюзом выключена (кадры в шлюз не отправляются).
@@ -74,5 +74,5 @@ namespace neural {
         std::condition_variable m_time_cv;
     };
 
-} // namespace neural
+} // namespace gateway
 } // namespace varan

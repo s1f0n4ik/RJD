@@ -1,6 +1,10 @@
 import type {
+  GwCanConfigPatch,
   GwIntegrations,
+  GwModule,
   GwStatus,
+  GwTaxonomy,
+  GwTaxonomyPatch,
   GwTime,
   GwWsConfigPatch,
 } from '../types';
@@ -61,12 +65,52 @@ export const krspsApi = {
     );
   },
 
-  async connect(): Promise<unknown> {
-    return unwrap<unknown>(await fetch(url('/ws/connect'), { method: 'POST' }));
+  // Обновление настроек CAN-модуля активной конфигурации.
+  async updateCanConfig(patch: GwCanConfigPatch): Promise<GwStatus> {
+    return unwrap<GwStatus>(
+      await fetch(url('/config/can'), {
+        method: 'PUT',
+        headers: jsonHeaders,
+        body: JSON.stringify(patch),
+      }),
+    );
   },
 
-  async disconnect(): Promise<unknown> {
-    return unwrap<unknown>(await fetch(url('/ws/disconnect'), { method: 'POST' }));
+  // Подключение/отключение конкретного модуля: у конфигурации их несколько, и
+  // гасить весь канал ради одного не нужно.
+  async connectModule(module: string): Promise<GwModule> {
+    return unwrap<GwModule>(
+      await fetch(url('/modules/connect'), {
+        method: 'POST',
+        headers: jsonHeaders,
+        body: JSON.stringify({ module }),
+      }),
+    );
+  },
+
+  async disconnectModule(module: string): Promise<GwModule> {
+    return unwrap<GwModule>(
+      await fetch(url('/modules/disconnect'), {
+        method: 'POST',
+        headers: jsonHeaders,
+        body: JSON.stringify({ module }),
+      }),
+    );
+  },
+
+  // Общая таблица соответствий: одна на весь шлюз.
+  async getTaxonomy(): Promise<GwTaxonomy> {
+    return unwrap<GwTaxonomy>(await fetch(url('/taxonomy')));
+  },
+
+  async updateTaxonomy(patch: GwTaxonomyPatch): Promise<GwTaxonomy> {
+    return unwrap<GwTaxonomy>(
+      await fetch(url('/taxonomy'), {
+        method: 'PUT',
+        headers: jsonHeaders,
+        body: JSON.stringify(patch),
+      }),
+    );
   },
 
   async getTime(): Promise<GwTime> {

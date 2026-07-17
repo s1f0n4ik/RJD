@@ -17,7 +17,7 @@ namespace neural {
         std::filesystem::path config_path,
         std::filesystem::path state_path,
         FPlatformInfo platform,
-        FGatewayConfig gateway,
+        gateway::FGatewayConfig gateway_config,
         ULogger::ELoggerLevel level)
         : m_ip(ip_address), m_port(port)
         , m_context(context), m_storage(storage), m_level(level)
@@ -27,29 +27,29 @@ namespace neural {
         , m_logger("NeuralLoader", level)
         , m_json_configurator(&m_logger)
     {
-        if (gateway.enabled && !gateway.host.empty() && !gateway.port.empty()) {
-            m_gateway = std::make_shared<UGatewayClient>(gateway, level);
-            m_gateway->set_time_callback([this](const FGatewayTimeGps& t) { on_gateway_time(t); });
-            m_logger.info("gateway ingress -> " + gateway.host + ":" + gateway.port);
+        if (gateway_config.enabled && !gateway_config.host.empty() && !gateway_config.port.empty()) {
+            m_gateway = std::make_shared<gateway::UGatewayClient>(gateway_config, level);
+            m_gateway->set_time_callback([this](const gateway::FGatewayTimeGps& t) { on_gateway_time(t); });
+            m_logger.info("gateway ingress -> " + gateway_config.host + ":" + gateway_config.port);
         }
         load_state();
     }
 
     UNeuralLoader::~UNeuralLoader() { stop_async_run(); }
 
-    void UNeuralLoader::on_gateway_time(const FGatewayTimeGps& t) {
+    void UNeuralLoader::on_gateway_time(const gateway::FGatewayTimeGps& t) {
         std::lock_guard<std::mutex> lk(m_time_mutex);
         m_time_base = t;
         m_time_base_at = std::chrono::steady_clock::now();
         m_time_synced = true;
     }
 
-    FGatewayTimeGps UNeuralLoader::current_synced_time() const {
+    gateway::FGatewayTimeGps UNeuralLoader::current_synced_time() const {
         std::lock_guard<std::mutex> lk(m_time_mutex);
         if (!m_time_synced) {
             return {};
         }
-        FGatewayTimeGps t = m_time_base;
+        gateway::FGatewayTimeGps t = m_time_base;
         const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - m_time_base_at).count();
         t.unix_ms += elapsed_ms;
@@ -388,11 +388,11 @@ namespace neural {
 
                 // Отправка в message-gateway идёт через общий клиент загрузчика;
                 // id камеры проставляет сам слот в теле сообщения.
-                FGatewayFrameSender gateway_sender;
-                FGatewayTimeProvider time_provider;
+                gateway::FGatewayFrameSender gateway_sender;
+                gateway::FGatewayTimeProvider time_provider;
                 if (m_gateway) {
                     auto gw = m_gateway;
-                    gateway_sender = [gw](FGatewayFrame frame) { gw->send(std::move(frame)); };
+                    gateway_sender = [gw](gateway::FGatewayFrame frame) { gw->send(std::move(frame)); };
                     time_provider = [this]() { return current_synced_time(); };
                 }
 

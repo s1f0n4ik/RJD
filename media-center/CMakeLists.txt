@@ -32,6 +32,8 @@ file(GLOB_RECURSE SRC_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/core/*.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/neural/*.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/src/neural/*.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/gateway/*.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/gateway/*.cpp
 )
 
 # OpenCV

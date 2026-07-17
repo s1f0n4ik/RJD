@@ -15,6 +15,22 @@ function two(n: number): string {
   return n < 10 ? '0' + n : String(n);
 }
 
+// Координаты приходят с шины со знаком: южная широта и западная долгота
+// отрицательные. Показываем полушарие, а не приклеенные N/E.
+function coord(v: number, pos: string, neg: string): string {
+  return `${Math.abs(v).toFixed(4)}° ${v < 0 ? neg : pos}`;
+}
+
+const SOURCE_NOTE: Record<string, string> = {
+  can: 'стороннее устройство на шине CAN',
+  server: 'часы сервиса (шина молчит)',
+  static: 'фиксированные координаты (шина молчит)',
+};
+
+function sourceNote(kind?: string): string {
+  return kind ? SOURCE_NOTE[kind] ?? kind : '—';
+}
+
 const Kv: React.FC<{ k: string; v: React.ReactNode }> = ({ k, v }) => (
   <div className="krsps-kv">
     <span className="krsps-kv__k">{k}</span>
@@ -41,6 +57,7 @@ const TimeGpsPanel: React.FC<Props> = ({ time, offsetMs, synced }) => {
   const unixS = Math.floor(nowMs / 1000);
 
   const gps = time?.gps;
+  const fromCan = time?.source.time === 'can';
 
   return (
     <div>
@@ -55,7 +72,7 @@ const TimeGpsPanel: React.FC<Props> = ({ time, offsetMs, synced }) => {
           <div className="krsps-panel__title">Единое время (UTC)</div>
           <div className={`krsps-panel__meta krsps-clock__sync${synced ? ' krsps-clock__sync--ok' : ''}`}>
             <span className="krsps-clock__sync-dot" />
-            {synced ? 'синхронизировано с сервером' : 'ожидание сервера'}
+            {!synced ? 'ожидание шлюза' : fromCan ? 'синхронизировано по шине CAN' : 'часы шлюза'}
           </div>
         </div>
 
@@ -76,16 +93,22 @@ const TimeGpsPanel: React.FC<Props> = ({ time, offsetMs, synced }) => {
               <IconPin />
               <span>Координаты</span>
             </div>
-            <Kv k="Широта" v={gps ? `${gps.lat.toFixed(4)}° N` : '—'} />
-            <Kv k="Долгота" v={gps ? `${gps.lon.toFixed(4)}° E` : '—'} />
-            <Kv k="Высота" v={gps ? `${gps.alt.toFixed(1)} м` : '—'} />
-            <Kv k="Спутники" v={gps ? `${gps.sats} · ${gps.valid ? 'фикс' : 'нет'}` : '—'} />
+            <Kv k="Широта" v={gps ? coord(gps.lat, 'N', 'S') : '—'} />
+            <Kv k="Долгота" v={gps ? coord(gps.lon, 'E', 'W') : '—'} />
+            <Kv k="Скорость" v={gps ? `${gps.speed.toFixed(2)} м/с` : '—'} />
+            <Kv
+              k="Данные"
+              v={gps ? (gps.valid ? 'актуальны' : 'устарели') : '—'}
+            />
           </div>
         </div>
 
         <div className="krsps-clock__note">
-          Источник: время — {time?.source.time ?? '—'} (серверное), GPS — {time?.source.gps ?? '—'} (статическая
-          заглушка). Реальный приём GNSS появится позже. Таймер идёт локально и синхронизируется по ручке /time.
+          Источник: время — {sourceNote(time?.source.time)}, координаты — {sourceNote(time?.source.gps)}.
+          {fromCan
+            ? ' Время идёт от последнего сообщения по шине и тикает дальше внутри сервиса, поэтому остаётся точным между сообщениями.'
+            : ' Пока по шине ничего не пришло, отдаются часы сервиса и заглушка координат.'}{' '}
+          Таймер на странице идёт локально и синхронизируется по ручке /time.
         </div>
       </div>
     </div>

@@ -33,6 +33,10 @@ export const IconTune = make(
   'M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z',
 );
 export const IconBack = make('M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20z');
+// Шина: разъём с расходящимися линиями — модуль CAN.
+export const IconBus = make(
+  'M4 4h16a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-5v2h2a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1h-2v2h-2v-2H9v2H7v-2H5a1 1 0 0 1-1-1v-2a1 1 0 0 1 1-1h2v-2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2m0 2v6h16V6zm5 10v2h2v-2zm4 0v2h2v-2z',
+);
 export const IconCheckCircle = make(
   'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2m-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8z',
 );

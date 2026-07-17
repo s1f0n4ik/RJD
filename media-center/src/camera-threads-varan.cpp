@@ -98,7 +98,7 @@ int main(int argc, char* argv[])
 	calibrator->start_websocket_connection();
 
 	// Параметры подключения к message-gateway (передаём в загрузчик).
-	varan::neural::FGatewayConfig gateway_config;
+	varan::gateway::FGatewayConfig gateway_config;
 	gateway_config.enabled = config.gateway_enabled;
 	gateway_config.host = config.gateway_ip;
 	gateway_config.port = config.gateway_port;

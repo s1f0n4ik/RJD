@@ -80,8 +80,23 @@ services:
       context: ./message-gateway
       dockerfile: Dockerfile
     container_name: message-gateway
+    # host — это ещё и доступ к CAN-интерфейсам хоста (can0): сетевые namespace
+    # общие, поэтому SocketCAN работает без дополнительных прав.
     network_mode: host  # REST 9090 и gRPC 50051 на localhost + сеть КАУС
-    command: ["--rest-port", "9090", "--grpc-port", "50051", "--heartbeat", "5"]
+    command: [
+      "--rest-port", "9090", "--grpc-port", "50051", "--heartbeat", "5",
+      # Шина: интерфейс поднимается на хосте заранее,
+      # ip link set can0 up type can bitrate 250000
+      "--can-mode", "socketcan", "--can-iface", "can0",
+      "--can-src", "0x71",   # адрес технического зрения
+      "--can-peer", "0x61",  # адрес источника времени и GPS
+    ]
+    # Для режима slcan (USB-адаптер прямо на serial port) прокиньте устройство и
+    # переключите режим: --can-mode slcan --can-device /dev/ttyUSB0.
+    # Раскомментируйте только когда адаптер реально есть: иначе контейнер
+    # не стартует из-за отсутствующего устройства.
+    # devices:
+    #   - /dev/ttyUSB0:/dev/ttyUSB0
     restart: unless-stopped
     logging:
       driver: "json-file"

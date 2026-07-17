@@ -684,7 +684,144 @@
   to { opacity: 1; transform: translate(-50%, 0); }
 }
 
+/* ── Модуль CAN ─────────────────────────────────────────────── */
+
+/* Переключатель режима шины: SocketCAN против slcan. */
+.krsps-seg {
+  display: inline-flex;
+  padding: 3px;
+  gap: 3px;
+  background: var(--k-panel-2);
+  border: 1px solid var(--k-border);
+  border-radius: var(--k-radius-xs);
+}
+.krsps-seg__btn {
+  border: 0;
+  cursor: pointer;
+  background: transparent;
+  color: var(--k-dim);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 7px 14px;
+  border-radius: 6px;
+  transition: background 0.15s, color 0.15s;
+}
+.krsps-seg__btn:hover { color: var(--k-ink); }
+.krsps-seg__btn--on,
+.krsps-seg__btn--on:hover {
+  background: var(--k-panel);
+  color: var(--k-accent-dark);
+  box-shadow: var(--k-shadow);
+}
+
+/* Четыре байта полезной нагрузки: показываем и число, и его смысл. */
+.krsps-bytes {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+/* Обнаружений нет — нагрузка нулевая, приглушаем, чтобы не читалась тревогой. */
+.krsps-bytes--idle { opacity: 0.55; }
+.krsps-byte {
+  padding: 12px;
+  border: 1px solid var(--k-border);
+  border-radius: var(--k-radius-sm);
+  background: var(--k-panel-2);
+}
+.krsps-byte__idx {
+  font-size: 0.68rem;
+  color: var(--k-mute);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.krsps-byte__val {
+  font-family: var(--k-mono);
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: var(--k-accent-dark);
+  margin: 4px 0 6px;
+}
+.krsps-byte__label { font-size: 0.78rem; font-weight: 700; color: var(--k-ink); }
+.krsps-byte__note {
+  font-size: 0.72rem;
+  color: var(--k-dim);
+  margin-top: 2px;
+  line-height: 1.35;
+}
+
+/* Сообщение об ошибке шины: заметное, но не модальное. */
+.krsps-alert {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: var(--k-radius-xs);
+  background: var(--k-tint);
+  color: var(--k-accent-dark);
+  border: 1px solid var(--k-tint-2);
+  font-size: 0.78rem;
+  font-family: var(--k-mono);
+  word-break: break-word;
+}
+
+/* ── Таблица соответствий ───────────────────────────────────── */
+.krsps-tbl {
+  border: 1px solid var(--k-border);
+  border-radius: var(--k-radius-sm);
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.krsps-tbl__head,
+.krsps-tbl__row {
+  display: grid;
+  grid-template-columns: 1.1fr 1.3fr 1.2fr 1.2fr 36px;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 12px;
+}
+.krsps-tbl--cam .krsps-tbl__head,
+.krsps-tbl--cam .krsps-tbl__row {
+  grid-template-columns: 1.1fr 1.5fr 1.4fr 36px;
+}
+.krsps-tbl__head {
+  background: var(--k-panel-2);
+  border-bottom: 1px solid var(--k-border);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--k-mute);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.krsps-tbl__row { border-bottom: 1px solid var(--k-border); }
+.krsps-tbl__row:last-child { border-bottom: 0; }
+/* В таблице поля тянутся по колонке, а не по фиксированной ширине. */
+.krsps-tbl__row .krsps-input--sm { width: 100%; }
+.krsps-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  cursor: pointer;
+  background: transparent;
+  color: var(--k-mute);
+  border-radius: var(--k-radius-xs);
+  transition: background 0.15s, color 0.15s;
+}
+.krsps-icon-btn:hover { background: var(--k-tint); color: var(--k-accent); }
+.krsps-icon-btn svg { width: 15px; height: 15px; }
+
 /* ── Адаптив ────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .krsps-bytes { grid-template-columns: repeat(2, 1fr); }
+  /* Таблицу на узком экране не сжимаем: поля станут нечитаемыми — скроллим. */
+  .krsps-tbl { overflow-x: auto; }
+  .krsps-tbl__head,
+  .krsps-tbl__row { min-width: 620px; }
+  .krsps-tbl--cam .krsps-tbl__head,
+  .krsps-tbl--cam .krsps-tbl__row { min-width: 480px; }
+}
 @media (max-width: 900px) {
   .krsps-layout { grid-template-columns: 1fr; }
   .krsps-rail {

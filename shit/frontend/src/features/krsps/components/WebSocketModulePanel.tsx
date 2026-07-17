@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { IconCheck, IconClose, IconHeart } from '../icons';
-import type { GwModule, GwMessageRecord, GwWsConfigPatch } from '../types';
-import { formatInt, formatBytes, formatClock } from '../utils/format';
+import type { GwModule, GwWsConfigPatch } from '../types';
+import { formatInt, formatBytes } from '../utils/format';
+import { Kpi, Pill, RecordRow, connState } from './ModuleBits';
 
 interface Props {
   module: GwModule;
@@ -10,8 +10,6 @@ interface Props {
   onConnect: () => void;
   onDisconnect: () => void;
 }
-
-type PillState = 'ok' | 'wait' | 'off';
 
 // Разбор адреса вида ws://host:port/target (схема и target опциональны).
 function parseWsUrl(raw: string): { host: string; port: string; target: string } | null {
@@ -28,76 +26,6 @@ function parseWsUrl(raw: string): { host: string; port: string; target: string }
   if (!host || !/^\d+$/.test(port)) return null;
   return { host, port, target };
 }
-
-function connState(m: GwModule): PillState {
-  if (m.connection.connected) return 'ok';
-  if (m.connection.enabled) return 'wait';
-  return 'off';
-}
-
-const PILL_LABEL: Record<PillState, string> = { ok: 'Соединено', wait: 'Подключение', off: 'Нет связи' };
-
-const Pill: React.FC<{ state: PillState }> = ({ state }) => (
-  <span className={`krsps-pill krsps-pill--${state}`}>
-    <span className="krsps-pill__dot" />
-    {PILL_LABEL[state]}
-  </span>
-);
-
-const Kpi: React.FC<{ label: string; value: string; unit?: string }> = ({ label, value, unit }) => (
-  <div className="krsps-kpi">
-    <div className="krsps-kpi__label">{label}</div>
-    <div className="krsps-kpi__value">
-      {value}
-      {unit && <span className="krsps-kpi__unit">{unit}</span>}
-    </div>
-  </div>
-);
-
-function detWord(n: number): string {
-  const a = Math.abs(n) % 100;
-  const b = a % 10;
-  if (a > 10 && a < 20) return 'обнаружений';
-  if (b > 1 && b < 5) return 'обнаружения';
-  if (b === 1) return 'обнаружение';
-  return 'обнаружений';
-}
-
-function bytesShort(n: number): string {
-  const { value, unit } = formatBytes(n);
-  return `${value} ${unit}`;
-}
-
-const RecordRow: React.FC<{ r: GwMessageRecord }> = ({ r }) => {
-  const rejected = r.status === 'rejected';
-  const heartbeat = r.kind === 'heartbeat';
-
-  const kind = rejected ? 'err' : heartbeat ? 'hb' : 'ok';
-  const icon = rejected ? <IconClose /> : heartbeat ? <IconHeart /> : <IconCheck />;
-
-  const title = heartbeat
-    ? 'heartbeat'
-    : rejected
-    ? `#${r.id} · отклонено`
-    : `#${r.id} · ${r.detections} ${detWord(r.detections)}`;
-
-  const sub = rejected
-    ? `${formatClock(r.ts)} · v${r.ver} · ${r.error ?? 'отклонено'}`
-    : heartbeat
-    ? `${formatClock(r.ts)} · v${r.ver} · служебное`
-    : `${formatClock(r.ts)} · v${r.ver} · КАУС принял`;
-
-  return (
-    <div className="krsps-feed__row">
-      <div className={`krsps-feed__ico krsps-feed__ico--${kind}`}>{icon}</div>
-      <div className="krsps-feed__main">
-        <div className="krsps-feed__title">{title}</div>
-        <div className="krsps-feed__sub">{sub}</div>
-      </div>
-      <div className="krsps-feed__size">{rejected ? '—' : bytesShort(r.wire_size)}</div>
-    </div>
-  );
-};
 
 const WebSocketModulePanel: React.FC<Props> = ({ module, busy, onSave, onConnect, onDisconnect }) => {
   const [url, setUrl] = useState('');
@@ -226,7 +154,7 @@ const WebSocketModulePanel: React.FC<Props> = ({ module, busy, onSave, onConnect
           {stats.recent.length > 0 ? (
             <div className="krsps-feed">
               {stats.recent.map((r) => (
-                <RecordRow key={r.seq} r={r} />
+                <RecordRow key={r.seq} r={r} sentNote="КАУС принял" />
               ))}
             </div>
           ) : (

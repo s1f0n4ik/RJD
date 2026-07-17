@@ -2,12 +2,22 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import '../styles/theme.css';
 import TopBar from './TopBar';
 import type { KrspsView } from './TopBar';
-import ModuleRail, { TIME_SECTION } from './ModuleRail';
+import ModuleRail, { TAXONOMY_SECTION, TIME_SECTION } from './ModuleRail';
 import WebSocketModulePanel from './WebSocketModulePanel';
+import CanModulePanel from './CanModulePanel';
+import TaxonomyPanel from './TaxonomyPanel';
 import TimeGpsPanel from './TimeGpsPanel';
 import ConfigCards from './ConfigCards';
 import { krspsApi } from '../api/client';
-import type { GwIntegrations, GwStatus, GwTime, GwWsConfigPatch } from '../types';
+import type {
+  GwCanConfigPatch,
+  GwIntegrations,
+  GwStatus,
+  GwTaxonomy,
+  GwTaxonomyPatch,
+  GwTime,
+  GwWsConfigPatch,
+} from '../types';
 
 const STATUS_POLL_MS = 2000;
 const TIME_POLL_MS = 5000;
@@ -19,6 +29,7 @@ const KrspsApp: React.FC = () => {
   const [selected, setSelected] = useState<string>('');
   const [status, setStatus] = useState<GwStatus | null>(null);
   const [integrations, setIntegrations] = useState<GwIntegrations | null>(null);
+  const [taxonomy, setTaxonomy] = useState<GwTaxonomy | null>(null);
   const [time, setTime] = useState<GwTime | null>(null);
   const [offsetMs, setOffsetMs] = useState(0);
   const [synced, setSynced] = useState(false);
@@ -40,11 +51,12 @@ const KrspsApp: React.FC = () => {
     return () => clearTimeout(t);
   }, [toast]);
 
-  // Держим выбранный раздел валидным: модуль активной конфигурации или «Время и GPS».
+  // Держим выбранный раздел валидным: модуль активной конфигурации либо общий
+  // раздел сервиса.
   useEffect(() => {
     if (!status) return;
+    if (selected === TIME_SECTION || selected === TAXONOMY_SECTION) return;
     const ids = status.modules.map((m) => m.id);
-    if (selected === TIME_SECTION) return;
     if (!ids.includes(selected)) {
       setSelected(ids[0] ?? TIME_SECTION);
     }
@@ -99,9 +111,19 @@ const KrspsApp: React.FC = () => {
     };
   }, []);
 
+  const refreshTaxonomy = useCallback(async () => {
+    try {
+      const t = await krspsApi.getTaxonomy();
+      if (alive.current) setTaxonomy(t);
+    } catch {
+      /* раздел покажет «Загрузка…»; статус шлюза виден по индикатору */
+    }
+  }, []);
+
   useEffect(() => {
     refreshIntegrations();
-  }, [refreshIntegrations]);
+    refreshTaxonomy();
+  }, [refreshIntegrations, refreshTaxonomy]);
 
   const run = useCallback(
     async (fn: () => Promise<unknown>, okMsg: string) => {
@@ -126,9 +148,18 @@ const KrspsApp: React.FC = () => {
       await krspsApi.selectIntegration(id);
       if (alive.current) setView('modules');
     }, 'Конфигурация переключена');
-  const handleSave = (patch: GwWsConfigPatch) => run(() => krspsApi.updateWsConfig(patch), 'Настройки сохранены');
-  const handleConnect = () => run(() => krspsApi.connect(), 'Переподключение запущено');
-  const handleDisconnect = () => run(() => krspsApi.disconnect(), 'Соединение закрыто');
+  const handleSaveWs = (patch: GwWsConfigPatch) => run(() => krspsApi.updateWsConfig(patch), 'Настройки сохранены');
+  const handleSaveCan = (patch: GwCanConfigPatch) => run(() => krspsApi.updateCanConfig(patch), 'Настройки сохранены');
+  const handleSaveTaxonomy = (patch: GwTaxonomyPatch) =>
+    run(async () => {
+      const t = await krspsApi.updateTaxonomy(patch);
+      if (alive.current) setTaxonomy(t);
+    }, 'Таблица сохранена');
+
+  // Подключение адресное: у конфигурации несколько модулей, и трогать нужно
+  // только тот, что открыт на странице.
+  const handleConnect = () => run(() => krspsApi.connectModule(selected), 'Переподключение запущено');
+  const handleDisconnect = () => run(() => krspsApi.disconnectModule(selected), 'Соединение закрыто');
 
   const activeTitle =
     status?.title ??
@@ -160,11 +191,21 @@ const KrspsApp: React.FC = () => {
             <div style={{ minWidth: 0 }}>
               {selected === TIME_SECTION ? (
                 <TimeGpsPanel time={time} offsetMs={offsetMs} synced={synced} />
+              ) : selected === TAXONOMY_SECTION ? (
+                <TaxonomyPanel taxonomy={taxonomy} busy={busy} onSave={handleSaveTaxonomy} />
+              ) : selectedModule?.transport === 'can' ? (
+                <CanModulePanel
+                  module={selectedModule}
+                  busy={busy}
+                  onSave={handleSaveCan}
+                  onConnect={handleConnect}
+                  onDisconnect={handleDisconnect}
+                />
               ) : selectedModule ? (
                 <WebSocketModulePanel
                   module={selectedModule}
                   busy={busy}
-                  onSave={handleSave}
+                  onSave={handleSaveWs}
                   onConnect={handleConnect}
                   onDisconnect={handleDisconnect}
                 />

@@ -32,6 +32,16 @@ int main(int argc, char** argv) {
     config.ws.target = arg(argc, argv, "--ws-target", config.ws.target);
     config.heartbeat_sec = std::stoi(arg(argc, argv, "--heartbeat", "5"));
 
+    // CAN: базовый запуск. Остальное (PGN, приоритет, период) правится по REST.
+    config.can.mode = arg(argc, argv, "--can-mode", config.can.mode);
+    config.can.iface = arg(argc, argv, "--can-iface", config.can.iface);
+    config.can.device = arg(argc, argv, "--can-device", config.can.device);
+    config.can.bitrate = std::stoi(arg(argc, argv, "--can-bitrate", std::to_string(config.can.bitrate)));
+    // Адреса задаются шестнадцатеричными, как в описании протокола (0x71, 0x61).
+    config.can.src_addr = std::stoi(arg(argc, argv, "--can-src", "0x71"), nullptr, 0);
+    config.can.peer_addr = std::stoi(arg(argc, argv, "--can-peer", "0x61"), nullptr, 0);
+    config.can.enabled = arg(argc, argv, "--can-enabled", "1") != "0";
+
     UGateway gateway(config);
 
     // Отдельный io_context под сигналы, чтобы корректно гасить сервис.

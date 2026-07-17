@@ -47,6 +47,16 @@ namespace varan {
                     "frame", "sent", "" });
             }
 
+            // Повторная выдача той же нагрузки: CAN шлёт кадр каждые 100 мс, даже
+            // когда обнаружения не менялись. Учитываем только в счётчиках — в ленту
+            // такие кадры не кладём, иначе на десяти кадрах в секунду она станет
+            // нечитаемой и вытеснит всё осмысленное.
+            void on_frame_repeated(std::int64_t wire_size) {
+                m_messages.fetch_add(1);
+                m_bytes.fetch_add(wire_size);
+                m_repeats.fetch_add(1);
+            }
+
             // Служебный heartbeat отправлен в транспорт.
             void on_heartbeat_sent(std::int64_t ts_recv_ms, int ver, std::int64_t wire_size) {
                 m_messages.fetch_add(1);
@@ -73,6 +83,7 @@ namespace varan {
                 o["images"] = m_images.load();
                 o["bytes"] = m_bytes.load();
                 o["heartbeats"] = m_heartbeats.load();
+                o["repeats"] = m_repeats.load();
                 o["rejected"] = m_rejected.load();
 
                 boost::json::array recent;
@@ -125,6 +136,7 @@ namespace varan {
             std::atomic<std::int64_t> m_images{ 0 };
             std::atomic<std::int64_t> m_bytes{ 0 };
             std::atomic<std::int64_t> m_heartbeats{ 0 };
+            std::atomic<std::int64_t> m_repeats{ 0 };
             std::atomic<std::int64_t> m_rejected{ 0 };
             std::atomic<std::int64_t> m_seq{ 0 };
 
