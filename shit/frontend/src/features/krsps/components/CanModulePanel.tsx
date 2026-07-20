@@ -252,6 +252,7 @@ const CanModulePanel: React.FC<Props> = ({ module, devices, busy, onSave, onConn
 
   const [period, setPeriod] = useState('');
   const [ttl, setTtl] = useState('');
+  const [resetMs, setResetMs] = useState('1000');
   const [txError, setTxError] = useState('');
   const [filter, setFilter] = useState<'all' | 'tx' | 'rx'>('all');
 
@@ -267,6 +268,7 @@ const CanModulePanel: React.FC<Props> = ({ module, devices, busy, onSave, onConn
     if (!tx) return;
     setPeriod(String(tx.period_ms));
     setTtl(String(tx.payload_ttl_ms));
+    setResetMs(String(tx.reset_ms ?? 1000));
   }, [tx]);
 
   const saveConnection = () =>
@@ -281,6 +283,16 @@ const CanModulePanel: React.FC<Props> = ({ module, devices, busy, onSave, onConn
     }
     setTxError('');
     onSave({ tx_period_ms: p, payload_ttl_ms: t });
+  };
+
+  const saveResetMs = () => {
+    const v = parseNum(resetMs);
+    if (v === null) {
+      setTxError('Период сброса — число в миллисекундах');
+      return;
+    }
+    setTxError('');
+    onSave({ payload_reset_ms: v });
   };
 
   const sumOf = (key: string) => summaries.find((s) => s.key === key);
@@ -501,6 +513,42 @@ const CanModulePanel: React.FC<Props> = ({ module, devices, busy, onSave, onConn
                 Применить
               </button>
             </div>
+
+            <div className="krsps-sub">Сброс нагрузки</div>
+            <div className="krsps-inlinectl">
+              <button
+                type="button"
+                className={`krsps-switch${tx?.reset_enabled ? ' krsps-switch--on' : ''}`}
+                role="switch"
+                aria-checked={!!tx?.reset_enabled}
+                disabled={busy}
+                onClick={() => onSave({ payload_reset_enabled: !tx?.reset_enabled })}
+              >
+                <span className="krsps-switch__track" />
+                Обнулять по таймеру
+              </button>
+              <span className="krsps-inlinectl__sep" />
+              <span className={`krsps-inlinectl__val${tx?.reset_enabled ? '' : ' krsps-inlinectl__val--off'}`}>
+                <span>каждые</span>
+                <input
+                  className="krsps-input"
+                  value={resetMs}
+                  inputMode="numeric"
+                  disabled={busy || !tx?.reset_enabled}
+                  onChange={(e) => setResetMs(e.target.value.replace(/[^\d]/g, ''))}
+                />
+                <span className="krsps-inlinectl__unit">мс</span>
+                <button
+                  type="button"
+                  className="krsps-btn krsps-btn--primary"
+                  onClick={saveResetMs}
+                  disabled={busy || !tx?.reset_enabled}
+                >
+                  Применить
+                </button>
+              </span>
+            </div>
+
             {txError && <div className="krsps-field__hint krsps-field__hint--error">{txError}</div>}
             {/*<div className="krsps-note" style={{ marginTop: 10 }}>
               {tx?.continuous

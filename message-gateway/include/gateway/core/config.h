@@ -56,6 +56,14 @@ namespace varan {
             // уже нет, и приёмник не отличит её от живой.
             int payload_ttl_ms = 1000;
 
+            // Принудительный сброс всей накопленной нагрузки по таймеру. В отличие
+            // от payload_ttl_ms, который гасит только замолчавшие камеры, здесь
+            // раз в payload_reset_ms обнуляются вклады всех камер разом. Выключено
+            // по умолчанию: обычной жизни хватает TTL, а сброс нужен там, где на
+            // шине требуется периодически возвращать нулевое состояние.
+            bool payload_reset_enabled = false;
+            int payload_reset_ms = 1000;
+
             // Приём: сообщения стороннего устройства (Садко, SA 0x61), из которых
             // берутся координаты и время. Приоритет 6, PDU2 (широковещательные).
             FCanMessageId rx_gps{ 6, 0xFF00, 0x61, 0x00, true };
@@ -105,6 +113,8 @@ namespace varan {
             o["tx_period_ms"] = c.tx_period_ms;
             o["tx_dlc"] = c.tx_dlc;
             o["payload_ttl_ms"] = c.payload_ttl_ms;
+            o["payload_reset_enabled"] = c.payload_reset_enabled;
+            o["payload_reset_ms"] = c.payload_reset_ms;
             o["rx_gps"] = to_json(c.rx_gps);
             o["rx_time"] = to_json(c.rx_time);
             return o;
@@ -177,6 +187,8 @@ namespace varan {
                 if (auto* v = o.if_contains("tx_period_ms")) t.tx_period_ms = v->to_number<int>();
                 if (auto* v = o.if_contains("tx_dlc"))       t.tx_dlc = v->to_number<int>();
                 if (auto* v = o.if_contains("payload_ttl_ms")) t.payload_ttl_ms = v->to_number<int>();
+                if (auto* v = o.if_contains("payload_reset_enabled")) t.payload_reset_enabled = v->as_bool();
+                if (auto* v = o.if_contains("payload_reset_ms")) t.payload_reset_ms = v->to_number<int>();
             }
             catch (const std::exception& e) {
                 err = e.what();
@@ -224,6 +236,10 @@ namespace varan {
             // протухнуть между соседними кадрами и на шину всегда шли бы нули.
             if (t.payload_ttl_ms < t.tx_period_ms) {
                 err = "payload_ttl_ms must be >= tx_period_ms";
+                return false;
+            }
+            if (t.payload_reset_ms < 10 || t.payload_reset_ms > 600000) {
+                err = "payload_reset_ms must be 10..600000";
                 return false;
             }
 

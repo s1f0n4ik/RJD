@@ -98,8 +98,9 @@ namespace varan {
                 if (ec || !m_active.load()) {
                     return;
                 }
-                // Heartbeat только при живом соединении и простое канала period секунд.
-                if (m_ws->connected()) {
+                // Heartbeat только при живом соединении и простое канала period
+                // секунд. Тумблер выключает отправку, не останавливая таймер.
+                if (m_heartbeat_enabled.load() && m_ws->connected()) {
                     const std::int64_t idle = now_ms() - m_last_send_ms.load();
                     if (idle >= static_cast<std::int64_t>(period) * 1000) {
                         auto versions = m_registry.versions();
@@ -128,6 +129,10 @@ namespace varan {
             connection["host"] = cfg.host;
             connection["port"] = cfg.port;
             connection["target"] = cfg.target;
+            // Причина последнего сбоя и признак переподключения — страница красит по
+            // ним статус так же, как у CAN по connection.error.
+            connection["error"] = m_ws->connected() ? std::string() : m_ws->last_error();
+            connection["retrying"] = m_ws->failed() && !m_ws->connected();
 
             json::array versions;
             for (int v : m_registry.versions()) {
@@ -139,6 +144,7 @@ namespace varan {
             m["title"] = title();
             m["transport"] = transport();
             m["heartbeat_sec"] = m_heartbeat_sec.load();
+            m["heartbeat_enabled"] = m_heartbeat_enabled.load();
             m["protocol_versions"] = std::move(versions);
             m["connection"] = std::move(connection);
             m["stats"] = m_stats.to_json();
@@ -148,6 +154,7 @@ namespace varan {
         boost::json::object UWsModule::config_snapshot() const {
             json::object o = varan::gateway::to_json(m_ws->config());
             o["heartbeat_sec"] = m_heartbeat_sec.load();
+            o["heartbeat_enabled"] = m_heartbeat_enabled.load();
             return o;
         }
 
@@ -159,6 +166,15 @@ namespace varan {
             if (auto* v = patch.if_contains("heartbeat_sec")) {
                 try {
                     m_heartbeat_sec = static_cast<int>(v->to_number<int>());
+                }
+                catch (const std::exception& e) {
+                    err = e.what();
+                    return false;
+                }
+            }
+            if (auto* v = patch.if_contains("heartbeat_enabled")) {
+                try {
+                    m_heartbeat_enabled = v->as_bool();
                 }
                 catch (const std::exception& e) {
                     err = e.what();

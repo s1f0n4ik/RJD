@@ -7,18 +7,24 @@ import { formatBytes, formatClock } from '../utils/format';
 // Лежат отдельно, чтобы состояние соединения и лента сообщений выглядели и
 // вели себя одинаково во всех модулях.
 
-export type PillState = 'ok' | 'wait' | 'off';
+export type PillState = 'ok' | 'wait' | 'err' | 'off';
 
+// Состояние подключения по флагам соединения. Общий для WebSocket и CAN, чтобы
+// оба модуля подсвечивались одинаково: зелёный — связь есть, жёлтый — первая
+// попытка идёт, красный — попытка сорвалась (таймаут/ошибка) и канал
+// переподключается, серый — модуль выключен.
 export function connState(m: GwModule): PillState {
   if (m.connection.connected) return 'ok';
-  if (m.connection.enabled) return 'wait';
-  return 'off';
+  if (!m.connection.enabled) return 'off';
+  if (m.connection.error) return 'err';
+  return 'wait';
 }
 
 const PILL_LABEL: Record<PillState, string> = {
   ok: 'Соединено',
   wait: 'Подключение',
-  off: 'Нет связи',
+  err: 'Нет связи',
+  off: 'Выключено',
 };
 
 export const Pill: React.FC<{ state: PillState }> = ({ state }) => (

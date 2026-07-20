@@ -51,6 +51,10 @@ namespace varan {
             boost::asio::steady_timer m_heartbeat_timer;
 
             std::atomic<int> m_heartbeat_sec;
+            // Отправлять ли служебный heartbeat при простое канала. Таймер при этом
+            // продолжает крутиться — просто пропускает отправку, — чтобы включение
+            // тумблера не требовало пересоздавать таймер.
+            std::atomic_bool m_heartbeat_enabled{ true };
             std::atomic<std::int64_t> m_last_send_ms{ 0 };
             std::atomic_bool m_active{ false };
 

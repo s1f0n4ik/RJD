@@ -31,14 +31,16 @@ function parseWsUrl(raw: string): { host: string; port: string; target: string }
 const WebSocketModulePanel: React.FC<Props> = ({ module, busy, onSave, onConnect, onDisconnect }) => {
   const [url, setUrl] = useState('');
   const [heartbeat, setHeartbeat] = useState('5');
+  const [heartbeatOn, setHeartbeatOn] = useState(true);
   const [enabled, setEnabled] = useState(true);
   const [urlError, setUrlError] = useState('');
 
   useEffect(() => {
     setUrl(module.connection.url);
     setHeartbeat(String(module.heartbeat_sec));
+    setHeartbeatOn(module.heartbeat_enabled ?? true);
     setEnabled(module.connection.enabled);
-  }, [module.connection.url, module.heartbeat_sec, module.connection.enabled]);
+  }, [module.connection.url, module.heartbeat_sec, module.heartbeat_enabled, module.connection.enabled]);
 
   const handleSave = () => {
     const parsed = parseWsUrl(url);
@@ -54,6 +56,7 @@ const WebSocketModulePanel: React.FC<Props> = ({ module, busy, onSave, onConnect
       target: parsed.target,
       enabled,
       heartbeat_sec: Number.isFinite(hb) ? hb : undefined,
+      heartbeat_enabled: heartbeatOn,
     });
   };
 
@@ -74,6 +77,7 @@ const WebSocketModulePanel: React.FC<Props> = ({ module, busy, onSave, onConnect
       <div className="krsps-card">
         <div className="krsps-panel__head">
           <div className="krsps-panel__title">Настройки передачи</div>
+          <Pill state={connState(module)} />
           <div className="krsps-panel__meta">{module.connection.url || '—'}</div>
           <button
             type="button"
@@ -107,17 +111,41 @@ const WebSocketModulePanel: React.FC<Props> = ({ module, busy, onSave, onConnect
 
             <div className="krsps-field">
               <label className="krsps-field__label" htmlFor="krsps-ws-hb">
-                Сообщение heartbeat, с
+                Сообщение heartbeat
               </label>
-              <input
-                id="krsps-ws-hb"
-                className="krsps-input krsps-input--sm"
-                value={heartbeat}
-                inputMode="numeric"
-                onChange={(e) => setHeartbeat(e.target.value.replace(/[^\d]/g, ''))}
-              />
+              <div className="krsps-inlinectl">
+                <button
+                  type="button"
+                  className={`krsps-switch krsps-switch--bare${heartbeatOn ? ' krsps-switch--on' : ''}`}
+                  role="switch"
+                  aria-checked={heartbeatOn}
+                  aria-label="Отправлять heartbeat"
+                  onClick={() => setHeartbeatOn((v) => !v)}
+                >
+                  <span className="krsps-switch__track" />
+                </button>
+                <span className="krsps-inlinectl__sep" />
+                <span className={`krsps-inlinectl__val${heartbeatOn ? '' : ' krsps-inlinectl__val--off'}`}>
+                  <span>каждые</span>
+                  <input
+                    id="krsps-ws-hb"
+                    className="krsps-input"
+                    value={heartbeat}
+                    inputMode="numeric"
+                    disabled={!heartbeatOn}
+                    onChange={(e) => setHeartbeat(e.target.value.replace(/[^\d]/g, ''))}
+                  />
+                  <span className="krsps-inlinectl__unit">с при простое</span>
+                </span>
+              </div>
             </div>
           </div>
+
+          {module.connection.error && (
+            <div className="krsps-alert" style={{ marginTop: 16 }}>
+              Связь: {module.connection.error}. Переподключение…
+            </div>
+          )}
         </div>
 
         <div className="krsps-formfoot">

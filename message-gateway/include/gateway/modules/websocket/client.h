@@ -8,6 +8,7 @@
 #include <string>
 #include <memory>
 #include <atomic>
+#include <mutex>
 
 #include "gateway/utility/log.h"
 
@@ -50,6 +51,19 @@ namespace varan {
 
             bool connected() const {
                 return m_connected.load();
+            }
+
+            // Была ли неудачная попытка соединения (resolve/connect/handshake или
+            // разрыв на чтении/записи) с момента последнего успешного рукопожатия.
+            // Пока true и не connected() — канал в переподключении, страница
+            // подсвечивает его красным.
+            bool failed() const {
+                return m_failed.load();
+            }
+
+            std::string last_error() const {
+                std::lock_guard<std::mutex> lock(m_err_mutex);
+                return m_last_error;
             }
 
             void run() {
@@ -145,7 +159,7 @@ namespace varan {
                     m_port,
                     [self = shared_from_this()](boost::beast::error_code ec, tcp::resolver::results_type results) {
                         if (ec) {
-                            self->log("Resolve failed: " + ec.message());
+                            self->note_error("Resolve failed: " + ec.message());
                             self->schedule_reconnect();
                             return;
                         }
@@ -163,7 +177,7 @@ namespace varan {
                     return;
                 }
                 if (ec) {
-                    log("Connect failed: " + ec.message());
+                    note_error("Connect failed: " + ec.message());
                     schedule_reconnect();
                     return;
                 }
@@ -181,13 +195,18 @@ namespace varan {
                     return;
                 }
                 if (ec) {
-                    log("Handshake failed: " + ec.message());
+                    note_error("Handshake failed: " + ec.message());
                     schedule_reconnect();
                     return;
                 }
 
                 m_reconnecting = false;
                 m_connected = true;
+                {
+                    std::lock_guard<std::mutex> lock(m_err_mutex);
+                    m_last_error.clear();
+                }
+                m_failed = false;
                 log("Handshake complete. Read loop started.");
                 do_read();
 
@@ -208,7 +227,7 @@ namespace varan {
                             return;
                         }
                         if (ec) {
-                            self->log("Read failed: " + ec.message());
+                            self->note_error("Read failed: " + ec.message());
                             self->schedule_reconnect();
                             return;
                         }
@@ -235,7 +254,7 @@ namespace varan {
                             return;
                         }
                         if (ec) {
-                            self->log("Write failed: " + ec.message());
+                            self->note_error("Write failed: " + ec.message());
                             self->m_send_queue.clear();
                             self->schedule_reconnect();
                             return;
@@ -251,6 +270,18 @@ namespace varan {
                 ULog::info("ws:" + m_name, msg);
             }
 
+            // Логирует сбой и запоминает его как последнюю ошибку канала: отсюда
+            // страница узнаёт причину и красит статус. Флаг снимается только при
+            // удачном рукопожатии.
+            void note_error(const std::string& msg) {
+                log(msg);
+                {
+                    std::lock_guard<std::mutex> lock(m_err_mutex);
+                    m_last_error = msg;
+                }
+                m_failed = true;
+            }
+
         private:
             asio::strand<asio::io_context::executor_type> m_strand;
             asio::steady_timer m_timer;
@@ -263,6 +294,12 @@ namespace varan {
             std::atomic_bool m_stopping{ false };
             std::atomic_bool m_reconnecting{ false };
             std::atomic_bool m_connected{ false };
+            // Последняя попытка провалилась и канал переподключается. Снимается
+            // при удачном рукопожатии.
+            std::atomic_bool m_failed{ false };
+
+            mutable std::mutex m_err_mutex;
+            std::string m_last_error;
 
             std::string m_host;
             std::string m_port;

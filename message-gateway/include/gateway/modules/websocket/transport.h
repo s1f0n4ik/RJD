@@ -46,6 +46,18 @@ namespace varan {
                 return m_client && m_client->connected();
             }
 
+            // Идёт ли переподключение после сбоя (для красного статуса) и текст
+            // последней ошибки канала. Нет клиента (модуль выключен) — не сбой.
+            bool failed() const {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                return m_client && m_client->failed();
+            }
+
+            std::string last_error() const {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                return m_client ? m_client->last_error() : std::string();
+            }
+
             void send(const std::string& payload, bool binary) override {
                 std::shared_ptr<UWebSocketClient> client;
                 {

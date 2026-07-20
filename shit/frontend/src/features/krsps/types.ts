@@ -40,6 +40,9 @@ export interface GwConnection {
   device?: string;
   bitrate?: number;
   error?: string;
+  // WebSocket: идёт ли переподключение после сбоя. Со связью error пуст, статус
+  // зелёный; при сбое error несёт причину, статус красный.
+  retrying?: boolean;
 }
 
 // Одно сообщение на шине. Состав полей задан протоколом и не редактируется —
@@ -65,6 +68,8 @@ export interface GwCanTx {
   period_ms: number;
   dlc: number;
   payload_ttl_ms: number;
+  reset_enabled: boolean; // принудительно обнулять нагрузку по таймеру
+  reset_ms: number;
 }
 
 // Вклад одной камеры в общую нагрузку.
@@ -155,6 +160,7 @@ export interface GwModule {
   title: string;
   transport: string;     // "websocket" | "can" | "modbus"
   heartbeat_sec: number;
+  heartbeat_enabled?: boolean;  // WebSocket: слать ли служебный heartbeat
   protocol_versions: number[];
   connection: GwConnection;
   stats: GwStats;
@@ -201,6 +207,7 @@ export interface GwWsConfigPatch {
   target?: string;
   enabled?: boolean;
   heartbeat_sec?: number;
+  heartbeat_enabled?: boolean;
 }
 
 // Адрес сообщения в заплате настроек.
@@ -223,6 +230,8 @@ export interface GwCanConfigPatch {
   tx_period_ms?: number;
   tx_dlc?: number;
   payload_ttl_ms?: number;
+  payload_reset_enabled?: boolean;
+  payload_reset_ms?: number;
   tx_detections?: GwCanMessagePatch;
   rx_gps?: GwCanMessagePatch;
   rx_time?: GwCanMessagePatch;

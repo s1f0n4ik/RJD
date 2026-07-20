@@ -279,14 +279,23 @@
 }
 .krsps-pill--ok { background: var(--k-ok-tint); color: var(--k-ok); }
 .krsps-pill--wait { background: var(--k-warn-tint); color: var(--k-warn); }
+.krsps-pill--err { background: var(--k-tint); color: var(--k-accent); }
 .krsps-pill--off { background: var(--k-panel-2); color: var(--k-mute); }
 @media (prefers-reduced-motion: no-preference) {
   .krsps-pill--ok .krsps-pill__dot { animation: krsps-pulse 2s ease-out infinite; }
+  /* Красный статус пульсирует заметнее зелёного: сорванное подключение — то,
+     на что смотрят в первую очередь. */
+  .krsps-pill--err .krsps-pill__dot { animation: krsps-pulse-err 1.3s ease-out infinite; }
 }
 @keyframes krsps-pulse {
   0% { box-shadow: 0 0 0 0 rgba(58, 167, 89, 0.5); }
   70% { box-shadow: 0 0 0 6px rgba(58, 167, 89, 0); }
   100% { box-shadow: 0 0 0 0 rgba(58, 167, 89, 0); }
+}
+@keyframes krsps-pulse-err {
+  0% { box-shadow: 0 0 0 0 rgba(226, 26, 26, 0.5); }
+  70% { box-shadow: 0 0 0 6px rgba(226, 26, 26, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(226, 26, 26, 0); }
 }
 
 /* ── Форма настроек ─────────────────────────────────────────── */
@@ -952,6 +961,44 @@ select.krsps-input--inherit { color: var(--k-mute); }
 
 /* Тумблер без подписи — он стоит в строке-заголовке сообщения. */
 .krsps-switch--bare { gap: 0; }
+
+/* Единый контрол «тумблер + значение по таймеру»: сброс нагрузки собран в одну
+   плашку, где выбор и период читаются как одно целое, а не два разных поля. */
+.krsps-inlinectl {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 8px 8px 14px;
+  background: var(--k-panel-2);
+  border: 1px solid var(--k-border);
+  border-radius: var(--k-radius-xs);
+}
+.krsps-inlinectl__sep {
+  width: 1px;
+  align-self: stretch;
+  background: var(--k-border);
+}
+.krsps-inlinectl__val {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--k-dim);
+  transition: opacity 0.15s;
+}
+.krsps-inlinectl__val--off { opacity: 0.45; }
+.krsps-inlinectl__val .krsps-input {
+  width: 88px;
+  height: 34px;
+  border-radius: 999px;
+  text-align: center;
+}
+.krsps-inlinectl__unit { color: var(--k-mute); }
+.krsps-inlinectl .krsps-btn {
+  height: 34px;
+  border-radius: 999px;
+  padding: 0 16px;
+}
 
 /* Составные части идентификатора. */
 .krsps-idrow {
