@@ -191,6 +191,11 @@ namespace varan {
         }
 
         void UCanModule::expire_cameras_locked(const FCanConfig& cfg) {
+            // Ограничение жизни выключено — вклады камер держатся до нового кадра,
+            // сколько бы ни прошло: на шину уходит последнее полученное состояние.
+            if (!cfg.payload_ttl_enabled) {
+                return;
+            }
             const std::int64_t now = mono_ms();
             for (auto& c : m_cameras) {
                 if (c.mono != 0 && (now - c.mono) > cfg.payload_ttl_ms) {
@@ -201,32 +206,6 @@ namespace varan {
                     c.danger = 0;
                     c.mono = 0;
                 }
-            }
-        }
-
-        // Принудительный сброс всей нагрузки по таймеру. Обнуляем вклады всех
-        // камер разом, а не только замолчавших: следующий кадр на шину уйдёт с
-        // нулём обнаружений, пока камеры не пришлют новое. Живёт в потоке таймера
-        // передачи, отдельного мьютекса под момент сброса не нужно.
-        void UCanModule::maybe_reset_payload(const FCanConfig& cfg) {
-            if (!cfg.payload_reset_enabled) {
-                m_last_reset_mono = 0;
-                return;
-            }
-            const std::int64_t now = mono_ms();
-            if (m_last_reset_mono == 0) {
-                m_last_reset_mono = now;
-                return;
-            }
-            if (now - m_last_reset_mono >= cfg.payload_reset_ms) {
-                std::lock_guard<std::mutex> lock(m_payload_mutex);
-                for (auto& c : m_cameras) {
-                    c.count = 0;
-                    c.type = 0;
-                    c.danger = 0;
-                    c.mono = 0;
-                }
-                m_last_reset_mono = now;
             }
         }
 
@@ -426,7 +405,6 @@ namespace varan {
                     return;
                 }
                 const FCanConfig cfg = config();
-                maybe_reset_payload(cfg);
                 // Без постоянной передачи таймер только гасит протухшие камеры;
                 // сам кадр уходит из handle_frame по приходу обнаружений.
                 if (cfg.tx_continuous) {
@@ -513,9 +491,8 @@ namespace varan {
             tx["continuous"] = cfg.tx_continuous;
             tx["period_ms"] = cfg.tx_period_ms;
             tx["dlc"] = cfg.tx_dlc;
+            tx["ttl_enabled"] = cfg.payload_ttl_enabled;
             tx["payload_ttl_ms"] = cfg.payload_ttl_ms;
-            tx["reset_enabled"] = cfg.payload_reset_enabled;
-            tx["reset_ms"] = cfg.payload_reset_ms;
 
             // Текущая нагрузка — то, что прямо сейчас уходит на шину, вместе с
             // вкладом каждой камеры: по нему видно, чей бит поднят и почему.

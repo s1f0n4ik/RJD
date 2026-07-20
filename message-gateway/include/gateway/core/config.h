@@ -50,19 +50,14 @@ namespace varan {
             // По умолчанию шлём 8 (хвост — 0xFF, "недоступно"); если приёмник ждёт
             // ровно 4, ставится 4.
             int tx_dlc = 8;
-            // Сколько нагрузка камеры живёт без новых кадров от media-center. Если
-            // поток обнаружений встал, её бит гаснет: держать на шине последнее
-            // "человек, критическая опасность" — значит показывать тревогу, которой
-            // уже нет, и приёмник не отличит её от живой.
+            // Ограничивать ли жизнь нагрузки по времени. Включено — вклад камеры,
+            // не обновлявшийся дольше payload_ttl_ms, гаснет: держать на шине
+            // последнее "человек, критическая опасность" значило бы показывать
+            // тревогу, которой уже нет. Выключено — вклад держится до следующего
+            // кадра от media-center, сколько бы ни прошло: на шину уходит последнее
+            // полученное состояние, а не нули по таймауту.
+            bool payload_ttl_enabled = true;
             int payload_ttl_ms = 1000;
-
-            // Принудительный сброс всей накопленной нагрузки по таймеру. В отличие
-            // от payload_ttl_ms, который гасит только замолчавшие камеры, здесь
-            // раз в payload_reset_ms обнуляются вклады всех камер разом. Выключено
-            // по умолчанию: обычной жизни хватает TTL, а сброс нужен там, где на
-            // шине требуется периодически возвращать нулевое состояние.
-            bool payload_reset_enabled = false;
-            int payload_reset_ms = 1000;
 
             // Приём: сообщения стороннего устройства (Садко, SA 0x61), из которых
             // берутся координаты и время. Приоритет 6, PDU2 (широковещательные).
@@ -112,9 +107,8 @@ namespace varan {
             o["tx_continuous"] = c.tx_continuous;
             o["tx_period_ms"] = c.tx_period_ms;
             o["tx_dlc"] = c.tx_dlc;
+            o["payload_ttl_enabled"] = c.payload_ttl_enabled;
             o["payload_ttl_ms"] = c.payload_ttl_ms;
-            o["payload_reset_enabled"] = c.payload_reset_enabled;
-            o["payload_reset_ms"] = c.payload_reset_ms;
             o["rx_gps"] = to_json(c.rx_gps);
             o["rx_time"] = to_json(c.rx_time);
             return o;
@@ -186,9 +180,8 @@ namespace varan {
                 if (auto* v = o.if_contains("tx_continuous")) t.tx_continuous = v->as_bool();
                 if (auto* v = o.if_contains("tx_period_ms")) t.tx_period_ms = v->to_number<int>();
                 if (auto* v = o.if_contains("tx_dlc"))       t.tx_dlc = v->to_number<int>();
+                if (auto* v = o.if_contains("payload_ttl_enabled")) t.payload_ttl_enabled = v->as_bool();
                 if (auto* v = o.if_contains("payload_ttl_ms")) t.payload_ttl_ms = v->to_number<int>();
-                if (auto* v = o.if_contains("payload_reset_enabled")) t.payload_reset_enabled = v->as_bool();
-                if (auto* v = o.if_contains("payload_reset_ms")) t.payload_reset_ms = v->to_number<int>();
             }
             catch (const std::exception& e) {
                 err = e.what();
@@ -234,12 +227,10 @@ namespace varan {
             }
             // Меньше периода выдачи ttl не имеет смысла: нагрузка успевала бы
             // протухнуть между соседними кадрами и на шину всегда шли бы нули.
-            if (t.payload_ttl_ms < t.tx_period_ms) {
+            // Проверяем только при включённом ограничении: выключенному TTL
+            // значение всё равно, вклад держится до следующего кадра.
+            if (t.payload_ttl_enabled && t.payload_ttl_ms < t.tx_period_ms) {
                 err = "payload_ttl_ms must be >= tx_period_ms";
-                return false;
-            }
-            if (t.payload_reset_ms < 10 || t.payload_reset_ms > 600000) {
-                err = "payload_reset_ms must be 10..600000";
                 return false;
             }
 

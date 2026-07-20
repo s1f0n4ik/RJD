@@ -80,8 +80,6 @@ namespace varan {
             // Сводит вклады камер в одну нагрузку, попутно отбрасывая протухшие.
             FCanDetectionPayload build_payload_locked(const FCanConfig& cfg) const;
             void expire_cameras_locked(const FCanConfig& cfg);
-            // Обнуляет нагрузку всех камер раз в payload_reset_ms, если включено.
-            void maybe_reset_payload(const FCanConfig& cfg);
 
             void rebuild_bus_locked();
             FCanConfig config() const;
@@ -103,8 +101,6 @@ namespace varan {
             // Момент последнего сердцебиения в лог. Живёт в потоке io_context
             // (таймер передачи), поэтому без атомарности.
             std::int64_t m_last_hb_mono = 0;
-            // Момент последнего сброса нагрузки. Тоже в потоке таймера передачи.
-            std::int64_t m_last_reset_mono = 0;
 
             // Вклады камер. Пишет поток gRPC, читает поток шины.
             mutable std::mutex m_payload_mutex;

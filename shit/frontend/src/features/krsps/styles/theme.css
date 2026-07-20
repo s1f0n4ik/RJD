@@ -968,7 +968,8 @@ select.krsps-input--inherit { color: var(--k-mute); }
   display: inline-flex;
   align-items: center;
   gap: 14px;
-  padding: 8px 8px 8px 14px;
+  height: 40px;
+  padding: 0px 12px;
   background: var(--k-panel-2);
   border: 1px solid var(--k-border);
   border-radius: var(--k-radius-xs);
@@ -989,7 +990,7 @@ select.krsps-input--inherit { color: var(--k-mute); }
 .krsps-inlinectl__val--off { opacity: 0.45; }
 .krsps-inlinectl__val .krsps-input {
   width: 88px;
-  height: 34px;
+  height: 28px;
   border-radius: 999px;
   text-align: center;
 }

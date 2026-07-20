@@ -67,9 +67,8 @@ export interface GwCanTx {
   continuous: boolean;   // слать по таймеру, а не только на новые обнаружения
   period_ms: number;
   dlc: number;
+  ttl_enabled: boolean;  // ограничивать ли жизнь нагрузки по времени
   payload_ttl_ms: number;
-  reset_enabled: boolean; // принудительно обнулять нагрузку по таймеру
-  reset_ms: number;
 }
 
 // Вклад одной камеры в общую нагрузку.
@@ -229,9 +228,8 @@ export interface GwCanConfigPatch {
   tx_continuous?: boolean;
   tx_period_ms?: number;
   tx_dlc?: number;
+  payload_ttl_enabled?: boolean;
   payload_ttl_ms?: number;
-  payload_reset_enabled?: boolean;
-  payload_reset_ms?: number;
   tx_detections?: GwCanMessagePatch;
   rx_gps?: GwCanMessagePatch;
   rx_time?: GwCanMessagePatch;
