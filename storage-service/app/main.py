@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.config import settings
-from app.routers import recordings
+from app.routers import recordings, journal
 from app.services.cleaner import cleaner
 
 logging.basicConfig(
@@ -30,6 +30,7 @@ app = FastAPI(
 )
 
 app.include_router(recordings.router, prefix="/api", tags=["Recordings"])
+app.include_router(journal.router, prefix="/api", tags=["Journal"])
 
 
 @app.get("/", tags=["Health"])

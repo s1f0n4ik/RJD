@@ -30,6 +30,14 @@ class Settings(BaseSettings):
     # Не удаляем сразу, чтобы клиент успел дописать большой архив на диск.
     DOWNLOAD_CLEANUP_DELAY_SEC: int = 300
 
+    # ── Журнал обнаружений ──
+    # База пишется media-center'ом (WAL), storage-service читает и правит вердикты.
+    JOURNAL_DB_PATH: str = "/storage/journal/journal.db"
+    # Корень JPEG-кадров; в БД лежит путь относительно него (YYYY-MM-DD/<name>.jpg).
+    JOURNAL_FRAMES_PATH: str = "/storage/journal/frames"
+    # Offline-тайлы карты (.mbtiles). Пусто/нет файла — карта без подложки.
+    JOURNAL_TILES_MBTILES: str = "/storage/journal/tiles/map.mbtiles"
+
     # FastAPI
     APP_NAME: str = "Recordings Storage Service"
     APP_VERSION: str = "1.0.0"
