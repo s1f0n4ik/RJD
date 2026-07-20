@@ -44,18 +44,19 @@ protobuf_generate(
 )
 
 add_executable(${PROJECT_NAME}
-    src/main.cpp
-    src/gateway.cpp
-    src/frame-codec-v1.cpp
-    src/taxonomy.cpp
-    src/ws-module.cpp
-    src/can-module.cpp
-    src/can-bus.cpp
-    src/can-codec.cpp
-    src/can-log.cpp
-    src/devices.cpp
-    src/rsm2000-integration.cpp
-    src/grpc-ingress.cpp
+    src/core/main.cpp
+    src/core/gateway.cpp
+    src/core/frame-codec-v1.cpp
+    src/core/taxonomy.cpp
+    src/core/store.cpp
+    src/core/rsm2000-integration.cpp
+    src/utility/devices.cpp
+    src/modules/websocket/module.cpp
+    src/modules/can/module.cpp
+    src/modules/can/bus.cpp
+    src/modules/can/codec.cpp
+    src/modules/can/traffic-log.cpp
+    src/grpc/ingress.cpp
     $<TARGET_OBJECTS:gateway-proto>
 )
 

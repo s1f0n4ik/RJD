@@ -1,5 +1,5 @@
-#include "gateway/devices.h"
-#include "gateway/log.h"
+#include "gateway/utility/devices.h"
+#include "gateway/utility/log.h"
 
 #include <algorithm>
 #include <string>

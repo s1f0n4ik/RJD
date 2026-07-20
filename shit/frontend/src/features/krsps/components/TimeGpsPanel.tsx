@@ -61,10 +61,11 @@ const TimeGpsPanel: React.FC<Props> = ({ time, offsetMs, synced }) => {
 
   return (
     <div>
+      {/*
       <div className="krsps-module__head">
         <div className="krsps-module__title">Время и GPS</div>
-        <div className="krsps-module__meta">точка входа для всех сервисов</div>
       </div>
+      */}
 
       <div className="krsps-card">
         <div className="krsps-panel__head">
@@ -104,7 +105,7 @@ const TimeGpsPanel: React.FC<Props> = ({ time, offsetMs, synced }) => {
         </div>
 
         <div className="krsps-clock__note">
-          Источник: время — {sourceNote(time?.source.time)}, координаты — {sourceNote(time?.source.gps)}.
+          Источник: время - {sourceNote(time?.source.time)}, координаты - {sourceNote(time?.source.gps)}.
           {fromCan
             ? ' Время идёт от последнего сообщения по шине и тикает дальше внутри сервиса, поэтому остаётся точным между сообщениями.'
             : ' Пока по шине ничего не пришло, отдаются часы сервиса и заглушка координат.'}{' '}

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "gateway/codec.h"
+#include "gateway/core/codec.h"
 
 namespace varan {
     namespace gateway {

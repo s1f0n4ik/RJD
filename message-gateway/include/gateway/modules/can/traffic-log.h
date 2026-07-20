@@ -10,7 +10,7 @@
 
 #include <boost/json.hpp>
 
-#include "gateway/can-bus.h"
+#include "gateway/modules/can/bus.h"
 
 namespace varan {
     namespace gateway {

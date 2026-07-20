@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import type { GwModule, GwWsConfigPatch } from '../types';
 import { formatInt, formatBytes } from '../utils/format';
+import { IconRefresh } from '../icons';
 import { Kpi, Pill, RecordRow, connState } from './ModuleBits';
 
 interface Props {
@@ -61,22 +62,33 @@ const WebSocketModulePanel: React.FC<Props> = ({ module, busy, onSave, onConnect
 
   return (
     <div>
-      <div className="krsps-module__head">
+      {/*<div className="krsps-module__head">
         <div className="krsps-module__title">WebSocket → КАУС</div>
         <Pill state={connState(module)} />
         <div className="krsps-module__meta">
           протокол {module.protocol_versions.map((v) => `v${v}`).join(', ') || '—'}
         </div>
-      </div>
+      </div>*/}
 
-      {/* Настройки — целой строкой. */}
+      {/* Настройки: поля в гриде + серый футер действий — как в разделе CAN. */}
       <div className="krsps-card">
         <div className="krsps-panel__head">
           <div className="krsps-panel__title">Настройки передачи</div>
+          <div className="krsps-panel__meta">{module.connection.url || '—'}</div>
+          <button
+            type="button"
+            className="krsps-icon-btn"
+            title="Переподключить"
+            aria-label="Переподключить"
+            onClick={onConnect}
+            disabled={busy}
+          >
+            <IconRefresh />
+          </button>
         </div>
         <div className="krsps-panel__body">
-          <div className="krsps-form">
-            <div className="krsps-field krsps-field--grow">
+          <div className="krsps-formgrid">
+            <div className="krsps-field krsps-formgrid__wide">
               <label className="krsps-field__label" htmlFor="krsps-ws-url">
                 Адрес WebSocket (КАУС)
               </label>
@@ -93,43 +105,40 @@ const WebSocketModulePanel: React.FC<Props> = ({ module, busy, onSave, onConnect
               </div>
             </div>
 
-            <div className="krsps-form__row">
-              <div className="krsps-field">
-                <label className="krsps-field__label" htmlFor="krsps-ws-hb">
-                  Сообщение heartbeat, с
-                </label>
-                <input
-                  id="krsps-ws-hb"
-                  className="krsps-input krsps-input--sm"
-                  value={heartbeat}
-                  inputMode="numeric"
-                  onChange={(e) => setHeartbeat(e.target.value.replace(/[^\d]/g, ''))}
-                />
-              </div>
-
-              <button
-                type="button"
-                className={`krsps-switch${enabled ? ' krsps-switch--on' : ''}`}
-                role="switch"
-                aria-checked={enabled}
-                onClick={() => setEnabled((v) => !v)}
-              >
-                <span className="krsps-switch__track" />
-                Передача обнаружений включена
-              </button>
-
-              <div className="krsps-actions">
-                <button type="button" className="krsps-btn krsps-btn--primary" onClick={handleSave} disabled={busy}>
-                  Сохранить
-                </button>
-                <button type="button" className="krsps-btn krsps-btn--ghost" onClick={onConnect} disabled={busy}>
-                  Переподключить
-                </button>
-                <button type="button" className="krsps-btn krsps-btn--text" onClick={onDisconnect} disabled={busy}>
-                  Отключить
-                </button>
-              </div>
+            <div className="krsps-field">
+              <label className="krsps-field__label" htmlFor="krsps-ws-hb">
+                Сообщение heartbeat, с
+              </label>
+              <input
+                id="krsps-ws-hb"
+                className="krsps-input krsps-input--sm"
+                value={heartbeat}
+                inputMode="numeric"
+                onChange={(e) => setHeartbeat(e.target.value.replace(/[^\d]/g, ''))}
+              />
             </div>
+          </div>
+        </div>
+
+        <div className="krsps-formfoot">
+          <button
+            type="button"
+            className={`krsps-switch${enabled ? ' krsps-switch--on' : ''}`}
+            role="switch"
+            aria-checked={enabled}
+            onClick={() => setEnabled((v) => !v)}
+          >
+            <span className="krsps-switch__track" />
+            Передача обнаружений включена
+          </button>
+
+          <div className="krsps-actions">
+            <button type="button" className="krsps-btn krsps-btn--primary" onClick={handleSave} disabled={busy}>
+              Сохранить
+            </button>
+            <button type="button" className="krsps-btn krsps-btn--text" onClick={onDisconnect} disabled={busy}>
+              Отключить
+            </button>
           </div>
         </div>
       </div>

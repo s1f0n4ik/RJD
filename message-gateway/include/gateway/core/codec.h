@@ -6,7 +6,7 @@
 #include <unordered_map>
 #include <algorithm>
 
-#include "gateway/message.h"
+#include "gateway/core/message.h"
 
 namespace varan {
     namespace gateway {

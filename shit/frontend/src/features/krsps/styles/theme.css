@@ -246,6 +246,7 @@
   align-items: center;
   gap: 12px;
   margin-bottom: 18px;
+  padding: 0px 12px;
 }
 .krsps-module__title {
   font-size: 1.2rem;
@@ -300,6 +301,124 @@
   align-items: flex-end;
   gap: 16px;
 }
+/* ── Настройки: поля в гриде + серый футер действий ──
+   Единый приём для всех настроечных карточек (WebSocket, подключение CAN):
+   поля выложены сеткой, а тумблер с кнопками вынесены в отдельный футер
+   карточки. Действия визуально отделены от ввода, а разнобой по высоте
+   контролов не мешает выравниванию. */
+.krsps-formgrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  /*align-items: end;*/
+}
+/* Элемент на всю ширину сетки: сегментный переключатель, длинный адрес. */
+.krsps-formgrid__wide { grid-column: 1 / -1; }
+.krsps-formgrid .krsps-seg { grid-column: 1 / -1; width: max-content; }
+/* В ячейке сетки поле и его ввод тянутся по колонке, а не по своей ширине. */
+.krsps-formgrid .krsps-field { width: auto; }
+.krsps-formgrid .krsps-input { width: 100%; }
+
+.krsps-formfoot {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 18px;
+  background: var(--k-panel-2);
+  border-top: 1px solid var(--k-border);
+}
+.krsps-formfoot .krsps-actions { margin-left: auto; }
+
+/* Инлайновый вариант того же футера — для настроек внутри аккордеона сообщения,
+   где полоса до краёв неуместна: скруглённая серая плашка. */
+.krsps-actionbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 16px;
+  padding: 12px 14px;
+  background: var(--k-panel-2);
+  border-radius: var(--k-radius-xs);
+}
+.krsps-actionbar .krsps-actions,
+.krsps-actionbar__push { margin-left: auto; }
+
+@media (max-width: 640px) {
+  .krsps-formgrid { grid-template-columns: 1fr; }
+  .krsps-formfoot { flex-wrap: wrap; }
+  .krsps-formfoot .krsps-actions { margin-left: 0; width: 100%; }
+}
+
+/* ── Пунктирная кнопка «добавить» и список выбора конфигурации ──
+   Заводит таблицу соответствий: во всю ширину над списком существующих. */
+.krsps-addbtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 13px;
+  border: 1.5px dashed var(--k-border-strong);
+  border-radius: var(--k-radius-xs);
+  background: transparent;
+  color: var(--k-dim);
+  font-family: inherit;
+  font-size: 0.86rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.krsps-addbtn:hover { border-color: var(--k-accent); color: var(--k-accent); background: var(--k-tint); }
+.krsps-addbtn:disabled { opacity: 0.55; cursor: default; }
+.krsps-addbtn svg { width: 18px; height: 18px; }
+.krsps-addbtn--open { border-style: solid; border-color: var(--k-accent); color: var(--k-accent); }
+
+.krsps-addmenu {
+  margin-top: 8px;
+  border: 1px solid var(--k-border);
+  border-radius: var(--k-radius-xs);
+  overflow: hidden;
+}
+.krsps-addmenu__item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-bottom: 1px solid var(--k-border);
+  background: var(--k-panel);
+  padding: 11px 14px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.krsps-addmenu__item:last-child { border-bottom: 0; }
+.krsps-addmenu__item:hover { background: var(--k-panel-2); }
+.krsps-addmenu__name { font-size: 0.86rem; font-weight: 600; color: var(--k-ink); }
+.krsps-addmenu__id { font-family: var(--k-mono); font-size: 0.76rem; color: var(--k-mute); }
+
+/* ── Мини-переключатель системы счисления (16/10) для полей адреса ── */
+.krsps-baseseg {
+  display: inline-flex;
+  background: var(--k-panel-2);
+  border: 1px solid var(--k-border);
+  border-radius: var(--k-radius-xs);
+  padding: 2px;
+  height: 40px;
+}
+.krsps-baseseg__btn {
+  font-family: var(--k-mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--k-mute);
+  background: transparent;
+  border: 0;
+  padding: 0 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.krsps-baseseg__btn--on { background: var(--k-panel); color: var(--k-accent-dark); box-shadow: 0 1px 2px rgba(30, 40, 50, 0.08); }
 .krsps-field {
   display: flex;
   flex-direction: column;
@@ -326,11 +445,33 @@
   background: var(--k-panel-2);
   border: 1px solid var(--k-border);
   border-radius: var(--k-radius-xs);
-  padding: 10px 12px;
+  padding: 0 12px;
   outline: none;
   width: 100%;
+  /* Единая высота у всех полей и кнопок: в ряду с несколькими контролами
+     разнобой по высоте и был причиной «архаичного» вида. */
+  height: 40px;
+  box-sizing: border-box;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
+/* Селект приводим к виду поля страницы: убираем нативную стрелку ОС и рисуем
+   свою — иначе он выпадает из оформления (разный по высоте и рамке в разных
+   браузерах). Стрелка — data-URI SVG в цвете --k-dim. */
+select.krsps-input {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 30px;
+  background-color: var(--k-panel-2);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235a6a75' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  background-size: 15px;
+  cursor: pointer;
+}
+select.krsps-input:hover { background-color: var(--k-panel-2); }
+/* Селект, стоящий на «наследовании»: приглушённый, чтобы отличать от заданного
+   вручную значения. */
+select.krsps-input--inherit { color: var(--k-mute); }
 .krsps-input:hover { border-color: var(--k-border-strong); }
 .krsps-input:focus { border-color: var(--k-accent); box-shadow: 0 0 0 3px rgba(226, 26, 26, 0.12); }
 .krsps-input--sm { width: 180px; }
@@ -381,10 +522,15 @@
   margin-left: auto;
 }
 .krsps-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-family: inherit;
   font-size: 0.84rem;
   font-weight: 700;
-  padding: 10px 16px;
+  height: 40px;
+  padding: 0 18px;
+  box-sizing: border-box;
   border-radius: var(--k-radius-xs);
   border: 1px solid transparent;
   cursor: pointer;
@@ -490,7 +636,7 @@
   font-variant-numeric: tabular-nums;
 }
 .krsps-empty {
-  padding: 40px 18px;
+  padding: 15px 18px;
   text-align: center;
   color: var(--k-mute);
   font-size: 0.85rem;
@@ -1140,6 +1286,18 @@
 .krsps-tbl__row:last-child { border-bottom: 0; }
 /* В таблице поля тянутся по колонке, а не по фиксированной ширине. */
 .krsps-tbl__row .krsps-input--sm { width: 100%; }
+/* Нередактируемый camera_id: моношрифт, выбирается из списка neural-камер. */
+.krsps-tbl__key {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  font-family: var(--k-mono);
+  font-size: 0.82rem;
+  color: var(--k-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .krsps-icon-btn {
   display: inline-flex;
   align-items: center;
@@ -1156,6 +1314,121 @@
 .krsps-icon-btn:hover { background: var(--k-tint); color: var(--k-accent); }
 .krsps-icon-btn svg { width: 15px; height: 15px; }
 
+/* ── Таксономия: два стека (суперклассы сверху, классы снизу) ──
+   Данные класса (id, имя, суперкласс) приходят из конфигурации нейросети и
+   не редактируются — это текст. Настраиваются только соответствия селектами. */
+
+/* Скролл-контейнер карточки: даёт таблице свою высоту, чтобы кнопка
+   сохранения могла прилипнуть к его низу и не уезжала с длинной таблицей. */
+.krsps-txscroll { max-height: 68vh; overflow-y: auto; }
+
+/* Суперклассы: имя (текст) + один селект опасности. Тип суперкласс не задаёт —
+   его несёт сам класс своим id. */
+.krsps-tbl--super .krsps-tbl__head,
+.krsps-tbl--super .krsps-tbl__row {
+  grid-template-columns: 1.6fr 1.5fr 36px;
+}
+/* Классы: id | имя | суперкласс | тип | опасность | удалить. */
+.krsps-tbl--cls .krsps-tbl__head,
+.krsps-tbl--cls .krsps-tbl__row {
+  grid-template-columns: 64px 1.3fr 1.3fr 1.3fr 1.3fr 36px;
+}
+
+/* Строка класса подкрашена цветом своего суперкласса — так группы отделяются
+   друг от друга, а принадлежность класса группе видна без отдельных заголовков.
+   Сам цвет приходит инлайном из конфигурации. */
+.krsps-tbl__row--tinted { border-left: 3px solid var(--k-border-strong); }
+
+/* Читаемое имя класса/суперкласса: имя сверху, машинный ключ снизу моно. */
+.krsps-tbl__name { min-width: 0; }
+.krsps-tbl__name b { font-size: .84rem; font-weight: 600; color: var(--k-ink); display: block; }
+.krsps-tbl__name small {
+  font-family: var(--k-mono); font-size: .72rem; color: var(--k-mute);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block;
+}
+/* id класса (= тип обнаружения по умолчанию) — числовой бейдж. */
+.krsps-tbl__cid {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 30px; height: 26px;
+  font-family: var(--k-mono); font-weight: 800; font-size: .82rem;
+  color: var(--k-accent-dark); background: var(--k-tint); border-radius: 6px; padding: 0 8px;
+}
+/* Ссылка на суперкласс: цветная точка + имя, только для чтения. */
+.krsps-tbl__super {
+  display: inline-flex; align-items: center; gap: 8px; min-width: 0;
+  font-size: .78rem; color: var(--k-dim);
+}
+.krsps-tbl__super-dot { width: 9px; height: 9px; border-radius: 3px; flex: none; }
+.krsps-tbl__super span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.krsps-tbl__super--none { color: var(--k-mute); font-style: italic; }
+
+/* Ячейка типа с флагом: селект + красный знак, если id класса вне 1..8 и типа
+   протокола под него нет. */
+.krsps-tbl__typecell { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.krsps-tbl__typecell .krsps-input { min-width: 0; }
+.krsps-flag {
+  flex: none; display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--k-tint); color: var(--k-accent); border: 1px solid var(--k-tint-2);
+  font-weight: 900; font-size: .8rem; cursor: help;
+}
+
+/* Заголовок группы внутри таблицы классов — тонкая полоса с цветом суперкласса. */
+.krsps-grouprow {
+  display: flex; align-items: center; gap: 9px;
+  padding: 8px 12px; border-bottom: 1px solid var(--k-border);
+  border-left: 3px solid var(--k-border-strong);
+  font-size: .72rem; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--k-dim);
+}
+.krsps-grouprow__dot { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.krsps-grouprow__count { margin-left: auto; font-family: var(--k-mono); color: var(--k-mute); letter-spacing: 0; text-transform: none; }
+
+/* Добавление одним движением: строка-селект прямо в потоке таблицы, а не
+   выпадающее меню поверх. Выбрал конфигурацию/камеру — строка стала таблицей. */
+.krsps-addline {
+  display: flex; align-items: center; gap: 12px;
+  padding: 11px 12px; border-top: 1px dashed var(--k-border-strong);
+  background: var(--k-panel-2);
+}
+.krsps-addline__lead {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: .78rem; font-weight: 700; color: var(--k-accent-dark); white-space: nowrap;
+}
+.krsps-addline__lead svg { width: 16px; height: 16px; }
+.krsps-addline .krsps-input { max-width: 360px; }
+/* Полностью настроено или нет доступа к media-center: строку добавления не
+   прячем, а гасим — с припиской, почему добавлять нечего. */
+.krsps-addline--off .krsps-addline__lead { color: var(--k-mute); }
+.krsps-addline__note { font-size: .8rem; color: var(--k-mute); }
+
+/* Кнопка сохранения таблицы конфигурации — своя у каждого элемента списка.
+   Прилипает к правому нижнему краю элемента и висит поверх строк; левая
+   (пустая) часть полосы прозрачна для кликов, чтобы не перехватывать строки. */
+.krsps-savepin {
+  position: sticky;
+  bottom: 12px;
+  z-index: 3;
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+  pointer-events: none;
+}
+.krsps-savepin .krsps-btn {
+  pointer-events: auto;
+  box-shadow: var(--k-shadow-lg);
+}
+
+/* Липкая панель сохранения: прилипает к низу скролл-контейнера карточки,
+   поверх строк, слева. За пределы карточки не выходит. */
+.krsps-savebar {
+  position: sticky; bottom: 0; z-index: 4;
+  display: flex; align-items: center; gap: 14px;
+  padding: 13px 18px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0), var(--k-panel) 45%);
+  border-top: 1px solid var(--k-border);
+}
+.krsps-savebar__hint { font-size: .76rem; color: var(--k-mute); }
+.krsps-savebar__hint--warn { color: var(--k-warn); }
+
 /* ── Адаптив ────────────────────────────────────────────────── */
 @media (max-width: 900px) {
   /* Таблицу и схему кадра на узком экране не сжимаем: поля станут
@@ -1166,6 +1439,10 @@
   .krsps-tbl__row { min-width: 620px; }
   .krsps-tbl--cam .krsps-tbl__head,
   .krsps-tbl--cam .krsps-tbl__row { min-width: 480px; }
+  .krsps-tbl--cls .krsps-tbl__head,
+  .krsps-tbl--cls .krsps-tbl__row { min-width: 720px; }
+  .krsps-tbl--super .krsps-tbl__head,
+  .krsps-tbl--super .krsps-tbl__row { min-width: 440px; }
 
   .krsps-wire { overflow-x: auto; }
   .krsps-wire__grid,

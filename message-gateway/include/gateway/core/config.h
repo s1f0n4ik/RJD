@@ -68,6 +68,10 @@ namespace varan {
             FWsConfig ws;
             FCanConfig can;
             int heartbeat_sec = 5;
+            // Файл с сохранёнными настройками. Пусто — сохранение выключено. Задаётся
+            // флагом --state-file; в docker кладётся на том, чтобы пережить
+            // пересоздание контейнера.
+            std::string state_file;
         };
 
         inline boost::json::object to_json(const FWsConfig& c) {

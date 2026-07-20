@@ -1,5 +1,5 @@
-#include "gateway/rsm2000-integration.h"
-#include "gateway/log.h"
+#include "gateway/core/rsm2000-integration.h"
+#include "gateway/utility/log.h"
 
 #include <algorithm>
 

@@ -6,9 +6,9 @@
 
 #include <boost/asio.hpp>
 
-#include "gateway/config.h"
-#include "gateway/ws-client.h"
-#include "gateway/log.h"
+#include "gateway/core/config.h"
+#include "gateway/modules/websocket/client.h"
+#include "gateway/utility/log.h"
 
 namespace varan {
     namespace gateway {

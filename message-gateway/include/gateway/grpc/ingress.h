@@ -5,7 +5,7 @@
 #include <cstdint>
 #include <cstddef>
 
-#include "gateway/frame-sink.h"
+#include "gateway/core/frame-sink.h"
 
 namespace grpc {
     class Server;

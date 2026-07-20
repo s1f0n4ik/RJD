@@ -6,13 +6,13 @@
 
 #include <boost/asio.hpp>
 
-#include "gateway/integration.h"
-#include "gateway/ws-module.h"
-#include "gateway/can-module.h"
-#include "gateway/config.h"
-#include "gateway/taxonomy.h"
-#include "gateway/timesource.h"
-#include "gateway/clock.h"
+#include "gateway/core/integration.h"
+#include "gateway/modules/websocket/module.h"
+#include "gateway/modules/can/module.h"
+#include "gateway/core/config.h"
+#include "gateway/core/taxonomy.h"
+#include "gateway/core/timesource.h"
+#include "gateway/utility/clock.h"
 
 namespace varan {
     namespace gateway {

@@ -1,5 +1,5 @@
-#include "gateway/grpc-ingress.h"
-#include "gateway/log.h"
+#include "gateway/grpc/ingress.h"
+#include "gateway/utility/log.h"
 
 #include <string>
 

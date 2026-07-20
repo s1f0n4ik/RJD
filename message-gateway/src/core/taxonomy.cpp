@@ -1,5 +1,5 @@
-#include "gateway/taxonomy.h"
-#include "gateway/log.h"
+#include "gateway/core/taxonomy.h"
+#include "gateway/utility/log.h"
 
 #include <algorithm>
 #include <cctype>

@@ -1,6 +1,6 @@
-#include "gateway/ws-module.h"
-#include "gateway/frame-codec-v1.h"
-#include "gateway/log.h"
+#include "gateway/modules/websocket/module.h"
+#include "gateway/core/frame-codec-v1.h"
+#include "gateway/utility/log.h"
 
 namespace varan {
     namespace gateway {
@@ -143,6 +143,12 @@ namespace varan {
             m["connection"] = std::move(connection);
             m["stats"] = m_stats.to_json();
             return m;
+        }
+
+        boost::json::object UWsModule::config_snapshot() const {
+            json::object o = varan::gateway::to_json(m_ws->config());
+            o["heartbeat_sec"] = m_heartbeat_sec.load();
+            return o;
         }
 
         bool UWsModule::apply_config(const json::object& patch, std::string& err) {

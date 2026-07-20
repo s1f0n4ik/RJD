@@ -6,12 +6,12 @@
 
 #include <boost/asio.hpp>
 
-#include "gateway/module.h"
-#include "gateway/codec.h"
-#include "gateway/transport.h"
-#include "gateway/stats.h"
-#include "gateway/config.h"
-#include "gateway/clock.h"
+#include "gateway/core/module.h"
+#include "gateway/core/codec.h"
+#include "gateway/modules/websocket/transport.h"
+#include "gateway/core/stats.h"
+#include "gateway/core/config.h"
+#include "gateway/utility/clock.h"
 
 namespace varan {
     namespace gateway {
@@ -38,6 +38,7 @@ namespace varan {
             }
 
             boost::json::object to_json() const override;
+            boost::json::object config_snapshot() const override;
             bool apply_config(const boost::json::object& patch, std::string& err) override;
 
         private:

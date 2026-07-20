@@ -1,5 +1,5 @@
-#include "gateway/can-log.h"
-#include "gateway/clock.h"
+#include "gateway/modules/can/traffic-log.h"
+#include "gateway/utility/clock.h"
 
 #include <cstdio>
 

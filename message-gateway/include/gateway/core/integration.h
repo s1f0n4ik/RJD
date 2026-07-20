@@ -7,9 +7,9 @@
 
 #include <boost/json.hpp>
 
-#include "gateway/message.h"
-#include "gateway/frame-sink.h"
-#include "gateway/module.h"
+#include "gateway/core/message.h"
+#include "gateway/core/frame-sink.h"
+#include "gateway/core/module.h"
 
 namespace varan {
     namespace gateway {

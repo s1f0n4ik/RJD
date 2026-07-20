@@ -1,8 +1,8 @@
-#include "gateway/gateway.h"
-#include "gateway/rsm2000-integration.h"
-#include "gateway/grpc-ingress.h"
-#include "gateway/devices.h"
-#include "gateway/log.h"
+#include "gateway/core/gateway.h"
+#include "gateway/core/rsm2000-integration.h"
+#include "gateway/grpc/ingress.h"
+#include "gateway/utility/devices.h"
+#include "gateway/utility/log.h"
 
 #include <boost/json.hpp>
 
@@ -32,8 +32,12 @@ namespace varan {
 
         UGateway::UGateway(FGatewayConfig config)
             : m_config(std::move(config))
+            , m_store(m_config.state_file)
         {
             setup_integrations();
+            // Восстанавливаем до запуска модулей: apply_config при незапущенном
+            // модуле только правит настройки и не трогает соединение.
+            restore_state();
             m_router = std::make_shared<URouter>();
             setup_routes();
             m_grpc = std::make_unique<UGrpcIngress>(*this, m_config.grpc_port);
@@ -50,6 +54,95 @@ namespace varan {
                 m_ws_ioc, m_config.ws, m_config.can, m_config.heartbeat_sec, m_taxonomy, m_time);
             m_integrations.push_back(rsm);
             m_active = rsm;
+        }
+
+        void UGateway::restore_state() {
+            if (!m_store.enabled()) {
+                return;
+            }
+            const json::object root = m_store.load();
+            const auto* integrations = root.if_contains("integrations");
+            if (!integrations || !integrations->is_object()) {
+                return;
+            }
+            const json::object& all = integrations->as_object();
+
+            for (const auto& it : m_integrations) {
+                const auto* node = all.if_contains(it->id());
+                if (!node || !node->is_object()) {
+                    continue;
+                }
+                const json::object& obj = node->as_object();
+                if (const auto* mods = obj.if_contains("modules"); mods && mods->is_object()) {
+                    for (const auto& m : it->modules()) {
+                        const auto* mc = mods->as_object().if_contains(m->id());
+                        if (mc && mc->is_object()) {
+                            std::string err;
+                            if (!m->apply_config(mc->as_object(), err)) {
+                                ULog::warn(TAG, "restore " + it->id() + "/" + m->id() + ": " + err);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Активная конфигурация из файла, если она ещё существует.
+            if (const auto* a = root.if_contains("active"); a && a->is_string()) {
+                if (auto t = find_integration(json::value_to<std::string>(*a))) {
+                    std::lock_guard<std::mutex> lock(m_active_mutex);
+                    m_active = t;
+                }
+            }
+
+            // Таблица соответствий — общий объект, храним под активной конфигурацией.
+            if (auto a = active()) {
+                if (const auto* node = all.if_contains(a->id()); node && node->is_object()) {
+                    if (const auto* tax = node->as_object().if_contains("taxonomy"); tax && tax->is_object()) {
+                        std::string err;
+                        if (!m_taxonomy.apply_json(tax->as_object(), err)) {
+                            ULog::warn(TAG, "restore taxonomy: " + err);
+                        }
+                    }
+                }
+            }
+            ULog::info(TAG, "Settings restored from " + m_config.state_file);
+        }
+
+        void UGateway::persist_state() {
+            if (!m_store.enabled()) {
+                return;
+            }
+            // Читаем текущий файл и правим только узлы своих интеграций, чтобы не
+            // затереть настройки конфигураций, которых сейчас нет в памяти.
+            json::object root = m_store.load();
+            json::object integrations;
+            if (const auto* ex = root.if_contains("integrations"); ex && ex->is_object()) {
+                integrations = ex->as_object();
+            }
+
+            for (const auto& it : m_integrations) {
+                json::object node;
+                if (const auto* ex = integrations.if_contains(it->id()); ex && ex->is_object()) {
+                    node = ex->as_object();  // сохраняем то, чего нет в памяти (напр. таблицу неактивной)
+                }
+                json::object modules;
+                for (const auto& m : it->modules()) {
+                    modules[m->id()] = m->config_snapshot();
+                }
+                node["modules"] = std::move(modules);
+                integrations[it->id()] = std::move(node);
+            }
+
+            // Таблица соответствий пишется под активную конфигурацию.
+            if (auto a = active()) {
+                if (auto* node = integrations.if_contains(a->id()); node && node->is_object()) {
+                    node->as_object()["taxonomy"] = m_taxonomy.to_json();
+                }
+            }
+
+            root["active"] = active() ? active()->id() : "";
+            root["integrations"] = std::move(integrations);
+            m_store.save(root);
         }
 
         void UGateway::setup_routes() {
@@ -241,6 +334,7 @@ namespace varan {
                     }
                 }
             }
+            persist_state();
             ULog::info(TAG, "Active integration -> " + id);
             return make_json(req, http::status::ok, target->status_json());
         }
@@ -281,6 +375,7 @@ namespace varan {
             if (!m->apply_config(parsed.as_object(), err)) {
                 return make_error(req, http::status::bad_request, err);
             }
+            persist_state();
             return make_json(req, http::status::ok, a->config_json());
         }
 
@@ -333,6 +428,7 @@ namespace varan {
             if (!m_taxonomy.apply_json(parsed.as_object(), err)) {
                 return make_error(req, http::status::bad_request, err);
             }
+            persist_state();
             return make_json(req, http::status::ok, m_taxonomy.to_json());
         }
 

@@ -1,6 +1,6 @@
-#include "gateway/can-module.h"
-#include "gateway/clock.h"
-#include "gateway/log.h"
+#include "gateway/modules/can/module.h"
+#include "gateway/utility/clock.h"
+#include "gateway/utility/log.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -538,6 +538,10 @@ namespace varan {
             m["rx_other"] = m_rx_other.load();
             m["stats"] = m_stats.to_json();
             return m;
+        }
+
+        boost::json::object UCanModule::config_snapshot() const {
+            return varan::gateway::to_json(config());
         }
 
         bool UCanModule::apply_config(const json::object& patch, std::string& err) {

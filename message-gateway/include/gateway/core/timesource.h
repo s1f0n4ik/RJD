@@ -7,8 +7,8 @@
 
 #include <boost/json.hpp>
 
-#include "gateway/clock.h"
-#include "gateway/message.h"
+#include "gateway/utility/clock.h"
+#include "gateway/core/message.h"
 
 namespace varan {
     namespace gateway {

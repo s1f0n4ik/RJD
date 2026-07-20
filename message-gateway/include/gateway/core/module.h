@@ -5,8 +5,8 @@
 
 #include <boost/json.hpp>
 
-#include "gateway/message.h"
-#include "gateway/frame-sink.h"
+#include "gateway/core/message.h"
+#include "gateway/core/frame-sink.h"
 
 namespace varan {
     namespace gateway {
@@ -40,6 +40,12 @@ namespace varan {
 
             // Полный снимок модуля для страницы и для /status.
             virtual boost::json::object to_json() const = 0;
+
+            // Только настройки модуля, без соединения и статистики. Ровно то, что
+            // принимает apply_config, — чтобы сохранить на диск и восстановить
+            // после перезапуска. Полный to_json для этого не годится: в нём живёт
+            // состояние, которое сохранять нельзя.
+            virtual boost::json::object config_snapshot() const = 0;
 
             // Частичное обновление настроек модуля. false + err при ошибке.
             virtual bool apply_config(const boost::json::object& patch, std::string& err) = 0;

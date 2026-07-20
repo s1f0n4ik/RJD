@@ -9,7 +9,7 @@
 #include <memory>
 #include <atomic>
 
-#include "gateway/log.h"
+#include "gateway/utility/log.h"
 
 namespace varan {
     namespace gateway {

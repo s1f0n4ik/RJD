@@ -1,5 +1,5 @@
-#include "gateway/can-bus.h"
-#include "gateway/log.h"
+#include "gateway/modules/can/bus.h"
+#include "gateway/utility/log.h"
 
 #include <cstring>
 #include <cstdio>

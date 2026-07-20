@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { IconCheck, IconClose } from '../icons';
+import { IconRefresh } from '../icons';
 import type {
   GwCanConfigPatch,
   GwCanMessage,
@@ -20,6 +20,43 @@ interface Props {
   onDisconnect: () => void;
 }
 
+// Выбор устройства из просканированных. Сохранённое значение остаётся в списке,
+// даже если сейчас оно не найдено, — иначе select показал бы пустоту и настройку
+// нельзя было бы увидеть. Пустой список говорит об этом прямо в самом select.
+interface DeviceOption {
+  value: string;
+  label: string;
+}
+const DeviceSelect: React.FC<{
+  id: string;
+  value: string;
+  options: DeviceOption[];
+  emptyText: string;
+  onChange: (v: string) => void;
+}> = ({ id, value, options, emptyText, onChange }) => {
+  const inList = options.some((o) => o.value === value);
+  return (
+    <select
+      id={id}
+      className="krsps-input krsps-input--sm"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      {options.length === 0 && !value && (
+        <option value="" disabled>
+          {emptyText}
+        </option>
+      )}
+      {value && !inList && <option value={value}>{value} — сейчас не найден</option>}
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  );
+};
+
 // Адреса и PGN на шине принято писать шестнадцатеричными, но руками удобнее
 // вводить и так, и так: принимаем оба вида.
 function parseNum(raw: string): number | null {
@@ -27,10 +64,6 @@ function parseNum(raw: string): number | null {
   if (!s) return null;
   const n = /^0x/i.test(s) ? parseInt(s.slice(2), 16) : parseInt(s, 10);
   return Number.isFinite(n) ? n : null;
-}
-
-function hex(n: number, width: number): string {
-  return '0x' + n.toString(16).toUpperCase().padStart(width, '0');
 }
 
 const BITRATES = [10000, 20000, 50000, 100000, 125000, 250000, 500000, 800000, 1000000];
@@ -57,23 +90,48 @@ interface MsgProps {
 }
 
 const MessageBlock: React.FC<MsgProps> = ({ msg, summary, busy, onPatch, children }) => {
+  // Система счисления для PGN и адреса. По ней и показываем, и разбираем поля —
+  // 0x в текст вводить не нужно, основание задаётся переключателем.
+  const [base, setBase] = useState<'hex' | 'dec'>('hex');
   const [priority, setPriority] = useState('');
   const [pgn, setPgn] = useState('');
   const [addr, setAddr] = useState('');
   const [error, setError] = useState('');
 
+  const fmt = (n: number) => (base === 'hex' ? n.toString(16).toUpperCase() : String(n));
+
   useEffect(() => {
     setPriority(String(msg.priority));
-    setPgn(hex(msg.pgn, 4));
-    setAddr(hex(msg.addr, 2));
+    setPgn(fmt(msg.pgn));
+    setAddr(fmt(msg.addr));
+    // base намеренно не в зависимостях: смену основания обрабатывает switchBase,
+    // сохраняя уже введённые правки, а не сбрасывая их к значению с шины.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [msg.priority, msg.pgn, msg.addr]);
 
+  // Переключение основания переводит уже набранные цифры, а не обнуляет поля.
+  const switchBase = (nb: 'hex' | 'dec') => {
+    if (nb === base) return;
+    const conv = (s: string) => {
+      const n = parseInt(s, base === 'hex' ? 16 : 10);
+      return Number.isFinite(n) ? (nb === 'hex' ? n.toString(16).toUpperCase() : String(n)) : '';
+    };
+    setPgn(conv(pgn));
+    setAddr(conv(addr));
+    setBase(nb);
+  };
+
+  // В поле пускаем только допустимые для основания цифры.
+  const clean = (v: string) =>
+    base === 'hex' ? v.replace(/[^0-9a-fA-F]/g, '').toUpperCase() : v.replace(/[^0-9]/g, '');
+
   const save = () => {
-    const p = parseNum(priority);
-    const g = parseNum(pgn);
-    const a = parseNum(addr);
-    if (p === null || g === null || a === null) {
-      setError('Приоритет, PGN и адрес — числа, можно в 0x-формате');
+    const radix = base === 'hex' ? 16 : 10;
+    const p = parseInt(priority, 10);
+    const g = parseInt(pgn, radix);
+    const a = parseInt(addr, radix);
+    if (!Number.isFinite(p) || !Number.isFinite(g) || !Number.isFinite(a)) {
+      setError('Приоритет, PGN и адрес — числа в выбранной системе счисления');
       return;
     }
     setError('');
@@ -118,34 +176,57 @@ const MessageBlock: React.FC<MsgProps> = ({ msg, summary, busy, onPatch, childre
         <div className="krsps-idrow">
           <div className="krsps-field krsps-field--xs">
             <label className="krsps-field__label">Приоритет</label>
-            <input className="krsps-input krsps-input--sm" value={priority} onChange={(e) => setPriority(e.target.value)} />
+            <input
+              className="krsps-input krsps-input--sm"
+              value={priority}
+              inputMode="numeric"
+              onChange={(e) => setPriority(e.target.value.replace(/[^0-9]/g, ''))}
+            />
+          </div>
+          <div className="krsps-field">
+            <label className="krsps-field__label">Система счисления</label>
+            <div className="krsps-baseseg">
+              <button
+                type="button"
+                className={`krsps-baseseg__btn${base === 'hex' ? ' krsps-baseseg__btn--on' : ''}`}
+                onClick={() => switchBase('hex')}
+              >
+                16 · HEX
+              </button>
+              <button
+                type="button"
+                className={`krsps-baseseg__btn${base === 'dec' ? ' krsps-baseseg__btn--on' : ''}`}
+                onClick={() => switchBase('dec')}
+              >
+                10 · DEC
+              </button>
+            </div>
           </div>
           <div className="krsps-field krsps-field--xs">
             <label className="krsps-field__label">PGN</label>
-            <input className="krsps-input krsps-input--sm" value={pgn} onChange={(e) => setPgn(e.target.value)} />
+            <input className="krsps-input krsps-input--sm" value={pgn} spellCheck={false} onChange={(e) => setPgn(clean(e.target.value))} />
           </div>
           <div className="krsps-field krsps-field--xs">
             <label className="krsps-field__label">{msg.dir === 'tx' ? 'Наш адрес' : 'Адрес источника'}</label>
-            <input className="krsps-input krsps-input--sm" value={addr} onChange={(e) => setAddr(e.target.value)} />
+            <input className="krsps-input krsps-input--sm" value={addr} spellCheck={false} onChange={(e) => setAddr(clean(e.target.value))} />
           </div>
-          <button type="button" className="krsps-btn krsps-btn--primary" onClick={save} disabled={busy}>
-            Применить
-          </button>
-          <div className="krsps-idcalc">
+        </div>
+        {error && <div className="krsps-field__hint krsps-field__hint--error" style={{ marginTop: 8 }}>{error}</div>}
+
+        <div className="krsps-actionbar">
+          <div className="krsps-idcalc" style={{ marginLeft: 0, textAlign: 'left' }}>
             <div className="krsps-idcalc__cap">Итоговый ID</div>
             <div className="krsps-idcalc__val">{msg.id}</div>
           </div>
+          <button type="button" className="krsps-btn krsps-btn--primary krsps-actionbar__push" onClick={save} disabled={busy}>
+            Применить
+          </button>
         </div>
-        {error && <div className="krsps-field__hint krsps-field__hint--error">{error}</div>}
 
         {children}
 
-        <div className="krsps-sub">Схема кадра · 8 байт</div>
+        <div className="krsps-sub" style={{ marginTop: 30 }}>Схема кадра · 8 байт</div>
         <CanMessageSpec spec={SPECS[msg.key]} data={summary?.data} />
-        <div className="krsps-note" style={{ marginTop: 12 }}>
-          Состав полей задан протоколом и не редактируется. Меняются только приоритет, PGN и адрес —
-          из них собирается идентификатор.
-        </div>
       </div>
     </details>
   );
@@ -162,23 +243,6 @@ const CanModulePanel: React.FC<Props> = ({ module, devices, busy, onSave, onConn
   // собран до этих правок, и половина разделов ниже осталась бы пустой без
   // объяснения. Настройки подключения при этом рабочие, их и показываем.
   const stale = !module.messages;
-
-  // Нагрузку добираем по полю: у старой сборки это `camera` (номер камеры),
-  // а не маска, и обращение к маске уронило бы раздел.
-  const raw = module.payload;
-  const payload = raw
-    ? {
-        count: raw.count ?? 0,
-        type: raw.type ?? 0,
-        danger: raw.danger ?? 0,
-        camera_mask: raw.camera_mask ?? 0,
-        type_title: raw.type_title ?? '—',
-        danger_title: raw.danger_title ?? '—',
-        cameras: raw.cameras ?? [],
-        unmapped_cameras: raw.unmapped_cameras ?? 0,
-        passthrough_frames: raw.passthrough_frames ?? 0,
-      }
-    : null;
 
   const [mode, setMode] = useState<'socketcan' | 'slcan'>('socketcan');
   const [iface, setIface] = useState('can0');
@@ -224,27 +288,42 @@ const CanModulePanel: React.FC<Props> = ({ module, devices, busy, onSave, onConn
   const txMessages = messages.filter((m) => m.dir === 'tx');
   const shown = log.filter((r) => filter === 'all' || r.dir === filter);
 
-  // Найденные интерфейсы. Пусто — на машине их нет; вводить руками всё равно
-  // разрешаем, устройство может появиться позже.
-  const canList = devices?.can ?? [];
-  const serialList = devices?.serial ?? [];
+  // Найденные устройства для выпадающих списков. Сохранённое значение остаётся
+  // выбираемым даже когда его сейчас нет в списке (см. DeviceSelect).
+  const canOptions = (devices?.can ?? []).map((c) => ({
+    value: c.name,
+    label: `${c.name} · ${c.up ? 'поднят' : 'не поднят'}`,
+  }));
+  const serialOptions = (devices?.serial ?? []).map((s) => ({ value: s.name, label: s.name }));
 
   return (
     <div>
+      {/*
       <div className="krsps-module__head">
         <div className="krsps-module__title">CAN → шина изделия</div>
         <div className="krsps-module__meta">J1939</div>
       </div>
+      */}
 
       {/* ── Подключение: состояние и кнопки здесь, а не в заголовке ── */}
       <div className="krsps-card">
         <div className="krsps-panel__head">
           <div className="krsps-panel__title">Подключение к шине</div>
           <Pill state={connState(module)} />
-          <div className="krsps-panel__meta">{conn.url || '—'}</div>
+          <div className="krsps-panel__meta">J1939</div>
+          <button
+            type="button"
+            className="krsps-icon-btn"
+            title="Переподключить"
+            aria-label="Переподключить"
+            onClick={onConnect}
+            disabled={busy}
+          >
+            <IconRefresh />
+          </button>
         </div>
         <div className="krsps-panel__body">
-          <div className="krsps-form">
+          <div className="krsps-formgrid">
             <div className="krsps-seg">
               <button
                 type="button"
@@ -262,110 +341,84 @@ const CanModulePanel: React.FC<Props> = ({ module, devices, busy, onSave, onConn
               </button>
             </div>
 
-            <div className="krsps-form__row">
-              {mode === 'socketcan' ? (
-                <div className="krsps-field krsps-field--mid">
-                  <label className="krsps-field__label" htmlFor="krsps-can-iface">
-                    Интерфейс
+            {mode === 'socketcan' ? (
+              <div className="krsps-field">
+                <label className="krsps-field__label" htmlFor="krsps-can-iface">
+                  Интерфейс CAN
+                </label>
+                <DeviceSelect
+                  id="krsps-can-iface"
+                  value={iface}
+                  options={canOptions}
+                  emptyText="CAN-интерфейсов не найдено"
+                  onChange={setIface}
+                />
+                <div className="krsps-field__hint">
+                  {canOptions.length ? `Найдено интерфейсов: ${canOptions.length}` : 'Интерфейсов CAN на машине не видно'}
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="krsps-field">
+                  <label className="krsps-field__label" htmlFor="krsps-can-dev">
+                    Serial-порт
                   </label>
-                  <input
-                    id="krsps-can-iface"
-                    className="krsps-input krsps-input--sm"
-                    list="krsps-can-ifaces"
-                    value={iface}
-                    spellCheck={false}
-                    onChange={(e) => setIface(e.target.value)}
+                  <DeviceSelect
+                    id="krsps-can-dev"
+                    value={device}
+                    options={serialOptions}
+                    emptyText="Serial-портов не найдено"
+                    onChange={setDevice}
                   />
-                  <datalist id="krsps-can-ifaces">
-                    {canList.map((c) => (
-                      <option key={c.name} value={c.name}>
-                        {c.up ? 'поднят' : 'не поднят'}
-                      </option>
-                    ))}
-                  </datalist>
                   <div className="krsps-field__hint">
-                    {canList.length
-                      ? `Найдено: ${canList.map((c) => `${c.name} (${c.up ? 'поднят' : 'не поднят'})`).join(', ')}`
-                      : 'Интерфейсов CAN на машине не видно'}
+                    {serialOptions.length ? `Найдено портов: ${serialOptions.length}` : 'Serial-адаптеров на машине не видно'}
                   </div>
                 </div>
-              ) : (
-                <>
-                  <div className="krsps-field krsps-field--mid">
-                    <label className="krsps-field__label" htmlFor="krsps-can-dev">
-                      Serial port
-                    </label>
-                    <input
-                      id="krsps-can-dev"
-                      className="krsps-input krsps-input--sm"
-                      list="krsps-can-devs"
-                      value={device}
-                      spellCheck={false}
-                      onChange={(e) => setDevice(e.target.value)}
-                    />
-                    <datalist id="krsps-can-devs">
-                      {serialList.map((s) => (
-                        <option key={s.name} value={s.name} />
-                      ))}
-                    </datalist>
-                    <div className="krsps-field__hint">
-                      {serialList.length
-                        ? `Найдено: ${serialList.map((s) => s.name).join(', ')}`
-                        : 'Serial-адаптеров на машине не видно'}
-                    </div>
-                  </div>
-                  <div className="krsps-field">
-                    <label className="krsps-field__label" htmlFor="krsps-can-bitrate">
-                      Скорость шины
-                    </label>
-                    <select
-                      id="krsps-can-bitrate"
-                      className="krsps-input krsps-input--sm"
-                      value={bitrate}
-                      onChange={(e) => setBitrate(e.target.value)}
-                    >
-                      {BITRATES.map((b) => (
-                        <option key={b} value={b}>
-                          {formatInt(b)} бит/с
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </>
-              )}
+                <div className="krsps-field">
+                  <label className="krsps-field__label" htmlFor="krsps-can-bitrate">
+                    Скорость шины
+                  </label>
+                  <select
+                    id="krsps-can-bitrate"
+                    className="krsps-input krsps-input--sm"
+                    value={bitrate}
+                    onChange={(e) => setBitrate(e.target.value)}
+                  >
+                    {BITRATES.map((b) => (
+                      <option key={b} value={b}>
+                        {formatInt(b)} бит/с
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </>
+            )}
+          </div>
 
-              <button
-                type="button"
-                className={`krsps-switch${enabled ? ' krsps-switch--on' : ''}`}
-                role="switch"
-                aria-checked={enabled}
-                onClick={() => setEnabled((v) => !v)}
-              >
-                <span className="krsps-switch__track" />
-                Обмен по шине включён
-              </button>
+          {conn.error && <div className="krsps-alert" style={{ marginTop: 16 }}>Шина: {conn.error}</div>}
 
-              <div className="krsps-actions">
-                <button type="button" className="krsps-btn krsps-btn--primary" onClick={saveConnection} disabled={busy}>
-                  Сохранить
-                </button>
-                <button type="button" className="krsps-btn krsps-btn--ghost" onClick={onConnect} disabled={busy}>
-                  Переподключить
-                </button>
-                <button type="button" className="krsps-btn krsps-btn--text" onClick={onDisconnect} disabled={busy}>
-                  Отключить
-                </button>
-              </div>
-            </div>
+        </div>
 
-            {conn.error && <div className="krsps-alert">Шина: {conn.error}</div>}
+        {/* Серый футер действий: тумблер слева, кнопки справа, отделён от полей. */}
+        <div className="krsps-formfoot">
+          <button
+            type="button"
+            className={`krsps-switch${enabled ? ' krsps-switch--on' : ''}`}
+            role="switch"
+            aria-checked={enabled}
+            onClick={() => setEnabled((v) => !v)}
+          >
+            <span className="krsps-switch__track" />
+            Обмен по шине включён
+          </button>
 
-            <div className="krsps-note">
-              {mode === 'socketcan'
-                ? 'Скорость шины для SocketCAN задаётся на хосте: ip link set can0 up type can bitrate 250000. Сервис её не выставляет.'
-                : 'Скорость порта фиксирована (115200 8N1), скорость шины сервис выставляет сам командой адаптера. Внешний slcand не нужен.'}{' '}
-              Если устройства нет, сервис продолжит переподключаться каждые 5 секунд.
-            </div>
+          <div className="krsps-actions">
+            <button type="button" className="krsps-btn krsps-btn--primary" onClick={saveConnection} disabled={busy}>
+              Сохранить
+            </button>
+            <button type="button" className="krsps-btn krsps-btn--text" onClick={onDisconnect} disabled={busy}>
+              Отключить
+            </button>
           </div>
         </div>
       </div>
@@ -388,7 +441,7 @@ const CanModulePanel: React.FC<Props> = ({ module, devices, busy, onSave, onConn
       <div className="krsps-card">
         <div className="krsps-panel__head">
           <div className="krsps-panel__title">Принимаемые сообщения</div>
-          <div className="krsps-panel__meta">{rxMessages.length} · время и GPS для всех сервисов</div>
+          <div className="krsps-panel__meta">{rxMessages.length}</div>
         </div>
         {rxMessages.map((m) => (
           <MessageBlock key={m.key} msg={m} summary={sumOf(m.key)} busy={busy} onPatch={onSave} />
@@ -401,7 +454,6 @@ const CanModulePanel: React.FC<Props> = ({ module, devices, busy, onSave, onConn
         <div className="krsps-panel__head">
           <div className="krsps-panel__title">Отправляемые сообщения</div>
           <div className="krsps-panel__meta">
-            {tx?.continuous ? `постоянно · раз в ${tx.period_ms} мс` : 'только на новые обнаружения'}
           </div>
         </div>
         {txMessages.map((m) => (
@@ -450,73 +502,14 @@ const CanModulePanel: React.FC<Props> = ({ module, devices, busy, onSave, onConn
               </button>
             </div>
             {txError && <div className="krsps-field__hint krsps-field__hint--error">{txError}</div>}
-            <div className="krsps-note" style={{ marginTop: 10 }}>
+            {/*<div className="krsps-note" style={{ marginTop: 10 }}>
               {tx?.continuous
                 ? 'Кадр уходит по таймеру независимо от нейросети — данные от media-center только обновляют нагрузку. Камера, замолчавшая дольше «жизни нагрузки», гасит свой бит.'
                 : 'Кадр уходит только при новых обнаружениях. Период и жизнь нагрузки при этом не действуют.'}
-            </div>
+            </div>*/}
           </MessageBlock>
         ))}
         {txMessages.length === 0 && <div className="krsps-empty">Сообщений нет</div>}
-      </div>
-
-      {/* ── Нагрузка и камеры ── */}
-      <div className="krsps-card">
-        <div className="krsps-panel__head">
-          <div className="krsps-panel__title">Камеры в кадре</div>
-          <div className="krsps-panel__meta">
-            байт 4 · маска {payload ? hex(payload.camera_mask, 2) : '—'}
-          </div>
-        </div>
-        <div className="krsps-panel__body">
-          <div className="krsps-bitline">
-            {Array.from({ length: 8 }, (_, i) => {
-              const bit = 8 - i;
-              const on = !!payload && (payload.camera_mask & (1 << (bit - 1))) !== 0;
-              const cam = payload?.cameras.find((c) => c.bit === bit);
-              return (
-                <div key={bit} className={`krsps-bitbox${on ? ' krsps-bitbox--on' : ''}`}>
-                  <div className="krsps-bitbox__v">{on ? 1 : 0}</div>
-                  <div className="krsps-bitbox__n">бит {bit}</div>
-                  <div className="krsps-bitbox__c">{cam ? cam.key : '—'}</div>
-                </div>
-              );
-            })}
-          </div>
-
-          {payload && payload.cameras.length > 0 ? (
-            <div className="krsps-camlist">
-              {payload.cameras.map((c) => (
-                <div key={c.key} className="krsps-camrow">
-                  <div className={`krsps-feed__ico krsps-feed__ico--${c.active ? 'ok' : 'hb'}`}>
-                    {c.active ? <IconCheck /> : <IconClose />}
-                  </div>
-                  <div className="krsps-camrow__k">{c.key}</div>
-                  <div className="krsps-camrow__b">{c.bit ? `бит ${c.bit}` : 'нет в таблице'}</div>
-                  <div className="krsps-camrow__c">
-                    {c.active ? `${c.count} обн.` : 'нет обнаружений'}
-                  </div>
-                  <div className="krsps-camrow__t">{age(c.age_ms)}</div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="krsps-empty">Кадров от media-center ещё не было</div>
-          )}
-
-          {!!payload?.unmapped_cameras && (
-            <div className="krsps-alert">
-              Кадров с камерой не из таблицы: {formatInt(payload.unmapped_cameras)}. Бит поставить некуда —
-              назначьте камере бит в разделе «Таблица соответствий».
-            </div>
-          )}
-          {!!payload?.passthrough_frames && (
-            <div className="krsps-note" style={{ marginTop: 12 }}>
-              Кадров из конфигураций без таблицы: {formatInt(payload.passthrough_frames)}. Для них числа идут
-              как есть из нейросети (тип = id класса), имена не переводятся.
-            </div>
-          )}
-        </div>
       </div>
 
       {/* ── Состояние: сводка по сообщениям ── */}
@@ -583,11 +576,6 @@ const CanModulePanel: React.FC<Props> = ({ module, devices, busy, onSave, onConn
           ) : (
             <div className="krsps-empty">Кадров на шине пока не было</div>
           )}
-        </div>
-        <div className="krsps-note krsps-note--foot">
-          Пишутся все кадры подряд, включая повторяющуюся нагрузку. Кольцо — последние 250 кадров,
-          это около 18 секунд при штатных 10 кадрах в секунду на передачу и 4 на приём. Чужой трафик
-          шины в ленту не попадает, только считается.
         </div>
       </div>
         </>

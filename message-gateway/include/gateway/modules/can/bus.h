@@ -10,7 +10,7 @@
 
 #include <boost/asio.hpp>
 
-#include "gateway/config.h"
+#include "gateway/core/config.h"
 
 namespace varan {
     namespace gateway {

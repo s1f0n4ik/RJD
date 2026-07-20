@@ -1,5 +1,5 @@
-#include "gateway/gateway.h"
-#include "gateway/log.h"
+#include "gateway/core/gateway.h"
+#include "gateway/utility/log.h"
 
 #include <boost/asio/signal_set.hpp>
 
@@ -43,6 +43,10 @@ int main(int argc, char** argv) {
     config.can.rx_gps.addr = peer;
     config.can.rx_time.addr = peer;
     config.can.enabled = arg(argc, argv, "--can-enabled", "1") != "0";
+
+    // Файл с сохранёнными настройками. Пусто — сохранение выключено (совместимо
+    // с запуском без тома). В docker передаётся путь на смонтированном томе.
+    config.state_file = arg(argc, argv, "--state-file", "");
 
     UGateway gateway(config);
 

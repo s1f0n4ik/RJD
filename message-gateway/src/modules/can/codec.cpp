@@ -1,4 +1,4 @@
-#include "gateway/can-codec.h"
+#include "gateway/modules/can/codec.h"
 
 #include <ctime>
 #include <cmath>

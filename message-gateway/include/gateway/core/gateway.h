@@ -9,13 +9,14 @@
 
 #include <boost/asio.hpp>
 
-#include "gateway/config.h"
-#include "gateway/message.h"
-#include "gateway/http-server.h"
-#include "gateway/frame-sink.h"
-#include "gateway/integration.h"
-#include "gateway/timesource.h"
-#include "gateway/taxonomy.h"
+#include "gateway/core/config.h"
+#include "gateway/core/message.h"
+#include "gateway/core/http-server.h"
+#include "gateway/core/frame-sink.h"
+#include "gateway/core/integration.h"
+#include "gateway/core/timesource.h"
+#include "gateway/core/taxonomy.h"
+#include "gateway/core/store.h"
 
 namespace varan {
     namespace gateway {
@@ -45,6 +46,14 @@ namespace varan {
         private:
             void setup_integrations();
             void setup_routes();
+
+            // Восстановить настройки из файла после сборки интеграций (в
+            // конструкторе, до запуска модулей). Сохранённое побеждает флаги
+            // запуска — иначе перезапуск сбрасывал бы выбранный режим шины.
+            void restore_state();
+            // Записать текущие настройки всех интеграций и таблицу соответствий.
+            // Зовётся после каждой удачной правки по REST.
+            void persist_state();
 
             std::shared_ptr<IIntegration> active() const;
             std::shared_ptr<IIntegration> find_integration(const std::string& id) const;
@@ -86,6 +95,10 @@ namespace varan {
             // раз и переживают переключение конфигурации.
             UTaxonomy m_taxonomy;
             UTimeSource m_time;
+
+            // Файловое хранилище настроек: таблица соответствий, настройки
+            // сообщений и подключений всех модулей. Переживает перезапуск.
+            UStore m_store;
 
             std::unique_ptr<UGrpcIngress> m_grpc;
 
