@@ -15,6 +15,7 @@
 #include "neural/utility.h"
 #include "neural/tracker/tracker-interface.h"
 #include "gateway/frame.h"
+#include "journal/types.h"
 
 #include <atomic>
 #include <cstdint>
@@ -37,6 +38,7 @@ namespace neural {
             FCameraMessageSender sender,
             gateway::FGatewayFrameSender gateway_sender = {},
             gateway::FGatewayTimeProvider time_provider = {},
+            journal::FSlotJournal journal = {},
             ULogger::ELoggerLevel level = ULogger::ELoggerLevel::DEBUG
         );
 
@@ -73,6 +75,12 @@ namespace neural {
         std::vector<gateway::FGatewayDetection> gateway_dets_from_tracks(const std::vector<FTrack>& tracks) const;
         void send_to_gateway(std::vector<gateway::FGatewayDetection> dets, const cv::Mat& rgb_pixels);
 
+        // Запись в журнал обнаружений по трек-событиям confirmed: слот кодирует
+        // JPEG кадра (с боксами), пишет файл на диск и отдаёт метаданные writer'у.
+        // Одна запись на кадр с confirmed-событиями; о классах журнал не знает —
+        // сохраняются только id классов и config_id.
+        void journal_confirmed(const std::vector<FTrackEventRecord>& events, const cv::Mat& rgb_pixels);
+
         // Отрисовка на кадре, уходящем в message-gateway: бокс + название класса
         // (кириллица через m_text_renderer) и время/GPS в левом верхнем углу.
         void draw_gateway_overlay(cv::Mat& frame_bgr, const std::vector<gateway::FGatewayDetection>& dets,
@@ -100,6 +108,11 @@ namespace neural {
         // Синхронизированное время+GPS от загрузчика (см. FGatewayTimeProvider).
         // Пустой — если шлюз не сконфигурирован, тогда используются локальные часы.
         gateway::FGatewayTimeProvider m_time_provider;
+
+        // Ручка журнала обнаружений: корень для JPEG-кадров + sink метаданных.
+        // Пустой sink — журналирование выключено (шлюз/журнал не настроены).
+        journal::FSlotJournal m_journal;
+
         std::unique_ptr<UTextRenderer> m_text_renderer;
         std::string m_camera_id;
         std::atomic<std::int64_t> m_frame_seq{ 0 };

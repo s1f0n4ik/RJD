@@ -15,6 +15,8 @@
 #include <algorithm>
 #include <ctime>
 #include <cstdio>
+#include <fstream>
+#include <filesystem>
 
 namespace {
     std::int64_t now_ms() {
@@ -41,6 +43,20 @@ namespace {
         return std::string(buf);
     }
 
+    // Дата UTC "YYYY-MM-DD" из unix-мс — для раскладки кадров журнала по дням.
+    std::string format_date(std::int64_t unix_ms) {
+        const std::time_t t = static_cast<std::time_t>(unix_ms / 1000);
+        std::tm tm{};
+#if defined(_WIN32)
+        gmtime_s(&tm, &t);
+#else
+        gmtime_r(&t, &tm);
+#endif
+        char buf[16];
+        std::strftime(buf, sizeof(buf), "%Y-%m-%d", &tm);
+        return std::string(buf);
+    }
+
     // HEX "#RRGGBB" -> cv::Scalar(B, G, R) — для BGR-кадра (см. hex_to_rgb в draw-detections.h).
     cv::Scalar hex_to_bgr(const std::string& hex) {
         const cv::Scalar rgb = varan::neural::hex_to_rgb(hex);
@@ -59,6 +75,7 @@ namespace neural {
         FCameraMessageSender sender,
         gateway::FGatewayFrameSender gateway_sender,
         gateway::FGatewayTimeProvider time_provider,
+        journal::FSlotJournal journal,
         ULogger::ELoggerLevel level)
         : UImageHandler(context, storage, level, "ImageHandler<Slot:" + config.id + ">")
         , m_config(config)
@@ -68,6 +85,7 @@ namespace neural {
         , m_sender(std::move(sender))
         , m_gateway_sender(std::move(gateway_sender))
         , m_time_provider(std::move(time_provider))
+        , m_journal(std::move(journal))
     {
         // Камера-источник для тела сообщения шлюзу
         if (!m_cameras.empty() && !m_cameras[0].empty()) {
@@ -466,6 +484,90 @@ namespace neural {
         m_gateway_sender(std::move(frame));
     }
 
+    void USlot::journal_confirmed(const std::vector<FTrackEventRecord>& events, const cv::Mat& rgb_pixels) {
+        if (!m_journal.enabled() || rgb_pixels.empty() || !m_tracker) return;
+
+        // Собираем id треков, подтверждённых на этом кадре. Нет confirmed — нет записи.
+        std::vector<int> confirmed_ids;
+        for (const auto& e : events) {
+            if (e.event == ETrackEvent::CONFIRMED) confirmed_ids.push_back(e.track.id);
+        }
+        if (confirmed_ids.empty()) return;
+
+        // Время + GPS: синхронизированное от шлюза, иначе локальные часы.
+        gateway::FGatewayTimeGps tg = m_time_provider ? m_time_provider() : gateway::FGatewayTimeGps{};
+        if (tg.unix_ms == 0) tg.unix_ms = now_ms();
+
+        // Объекты кадра — текущие подтверждённые/потерянные треки (те же, что
+        // уходят в шлюз). Журнал хранит только id класса, confidence и бокс.
+        std::vector<journal::FDetectionObject> objects;
+        std::vector<gateway::FGatewayDetection> draw_dets;
+        for (const auto& t : m_tracker->tracks()) {
+            if (t.state != ETrackState::CONFIRMED && t.state != ETrackState::LOST) continue;
+            journal::FDetectionObject o;
+            o.cid = t.class_id;
+            o.cf = t.confidence;
+            const int x1 = static_cast<int>(std::lround(t.detection.x1_coord));
+            const int y1 = static_cast<int>(std::lround(t.detection.y1_coord));
+            const int x2 = static_cast<int>(std::lround(t.detection.x2_coord));
+            const int y2 = static_cast<int>(std::lround(t.detection.y2_coord));
+            o.box = { x1, y1, std::max(0, x2 - x1), std::max(0, y2 - y1) };
+            objects.push_back(std::move(o));
+            draw_dets.push_back(make_gateway_detection(t.class_id, t.confidence, t.detection));
+        }
+        if (objects.empty()) return;
+
+        // Кодируем JPEG кадра с боксами (тот же оверлей, что для шлюза).
+        cv::Mat bgr;
+        cv::cvtColor(rgb_pixels, bgr, cv::COLOR_RGB2BGR);
+        draw_gateway_overlay(bgr, draw_dets, tg);
+
+        std::vector<uchar> buf;
+        const std::vector<int> params{ cv::IMWRITE_JPEG_QUALITY, 80 };
+        if (!cv::imencode(".jpg", bgr, buf, params)) {
+            m_logger.warn("journal_confirmed(): jpeg encode failed");
+            return;
+        }
+
+        // Пишем файл: <frames_dir>/<YYYY-MM-DD>/<ts>-<seq>.jpg. seq — сквозной
+        // счётчик кадра, даёт уникальность имени в пределах одной миллисекунды.
+        const std::string date = format_date(tg.unix_ms);
+        const std::int64_t seq = ++m_frame_seq;
+        const std::string name = std::to_string(tg.unix_ms) + "-" + std::to_string(seq) + ".jpg";
+        const std::string rel = date + "/" + name;
+        const std::filesystem::path abs = m_journal.frames_dir / date / name;
+
+        std::error_code ec;
+        std::filesystem::create_directories(abs.parent_path(), ec);
+        std::ofstream f(abs, std::ios::binary);
+        if (!f) {
+            m_logger.warn("journal_confirmed(): cannot open " + abs.string());
+            return;
+        }
+        f.write(reinterpret_cast<const char*>(buf.data()), static_cast<std::streamsize>(buf.size()));
+        f.close();
+
+        // Метаданные — writer'у (пишет строку в SQLite асинхронно).
+        journal::FEntry entry;
+        entry.ts = tg.unix_ms;
+        entry.camera_id = m_camera_id;
+        entry.config_id = config_id();
+        entry.gps_valid = tg.valid;
+        entry.lat = tg.lat;
+        entry.lon = tg.lon;
+        entry.alt = tg.alt;
+        entry.speed = tg.speed;
+        entry.course = tg.course;
+        entry.width = rgb_pixels.cols;
+        entry.height = rgb_pixels.rows;
+        entry.image_path = rel;
+        entry.track_id = confirmed_ids.front();
+        entry.event = "confirmed";
+        entry.objects = std::move(objects);
+
+        m_journal.sink(std::move(entry));
+    }
+
     void USlot::internal_handle_image(cv::Mat rgb_pixels) {
         if (rgb_pixels.empty()) return;
 
@@ -486,6 +588,9 @@ namespace neural {
                 if (m_gateway_sender) {
                     send_to_gateway(gateway_dets_from_tracks(m_tracker->tracks()), rgb_pixels);
                 }
+
+                // Журнал обнаружений: запись по confirmed-событиям (кадр + метаданные).
+                journal_confirmed(update_result.events, rgb_pixels);
             }
 
             send_tracks(m_tracker->tracks(), cv::Size(rgb_pixels.cols, rgb_pixels.rows));

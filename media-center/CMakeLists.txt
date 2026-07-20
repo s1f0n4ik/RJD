@@ -34,10 +34,15 @@ file(GLOB_RECURSE SRC_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/neural/*.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/src/gateway/*.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/src/gateway/*.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/journal/*.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/journal/*.cpp
 )
 
 # OpenCV
 find_package(OpenCV REQUIRED)
+
+# SQLite3 — журнал обнаружений пишет напрямую в БД (пакет libsqlite3-dev).
+find_package(SQLite3 REQUIRED)
 
 # Pkg-config
 find_package(PkgConfig REQUIRED)
@@ -161,6 +166,7 @@ target_link_libraries(${PROJECT_NAME}
     ${BOOST_LIBRARYDIR}/libboost_thread.a
     mc-gateway-proto
     rknnrt
+    SQLite::SQLite3
 )
 
 # Копирование шейдеров в папку с билдом

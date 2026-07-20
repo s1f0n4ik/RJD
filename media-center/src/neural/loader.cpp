@@ -32,6 +32,19 @@ namespace neural {
             m_gateway->set_time_callback([this](const gateway::FGatewayTimeGps& t) { on_gateway_time(t); });
             m_logger.info("gateway ingress -> " + gateway_config.host + ":" + gateway_config.port);
         }
+
+        // Журнал обнаружений: SQLite + JPEG на томе /storage. Общий writer для
+        // всех слотов; при ошибке БД остаётся nullptr, слоты пишут без журнала.
+        {
+            auto writer = std::make_unique<journal::UJournalWriter>(
+                "/storage/journal/journal.db", "/storage/journal/frames", level);
+            if (writer->start()) {
+                m_journal = std::move(writer);
+            } else {
+                m_logger.warn("journal writer disabled (start failed)");
+            }
+        }
+
         load_state();
     }
 
@@ -404,6 +417,7 @@ namespace neural {
                     std::move(sender),
                     std::move(gateway_sender),
                     std::move(time_provider),
+                    m_journal ? m_journal->slot_journal() : journal::FSlotJournal{},
                     m_level
                 );
 

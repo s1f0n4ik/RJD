@@ -18,6 +18,7 @@
 #include "neural/slot.h"
 #include "neural/matrix.h"
 #include "gateway/client.h"
+#include "journal/writer.h"
 #include "core/platform.h"
 
 #include "logger.h"
@@ -130,6 +131,10 @@ namespace neural {
 
 		// Клиент message-gateway: жив, пока жив загрузчик; общий для всех слотов.
 		std::shared_ptr<gateway::UGatewayClient> m_gateway;
+
+		// Writer журнала обнаружений: один на загрузчик, общий для всех слотов.
+		// nullptr — журнал не поднялся (ошибка БД), слоты работают без записи.
+		std::unique_ptr<journal::UJournalWriter> m_journal;
 
 		// Последний снимок времени/GPS от шлюза + момент его получения по
 		// монотонным часам — от него слоты считают синхронизированное "сейчас".
