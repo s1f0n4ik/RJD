@@ -1,0 +1,211 @@
+/* Журнал обнаружений (раздел 03). Токены берём из ../styles/theme.css —
+   журнал рендерится внутри .neural-config-root, где они объявлены. */
+
+.jr-root { width: 100%; }
+
+.jr-split {
+  display: grid;
+  grid-template-columns: minmax(360px, 460px) 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+/* ── Список ─────────────────────────────────────────────────── */
+.jr-list-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.jr-list-head { display: flex; align-items: center; gap: 10px; }
+.jr-sect-lbl {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--text-dim);
+}
+.jr-count {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary);
+  background: var(--bg-input); border: 1px solid var(--border);
+  padding: 1px 8px; border-radius: 10px;
+}
+.jr-list { display: flex; flex-direction: column; gap: 8px; }
+.jr-empty, .jr-err { color: var(--text-dim); font-size: 13px; padding: 16px 4px; }
+.jr-err { color: var(--err); }
+
+.jr-row {
+  display: flex; gap: 11px; padding: 9px; align-items: center; cursor: pointer;
+  background: var(--bg-panel); border: 1px solid var(--border);
+  border-radius: 10px; transition: border-color .15s, background .15s;
+}
+.jr-row:hover { border-color: var(--border-bright); }
+.jr-row.sel {
+  border-color: var(--accent-dim);
+  box-shadow: 0 0 0 1px var(--accent-glow), 0 0 22px -8px var(--accent-glow);
+  background: linear-gradient(180deg, rgba(77,139,255,0.06), transparent), var(--bg-panel);
+}
+.jr-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.jr-thumb {
+  width: 64px; height: 48px; flex-shrink: 0; object-fit: cover;
+  border-radius: 8px; border: 1px solid var(--border); background: var(--bg-input);
+}
+
+.jr-meta { display: flex; flex-direction: column; gap: 5px; min-width: 0; flex: 1; }
+.jr-row-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.jr-time {
+  font-family: var(--font-mono); font-size: 12px; color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.jr-cam {
+  font-family: var(--font-mono); font-size: 10.5px; color: var(--text-secondary);
+  background: var(--bg-input); border: 1px solid var(--border); padding: 2px 7px; border-radius: 6px;
+}
+.jr-gps {
+  font-family: var(--font-mono); font-size: 10.5px; color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.jr-chips { display: flex; gap: 5px; flex-wrap: wrap; }
+.jr-chip {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 11px;
+  color: var(--text-secondary); background: var(--bg-input); border: 1px solid var(--border);
+  padding: 2px 8px 2px 6px; border-radius: 20px;
+}
+.jr-cd { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.jr-cf { font-family: var(--font-mono); font-size: 9.5px; color: var(--text-dim); }
+
+/* ── Вердикт ────────────────────────────────────────────────── */
+.jr-verdict {
+  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+  font-size: 11px; font-weight: 600; padding: 4px 9px; border-radius: 20px;
+}
+.jr-verdict .jr-d { width: 7px; height: 7px; border-radius: 50%; background: currentColor; box-shadow: 0 0 7px currentColor; }
+.jr-verdict.unverified { color: var(--text-dim); border: 1px solid var(--border); background: var(--bg-input); }
+.jr-verdict.true { color: var(--ok); border: 1px solid rgba(79,191,135,0.35); background: rgba(79,191,135,0.08); }
+.jr-verdict.false { color: var(--err); border: 1px solid rgba(236,95,118,0.35); background: rgba(236,95,118,0.08); }
+
+/* ── Правая колонка: фильтры + карта + деталь ───────────────── */
+.jr-right-col { display: flex; flex-direction: column; gap: 12px; position: sticky; top: 0; }
+.jr-map-wrap { position: relative; display: flex; flex-direction: column; gap: 12px; }
+.jr-map {
+  height: 260px; border-radius: var(--radius-lg); overflow: hidden;
+  border: 1px solid var(--border); background: #0b0f16;
+}
+
+.jr-expand, .jr-fs-close {
+  position: absolute; top: 10px; right: 10px; z-index: 500;
+  display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600;
+  color: var(--text-secondary); background: rgba(10,12,17,0.72); backdrop-filter: blur(6px);
+  border: 1px solid var(--border-bright); padding: 6px 10px; border-radius: 8px; cursor: pointer;
+}
+.jr-expand:hover, .jr-fs-close:hover { color: var(--text-primary); border-color: var(--accent-dim); }
+
+/* ── Деталь кадра ───────────────────────────────────────────── */
+.jr-detail, .jr-map-detail {
+  display: flex; flex-direction: column; gap: 10px; padding: 12px;
+  background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius-lg);
+}
+.jr-detail-img {
+  width: 100%; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--bg-input); object-fit: contain; max-height: 260px;
+}
+.jr-detail-rows { display: flex; flex-direction: column; gap: 6px; }
+.jr-drow { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; }
+.jr-kk { color: var(--text-dim); font-family: var(--font-mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; }
+.jr-vv { color: var(--text-primary); font-family: var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; }
+
+.jr-note {
+  width: 100%; background: var(--bg-input); border: 1px solid var(--border);
+  border-radius: var(--radius); color: var(--text-primary); font-family: var(--font-ui);
+  font-size: 13px; padding: 8px 10px;
+}
+.jr-note:focus { outline: none; border-color: var(--accent-dim); }
+
+.jr-verdict-actions { display: flex; gap: 7px; }
+.jr-vbtn {
+  flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  font-size: 12px; font-weight: 600; padding: 8px 10px; border-radius: var(--radius);
+  border: 1px solid var(--border); background: var(--bg-input); color: var(--text-secondary); cursor: pointer;
+}
+.jr-vbtn:disabled { opacity: 0.6; cursor: default; }
+.jr-vbtn.ok { color: var(--ok); }
+.jr-vbtn.ok.on { background: rgba(79,191,135,0.14); border-color: rgba(79,191,135,0.4); }
+.jr-vbtn.err { color: var(--err); }
+.jr-vbtn.err.on { background: rgba(236,95,118,0.14); border-color: rgba(236,95,118,0.4); }
+.jr-vbtn.ghost { flex: 0 0 auto; color: var(--text-dim); }
+
+/* ── Фильтры ────────────────────────────────────────────────── */
+.jr-filters { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.jr-fchip {
+  display: inline-flex; align-items: center; gap: 7px; padding: 6px 11px;
+  background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;
+  font-size: 12px; color: var(--text-secondary);
+}
+.jr-fchip.jr-click { cursor: pointer; }
+.jr-fchip.act { border-color: var(--accent-dim); color: var(--text-primary); background: var(--accent-glow); }
+.jr-fchip .jr-k { color: var(--text-dim); font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; }
+.jr-fchip input[type="datetime-local"] {
+  background: transparent; border: none; color: var(--text-primary);
+  font-family: var(--font-mono); font-size: 11.5px; color-scheme: dark;
+}
+.jr-fchip input[type="datetime-local"]:focus { outline: none; }
+.jr-caret { color: var(--text-dim); font-size: 10px; }
+
+.jr-class-wrap { position: relative; }
+.jr-class-backdrop { position: fixed; inset: 0; z-index: 600; }
+.jr-class-menu {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 601; min-width: 220px; max-height: 320px;
+  overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding: 8px;
+  background: var(--bg-panel); border: 1px solid var(--border-bright); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-panel);
+}
+.jr-class-empty { color: var(--text-dim); font-size: 12px; padding: 6px; }
+.jr-class-group { display: flex; flex-direction: column; gap: 2px; }
+.jr-class-sup { font-family: var(--font-mono); font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); padding: 6px 6px 2px; }
+.jr-class-item { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-secondary); padding: 5px 6px; border-radius: 6px; cursor: pointer; }
+.jr-class-item:hover { background: rgba(255,255,255,0.04); color: var(--text-primary); }
+.jr-class-clear { margin-top: 4px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px; color: var(--text-secondary); font-size: 12px; padding: 6px; cursor: pointer; }
+
+.jr-seg { display: flex; background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px; padding: 3px; }
+.jr-seg > button { padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; color: var(--text-dim); background: transparent; border: none; cursor: pointer; }
+.jr-seg > button.on { background: var(--accent-glow); color: var(--accent); }
+
+/* ── Полноэкранная карта ────────────────────────────────────── */
+.jr-fs { position: fixed; inset: 0; z-index: 1000; background: var(--bg-base); }
+.jr-fs .jr-map { height: 100%; border: none; border-radius: 0; }
+.jr-fs-filters {
+  position: absolute; top: 14px; left: 14px; z-index: 500; width: 260px;
+  display: flex; flex-direction: column; gap: 10px; padding: 12px;
+  background: rgba(14,17,23,0.82); backdrop-filter: blur(12px);
+  border: 1px solid var(--border-bright); border-radius: var(--radius-lg); box-shadow: var(--shadow-panel);
+}
+.jr-fs-filters .jr-filters { flex-direction: column; align-items: stretch; }
+.jr-fs-ttl { font-size: 11px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-dim); }
+.jr-fs-count { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); }
+
+/* ── Leaflet: тёмная тема + маркеры ─────────────────────────── */
+.jr-map .leaflet-container { background: #0b0f16; font-family: var(--font-ui); }
+.jr-map .leaflet-control-zoom a {
+  background: var(--bg-panel); color: var(--text-secondary); border-color: var(--border);
+}
+.jr-map .leaflet-control-zoom a:hover { background: var(--bg-panel-2); color: var(--text-primary); }
+.jr-map .leaflet-popup-content-wrapper {
+  background: var(--bg-panel); color: var(--text-primary);
+  border: 1px solid var(--border-bright); border-radius: 10px;
+}
+.jr-map .leaflet-popup-tip { background: var(--bg-panel); border: 1px solid var(--border-bright); }
+.jr-map .leaflet-popup-content { margin: 8px; }
+
+.jr-pin {
+  display: block; width: 14px; height: 14px; border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg); border: 2px solid #0a0c11; box-shadow: 0 0 8px -1px currentColor;
+}
+.jr-pin.sel { width: 20px; height: 20px; box-shadow: 0 0 0 6px var(--accent-glow), 0 0 16px -2px var(--accent); }
+
+.jr-map .marker-cluster { background: rgba(77,139,255,0.25); }
+.jr-map .marker-cluster div {
+  background: var(--accent); color: #0a0c11; font-family: var(--font-mono); font-weight: 700;
+}
+
+.jr-pop { display: flex; gap: 9px; align-items: center; }
+.jr-pop-img { width: 72px; height: 54px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border); }
+.jr-pop-meta { display: flex; flex-direction: column; gap: 3px; }
+.jr-pop-t { font-family: var(--font-mono); font-size: 11px; color: var(--text-primary); }
+.jr-pop-o { font-size: 11px; color: var(--text-secondary); }
+
+@media (max-width: 720px) {
+  .jr-row .jr-gps { display: none; }
+}

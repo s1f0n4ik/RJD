@@ -18,7 +18,7 @@ import {
 } from '@mui/icons-material';
 import type { SystemState } from '../types';
 import StoreIcon from '@mui/icons-material/Store' ;
-import AddToQueueIcon from '@mui/icons-material/AddToQueue';
+import { AddToQueue } from "@mui/icons-material";
 interface DashboardProps {
   state: SystemState;
   onNavigate: (tabIndex: number) => void;
@@ -67,7 +67,7 @@ const modules: Module[] = [
         id: 'live',
         title: 'Редактор сеток',
         description: 'Изменение сеток просмотра камер для режима просмотра',
-        icon: AddToQueueIcon,
+        icon: AddToQueue,
         gradient: 'linear-gradient(135deg, #757575 0%, #424242 100%)',
         tabIndex: 2,
     },
@@ -127,6 +127,10 @@ const Dashboard: React.FC<DashboardProps> = ({ state, onNavigate }) => {
       alert(`${module.title} будет доступен в следующей версии`);
     }
   };
+
+  modules.forEach((m) => {
+    console.log(m.id, typeof m.icon, m.icon);
+  });
 
   return (
     <Container maxWidth="xl">

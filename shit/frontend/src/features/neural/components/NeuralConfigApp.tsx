@@ -4,6 +4,7 @@ import { Navbar } from './Navbar';
 import type { ConnState, SectionKey } from './Navbar';
 import { ConfigurationsSection } from './configurations/ConfigurationsSection';
 import { CoresSection } from './cores/CoresSection';
+import { JournalSection } from './journal/JournalSection';
 import '../styles/theme.css';
 
 /** Корень страницы конфигурации нейронок. */
@@ -34,7 +35,9 @@ export function NeuralConfigApp() {
             <Navbar active={section} onChange={setSection} conn={conn} />
             <div className="page">
                 <div className="page-inner">
-                    {section === 'configs' ? <ConfigurationsSection /> : <CoresSection />}
+                    {section === 'configs' && <ConfigurationsSection />}
+                    {section === 'cores' && <CoresSection />}
+                    {section === 'journal' && <JournalSection />}
                 </div>
             </div>
         </div>

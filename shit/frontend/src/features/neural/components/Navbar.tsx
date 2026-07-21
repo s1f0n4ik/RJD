@@ -1,4 +1,4 @@
-export type SectionKey = 'configs' | 'cores';
+export type SectionKey = 'configs' | 'cores' | 'journal';
 export type ConnState = 'connected' | 'connecting' | 'disconnected';
 
 interface NavbarProps {
@@ -32,6 +32,12 @@ export function Navbar({ active, onChange, conn }: NavbarProps) {
           onClick={() => onChange('cores')}
         >
           <span className="step-num">02</span> Настройка потоков
+        </button>
+        <button
+          className={`nav-step${active === 'journal' ? ' active' : ''}`}
+          onClick={() => onChange('journal')}
+        >
+          <span className="step-num">03</span> Журнал обнаружений
         </button>
       </div>
 
