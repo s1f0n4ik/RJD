@@ -145,9 +145,8 @@ namespace birdview {
                 if (m_logger) m_logger->warn("update_textures(): index " + std::to_string(i) + " is out of range at frame storage. Cannot update texture");
                 continue;
 			}
-            else if (auto new_texture = dynamic_cast<UGLTextureWrapper*>(frames[i].get())) {
-                frames[i].release();
-                m_gl_images[i].reset(new_texture);
+            else if (auto new_texture = std::dynamic_pointer_cast<USharedGLTextureWrapper>(frames[i])) {
+                m_gl_images[i] = std::move(new_texture);
                 if (m_logger) m_logger->trace("update_textures() : frame with index " + std::to_string(i) + " successfully updated!");
             }
 			else {
@@ -156,7 +155,7 @@ namespace birdview {
                 }
                 else {
                     if (m_logger) m_logger->warn("update_textures(): frame with index " + std::to_string(i) + " has not valid texture type: " 
-                        + frames[i].get()->type() + " !" + "Must be UGLTextureWrapper that can be got from gstreamer gl pipeline!");
+                        + frames[i].get()->type() + " !" + "Must be USharedGLTextureWrapper that can be got from gstreamer gl pipeline!");
                 }
                 continue;
 			}
@@ -182,7 +181,7 @@ namespace birdview {
 
         int used_textures = 0;
         for (int i = 0; i < m_gl_images.size(); ++i) {
-            auto frame = static_cast<UGLTextureWrapper*>(m_gl_images[i].get());
+            auto frame = static_cast<USharedGLTextureWrapper*>(m_gl_images[i].get());
 
             auto is_texture_exists = frame != nullptr;
             auto is_nv12_format = is_texture_exists ? frame->format == "NV12" && frame->get_texure_count() == 2 : false;

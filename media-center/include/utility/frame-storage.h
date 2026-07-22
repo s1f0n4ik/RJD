@@ -14,7 +14,7 @@ template<typename TFrame>
 class FFrameStorage
 {
 public:
-    using TFramePtr = std::unique_ptr<TFrame>;
+    using TFramePtr = std::shared_ptr<TFrame>;
     using TStorageCallback = std::function<void(std::string, TFramePtr)>;
 
     struct FCameraSlot {
@@ -120,7 +120,8 @@ public:
         return !(m_slots.find(name) == m_slots.end());
     }
 
-    // Извлечь последний кадр (через move)
+    // Получить последний кадр. Возвращаемая ссылка разделяется со storage:
+    // публикация следующего кадра не инвалидирует кадр у рендера.
     TFramePtr extract(const std::string& name) {
         FCameraSlot* slot = nullptr;
         {
@@ -143,11 +144,10 @@ public:
             return nullptr;
         }
 
-        TFramePtr result = std::move(slot->frame);
-        slot->frame.reset();
+        TFramePtr result = slot->frame;
 
         if (m_logger) {
-            m_logger->trace("extract(): Frame extracted for camera: " + name);
+            m_logger->trace("extract(): Shared frame returned for camera: " + name);
         }
 
         return result;

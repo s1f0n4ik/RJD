@@ -1,13 +1,37 @@
 import { useState } from 'react';
 import type { Verdict } from '../../api/journal-types';
 import type { ClassOption } from './useClassResolver';
-import { localInputToMs } from './format';
+import { DateRangePicker } from './DateRangePicker';
+import { fmtDate, fmtTime } from './format';
 
-function msToLocalInput(ms?: number): string {
-  if (ms == null) return '';
-  const d = new Date(ms);
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+// Журнал почти всегда смотрят «за последнее время», поэтому основной способ —
+// пресеты в один клик. Точный диапазон нужен реже и живёт за кнопкой «Период».
+export type PresetKey = 'all' | 'today' | 'h24' | 'd7' | 'd30' | 'custom';
+
+const PRESETS: { key: PresetKey; label: string }[] = [
+  { key: 'all', label: 'Всё' },
+  { key: 'today', label: 'Сегодня' },
+  { key: 'h24', label: '24 часа' },
+  { key: 'd7', label: '7 дней' },
+  { key: 'd30', label: '30 дней' },
+];
+
+const HOUR = 3600_000;
+
+/** Диапазон по пресету. Пустые значения — фильтр по времени не применяется. */
+export function presetRange(key: PresetKey): { from?: number; to?: number } {
+  const now = Date.now();
+  switch (key) {
+    case 'today': {
+      const d = new Date();
+      d.setHours(0, 0, 0, 0);
+      return { from: d.getTime() };
+    }
+    case 'h24': return { from: now - 24 * HOUR };
+    case 'd7': return { from: now - 7 * 24 * HOUR };
+    case 'd30': return { from: now - 30 * 24 * HOUR };
+    default: return {};
+  }
 }
 
 const VERDICTS: { key: Verdict | 'all'; label: string }[] = [
@@ -18,28 +42,32 @@ const VERDICTS: { key: Verdict | 'all'; label: string }[] = [
 ];
 
 interface Props {
+  preset: PresetKey;
   tFrom?: number;
   tTo?: number;
   verdict?: Verdict;
   selectedCids: number[];
   classOptions: ClassOption[];
-  onTime: (from?: number, to?: number) => void;
+  onPreset: (key: PresetKey) => void;
+  onRange: (from?: number, to?: number) => void;
   onVerdict: (v?: Verdict) => void;
   onCids: (cids: number[]) => void;
 }
 
-/** Панель фильтров журнала: диапазон времени, класс/суперкласс, статус вердикта. */
 export function Filters({
+  preset,
   tFrom,
   tTo,
   verdict,
   selectedCids,
   classOptions,
-  onTime,
+  onPreset,
+  onRange,
   onVerdict,
   onCids,
 }: Props) {
   const [classOpen, setClassOpen] = useState(false);
+  const [calOpen, setCalOpen] = useState(false);
 
   const toggleCid = (cid: number) => {
     const set = new Set(selectedCids);
@@ -48,7 +76,6 @@ export function Filters({
     onCids([...set]);
   };
 
-  // Группировка классов по суперклассу для выпадающего списка.
   const groups = new Map<string, ClassOption[]>();
   for (const c of classOptions) {
     const arr = groups.get(c.superName) ?? [];
@@ -58,24 +85,44 @@ export function Filters({
 
   const classLabel = selectedCids.length ? `Класс · ${selectedCids.length}` : 'Класс: все';
 
+  const rangeLabel =
+    preset === 'custom' && tFrom != null
+      ? `${fmtDate(tFrom)} ${fmtTime(tFrom)} — ${tTo != null ? `${fmtDate(tTo)} ${fmtTime(tTo)}` : '…'}`
+      : 'Период';
+
   return (
     <div className="jr-filters">
-      <label className="jr-fchip">
-        <span className="jr-k">от</span>
-        <input
-          type="datetime-local"
-          value={msToLocalInput(tFrom)}
-          onChange={(e) => onTime(localInputToMs(e.target.value), tTo)}
-        />
-      </label>
-      <label className="jr-fchip">
-        <span className="jr-k">до</span>
-        <input
-          type="datetime-local"
-          value={msToLocalInput(tTo)}
-          onChange={(e) => onTime(tFrom, localInputToMs(e.target.value))}
-        />
-      </label>
+      <div className="jr-seg jr-seg-presets">
+        {PRESETS.map((p) => (
+          <button
+            key={p.key}
+            className={preset === p.key ? 'on' : ''}
+            onClick={() => onPreset(p.key)}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="jr-class-wrap">
+        <button
+          className={`jr-fchip jr-click${preset === 'custom' ? ' act' : ''}`}
+          onClick={() => setCalOpen((v) => !v)}
+        >
+          {rangeLabel}
+        </button>
+        {calOpen && (
+          <>
+            <div className="jr-class-backdrop" onClick={() => setCalOpen(false)} />
+            <DateRangePicker
+              from={tFrom}
+              to={tTo}
+              onApply={onRange}
+              onClose={() => setCalOpen(false)}
+            />
+          </>
+        )}
+      </div>
 
       <div className="jr-class-wrap">
         <button

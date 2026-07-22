@@ -60,8 +60,8 @@ export const journalApi = {
     return url(`/api/journal/frame/${id}.jpg`);
   },
 
-  /** Шаблон тайлов для Leaflet (offline .mbtiles через storage-service). */
-  tileTemplate(): string {
-    return url('/api/journal/tiles/{z}/{x}/{y}.png');
+  /** Стиль MapLibre — раздаётся со своего origin вместе с глифами (offline). */
+  styleUrl(): string {
+    return url('/api/journal/map/style.json');
   },
 };

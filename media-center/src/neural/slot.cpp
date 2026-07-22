@@ -185,6 +185,12 @@ namespace neural {
             m_logger.warn("start(): mosaic NOT YET implemented, using first camera");
         }
 
+        // Фоновый воркер кадров поднимаем до обработки: он снимает кодирование
+        // JPEG и запись файлов с потока инференса.
+        if (!m_frame_running.exchange(true)) {
+            m_frame_thread = std::thread(&USlot::frame_worker, this);
+        }
+
         const std::string& camera_id = m_cameras[0][0];
         if (!start_handler_thread(camera_id, 10, nullptr)) {
             m_logger.error("start(): cannot start handler thread");
@@ -206,6 +212,13 @@ namespace neural {
         // Сначала останавливаем поток обработки — после этого
         // internal_handle_image() гарантированно не вызывается
         if (is_running()) stop_handler_thread();
+
+        // Затем воркер кадров: новых задач уже не появится, оставшиеся дописываем,
+        // чтобы не терять записи журнала при остановке слота.
+        if (m_frame_running.exchange(false)) {
+            m_frame_cv.notify_all();
+            if (m_frame_thread.joinable()) m_frame_thread.join();
+        }
 
         // Теперь безопасно освобождаем ресурсы.
         std::lock_guard<std::mutex> lk(m_resource_mutex);
@@ -446,124 +459,175 @@ namespace neural {
         m_text_renderer->put_text(frame_bgr, gps_line, cv::Point(pad * 2, line_y), text_color, constants::GATEWAY_OVERLAY_FONT_HEIGHT);
     }
 
-    // Кодирование кадра в JPEG и неблокирующая отправка в message-gateway
-    void USlot::send_to_gateway(std::vector<gateway::FGatewayDetection> dets, const cv::Mat& rgb_pixels) {
-        if (!m_gateway_sender || rgb_pixels.empty()) return;
+    // Сбор задачи на потоке инференса: только метаданные и refcount-копия кадра.
+    // Никакого кодирования здесь нет — оно целиком уехало в фоновый воркер.
+    USlot::FFrameTask USlot::make_frame_task(const cv::Mat& rgb_pixels,
+        const std::vector<FTrackEventRecord>& events)
+    {
+        FFrameTask task;
+        task.rgb = rgb_pixels;   // refcount, пиксели не копируются
+        task.width = rgb_pixels.cols;
+        task.height = rgb_pixels.rows;
+        task.seq = ++m_frame_seq;
 
-        cv::Mat bgr;
-        cv::cvtColor(rgb_pixels, bgr, cv::COLOR_RGB2BGR);
+        // Синхронизированное время шлюза, иначе локальные часы как запасной вариант.
+        task.time_gps = m_time_provider ? m_time_provider() : gateway::FGatewayTimeGps{};
+        if (task.time_gps.unix_ms == 0) task.time_gps.unix_ms = now_ms();
 
-        // Синхронизированное время шлюза, если доступно 
-        // иначе локальное системное время как запасной вариант
-        gateway::FGatewayTimeGps time_gps = m_time_provider ? m_time_provider() : gateway::FGatewayTimeGps{};
-        if (time_gps.unix_ms == 0) {
-            time_gps.unix_ms = now_ms();
+        // Типы сработавших событий — в запись журнала, для контекста.
+        for (const auto& e : events) {
+            const std::string name = track_event_str(e.event);
+            if (task.events.find(name) == std::string::npos) {
+                if (!task.events.empty()) task.events += ",";
+                task.events += name;
+            }
         }
 
-        draw_gateway_overlay(bgr, dets, time_gps);
+        if (m_tracker) {
+            for (const auto& t : m_tracker->tracks()) {
+                const int x1 = static_cast<int>(std::lround(t.detection.x1_coord));
+                const int y1 = static_cast<int>(std::lround(t.detection.y1_coord));
+                const int x2 = static_cast<int>(std::lround(t.detection.x2_coord));
+                const int y2 = static_cast<int>(std::lround(t.detection.y2_coord));
 
-        std::vector<uchar> buf;
-        const std::vector<int> params{ cv::IMWRITE_JPEG_QUALITY, 80 };
-        if (!cv::imencode(".jpg", bgr, buf, params)) {
-            m_logger.warn("send_to_gateway(): jpeg encode failed");
-            return;
+                // Журнал: ВСЕ треки кадра со своим состоянием (временный/
+                // подтверждённый/потерянный) — маска событий уже отсеяла лишнее.
+                journal::FDetectionObject o;
+                o.cid = t.class_id;
+                o.cf = t.confidence;
+                o.box = { x1, y1, std::max(0, x2 - x1), std::max(0, y2 - y1) };
+                o.state = track_state_str(t.state);
+                task.objects.push_back(std::move(o));
+
+                // Шлюз: по протоколу только подтверждённые и недавно потерянные.
+                if (t.state == ETrackState::CONFIRMED || t.state == ETrackState::LOST) {
+                    task.gw_dets.push_back(make_gateway_detection(t.class_id, t.confidence, t.detection));
+                }
+            }
         }
-
-        gateway::FGatewayFrame frame;
-        frame.ver = 1;
-        frame.id = ++m_frame_seq;
-        frame.ts = time_gps.unix_ms;
-        frame.width = rgb_pixels.cols;
-        frame.height = rgb_pixels.rows;
-        frame.format = "jpeg";
-        frame.camera_id = m_camera_id;
-        frame.config_id = config_id();
-        frame.image.assign(reinterpret_cast<const char*>(buf.data()), buf.size());
-        frame.dets = std::move(dets);
-
-        m_gateway_sender(std::move(frame));
+        return task;
     }
 
-    void USlot::journal_confirmed(const std::vector<FTrackEventRecord>& events, const cv::Mat& rgb_pixels) {
-        if (!m_journal.enabled() || rgb_pixels.empty() || !m_tracker) return;
-
-        // Собираем id треков, подтверждённых на этом кадре. Нет confirmed — нет записи.
-        std::vector<int> confirmed_ids;
-        for (const auto& e : events) {
-            if (e.event == ETrackEvent::CONFIRMED) confirmed_ids.push_back(e.track.id);
+    void USlot::enqueue_frame(FFrameTask task) {
+        FFrameTask dropped;
+        bool has_dropped = false;
+        {
+            std::lock_guard<std::mutex> lk(m_frame_mutex);
+            if (m_frame_queue.size() >= kFrameQueue) {
+                dropped = std::move(m_frame_queue.front());
+                m_frame_queue.pop_front();
+                has_dropped = true;
+            }
+            m_frame_queue.push_back(std::move(task));
         }
-        if (confirmed_ids.empty()) return;
 
-        // Время + GPS: синхронизированное от шлюза, иначе локальные часы.
-        gateway::FGatewayTimeGps tg = m_time_provider ? m_time_provider() : gateway::FGatewayTimeGps{};
-        if (tg.unix_ms == 0) tg.unix_ms = now_ms();
-
-        // Объекты кадра — текущие подтверждённые/потерянные треки (те же, что
-        // уходят в шлюз). Журнал хранит только id класса, confidence и бокс.
-        std::vector<journal::FDetectionObject> objects;
-        std::vector<gateway::FGatewayDetection> draw_dets;
-        for (const auto& t : m_tracker->tracks()) {
-            if (t.state != ETrackState::CONFIRMED && t.state != ETrackState::LOST) continue;
-            journal::FDetectionObject o;
-            o.cid = t.class_id;
-            o.cf = t.confidence;
-            const int x1 = static_cast<int>(std::lround(t.detection.x1_coord));
-            const int y1 = static_cast<int>(std::lround(t.detection.y1_coord));
-            const int x2 = static_cast<int>(std::lround(t.detection.x2_coord));
-            const int y2 = static_cast<int>(std::lround(t.detection.y2_coord));
-            o.box = { x1, y1, std::max(0, x2 - x1), std::max(0, y2 - y1) };
-            objects.push_back(std::move(o));
-            draw_dets.push_back(make_gateway_detection(t.class_id, t.confidence, t.detection));
+        if (has_dropped) {
+            // Картинку теряем, а событие — нет: строку в журнал пишем всё равно,
+            // просто без изображения. Это дёшево, кодирования тут не происходит.
+            m_logger.warn("frame queue overflow: image dropped, row kept");
+            dropped.rgb.release();
+            journal_row(dropped, std::string());
         }
-        if (objects.empty()) return;
+        m_frame_cv.notify_one();
+    }
 
-        // Кодируем JPEG кадра с боксами (тот же оверлей, что для шлюза).
+    void USlot::frame_worker() {
+        while (true) {
+            std::deque<FFrameTask> batch;
+            {
+                std::unique_lock<std::mutex> lk(m_frame_mutex);
+                m_frame_cv.wait(lk, [this] { return !m_frame_queue.empty() || !m_frame_running.load(); });
+                if (!m_frame_running.load() && m_frame_queue.empty()) break;
+                batch.swap(m_frame_queue);
+            }
+            for (const auto& task : batch) process_frame_task(task);
+        }
+    }
+
+    void USlot::process_frame_task(const FFrameTask& task) {
+        if (task.rgb.empty()) return;
+
         cv::Mat bgr;
-        cv::cvtColor(rgb_pixels, bgr, cv::COLOR_RGB2BGR);
-        draw_gateway_overlay(bgr, draw_dets, tg);
+        cv::cvtColor(task.rgb, bgr, cv::COLOR_RGB2BGR);
 
-        std::vector<uchar> buf;
-        const std::vector<int> params{ cv::IMWRITE_JPEG_QUALITY, 80 };
-        if (!cv::imencode(".jpg", bgr, buf, params)) {
-            m_logger.warn("journal_confirmed(): jpeg encode failed");
-            return;
+        // 1) Журнал — ЧИСТЫЙ кадр: без боксов и без оверлея времени/GPS. Такие
+        // кадры пригодны для дообучения, а боксы фронт рисует поверх сам —
+        // координаты и id классов лежат в БД.
+        if (m_journal.enabled()) {
+            std::vector<uchar> buf;
+            const std::vector<int> params{ cv::IMWRITE_JPEG_QUALITY, 85 };
+            if (!cv::imencode(".jpg", bgr, buf, params)) {
+                m_logger.warn("journal: jpeg encode failed, row kept without image");
+                journal_row(task, std::string());
+            }
+            else {
+                const std::string date = format_date(task.time_gps.unix_ms);
+                const std::string name = std::to_string(task.time_gps.unix_ms) + "-" +
+                    std::to_string(task.seq) + ".jpg";
+                const std::filesystem::path abs = m_journal.frames_dir / date / name;
+
+                std::error_code ec;
+                std::filesystem::create_directories(abs.parent_path(), ec);
+                std::ofstream f(abs, std::ios::binary);
+                if (!f) {
+                    m_logger.warn("journal: cannot write " + abs.string() + ", row kept without image");
+                    journal_row(task, std::string());
+                }
+                else {
+                    f.write(reinterpret_cast<const char*>(buf.data()), static_cast<std::streamsize>(buf.size()));
+                    f.close();
+                    journal_row(task, date + "/" + name);
+                }
+            }
         }
 
-        // Пишем файл: <frames_dir>/<YYYY-MM-DD>/<ts>-<seq>.jpg. seq — сквозной
-        // счётчик кадра, даёт уникальность имени в пределах одной миллисекунды.
-        const std::string date = format_date(tg.unix_ms);
-        const std::int64_t seq = ++m_frame_seq;
-        const std::string name = std::to_string(tg.unix_ms) + "-" + std::to_string(seq) + ".jpg";
-        const std::string rel = date + "/" + name;
-        const std::filesystem::path abs = m_journal.frames_dir / date / name;
+        // 2) Шлюз — аннотированный кадр (боксы + время/GPS), как требует протокол.
+        if (m_gateway_sender) {
+            cv::Mat annotated = bgr.clone();
+            draw_gateway_overlay(annotated, task.gw_dets, task.time_gps);
 
-        std::error_code ec;
-        std::filesystem::create_directories(abs.parent_path(), ec);
-        std::ofstream f(abs, std::ios::binary);
-        if (!f) {
-            m_logger.warn("journal_confirmed(): cannot open " + abs.string());
-            return;
+            std::vector<uchar> buf;
+            const std::vector<int> params{ cv::IMWRITE_JPEG_QUALITY, 80 };
+            if (!cv::imencode(".jpg", annotated, buf, params)) {
+                m_logger.warn("gateway: jpeg encode failed");
+                return;
+            }
+
+            gateway::FGatewayFrame frame;
+            frame.ver = 1;
+            frame.id = task.seq;
+            frame.ts = task.time_gps.unix_ms;
+            frame.width = task.width;
+            frame.height = task.height;
+            frame.format = "jpeg";
+            frame.camera_id = m_camera_id;
+            frame.config_id = config_id();
+            frame.image.assign(reinterpret_cast<const char*>(buf.data()), buf.size());
+            frame.dets = task.gw_dets;
+
+            m_gateway_sender(std::move(frame));
         }
-        f.write(reinterpret_cast<const char*>(buf.data()), static_cast<std::streamsize>(buf.size()));
-        f.close();
+    }
 
-        // Метаданные — writer'у (пишет строку в SQLite асинхронно).
+    void USlot::journal_row(const FFrameTask& task, const std::string& image_path) {
+        if (!m_journal.enabled()) return;
+        if (task.objects.empty()) return;
+
         journal::FEntry entry;
-        entry.ts = tg.unix_ms;
+        entry.ts = task.time_gps.unix_ms;
         entry.camera_id = m_camera_id;
         entry.config_id = config_id();
-        entry.gps_valid = tg.valid;
-        entry.lat = tg.lat;
-        entry.lon = tg.lon;
-        entry.alt = tg.alt;
-        entry.speed = tg.speed;
-        entry.course = tg.course;
-        entry.width = rgb_pixels.cols;
-        entry.height = rgb_pixels.rows;
-        entry.image_path = rel;
-        entry.track_id = confirmed_ids.front();
-        entry.event = "confirmed";
-        entry.objects = std::move(objects);
+        entry.gps_valid = task.time_gps.valid;
+        entry.lat = task.time_gps.lat;
+        entry.lon = task.time_gps.lon;
+        entry.alt = task.time_gps.alt;
+        entry.speed = task.time_gps.speed;
+        entry.course = task.time_gps.course;
+        entry.width = task.width;
+        entry.height = task.height;
+        entry.image_path = image_path;
+        entry.event = task.events;
+        entry.objects = task.objects;
 
         m_journal.sink(std::move(entry));
     }
@@ -584,13 +648,12 @@ namespace neural {
             if (update_result.has_events()) {
                 log_events(update_result.events);
 
-                // Отправка кадра по протоколу в message-gateway (после отдачи в камеру).
-                if (m_gateway_sender) {
-                    send_to_gateway(gateway_dets_from_tracks(m_tracker->tracks()), rgb_pixels);
+                // Маска уже отсеяла лишние события. Всё, что прошло, уходит одной
+                // задачей в фоновый воркер: он кодирует чистый кадр для журнала и
+                // аннотированный для шлюза. Поток инференса тут не кодирует ничего.
+                if (m_journal.enabled() || m_gateway_sender) {
+                    enqueue_frame(make_frame_task(rgb_pixels, update_result.events));
                 }
-
-                // Журнал обнаружений: запись по confirmed-событиям (кадр + метаданные).
-                journal_confirmed(update_result.events, rgb_pixels);
             }
 
             send_tracks(m_tracker->tracks(), cv::Size(rgb_pixels.cols, rgb_pixels.rows));

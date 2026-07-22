@@ -233,7 +233,7 @@ namespace birdview {
 
             if (i >= frames.size() || !frames[i]) continue;
 
-            auto* tex = dynamic_cast<UGLTextureWrapper*>(frames[i].get());
+            auto tex = std::dynamic_pointer_cast<USharedGLTextureWrapper>(frames[i]);
             if (!tex) continue;
             if (tex->format != "NV12" || tex->get_texure_count() < 2) continue;
 

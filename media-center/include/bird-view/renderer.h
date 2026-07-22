@@ -49,7 +49,7 @@ namespace birdview {
 
         float m_angle = 0.0f;
 
-        std::vector<NPGLTexture> m_gl_images;
+        std::vector<SPGLTextureWrapper> m_gl_images;
 
         ULogger* m_logger;
     };

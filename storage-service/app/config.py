@@ -35,8 +35,12 @@ class Settings(BaseSettings):
     JOURNAL_DB_PATH: str = "/storage/journal/journal.db"
     # Корень JPEG-кадров; в БД лежит путь относительно него (YYYY-MM-DD/<name>.jpg).
     JOURNAL_FRAMES_PATH: str = "/storage/journal/frames"
-    # Offline-тайлы карты (.mbtiles). Пусто/нет файла — карта без подложки.
-    JOURNAL_TILES_MBTILES: str = "/storage/journal/tiles/map.mbtiles"
+    # Offline-тайлы карты: ВЕКТОРНЫЙ .mbtiles (схема OpenMapTiles), собранный
+    # planetiler'ом из выгрузки Geofabrik. Нет файла — карта без подложки.
+    JOURNAL_TILES_MBTILES: str = "/storage/journal/tiles/russia.mbtiles"
+    # Стиль карты, глифы и спрайты для MapLibre. Всё раздаётся со своего origin,
+    # чтобы карта работала полностью офлайн.
+    JOURNAL_MAP_DIR: str = "/storage/journal/map"
 
     # FastAPI
     APP_NAME: str = "Recordings Storage Service"

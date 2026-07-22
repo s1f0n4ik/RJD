@@ -6,11 +6,13 @@
 
 export type Verdict = 'unverified' | 'true' | 'false';
 
-/** Один объект на кадре: id класса + confidence + бокс [x,y,w,h] в пикселях. */
+/** Один объект на кадре: id класса + confidence + бокс [x,y,w,h] в пикселях.
+ *  state — тип трека на момент кадра: tentative / confirmed / lost. */
 export interface JournalObject {
   cid: number;
   cf: number;
   box: [number, number, number, number];
+  state?: string;
 }
 
 /** Снимок GPS в момент кадра (null — координат не было). */

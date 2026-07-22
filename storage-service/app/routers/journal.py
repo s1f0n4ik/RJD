@@ -101,9 +101,49 @@ def get_frame(det_id: int):
     return FileResponse(path, media_type="image/jpeg")
 
 
-@router.get("/journal/tiles/{z}/{x}/{y}.png")
+@router.get("/journal/tiles/{z}/{x}/{y}.pbf")
 def get_tile(z: int, x: int, y: int):
+    """Векторный тайл (схема OpenMapTiles) из offline .mbtiles."""
     data = journal.tile(z, x, y)
     if data is None:
+        # Пустых тайлов в .mbtiles просто нет — для MapLibre это нормально.
         raise HTTPException(status_code=404, detail="Tile not found")
-    return Response(content=data, media_type="image/png")
+
+    headers = {"Cache-Control": "public, max-age=604800"}
+    # В .mbtiles PBF обычно лежит уже gzip-сжатым: отдаём как есть, сообщив
+    # браузеру кодировку по сигнатуре gzip (0x1f 0x8b).
+    if data[:2] == b"\x1f\x8b":
+        headers["Content-Encoding"] = "gzip"
+    return Response(content=data, media_type="application/x-protobuf", headers=headers)
+
+
+@router.get("/journal/map/style.json")
+def get_style():
+    """Стиль MapLibre. Лежит на томе рядом с глифами и спрайтами."""
+    path = journal.resolve_map_asset("style.json")
+    if path is None:
+        raise HTTPException(status_code=404, detail="Style not found")
+    return FileResponse(path, media_type="application/json")
+
+
+@router.get("/journal/map/glyphs/{fontstack}/{rng}.pbf")
+def get_glyphs(fontstack: str, rng: str):
+    """Диапазон глифов шрифта — без них MapLibre не нарисует подписи."""
+    path = journal.resolve_map_asset(f"glyphs/{fontstack}/{rng}.pbf")
+    if path is None:
+        raise HTTPException(status_code=404, detail="Glyphs not found")
+    return FileResponse(
+        path,
+        media_type="application/x-protobuf",
+        headers={"Cache-Control": "public, max-age=604800"},
+    )
+
+
+@router.get("/journal/map/sprite/{name}")
+def get_sprite(name: str):
+    """Спрайты стиля (sprite.json / sprite.png / @2x-варианты)."""
+    path = journal.resolve_map_asset(f"sprite/{name}")
+    if path is None:
+        raise HTTPException(status_code=404, detail="Sprite not found")
+    media = "application/json" if name.endswith(".json") else "image/png"
+    return FileResponse(path, media_type=media)

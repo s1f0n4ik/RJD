@@ -40,8 +40,12 @@ namespace neural {
                 "/storage/journal/journal.db", "/storage/journal/frames", level);
             if (writer->start()) {
                 m_journal = std::move(writer);
+                m_logger.info("journal enabled -> /storage/journal");
             } else {
-                m_logger.warn("journal writer disabled (start failed)");
+                // Журнал не поднялся — это не повод ронять нейронку, но знать об
+                // этом надо: без него обнаружения никуда не запишутся.
+                m_logger.error("journal DISABLED: writer start failed "
+                    "(check /storage/journal permissions and sqlite availability)");
             }
         }
 
@@ -420,6 +424,9 @@ namespace neural {
                     m_journal ? m_journal->slot_journal() : journal::FSlotJournal{},
                     m_level
                 );
+
+                m_logger.info("slot " + m_active_descs[i].config_id +
+                    ": journal=" + (m_journal ? "on" : "off"));
 
                 if (!slot->start())
                     throw std::runtime_error("Cannot start slot: " + m_active_descs[i].config_id);

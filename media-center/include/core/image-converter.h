@@ -18,7 +18,7 @@ namespace varan {
 
 		void destroy_fbo();
 
-		bool render(UGLTextureWrapper* frame, ULogger* logger);
+		bool render(USharedGLTextureWrapper* frame, ULogger* logger);
 
 		bool bind_fbo();
 

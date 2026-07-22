@@ -447,6 +447,8 @@ namespace varan {
 
 		m_textures = std::move(other.m_textures);
 
+		m_sample = other.m_sample;
+		other.m_sample = nullptr;
 		m_buffer = other.m_buffer;
 		other.m_buffer = nullptr;
 	}
@@ -479,6 +481,48 @@ namespace varan {
 
 	std::string UGLTextureWrapper::type() {
 		return "UGLTextureWrapper";
+	}
+
+	USharedGLTextureWrapper::USharedGLTextureWrapper(GstSample* sample) {
+		if (sample) {
+			// Ставит авто уменьшение ссылки, когда shared объект уничтожится
+			m_sample = std::shared_ptr<GstSample>(
+				gst_sample_ref(sample),
+				[](GstSample* value) { gst_sample_unref(value); }
+			);
+		}
+	}
+
+	GstBuffer* USharedGLTextureWrapper::buffer() const {
+		return m_sample ? gst_sample_get_buffer(m_sample.get()) : nullptr;
+	}
+
+	bool USharedGLTextureWrapper::has_sample() const {
+		return static_cast<bool>(m_sample);
+	}
+
+	void USharedGLTextureWrapper::destroy(EGLDisplay /*display*/) {
+		// GLuint принадлежат GStreamer, поэтому их не удаляем. Освобождаем
+		// только этот view; другие копии продолжают безопасно держать sample.
+		m_textures.clear();
+		m_sample.reset();
+	}
+
+	std::string USharedGLTextureWrapper::to_string() {
+		std::ostringstream ss;
+		ss << "USharedGLTextureWrapper { "
+			<< "W=" << width
+			<< ", H=" << height
+			<< ", fmt=" << format
+			<< ", pts=" << pts
+			<< ", textures=" << m_textures.size()
+			<< ", sample=" << m_sample.get()
+			<< " }";
+		return ss.str();
+	}
+
+	std::string USharedGLTextureWrapper::type() {
+		return "USharedGLTextureWrapper";
 	}
 		
 } // varan

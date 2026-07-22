@@ -75,7 +75,7 @@ namespace varan {
         return true;
     }
 
-    bool UImageConverter::render(UGLTextureWrapper* frame, ULogger* logger) {
+    bool UImageConverter::render(USharedGLTextureWrapper* frame, ULogger* logger) {
         if (!frame || frame->format != "NV12" || frame->get_texure_count() != 2) {
             return false;
         }

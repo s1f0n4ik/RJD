@@ -689,7 +689,7 @@ GstFlowReturn UCameraMainPipeline::on_new_sample_dma(GstElement* sink, gpointer 
 		return GST_FLOW_OK;
 	}
 
-	auto frame = std::make_unique<UDmaFdFrame>();
+	auto frame = std::make_shared<UDmaFdFrame>();
 	// Получние типа памяти
 	guint n_mem = gst_buffer_n_memory(buffer);
 	guint num_planes = info.finfo->n_planes;
@@ -786,7 +786,7 @@ GstFlowReturn UCameraMainPipeline::on_new_sample_gl_texture(GstElement* sink, gp
 	}
 
 	// Формировние фрейма
-	auto gl_frame = std::make_unique<UGLTextureWrapper>(sample);
+	auto gl_frame = std::make_shared<USharedGLTextureWrapper>(sample);
 	guint n_mem = gst_buffer_n_memory(buffer);
 	guint num_planes = info.finfo->n_planes;
 	if (num_planes < n_mem) {
@@ -804,14 +804,14 @@ GstFlowReturn UCameraMainPipeline::on_new_sample_gl_texture(GstElement* sink, gp
 			return GST_FLOW_OK;
 		}
 		// создание одной текстуры
-		UGLTextureWrapper::FGLTexture gl_texture;
+		USharedGLTextureWrapper::FGLTexture gl_texture;
 		GstGLMemory* gl_mem = (GstGLMemory*)mem;
 
 		gl_texture.id = gst_gl_memory_get_texture_id(gl_mem);
 		gl_texture.width = gst_gl_memory_get_texture_width(gl_mem);
 		gl_texture.height = gst_gl_memory_get_texture_height(gl_mem);
-		gl_texture.format = UGLTextureWrapper::from_gst_to_gl_format(gst_gl_memory_get_texture_format(gl_mem));
-		gl_texture.target = UGLTextureWrapper::from_gst_to_gl_target(gst_gl_memory_get_texture_target(gl_mem));
+		gl_texture.format = USharedGLTextureWrapper::from_gst_to_gl_format(gst_gl_memory_get_texture_format(gl_mem));
+		gl_texture.target = USharedGLTextureWrapper::from_gst_to_gl_target(gst_gl_memory_get_texture_target(gl_mem));
 
 		gl_frame->add_texture(std::move(gl_texture));
 	}

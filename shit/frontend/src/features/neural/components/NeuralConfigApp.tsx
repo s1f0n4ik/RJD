@@ -34,11 +34,16 @@ export function NeuralConfigApp() {
         <div className="app">
             <Navbar active={section} onChange={setSection} conn={conn} />
             <div className="page">
-                <div className="page-inner">
-                    {section === 'configs' && <ConfigurationsSection />}
-                    {section === 'cores' && <CoresSection />}
-                    {section === 'journal' && <JournalSection />}
-                </div>
+                {/* Журнал живёт во всю ширину страницы: page-inner ограничен
+                    1080px, а списку с картой рядом этого не хватает. */}
+                {section === 'journal' ? (
+                    <JournalSection />
+                ) : (
+                    <div className="page-inner">
+                        {section === 'configs' && <ConfigurationsSection />}
+                        {section === 'cores' && <CoresSection />}
+                    </div>
+                )}
             </div>
         </div>
         </div>

@@ -19,6 +19,10 @@
 
 #include <atomic>
 #include <cstdint>
+#include <deque>
+#include <thread>
+#include <condition_variable>
+#include <vector>
 
 #include "logger.h"
 #include "camera.h"
@@ -73,13 +77,34 @@ namespace neural {
         gateway::FGatewayDetection make_gateway_detection(int class_id, double confidence, const FDetection& box) const;
         std::vector<gateway::FGatewayDetection> gateway_dets_from_detections(const std::vector<FDetection>& dets) const;
         std::vector<gateway::FGatewayDetection> gateway_dets_from_tracks(const std::vector<FTrack>& tracks) const;
-        void send_to_gateway(std::vector<gateway::FGatewayDetection> dets, const cv::Mat& rgb_pixels);
 
-        // Запись в журнал обнаружений по трек-событиям confirmed: слот кодирует
-        // JPEG кадра (с боксами), пишет файл на диск и отдаёт метаданные writer'у.
-        // Одна запись на кадр с confirmed-событиями; о классах журнал не знает —
-        // сохраняются только id классов и config_id.
-        void journal_confirmed(const std::vector<FTrackEventRecord>& events, const cv::Mat& rgb_pixels);
+        // Задача фонового воркера кадров. cv::Mat здесь — refcount-копия, пиксели
+        // не копируются, поэтому постановка в очередь дешёвая. Пустой rgb —
+        // кадр потерян при переполнении, запись всё равно уйдёт (без картинки).
+        struct FFrameTask {
+            cv::Mat rgb;
+            int width = 0;
+            int height = 0;
+            std::int64_t seq = 0;
+            gateway::FGatewayTimeGps time_gps;
+            // Для шлюза: подтверждённые и недавно потерянные (как требует протокол).
+            std::vector<gateway::FGatewayDetection> gw_dets;
+            // Для журнала: ВСЕ треки кадра со своим состоянием.
+            std::vector<journal::FDetectionObject> objects;
+            std::string events;  // типы сработавших событий через запятую
+        };
+
+        // Сбор задачи на потоке инференса (без кодирования — только метаданные).
+        FFrameTask make_frame_task(const cv::Mat& rgb_pixels,
+            const std::vector<FTrackEventRecord>& events);
+        // Постановка в очередь. При переполнении теряется картинка самой старой
+        // задачи, но её строка в журнал всё равно пишется.
+        void enqueue_frame(FFrameTask task);
+        void frame_worker();
+        // Кодирование обоих кадров: чистого для журнала и аннотированного для шлюза.
+        void process_frame_task(const FFrameTask& task);
+        // Отдать метаданные журналу. image_path пуст — кадр потерян.
+        void journal_row(const FFrameTask& task, const std::string& image_path);
 
         // Отрисовка на кадре, уходящем в message-gateway: бокс + название класса
         // (кириллица через m_text_renderer) и время/GPS в левом верхнем углу.
@@ -125,6 +150,16 @@ namespace neural {
         std::unique_ptr<UVirtualCamera> m_streamer;
 
         std::shared_ptr<IDetectionTracker> m_tracker;
+
+        // Фоновый воркер кадров: снимает с потока инференса кодирование JPEG,
+        // запись файла журнала и отправку в шлюз. Глубина очереди ограничена —
+        // кадры тяжёлые (полноразмерные буферы), поэтому память под контролем.
+        std::deque<FFrameTask> m_frame_queue;
+        std::mutex m_frame_mutex;
+        std::condition_variable m_frame_cv;
+        std::thread m_frame_thread;
+        std::atomic<bool> m_frame_running{ false };
+        static constexpr std::size_t kFrameQueue = 16;
     };
 
 } // namespace neural

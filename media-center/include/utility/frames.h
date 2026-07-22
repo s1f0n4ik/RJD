@@ -4,6 +4,7 @@
 #include <vector>
 #include <optional>
 #include <functional>
+#include <memory>
 
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
@@ -69,8 +70,11 @@ namespace varan {
 			std::vector<FGLTexture> m_textures;
 	};
 
-	using NPFrame = std::unique_ptr<IFrame>;
-	using NPGLTexture = std::unique_ptr<IGLTexture>;
+	// Кадр разделяется между storage и всеми потребителями. Сам объект кадра
+	// создаётся один раз, а std::move при публикации передаёт storage первую
+	// ссылку без лишнего изменения счётчика.
+	using NPFrame = std::shared_ptr<IFrame>;
+	using NPGLTexture = std::shared_ptr<IGLTexture>;
 	using CFrameMover = std::function<void(std::string, NPFrame)>;
 
 	class UDmaFdFrame : public IFrame {
@@ -176,5 +180,30 @@ namespace varan {
 	private:
 		void move_from(UGLTextureWrapper&& other);
 	};
+
+	// То же самое, что и UGLTextureWrapper, но специально под shared_ptr
+	class USharedGLTextureWrapper: public IFrame, public IGLTexture {
+	public:
+		USharedGLTextureWrapper() = default;
+		explicit USharedGLTextureWrapper(GstSample* sample);
+		~USharedGLTextureWrapper() override = default;
+
+		USharedGLTextureWrapper(const USharedGLTextureWrapper&) = default;
+		USharedGLTextureWrapper& operator=(const USharedGLTextureWrapper&) = default;
+		USharedGLTextureWrapper(USharedGLTextureWrapper&&) noexcept = default;
+		USharedGLTextureWrapper& operator=(USharedGLTextureWrapper&&) noexcept = default;
+
+		GstBuffer* buffer() const;
+		bool has_sample() const;
+
+		void destroy(EGLDisplay display) override;
+		std::string to_string() override;
+		std::string type() override;
+
+	private:
+		std::shared_ptr<GstSample> m_sample;
+	};
+
+	using SPGLTextureWrapper = std::shared_ptr<USharedGLTextureWrapper>;
 
 } // varan

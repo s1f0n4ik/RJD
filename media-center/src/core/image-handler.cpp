@@ -119,7 +119,7 @@ namespace varan {
 		while (m_running_thread) {
 
 			auto ptr = m_storage->extract(storage_slot);
-			auto frame = dynamic_cast<UGLTextureWrapper*>(ptr.get());
+			auto frame = std::dynamic_pointer_cast<USharedGLTextureWrapper>(ptr);
 			if (!frame) {
 				//m_logger.trace("processing_loop(): no frame at " + storage_slot + " storage slot");
 				std::this_thread::sleep_until(next_frame);
@@ -148,7 +148,7 @@ namespace varan {
 			glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-			render.render(frame, &m_logger);
+			render.render(frame.get(), &m_logger);
 
 			rgba = cv::Mat(height, width, CV_8UC4);
 			glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data);

@@ -21,10 +21,11 @@ class JournalService:
     потоков, а отдельное соединение на вызов безопаснее общего.
     """
 
-    def __init__(self, db_path: Path, frames_dir: Path, tiles_path: Path):
+    def __init__(self, db_path: Path, frames_dir: Path, tiles_path: Path, map_dir: Path):
         self.db_path = db_path
         self.frames_dir = frames_dir
         self.tiles_path = tiles_path
+        self.map_dir = map_dir
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path, timeout=5.0)
@@ -150,10 +151,23 @@ class JournalService:
             conn.commit()
             return cur.rowcount > 0
 
-    # ── Тайлы карты (offline .mbtiles) ──
+    # ── Карта: тайлы, стиль, глифы, спрайты ──
+
+    def resolve_map_asset(self, rel: str) -> Optional[Path]:
+        """Файл стиля/глифов/спрайтов с защитой от path traversal."""
+        candidate = self.map_dir / rel
+        try:
+            candidate.resolve().relative_to(self.map_dir.resolve())
+        except (ValueError, OSError):
+            return None
+        return candidate if candidate.is_file() else None
 
     def tile(self, z: int, x: int, y: int) -> Optional[bytes]:
-        """Один тайл из .mbtiles. mbtiles хранит строки в TMS — переворачиваем y."""
+        """Один тайл из .mbtiles. mbtiles хранит строки в TMS — переворачиваем y.
+
+        Для векторных тайлов внутри лежит PBF, обычно уже gzip-сжатый; отдаём как
+        есть, а заголовок Content-Encoding проставляет роутер по сигнатуре.
+        """
         if not self.tiles_path.exists():
             return None
         tms_y = (1 << z) - 1 - y
@@ -212,4 +226,5 @@ journal = JournalService(
     Path(settings.JOURNAL_DB_PATH),
     Path(settings.JOURNAL_FRAMES_PATH),
     Path(settings.JOURNAL_TILES_MBTILES),
+    Path(settings.JOURNAL_MAP_DIR),
 )

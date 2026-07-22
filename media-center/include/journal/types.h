@@ -19,6 +19,9 @@ namespace journal {
         int cid = 0;                      // id класса внутри своей конфигурации
         double cf = 0.0;                  // confidence 0..1
         std::array<int, 4> box{ 0, 0, 0, 0 }; // x, y, w, h в пикселях
+        // Состояние трека на момент кадра: tentative / confirmed / lost.
+        // Это домен журнала (не семантика конфигурации), поэтому храним как есть.
+        std::string state;
     };
 
     // Одна запись журнала обнаружений: метаданные кадра + время + GPS +
@@ -39,7 +42,10 @@ namespace journal {
 
         int width = 0;
         int height = 0;
-        std::string image_path;           // путь к JPEG относительно корня кадров
+        // Путь к JPEG относительно корня кадров. Пусто — кадр потерян при
+        // переполнении очереди: событие важнее картинки, поэтому строку пишем
+        // всё равно, просто без изображения.
+        std::string image_path;
 
         std::optional<std::int64_t> track_id; // трек-триггер (для дедупа), либо пусто
         std::string event;                // confirmed/lost/... либо пусто
