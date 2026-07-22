@@ -24,7 +24,7 @@ namespace calibration {
 				"cameras": {
 					"front": {
 						"name": "Front",
-						"src_points": [[x,y], ...],     # на изображении камеры (после undist)
+						"src_points": [[x,y], ...],     # на изображении камеры (после undist), нормированные 0..1
 						"dst_points": [[X,Y], ...]      # АБСОЛЮТНЫЕ координаты канваса
 					},
 					...
@@ -120,9 +120,10 @@ namespace calibration {
 
 				boost::json::object cameras_obj;
 				for (const auto& [position, cam] : preset.cameras) {
+					// Камеру с незнакомым ключом не выбрасываем: load_preset их читает,
+					// и запись убрала бы её из файла вместе со всей геометрией
 					if (!is_valid_position(position)) {
-						log_warn("save_preset(): drop unknown camera_key <" + position + ">");
-						continue;
+						log_warn("save_preset(): unknown camera_key <" + position + ">");
 					}
 					cameras_obj[position] = serialize_camera(cam);
 				}

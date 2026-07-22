@@ -116,6 +116,12 @@ namespace calibration {
 			std::string& str_err
 		);
 
+		// Запись нормированных точек камеры в активный пресет и на диск
+		bool save_src_points(
+			const std::string& camera_key,
+			const std::vector<cv::Point2f>& normalized_src_points
+		);
+
 		bool build_warp_remap(
 			const std::vector<cv::Point2f>& src_points,
 			const std::vector<cv::Point2f>& dst_points,

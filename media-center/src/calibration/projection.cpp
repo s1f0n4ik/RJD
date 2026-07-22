@@ -118,6 +118,18 @@ namespace calibration {
                     item[constants::PROJ_CAM_NAME] = cam.name;
                     item[constants::META_PROJECTION_MAX_POINTS] = static_cast<int>(cam.dst_points.size());
                     item[constants::META_PROJECTION_POINTS_COUNT] = static_cast<int>(cam.src_points.size());
+
+                    // Сохранённые точки отдаём клиенту целиком, чтобы он мог их восстановить.
+                    // Координаты нормированные, поэтому не зависят от разрешения камеры.
+                    boost::json::array saved_points;
+                    for (const auto& p : cam.src_points) {
+                        boost::json::object point;
+                        point["x"] = p.x;
+                        point["y"] = p.y;
+                        saved_points.push_back(std::move(point));
+                    }
+                    item[constants::META_PROJECTION_SRC_POINTS] = std::move(saved_points);
+
                     cameras.push_back(std::move(item));
                 }
                 /*
@@ -190,6 +202,10 @@ namespace calibration {
             }
 
             try {
+                // Нормированные точки нужны для сохранения в пресет: они не зависят
+                // от разрешения камеры, поэтому переживают смену камеры и конфигурации коррекции
+                const std::vector<cv::Point2f> normalized_src_points = src_points;
+
                 // Получаем координаты в абсолютном формате
                 const float W = static_cast<float>(m_raw_image.width);
                 const float H = static_cast<float>(m_raw_image.height);
@@ -250,6 +266,13 @@ namespace calibration {
                 if (!build_canvas(error)) {
                     if (on_error) on_error(constants::TYPE_PROJECTION_CONFIGURATION, error, &client_id);
                     return;
+                }
+
+                // Точки запоминаем в пресете только после удачной сборки, чтобы на диск
+                // не попадала разметка, которая не даёт результата
+                if (!save_src_points(camera_key, normalized_src_points)) {
+                    m_logger.warn("handle_projection_configuration(): cannot save src_points for camera <"
+                        + camera_key + ">");
                 }
 
                 // Отправляем канвас
@@ -577,6 +600,36 @@ namespace calibration {
         dst_points = cam_it->second.dst_points; 
         canvas_size = m_active_preset->canvas_size;
         return true;
+    }
+
+    bool UCalibrator::save_src_points(
+        const std::string& camera_key,
+        const std::vector<cv::Point2f>& normalized_src_points)
+    {
+        FProjectionPreset preset_copy;
+        {
+            std::lock_guard<std::mutex> lock_preset(m_active_preset_mutex);
+            if (!m_active_preset) {
+                m_logger.warn("save_src_points(): no active projection preset");
+                return false;
+            }
+
+            auto cam_it = m_active_preset->cameras.find(camera_key);
+            if (cam_it == m_active_preset->cameras.end()) {
+                m_logger.warn("save_src_points(): camera <" + camera_key + "> not found in active preset");
+                return false;
+            }
+
+            cam_it->second.src_points = normalized_src_points;
+            preset_copy = *m_active_preset;
+        }
+
+        // Пресет писать под локом нельзя: запись на диск держала бы обработку кадров
+        if (!m_projection_config.save_preset(preset_copy)) {
+            return false;
+        }
+
+        return m_projection_config.save(constants::PROJECTION_CONFIGURES_PATH);
     }
 
     bool UCalibrator::get_image_to_build(cv::Mat& out, std::string& error) {

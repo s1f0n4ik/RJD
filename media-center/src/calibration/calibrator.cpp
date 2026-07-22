@@ -195,7 +195,7 @@ namespace calibration {
 						size_pattern = v->as_double();
 					}
 					else if (v->is_int64()) {
-						size_pattern = static_cast<float>(v->is_int64());
+						size_pattern = static_cast<float>(v->as_int64());
 					}
 					else {
 						on_error(type, "Error with message: invalid type for <size>!", &client_id);

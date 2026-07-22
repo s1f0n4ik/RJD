@@ -28,6 +28,15 @@ export interface Track {
     rect: [number, number, number, number] | { x: number; y: number; w: number; h: number };
 }
 
+/** Состояние плеера для внешних индикаторов. */
+export interface PlayerStatusInfo {
+    status: 'connecting' | 'connected' | 'error';
+    /** RTCPeerConnection.iceConnectionState, '—' пока PC не создан. */
+    ice: string;
+    /** RTCPeerConnection.connectionState, '—' пока PC не создан. */
+    conn: string;
+}
+
 interface WebRTCPlayerProps {
     cameraId: string;
     cameraName?: string;
@@ -35,6 +44,8 @@ interface WebRTCPlayerProps {
     onError?: (error: string) => void;
     onDetections?:  (detections: Detection[]) => void;
     onTracks?:      (tracks: Track[]) => void;
+    /** Опционально: состояние соединения наружу, для своих индикаторов. */
+    onStatusChange?: (info: PlayerStatusInfo) => void;
 }
 
 const STREAM_ERROR_MESSAGES: Record<string, string> = {
@@ -50,10 +61,31 @@ const getStreamErrorMessage = (error_code: string): string => {
     return STREAM_ERROR_MESSAGES[error_code] ?? `Ошибка потока: ${error_code}`;
 };
 
-const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signalingUrl, onError, onDetections, onTracks }) => {
+const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signalingUrl, onError, onDetections, onTracks, onStatusChange }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const [status, setStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
     const [errorMsg, setErrorMsg] = useState<string>('');
+
+    // Состояние наружу. Держим в ref, чтобы не перезапускать основной эффект
+    // при каждом новом инлайн-колбэке от родителя.
+    const onStatusChangeRef = useRef(onStatusChange);
+    onStatusChangeRef.current = onStatusChange;
+    const iceStateRef = useRef<string>('—');
+    const connStateRef = useRef<string>('—');
+    const statusRef = useRef(status);
+    statusRef.current = status;
+
+    const emitStatus = () => {
+        onStatusChangeRef.current?.({
+            status: statusRef.current,
+            ice: iceStateRef.current,
+            conn: connStateRef.current,
+        });
+    };
+
+    useEffect(() => {
+        emitStatus();
+    }, [status]);
 
     const wsRef = useRef<WebSocket | null>(null);
     const pcRef = useRef<RTCPeerConnection | null>(null);
@@ -433,6 +465,8 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
         pc.oniceconnectionstatechange = () => {
             console.log(`[${cameraId}] ICE state:`, pc.iceConnectionState);
             if (!isMountedRef.current) return;
+            iceStateRef.current = pc.iceConnectionState;
+            emitStatus();
             const s = pc.iceConnectionState;
             if (s === 'disconnected') {
                 //setStatus('error');
@@ -445,6 +479,8 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
         pc.onconnectionstatechange = () => {
             console.log(`[${cameraId}] Connection state:`, pc.connectionState);
             if (!isMountedRef.current) return;
+            connStateRef.current = pc.connectionState;
+            emitStatus();
             const s = pc.connectionState;
             if (s === 'new') {
                 setStatus('connecting');

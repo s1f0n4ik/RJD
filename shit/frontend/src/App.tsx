@@ -17,6 +17,7 @@ import CameraSettings from './components/CameraSettings';
 // import NeuralSettings from './components/NeuralSettings';
 import NeuralConfigApp from './features/neural/components/NeuralConfigApp';
 import KrspsApp from './features/krsps/components/KrspsApp';
+import { BirdviewApp } from './features/birdview/components/BirdviewApp';
 import Login from './components/Login';
 import KioskView from './components/KioskView';
 import { wsService } from './services/websocket';
@@ -63,6 +64,7 @@ const AppContent: React.FC = () => {
   const isLandingRoute = !isKioskRoute && !isAdminRoute; // 🆕
   const isNeuralRoute = pathname.startsWith('/app/neural');
   const isKrspsRoute = pathname.startsWith('/app/krsps');
+  const isBirdviewRoute = pathname.startsWith('/app/birdview');
 
   const [currentTab, setCurrentTab] = useState(0);
   const [wsConnected, setWsConnected] = useState(false);
@@ -160,7 +162,7 @@ const AppContent: React.FC = () => {
   };
 
   useEffect(() => {
-    if (isKioskRoute || isLandingRoute || isNeuralRoute || isKrspsRoute) return; // В киоск-режиме WS не нужен
+    if (isKioskRoute || isLandingRoute || isNeuralRoute || isKrspsRoute || isBirdviewRoute) return; // В киоск-режиме WS не нужен
     if (token) {
       wsService.connect(
         (newState) => setState(newState),
@@ -170,7 +172,7 @@ const AppContent: React.FC = () => {
     return () => {
       wsService.disconnect();
     };
-  }, [token, isKioskRoute, isLandingRoute, isNeuralRoute, isKrspsRoute]);
+  }, [token, isKioskRoute, isLandingRoute, isNeuralRoute, isKrspsRoute, isBirdviewRoute]);
 
   if (isLandingRoute) {
     return (
@@ -209,6 +211,14 @@ const AppContent: React.FC = () => {
     return (
       <>
         <KrspsApp />
+        <OnScreenKeyboard />
+      </>
+    );
+  }
+  if (isBirdviewRoute) {
+    return (
+      <>
+        <BirdviewApp />
         <OnScreenKeyboard />
       </>
     );
