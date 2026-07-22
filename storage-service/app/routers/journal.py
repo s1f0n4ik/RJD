@@ -48,6 +48,41 @@ def _parse_bbox(bbox: Optional[str]) -> Optional[tuple[float, float, float, floa
     return (min_lon, min_lat, max_lon, max_lat)
 
 
+def _filters(
+    t_from: Optional[int],
+    t_to: Optional[int],
+    verdict: Optional[str],
+    camera_id: Optional[str],
+    config_id: Optional[str],
+    cids: Optional[str],
+    bbox: Optional[str],
+) -> dict:
+    return {
+        "t_from": t_from,
+        "t_to": t_to,
+        "verdict": verdict,
+        "camera_id": camera_id,
+        "config_id": config_id,
+        "cids": _parse_cids(cids),
+        "bbox": _parse_bbox(bbox),
+    }
+
+
+@router.get("/journal/head")
+def head(
+    t_from: Optional[int] = Query(None, description="unix ms, начало диапазона"),
+    t_to: Optional[int] = Query(None, description="unix ms, конец диапазона"),
+    verdict: Optional[str] = Query(None, description="unverified | true | false"),
+    camera_id: Optional[str] = None,
+    config_id: Optional[str] = None,
+    cids: Optional[str] = Query(None, description="id классов через запятую"),
+    bbox: Optional[str] = Query(None, description="min_lon,min_lat,max_lon,max_lat"),
+):
+    """Лёгкая ручка для периодического опроса: {max_id, total} по тем же
+    фильтрам, что и список. Фронт перезапрашивает список только при изменении."""
+    return journal.head(**_filters(t_from, t_to, verdict, camera_id, config_id, cids, bbox))
+
+
 @router.get("/journal/detections")
 def list_detections(
     t_from: Optional[int] = Query(None, description="unix ms, начало диапазона"),
@@ -62,16 +97,10 @@ def list_detections(
     offset: int = Query(0, ge=0),
 ):
     return journal.list_detections(
-        t_from=t_from,
-        t_to=t_to,
-        verdict=verdict,
-        camera_id=camera_id,
-        config_id=config_id,
-        cids=_parse_cids(cids),
-        bbox=_parse_bbox(bbox),
         order=order,
         limit=limit,
         offset=offset,
+        **_filters(t_from, t_to, verdict, camera_id, config_id, cids, bbox),
     )
 
 

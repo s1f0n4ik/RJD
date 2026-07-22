@@ -4,6 +4,8 @@
 
 #include <boost/json.hpp>
 
+#include <fstream>
+
 namespace varan {
 namespace journal {
 
@@ -65,11 +67,40 @@ namespace {
     bool UJournalWriter::start() {
         if (m_running.load()) return true;
 
-        // Каталоги под базу и кадры создаём заранее — media-center пишет их на
-        // том /storage, который смонтирован снаружи.
+        // Каталоги под базу и кадры создаём заранее
+        const std::filesystem::path db_dir = m_db_path.parent_path();
         std::error_code ec;
-        std::filesystem::create_directories(m_db_path.parent_path(), ec);
-        std::filesystem::create_directories(m_frames_dir, ec);
+        std::filesystem::create_directories(db_dir, ec);
+        if (ec) {
+            m_logger.error("cannot create " + db_dir.string() + ": " + ec.message());
+        }
+        std::error_code ec_frames;
+        std::filesystem::create_directories(m_frames_dir, ec_frames);
+        if (ec_frames) {
+            m_logger.error("cannot create " + m_frames_dir.string() + ": " + ec_frames.message());
+        }
+
+        if (!std::filesystem::exists(db_dir)) {
+            m_logger.error("journal directory does not exist and cannot be created: " + db_dir.string()
+                + " — создайте его и отдайте пользователю, под которым работает media-center:"
+                " sudo mkdir -p " + db_dir.string() + " && sudo chown -R $USER " + db_dir.string());
+            return false;
+        }
+
+        // Явная проба записи: даёт понятную причину вместо общей ошибки sqlite.
+        {
+            const std::filesystem::path probe = db_dir / ".journal-write-test";
+            std::ofstream f(probe, std::ios::binary);
+            if (!f) {
+                m_logger.error("journal directory is not writable: " + db_dir.string()
+                    + " — media-center работает не под тем пользователем, которому принадлежит каталог."
+                    " Исправить: sudo chown -R $USER " + db_dir.string());
+                return false;
+            }
+            f.close();
+            std::error_code rm_ec;
+            std::filesystem::remove(probe, rm_ec);
+        }
 
         if (sqlite3_open_v2(m_db_path.string().c_str(), &m_db,
                 SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) != SQLITE_OK) {

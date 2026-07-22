@@ -28,9 +28,15 @@ DISPLAY_ENV="${MC_DISPLAY:-:0}"
 XAUTH_ENV="${MC_XAUTHORITY:-/home/orangepi/.Xauthority}"
 XDG_ENV="${MC_XDG_RUNTIME_DIR:-/run/user/1000}"
 
+# Каталог журнала обнаружений (SQLite + кадры). По умолчанию /storage/journal,
+# но он принадлежит root — media-center же работает под обычным пользователем.
+# Либо выдайте права на каталог, либо укажите свой путь через MC_JOURNAL_DIR.
+JOURNAL_DIR_ENV="${MC_JOURNAL_DIR:-/storage/journal}"
+
 log "Запуск media-center на $REMOTE: rest=$REST_PORT signaling=$SIGNALING_IP:$SIGNALING_PORT gateway_gRPC=$GATEWAY_IP:$GATEWAY_PORT (DISPLAY=$DISPLAY_ENV)"
 
 # -t для интерактивного вывода и корректной обработки Ctrl-C
 ssh -t "$REMOTE" "source '$GST_ENV'; \
     export DISPLAY='$DISPLAY_ENV' XAUTHORITY='$XAUTH_ENV' XDG_RUNTIME_DIR='$XDG_ENV'; \
+    export MC_JOURNAL_DIR='$JOURNAL_DIR_ENV'; \
     cd '$REMOTE_DIR/build' && ./media-center $REST_PORT $SIGNALING_IP $SIGNALING_PORT $GATEWAY_IP $GATEWAY_PORT"

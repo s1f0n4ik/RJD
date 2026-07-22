@@ -2,29 +2,39 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { journalApi } from '../../api/journal';
 import type { JournalDetection, JournalFilters, Verdict } from '../../api/journal-types';
 import { useClassResolver } from './useClassResolver';
+import { useCameraNames } from './useCameraNames';
+import { useImageBudget } from './useImageBudget';
 import { DetectionRow } from './DetectionRow';
-import { Filters, presetRange } from './Filters';
+import { Filters, presetRange, DEFAULT_PRESET } from './Filters';
 import type { PresetKey } from './Filters';
 import { JournalMap } from './JournalMap';
+import { FrameViewer } from './FrameViewer';
 import './journal.css';
 
 // Ширина, с которой карта встаёт рядом со списком. Уже — одна колонка:
 // фильтры сверху, список под ними, карта скрыта.
 const WIDE_PX = 1000;
 const PAGE_LIMIT = 300;
+// Сколько изображений одновременно живёт в памяти. Записи (лёгкий JSON) грузим
+// сотнями — от них зависят точки на карте, — а вот картинки держим по LRU:
+// иначе после прокрутки в DOM осели бы все PAGE_LIMIT кадров.
+const MAX_IMAGES = 50;
+// Интервал опроса лёгкой ручки head. Полный список тянем только при изменении.
+const POLL_MS = 2000;
 
-// Журнал наполняется по событиям трекера, поэтому пустой список — штатная
-// ситуация, а не ошибка. Объясняем это прямо в интерфейсе.
 const EMPTY_HINT =
   'Записи появляются по событиям трекера. Проверьте, что у конфигурации включён ' +
   'фильтр (трекер) и в маске событий потока отмечены нужные события.';
 
 export function JournalSection() {
   const { resolve, classOptions } = useClassResolver();
+  const cameraName = useCameraNames();
+  const { allowed: allowedImages, request: requestImage } = useImageBudget(MAX_IMAGES);
 
-  const [preset, setPreset] = useState<PresetKey>('all');
-  const [tFrom, setTFrom] = useState<number | undefined>();
-  const [tTo, setTTo] = useState<number | undefined>();
+  // Журнал открывается за сегодня — свежие записи нужны чаще, чем весь архив.
+  const [preset, setPreset] = useState<PresetKey>(DEFAULT_PRESET);
+  const [tFrom, setTFrom] = useState<number | undefined>(() => presetRange(DEFAULT_PRESET).from);
+  const [tTo, setTTo] = useState<number | undefined>(() => presetRange(DEFAULT_PRESET).to);
   const [verdict, setVerdict] = useState<Verdict | undefined>();
   const [cids, setCids] = useState<number[]>([]);
 
@@ -34,37 +44,71 @@ export function JournalSection() {
   const [err, setErr] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
+  const [viewerId, setViewerId] = useState<number | null>(null);
+  const [newCount, setNewCount] = useState(0);
 
   const [wide, setWide] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   const filters = useMemo<JournalFilters>(
     () => ({ tFrom, tTo, verdict, cids: cids.length ? cids : undefined }),
     [tFrom, tTo, verdict, cids],
   );
 
+  const load = useCallback(
+    (showSpinner: boolean) => {
+      if (showSpinner) setLoading(true);
+      setErr(null);
+      return journalApi
+        .list(filters, { limit: PAGE_LIMIT, order: 'desc' })
+        .then((res) => {
+          setDets(res.detections);
+          setTotal(res.total);
+          setNewCount(0);
+          setSelectedId((cur) =>
+            cur != null && res.detections.some((d) => d.id === cur)
+              ? cur
+              : res.detections[0]?.id ?? null,
+          );
+        })
+        .catch((e) => setErr(e instanceof Error ? e.message : String(e)))
+        .finally(() => setLoading(false));
+    },
+    [filters],
+  );
+
+  useEffect(() => {
+    load(true);
+  }, [load]);
+
+  // Периодический опрос head: дёшево (пара чисел) и с теми же фильтрами, что и
+  // список, поэтому счётчик новых записей честный. На скрытой вкладке молчим.
   useEffect(() => {
     let alive = true;
-    setLoading(true);
-    setErr(null);
-    journalApi
-      .list(filters, { limit: PAGE_LIMIT, order: 'desc' })
-      .then((res) => {
+    const tick = async () => {
+      if (!alive || document.visibilityState !== 'visible') return;
+      try {
+        const h = await journalApi.head(filters);
         if (!alive) return;
-        setDets(res.detections);
-        setTotal(res.total);
-        setSelectedId((cur) =>
-          cur != null && res.detections.some((d) => d.id === cur)
-            ? cur
-            : res.detections[0]?.id ?? null,
-        );
-      })
-      .catch((e) => alive && setErr(e instanceof Error ? e.message : String(e)))
-      .finally(() => alive && setLoading(false));
+        const shownMax = dets.length ? dets[0].id : 0;
+        if (h.max_id <= shownMax) return;
+
+        // Список прокручен вверх — обновляем молча, иначе показываем плашку,
+        // чтобы содержимое не поехало под курсором во время разбора.
+        const atTop = (listRef.current?.scrollTop ?? 0) < 40;
+        if (atTop && viewerId == null) load(false);
+        else setNewCount(Math.max(1, h.total - total));
+      } catch {
+        /* сеть моргнула — просто ждём следующего тика */
+      }
+    };
+    const timer = window.setInterval(tick, POLL_MS);
     return () => {
       alive = false;
+      clearInterval(timer);
     };
-  }, [filters]);
+  }, [filters, dets, total, load, viewerId]);
 
   useEffect(() => {
     const el = rootRef.current;
@@ -77,12 +121,15 @@ export function JournalSection() {
   const selectedDet = useMemo(() => dets.find((d) => d.id === selectedId) ?? null, [dets, selectedId]);
   const withGps = useMemo(() => dets.filter((d) => d.gps), [dets]);
 
+  const viewerIndex = useMemo(
+    () => (viewerId == null ? -1 : dets.findIndex((d) => d.id === viewerId)),
+    [dets, viewerId],
+  );
+
   const patchDet = useCallback((updated: JournalDetection) => {
     setDets((list) => list.map((d) => (d.id === updated.id ? updated : d)));
   }, []);
 
-  // Пресет — основной способ: сам считает диапазон. Точный диапазон из
-  // календаря переводит фильтр в режим «custom».
   const applyPreset = useCallback((key: PresetKey) => {
     setPreset(key);
     const r = presetRange(key);
@@ -116,14 +163,29 @@ export function JournalSection() {
     </div>
   );
 
-  // Список занимает всю доступную высоту и прокручивается внутри себя, чтобы
-  // страница целиком не скроллилась.
   const listPanel = (
     <div className="jr-panel jr-list-col">
       <div className="jr-panel-head">
         <span className="jr-sect-lbl">Обнаружения</span>
         <span className="jr-count">{total}</span>
+        {/* В узком режиме карты рядом нет — даём выход в полноэкранную. */}
+        {!wide && (
+          <button
+            className="jr-icon-btn"
+            onClick={() => setFullscreen(true)}
+            title="Открыть карту со всеми обнаружениями"
+            aria-label="Открыть карту со всеми обнаружениями"
+          >
+            ⤢
+          </button>
+        )}
       </div>
+
+      {newCount > 0 && (
+        <button className="jr-new-badge" onClick={() => load(false)}>
+          ↑ {newCount} новых — показать
+        </button>
+      )}
 
       {loading && dets.length === 0 ? (
         <div className="jr-placeholder">
@@ -143,15 +205,20 @@ export function JournalSection() {
           <div className="jr-ph-text">{EMPTY_HINT}</div>
         </div>
       ) : (
-        <div className="jr-list">
+        <div className="jr-list" ref={listRef}>
           {dets.map((d) => (
             <DetectionRow
               key={d.id}
               det={d}
               selected={d.id === selectedId}
+              narrow={!wide}
               resolve={resolve}
+              cameraName={cameraName}
+              imageAllowed={allowedImages.has(d.id)}
               onSelect={setSelectedId}
               onChange={patchDet}
+              onOpenViewer={setViewerId}
+              onImageVisible={requestImage}
             />
           ))}
         </div>
@@ -200,7 +267,6 @@ export function JournalSection() {
           </div>
         </div>
       ) : (
-        // Узкий экран: фильтры сверху, под ними список. Карты нет.
         <div className="jr-stack">
           {filtersPanel}
           {listPanel}
@@ -246,6 +312,20 @@ export function JournalSection() {
             <div className="jr-fs-empty">Нет точек с координатами по текущим фильтрам</div>
           )}
         </div>
+      )}
+
+      {viewerIndex >= 0 && (
+        <FrameViewer
+          det={dets[viewerIndex]}
+          resolve={resolve}
+          cameraName={cameraName}
+          hasPrev={viewerIndex > 0}
+          hasNext={viewerIndex < dets.length - 1}
+          onPrev={() => setViewerId(dets[viewerIndex - 1]?.id ?? null)}
+          onNext={() => setViewerId(dets[viewerIndex + 1]?.id ?? null)}
+          onClose={() => setViewerId(null)}
+          onChange={patchDet}
+        />
       )}
     </div>
   );

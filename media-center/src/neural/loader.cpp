@@ -5,6 +5,7 @@
 #include <sstream>
 #include <set>
 #include <map>
+#include <cstdlib>
 
 namespace varan {
 namespace neural {
@@ -35,9 +36,16 @@ namespace neural {
 
         // Журнал обнаружений: SQLite + JPEG на томе /storage. Общий writer для
         // всех слотов; при ошибке БД остаётся nullptr, слоты пишут без журнала.
+        // Каталог переопределяется переменной MC_JOURNAL_DIR — /storage может
+        // принадлежать root, а media-center работает под обычным пользователем.
         {
+            const char* env_dir = std::getenv("MC_JOURNAL_DIR");
+            const std::filesystem::path journal_dir = (env_dir && *env_dir)
+                ? std::filesystem::path(env_dir)
+                : std::filesystem::path("/storage/journal");
+
             auto writer = std::make_unique<journal::UJournalWriter>(
-                "/storage/journal/journal.db", "/storage/journal/frames", level);
+                journal_dir / "journal.db", journal_dir / "frames", level);
             if (writer->start()) {
                 m_journal = std::move(writer);
                 m_logger.info("journal enabled -> /storage/journal");

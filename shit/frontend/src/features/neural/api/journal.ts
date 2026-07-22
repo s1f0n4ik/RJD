@@ -44,6 +44,18 @@ export const journalApi = {
     return fetch(url(`/api/journal/detections?${buildQuery(filters, opts)}`)).then(json<JournalListResponse>);
   },
 
+  /** Лёгкая ручка для опроса: {max_id, total} по тем же фильтрам, что и список. */
+  head(filters: JournalFilters): Promise<{ max_id: number; total: number }> {
+    const q = new URLSearchParams();
+    if (filters.tFrom != null) q.set('t_from', String(filters.tFrom));
+    if (filters.tTo != null) q.set('t_to', String(filters.tTo));
+    if (filters.verdict) q.set('verdict', filters.verdict);
+    if (filters.cids && filters.cids.length) q.set('cids', filters.cids.join(','));
+    if (filters.cameraId) q.set('camera_id', filters.cameraId);
+    if (filters.configId) q.set('config_id', filters.configId);
+    return fetch(url(`/api/journal/head?${q.toString()}`)).then(json<{ max_id: number; total: number }>);
+  },
+
   get(id: number): Promise<JournalDetection> {
     return fetch(url(`/api/journal/detections/${id}`)).then(json<JournalDetection>);
   },

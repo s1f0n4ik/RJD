@@ -38,8 +38,8 @@ class JournalService:
 
     # ── Чтение ──
 
-    def list_detections(
-        self,
+    @staticmethod
+    def _build_where(
         *,
         t_from: Optional[int] = None,
         t_to: Optional[int] = None,
@@ -48,19 +48,9 @@ class JournalService:
         config_id: Optional[str] = None,
         cids: Optional[list[int]] = None,
         bbox: Optional[tuple[float, float, float, float]] = None,
-        order: str = "desc",
-        limit: int = 100,
-        offset: int = 0,
-    ) -> dict:
-        """Список записей с фильтрами и пагинацией.
-
-        cids — id классов (фронт разворачивает выбранный класс/суперкласс в
-        список id по конфигурации; журнал о семантике классов не знает).
-        bbox — (min_lon, min_lat, max_lon, max_lat) для выборки под область карты.
-        """
-        if not self.available():
-            return {"detections": [], "total": 0, "limit": limit, "offset": offset}
-
+    ) -> tuple[str, list[Any]]:
+        """Общий конструктор WHERE для списка и для head — иначе счётчик новых
+        записей считался бы не по тому же набору, что показан пользователю."""
         where: list[str] = []
         params: list[Any] = []
 
@@ -91,6 +81,43 @@ class JournalService:
             params.extend([min_lon, max_lon, min_lat, max_lat])
 
         clause = f"WHERE {' AND '.join(where)}" if where else ""
+        return clause, params
+
+    def head(self, **filters: Any) -> dict:
+        """Максимальный id и количество записей по тем же фильтрам, что и список.
+
+        Дешёвая ручка для периодического опроса: фронт дёргает полный список
+        только когда max_id изменился.
+        """
+        if not self.available():
+            return {"max_id": 0, "total": 0}
+
+        clause, params = self._build_where(**filters)
+        with self._connect() as conn:
+            row = conn.execute(
+                f"SELECT COALESCE(MAX(id), 0) AS max_id, COUNT(*) AS total FROM detections {clause}",
+                params,
+            ).fetchone()
+        return {"max_id": row["max_id"], "total": row["total"]}
+
+    def list_detections(
+        self,
+        *,
+        order: str = "desc",
+        limit: int = 100,
+        offset: int = 0,
+        **filters: Any,
+    ) -> dict:
+        """Список записей с фильтрами и пагинацией.
+
+        cids — id классов (фронт разворачивает выбранный класс/суперкласс в
+        список id по конфигурации; журнал о семантике классов не знает).
+        bbox — (min_lon, min_lat, max_lon, max_lat) для выборки под область карты.
+        """
+        if not self.available():
+            return {"detections": [], "total": 0, "limit": limit, "offset": offset}
+
+        clause, params = self._build_where(**filters)
         direction = "ASC" if order == "asc" else "DESC"
 
         with self._connect() as conn:

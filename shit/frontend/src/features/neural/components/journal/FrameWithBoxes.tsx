@@ -7,6 +7,9 @@ interface Props {
   resolve: (configId: string | null, cid: number) => ClassMeaning;
   /** Компактный режим (превью в списке): только рамки, без подписей. */
   compact?: boolean;
+  /** false — картинку не монтируем (запись далеко от экрана либо вышла за
+   *  лимит одновременно загруженных изображений). Место под неё сохраняем. */
+  showImage?: boolean;
   className?: string;
 }
 
@@ -14,15 +17,32 @@ interface Props {
 // дообучения. Рамки рисуем здесь, поверх изображения, по координатам из БД:
 // box = [x, y, w, h] в пикселях кадра, поэтому переводим их в проценты и
 // позиционируем абсолютно — тогда наложение не зависит от размера на экране.
-export function FrameWithBoxes({ det, resolve, compact = false, className }: Props) {
+export function FrameWithBoxes({
+  det,
+  resolve,
+  compact = false,
+  showImage = true,
+  className,
+}: Props) {
   const w = det.width || 0;
   const h = det.height || 0;
   const canDraw = w > 0 && h > 0;
 
+  // Пропорции контейнера задаём по реальному кадру: иначе изображение обрежется
+  // под фиксированное соотношение, а боксы считаются в процентах от контейнера —
+  // и разъедутся относительно объектов.
   return (
-    <div className={`jr-frame${compact ? ' compact' : ''}${className ? ' ' + className : ''}`}>
-      <img className="jr-frame-img" src={journalApi.frameUrl(det.id)} alt="" loading="lazy" />
-      {canDraw &&
+    <div
+      className={`jr-frame${compact ? ' compact' : ''}${className ? ' ' + className : ''}`}
+      style={canDraw ? { aspectRatio: `${w} / ${h}` } : undefined}
+    >
+      {showImage ? (
+        <img className="jr-frame-img" src={journalApi.frameUrl(det.id)} alt="" loading="lazy" />
+      ) : (
+        <span className="jr-frame-stub" />
+      )}
+      {showImage &&
+        canDraw &&
         det.objects.map((o, i) => {
           const m = resolve(det.config_id, o.cid);
           const color = m.color || m.superColor || '#4d8bff';

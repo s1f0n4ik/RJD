@@ -8,13 +8,18 @@ import { fmtDate, fmtTime } from './format';
 // пресеты в один клик. Точный диапазон нужен реже и живёт за кнопкой «Период».
 export type PresetKey = 'all' | 'today' | 'h24' | 'd7' | 'd30' | 'custom';
 
+// По возрастанию охвата: журнал открывается на «Сегодня», а «Всё» — крайний
+// случай, поэтому стоит последним.
 const PRESETS: { key: PresetKey; label: string }[] = [
-  { key: 'all', label: 'Всё' },
   { key: 'today', label: 'Сегодня' },
   { key: 'h24', label: '24 часа' },
   { key: 'd7', label: '7 дней' },
   { key: 'd30', label: '30 дней' },
+  { key: 'all', label: 'Всё' },
 ];
+
+/** Пресет, с которым открывается журнал. */
+export const DEFAULT_PRESET: PresetKey = 'today';
 
 const HOUR = 3600_000;
 
