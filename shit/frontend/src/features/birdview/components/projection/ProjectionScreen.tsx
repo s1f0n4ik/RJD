@@ -480,7 +480,7 @@ export function ProjectionScreen({
                             style={{ aspectRatio: aspect }}
                         >
                             <WebRTCPlayer
-                                key={`proj-${streamId}`}
+                                key={`proj-${streamId}-${stream.generation}`}
                                 cameraId={streamId}
                                 signalingUrl={wsUrl(`/signaling/client/${streamId}`)}
                             />

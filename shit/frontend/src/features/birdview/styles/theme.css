@@ -2082,10 +2082,10 @@
     display: flex;
     flex-direction: column;
 }
-.birdview-root .proj-settings-drawer.open { width: 220px; }
+.birdview-root .proj-settings-drawer.open { width: var(--bv-sidebar-w); }
 
 .birdview-root .proj-settings-inner {
-    width: 220px;
+    width: var(--bv-sidebar-w);
     padding: 14px;
     display: flex;
     flex-direction: column;
@@ -2305,7 +2305,7 @@
     transition: all 0.2s;
 }
 .birdview-root .proj-settings-tab:hover { color: var(--bv-text-primary); border-color: var(--bv-border-bright); }
-.birdview-root .proj-settings-tab.open { border-color: var(--bv-accent); color: var(--bv-accent); left: 220px; }
+.birdview-root .proj-settings-tab.open { border-color: var(--bv-accent); color: var(--bv-accent); left: var(--bv-sidebar-w); }
 .birdview-root .proj-tab-icon { font-size: 12px; line-height: 1; }
 .birdview-root .proj-tab-label {
     font-family: var(--bv-font-mono);

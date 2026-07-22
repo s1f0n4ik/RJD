@@ -5,6 +5,11 @@
 
 namespace varan {
 
+	// Столько ждём кадр, прежде чем считать источник замолчавшим. Порог переживает
+	// просадку fps и при этом мал настолько, чтобы оператор не принял
+	// замороженный кадр за живой.
+	static constexpr auto FRAME_STALL_TIMEOUT = std::chrono::seconds(3);
+
 	UImageHandler::UImageHandler(
 		birdview::UEGLContextManager* context,
 		FFrameStorage<IFrame>* storage,
@@ -49,17 +54,42 @@ namespace varan {
 			return false;
 		}
 
+		{
+			std::lock_guard<std::mutex> lock(m_slot_mutex);
+			m_storage_slot = slot_name;
+		}
+
 		m_running_thread = true;
 
 		m_handler_thread = std::thread(
 			&UImageHandler::process_images,
 			this,
-			slot_name,
 			fps,
 			send
 		);
 
 		return true;
+	}
+
+	bool UImageHandler::switch_slot(const std::string& slot_name) {
+		if (!m_storage || !m_storage->is_exists(slot_name)) {
+			m_logger.warn("switch_slot(): slot " + slot_name + " at storage doesn't exists!");
+			return false;
+		}
+
+		std::lock_guard<std::mutex> lock(m_slot_mutex);
+		if (m_storage_slot == slot_name) {
+			return true;
+		}
+
+		m_logger.info("switch_slot(): source changed <" + m_storage_slot + "> -> <" + slot_name + ">");
+		m_storage_slot = slot_name;
+		return true;
+	}
+
+	std::string UImageHandler::current_slot() const {
+		std::lock_guard<std::mutex> lock(m_slot_mutex);
+		return m_storage_slot;
 	}
 
 	bool UImageHandler::is_running() {
@@ -79,7 +109,6 @@ namespace varan {
 	}
 
 	void UImageHandler::process_images(
-		const std::string& storage_slot,
 		int fps,
 		std::function<void(const std::string& message)> send)
 	{
@@ -88,7 +117,7 @@ namespace varan {
 			return;
 		}
 
-		if (!m_storage->is_exists(storage_slot)) {
+		if (!m_storage->is_exists(current_slot())) {
 			//log_and_send_message("process_images(): slot " + storage_slot + " at storage doesn't exists!", ULogger::ELoggerLevel::ERROR, send);
 			return;
 		}
@@ -116,16 +145,43 @@ namespace varan {
 		cv::Mat rgba;
 		auto last_no_frame_warn = clock::time_point{};
 
+		// Размер FBO задаётся первым кадром и дальше не меняется
+		int fbo_width = 0;
+		int fbo_height = 0;
+
+		// Сторож свежести: замороженный кадр в браузере неотличим от живого.
+		// Отсчёт привязан к слоту, иначе новый источник унаследовал бы таймер
+		// прежнего и сторож сработал бы сразу или промолчал совсем
+		auto watched_slot = current_slot();
+		auto last_frame_at = clock::now();
+		bool stall_reported = false;
+
 		while (m_running_thread) {
+
+			const auto storage_slot = current_slot();
+
+			if (storage_slot != watched_slot) {
+				watched_slot = storage_slot;
+				last_frame_at = clock::now();
+				stall_reported = false;
+			}
 
 			auto ptr = m_storage->extract(storage_slot);
 			auto frame = std::dynamic_pointer_cast<USharedGLTextureWrapper>(ptr);
 			if (!frame) {
 				//m_logger.trace("processing_loop(): no frame at " + storage_slot + " storage slot");
+				if (!stall_reported && clock::now() - last_frame_at > FRAME_STALL_TIMEOUT) {
+					stall_reported = true;
+					m_logger.warn("processing_loop(): no frames from <" + storage_slot + "> for too long");
+					on_frames_stalled(storage_slot);
+				}
 				std::this_thread::sleep_until(next_frame);
 				next_frame += frame_time;
 				continue;
 			}
+
+			last_frame_at = clock::now();
+			stall_reported = false;
 
 			auto width = frame->width;
 			auto height = frame->height;
@@ -141,7 +197,22 @@ namespace varan {
 						ULogger::ELoggerLevel::ERROR, send);
 					break;
 				}
+				fbo_width = width;
+				fbo_height = height;
 				first_init = false;
+			}
+
+			// glReadPixels читает область FBO, а rgba выделяется под размер кадра.
+			// Разойтись они могут только после смены слота, и тогда чтение уедет
+			// за границы буфера — такой кадр пропускаем.
+			if (width != fbo_width || height != fbo_height) {
+				m_logger.warn("processing_loop(): frame from <" + storage_slot + "> is "
+					+ std::to_string(width) + "x" + std::to_string(height)
+					+ ", framebuffer is " + std::to_string(fbo_width) + "x"
+					+ std::to_string(fbo_height) + " — frame skipped");
+				std::this_thread::sleep_until(next_frame);
+				next_frame += frame_time;
+				continue;
 			}
 
 			glEnable(GL_DEPTH_TEST);

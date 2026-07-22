@@ -22,6 +22,7 @@ namespace constants {
 
 	// Тип подключений
 	inline const std::string TYPE_CONNECTION = "connection";             // connection
+	inline const std::string TYPE_SWITCH_CAMERA = "switch_camera";       // switch_camera
 	inline const std::string TYPE_CLOSE = "close";                       // close
 	inline const std::string TYPE_CHESSBOARD = "chessboard";             // chessboard
 	inline const std::string TYPE_SET_PATTERN = "calibrate_pattern";     // calibrate_pattern
@@ -52,6 +53,10 @@ namespace constants {
 
 	// Переменные в meta
 	inline const std::string META_ID_STREAM = "id_stream";          // id_stream
+	inline const std::string META_CAMERA_ID_FIELD = "camera_id";    // camera_id
+	// Пайплайн пересобран, WebRTC-сессию клиента надо поднимать заново
+	inline const std::string META_PIPELINE_RESTARTED = "pipeline_restarted"; // pipeline_restarted
+	inline const std::string META_FRAMES_STALLED = "frames_stalled";         // frames_stalled
 	inline const std::string META_DISPLAY_NAME = "display_name";    // display_name
 	inline const std::string META_STATUS = "status";                // status
 	inline const std::string META_WIDTH = "width";                  // width

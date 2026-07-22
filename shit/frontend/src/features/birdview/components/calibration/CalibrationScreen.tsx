@@ -397,6 +397,7 @@ export function CalibrationScreen({
 
             <CalibrationViewer
                 streamId={stream.streamId}
+                streamGeneration={stream.generation}
                 pendingStream={stream.pending}
                 playerInfo={playerInfo}
                 onPlayerStatus={onPlayerInfo}

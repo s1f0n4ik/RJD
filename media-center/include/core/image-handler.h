@@ -36,15 +36,25 @@ namespace varan {
 
 		void stop_handler_thread(std::function<void(const std::string& message)> send = nullptr);
 
+		// Смена источника кадров без перезапуска потока обработки.
+		// Разрешение нового слота обязано совпадать с текущим: FBO создаётся
+		// один раз под размер первого кадра и пересозданию здесь не подлежит.
+		bool switch_slot(const std::string& slot_name);
+
+		std::string current_slot() const;
+
 	protected:
 
 		void process_images(
-			const std::string& storage_slot, 
-			int fps = 20, 
+			int fps = 20,
 			std::function<void(const std::string& message)> send = nullptr
 		);
 
 		virtual void internal_handle_image(cv::Mat rgb_pixels) = 0;
+
+		// Кадры из слота перестали приходить дольше порога. Замороженная
+		// картинка неотличима от живой, поэтому наверх уходит сигнал.
+		virtual void on_frames_stalled(const std::string& slot_name) {}
 
 	private:
 
@@ -60,6 +70,11 @@ namespace varan {
 
 		std::thread m_handler_thread;
 		std::atomic<bool> m_running_thread{ false };
+
+		// Слот читается циклом на каждой итерации, а не захватывается потоком:
+		// иначе источник нельзя было бы сменить, не остановив обработку
+		std::string m_storage_slot;
+		mutable std::mutex m_slot_mutex;
 
 		bool m_initialized_context{ false };
 

@@ -11,7 +11,7 @@ import { useEventLog } from '../hooks/useEventLog';
 import { useStreamControl } from '../hooks/useStreamControl';
 import { useCorrection } from '../hooks/useCorrection';
 import { wsUrl } from '../constants';
-import type { CalibrationCamera } from '../api/ws-types';
+import type { CalibrationCamera, WsMessage } from '../api/ws-types';
 import type { PlayerStatusInfo } from '../../../components/WebRTCPlayer';
 import type { ScreenId } from '../types';
 import '../styles/theme.css';
@@ -86,16 +86,21 @@ function BirdviewContent() {
 
     const correction = useCorrection({ ws, log: eventLog.log, onToast: toast });
 
+    // Камера до последней смены: если калибратор откажет, выбор надо вернуть
+    const prevCameraRef = useRef<CalibrationCamera | null>(null);
+
     /**
      * Смена камеры сразу поднимает поток. Стрим один на страницу, поэтому
      * выбор с любого экрана перезапускает его — иначе второй экран остался бы
      * с чужим кадром, а на проекции выбор камеры не делал бы вообще ничего.
      * Ручной контроль остаётся за кнопками планки.
+     *
+     * На живом потоке уходит switch_camera: калибратор подменит слот в
+     * хранилище и не тронет пайплайн, если разрешение то же. Пересборку он
+     * затевает сам и сообщает о ней в ответе.
      */
     const selectCamera = useCallback(
         (cam: CalibrationCamera) => {
-            setCamera(cam);
-
             if (!correction.fits(cam)) {
                 correction.select(null);
                 eventLog.log(
@@ -104,14 +109,59 @@ function BirdviewContent() {
                 );
             }
 
-            // Новый кадр — старая коррекция к нему не относится, шлём load заново
-            correction.reset();
+            if (stream.streamId) {
+                prevCameraRef.current = camera;
+                setCamera(cam);
+                stream.switchCamera(cam);
+                return;
+            }
 
-            if (stream.streamId) stream.restart(cam);
-            else stream.open(cam);
+            prevCameraRef.current = null;
+            setCamera(cam);
+            stream.open(cam);
         },
-        [correction, stream, eventLog],
+        [camera, correction, stream, eventLog],
     );
+
+    const handleSwitchCamera = useCallback(
+        (msg: WsMessage) => {
+            const meta = msg.meta ?? {};
+
+            // Сторож свежести шлёт этот же тип с признаком frames_stalled и без
+            // client — это не ответ на запрос, поток при этом остаётся выбранным
+            if (meta.frames_stalled) {
+                showToast('Камера молчит', meta.description ?? 'Кадры перестали приходить', 'err');
+                eventLog.log(`Источник ${meta.camera_id ?? ''} перестал давать кадры`, 'err');
+                return;
+            }
+
+            if (!msg.ret) {
+                stream.settleSwitch(false, false);
+                showToast('Камера не переключена', meta.description ?? 'Калибратор отказал', 'err');
+                if (prevCameraRef.current) setCamera(prevCameraRef.current);
+                prevCameraRef.current = null;
+                return;
+            }
+
+            const restarted = Boolean(meta.pipeline_restarted);
+            stream.settleSwitch(true, restarted);
+            prevCameraRef.current = null;
+
+            // Пересборка обнуляет коррекцию на сервере: карты прежнего размера
+            // к новым кадрам неприменимы. При горячей смене она остаётся жить
+            if (restarted) correction.reset();
+
+            eventLog.log(
+                restarted
+                    ? `Камера переключена с пересборкой пайплайна: ${meta.camera_id ?? ''}`
+                    : `Источник кадров сменён на лету: ${meta.camera_id ?? ''}`,
+                'ok',
+            );
+        },
+        [stream, correction, eventLog, showToast],
+    );
+
+    useEffect(() => ws.subscribe('switch_camera', handleSwitchCamera), [ws, handleSwitchCamera]);
 
     const wsPill: ConnState =
         ws.status === 'connected' ? 'connected' : ws.status === 'connecting' ? 'connecting' : 'disconnected';

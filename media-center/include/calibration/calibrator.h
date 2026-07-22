@@ -88,6 +88,14 @@ namespace calibration {
 
 		void handle_calibration_configuration(const std::string& client_id, const boost::json::object& meta, COnError on_error = nullptr);
 
+		// Смена камеры без пересборки пайплайна, когда разрешение не изменилось
+		void handle_switch_camera(const std::string& client_id, const boost::json::object& meta, COnError on_error = nullptr);
+
+		// Полная пересборка стримера под новое разрешение. Общий код connection и switch_camera
+		bool restart_streamer(const std::string& client_id, const std::string& camera_id, int fps, std::string& error);
+
+		void on_frames_stalled(const std::string& slot_name) override;
+
 		void handle_projection_configuration(const std::string& client_id, const boost::json::object& meta, COnError on_error = nullptr);
 
 		void compute_undistort_maps(

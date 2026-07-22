@@ -116,39 +116,14 @@ namespace calibration {
 				m_logger.info("New resized stream is: " + std::to_string(m_resized_image.width) + ", " + std::to_string(m_resized_image.height));
 
 				try {
-					m_streamer = std::make_unique<neural::UVirtualCamera>(
-						constants::CALIBRATION_STREAM_ID,
-						FWebSocketOptions{ m_ip_adress, m_port }
-					);
-					if (!m_streamer) {
-						send_message(make_socket_error(type, "NV12 encoder pipeline didn't create", &client_id, &m_name));
-						return;
-					}
-					if (!m_streamer->set_parameters(m_resized_image.width, m_resized_image.height, fps)) {
-						send_message(make_socket_error(type, "error with set up nv12 encoder parameters", &client_id, &m_name));
-						return;
-					}
-					if (!m_streamer->initialize()) {
-						send_message(make_socket_error(type, "NV12 encoder pipeline didn't set", &client_id, &m_name));
-						return;
-					}
-					if (!m_streamer->start()) {
-						send_message(make_socket_error(type, "NV12 encoder didn't start!", &client_id, &m_name));
-						return;
-					}
-
-					if (!start_handler_thread(camera_id, fps, nullptr)) {
-						m_streamer->stop();
-						m_streamer.release();
-						std::string err_str = "Cannot start processing thread for calibration, release streaming!";
-						m_logger.warn(err_str);
-						send_message(make_socket_error(type, err_str, &client_id, &m_name));
+					std::string error;
+					if (!restart_streamer(client_id, camera_id, fps, error)) {
+						send_message(make_socket_error(type, error, &client_id, &m_name));
 						return;
 					}
 
 					boost::json::object send_meta;
 					send_meta[constants::META_ID_STREAM] = constants::CALIBRATION_STREAM_ID;
-					m_calibration_images.clear();
 					send_message(make_socket_message(type, true, &client_id, &m_name, &send_meta));
 					m_logger.info("Calibration stream successfully started!");
 				}
@@ -159,11 +134,17 @@ namespace calibration {
 				}
 				m_logger.info("on_signaling_message(): started image calibration view thread!");
 			}
+			else if (type == constants::TYPE_SWITCH_CAMERA) {
+				handle_switch_camera(client_id, *meta, on_error);
+				return;
+			}
 			else if (type == constants::TYPE_CLOSE) {
 				stop_handler_thread();
 				if (m_streamer) {
 					m_streamer->stop();
-					m_streamer.release();
+					// reset(), а не release(): release() отдаёт владение никому,
+					// и пайплайн GStreamer утекает при каждом закрытии
+					m_streamer.reset();
 				}
 				send_message(make_socket_message(type, true, &client_id, &m_name));
 				m_calibration_images.clear();
@@ -899,6 +880,147 @@ namespace calibration {
 		send_message(make_socket_message(constants::TYPE_UNDISTORT_COMPUTE, true, &client_id, &m_name, &send_meta));
 		m_logger.debug("compute_undistort_maps(): Successfully computed undistort maps!");
 		m_undistort.ready = true;
+	}
+
+	bool UCalibrator::restart_streamer(
+		const std::string& client_id,
+		const std::string& camera_id,
+		int fps,
+		std::string& error)
+	{
+		stop_handler_thread();
+		if (m_streamer) {
+			m_streamer->stop();
+			m_streamer.reset();
+		}
+
+		m_streamer = std::make_unique<neural::UVirtualCamera>(
+			constants::CALIBRATION_STREAM_ID,
+			FWebSocketOptions{ m_ip_adress, m_port }
+		);
+		if (!m_streamer) {
+			error = "NV12 encoder pipeline didn't create";
+			return false;
+		}
+		if (!m_streamer->set_parameters(m_resized_image.width, m_resized_image.height, fps)) {
+			error = "error with set up nv12 encoder parameters";
+			return false;
+		}
+		if (!m_streamer->initialize()) {
+			error = "NV12 encoder pipeline didn't set";
+			return false;
+		}
+		if (!m_streamer->start()) {
+			error = "NV12 encoder didn't start!";
+			return false;
+		}
+
+		if (!start_handler_thread(camera_id, fps, nullptr)) {
+			m_streamer->stop();
+			m_streamer.reset();
+			error = "Cannot start processing thread for calibration, release streaming!";
+			m_logger.warn(error);
+			return false;
+		}
+
+		m_camera_id = camera_id;
+		m_calibration_images.clear();
+		return true;
+	}
+
+	void UCalibrator::handle_switch_camera(const std::string& client_id, const boost::json::object& meta, COnError on_error) {
+		const auto& type = constants::TYPE_SWITCH_CAMERA;
+
+		if (!m_streamer || !is_running()) {
+			if (on_error) on_error(type, "Error: stream is not running, use <connection> first!", &client_id);
+			return;
+		}
+
+		std::string camera_id;
+		if (auto* v = meta.if_contains(constants::META_CAMERA_ID_FIELD); v && v->is_string()) {
+			camera_id = v->as_string().c_str();
+		}
+		else {
+			if (on_error) on_error(type, "Error with message: missing camera_id at meta block!", &client_id);
+			return;
+		}
+
+		FSizeImage requested = m_raw_image;
+		if (auto* v = meta.if_contains(constants::META_WIDTH); v && v->is_int64()) {
+			requested.width = static_cast<int>(v->as_int64());
+		}
+		if (auto* v = meta.if_contains(constants::META_HEIGHT); v && v->is_int64()) {
+			requested.height = static_cast<int>(v->as_int64());
+		}
+
+		int fps = 15;
+		if (auto* v = meta.if_contains("fps"); v && v->is_int64()) {
+			fps = static_cast<int>(v->as_int64());
+		}
+
+		// Слот обязан не просто существовать, но и содержать кадр: is_exists()
+		// истинен и для камеры, замолчавшей час назад, а горячая смена на неё
+		// оставила бы в браузере замороженный кадр прежней камеры
+		if (!m_storage || !m_storage->extract(camera_id)) {
+			if (on_error) on_error(type, "Error: camera <" + camera_id + "> has no frames at storage!", &client_id);
+			return;
+		}
+
+		boost::json::object send_meta;
+		send_meta[constants::META_ID_STREAM] = constants::CALIBRATION_STREAM_ID;
+		send_meta[constants::META_CAMERA_ID_FIELD] = camera_id;
+
+		// Горячий путь: разрешение то же, значит и карты коррекции применимы.
+		// Меняем только источник кадров, WebRTC-сессия клиента не рвётся
+		if (requested == m_raw_image) {
+			if (!switch_slot(camera_id)) {
+				if (on_error) on_error(type, "Error: cannot switch source to <" + camera_id + ">", &client_id);
+				return;
+			}
+
+			m_camera_id = camera_id;
+			// Набор снимков собирается под одну камеру: смешанный даёт мусорную
+			// калибровку с правдоподобным RMS
+			m_calibration_images.clear();
+
+			send_meta[constants::META_PIPELINE_RESTARTED] = false;
+			send_message(make_socket_message(type, true, &client_id, &m_name, &send_meta));
+			m_logger.info("handle_switch_camera(): hot switch to <" + camera_id + ">");
+			return;
+		}
+
+		// Холодный путь: под новое разрешение карты прежней камеры не годятся,
+		// cv::remap молча отдал бы кадр размера старых карт
+		{
+			std::lock_guard<std::mutex> lock(m_undistort_mutex);
+			m_undistort = FUndistortMaps{};
+		}
+		m_apply_undistort = false;
+		{
+			std::lock_guard<std::mutex> lock(m_calibration_mutex);
+			m_calibration = FCalibrationResult{};
+		}
+
+		m_raw_image = requested;
+		m_resized_image = requested;
+
+		std::string error;
+		if (!restart_streamer(client_id, camera_id, fps, error)) {
+			if (on_error) on_error(type, error, &client_id);
+			return;
+		}
+
+		send_meta[constants::META_PIPELINE_RESTARTED] = true;
+		send_message(make_socket_message(type, true, &client_id, &m_name, &send_meta));
+		m_logger.info("handle_switch_camera(): cold switch to <" + camera_id + ">, pipeline rebuilt");
+	}
+
+	void UCalibrator::on_frames_stalled(const std::string& slot_name) {
+		boost::json::object send_meta;
+		send_meta[constants::META_CAMERA_ID_FIELD] = slot_name;
+		send_meta[constants::META_FRAMES_STALLED] = true;
+		send_meta["description"] = "No frames from camera <" + slot_name + ">";
+		send_message(make_socket_message(constants::TYPE_SWITCH_CAMERA, false, nullptr, &m_name, &send_meta));
 	}
 
 	void UCalibrator::handle_calibration_configuration(const std::string& client_id, const boost::json::object& meta, COnError on_error) {

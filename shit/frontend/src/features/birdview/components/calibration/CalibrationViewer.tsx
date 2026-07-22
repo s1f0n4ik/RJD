@@ -16,6 +16,8 @@ import type { Snapshots } from './useSnapshots';
 
 interface CalibrationViewerProps {
     streamId: string | null;
+    /** Номер пересборки пайплайна: id_stream у калибратора константа. */
+    streamGeneration: number;
     /** Запрос стрима отправлен, ответа калибратора ещё нет. */
     pendingStream: boolean;
     playerInfo: PlayerStatusInfo;
@@ -30,6 +32,7 @@ interface CalibrationViewerProps {
 
 export function CalibrationViewer({
     streamId,
+    streamGeneration,
     pendingStream,
     playerInfo,
     onPlayerStatus,
@@ -64,7 +67,7 @@ export function CalibrationViewer({
                 {streamId ? (
                     <div className="video-player-slot">
                         <WebRTCPlayer
-                            key={streamId}
+                            key={`${streamId}-${streamGeneration}`}
                             cameraId={streamId}
                             signalingUrl={wsUrl(`/signaling/client/${streamId}`)}
                             onStatusChange={onPlayerStatus}
