@@ -13,6 +13,43 @@ ULinkerController::ULinkerController(std::shared_ptr<varan::birdview::ULinker> l
 {}
 
 
+/*
+    Раскодирование percent-encoding.
+
+    Браузер обязан кодировать всё небезопасное, а имена файлов у нас бывают
+    кириллическими — «РЖД.png» приезжает как %D0%A0%D0%96%D0%94.png. Без
+    раскодирования сервер ищет файл с таким именем буквально и не находит.
+*/
+static std::string url_decode(const std::string& value) {
+    std::string out;
+    out.reserve(value.size());
+
+    for (size_t i = 0; i < value.size(); ++i) {
+        if (value[i] == '+') {
+            out.push_back(' ');
+            continue;
+        }
+        if (value[i] != '%' || i + 2 >= value.size()) {
+            out.push_back(value[i]);
+            continue;
+        }
+
+        const auto hex = value.substr(i + 1, 2);
+        if (!std::isxdigit(static_cast<unsigned char>(hex[0]))
+            || !std::isxdigit(static_cast<unsigned char>(hex[1])))
+        {
+            // Одинокий процент — оставляем как есть, ломать строку не за что
+            out.push_back(value[i]);
+            continue;
+        }
+
+        out.push_back(static_cast<char>(std::stoi(hex, nullptr, 16)));
+        i += 2;
+    }
+
+    return out;
+}
+
 // Хелпер для получения querry
 static std::optional<std::string>
 get_query_param(const std::string& target, const std::string& key) {
@@ -36,7 +73,7 @@ get_query_param(const std::string& target, const std::string& key) {
         auto v = item.substr(eq + 1);
 
         if (k == key) {
-            return v;
+            return url_decode(v);
         }
     }
 
@@ -141,6 +178,14 @@ ULinkerController::post_state(const http::request<http::string_body>& req)
         if (auto* s = obj.if_contains("stream_name"); s && s->is_string()) {
             params.stream_name = s->as_string().c_str();
         }
+        if (auto* r = obj.if_contains("rotation"); r && r->is_int64()) {
+            const int degrees = static_cast<int>(r->as_int64());
+            if (!varan::birdview::ULinker::is_valid_rotation(degrees)) {
+                return json_error(m_logger, req, http::status::bad_request,
+                    "rotation must be one of 0, 90, 180, 270", tag);
+            }
+            params.rotation = degrees;
+        }
     }
     catch (const std::exception& e) {
         return json_error(m_logger, req, http::status::bad_request, e.what(), tag);
@@ -150,6 +195,57 @@ ULinkerController::post_state(const http::request<http::string_body>& req)
         return json_error(m_logger, req, http::status::bad_request, "invalid state", tag);
     }
     return json_ok(m_logger, req, boost::json::object{}, tag);
+}
+
+// ─── POST /linker/rotation ──────────────────────────────────
+/*
+    Поворот вывода. Отдельной ручкой, потому что менять его нужно не только
+    с экрана линкера: это свойство картинки, а не настроек одной страницы.
+*/
+http::response<http::string_body>
+ULinkerController::post_rotation(const http::request<http::string_body>& req)
+{
+    const std::string tag = "POST /linker/rotation";
+    log_request(m_logger, req, tag);
+
+    int rotation = -1;
+    std::string export_id;
+
+    try {
+        auto v = boost::json::parse(req.body());
+        if (!v.is_object()) {
+            return json_error(m_logger, req, http::status::bad_request, "body must be object", tag);
+        }
+        const auto& obj = v.as_object();
+
+        if (auto* r = obj.if_contains("rotation"); r && r->is_int64()) {
+            rotation = static_cast<int>(r->as_int64());
+        }
+        else {
+            return json_error(m_logger, req, http::status::bad_request, "missing rotation", tag);
+        }
+
+        // Без export_id правим активную конфигурацию
+        if (auto* e = obj.if_contains("export_id"); e && e->is_string()) {
+            export_id = e->as_string().c_str();
+        }
+    }
+    catch (const std::exception& e) {
+        return json_error(m_logger, req, http::status::bad_request, e.what(), tag);
+    }
+
+    std::string error;
+    if (!m_linker->set_rotation(export_id, rotation, error)) {
+        return json_error(m_logger, req, http::status::bad_request, error, tag);
+    }
+
+    boost::json::object data;
+    data["rotation"] = rotation;
+    data["export_id"] = export_id.empty() ? m_linker->get_active_export_id() : export_id;
+
+    boost::json::object body;
+    body["data"] = std::move(data);
+    return json_ok(m_logger, req, body, tag);
 }
 
 // ─── DELETE /linker/export?id=XXX ───────────────────────────
@@ -177,6 +273,102 @@ ULinkerController::delete_export(const http::request<http::string_body>& req)
     return json_ok(m_logger, req, boost::json::object{}, tag);
 }
 
+/*
+    Пресеты конфигуратора. Лежат в своём файле и к экспортам отношения не имеют:
+    конфигуратор рисует поле, а страница сборки уже по нему считает карты.
+*/
+static std::optional<boost::json::object> read_presets_root(
+    const std::filesystem::path& path,
+    std::string& error)
+{
+    if (!std::filesystem::exists(path)) {
+        error = "presets file not found at " + path.string();
+        return std::nullopt;
+    }
+    std::ifstream f(path);
+    if (!f.is_open()) {
+        error = "cannot open " + path.string();
+        return std::nullopt;
+    }
+    std::stringstream ss; ss << f.rdbuf();
+
+    try {
+        auto v = boost::json::parse(ss.str());
+        if (!v.is_object()) {
+            error = "presets root is not an object";
+            return std::nullopt;
+        }
+        return v.as_object();
+    }
+    catch (const std::exception& e) {
+        error = e.what();
+        return std::nullopt;
+    }
+}
+
+// ─── GET /linker/presets ────────────────────────────────────
+http::response<http::string_body>
+ULinkerController::get_presets(const http::request<http::string_body>& req)
+{
+    const std::string tag = "GET /linker/presets";
+    log_request(m_logger, req, tag);
+
+    std::string error;
+    auto root = read_presets_root(m_linker->get_configurations_path(), error);
+    if (!root) {
+        return json_error(m_logger, req, http::status::not_found, error, tag);
+    }
+
+    boost::json::array arr;
+    for (const auto& [key, value] : *root) {
+        if (!value.is_object()) continue;
+        const auto& obj = value.as_object();
+
+        boost::json::object item;
+        item["key"] = key;
+        if (auto* n = obj.if_contains("name"); n && n->is_string()) item["name"] = *n;
+        if (auto* c = obj.if_contains("canvas"); c && c->is_object()) item["canvas"] = *c;
+        if (auto* cams = obj.if_contains("cameras"); cams && cams->is_object()) {
+            item["cameras"] = static_cast<int64_t>(cams->as_object().size());
+        }
+        arr.push_back(std::move(item));
+    }
+
+    boost::json::object data;
+    data["presets"] = std::move(arr);
+    boost::json::object body;
+    body["data"] = std::move(data);
+    return json_ok(m_logger, req, body, tag);
+}
+
+// ─── GET /linker/preset?key=XXX ─────────────────────────────
+http::response<http::string_body>
+ULinkerController::get_preset(const http::request<http::string_body>& req)
+{
+    const std::string tag = "GET /linker/preset?key=xxx";
+    log_request(m_logger, req, tag);
+
+    auto key = get_query_param(std::string(req.target()), "key");
+    if (!key || key->empty()) {
+        return json_error(m_logger, req, http::status::bad_request, "missing key parameter", tag);
+    }
+
+    std::string error;
+    auto root = read_presets_root(m_linker->get_configurations_path(), error);
+    if (!root) {
+        return json_error(m_logger, req, http::status::not_found, error, tag);
+    }
+
+    auto it = root->find(*key);
+    if (it == root->end()) {
+        return json_error(m_logger, req, http::status::not_found, "preset <" + *key + "> not found", tag);
+    }
+
+    boost::json::object body;
+    body["data"] = it->value();
+    return json_ok(m_logger, req, body, tag);
+}
+
 // ─── GET /linker/status ─────────────────────────────────────
 http::response<http::string_body>
 ULinkerController::get_status(const http::request<http::string_body>& req)
@@ -194,6 +386,16 @@ ULinkerController::get_status(const http::request<http::string_body>& req)
         data["stream_id"] = m_linker->is_running() ? m_linker->get_stream_id() : params.stream_id;
         data["stream_name"] = params.stream_name;
         data["fps"] = static_cast<int64_t>(params.fps);
+        data["rotation"] = m_linker->resolve_rotation();
+
+        /*
+            Размер кадра шире канваса на выравнивание сторон, поэтому он
+            уходит наружу отдельно: иначе при разборе размер в потоке не
+            сойдётся с размером в конфигурации. Нули — вывод не запускался.
+        */
+        const auto [out_w, out_h] = m_linker->get_output_size();
+        data["width"] = static_cast<int64_t>(out_w);
+        data["height"] = static_cast<int64_t>(out_h);
 
         boost::json::object body;
         body["data"] = std::move(data);
@@ -284,8 +486,13 @@ ULinkerController::get_export(const http::request<http::string_body>& req) {
             return json_error(m_logger, req, http::status::not_found, "export not found", tag);
         }
 
+        // Угол кладём в ответ, чтобы клиенту не пришлось выводить его самому:
+        // правило по форме канваса должно жить в одном месте
+        auto record = it->value().as_object();
+        record["rotation"] = m_linker->resolve_rotation(*export_id);
+
         boost::json::object body;
-        body["data"] = it->value();
+        body["data"] = std::move(record);
 
         return json_ok(m_logger, req, body, tag);
     }
@@ -489,54 +696,56 @@ ULinkerController::post_upload_image(const http::request<http::string_body>& req
     }
 }
 
-http::response<http::file_body>
+// ─── GET /linker/image?name=XXX ─────────────────────────────
+/*
+    Картинка-подложка пресета.
+
+    Тело идёт обычным string_body: это std::string, он несёт двоичные данные
+    как есть. Роутер умеет только string_body, а прежняя реализация на
+    file_body через него пройти не могла и потому нигде не была подключена.
+*/
+http::response<http::string_body>
 ULinkerController::get_image(const http::request<http::string_body>& req) {
     namespace fs = std::filesystem;
     const std::string tag = "GET /linker/image";
+    log_request(m_logger, req, tag);
 
-    auto filename = get_query_param(std::string(req.target()), "name" );
-    if (!filename) {
-        http::response<http::file_body> res{http::status::bad_request, req.version()};
-        res.prepare_payload();
-        return res;
+    auto filename = get_query_param(std::string(req.target()), "name");
+    if (!filename || filename->empty()) {
+        return json_error(m_logger, req, http::status::bad_request, "missing name parameter", tag);
     }
 
-    auto image_path = m_linker->get_images_list_path() / *filename;
-    if (!fs::exists(image_path)) {
-        http::response<http::file_body> res{http::status::not_found, req.version()};
-        res.prepare_payload();
-        return res;
+    // Имя уходит в путь: разделители и переходы наверх пускать нельзя
+    if (filename->find('/') != std::string::npos
+        || filename->find('\\') != std::string::npos
+        || filename->find("..") != std::string::npos)
+    {
+        return json_error(m_logger, req, http::status::bad_request, "invalid name", tag);
     }
 
-    boost::beast::error_code ec;
-    http::file_body::value_type body;
-    body.open(image_path.string().c_str(), boost::beast::file_mode::scan, ec);
-
-    if (ec){
-        http::response<http::file_body> res{http::status::internal_server_error, req.version()};
-        res.prepare_payload();
-        return res;
+    const auto image_path = m_linker->get_images_list_path() / *filename;
+    if (!fs::exists(image_path) || fs::is_directory(image_path)) {
+        return json_error(m_logger, req, http::status::not_found, "image not found", tag);
     }
 
-    auto const size = body.size();
-    http::response<http::file_body> res{
-        std::piecewise_construct,
-        std::make_tuple(std::move(body)),
-        std::make_tuple(http::status::ok, req.version())
-    };
+    std::ifstream file(image_path, std::ios::binary);
+    if (!file.is_open()) {
+        return json_error(m_logger, req, http::status::internal_server_error, "cannot open image", tag);
+    }
 
-    res.content_length(size);
+    std::string bytes{ std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>() };
+
+    const auto ext = image_path.extension().string();
+    std::string mime = "application/octet-stream";
+    if (ext == ".png") mime = "image/png";
+    else if (ext == ".jpg" || ext == ".jpeg") mime = "image/jpeg";
+    else if (ext == ".webp") mime = "image/webp";
+    else if (ext == ".bmp") mime = "image/bmp";
+
+    http::response<http::string_body> res{ http::status::ok, req.version() };
+    res.set(http::field::content_type, mime);
     res.keep_alive(req.keep_alive());
-    auto ext = image_path.extension().string();
-
-    if (ext == ".png")
-        res.set(http::field::content_type, "image/png");
-    else if (ext == ".jpg" || ext == ".jpeg")
-        res.set(http::field::content_type, "image/jpeg");
-    else if (ext == ".webp")
-        res.set(http::field::content_type, "image/webp");
-    else
-        res.set(http::field::content_type, "application/octet-stream");
-
+    res.body() = std::move(bytes);
+    res.prepare_payload();
     return res;
 }

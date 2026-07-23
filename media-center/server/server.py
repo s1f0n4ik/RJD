@@ -358,7 +358,42 @@ async def _cleanup_calibrator_pair(calibrator_id: str, websocket) -> None:
     log.info("[CAL-PAIR] removed  id=%s", calibrator_id)
 
 
+async def _notify_calibrator_client_gone(calibrator_id: str, calibrator) -> None:
+    """
+    Сообщить калибратору, что смотреть больше некому.
+
+    Канал калибратора допускает ровно одного клиента, поэтому его уход
+    однозначно значит, что пайплайн работает впустую. Сам калибратор об
+    отключении не узнаёт и продолжает считать undistort в фоне.
+
+    Страховка нужна для случаев, когда клиент не успел проститься: краха
+    вкладки, обрыва сети, убитого браузера. Набор снимков не трогаем —
+    оператор может вернуться и продолжить.
+    """
+    if calibrator is None:
+        return
+
+    message = json.dumps({
+        "type": "close",
+        "client_id": "broker",
+        "camera": None,
+        "meta": {
+            "description": "client disconnected",
+            "keep_images": True,
+        },
+        "ret": "none",
+    })
+
+    try:
+        await calibrator.send(message)
+        log.info("[CAL-PAIR] client gone, asked calibrator to stop  id=%s", calibrator_id)
+    except Exception as exc:
+        log.error("[CAL-PAIR] cannot notify calibrator  id=%s  error=%s", calibrator_id, exc)
+
+
 async def _cleanup_calibrator_side(calibrator_id: str, side: str, websocket) -> None:
+    calibrator_to_notify = None
+
     async with _lock:
         pair = calibrator_pairs.get(calibrator_id)
         if pair is None:
@@ -371,9 +406,15 @@ async def _cleanup_calibrator_side(calibrator_id: str, side: str, websocket) -> 
         pair[side] = None
         log.info("[CAL-PAIR] cleared %s  id=%s", side, calibrator_id)
 
+        if side == "client":
+            calibrator_to_notify = pair["calibrator"]
+
         if pair["calibrator"] is None and pair["client"] is None:
             calibrator_pairs.pop(calibrator_id, None)
             log.info("[CAL-PAIR] removed  id=%s", calibrator_id)
+
+    # Отправка вне блокировки: send может ждать сеть, а лок держит весь брокер
+    await _notify_calibrator_client_gone(calibrator_id, calibrator_to_notify)
 
 
 # ─────────────────────────────────────────

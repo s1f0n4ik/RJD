@@ -26,6 +26,7 @@ namespace birdview {
 		, m_context_manager(manager)
 		, m_exports_root(calib_consts::LINKER_CONFIGURES_ROOT)
 		, m_exports_index_json(calib_consts::LINKER_CONFIGURATION_INDEX)
+		, m_state_root(calib_consts::LINKER_STATE_ROOT)
 		, m_state_index(calib_consts::LINKER_STATE_INDEX)
 		, m_fps(fps)
 	{
@@ -37,7 +38,7 @@ namespace birdview {
 	}
 
 	std::filesystem::path ULinker::state_path() const {
-		return m_exports_root / m_state_index;
+		return m_state_root / m_state_index;
 	}
 
 	/*
@@ -152,6 +153,11 @@ namespace birdview {
 		if (auto* v = entry.if_contains("stream_name"); v && v->is_string()) {
 			params.stream_name = v->as_string().c_str();
 		}
+		if (auto* v = entry.if_contains("rotation"); v && v->is_int64()) {
+			const int degrees = static_cast<int>(v->as_int64());
+			if (is_valid_rotation(degrees)) params.rotation = degrees;
+			else m_logger.warn("reload_from_state(): bad rotation " + std::to_string(degrees));
+		}
 
 		{
 			std::lock_guard<std::mutex> lk(m_mutex);
@@ -167,6 +173,49 @@ namespace birdview {
 		if (out.fps == 0) out.fps = m_fps;
 		if (out.stream_id.empty()) out.stream_id = constants::VIRTUAL_CAMERA_ID;
 		return out;
+	}
+
+	int ULinker::resolve_rotation(const std::string& export_id) const {
+		std::string target = export_id;
+		int stored = -1;
+		{
+			std::lock_guard<std::mutex> lk(m_mutex);
+			if (target.empty()) target = m_export_id;
+			if (target == m_export_id) stored = m_params.rotation;
+		}
+
+		if (is_valid_rotation(stored)) return stored;
+		if (target.empty()) return 0;
+
+		/*
+			Угол активной конфигурации уже лежит в m_params, а про остальные
+			спрашивают статус и ручка экспорта — им приходится читать состояние.
+			Ничего не нашлось — 0: раньше здесь угол выводился из формы канваса,
+			и это правило годами прятало падение на невыровненной ширине.
+		*/
+		try {
+			auto root = read_state_root();
+			auto* configs = root.if_contains("configs");
+			if (!configs || !configs->is_object()) return 0;
+
+			auto* entry = configs->as_object().if_contains(target);
+			if (!entry || !entry->is_object()) return 0;
+
+			auto* v = entry->as_object().if_contains("rotation");
+			if (!v || !v->is_int64()) return 0;
+
+			const int degrees = static_cast<int>(v->as_int64());
+			return is_valid_rotation(degrees) ? degrees : 0;
+		}
+		catch (const std::exception& e) {
+			m_logger.warn("resolve_rotation(): " + std::string(e.what()));
+			return 0;
+		}
+	}
+
+	std::pair<int, int> ULinker::get_output_size() const {
+		std::lock_guard<std::mutex> lk(m_mutex);
+		return { m_out_width, m_out_height };
 	}
 
 	std::string ULinker::get_stream_name() const {
@@ -278,7 +327,18 @@ namespace birdview {
 			auto root = read_state_root();
 			auto configs = root.at("configs").as_object();
 
+			/*
+				Запись правится, а не собирается заново.
+
+				Собранная с нуля теряет всё, чего не передали в этом вызове.
+				Так пропадал поворот: его писала своя ручка, а следующее
+				сохранение привязок затирало запись целиком.
+			*/
 			boost::json::object entry;
+			if (auto* prev = configs.if_contains(export_id); prev && prev->is_object()) {
+				entry = prev->as_object();
+			}
+
 			boost::json::object cams;
 			for (const auto& [k, v] : bindings) {
 				if (v.empty()) cams[k] = nullptr;
@@ -288,13 +348,14 @@ namespace birdview {
 			if (params.fps > 0) entry["fps"] = static_cast<int64_t>(params.fps);
 			if (!params.stream_id.empty()) entry["stream_id"] = params.stream_id;
 			if (!params.stream_name.empty()) entry["stream_name"] = params.stream_name;
+			if (is_valid_rotation(params.rotation)) entry["rotation"] = params.rotation;
 
 			configs[export_id] = std::move(entry);
 
 			root["configs"] = std::move(configs);
 			root["active"] = export_id;
 
-			std::filesystem::create_directories(m_exports_root);
+			std::filesystem::create_directories(m_state_root);
 			std::ofstream f(state_path());
 			f << boost::json::serialize(root);
 		}
@@ -305,6 +366,64 @@ namespace birdview {
 
 		m_logger.info("write_state(): persisted, export_id=" + export_id);
 		return reload_from_state();
+	}
+
+	bool ULinker::set_rotation(const std::string& export_id, int degrees, std::string& error) {
+		if (!is_valid_rotation(degrees)) {
+			error = "rotation must be one of 0, 90, 180, 270";
+			return false;
+		}
+
+		std::string target = export_id.empty() ? get_active_export_id() : export_id;
+		if (target.empty()) {
+			error = "no active configuration and no export_id given";
+			return false;
+		}
+
+		// Пишем в состояние
+		try {
+			auto root = read_state_root();
+			auto configs = root.at("configs").as_object();
+
+			boost::json::object entry;
+			if (auto* prev = configs.if_contains(target); prev && prev->is_object()) {
+				entry = prev->as_object();
+			}
+			entry["rotation"] = degrees;
+			configs[target] = std::move(entry);
+
+			root["configs"] = std::move(configs);
+
+			std::filesystem::create_directories(m_state_root);
+			std::ofstream f(state_path());
+			f << boost::json::serialize(root);
+		}
+		catch (const std::exception& e) {
+			error = e.what();
+			m_logger.error("set_rotation(): " + error);
+			return false;
+		}
+
+		{
+			std::lock_guard<std::mutex> lk(m_mutex);
+			if (m_export_id == target) m_params.rotation = degrees;
+		}
+
+		m_logger.info("set_rotation(): <" + target + "> -> " + std::to_string(degrees));
+
+		/*
+			Живой вывод пересобираем: при 90 и 270 стороны меняются местами,
+			а размер задан пайплайну при создании. Менять его на ходу нельзя.
+		*/
+		if (m_running.load() && get_active_export_id() == target) {
+			m_logger.info("set_rotation(): restarting output to apply new size");
+			if (!restart()) {
+				error = "rotation saved, but output restart failed";
+				return false;
+			}
+		}
+
+		return true;
 	}
 
 	bool ULinker::delete_export(const std::string& export_id, std::string& error) {
@@ -511,15 +630,35 @@ namespace birdview {
 		const int W = renderer.canvas_width();
 		const int H = renderer.canvas_height();
 
-		const bool rotate = H > W;
-		renderer.set_rotate_ccw(rotate);
+		// Поворот — параметр конфигурации, из формы канваса он больше не выводится
+		const int degrees = resolve_rotation();
+		renderer.set_rotation(degrees / 90);
 
-		const int outW = rotate ? H : W;
-		const int outH = rotate ? W : H;
+		/*
+			Стороны кадра округляются вверх до кратного FRAME_ALIGNMENT.
+
+			Невыровненную ширину RGA внутри кодека не принимает и уводит
+			ядро в перезагрузку, поэтому размер правится до того, как кадр
+			куда-либо уйдёт. Картинка на разницу растягивается.
+		*/
+		const int outW = align_frame_side(renderer.rotated_width());
+		const int outH = align_frame_side(renderer.rotated_height());
+		renderer.set_output_size(outW, outH);
+
+		{
+			std::lock_guard<std::mutex> lk(m_mutex);
+			m_out_width = outW;
+			m_out_height = outH;
+		}
 
 		m_logger.info("processing_loop(): src=" + std::to_string(W) + "x" + std::to_string(H) +
 			", out=" + std::to_string(outW) + "x" + std::to_string(outH) +
-			", rotate=" + (rotate ? "true" : "false"));
+			", rotation=" + std::to_string(degrees));
+
+		if (outW != renderer.rotated_width() || outH != renderer.rotated_height()) {
+			m_logger.warn("processing_loop(): output aligned from " +
+				std::to_string(renderer.rotated_width()) + "x" + std::to_string(renderer.rotated_height()));
+		}
 
 		if (!m_context_manager->init_render_framebuffer(outW, outH, &m_logger)) {
 			m_logger.error("processing_loop(): cannot init render FBO");

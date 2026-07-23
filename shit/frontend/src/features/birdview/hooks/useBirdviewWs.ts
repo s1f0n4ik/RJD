@@ -196,13 +196,53 @@ export function useBirdviewWs({
         connect();
     }, [autoConnect, connect]);
 
-    // Закрываем сокет при уходе со страницы
+    /**
+     * Прощание с калибратором.
+     *
+     * Он не узнаёт об отключении сам: брокер при уходе клиента просто забывает
+     * его, и пайплайн продолжает считать undistort в фоне. Поэтому перед
+     * закрытием сокета шлём close.
+     *
+     * keep_images просит не трогать набор снимков: оператор ушёл со страницы,
+     * а не закончил калибровку, и потерять два десятка кадров шахматки из-за
+     * перехода по ссылке было бы обидно. Кнопка «Закрыть стрим» его не ставит
+     * и чистит всё, как раньше.
+     */
+    const sayGoodbye = useCallback(() => {
+        const ws = wsRef.current;
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+        try {
+            ws.send(
+                JSON.stringify({
+                    type: 'close',
+                    client_id: clientId,
+                    camera: getStreamIdRef.current(),
+                    meta: { description: `page left by ${clientId}`, keep_images: true },
+                    ret: 'none',
+                }),
+            );
+        } catch {
+            // Сокет уже рвётся — брокер подстрахует своим close
+        }
+    }, [clientId]);
+
+    // Закрытие вкладки. pagehide, а не beforeunload: он надёжнее и
+    // срабатывает там, где beforeunload молчит
+    useEffect(() => {
+        const onHide = () => sayGoodbye();
+        window.addEventListener('pagehide', onHide);
+        return () => window.removeEventListener('pagehide', onHide);
+    }, [sayGoodbye]);
+
+    // Уход с маршрута /app/birdview размонтирует всё дерево страницы
     useEffect(() => {
         return () => {
+            sayGoodbye();
             wsRef.current?.close();
             wsRef.current = null;
         };
-    }, []);
+    }, [sayGoodbye]);
 
     return { status, url, setUrl, connect, disconnect, send, sendMessage, subscribe };
 }

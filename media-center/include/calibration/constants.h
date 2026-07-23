@@ -10,15 +10,32 @@ namespace constants {
 	inline const std::string calibration_url_server = "/calibrator/server"; // /calibrator/server
 	inline const std::string CALIBRATION_STREAM_ID = "calibration_stream"; // calibration_stream
 
-	inline const std::filesystem::path PROJECTION_CONFIGURES_PATH       = "/home/orangepi/varan/calibration/projection.json";         // "/home/orangepi/varan/calibration/projection.json"
-	inline const std::filesystem::path PROJECTION_IMAGES_PATH = "/home/orangepi/varan/calibration/images";                    // "/home/orangepi/varan/calibration/images"
+	/*
+		Хранилище кругового обзора. Четыре системы, у каждой свой каталог:
 
-	inline const std::string CALIBRATION_CONFIGURES_PATH                = "/home/orangepi/varan/calibration/configurations.json";     // "/home/orangepi/varan/calibration/configurations.json"
-	inline const std::string CALIBRATION_MAPS_PATH                      = "/home/orangepi/varan/calibration/maps";                    // "/home/orangepi/varan/calibration/maps"
+		calibration/  данные калибровки камер и карты коррекции
+		presets/      пресеты конфигуратора и их картинки-подложки
+		projection/   собранные warp: индекс и каталоги карт по конфигурациям
+		linker/       только состояние вывода
 
-	inline const std::filesystem::path LINKER_CONFIGURES_ROOT = "/home/orangepi/varan/linker";           // "/home/orangepi/varan/linker"
-	inline const std::filesystem::path LINKER_CONFIGURATION_INDEX = "stitching_exports.json";            // "stitching_exports.json"
-	inline const std::filesystem::path LINKER_STATE_INDEX = "state.json";                                // "state.json"
+		Пресеты принадлежат конфигуратору. Калибратор пишет в них src_points
+		как гость и правит запись точечно, не трогая остального.
+	*/
+	inline const std::filesystem::path SURROUND_VIEW_ROOT = "/home/orangepi/varan/surround_view";
+
+	inline const std::filesystem::path CALIBRATION_ROOT = SURROUND_VIEW_ROOT / "calibration";
+	inline const std::string CALIBRATION_CONFIGURES_PATH = (CALIBRATION_ROOT / "calibration_settings.json").string();
+	inline const std::string CALIBRATION_MAPS_PATH       = (CALIBRATION_ROOT / "maps").string();
+
+	inline const std::filesystem::path PRESETS_ROOT = SURROUND_VIEW_ROOT / "presets";
+	inline const std::filesystem::path PROJECTION_CONFIGURES_PATH = PRESETS_ROOT / "presets.json";
+	inline const std::filesystem::path PROJECTION_IMAGES_PATH     = PRESETS_ROOT / "images";
+
+	inline const std::filesystem::path LINKER_CONFIGURES_ROOT     = SURROUND_VIEW_ROOT / "projection";
+	inline const std::filesystem::path LINKER_CONFIGURATION_INDEX = "projection.json";
+
+	inline const std::filesystem::path LINKER_STATE_ROOT  = SURROUND_VIEW_ROOT / "linker";
+	inline const std::filesystem::path LINKER_STATE_INDEX = "state.json";
 
 	// Тип подключений
 	inline const std::string TYPE_CONNECTION = "connection";             // connection
@@ -57,6 +74,8 @@ namespace constants {
 	// Пайплайн пересобран, WebRTC-сессию клиента надо поднимать заново
 	inline const std::string META_PIPELINE_RESTARTED = "pipeline_restarted"; // pipeline_restarted
 	inline const std::string META_FRAMES_STALLED = "frames_stalled";         // frames_stalled
+	// Закрытие по уходу оператора: гасим пайплайн, но набор снимков не трогаем
+	inline const std::string META_KEEP_IMAGES = "keep_images";               // keep_images
 	inline const std::string META_DISPLAY_NAME = "display_name";    // display_name
 	inline const std::string META_STATUS = "status";                // status
 	inline const std::string META_WIDTH = "width";                  // width
@@ -117,6 +136,8 @@ namespace constants {
 	// Поля в блоке дисторсии
 	inline const std::string JSON_CONFIG_KEY = "config_key";              // config_key
 	inline const std::string JSON_ID = "id";                              // id
+	// Своё имя конфигурации. Так же названо у пресетов и экспортов
+	inline const std::string JSON_NAME = "name";                          // name
 	inline const std::string JSON_DISPLAY_NAME = "display_name";          // display_name
 	inline const std::string JSON_WIDTH = "width";                        // width
 	inline const std::string JSON_HEIGHT = "height";                      // height

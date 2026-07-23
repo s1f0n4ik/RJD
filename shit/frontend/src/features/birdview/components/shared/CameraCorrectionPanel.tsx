@@ -65,7 +65,9 @@ export function CameraCorrectionPanel({
 
     const configOptions: SelectOption[] = correction.configs.map(cfg => ({
         value: cfg.config_key ?? cfg.id,
-        label: cfg.id,
+        // Своё имя, если оператор его задал: одна камера может нести несколько
+        // конфигураций, и различать их по id камеры невозможно
+        label: cfg.name || cfg.config_key || cfg.id,
         note: `${cfg.width ?? '—'}×${cfg.height ?? '—'}`,
         muted: camera ? cfg.width !== camera.width || cfg.height !== camera.height : false,
     }));

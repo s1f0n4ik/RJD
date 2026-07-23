@@ -12,11 +12,26 @@ export interface ExportCameraEntry {
     dst_points: number[][];
 }
 
+/**
+ * Блок редактора.
+ *
+ * Геометрия в пресете производная: зоны свалены в общий dst_points и
+ * восстанавливаются по четвёркам углов, а имена и шаг сетки из неё не следуют.
+ * Сервер этот блок не читает и при записи src_points не трогает — save_preset
+ * правит запись точечно, а не пересобирает её.
+ */
+export interface ExportEditorBlock {
+    step: number;
+    /** Имена зон по ключу камеры, в том же порядке, что и четвёрки dst_points. */
+    zones: Record<string, string[]>;
+}
+
 export interface ExportResult {
     name: string;
     canvas: { width: number; height: number };
     cameras: Record<string, ExportCameraEntry>;
     images?: Array<{ name: string; rect: number[] }>;
+    editor?: ExportEditorBlock;
 }
 
 export interface ExportParams {
@@ -32,8 +47,13 @@ export function buildExportJson(params: ExportParams): ExportResult {
     const ch = Math.round(f.h * s);
 
     const cameras: Record<string, ExportCameraEntry> = {};
+    const zoneNames: Record<string, string[]> = {};
+
     confState.cameras.forEach(cam => {
         const camZones = confState.zones.filter(z => z.cameraId === cam.id);
+        if (camZones.length) {
+            zoneNames[cam.key] = camZones.map(z => z.name);
+        }
 
         const region = [
             [Math.round(cam.x * s), Math.round(cam.y * s)],
@@ -96,6 +116,7 @@ export function buildExportJson(params: ExportParams): ExportResult {
         name: params.name || params.id,
         canvas: { width: cw, height: ch },
         cameras,
+        editor: { step: f.step, zones: zoneNames },
     };
 
     if (images.length) result.images = images;

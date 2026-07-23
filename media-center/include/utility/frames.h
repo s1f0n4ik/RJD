@@ -206,4 +206,19 @@ namespace varan {
 
 	using SPGLTextureWrapper = std::shared_ptr<USharedGLTextureWrapper>;
 
+	/*
+		Кратность сторон кадра, уходящего в аппаратный кодек.
+
+		RGA внутри mpph264enc отвергает невыровненный шаг строки, и цена
+		ошибки не артефакт на картинке, а перезагрузка платы: 450 в ширину
+		уводит ядро в ребут, 452 и 464 проходят. 16 совпадает с макроблоком
+		H.264 и берётся с запасом.
+	*/
+	inline constexpr int FRAME_ALIGNMENT = 16;
+
+	inline int align_frame_side(int value) {
+		if (value <= 0) return value;
+		return (value + FRAME_ALIGNMENT - 1) / FRAME_ALIGNMENT * FRAME_ALIGNMENT;
+	}
+
 } // varan

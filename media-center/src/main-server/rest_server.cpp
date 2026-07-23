@@ -44,6 +44,10 @@ URestServer::URestServer(
         [linker_ctrl](const auto& r) { return linker_ctrl->get_export(r); });
     m_router->add_route(http::verb::delete_, "/linker/export",
         [linker_ctrl](const auto& r) { return linker_ctrl->delete_export(r); });
+    m_router->add_route(http::verb::get, "/linker/presets",
+        [linker_ctrl](const auto& r) { return linker_ctrl->get_presets(r); });
+    m_router->add_route(http::verb::get, "/linker/preset",
+        [linker_ctrl](const auto& r) { return linker_ctrl->get_preset(r); });
     m_router->add_route(http::verb::get, "/linker/state", 
         [linker_ctrl](const auto& r) { return linker_ctrl->get_state(r); });
     m_router->add_route(http::verb::post, "/linker/state", 
@@ -60,6 +64,10 @@ URestServer::URestServer(
         [linker_ctrl](const auto& r) { return linker_ctrl->post_exports(r); });
     m_router->add_route(http::verb::post, "/linker/upload",
         [linker_ctrl](const auto& r) {return linker_ctrl->post_upload_image(r); });
+    m_router->add_route(http::verb::get, "/linker/image",
+        [linker_ctrl](const auto& r) { return linker_ctrl->get_image(r); });
+    m_router->add_route(http::verb::post, "/linker/rotation",
+        [linker_ctrl](const auto& r) { return linker_ctrl->post_rotation(r); });
 
     // Маршруты для Нейронки
     auto neural_ctrl = std::make_shared<UNeuralController>(loader, &m_logger);

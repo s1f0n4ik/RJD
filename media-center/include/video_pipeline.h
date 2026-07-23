@@ -329,8 +329,13 @@ private:
 	cv::Mat m_cached_frame;
 	std::mutex m_cached_mutex;
 
+	// Размер кадра в потоке: всегда выровненный, его требует кодек
 	int m_width = 800;
 	int m_height = 600;
+	// Размер, который запросил вызывающий. Кадры такого размера тоже
+	// принимаются и дополняются до выровненного
+	int m_src_width = 800;
+	int m_src_height = 600;
 	int m_fps = 15;
 
 	std::atomic<bool> m_is_set{false};

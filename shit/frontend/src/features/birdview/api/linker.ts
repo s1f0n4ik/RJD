@@ -38,12 +38,12 @@ async function fetchJson<T>(
 
 /** Отказ REST-ручки. status нужен, чтобы отличить конфликт от неверного запроса. */
 export class LinkerError extends Error {
-    constructor(
-        readonly status: number,
-        message: string,
-    ) {
+    status: number;
+
+    constructor(status: number, message: string) {
         super(message);
         this.name = 'LinkerError';
+        this.status = status;
     }
 }
 
@@ -68,21 +68,40 @@ export interface LinkerStatus {
     exportId: string | null;
     streamName: string;
     fps: number;
+    rotation: Rotation;
+    /**
+     * Размер кадра в эфире. Шире канваса: стороны округляются вверх под
+     * кодек, и картинка на эту разницу растягивается. Нули — вывод не
+     * запускался.
+     */
+    width: number;
+    height: number;
 }
 
 /** Привязка «ключ позиции → id камеры». */
 export type LinkerBindings = Record<string, string>;
+
+/** Допустимые углы поворота вывода, против часовой. */
+export const ROTATIONS = [0, 90, 180, 270] as const;
+export type Rotation = (typeof ROTATIONS)[number];
 
 /** Параметры запуска. Свои у каждой конфигурации. */
 export interface LinkerParams {
     fps: number;
     streamId: string;
     streamName: string;
+    /**
+     * Поворот вывода против часовой. Меняет размер кадра при 90 и 270,
+     * поэтому применяется только через перезапуск вывода.
+     */
+    rotation: Rotation;
 }
 
 /** Место камеры на канвасе: прямоугольник, посчитанный сервером при экспорте. */
 export interface LinkerPlace {
     key: string;
+    /** Имя места из пресета. По нему оператор понимает, куда ставить камеру. */
+    name: string;
     /** null — запись сделана до появления region, схему по ней не построить. */
     rect: { x: number; y: number; w: number; h: number } | null;
 }
@@ -100,6 +119,14 @@ export interface LinkerExportDetail {
     canvas: { width: number; height: number };
     places: LinkerPlace[];
     images: LinkerOverlay[];
+    /** Угол, с которым конфигурация пойдёт в эфир. Считает сервер. */
+    rotation: Rotation;
+}
+
+/** Значение из json к допустимому углу. Всё непонятное — 0. */
+function normalizeRotation(value: unknown): Rotation {
+    const n = Number(value);
+    return (ROTATIONS as readonly number[]).includes(n) ? (n as Rotation) : 0;
 }
 
 function toRect(v: unknown): { x: number; y: number; w: number; h: number } | null {
@@ -131,6 +158,8 @@ export const linkerApi = {
 
         const places: LinkerPlace[] = Object.entries<any>(data.cameras ?? {}).map(([key, cam]) => ({
             key,
+            // Записи, сделанные до появления имени, показываются по ключу
+            name: typeof cam?.name === 'string' && cam.name ? cam.name : key,
             rect: toRect(cam?.region),
         }));
 
@@ -147,6 +176,7 @@ export const linkerApi = {
             },
             places,
             images,
+            rotation: normalizeRotation(data.rotation),
         };
     },
 
@@ -161,6 +191,9 @@ export const linkerApi = {
             exportId: data.export_id ?? null,
             streamName: data.stream_name ?? '',
             fps: Number(data.fps) || 0,
+            rotation: normalizeRotation(data.rotation),
+            width: Number(data.width) || 0,
+            height: Number(data.height) || 0,
         };
     },
 
@@ -188,6 +221,7 @@ export const linkerApi = {
                     ...(entry.fps ? { fps: Number(entry.fps) } : {}),
                     ...(entry.stream_id ? { streamId: String(entry.stream_id) } : {}),
                     ...(entry.stream_name ? { streamName: String(entry.stream_name) } : {}),
+                    ...(entry.rotation != null ? { rotation: normalizeRotation(entry.rotation) } : {}),
                 },
             };
         } catch {
@@ -207,6 +241,19 @@ export const linkerApi = {
             fps: params.fps,
             stream_id: params.streamId,
             stream_name: params.streamName,
+            rotation: params.rotation,
+        });
+    },
+
+    /**
+     * Поворот вывода отдельной ручкой: он свойство картинки, а не настроек
+     * одной страницы, и менять его нужно не только отсюда. Живую конфигурацию
+     * сервер пересобирает сам — размер кадра при 90 и 270 другой.
+     */
+    async setRotation(rotation: Rotation, exportId?: string): Promise<void> {
+        await fetchJson('POST', '/linker/rotation', {
+            rotation,
+            ...(exportId ? { export_id: exportId } : {}),
         });
     },
 

@@ -5,6 +5,7 @@
 #include <mutex>
 #include <functional>
 #include <optional>
+#include <utility>
 
 #include "constants.h"
 #include "logger.h"
@@ -41,7 +42,18 @@ namespace birdview {
 			uint32_t fps = 0;             // 0 — взять значение из конфига процесса
 			std::string stream_id;        // пусто — VIRTUAL_CAMERA_ID
 			std::string stream_name;
+			/*
+				Поворот вывода против часовой в градусах: 0, 90, 180, 270.
+				Отрицательное значение — в состоянии его ещё нет, тогда угол
+				выводится из формы канваса по прежнему правилу.
+			*/
+			int rotation = -1;
 		};
+
+		// Допустимые углы. Всё остальное ручка отвергает
+		static bool is_valid_rotation(int degrees) {
+			return degrees == 0 || degrees == 90 || degrees == 180 || degrees == 270;
+		}
 
 	public:
 		ULinker(
@@ -74,6 +86,22 @@ namespace birdview {
 
 		FStreamParams get_stream_params() const;
 
+		/*
+			Угол, с которым конфигурация пойдёт в эфир: из состояния, а если
+			его там нет — 0. Ответ живёт здесь один на всех: и запуск, и
+			статус должны говорить одно и то же, иначе интерфейс покажет 0,
+			а картинка приедет повёрнутой.
+		*/
+		int resolve_rotation(const std::string& export_id = {}) const;
+
+		/*
+			Размер кадра, который реально уходит в эфир. Больше канваса на
+			выравнивание сторон, поэтому его показывают отдельно: иначе при
+			разборе размер в потоке не сойдётся с размером в конфигурации.
+			Нули — вывод ещё не запускался.
+		*/
+		std::pair<int, int> get_output_size() const;
+
 		std::string get_stream_name() const;
 
 	// Методы для работы с сервером
@@ -87,6 +115,14 @@ namespace birdview {
 		// Удаление конфигурации целиком: запись индекса, каталог карт и настройки.
 		// Активную удалить нельзя — её файлы читает работающий поток.
 		bool delete_export(const std::string& export_id, std::string& error);
+
+		/*
+			Смена поворота. Пустой export_id — активная конфигурация.
+
+			При 90 и 270 стороны вывода меняются местами, а NV12 создаётся под
+			конкретный размер, поэтому живой вывод пересобирается целиком.
+		*/
+		bool set_rotation(const std::string& export_id, int degrees, std::string& error);
 
 		std::vector<FExportInfo> list_exports();
 		boost::json::object get_state_raw();
@@ -129,6 +165,8 @@ namespace birdview {
 
 		std::filesystem::path m_exports_root;
 		std::filesystem::path m_exports_index_json;
+		// Состояние живёт в своём каталоге: линкер не хранит ничего, кроме него
+		std::filesystem::path m_state_root;
 		std::filesystem::path m_state_index;
 
 		// fps из конфига процесса. Служит значением по умолчанию, когда
@@ -136,6 +174,10 @@ namespace birdview {
 		uint32_t m_fps;
 
 		FStreamParams m_params;
+
+		// Выровненный размер кадра, с которым создан текущий вывод
+		int m_out_width = 0;
+		int m_out_height = 0;
 
 		nvr::FWebSocketOptions m_websocket;
 		std::unique_ptr<varan::neural::UVirtualCamera> m_streamer;

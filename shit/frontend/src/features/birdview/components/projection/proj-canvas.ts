@@ -1,4 +1,5 @@
 import { projState } from '../../state/proj-store';
+import { CANVAS_COLORS } from '../../styles/canvas-colors';
 
 /**
  * Слой точек warp. Порт canvas.js из no-react с одним принципиальным отличием.
@@ -18,6 +19,25 @@ let ctx: CanvasRenderingContext2D | null = null;
 /** Слой с видео: его нетрансформированный прямоугольник задаёт систему координат. */
 let mediaEl: HTMLElement | null = null;
 let dpr = 1;
+
+/**
+ * Есть ли под слоем кадр.
+ *
+ * Точка — это место на изображении, и без него она бессмысленна: до правки
+ * сохранённая разметка проступала поверх пустого вьюпорта, стоило выбрать
+ * заполненную камеру в списке.
+ */
+let hasFrame = false;
+
+export function setProjHasFrame(value: boolean): void {
+    if (hasFrame === value) return;
+    hasFrame = value;
+    projDraw();
+}
+
+export function projHasFrame(): boolean {
+    return hasFrame;
+}
 
 export function attachProjCanvas(canvas: HTMLCanvasElement, media: HTMLElement): () => void {
     canvasEl = canvas;
@@ -110,6 +130,8 @@ export function projDraw(): void {
     const c = ctx;
     c.clearRect(0, 0, canvasEl.width, canvasEl.height);
 
+    if (!hasFrame) return;
+
     const pts = projState.points;
     if (!pts.length) return;
 
@@ -127,7 +149,7 @@ export function projDraw(): void {
     // Ломаная без замыкания первой и последней точки
     if (pts.length > 1) {
         c.beginPath();
-        c.strokeStyle = 'rgba(200,255,64,0.75)';
+        c.strokeStyle = CANVAS_COLORS.accentLine;
         c.lineWidth = LINE_W;
         c.setLineDash([6 * PX, 3 * PX]);
         let started = false;
@@ -149,13 +171,13 @@ export function projDraw(): void {
 
         c.beginPath();
         c.arc(p.x, p.y, R + RING, 0, Math.PI * 2);
-        c.fillStyle = 'rgba(0,0,0,0.55)';
+        c.fillStyle = CANVAS_COLORS.shadow;
         c.fill();
 
         c.beginPath();
         c.arc(p.x, p.y, R, 0, Math.PI * 2);
-        c.fillStyle = '#c8ff40';
-        c.strokeStyle = '#0a0a0c';
+        c.fillStyle = CANVAS_COLORS.accent;
+        c.strokeStyle = CANVAS_COLORS.base;
         c.lineWidth = LINE_W;
         c.fill();
         c.stroke();
@@ -168,12 +190,12 @@ export function projDraw(): void {
         const lx = p.x + R + 6 * PX;
         const pad = 3 * PX;
 
-        c.fillStyle = 'rgba(0,0,0,0.7)';
+        c.fillStyle = CANVAS_COLORS.labelBackdrop;
         c.beginPath();
         c.roundRect(lx - pad, p.y - 8 * PX, tw + pad * 2, 16 * PX, 3 * PX);
         c.fill();
 
-        c.fillStyle = '#c8ff40';
+        c.fillStyle = CANVAS_COLORS.accent;
         c.fillText(label, lx, p.y);
     });
 }

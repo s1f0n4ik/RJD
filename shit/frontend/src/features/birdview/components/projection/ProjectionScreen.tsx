@@ -30,6 +30,8 @@ import {
     hitPoint,
     mediaTransform,
     projDraw,
+    projHasFrame,
+    setProjHasFrame,
 } from './proj-canvas';
 import { ProjSettings } from './ProjSettings';
 import { ProjResult } from './ProjResult';
@@ -118,7 +120,7 @@ export function ProjectionScreen({
         let dragStart = { x: 0, y: 0 };
 
         const onDown = (e: PointerEvent) => {
-            if (projState.applied) return;
+            if (projState.applied || !projHasFrame()) return;
             if (e.ctrlKey || e.shiftKey || e.button !== 0) return;
 
             if (!projState.activeCam) {
@@ -137,7 +139,7 @@ export function ProjectionScreen({
         };
 
         const onMove = (e: PointerEvent) => {
-            if (projState.applied || !projState.activeCam) return;
+            if (projState.applied || !projState.activeCam || !projHasFrame()) return;
             if (draggingPoint === -1) return;
 
             const n = eventToNorm(e);
@@ -155,7 +157,7 @@ export function ProjectionScreen({
         };
 
         const onUp = (e: PointerEvent) => {
-            if (projState.applied || !projState.activeCam) return;
+            if (projState.applied || !projState.activeCam || !projHasFrame()) return;
             if (e.ctrlKey || e.shiftKey) return;
 
             const hitExisting = draggingPoint !== -1;
@@ -205,16 +207,21 @@ export function ProjectionScreen({
         let panStart = { x: 0, y: 0 };
 
         const onWheel = (e: WheelEvent) => {
-            if (!e.ctrlKey) return;
+            if (!e.shiftKey) return;
             e.preventDefault();
 
             const rect = wrapper.getBoundingClientRect();
             const mx = e.clientX - rect.left;
             const my = e.clientY - rect.top;
 
+            // При зажатом shift браузер переносит прокрутку в горизонтальную
+            // ось, и deltaY приходит нулевым
+            const delta = e.deltaY !== 0 ? e.deltaY : e.deltaX;
+            if (delta === 0) return;
+
             const v = projState.view;
             const prev = v.scale;
-            const next = Math.min(MAX_SCALE, Math.max(MIN_SCALE, prev * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
+            const next = Math.min(MAX_SCALE, Math.max(MIN_SCALE, prev * (delta < 0 ? 1.15 : 1 / 1.15)));
             if (next === prev) return;
 
             const ratio = next / prev;
@@ -278,6 +285,11 @@ export function ProjectionScreen({
             syncTransform();
         }
     }, [active, syncTransform]);
+
+    // Без кадра слой точек пуст: разметка есть, а показывать её не на чем
+    useEffect(() => {
+        setProjHasFrame(Boolean(streamId));
+    }, [streamId]);
 
     useEffect(() => {
         return () => {
@@ -502,7 +514,7 @@ export function ProjectionScreen({
                     )}
 
                     <canvas ref={canvasRef} className="proj-warp-canvas" />
-                    <div className="proj-zoom-hint">ctrl+scroll — zoom · shift+drag — pan</div>
+                    <div className="proj-zoom-hint">shift+scroll — zoom · shift+drag — pan</div>
                 </div>
 
                 <div className="viewer-footer">

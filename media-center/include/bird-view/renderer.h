@@ -74,7 +74,28 @@ namespace birdview {
 		// Размер канваса экспорта.
 		int canvas_width()  const { return m_canvas_w; }
 		int canvas_height() const { return m_canvas_h; }
-		void set_rotate_ccw(bool v) { m_rotate_ccw = v; }
+		/*
+			Поворот вывода против часовой стрелки, в четвертях оборота: 0..3.
+			При 1 и 3 стороны вывода меняются местами, поэтому размер кадра
+			зависит от него — и пайплайн приходится пересобирать.
+		*/
+		void set_rotation(int quarters) { m_rotation = ((quarters % 4) + 4) % 4; }
+		int  rotation() const { return m_rotation; }
+
+		// Естественный размер вывода: канвас с учётом поворота
+		int rotated_width()  const { return (m_rotation % 2) ? m_canvas_h : m_canvas_w; }
+		int rotated_height() const { return (m_rotation % 2) ? m_canvas_w : m_canvas_h; }
+
+		/*
+			Фактический размер кадра. Бывает больше естественного: кодек
+			требует выровненных сторон, и картинка на эту разницу тянется.
+			Вызывать после set_rotation — иначе стороны возьмутся от старого
+			поворота.
+		*/
+		void set_output_size(int width, int height) { m_out_w = width; m_out_h = height; }
+
+		int output_width()  const { return m_out_w > 0 ? m_out_w : rotated_width(); }
+		int output_height() const { return m_out_h > 0 ? m_out_h : rotated_height(); }
 
 	private:
 		struct FCameraGL {
@@ -108,7 +129,10 @@ namespace birdview {
 
 		int m_canvas_w = 0;
 		int m_canvas_h = 0;
-		bool m_rotate_ccw = false;
+		int m_rotation = 0;
+		// 0 — размер вывода не задавали, берём естественный
+		int m_out_w = 0;
+		int m_out_h = 0;
 
 		// Порядок камер из экспорта — фиксируется после load_export.
 		std::vector<std::string> m_ordered_keys;

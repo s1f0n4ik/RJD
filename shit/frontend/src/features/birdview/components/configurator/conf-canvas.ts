@@ -1,5 +1,6 @@
 import { confState, HANDLE_SIZE } from '../../state/conf-store';
 import type { ConfZone } from '../../types';
+import { CANVAS_COLORS } from '../../styles/canvas-colors';
 
 /**
  * Отрисовка холста конфигуратора. Порт canvas.js из no-react без изменения
@@ -160,15 +161,15 @@ function drawDraft(c: CanvasRenderingContext2D): void {
     const w = br.x - tl.x;
     const h = br.y - tl.y;
 
-    c.fillStyle = 'rgba(200,255,64,0.10)';
-    c.strokeStyle = '#c8ff40';
+    c.fillStyle = CANVAS_COLORS.accentFill;
+    c.strokeStyle = CANVAS_COLORS.accent;
     c.lineWidth = 1.5 * dpr;
     c.setLineDash([5 * dpr, 4 * dpr]);
     c.fillRect(tl.x, tl.y, w, h);
     c.strokeRect(tl.x, tl.y, w, h);
     c.setLineDash([]);
 
-    c.fillStyle = '#c8ff40';
+    c.fillStyle = CANVAS_COLORS.accent;
     c.font = `${10 * dpr}px monospace`;
     c.textAlign = 'left';
     c.textBaseline = 'bottom';
@@ -186,7 +187,7 @@ function drawGrid(c: CanvasRenderingContext2D): void {
     const fh = br.y - tl.y;
 
     // Фон поля
-    c.fillStyle = 'rgba(22,22,29,0.9)';
+    c.fillStyle = CANVAS_COLORS.panelBackdrop;
     c.fillRect(tl.x, tl.y, fw, fh);
 
     // Сетка
@@ -209,7 +210,7 @@ function drawGrid(c: CanvasRenderingContext2D): void {
     }
 
     // Рамка поля
-    c.strokeStyle = 'rgba(200,255,64,0.3)';
+    c.strokeStyle = CANVAS_COLORS.accentGuide;
     c.lineWidth = 2 * dpr;
     c.strokeRect(tl.x, tl.y, fw, fh);
 }
@@ -337,7 +338,7 @@ function drawSelection(c: CanvasRenderingContext2D): void {
         c.rotate(rad);
 
         // Рамка
-        c.strokeStyle = '#c8ff40';
+        c.strokeStyle = CANVAS_COLORS.accent;
         c.lineWidth = 2 * dpr;
         c.setLineDash([6 * dpr, 3 * dpr]);
         c.strokeRect(-w / 2, -h / 2, w, h);
@@ -349,7 +350,7 @@ function drawSelection(c: CanvasRenderingContext2D): void {
             [-w / 2, 0], [w / 2, 0],
             [-w / 2, h / 2], [0, h / 2], [w / 2, h / 2],
         ];
-        c.fillStyle = '#c8ff40';
+        c.fillStyle = CANVAS_COLORS.accent;
         for (const [px, py] of handles) {
             c.fillRect(px - hs, py - hs, hs * 2, hs * 2);
         }
@@ -362,7 +363,7 @@ function drawSelection(c: CanvasRenderingContext2D): void {
         c.beginPath();
         c.moveTo(0, -h / 2);
         c.lineTo(0, rotHandleY);
-        c.strokeStyle = '#c8ff40';
+        c.strokeStyle = CANVAS_COLORS.accent;
         c.lineWidth = 1.5 * dpr;
         c.setLineDash([]);
         c.stroke();
@@ -370,8 +371,8 @@ function drawSelection(c: CanvasRenderingContext2D): void {
         // Кружок
         c.beginPath();
         c.arc(0, rotHandleY, 5 * dpr, 0, Math.PI * 2);
-        c.fillStyle = '#0a0a0c';
-        c.strokeStyle = '#c8ff40';
+        c.fillStyle = CANVAS_COLORS.base;
+        c.strokeStyle = CANVAS_COLORS.accent;
         c.lineWidth = 1.5 * dpr;
         c.fill();
         c.stroke();
@@ -379,14 +380,14 @@ function drawSelection(c: CanvasRenderingContext2D): void {
         // Дуга внутри кружка
         c.beginPath();
         c.arc(0, rotHandleY, 3 * dpr, -Math.PI * 0.7, Math.PI * 0.4);
-        c.strokeStyle = '#c8ff40';
+        c.strokeStyle = CANVAS_COLORS.accent;
         c.lineWidth = 1 * dpr;
         c.stroke();
 
         c.restore();
     } else {
         // Камеры и изображения — без rotation
-        c.strokeStyle = '#c8ff40';
+        c.strokeStyle = CANVAS_COLORS.accent;
         c.lineWidth = 2 * dpr;
         c.setLineDash([6 * dpr, 3 * dpr]);
         c.strokeRect(tl.x, tl.y, w, h);
@@ -402,7 +403,7 @@ function drawSelection(c: CanvasRenderingContext2D): void {
             [tl.x + w / 2, br.y],
             [br.x, br.y],
         ];
-        c.fillStyle = '#c8ff40';
+        c.fillStyle = CANVAS_COLORS.accent;
         for (const [px, py] of handles) {
             c.fillRect(px - hs, py - hs, hs * 2, hs * 2);
         }

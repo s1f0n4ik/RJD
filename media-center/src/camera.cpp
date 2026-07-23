@@ -36,7 +36,11 @@ namespace neural {
 
 		m_gst_loop_thread = std::thread([this]() {
 			m_gst_loop_thread_id = std::this_thread::get_id();
-			m_gst_loop_running = true;
+			{
+				std::lock_guard<std::mutex> lk(m_gst_loop_mutex);
+				m_gst_loop_running = true;
+			}
+			m_gst_loop_cv.notify_all();
 			g_main_loop_run(m_main_loop);
 			m_gst_loop_running = false;
 		});
@@ -146,6 +150,18 @@ namespace neural {
 
 	bool UCamera::initialize() {
 		if (m_initialized) return true;
+
+		/*
+			Ждём, а не проверяем: поток GLib поднимается асинхронно из
+			конструктора, и вызов сразу после создания камеры регулярно
+			приходил раньше него. Отказ стоил пяти секунд на рестарте.
+		*/
+		{
+			std::unique_lock<std::mutex> lk(m_gst_loop_mutex);
+			m_gst_loop_cv.wait_for(lk, std::chrono::seconds(1), [this] {
+				return m_gst_loop_running.load();
+			});
+		}
 
 		if (!m_gst_loop_running) {
 			m_logger.error("initialize(): False to initialize + " + m_name + " camera, main_g_loop didn't run");

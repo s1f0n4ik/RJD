@@ -15,6 +15,7 @@ import { EventLogPanel } from './EventLogPanel';
 import { CalibrationViewer } from './CalibrationViewer';
 import { ConfigModal } from './ConfigModal';
 import type { ConfigSummary } from './ConfigModal';
+import { SaveConfigModal } from './SaveConfigModal';
 import { useDistortion } from './useDistortion';
 import { useSnapshots } from './useSnapshots';
 import { useCalibrationProcess } from './useCalibrationProcess';
@@ -69,6 +70,13 @@ export function CalibrationScreen({
     // Ответы calibration_configuration слушает ещё и useCorrection. Разбираем
     // только те, что запросила модалка этого экрана.
     const modalRequestRef = useRef(false);
+
+    // Сохранение под своим ключом. Список нужен, чтобы подставить свободный
+    // идентификатор и распознать намеренную перезапись
+    const [saveOpen, setSaveOpen] = useState(false);
+    const [saveKnown, setSaveKnown] = useState<ConfigSummary[]>([]);
+    const [saving, setSaving] = useState(false);
+    const saveRequestRef = useRef(false);
 
     const toast = useCallback(
         (title: string, desc: string, type: 'ok' | 'err' | 'info') => showToast(title, desc, type),
@@ -251,11 +259,27 @@ export function CalibrationScreen({
 
             switch (msg.meta.method) {
                 case 'save':
-                    if (msg.ret) toast('Сохранено', '', 'ok');
-                    else toast('Ошибка', msg.meta.description ?? '', 'err');
+                    setSaving(false);
+                    if (msg.ret) {
+                        setSaveOpen(false);
+                        toast('Сохранено', msg.meta.config_key ?? '', 'ok');
+                    } else {
+                        toast('Ошибка', msg.meta.description ?? '', 'err');
+                    }
                     break;
 
                 case 'get_list':
+                    // Список могли запросить и ради подстановки ключа при сохранении
+                    if (saveRequestRef.current) {
+                        saveRequestRef.current = false;
+                        if (msg.ret) {
+                            setSaveKnown(msg.meta.configs ?? []);
+                            setSaveOpen(true);
+                        } else {
+                            toast('Ошибка', msg.meta.description ?? '', 'err');
+                        }
+                        return;
+                    }
                     if (!modalRequestRef.current) return;
                     modalRequestRef.current = false;
                     if (!msg.ret) {
@@ -387,7 +411,12 @@ export function CalibrationScreen({
                 <button
                     className={`btn btn-save-config${saveEnabled ? ' active' : ''}`}
                     disabled={!saveEnabled}
-                    onClick={() => ws.sendMessage('calibration_configuration', { method: 'save' })}
+                    onClick={() => {
+                        // Список тянем перед показом окна: по нему подставляется
+                        // свободный идентификатор
+                        saveRequestRef.current = true;
+                        ws.sendMessage('calibration_configuration', { method: 'get_list' });
+                    }}
                 >
                     ⊛ Сохранить конфигурацию
                 </button>
@@ -408,6 +437,25 @@ export function CalibrationScreen({
                 undistortionState={undistortionOk ? 'success' : 'failed'}
                 frameInfo={frameInfo}
             />
+
+            {saveOpen && camera && (
+                <SaveConfigModal
+                    existing={saveKnown}
+                    cameraId={camera.id}
+                    width={camera.width}
+                    height={camera.height}
+                    saving={saving}
+                    onClose={() => setSaveOpen(false)}
+                    onSubmit={(key, name) => {
+                        setSaving(true);
+                        ws.sendMessage('calibration_configuration', {
+                            method: 'save',
+                            config_key: key,
+                            name,
+                        });
+                    }}
+                />
+            )}
 
             {configs !== null && (
                 <ConfigModal

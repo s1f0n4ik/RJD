@@ -17,6 +17,15 @@
 	POST   /linker/restart  → stop + reload + start
 	POST   /linker/stop     → остановить
 	DELETE /linker/export   → удалить конфигурацию целиком (запись, карты, настройки)
+
+	GET    /linker/presets  → список пресетов конфигуратора (key, name, размер поля)
+	GET    /linker/preset   → пресет целиком, для правки в конфигураторе
+	GET    /linker/image    → картинка-подложка по имени файла
+	POST   /linker/rotation → поворот вывода: 0, 90, 180, 270 против часовой.
+	                          Живую конфигурацию пересобирает сразу
+
+	Пресеты и экспорты — разные файлы: первым владеет конфигуратор,
+	второй собирает страница сборки.
 */
 class ULinkerController {
 public:
@@ -50,12 +59,21 @@ public:
 		delete_export(const boost::beast::http::request<boost::beast::http::string_body>& req);
 
 	boost::beast::http::response<boost::beast::http::string_body>
+		post_rotation(const boost::beast::http::request<boost::beast::http::string_body>& req);
+
+	boost::beast::http::response<boost::beast::http::string_body>
+		get_presets(const boost::beast::http::request<boost::beast::http::string_body>& req);
+
+	boost::beast::http::response<boost::beast::http::string_body>
+		get_preset(const boost::beast::http::request<boost::beast::http::string_body>& req);
+
+	boost::beast::http::response<boost::beast::http::string_body>
 		post_exports(const boost::beast::http::request<boost::beast::http::string_body>& req);
 
 	boost::beast::http::response<boost::beast::http::string_body>
 		post_upload_image(const boost::beast::http::request<boost::beast::http::string_body>& req);
 
-	boost::beast::http::response<boost::beast::http::file_body>
+	boost::beast::http::response<boost::beast::http::string_body>
 		get_image(const boost::beast::http::request<boost::beast::http::string_body>& req);
 
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { linkerApi, LinkerError } from '../../api/linker';
+import { ROTATIONS } from '../../api/linker';
 import type {
     LinkerBindings,
     LinkerCamera,
@@ -7,6 +8,7 @@ import type {
     LinkerExportDetail,
     LinkerParams,
     LinkerStatus,
+    Rotation,
 } from '../../api/linker';
 import WebRTCPlayer from '../../../../components/WebRTCPlayer';
 import { wsUrl } from '../../constants';
@@ -41,12 +43,16 @@ const EMPTY_STATUS: LinkerStatus = {
     exportId: null,
     streamName: '',
     fps: 0,
+    rotation: 0,
+    width: 0,
+    height: 0,
 };
 
 const DEFAULT_PARAMS: LinkerParams = {
     fps: 15,
     streamId: DEFAULT_STREAM_ID,
     streamName: '',
+    rotation: 0,
 };
 
 interface LinkerScreenProps {
@@ -71,6 +77,8 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
     const [view, setView] = useState<'plan' | 'stream'>('plan');
     const [starting, setStarting] = useState(false);
     const [pendingDelete, setPendingDelete] = useState<LinkerExport | null>(null);
+    // Схема на узком канвасе тесная — колонку со списком можно убрать
+    const [asideOpen, setAsideOpen] = useState(true);
 
     // Во время запуска общий опрос молчит: за подъёмом следит свой цикл
     const startingRef = useRef(starting);
@@ -141,13 +149,20 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
         return () => window.clearInterval(id);
     }, [active]);
 
-    // Линкер остановлен, а мы смотрим поток — возвращаемся к схеме. Иначе плеер
-    // будет бесконечно ретраить подключение к несуществующему стриму
+    /*
+        Возврат к схеме, когда смотреть больше нечего.
+
+        Два случая: линкер остановлен вовсе, либо оператор выбрал в списке
+        другую конфигурацию — её вывод не запущен, и показывать в плеере чужую
+        картинку нельзя. Плеер размонтируется, WebRTC-сессия рвётся, а сам
+        вывод продолжает работать: его смотрят по id стрима и другие.
+    */
     useEffect(() => {
-        if (view === 'stream' && !starting && !status.running) {
-            setView('plan');
-        }
-    }, [status.running, view, starting]);
+        if (view !== 'stream' || starting) return;
+
+        const watchable = status.running && status.exportId === selected?.id && status.streamId;
+        if (!watchable) setView('plan');
+    }, [status.running, status.exportId, status.streamId, selected?.id, view, starting]);
 
     const selectExport = async (exp: LinkerExport) => {
         setSelected(exp);
@@ -164,6 +179,8 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
                 fps: state.params.fps ?? DEFAULT_PARAMS.fps,
                 streamId: state.params.streamId ?? DEFAULT_STREAM_ID,
                 streamName: state.params.streamName ?? full.name,
+                // Сервер сам сообщает угол, с которым запустит конфигурацию
+                rotation: state.params.rotation ?? full.rotation,
             });
         } catch (e) {
             toastError('Не удалось открыть конфигурацию', e);
@@ -220,7 +237,7 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
 
             setStatus(ready);
             setView('stream');
-            showToast('Запущено', params.streamName || selected.name, 'ok');
+            showToast('Запущено', params.streamName || selected.name || selected.id, 'ok');
         } catch (e) {
             toastError('Не запустилось', e);
         } finally {
@@ -266,6 +283,31 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
         }
     };
 
+    /**
+     * Поворот уходит своей ручкой, а не в общем сохранении: он свойство
+     * картинки, и сервер сам пересобирает живой вывод — при 90 и 270 размер
+     * кадра другой, а пайплайн создаётся под конкретный.
+     */
+    const applyRotation = async (rotation: Rotation) => {
+        if (!selected) return;
+        const previous = params.rotation;
+        setParams(p => ({ ...p, rotation }));
+
+        try {
+            await linkerApi.setRotation(rotation, selected.id);
+            const live = status.running && status.exportId === selected.id;
+            showToast(
+                'Поворот применён',
+                live ? `${rotation}° · вывод перезапущен` : `${rotation}°`,
+                'ok',
+            );
+            if (live) linkerApi.getStatus().then(setStatus).catch(() => {});
+        } catch (e) {
+            setParams(p => ({ ...p, rotation: previous }));
+            toastError('Поворот не применён', e);
+        }
+    };
+
     const geometry = useMemo(() => (detail ? buildGeometry(detail) : null), [detail]);
 
     const places = detail?.places.length ?? 0;
@@ -273,10 +315,27 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
     const complete = places > 0 && assigned === places;
 
     const isLive = status.running && status.exportId === selected?.id;
-    const canWatch = status.running && Boolean(status.streamId);
+    // Смотреть можно только ту конфигурацию, что сейчас в эфире: у остальных
+    // вкладка вела бы на чужую картинку и путала
+    const canWatch = isLive && Boolean(status.streamId);
 
     return (
-        <main className={`main-layout linker-layout ${active ? '' : 'hidden'}`}>
+        <main
+            className={
+                'main-layout linker-layout' +
+                (asideOpen ? '' : ' aside-hidden') +
+                (active ? '' : ' hidden')
+            }
+        >
+            <button
+                className={`linker-aside-tab${asideOpen ? ' open' : ''}`}
+                onClick={() => setAsideOpen(o => !o)}
+                title={asideOpen ? 'Скрыть список конфигураций' : 'Показать список конфигураций'}
+            >
+                <span className="proj-tab-icon">{asideOpen ? '‹' : '›'}</span>
+                <span className="proj-tab-label">Конфигурации</span>
+            </button>
+
             <aside className="sidebar linker-aside">
                 <div className="col-title">Конфигурации</div>
 
@@ -338,6 +397,13 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
                     <span className="linker-kv-k">Камер</span>
                     <span className="linker-kv-v">{assigned} / {places || '—'}</span>
                 </div>
+                {/* Кадр шире канваса: стороны округляются под кодек */}
+                <div className="linker-kv">
+                    <span className="linker-kv-k">Кадр</span>
+                    <span className="linker-kv-v">
+                        {status.width && status.height ? `${status.width} × ${status.height}` : '—'}
+                    </span>
+                </div>
             </aside>
 
             <section className="linker-stage-pane">
@@ -367,7 +433,13 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
                             type="button"
                             aria-pressed={view === 'stream'}
                             disabled={!canWatch}
-                            title={canWatch ? '' : 'Поток не запущен'}
+                            title={
+                                canWatch
+                                    ? ''
+                                    : status.running
+                                      ? 'В эфире другая конфигурация'
+                                      : 'Поток не запущен'
+                            }
                             onClick={() => canWatch && setView('stream')}
                         >
                             Стрим
@@ -377,11 +449,17 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
 
                 <div className="linker-stage">
                     {view === 'stream' && status.streamId ? (
-                        <WebRTCPlayer
-                            key={`linker-${status.streamId}`}
-                            cameraId={status.streamId}
-                            signalingUrl={wsUrl(`/signaling/client/${status.streamId}`)}
-                        />
+                        // Плееру нужна обёртка заданного размера: сам он задаёт
+                        // только высоту, и без ширины схлопывается по содержимому —
+                        // отсюда чёрная полоса по размеру индикатора загрузки
+                        <div className="linker-player">
+                            <WebRTCPlayer
+                                key={`linker-${status.streamId}`}
+                                cameraId={status.streamId}
+                                signalingUrl={wsUrl(`/signaling/client/${status.streamId}`)}
+                                background="transparent"
+                            />
+                        </div>
                     ) : !selected ? (
                         <div className="no-signal">
                             <div className="no-signal-icon">◫</div>
@@ -433,7 +511,6 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
                         onChange={e => setParams(p => ({ ...p, streamName: e.target.value }))}
                         onBlur={e => setParams(p => ({ ...p, streamName: e.target.value.trim() }))}
                     />
-                    <span className="field-hint">Это имя увидят все на фронте</span>
                 </div>
 
                 <div className="field-group">
@@ -451,7 +528,6 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
                             }))
                         }
                     />
-                    <span className="field-hint">По нему стрим ищут. Менять без нужды не стоит</span>
                 </div>
 
                 <div className="field-group">
@@ -469,7 +545,23 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
                             if (e.key === 'Enter') commitFps();
                         }}
                     />
-                    <span className="field-hint">Выше 25 упрётся в GPU склейки</span>
+                </div>
+
+                <div className="field-group">
+                    <label className="field-label">Поворот вывода</label>
+                    <div className="rot-seg" role="group" aria-label="Поворот вывода">
+                        {ROTATIONS.map(deg => (
+                            <button
+                                key={deg}
+                                type="button"
+                                aria-pressed={params.rotation === deg}
+                                disabled={!selected}
+                                onClick={() => applyRotation(deg)}
+                            >
+                                {deg}°
+                            </button>
+                        ))}
+                    </div>
                 </div>
 
                 {status.running ? (
@@ -477,9 +569,6 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
                         <button className="btn btn-accent btn-stream streaming" onClick={stop}>
                             ■ Остановить вывод
                         </button>
-                        <span className="field-hint linker-center">
-                            Изменения применятся после перезапуска
-                        </span>
                     </>
                 ) : (
                     <>
@@ -490,13 +579,6 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
                         >
                             {starting ? 'Запуск...' : '▶ Запустить вывод'}
                         </button>
-                        <span className="field-hint linker-center">
-                            {!selected
-                                ? 'Выберите конфигурацию'
-                                : complete
-                                  ? 'Все места заняты'
-                                  : `Осталось назначить ${places - assigned}`}
-                        </span>
                     </>
                 )}
             </aside>

@@ -131,6 +131,13 @@ namespace neural {
 		GMainLoop* m_main_loop = nullptr;
 		std::thread m_gst_loop_thread;
 		std::atomic<bool> m_gst_loop_running{false};
+		/*
+			Флаг выставляется уже внутри нового потока, поэтому сразу после
+			конструктора он ещё ложный. initialize() ждёт сигнала, иначе
+			проигранная гонка планировщика читается как отказ камеры.
+		*/
+		std::mutex m_gst_loop_mutex;
+		std::condition_variable m_gst_loop_cv;
 
 		std::mutex m_init_mutex;
 		std::thread m_init_thread;

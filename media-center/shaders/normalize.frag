@@ -5,13 +5,19 @@ in  vec2 v_uv;
 out vec4 frag;
 
 uniform sampler2D u_accum;
-uniform int u_rotate_ccw;   // 1 повернуть на 90 против часовй
+// Четверти оборота против часовой: 0, 1, 2, 3 — то есть 0, 90, 180, 270
+uniform int u_rotation;
+
+// Обратное преобразование: по точке вывода берём точку исходного канваса
+vec2 rotate_uv(vec2 uv, int quarters) {
+    if (quarters == 1) return vec2(1.0 - uv.y, uv.x);
+    if (quarters == 2) return vec2(1.0 - uv.x, 1.0 - uv.y);
+    if (quarters == 3) return vec2(uv.y, 1.0 - uv.x);
+    return uv;
+}
 
 void main() {
-    vec2 uv = v_uv;
-    if (u_rotate_ccw == 1) {
-        uv = vec2(1.0 - v_uv.y, v_uv.x);
-    }
+    vec2 uv = rotate_uv(v_uv, u_rotation);
 
     vec4 acc = texture(u_accum, uv);
     float w  = acc.a;

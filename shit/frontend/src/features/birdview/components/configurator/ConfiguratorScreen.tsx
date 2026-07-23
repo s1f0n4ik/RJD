@@ -6,6 +6,9 @@ import { attachConfInteract } from './conf-interact';
 import { confSelectTool } from './conf-actions';
 import { ConfiguratorPanel } from './ConfiguratorPanel';
 import { ExportModal } from './ExportModal';
+import { LoadPresetModal } from './LoadPresetModal';
+import { importPreset } from './conf-import';
+import { confDraw as redraw } from './conf-canvas';
 import { useToast } from '../common/Toast';
 
 /** Экран «Конфигуратор». Порт page-4 из birdview.html. */
@@ -28,6 +31,7 @@ export function ConfiguratorScreen({ active }: ConfiguratorScreenProps) {
 
     const [panelOpen, setPanelOpen] = useState(false);
     const [exportOpen, setExportOpen] = useState(false);
+    const [loadOpen, setLoadOpen] = useState(false);
     const showToast = useToast();
     const toastRef = useRef(showToast);
     toastRef.current = showToast;
@@ -81,6 +85,16 @@ export function ConfiguratorScreen({ active }: ConfiguratorScreenProps) {
                             {tool.icon}
                         </button>
                     ))}
+
+                    {/* Загрузка не инструмент рисования, поэтому отделена чертой */}
+                    <span className="conf-tool-sep" />
+                    <button
+                        className="conf-tool-btn"
+                        onClick={() => setLoadOpen(true)}
+                        title="Загрузить сохранённую конфигурацию для правки"
+                    >
+                        ⭳
+                    </button>
                 </div>
 
                 <div className="conf-status-bar">
@@ -101,6 +115,51 @@ export function ConfiguratorScreen({ active }: ConfiguratorScreenProps) {
             <ConfiguratorPanel open={panelOpen} onOpenExport={() => setExportOpen(true)} />
 
             {exportOpen && <ExportModal onClose={() => setExportOpen(false)} />}
+
+            {loadOpen && (
+                <LoadPresetModal
+                    dirty={confState.cameras.length > 0 || confState.zones.length > 0}
+                    onClose={() => setLoadOpen(false)}
+                    onLoad={async key => {
+                        try {
+                            const res = await fetch(
+                                `/linker/preset?key=${encodeURIComponent(key)}`,
+                                { headers: { Accept: 'application/json' } },
+                            );
+                            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+                            const json = await res.json();
+                            const result = await importPreset(json.data ?? json);
+
+                            setLoadOpen(false);
+                            redraw();
+
+                            const parts = [
+                                `${result.cameras} камер`,
+                                `${result.zones} областей`,
+                            ];
+                            if (result.images) parts.push(`${result.images} подложек`);
+
+                            showToast(
+                                'Загружено',
+                                parts.join(', ') +
+                                    (result.missingImages.length
+                                        ? `. Не найдены на сервере: ${result.missingImages.join(', ')}`
+                                        : ''),
+                                // Тост знает только ok, err и info: пропущенные
+                                // подложки — не отказ, но и не полный успех
+                                result.missingImages.length ? 'info' : 'ok',
+                            );
+                        } catch (e) {
+                            showToast(
+                                'Не удалось загрузить',
+                                e instanceof Error ? e.message : String(e),
+                                'err',
+                            );
+                        }
+                    }}
+                />
+            )}
         </main>
     );
 }

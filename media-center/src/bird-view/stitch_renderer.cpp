@@ -10,6 +10,7 @@
 #include <opencv2/opencv.hpp>
 
 #include <boost/json.hpp>
+#include <cmath>
 #include <fstream>
 #include <sstream>
 
@@ -298,13 +299,13 @@ namespace birdview {
         // --- Pass 2: нормализация в текущий внешний FBO ---
         // Возвращаемся в FBO, который установил Linker (context->get_fbo()).
         glBindFramebuffer(GL_FRAMEBUFFER, m_context->get_fbo());
-        glViewport(0, 0, m_rotate_ccw ? m_canvas_h : m_canvas_w, m_rotate_ccw ? m_canvas_w : m_canvas_h);
+        glViewport(0, 0, output_width(), output_height());
 
         m_normalize.use();
         const GLint u_accum = glGetUniformLocation(m_normalize.get_id(), "u_accum");
-        const GLint u_rotate = glGetUniformLocation(m_normalize.get_id(), "u_rotate_ccw");
+        const GLint u_rotate = glGetUniformLocation(m_normalize.get_id(), "u_rotation");
         glUniform1i(u_accum, 0);
-        glUniform1i(u_rotate, m_rotate_ccw ? 1 : 0);
+        glUniform1i(u_rotate, m_rotation);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, m_accum_tex);
 
@@ -321,36 +322,63 @@ namespace birdview {
 
     // Функция для рисовения изображений поверх панорамы
     void UStitchRenderer::render_overlays() {
-        const int vp_w = m_rotate_ccw ? m_canvas_h : m_canvas_w;
-        const int vp_h = m_rotate_ccw ? m_canvas_w : m_canvas_h;
-
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         glBlendEquation(GL_FUNC_ADD);
 
         m_overlay_shader.use();
         const GLint u_tex = glGetUniformLocation(m_overlay_shader.get_id(), "u_tex");
-        const GLint u_rotate = glGetUniformLocation(m_normalize.get_id(), "u_rotate_ccw");
-        //const GLint u_rect = glGetUniformLocation(m_overlay_shader.get_id(), "u_rect");
-        //const GLint u_canvas = glGetUniformLocation(m_overlay_shader.get_id(), "u_canvas");
+        // Положение брали из m_normalize, хотя активен m_overlay_shader:
+        // значение уходило по чужому адресу, и подложка не поворачивалась
+        const GLint u_rotate = glGetUniformLocation(m_overlay_shader.get_id(), "u_rotation");
 
         glUniform1i(u_tex, 0);
-        glUniform1i(u_rotate, m_rotate_ccw ? 1 : 0);
-       // glUniform2f(u_canvas, static_cast<float>(vp_w), static_cast<float>(vp_h));
+        glUniform1i(u_rotate, m_rotation);
+
+        /*
+            Кадр может быть шире канваса: стороны округляются вверх ради
+            кодека, и картинка на эту разницу растягивается. Рамки подложек
+            живут в координатах канваса, поэтому тянутся тем же множителем —
+            иначе подложка съедет относительно того, что под ней.
+        */
+        const int nat_w = rotated_width();
+        const int nat_h = rotated_height();
+        const float sx = nat_w > 0 ? static_cast<float>(output_width()) / nat_w : 1.0f;
+        const float sy = nat_h > 0 ? static_cast<float>(output_height()) / nat_h : 1.0f;
 
         for (const auto& ov : m_overlays) {
             if (!ov.texture) continue;
 
+            /*
+                Рамка подложки задана в координатах канваса, а вьюпорт живёт
+                в координатах вывода. При 1 и 3 четвертях стороны меняются
+                местами, поэтому ширина и высота тоже переставляются.
+            */
             float rx = ov.x, ry = ov.y, rw = ov.width, rh = ov.height;
 
-            if (m_rotate_ccw) {
+            if (m_rotation == 1) {
                 rx = ov.y;
                 ry = m_canvas_w - ov.x - ov.width;
                 rw = ov.height;
                 rh = ov.width;
             }
+            else if (m_rotation == 2) {
+                rx = m_canvas_w - ov.x - ov.width;
+                ry = m_canvas_h - ov.y - ov.height;
+            }
+            else if (m_rotation == 3) {
+                rx = m_canvas_h - ov.y - ov.height;
+                ry = ov.x;
+                rw = ov.height;
+                rh = ov.width;
+            }
 
-            glViewport(rx, ry, rw, rh);
+            glViewport(
+                static_cast<GLint>(std::lround(rx * sx)),
+                static_cast<GLint>(std::lround(ry * sy)),
+                static_cast<GLsizei>(std::lround(rw * sx)),
+                static_cast<GLsizei>(std::lround(rh * sy))
+            );
 
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, ov.texture);

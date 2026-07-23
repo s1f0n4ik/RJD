@@ -131,6 +131,24 @@ namespace varan {
 			}
 		}
 
+		/*
+			Запись элемента как есть, без фильтра allowed_fields().
+
+			Нужна там, где файлом владеет другая система и хранит в нём свои
+			поля: фильтр вычистил бы их при первой же чужой записи. Вызывающий
+			обязан сам собрать запись целиком.
+		*/
+		bool put_json_item(const std::string& key, boost::json::object value) {
+			try {
+				m_json[key] = std::move(value);
+				return true;
+			}
+			catch (const std::exception& error) {
+				log_error("put_json_item(): " + std::string(error.what()));
+				return false;
+			}
+		}
+
 		bool remove_json_item(const std::string& key) {
 			try {
 				if (!m_json.contains(key)) {

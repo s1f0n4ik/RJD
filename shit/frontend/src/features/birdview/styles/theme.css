@@ -10,25 +10,44 @@
 @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap');
 
 .birdview-root {
-    --bv-bg-base:       #0a0a0c;
-    --bv-bg-surface:    #111116;
-    --bv-bg-panel:      #16161d;
-    --bv-bg-input:      #0d0d13;
-    --bv-border:        #252530;
-    --bv-border-bright: #35354a;
+    /*
+      Фоны подняты на пару ступеней с сохранением порядка: база — поле ввода —
+      поверхность — панель. Прежние #0a0a0c и #111116 на стендовом экране
+      различались едва, и страница читалась одной плоскостью.
+    */
+    --bv-bg-base:       #121216;
+    --bv-bg-surface:    #1c1c23;
+    --bv-bg-panel:      #23232c;
+    --bv-bg-input:      #17171d;
+    --bv-border:        #32323f;
+    --bv-border-bright: #45455c;
 
-    --bv-text-primary:  #e8e8f0;
-    --bv-text-secondary:#8888aa;
-    --bv-text-dim:      #44445a;
+    /*
+      Составляющие фонов для полупрозрачных подложек. Раньше такие места
+      несли цвет числом и после осветления остались бы на прежних значениях.
+    */
+    --bv-bg-base-rgb:    18, 18, 22;
+    --bv-bg-surface-rgb: 28, 28, 35;
+    --bv-bg-panel-rgb:   35, 35, 44;
+    --bv-bg-input-rgb:   23, 23, 29;
+    --bv-border-rgb:     50, 50, 63;
 
+    /* Текст поднят вслед за фонами */
+    --bv-text-primary:  #f4f4fa;
+    --bv-text-secondary:#adadd0;
+    --bv-text-dim:      #70708c;
+
+    /* Акцент и зелёный состояния — прежние, они узнаваемы */
     --bv-accent:        #c8ff40;
     --bv-accent-dim:    #8aaf20;
     --bv-accent-glow:   rgba(200,255,64,0.15);
+    /* Составляющие акцента для мест, где нужна своя прозрачность */
+    --bv-accent-rgb:    200, 255, 64;
 
     --bv-ok:            #40ff90;
-    --bv-warn:          #ffcc40;
-    --bv-err:           #ff4060;
-    --bv-info:          #40c8ff;
+    --bv-warn:          #ffd75e;
+    --bv-err:           #ff6076;
+    --bv-info:          #63d4ff;
 
     --bv-font-ui:       'Syne', 'Inter', 'Noto Sans', sans-serif;
     --bv-font-mono:     'Space Mono', monospace;
@@ -49,8 +68,8 @@
     flex-direction: column;
     overflow: hidden;
     background-image:
-            linear-gradient(rgba(37,37,48,0.4) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(37,37,48,0.4) 1px, transparent 1px);
+            linear-gradient(rgba(var(--bv-border-rgb),0.4) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(var(--bv-border-rgb),0.4) 1px, transparent 1px);
     background-size: 32px 32px;
 }
 
@@ -315,7 +334,7 @@
 
 .birdview-root .btn-primary {
     background: var(--bv-accent);
-    color: #0a0a0c;
+    color: var(--bv-bg-base);
     font-weight: 700;
 }
 .birdview-root .btn-primary:hover { background: #d8ff60; box-shadow: 0 0 12px var(--bv-accent-glow); }
@@ -389,7 +408,7 @@
     position: fixed;
     inset: 0;
     z-index: 500;
-    background: rgba(10,10,12,0.75);
+    background: rgba(var(--bv-bg-base-rgb),0.75);
     backdrop-filter: blur(2px);
     display: flex;
     align-items: flex-start;
@@ -440,6 +459,20 @@
     color: var(--bv-text-secondary);
     overflow-wrap: anywhere;
 }
+
+/* Предупреждение о необратимом шаге внутри модалки */
+.birdview-root .modal-text--warn {
+    color: var(--bv-warn);
+    border-left: 2px solid var(--bv-warn);
+    padding-left: 10px;
+}
+
+.birdview-root .btn-danger {
+    background: var(--bv-err);
+    color: var(--bv-bg-base);
+    font-weight: 700;
+}
+.birdview-root .btn-danger:hover { background: #ff5f7a; }
 
 .birdview-root .modal-stat-value {
     font-family: var(--bv-font-mono);
@@ -594,7 +627,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(22,22,29,0.85);
+    background: rgba(var(--bv-bg-panel-rgb),0.85);
     border: 1px solid var(--bv-border);
     border-radius: var(--bv-radius);
     color: var(--bv-text-dim);
@@ -610,7 +643,74 @@
 .birdview-root .conf-tool-btn.active {
     border-color: var(--bv-accent);
     color: var(--bv-accent);
-    background: rgba(200,255,64,0.08);
+    background: rgba(var(--bv-accent-rgb), 0.08);
+}
+
+/* СХЕМА ПРЕСЕТА В МОДАЛКЕ ЗАГРУЗКИ */
+
+.birdview-root .preset-preview-wrap {
+    flex: 1;
+    min-height: 0;
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.birdview-root .preset-preview {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+.birdview-root .preset-preview-empty {
+    font-family: var(--bv-font-mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--bv-text-dim);
+    text-align: center;
+}
+
+.birdview-root .preset-preview-foot {
+    padding: 0 16px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.birdview-root .pp-field {
+    fill: var(--bv-bg-input);
+    stroke: var(--bv-border-bright);
+    stroke-width: 2;
+}
+/* Подложки лежат под всем остальным и не должны спорить с камерами */
+.birdview-root .pp-overlay {
+    fill: rgba(136, 136, 170, 0.08);
+    stroke: var(--bv-border-bright);
+    stroke-width: 1.5;
+}
+.birdview-root .pp-camera {
+    fill: rgba(var(--bv-accent-rgb), 0.07);
+    stroke: var(--bv-accent);
+    stroke-width: 2;
+}
+.birdview-root .pp-zone {
+    fill: rgba(64, 200, 255, 0.16);
+    stroke: var(--bv-info);
+    stroke-width: 1.5;
+}
+.birdview-root .pp-label {
+    font-family: var(--bv-font-mono);
+    fill: var(--bv-text-secondary);
+    pointer-events: none;
+}
+
+/* Отбивка действий от инструментов рисования: они не переключают режим */
+.birdview-root .conf-tool-sep {
+    height: 1px;
+    margin: 2px 4px;
+    background: var(--bv-border);
 }
 
 .birdview-root .conf-status-bar {
@@ -635,7 +735,7 @@
     gap: 8px;
     width: 30px;
     height: 110px;
-    background: rgba(17,17,22,0.75);
+    background: rgba(var(--bv-bg-surface-rgb),0.75);
     border: 1px solid var(--bv-border);
     border-right: none;
     border-radius: var(--bv-radius) 0 0 var(--bv-radius);
@@ -647,7 +747,7 @@
 .birdview-root .conf-panel-tab:hover {
     color: var(--bv-text-primary);
     border-color: var(--bv-border-bright);
-    background: rgba(17,17,22,0.85);
+    background: rgba(var(--bv-bg-surface-rgb),0.85);
 }
 .birdview-root .conf-panel-tab.open {
     right: 300px;
@@ -671,7 +771,7 @@
     right: 0;
     bottom: 0;
     width: 0;
-    background: rgba(17,17,22,0.75);
+    background: rgba(var(--bv-bg-surface-rgb),0.75);
     backdrop-filter: blur(12px);
     border-left: 1px solid var(--bv-border);
     z-index: 20;
@@ -699,7 +799,7 @@
 .birdview-root .conf-section {
     border: 1px solid var(--bv-border);
     border-radius: var(--bv-radius);
-    background: rgba(22,22,29,0.5);
+    background: rgba(var(--bv-bg-panel-rgb),0.5);
     backdrop-filter: blur(4px);
 }
 .birdview-root .conf-section-header {
@@ -740,7 +840,7 @@
     align-items: center;
     gap: 8px;
     padding: 8px 10px;
-    background: rgba(13,13,19,0.6);
+    background: rgba(var(--bv-bg-input-rgb),0.6);
     border: 1px solid var(--bv-border);
     border-radius: calc(var(--bv-radius) - 2px);
     cursor: pointer;
@@ -752,7 +852,7 @@
 .birdview-root .conf-item:hover { border-color: var(--bv-border-bright); }
 .birdview-root .conf-item.selected {
     border-color: var(--bv-accent);
-    background: rgba(200,255,64,0.06);
+    background: rgba(var(--bv-accent-rgb), 0.06);
     color: var(--bv-accent);
 }
 
@@ -796,7 +896,7 @@
 }
 .birdview-root .conf-item-edit {
     padding: 8px 10px 10px;
-    background: rgba(13,13,19,0.5);
+    background: rgba(var(--bv-bg-input-rgb),0.5);
     border: 1px solid var(--bv-border);
     border-top: none;
     border-radius: 0 0 var(--bv-radius) var(--bv-radius);
@@ -806,9 +906,9 @@
     padding: 5px 8px;
 }
 .birdview-root .conf-item-wrap:has(.conf-item.selected) {
-    border: 1px solid rgba(200,255,64,0.3);
+    border: 1px solid rgba(var(--bv-accent-rgb), 0.3);
     border-radius: var(--bv-radius);
-    background: rgba(200,255,64,0.04);
+    background: rgba(var(--bv-accent-rgb), 0.04);
 }
 .birdview-root .conf-item-wrap:has(.conf-item.selected) .conf-item {
     border-color: transparent;
@@ -823,7 +923,7 @@
     font-family: var(--bv-font-mono);
     font-size: 10px;
     color: var(--bv-accent);
-    background: rgba(200,255,64,0.1);
+    background: rgba(var(--bv-accent-rgb), 0.1);
     padding: 2px 8px;
     border-radius: 10px;
 }
@@ -1055,7 +1155,79 @@
 
 .birdview-root .linker-layout {
     grid-template-columns: var(--bv-sidebar-w) 1fr 280px !important;
+    position: relative;
+    transition: grid-template-columns 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
+
+/* Список конфигураций убирается: схеме на узком канвасе нужна ширина */
+.birdview-root .linker-layout.aside-hidden {
+    grid-template-columns: 0 1fr 280px !important;
+}
+.birdview-root .linker-layout.aside-hidden > .linker-aside:first-of-type {
+    opacity: 0;
+    pointer-events: none;
+    padding-left: 0;
+    padding-right: 0;
+}
+
+/* Язычок повторяет повадку ящика настроек на сборке */
+.birdview-root .linker-aside-tab {
+    position: absolute;
+    left: 0; top: 50%;
+    transform: translateY(-50%);
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 24px;
+    height: 120px;
+    background: var(--bv-bg-surface);
+    border: 1px solid var(--bv-border);
+    border-left: none;
+    border-radius: 0 var(--bv-radius) var(--bv-radius) 0;
+    color: var(--bv-text-dim);
+    cursor: pointer;
+    transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1), color 0.15s, border-color 0.15s;
+}
+.birdview-root .linker-aside-tab:hover {
+    color: var(--bv-text-primary);
+    border-color: var(--bv-border-bright);
+}
+.birdview-root .linker-aside-tab.open {
+    left: var(--bv-sidebar-w);
+    border-color: var(--bv-accent);
+    color: var(--bv-accent);
+}
+
+/* Поворот вывода: четыре угла, выбор в одно нажатие */
+.birdview-root .rot-seg {
+    display: flex;
+    gap: 4px;
+}
+.birdview-root .rot-seg button {
+    flex: 1;
+    font-family: var(--bv-font-mono);
+    font-size: 11px;
+    background: var(--bv-bg-input);
+    border: 1px solid var(--bv-border);
+    color: var(--bv-text-secondary);
+    padding: 6px 0;
+    border-radius: var(--bv-radius);
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.birdview-root .rot-seg button:hover:not(:disabled) {
+    border-color: var(--bv-border-bright);
+    color: var(--bv-text-primary);
+}
+.birdview-root .rot-seg button[aria-pressed="true"] {
+    border-color: var(--bv-accent);
+    color: var(--bv-accent);
+    background: var(--bv-accent-glow);
+}
+.birdview-root .rot-seg button:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .birdview-root .linker-aside {
     gap: 8px;
@@ -1306,6 +1478,12 @@
     justify-content: center;
 }
 
+/* Плеер задаёт только высоту — ширину даём мы, иначе он схлопнется */
+.birdview-root .linker-player {
+    position: absolute;
+    inset: 0;
+}
+
 .birdview-root .linker-warn {
     font-family: var(--bv-font-mono);
     font-size: 11px;
@@ -1345,7 +1523,7 @@
 .birdview-root .plan-place-shape {
     fill: rgba(68, 68, 90, 0.18);
     stroke: var(--bv-text-dim);
-    stroke-width: 2;
+    stroke-width: 1.5;
     stroke-dasharray: 7 5;
     transition: fill 0.18s, stroke 0.18s;
 }
@@ -1355,23 +1533,51 @@
     stroke-dasharray: none;
 }
 .birdview-root .plan-place:not(.locked):hover .plan-place-shape {
-    fill: rgba(200, 255, 64, 0.10);
+    fill: rgba(var(--bv-accent-rgb), 0.10);
     stroke: var(--bv-accent);
 }
 .birdview-root .plan-place.active .plan-place-shape,
 .birdview-root .plan-place:focus-visible .plan-place-shape {
     stroke: var(--bv-accent);
-    stroke-width: 3;
+    stroke-width: 2;
 }
 .birdview-root .plan-place:focus { outline: none; }
 
+/*
+  Метки на схеме держатся общей типографики: моноширинный с разрядкой, как
+  все технические подписи темы. Кегль задаётся в разметке от размера канваса —
+  он бывает и 570, и 1850 в стороне.
+*/
+.birdview-root .plan-place-title {
+    font-family: var(--bv-font-mono);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    fill: var(--bv-text-dim);
+    pointer-events: none;
+}
+.birdview-root .plan-place.assigned .plan-place-title { fill: var(--bv-accent-dim); }
+
 .birdview-root .plan-place-cam {
-    font-family: var(--bv-font-ui);
-    font-size: 13px;
+    font-family: var(--bv-font-mono);
+    letter-spacing: 0.02em;
     fill: var(--bv-text-dim);
     pointer-events: none;
 }
 .birdview-root .plan-place.assigned .plan-place-cam { fill: var(--bv-text-primary); }
+
+/* Подложка: габарит с именем файла, чтобы было ясно, что это за прямоугольник */
+.birdview-root .plan-overlay-kind,
+.birdview-root .plan-overlay-name {
+    font-family: var(--bv-font-mono);
+    pointer-events: none;
+}
+.birdview-root .plan-overlay-kind {
+    letter-spacing: 0.16em;
+    fill: var(--bv-text-dim);
+}
+.birdview-root .plan-overlay-name {
+    fill: var(--bv-text-secondary);
+}
 
 .birdview-root .plan-picker {
     position: absolute;
@@ -1436,22 +1642,6 @@
     flex-shrink: 0;
 }
 
-.birdview-root .plan-real-toggle {
-    position: absolute;
-    left: 14px;
-    bottom: 10px;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-family: var(--bv-font-mono);
-    font-size: 10px;
-    letter-spacing: 0.08em;
-    color: var(--bv-text-dim);
-    cursor: pointer;
-    user-select: none;
-}
-.birdview-root .plan-real-toggle:hover { color: var(--bv-text-secondary); }
-.birdview-root .plan-real-toggle input { accent-color: var(--bv-accent); margin: 0; }
 
 .birdview-root .linker-page {
     flex: 1;
@@ -1488,7 +1678,7 @@
     background: var(--bv-accent-glow);
     cursor: pointer;
 }
-.birdview-root .linker-stream-pill.active:hover { background: rgba(200,255,64,0.22); }
+.birdview-root .linker-stream-pill.active:hover { background: rgba(var(--bv-accent-rgb), 0.22); }
 
 .birdview-root .linker-stream-pill-dot {
     width: 8px; height: 8px;
@@ -1724,7 +1914,7 @@
 
 .birdview-root .panel-block--hidden {
     border-color: transparent;
-    background: rgba(22, 22, 29, 0.5);
+    background: rgba(var(--bv-bg-panel-rgb), 0.5);
     overflow: hidden;
     max-height: 46px;
     transition:
@@ -1832,7 +2022,7 @@
 
 .birdview-root .btn-calibrate {
     background: var(--bv-accent);
-    color: #0a0a0c;
+    color: var(--bv-bg-base);
     font-weight: 700;
     font-size: 14px;
     padding: 6px 12px;
@@ -1911,7 +2101,7 @@
     display: flex;
     gap: 8px;
     padding: 2px 0;
-    border-bottom: 1px solid rgba(37,37,48,0.5);
+    border-bottom: 1px solid rgba(var(--bv-border-rgb),0.5);
     flex-shrink: 0;
 }
 .birdview-root .log-time { color: var(--bv-text-dim); flex-shrink: 0; }
@@ -2043,7 +2233,7 @@
     align-items: center;
     gap: 6px;
     padding: 4px 10px;
-    background: rgba(10, 10, 12, 0.75);
+    background: rgba(var(--bv-bg-base-rgb), 0.75);
     border: 1px solid var(--bv-accent);
     border-radius: 4px;
     font-family: var(--bv-font-mono);
@@ -2159,7 +2349,7 @@
 
 .birdview-root .cal-overlay {
     position: absolute; inset: 0; z-index: 20;
-    background: rgba(10,10,12,0.92);
+    background: rgba(var(--bv-bg-base-rgb),0.92);
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
     gap: 14px; padding: 20px;

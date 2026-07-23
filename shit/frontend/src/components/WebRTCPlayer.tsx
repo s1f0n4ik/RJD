@@ -46,6 +46,12 @@ interface WebRTCPlayerProps {
     onTracks?:      (tracks: Track[]) => void;
     /** Опционально: состояние соединения наружу, для своих индикаторов. */
     onStatusChange?: (info: PlayerStatusInfo) => void;
+    /**
+     * Фон подложки. По умолчанию чёрный — так плеер выглядел всегда.
+     * 'transparent' отдаёт фон странице: на тёмных экранах birdview чёрный
+     * прямоугольник во время подключения выбивается из окружения.
+     */
+    background?: string;
 }
 
 const STREAM_ERROR_MESSAGES: Record<string, string> = {
@@ -61,7 +67,7 @@ const getStreamErrorMessage = (error_code: string): string => {
     return STREAM_ERROR_MESSAGES[error_code] ?? `Ошибка потока: ${error_code}`;
 };
 
-const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signalingUrl, onError, onDetections, onTracks, onStatusChange }) => {
+const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signalingUrl, onError, onDetections, onTracks, onStatusChange, background = 'black' }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const [status, setStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
     const [errorMsg, setErrorMsg] = useState<string>('');
@@ -608,9 +614,12 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
 
     return (
         <Paper
+            elevation={background === 'transparent' ? 0 : 1}
             sx={{
                 position: 'relative',
-                bgcolor: 'black',
+                bgcolor: background,
+                // Без ширины Paper как flex-элемент схлопывается по содержимому
+                width: '100%',
                 overflow: 'hidden',
                 height: '100%',
                 display: 'flex',

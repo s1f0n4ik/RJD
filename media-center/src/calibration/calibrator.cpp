@@ -139,6 +139,21 @@ namespace calibration {
 				return;
 			}
 			else if (type == constants::TYPE_CLOSE) {
+				/*
+					Два повода закрыться, и они не равны.
+
+					Кнопка «Закрыть стрим» завершает сессию — набор снимков
+					больше не нужен. Уход оператора со страницы и страховка
+					брокера гасят только тяжёлую часть: поток обработки и
+					пайплайн. Снимки при этом ничего не считают и не греют
+					процессор, а потерять их значит потерять полчаса работы
+					со щитом.
+				*/
+				bool keep_images = false;
+				if (auto* v = meta->if_contains(constants::META_KEEP_IMAGES); v && v->is_bool()) {
+					keep_images = v->as_bool();
+				}
+
 				stop_handler_thread();
 				if (m_streamer) {
 					m_streamer->stop();
@@ -146,9 +161,15 @@ namespace calibration {
 					// и пайплайн GStreamer утекает при каждом закрытии
 					m_streamer.reset();
 				}
+
 				send_message(make_socket_message(type, true, &client_id, &m_name));
-				m_calibration_images.clear();
-				m_logger.info("on_signaling_message(): close request suggested!");
+
+				if (!keep_images) {
+					m_calibration_images.clear();
+				}
+
+				m_logger.info(std::string("on_signaling_message(): close request suggested")
+					+ (keep_images ? ", dataset kept" : ", dataset cleared"));
 				return;
 			}
 			else if (type == constants::TYPE_SET_PATTERN) {
@@ -1085,6 +1106,8 @@ namespace calibration {
 				return;
 			}
 
+			// Ключ задаёт оператор: на одну камеру нужно несколько конфигураций,
+			// например под разный обзор. Без него — прежнее правило из id и разрешения
 			std::string key;
 			if (auto* v = meta.if_contains(constants::META_CONFIGURATION_CONFIG_KEY); v && v->is_string()) {
 				key = v->as_string();
@@ -1093,11 +1116,30 @@ namespace calibration {
 				key = UJsonCalibrationConfiguration::make_item_key(m_camera_id, m_raw_image.width, m_raw_image.height);
 			}
 
+			if (key.empty()) {
+				if (on_error) on_error(constants::TYPE_CALIBRATION_CONFIGURATION,
+					"Error: save configuration: <config_key> cannot be empty!", &client_id);
+				return;
+			}
+			for (char c : key) {
+				const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+					|| (c >= '0' && c <= '9') || c == '_' || c == '-';
+				if (!ok) {
+					if (on_error) on_error(constants::TYPE_CALIBRATION_CONFIGURATION,
+						"Error: save configuration: <config_key> allows only a-z, A-Z, 0-9, _, -", &client_id);
+					return;
+				}
+			}
+
 			boost::json::object obj_t;
 			// обязательные поля
 			obj_t[constants::JSON_ID] = m_camera_id;
 			obj_t[constants::JSON_WIDTH] = m_raw_image.width;
 			obj_t[constants::JSON_HEIGHT] = m_raw_image.height;
+
+			if (auto* v = meta.if_contains(constants::JSON_NAME); v && v->is_string()) {
+				obj_t[constants::JSON_NAME] = v->as_string();
+			}
 
 			// Если есть паттерн
 			if (m_pattern.recieved) {
@@ -1136,7 +1178,9 @@ namespace calibration {
 
 			boost::json::object send_meta;
 			send_meta[constants::META_CONFIGURATION_METHOD] = constants::METHOD_CONFIGURATION_SAVE;
+			send_meta[constants::META_CONFIGURATION_CONFIG_KEY] = key;
 			send_message(make_socket_message(constants::TYPE_CALIBRATION_CONFIGURATION, true, &client_id, &m_name, &send_meta));
+			m_logger.info("handle_calibration_configuration(): saved configuration <" + key + ">");
 			return;
 		}
 		else if (method == constants::METHOD_CONFIGURATION_LOAD) {

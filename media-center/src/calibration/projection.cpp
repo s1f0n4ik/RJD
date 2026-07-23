@@ -935,6 +935,10 @@ namespace calibration {
             cam_obj["remap"] = (std::filesystem::path(id) / remap_name).generic_string();
             cam_obj["weight"] = (std::filesystem::path(id) / weight_name).generic_string();
 
+            // Имя места из пресета. По нему линкер показывает, какую камеру куда
+            // ставить: ключи вроде left_front оператору ничего не говорят
+            cam_obj[constants::PROJ_CAM_NAME] = cam.name;
+
             // Место камеры на канвасе прямоугольником: по нему линкер рисует схему
             // назначения. Считаем здесь, а не на клиенте, потому что полигоны
             // за пределы этого файла не выходят.

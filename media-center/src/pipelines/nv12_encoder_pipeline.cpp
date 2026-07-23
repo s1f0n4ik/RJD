@@ -199,8 +199,25 @@ bool UNV12EncodingPipeline::create_webrtc_session(const std::string& client_id, 
 }
 
 void UNV12EncodingPipeline::set_stream_size(int width, int height, int fps) {
-	m_width = width;
-	m_height = height;
+	/*
+		Размер выравнивается здесь, а не только у вызывающих.
+
+		Невыровненную ширину RGA внутри кодека отвергает и уводит ядро в
+		перезагрузку, а размер сюда приходит из трёх разных мест. Правило
+		дешевле держать в одном — на границе, за которой начинается железо.
+	*/
+	const int aligned_w = varan::align_frame_side(width);
+	const int aligned_h = varan::align_frame_side(height);
+
+	if ((aligned_w != width || aligned_h != height) && m_logger) {
+		m_logger->warn("set_stream_size(): " + std::to_string(width) + "x" + std::to_string(height) +
+			" aligned to " + std::to_string(aligned_w) + "x" + std::to_string(aligned_h));
+	}
+
+	m_width = aligned_w;
+	m_height = aligned_h;
+	m_src_width = width;
+	m_src_height = height;
 	m_fps = fps;
 	m_is_set = true;
 }
@@ -219,12 +236,22 @@ void UNV12EncodingPipeline::push_frame(cv::Mat frame) {
 	}
 	auto& ref_frame = frame.empty() ? m_cached_frame : frame;
 
-	if (ref_frame.cols != m_width || ref_frame.rows != m_height) {
+	/*
+		Кадр может прийти невыровненным: размер потока округлён вверх, а
+		вызывающий об этом знать не обязан. Тогда кадр кладётся в угол
+		выровненного буфера, остаток остаётся чёрным. Отбрасывать такой
+		кадр нельзя — поток встанет молча.
+	*/
+	const bool exact = ref_frame.cols == m_width && ref_frame.rows == m_height;
+	const bool paddable = ref_frame.cols == m_src_width && ref_frame.rows == m_src_height
+		&& ref_frame.cols <= m_width && ref_frame.rows <= m_height;
+
+	if (!exact && !paddable) {
 		if (m_logger) m_logger->trace("push_frame(): Убейся ебанат, ты кидаешь фрейм, который не соответствует размеру потока!");
 		return;
 	}
 
-	const size_t buf_size = ref_frame.cols * ref_frame.rows * 4;
+	const size_t buf_size = static_cast<size_t>(m_width) * m_height * 4;
 	GstBuffer* buffer = gst_buffer_new_allocate(nullptr, buf_size, nullptr);
 	if (!buffer) {
 		if (m_logger) m_logger->error("push_frame(): Failed to allocate GstBuffer");
@@ -239,8 +266,31 @@ void UNV12EncodingPipeline::push_frame(cv::Mat frame) {
 	}
 
 	// Просто копируем — frame уже RGBA из glReadPixels
-	std::memcpy(map.data, ref_frame.data, buf_size);
+	if (exact) {
+		std::memcpy(map.data, ref_frame.data, buf_size);
+	}
+	else {
+		std::memset(map.data, 0, buf_size);
+		const size_t dst_stride = static_cast<size_t>(m_width) * 4;
+		const size_t src_stride = static_cast<size_t>(ref_frame.cols) * 4;
+		for (int y = 0; y < ref_frame.rows; ++y) {
+			std::memcpy(map.data + y * dst_stride, ref_frame.ptr(y), src_stride);
+		}
+	}
 	gst_buffer_unmap(buffer, &map);
+
+	/*
+		Шаг строки проставляем явно. Без метаданных элементы ниже считают
+		его сами, и на невыровненной ширине RGA получает шаг, которого не
+		принимает, — а падает при этом не поток, а вся плата.
+	*/
+	gst_buffer_add_video_meta(
+		buffer,
+		GST_VIDEO_FRAME_FLAG_NONE,
+		GST_VIDEO_FORMAT_RGBA,
+		static_cast<guint>(m_width),
+		static_cast<guint>(m_height)
+	);
 
 	// Прописываем pts, чтобы не ломался поток
 	//const GstClockTime pts = gst_util_uint64_scale(m_frame_count, GST_SECOND, m_fps);

@@ -112,28 +112,55 @@ namespace calibration {
 
 		// ===== Запись пресета из структуры в json =====
 
+		/*
+			Запись пресета.
+
+			Файл принадлежит конфигуратору, и в нём лежит его модель целиком —
+			имена зон, шаг сетки, масштаб экспорта. Калибратор приходит сюда
+			только чтобы положить src_points. Поэтому запись правится точечно:
+			известные поля обновляются, всё остальное остаётся как было.
+
+			Сборка объекта заново вместе с фильтром allowed_fields() стирала бы
+			чужие поля при первом же apply_warp.
+		*/
 		bool save_preset(const FProjectionPreset& preset) {
 			try {
 				boost::json::object obj;
+				if (auto it = m_json.find(preset.key); it != m_json.end() && it->value().is_object()) {
+					obj = it->value().as_object();
+				}
+
 				obj[constants::PROJ_NAME] = preset.name;
 				obj[constants::PROJ_CANVAS] = serialize_size(preset.canvas_size);
 
+				// Камеры тоже сливаем: у камеры могут быть поля конфигуратора,
+				// которых нет в FProjectionCamera
 				boost::json::object cameras_obj;
+				if (auto* prev = obj.if_contains(constants::PROJ_CAMERAS); prev && prev->is_object()) {
+					cameras_obj = prev->as_object();
+				}
+
 				for (const auto& [position, cam] : preset.cameras) {
 					// Камеру с незнакомым ключом не выбрасываем: load_preset их читает,
 					// и запись убрала бы её из файла вместе со всей геометрией
 					if (!is_valid_position(position)) {
 						log_warn("save_preset(): unknown camera_key <" + position + ">");
 					}
-					cameras_obj[position] = serialize_camera(cam);
+
+					boost::json::object cam_obj;
+					if (auto* prev_cam = cameras_obj.if_contains(position); prev_cam && prev_cam->is_object()) {
+						cam_obj = prev_cam->as_object();
+					}
+					merge_camera(cam_obj, cam);
+					cameras_obj[position] = std::move(cam_obj);
 				}
 				obj[constants::PROJ_CAMERAS] = std::move(cameras_obj);
 
 				if (!preset.images.empty()) {
-					obj["images"] = serialize_images(preset.images);
+					obj[constants::PROJ_IMAGES] = serialize_images(preset.images);
 				}
 
-				return add_json_item(preset.key, std::move(obj));
+				return put_json_item(preset.key, std::move(obj));
 			}
 			catch (const std::exception& error) {
 				log_error("save_preset(): " + std::string(error.what()));
@@ -264,12 +291,22 @@ namespace calibration {
 				return {};
 			}
 
+			/*
+				Путь собираем из имени, а сохранённый в записи игнорируем.
+
+				Каталог картинок один и известен, а абсолютный путь в пресете
+				устаревает при любом переезде хранилища: записи, сделанные до
+				него, указывают в никуда. Так лечатся все разом, без правки
+				данных на машине.
+			*/
+			info.path = constants::PROJECTION_IMAGES_PATH / info.name;
+
 			if (auto* p = img_obj.if_contains("path"); p && p->is_string()) {
-				info.path = p->as_string().c_str();
-			}
-			if (info.path.empty()) {
-				info.path = constants::PROJECTION_IMAGES_PATH / info.name;
-				if (logger) logger->debug("parse_image()[" + std::to_string(idx) + "]: path not set, default: " + info.path.string());
+				const std::filesystem::path stored{ p->as_string().c_str() };
+				if (!stored.empty() && stored != info.path && logger) {
+					logger->debug("parse_image()[" + std::to_string(idx) + "]: stored path <"
+						+ stored.string() + "> ignored, using " + info.path.string());
+				}
 			}
 
 			if (auto* r = img_obj.if_contains("rect"); r && r->is_array()) {
@@ -337,13 +374,23 @@ namespace calibration {
 			return arr;
 		}
 
-		static boost::json::object serialize_camera(const FProjectionCamera& cam) {
-			boost::json::object o;
+		/*
+			Обновление известных полей камеры внутри существующего объекта.
+
+			Имя пишется всегда: по нему другие страницы показывают, какую камеру
+			куда ставить, и потерять его нельзя. Незнакомые поля не трогаются.
+		*/
+		static void merge_camera(boost::json::object& o, const FProjectionCamera& cam) {
 			o[constants::PROJ_CAM_KEY] = cam.key;
 			o[constants::PROJ_CAM_NAME] = cam.name;
 			o[constants::PROJ_SRC_POINTS] = serialize_points(cam.src_points);
 			o[constants::PROJ_DST_POINTS] = serialize_points(cam.dst_points);
 			o[constants::PROJ_CANVAS_REGION] = serialize_points(cam.canvas_region);
+		}
+
+		static boost::json::object serialize_camera(const FProjectionCamera& cam) {
+			boost::json::object o;
+			merge_camera(o, cam);
 			return o;
 		}
 

@@ -3,6 +3,8 @@
 #include <string>
 #include <filesystem>
 
+#include "calibration/constants.h"
+
 namespace varan {
 namespace birdview {
 namespace constants {
@@ -43,8 +45,10 @@ namespace constants {
 	inline const std::filesystem::path overlay_fsh = "shaders/overlay.frag";       // "shaders/normalize.frag"
 	inline const std::filesystem::path overlay_vsh = "shaders/overlay.vert";       // "shaders/normalize.frag"
 
-	inline const std::filesystem::path LINKER_CONFIGURATIONS = "/home/orangepi/varan/calibration/projection.json";     // "/home/orangepi/varan/calibration/projection.json"
-	inline const std::filesystem::path LINKER_IMAGES_PATH = "/home/orangepi/varan/calibration/images";                 // "/home/orangepi/varan/calibration/images"
+	// Пресеты конфигуратора и их картинки. Раньше эти пути были продублированы
+	// здесь строкой — два имени на один файл расходились при любой правке
+	inline const std::filesystem::path LINKER_CONFIGURATIONS = calibration::constants::PROJECTION_CONFIGURES_PATH;
+	inline const std::filesystem::path LINKER_IMAGES_PATH    = calibration::constants::PROJECTION_IMAGES_PATH;
 	 
 	inline const std::filesystem::path current_shader_path(const std::filesystem::path& shader) {
 		return std::filesystem::current_path() / shader;

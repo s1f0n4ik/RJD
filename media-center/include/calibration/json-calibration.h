@@ -54,6 +54,13 @@ namespace calibration {
 					item[JSON_ID] = obj.at(JSON_ID);
 					item[JSON_WIDTH] = obj.at(JSON_WIDTH);
 					item[JSON_HEIGHT] = obj.at(JSON_HEIGHT);
+
+					// Своё имя конфигурации. У записей, сделанных до его появления,
+					// его нет — клиент подставит ключ
+					if (auto* n = obj.if_contains(JSON_NAME); n && n->is_string()) {
+						item[JSON_NAME] = *n;
+					}
+
 					result.push_back(item);
 				}
 			}
@@ -152,7 +159,7 @@ namespace calibration {
 
 		const std::unordered_set<std::string>& allowed_fields() const override {
 			static const std::unordered_set<std::string> fields = {
-				JSON_ID, JSON_WIDTH, JSON_HEIGHT,
+				JSON_ID, JSON_NAME, JSON_WIDTH, JSON_HEIGHT,
 				JSON_PATTERN_SIZE, JSON_PATTERN_WIDTH, JSON_PATTERN_HEIGHT,
 				JSON_RMS, JSON_ALPHA, JSON_ZOOM, JSON_SHIFT_X, JSON_SHIFT_Y,
 				JSON_CAMERA_MATRIX, JSON_DISTORTION_COEFFS,

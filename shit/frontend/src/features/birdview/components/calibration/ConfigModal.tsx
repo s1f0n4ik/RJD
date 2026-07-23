@@ -6,6 +6,8 @@ import { fetchCameraNames } from '../../api/cameras';
 export interface ConfigSummary {
     id: string;
     config_key?: string;
+    /** Своё имя конфигурации. У записей до его появления отсутствует. */
+    name?: string;
     width?: number;
     height?: number;
 }
@@ -79,9 +81,11 @@ export function ConfigModal({
                                         className={`config-list-item${selectedId === key ? ' selected' : ''}`}
                                         onClick={() => onSelect(key)}
                                     >
-                                        <span className="config-item-name">{names[cfg.id] ?? cfg.id}</span>
+                                        <span className="config-item-name">
+                                            {cfg.name || names[cfg.id] || cfg.id}
+                                        </span>
                                         <span className="config-item-sub">
-                                            {cfg.id} · {cfg.width ?? '—'}×{cfg.height ?? '—'}
+                                            {key} · {names[cfg.id] ?? cfg.id} · {cfg.width ?? '—'}×{cfg.height ?? '—'}
                                         </span>
                                     </div>
                                 );

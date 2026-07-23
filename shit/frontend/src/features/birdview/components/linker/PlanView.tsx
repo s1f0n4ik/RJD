@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { PlanGeometry } from './plan-geometry';
+import type { PlanGeometry, Rect } from './plan-geometry';
 import type { LinkerBindings, LinkerCamera } from '../../api/linker';
 
 /**
@@ -21,7 +21,6 @@ interface PlanViewProps {
 
 export function PlanView({ geometry, bindings, cameras, locked, onAssign }: PlanViewProps) {
     const [openKey, setOpenKey] = useState<string | null>(null);
-    const [showReal, setShowReal] = useState(false);
     const hostRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -47,6 +46,24 @@ export function PlanView({ geometry, bindings, cameras, locked, onAssign }: Plan
     const nameOf = (id: string) => cameras.find(c => c.id === id)?.display_name ?? id;
     const open = geometry.tiles.find(t => t.key === openKey) ?? null;
 
+    // Отправная точка кегля: канвасы бывают и 570, и 1850 в стороне, и
+    // фиксированный размер в одном случае теряется, в другом закрывает всё
+    const label = Math.max(geometry.view.width, geometry.view.height) * 0.022;
+
+    /**
+     * Кегль, при котором надпись помещается в свою рамку.
+     *
+     * Единый размер на всю схему не годится: узкое место получает текст
+     * шире себя, и он вылезает за границы. Измерить строку без DOM нельзя,
+     * поэтому считаем по моноширинному шагу — примерно 0.6 кегля на знак.
+     */
+    const fit = (text: string, box: Rect, cap = label) => {
+        if (!text) return cap;
+        const byWidth = (box.w * 0.88) / (text.length * 0.6);
+        const byHeight = box.h * 0.22;
+        return Math.max(1, Math.min(cap, byWidth, byHeight));
+    };
+
     return (
         <div className="plan-host" ref={hostRef}>
             <svg
@@ -56,24 +73,64 @@ export function PlanView({ geometry, bindings, cameras, locked, onAssign }: Plan
                 role="group"
                 aria-label="Схема мест камер"
             >
-                {geometry.overlays.map((rect, i) => (
-                    <rect
-                        key={`ov-${i}`}
-                        className="plan-overlay"
-                        x={rect.x}
-                        y={rect.y}
-                        width={rect.w}
-                        height={rect.h}
-                        rx={Math.min(rect.w, rect.h) * 0.06}
-                    />
-                ))}
+                {geometry.overlays.map((ov, i) => {
+                    const cx = ov.rect.x + ov.rect.w / 2;
+                    const cy = ov.rect.y + ov.rect.h / 2;
+
+                    const kindSize = fit('ГАБАРИТ', ov.rect, label * 0.72);
+                    const nameSize = fit(ov.name, ov.rect, label * 0.86);
+                    // На мелкой рамке подпись превратится в нечитаемую кашу
+                    const roomy = Math.min(kindSize, nameSize) > label * 0.3;
+
+                    return (
+                        <g key={`ov-${i}`} className="plan-overlay-group">
+                            <rect
+                                className="plan-overlay"
+                                x={ov.rect.x}
+                                y={ov.rect.y}
+                                width={ov.rect.w}
+                                height={ov.rect.h}
+                                rx={Math.min(ov.rect.w, ov.rect.h) * 0.06}
+                            />
+                            {roomy && (
+                                <>
+                                    <text
+                                        className="plan-overlay-kind"
+                                        x={cx}
+                                        y={cy - nameSize * 0.55}
+                                        textAnchor="middle"
+                                        style={{ fontSize: kindSize }}
+                                    >
+                                        ГАБАРИТ
+                                    </text>
+                                    <text
+                                        className="plan-overlay-name"
+                                        x={cx}
+                                        y={cy + nameSize * 0.9}
+                                        textAnchor="middle"
+                                        style={{ fontSize: nameSize }}
+                                    >
+                                        {ov.name}
+                                    </text>
+                                </>
+                            )}
+                        </g>
+                    );
+                })}
 
                 {geometry.tiles.map(t => {
-                    const rect = showReal ? t.real : t.tile;
-                    const pad = showReal ? 0 : 4;
+                    const rect = t.rect;
                     const camera = bindings[t.key];
                     const cx = rect.x + rect.w / 2;
                     const cy = rect.y + rect.h / 2;
+
+                    const camText = camera ? nameOf(camera) : 'не назначена';
+                    // Оба ярлыка живут в одной рамке, поэтому кегль берём
+                    // общий по худшему из них — иначе строки разъедутся
+                    const size = Math.min(
+                        fit(t.name, rect, label * 0.78),
+                        fit(camText, rect, label),
+                    );
 
                     return (
                         <g
@@ -86,7 +143,7 @@ export function PlanView({ geometry, bindings, cameras, locked, onAssign }: Plan
                             }
                             tabIndex={locked ? -1 : 0}
                             role="button"
-                            aria-label={`Место ${t.key}`}
+                            aria-label={`Место ${t.name}`}
                             onClick={() => !locked && setOpenKey(k => (k === t.key ? null : t.key))}
                             onKeyDown={e => {
                                 if (locked) return;
@@ -98,14 +155,29 @@ export function PlanView({ geometry, bindings, cameras, locked, onAssign }: Plan
                         >
                             <rect
                                 className="plan-place-shape"
-                                x={rect.x + pad}
-                                y={rect.y + pad}
-                                width={Math.max(1, rect.w - pad * 2)}
-                                height={Math.max(1, rect.h - pad * 2)}
+                                x={rect.x}
+                                y={rect.y}
+                                width={rect.w}
+                                height={rect.h}
                                 rx={8}
                             />
-                            <text className="plan-place-cam" x={cx} y={cy + 5} textAnchor="middle">
-                                {camera ? nameOf(camera) : 'не назначена'}
+                            <text
+                                className="plan-place-title"
+                                x={cx}
+                                y={cy - size * 0.45}
+                                textAnchor="middle"
+                                style={{ fontSize: size * 0.82 }}
+                            >
+                                {t.name}
+                            </text>
+                            <text
+                                className="plan-place-cam"
+                                x={cx}
+                                y={cy + size}
+                                textAnchor="middle"
+                                style={{ fontSize: size }}
+                            >
+                                {camText}
                             </text>
                         </g>
                     );
@@ -114,7 +186,7 @@ export function PlanView({ geometry, bindings, cameras, locked, onAssign }: Plan
 
             {open && !locked && (
                 <PlacePicker
-                    title={open.key}
+                    title={open.name}
                     cameras={cameras}
                     bindings={bindings}
                     placeKey={open.key}
@@ -125,14 +197,6 @@ export function PlanView({ geometry, bindings, cameras, locked, onAssign }: Plan
                 />
             )}
 
-            <label className="plan-real-toggle">
-                <input
-                    type="checkbox"
-                    checked={showReal}
-                    onChange={e => setShowReal(e.target.checked)}
-                />
-                реальные зоны с нахлёстом
-            </label>
         </div>
     );
 }
