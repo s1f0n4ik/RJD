@@ -755,6 +755,34 @@ namespace calibration {
         return true;
     }
 
+    /*
+        Прямоугольник места камеры на канвасе.
+
+        Запасное правило то же, что в build_warp_extras(): если canvas_region
+        пуст, зону задают dst_points. Иначе схема назначения на экране линкера
+        осталась бы пустой там, где склейка прекрасно работает.
+    */
+    static cv::Rect region_of(const FProjectionCamera& cam) {
+        const auto& pts = !cam.canvas_region.empty() ? cam.canvas_region : cam.dst_points;
+        if (pts.empty()) return {};
+
+        float min_x = pts[0].x, max_x = pts[0].x;
+        float min_y = pts[0].y, max_y = pts[0].y;
+        for (const auto& p : pts) {
+            min_x = std::min(min_x, p.x);
+            max_x = std::max(max_x, p.x);
+            min_y = std::min(min_y, p.y);
+            max_y = std::max(max_y, p.y);
+        }
+
+        return cv::Rect(
+            cvRound(min_x),
+            cvRound(min_y),
+            cvRound(max_x - min_x),
+            cvRound(max_y - min_y)
+        );
+    }
+
     bool UCalibrator::save_stitching_export(
         const std::filesystem::path& export_root,
         const std::string& id,
@@ -906,6 +934,23 @@ namespace calibration {
             boost::json::object cam_obj;
             cam_obj["remap"] = (std::filesystem::path(id) / remap_name).generic_string();
             cam_obj["weight"] = (std::filesystem::path(id) / weight_name).generic_string();
+
+            // Место камеры на канвасе прямоугольником: по нему линкер рисует схему
+            // назначения. Считаем здесь, а не на клиенте, потому что полигоны
+            // за пределы этого файла не выходят.
+            cv::Rect region = region_of(cam);
+            if (region.width > 0 && region.height > 0) {
+                boost::json::array r;
+                r.emplace_back(region.x);
+                r.emplace_back(region.y);
+                r.emplace_back(region.width);
+                r.emplace_back(region.height);
+                cam_obj["region"] = std::move(r);
+            }
+            else {
+                m_logger.warn("save_stitching_export(): no region for <" + cam_key + ">");
+            }
+
             cameras_json[cam_key] = std::move(cam_obj);
             ++exported;
 

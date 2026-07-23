@@ -42,6 +42,8 @@ URestServer::URestServer(
         [linker_ctrl](const auto& r) { return linker_ctrl->get_exports(r); });
     m_router->add_route(http::verb::get, "/linker/export",
         [linker_ctrl](const auto& r) { return linker_ctrl->get_export(r); });
+    m_router->add_route(http::verb::delete_, "/linker/export",
+        [linker_ctrl](const auto& r) { return linker_ctrl->delete_export(r); });
     m_router->add_route(http::verb::get, "/linker/state", 
         [linker_ctrl](const auto& r) { return linker_ctrl->get_state(r); });
     m_router->add_route(http::verb::post, "/linker/state", 

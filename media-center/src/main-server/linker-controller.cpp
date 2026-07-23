@@ -99,6 +99,7 @@ ULinkerController::post_state(const http::request<http::string_body>& req)
 
     std::string export_id;
     std::unordered_map<std::string, std::string> bindings;
+    varan::birdview::ULinker::FStreamParams params;
 
     try {
         auto v = boost::json::parse(req.body());
@@ -124,14 +125,55 @@ ULinkerController::post_state(const http::request<http::string_body>& req)
                 }
             }
         }
+
+        // Параметры запуска необязательны: без них остаются прежние
+        if (auto* f = obj.if_contains("fps"); f && f->is_int64()) {
+            const auto fps = f->as_int64();
+            if (fps < 1 || fps > 60) {
+                return json_error(m_logger, req, http::status::bad_request,
+                    "fps must be within 1..60", tag);
+            }
+            params.fps = static_cast<uint32_t>(fps);
+        }
+        if (auto* s = obj.if_contains("stream_id"); s && s->is_string()) {
+            params.stream_id = s->as_string().c_str();
+        }
+        if (auto* s = obj.if_contains("stream_name"); s && s->is_string()) {
+            params.stream_name = s->as_string().c_str();
+        }
     }
     catch (const std::exception& e) {
         return json_error(m_logger, req, http::status::bad_request, e.what(), tag);
     }
 
-    if (!m_linker->write_state(export_id, bindings)) {
+    if (!m_linker->write_state(export_id, bindings, params)) {
         return json_error(m_logger, req, http::status::bad_request, "invalid state", tag);
     }
+    return json_ok(m_logger, req, boost::json::object{}, tag);
+}
+
+// ─── DELETE /linker/export?id=XXX ───────────────────────────
+http::response<http::string_body>
+ULinkerController::delete_export(const http::request<http::string_body>& req)
+{
+    const std::string tag = "DELETE /linker/export";
+    log_request(m_logger, req, tag);
+
+    auto id = get_query_param(std::string(req.target()), "id");
+    if (!id || id->empty()) {
+        return json_error(m_logger, req, http::status::bad_request, "missing id", tag);
+    }
+
+    std::string error;
+    if (!m_linker->delete_export(*id, error)) {
+        // Запущенную конфигурацию удалять нельзя — это не ошибка сервера,
+        // а конфликт состояния, и клиент должен его показать как есть
+        const auto status = error.find("is running") != std::string::npos
+            ? http::status::conflict
+            : http::status::bad_request;
+        return json_error(m_logger, req, status, error, tag);
+    }
+
     return json_ok(m_logger, req, boost::json::object{}, tag);
 }
 
@@ -144,9 +186,14 @@ ULinkerController::get_status(const http::request<http::string_body>& req)
 
     try {
         boost::json::object data;
+        const auto params = m_linker->get_stream_params();
+
         data["running"] = m_linker->is_running();
         data["export_id"] = m_linker->get_active_export_id();
-        data["stream_id"] = m_linker->get_stream_id();
+        // Пока поток не поднят, get_stream_id() пуст — отдаём то, с чем он стартует
+        data["stream_id"] = m_linker->is_running() ? m_linker->get_stream_id() : params.stream_id;
+        data["stream_name"] = params.stream_name;
+        data["fps"] = static_cast<int64_t>(params.fps);
 
         boost::json::object body;
         body["data"] = std::move(data);
@@ -214,9 +261,12 @@ ULinkerController::get_export(const http::request<http::string_body>& req) {
             return json_error(m_logger, req, http::status::bad_request, "missing id parameter", tag);
         }
 
-        auto index_path = m_linker->get_configurations_path();
+        // Индекс экспортов, а не пресеты проекции: здесь ищут по export_id,
+        // и list_exports() читает именно этот файл
+        auto index_path = m_linker->get_exports_index_path();
         if (!std::filesystem::exists(index_path)) {
-            return json_error(m_logger, req, http::status::not_found, "configuration file not found", tag);
+            return json_error(m_logger, req, http::status::not_found,
+                "exports index not found at " + index_path.string(), tag);
         }
 
         std::ifstream file(index_path);

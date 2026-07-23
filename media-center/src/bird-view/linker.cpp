@@ -36,52 +36,142 @@ namespace birdview {
 		stop();
 	}
 
-	bool ULinker::reload_from_state() {
-		// 1) Парсим save-файл.
-		std::filesystem::path state_path = m_exports_root / m_state_index;
-		if (!std::filesystem::exists(state_path)) {
-			m_logger.warn("reload_from_state(): no state file at " + state_path.string());
-			return false;
-		}
+	std::filesystem::path ULinker::state_path() const {
+		return m_exports_root / m_state_index;
+	}
 
-		std::string export_id_from_state;
-		NCamerasPurpose desired;
+	/*
+		Состояние — словарь по export_id:
 
-		try {
-			std::ifstream f(state_path);
-			std::stringstream ss; ss << f.rdbuf();
-			auto v = boost::json::parse(ss.str());
-			if (!v.is_object()) {
-				m_logger.error("reload_from_state(): bad state root");
-				return false;
-			}
-			const auto& root = v.as_object();
-
-			if (auto* eid = root.if_contains("export_id"); eid && eid->is_string()) {
-				export_id_from_state = eid->as_string();
-			}
-			if (auto* cams = root.if_contains("cameras"); cams && cams->is_object()) {
-				for (const auto& [k, val] : cams->as_object()) {
-					if (val.is_string()) {
-						desired[std::string(k)] = std::string(val.as_string().c_str());
-					}
-					else {
-						desired[std::string(k)] = std::nullopt;
-					}
+		{
+			"active": "<export_id>",
+			"configs": {
+				"<export_id>": {
+					"cameras": { "<key>": "<camera_id>" | null },
+					"fps": 15,
+					"stream_id": "...",
+					"stream_name": "..."
 				}
 			}
 		}
+
+		Старый формат из одной записи { export_id, cameras } читается и
+		приводится к этому виду: иначе обновление потеряло бы уже настроенные
+		привязки, а их набивают руками по шесть камер.
+	*/
+	boost::json::object ULinker::read_state_root() const {
+		boost::json::object empty;
+		empty["active"] = "";
+		empty["configs"] = boost::json::object();
+
+		const auto path = state_path();
+		if (!std::filesystem::exists(path)) return empty;
+
+		try {
+			std::ifstream f(path);
+			std::stringstream ss; ss << f.rdbuf();
+			auto v = boost::json::parse(ss.str());
+			if (!v.is_object()) return empty;
+
+			auto root = v.as_object();
+
+			// Уже новый формат
+			if (root.contains("configs") && root.at("configs").is_object()) {
+				if (!root.contains("active")) root["active"] = "";
+				return root;
+			}
+
+			// Старый формат: одна активная запись
+			std::string old_id;
+			if (auto* eid = root.if_contains("export_id"); eid && eid->is_string()) {
+				old_id = eid->as_string().c_str();
+			}
+			if (old_id.empty()) return empty;
+
+			boost::json::object entry;
+			if (auto* cams = root.if_contains("cameras"); cams && cams->is_object()) {
+				entry["cameras"] = *cams;
+			}
+			else {
+				entry["cameras"] = boost::json::object();
+			}
+
+			boost::json::object configs;
+			configs[old_id] = std::move(entry);
+
+			boost::json::object migrated;
+			migrated["active"] = old_id;
+			migrated["configs"] = std::move(configs);
+			return migrated;
+		}
 		catch (const std::exception& e) {
-			m_logger.error("reload_from_state(): " + std::string(e.what()));
+			m_logger.error("read_state_root(): " + std::string(e.what()));
+			return empty;
+		}
+	}
+
+	bool ULinker::reload_from_state() {
+		auto root = read_state_root();
+
+		std::string export_id_from_state;
+		if (auto* a = root.if_contains("active"); a && a->is_string()) {
+			export_id_from_state = a->as_string().c_str();
+		}
+		if (export_id_from_state.empty()) {
+			m_logger.warn("reload_from_state(): no active configuration");
 			return false;
 		}
 
-		if (export_id_from_state.empty()) {
-			m_logger.warn("reload_from_state(): export_id is empty");
+		const auto& configs = root.at("configs").as_object();
+		auto it = configs.find(export_id_from_state);
+		if (it == configs.end() || !it->value().is_object()) {
+			m_logger.warn("reload_from_state(): no entry for <" + export_id_from_state + ">");
 			return false;
+		}
+		const auto& entry = it->value().as_object();
+
+		NCamerasPurpose desired;
+		if (auto* cams = entry.if_contains("cameras"); cams && cams->is_object()) {
+			for (const auto& [k, val] : cams->as_object()) {
+				if (val.is_string()) {
+					desired[std::string(k)] = std::string(val.as_string().c_str());
+				}
+				else {
+					desired[std::string(k)] = std::nullopt;
+				}
+			}
+		}
+
+		FStreamParams params;
+		if (auto* v = entry.if_contains("fps"); v && v->is_int64()) {
+			params.fps = static_cast<uint32_t>(v->as_int64());
+		}
+		if (auto* v = entry.if_contains("stream_id"); v && v->is_string()) {
+			params.stream_id = v->as_string().c_str();
+		}
+		if (auto* v = entry.if_contains("stream_name"); v && v->is_string()) {
+			params.stream_name = v->as_string().c_str();
+		}
+
+		{
+			std::lock_guard<std::mutex> lk(m_mutex);
+			m_params = params;
 		}
 
 		return apply_export(export_id_from_state, std::move(desired));
+	}
+
+	ULinker::FStreamParams ULinker::get_stream_params() const {
+		std::lock_guard<std::mutex> lk(m_mutex);
+		FStreamParams out = m_params;
+		if (out.fps == 0) out.fps = m_fps;
+		if (out.stream_id.empty()) out.stream_id = constants::VIRTUAL_CAMERA_ID;
+		return out;
+	}
+
+	std::string ULinker::get_stream_name() const {
+		std::lock_guard<std::mutex> lk(m_mutex);
+		return m_params.stream_name;
 	}
 
 	bool ULinker::apply_export(const std::string& export_id, NCamerasPurpose desired_bindings) {
@@ -169,39 +259,43 @@ namespace birdview {
 	}
 
 	boost::json::object ULinker::get_state_raw() {
-		boost::json::object result;
-		try {
-			if (!std::filesystem::exists(m_state_index)) return result;
-			std::ifstream f(m_state_index);
-			std::stringstream ss; ss << f.rdbuf();
-			auto v = boost::json::parse(ss.str());
-			if (v.is_object()) result = v.as_object();
-		}
-		catch (const std::exception& e) {
-			m_logger.error("get_state_raw(): " + std::string(e.what()));
-		}
-		return result;
+		// Читаем тем же путём, что и reload_from_state(): раньше здесь стояло
+		// голое m_state_index, то есть путь относительно рабочего каталога,
+		// и ручка состояния почти всегда отдавала пустоту
+		return read_state_root();
 	}
 
-	bool ULinker::write_state(const std::string& export_id, const std::unordered_map<std::string, std::string>& bindings) {
+	bool ULinker::write_state(
+		const std::string& export_id,
+		const std::unordered_map<std::string, std::string>& bindings,
+		const FStreamParams& params)
+	{
 		if (export_id.empty()) {
 			m_logger.error("write_state(): empty export_id");
 			return false;
 		}
 		try {
-			boost::json::object root;
-			root["export_id"] = export_id;
+			auto root = read_state_root();
+			auto configs = root.at("configs").as_object();
 
+			boost::json::object entry;
 			boost::json::object cams;
 			for (const auto& [k, v] : bindings) {
 				if (v.empty()) cams[k] = nullptr;
 				else           cams[k] = v;
 			}
-			root["cameras"] = std::move(cams);
+			entry["cameras"] = std::move(cams);
+			if (params.fps > 0) entry["fps"] = static_cast<int64_t>(params.fps);
+			if (!params.stream_id.empty()) entry["stream_id"] = params.stream_id;
+			if (!params.stream_name.empty()) entry["stream_name"] = params.stream_name;
 
-			auto state_path = calib_consts::LINKER_CONFIGURES_ROOT / calib_consts::LINKER_STATE_INDEX;
-			std::filesystem::create_directories(calib_consts::LINKER_CONFIGURES_ROOT);
-			std::ofstream f(state_path);
+			configs[export_id] = std::move(entry);
+
+			root["configs"] = std::move(configs);
+			root["active"] = export_id;
+
+			std::filesystem::create_directories(m_exports_root);
+			std::ofstream f(state_path());
 			f << boost::json::serialize(root);
 		}
 		catch (const std::exception& e) {
@@ -211,6 +305,96 @@ namespace birdview {
 
 		m_logger.info("write_state(): persisted, export_id=" + export_id);
 		return reload_from_state();
+	}
+
+	bool ULinker::delete_export(const std::string& export_id, std::string& error) {
+		if (export_id.empty()) {
+			error = "empty export_id";
+			return false;
+		}
+
+		// Каталог карт читает работающий поток, снести его из-под него нельзя
+		if (m_running.load() && get_active_export_id() == export_id) {
+			error = "configuration <" + export_id + "> is running, stop the output first";
+			return false;
+		}
+
+		// id уходит в путь: допускаем только то же, что пропускает handle_save_lut
+		for (char c : export_id) {
+			const bool ok = (c >= 'a' && c <= 'z')
+				|| (c >= 'A' && c <= 'Z')
+				|| (c >= '0' && c <= '9')
+				|| c == '_' || c == '-';
+			if (!ok) {
+				error = "id contains invalid characters";
+				return false;
+			}
+		}
+
+		try {
+			// 1) Запись в индексе экспортов
+			const auto index_path = m_exports_root / m_exports_index_json;
+			if (std::filesystem::exists(index_path)) {
+				std::ifstream f(index_path);
+				std::stringstream ss; ss << f.rdbuf();
+				f.close();
+
+				auto v = boost::json::parse(ss.str());
+				if (v.is_object()) {
+					auto root = v.as_object();
+					if (!root.contains(export_id)) {
+						error = "export <" + export_id + "> not found";
+						return false;
+					}
+					root.erase(export_id);
+					std::ofstream out(index_path);
+					out << boost::json::serialize(root);
+				}
+			}
+			else {
+				error = "exports index not found";
+				return false;
+			}
+
+			// 2) Каталог с картами remap и weight
+			const auto dir = m_exports_root / export_id;
+			if (std::filesystem::exists(dir)) {
+				std::filesystem::remove_all(dir);
+			}
+
+			// 3) Привязки и параметры этой конфигурации
+			auto state = read_state_root();
+			auto configs = state.at("configs").as_object();
+			configs.erase(export_id);
+
+			std::string active;
+			if (auto* a = state.if_contains("active"); a && a->is_string()) {
+				active = a->as_string().c_str();
+			}
+			if (active == export_id) state["active"] = "";
+
+			state["configs"] = std::move(configs);
+			std::ofstream sf(state_path());
+			sf << boost::json::serialize(state);
+		}
+		catch (const std::exception& e) {
+			error = e.what();
+			m_logger.error("delete_export(): " + error);
+			return false;
+		}
+
+		{
+			std::lock_guard<std::mutex> lk(m_mutex);
+			if (m_export_id == export_id) {
+				m_export_id.clear();
+				m_camera_keys.clear();
+				m_cameras_purpose.clear();
+				m_params = FStreamParams{};
+			}
+		}
+
+		m_logger.info("delete_export(): removed <" + export_id + ">");
+		return true;
 	}
 
 	ULinker::NLinkSpace ULinker::create_linking_space() {
@@ -353,8 +537,12 @@ namespace birdview {
 			return;
 		}
 
-		// Запуск вирутальной камеры
-		m_stream_id = constants::VIRTUAL_CAMERA_ID;
+		// Запуск вирутальной камеры. Идентификатор и частота берутся из настроек
+		// активной конфигурации; без них остаются прежние значения по умолчанию
+		const auto params = get_stream_params();
+		m_stream_id = params.stream_id;
+		fps = params.fps;
+
 		m_streamer = std::make_unique<neural::UVirtualCamera>(m_stream_id, m_websocket);
 		if (!m_streamer) {
 			m_logger.error("processing_loop(): streamer didn't create");
@@ -419,6 +607,10 @@ namespace birdview {
 
 	std::filesystem::path ULinker::get_configurations_path() {
 		return constants::LINKER_CONFIGURATIONS;
+	}
+
+	std::filesystem::path ULinker::get_exports_index_path() const {
+		return m_exports_root / m_exports_index_json;
 	}
 
 	std::filesystem::path ULinker::get_images_list_path() {

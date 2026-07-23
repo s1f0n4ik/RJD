@@ -1047,9 +1047,411 @@
 
 /* LINKER */
 
+/*
+  Экран вывода: конфигурации слева, схема назначения в центре, параметры
+  справа. Схема рисуется прямоугольниками мест из самой конфигурации, поэтому
+  ключи камер вроде left_front в интерфейс не попадают.
+*/
+
 .birdview-root .linker-layout {
-    grid-template-columns: 1fr !important;
+    grid-template-columns: var(--bv-sidebar-w) 1fr 280px !important;
 }
+
+.birdview-root .linker-aside {
+    gap: 8px;
+    min-height: 0;
+}
+
+.birdview-root .col-title {
+    font-family: var(--bv-font-mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--bv-text-secondary);
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--bv-border);
+    flex-shrink: 0;
+}
+
+/*
+  .field-group растягивается (flex: 1), чтобы поля в .field-row делили ширину
+  поровну. В колоночном сайдбаре то же правило растягивает их по высоте, и
+  между полями появляются провалы в пол-экрана. Здесь рост отключаем.
+*/
+.birdview-root .linker-aside .field-group { flex: 0 0 auto; }
+
+.birdview-root .linker-aside .field-hint {
+    font-family: var(--bv-font-mono);
+    font-size: 10px;
+    line-height: 1.4;
+    color: var(--bv-text-dim);
+}
+
+/* Отбивка блока действий от полей */
+.birdview-root .linker-aside .btn { margin-top: 8px; }
+.birdview-root .linker-aside .btn + .field-hint { margin-top: 6px; }
+
+.birdview-root .linker-empty {
+    font-family: var(--bv-font-mono);
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--bv-text-dim);
+    padding: 12px 2px;
+}
+
+/* Список конфигураций прокручивается сам, а не растит сайдбар */
+.birdview-root .linker-cfg-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    overflow-y: auto;
+    min-height: 0;
+    scrollbar-width: thin;
+    scrollbar-color: var(--bv-border) transparent;
+}
+
+.birdview-root .linker-cfg {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 9px 10px;
+    background: var(--bv-bg-input);
+    border: 1px solid var(--bv-border);
+    border-radius: var(--bv-radius);
+    cursor: pointer;
+    transition: border-color 0.15s;
+}
+.birdview-root .linker-cfg:hover { border-color: var(--bv-border-bright); }
+.birdview-root .linker-cfg.on { border-color: var(--bv-accent); }
+
+.birdview-root .linker-cfg-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    border: 1.5px solid var(--bv-border-bright);
+    box-sizing: border-box;
+    flex-shrink: 0;
+}
+.birdview-root .linker-cfg.on .linker-cfg-dot {
+    border-color: var(--bv-accent);
+    background: var(--bv-accent);
+}
+
+.birdview-root .linker-cfg-body { flex: 1; min-width: 0; }
+.birdview-root .linker-cfg-name {
+    display: block;
+    font-size: 12.5px;
+    color: var(--bv-text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.birdview-root .linker-cfg.on .linker-cfg-name { color: var(--bv-text-primary); }
+.birdview-root .linker-cfg-meta {
+    display: block;
+    font-family: var(--bv-font-mono);
+    font-size: 10px;
+    color: var(--bv-text-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.birdview-root .linker-cfg-live {
+    font-family: var(--bv-font-mono);
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    color: var(--bv-ok);
+    border: 1px solid var(--bv-ok);
+    border-radius: 3px;
+    padding: 1px 5px;
+    flex-shrink: 0;
+}
+
+/* Крестик прячется до наведения: удаление необратимо, и мозолить им глаз незачем */
+.birdview-root .linker-cfg-del {
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    color: var(--bv-text-dim);
+    cursor: pointer;
+    font-family: var(--bv-font-mono);
+    font-size: 12px;
+    line-height: 1;
+    opacity: 0;
+    transition: opacity 0.15s, color 0.15s, border-color 0.15s;
+}
+.birdview-root .linker-cfg:hover .linker-cfg-del,
+.birdview-root .linker-cfg-del:focus-visible { opacity: 1; }
+.birdview-root .linker-cfg-del:hover:not(:disabled) {
+    color: var(--bv-err);
+    border-color: var(--bv-err);
+}
+.birdview-root .linker-cfg-del:disabled { cursor: not-allowed; }
+
+.birdview-root .linker-kv {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 5px 0;
+    border-top: 1px solid var(--bv-border);
+    flex-shrink: 0;
+}
+.birdview-root .linker-kv-k {
+    font-family: var(--bv-font-mono);
+    font-size: 11px;
+    color: var(--bv-text-dim);
+}
+.birdview-root .linker-kv-v {
+    font-family: var(--bv-font-mono);
+    font-size: 11px;
+    color: var(--bv-text-primary);
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.birdview-root .linker-kv-v.ok { color: var(--bv-ok); }
+
+.birdview-root .linker-stage-pane {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 16px;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.birdview-root .linker-stage-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.birdview-root .linker-progress {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 140px;
+    font-family: var(--bv-font-mono);
+    font-size: 11px;
+    color: var(--bv-text-dim);
+}
+.birdview-root .linker-progress-n {
+    color: var(--bv-text-primary);
+    font-variant-numeric: tabular-nums;
+}
+.birdview-root .linker-progress-bar {
+    flex: 1;
+    height: 3px;
+    background: var(--bv-bg-input);
+    border-radius: 2px;
+    overflow: hidden;
+}
+.birdview-root .linker-progress-fill {
+    display: block;
+    height: 100%;
+    background: var(--bv-accent);
+    transition: width 0.3s ease;
+}
+
+.birdview-root .view-seg {
+    display: inline-flex;
+    background: var(--bv-bg-input);
+    border: 1px solid var(--bv-border);
+    border-radius: var(--bv-radius);
+    padding: 3px;
+    gap: 3px;
+    flex-shrink: 0;
+}
+.birdview-root .view-seg button {
+    font-family: var(--bv-font-mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    background: transparent;
+    border: none;
+    color: var(--bv-text-secondary);
+    padding: 5px 11px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+.birdview-root .view-seg button:hover:not(:disabled) { color: var(--bv-text-primary); }
+.birdview-root .view-seg button[aria-pressed="true"] {
+    background: var(--bv-accent-glow);
+    color: var(--bv-accent);
+}
+.birdview-root .view-seg button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.birdview-root .linker-stage {
+    flex: 1;
+    min-height: 0;
+    position: relative;
+    background: var(--bv-bg-input);
+    border: 1px solid var(--bv-border);
+    border-radius: var(--bv-radius);
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.birdview-root .linker-warn {
+    font-family: var(--bv-font-mono);
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--bv-warn);
+    overflow-wrap: anywhere;
+}
+
+.birdview-root .linker-center { text-align: center; }
+
+/* СХЕМА НАЗНАЧЕНИЯ */
+
+.birdview-root .plan-host {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    padding: 14px;
+    box-sizing: border-box;
+}
+
+.birdview-root .plan-svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+/* Подложка из images конфигурации: контур машины под следами камер */
+.birdview-root .plan-overlay {
+    fill: rgba(136, 136, 170, 0.07);
+    stroke: var(--bv-border-bright);
+    stroke-width: 1.5;
+}
+
+.birdview-root .plan-place { cursor: pointer; }
+.birdview-root .plan-place.locked { cursor: default; }
+
+.birdview-root .plan-place-shape {
+    fill: rgba(68, 68, 90, 0.18);
+    stroke: var(--bv-text-dim);
+    stroke-width: 2;
+    stroke-dasharray: 7 5;
+    transition: fill 0.18s, stroke 0.18s;
+}
+.birdview-root .plan-place.assigned .plan-place-shape {
+    fill: var(--bv-accent-glow);
+    stroke: var(--bv-accent);
+    stroke-dasharray: none;
+}
+.birdview-root .plan-place:not(.locked):hover .plan-place-shape {
+    fill: rgba(200, 255, 64, 0.10);
+    stroke: var(--bv-accent);
+}
+.birdview-root .plan-place.active .plan-place-shape,
+.birdview-root .plan-place:focus-visible .plan-place-shape {
+    stroke: var(--bv-accent);
+    stroke-width: 3;
+}
+.birdview-root .plan-place:focus { outline: none; }
+
+.birdview-root .plan-place-cam {
+    font-family: var(--bv-font-ui);
+    font-size: 13px;
+    fill: var(--bv-text-dim);
+    pointer-events: none;
+}
+.birdview-root .plan-place.assigned .plan-place-cam { fill: var(--bv-text-primary); }
+
+.birdview-root .plan-picker {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 5;
+    min-width: 200px;
+    max-height: 80%;
+    overflow-y: auto;
+    background: var(--bv-bg-panel);
+    border: 1px solid var(--bv-border-bright);
+    border-radius: var(--bv-radius);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
+    padding: 5px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--bv-border) transparent;
+}
+.birdview-root .plan-picker-head {
+    font-family: var(--bv-font-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--bv-text-dim);
+    padding: 7px 9px 8px;
+    border-bottom: 1px solid var(--bv-border);
+    margin-bottom: 4px;
+}
+.birdview-root .plan-picker-empty {
+    font-family: var(--bv-font-mono);
+    font-size: 11px;
+    color: var(--bv-text-dim);
+    text-align: center;
+    padding: 14px 8px;
+}
+.birdview-root .plan-picker-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    padding: 7px 9px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--bv-text-secondary);
+    font-family: var(--bv-font-ui);
+    font-size: 12.5px;
+    text-align: left;
+    cursor: pointer;
+}
+.birdview-root .plan-picker-item:hover {
+    background: var(--bv-bg-input);
+    color: var(--bv-text-primary);
+}
+.birdview-root .plan-picker-item.taken { color: var(--bv-text-dim); }
+.birdview-root .plan-picker-item.clear { color: var(--bv-err); }
+.birdview-root .plan-picker-note {
+    font-family: var(--bv-font-mono);
+    font-size: 10px;
+    color: var(--bv-text-dim);
+    flex-shrink: 0;
+}
+
+.birdview-root .plan-real-toggle {
+    position: absolute;
+    left: 14px;
+    bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--bv-font-mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    color: var(--bv-text-dim);
+    cursor: pointer;
+    user-select: none;
+}
+.birdview-root .plan-real-toggle:hover { color: var(--bv-text-secondary); }
+.birdview-root .plan-real-toggle input { accent-color: var(--bv-accent); margin: 0; }
 
 .birdview-root .linker-page {
     flex: 1;

@@ -12,10 +12,11 @@
 	GET    /linker/exports  → список stitching-конфигов (id, name, cameras keys)
 	GET    /linker/state    → текущий save-файл (export_id, cameras, stream_id)
 	POST   /linker/state    → перезаписать save-файл (Линкер сам зовёт reload_from_state)
-	GET    /linker/status   → { running, export_id }
+	GET    /linker/status   → { running, export_id, stream_id, stream_name, fps }
 	POST   /linker/start    → запустить, если не запущен
 	POST   /linker/restart  → stop + reload + start
 	POST   /linker/stop     → остановить
+	DELETE /linker/export   → удалить конфигурацию целиком (запись, карты, настройки)
 */
 class ULinkerController {
 public:
@@ -44,6 +45,9 @@ public:
 
 	boost::beast::http::response<boost::beast::http::string_body>
 		post_stop(const boost::beast::http::request<boost::beast::http::string_body>& req);
+
+	boost::beast::http::response<boost::beast::http::string_body>
+		delete_export(const boost::beast::http::request<boost::beast::http::string_body>& req);
 
 	boost::beast::http::response<boost::beast::http::string_body>
 		post_exports(const boost::beast::http::request<boost::beast::http::string_body>& req);
