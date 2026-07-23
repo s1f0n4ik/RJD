@@ -7,6 +7,8 @@
 #include <string>
 #include <functional>
 #include <thread>
+#include <memory>
+#include <utility>
 #include <filesystem>
 
 #include <gst/gst.h>
@@ -60,6 +62,59 @@ protected:
 		bool use_probe_handler;
 	};
 
+	// Владелец наблюдателя за шиной, снимается вместе с областью видимости
+	// У пробной трубы локальный, у основного конвейера поле объекта
+	class FBusWatch {
+	public:
+		FBusWatch() = default;
+
+		FBusWatch(guint id, std::shared_ptr<FBusWatchContext> ctx)
+			: m_id(id)
+			, m_ctx(std::move(ctx))
+		{}
+
+		FBusWatch(const FBusWatch&) = delete;
+		FBusWatch& operator=(const FBusWatch&) = delete;
+
+		FBusWatch(FBusWatch&& other) noexcept { swap(other); }
+
+		FBusWatch& operator=(FBusWatch&& other) noexcept {
+			if (this != &other) {
+				reset();
+				swap(other);
+			}
+			return *this;
+		}
+
+		~FBusWatch() { reset(); }
+
+		void reset() {
+			if (m_ctx) {
+				std::lock_guard<std::mutex> lock(m_ctx->mutex);
+				// После этой строки колбэк уже не тронет мёртвый объект
+				m_ctx->pipeline = nullptr;
+			}
+
+			if (m_id) {
+				g_source_remove(m_id);
+				m_id = 0;
+			}
+
+			m_ctx.reset();
+		}
+
+		explicit operator bool() const { return m_id != 0; }
+
+	private:
+		void swap(FBusWatch& other) noexcept {
+			std::swap(m_id, other.m_id);
+			m_ctx.swap(other.m_ctx);
+		}
+
+		guint m_id = 0;
+		std::shared_ptr<FBusWatchContext> m_ctx;
+	};
+
 public:
 	UCameraPipeline(
 		const FPipelineConfig& parameters,
@@ -108,7 +163,8 @@ protected:
 
 	virtual void restart_loop();
 
-	void setup_bus_watch(GstElement* pipeline, bool use_probe_handler = false);
+	// Возвращает владельца: у кого он лежит, тот и снимает
+	[[nodiscard]] FBusWatch setup_bus_watch(GstElement* pipeline, bool use_probe_handler = false);
 
 	// Логика для обработки ошибок
 	virtual void on_bus_error(const std::string& error_code, const std::string& description, bool is_probe = false);
@@ -123,9 +179,8 @@ protected:
 protected:
 	GstElement* m_pipeline = nullptr;
 
-	// Структура шины
-	std::shared_ptr<FBusWatchContext> m_bus_ctx;
-	guint m_bus_watch_id = 0;
+	// Наблюдатель за шиной основного конвейера. У пробника свой, локальный
+	FBusWatch m_bus_watch;
 
 	// Словарь веток, которые есть в пайплайне
 	// Ключ - название ветки

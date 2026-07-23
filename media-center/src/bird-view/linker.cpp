@@ -634,13 +634,7 @@ namespace birdview {
 		const int degrees = resolve_rotation();
 		renderer.set_rotation(degrees / 90);
 
-		/*
-			Стороны кадра округляются вверх до кратного FRAME_ALIGNMENT.
-
-			Невыровненную ширину RGA внутри кодека не принимает и уводит
-			ядро в перезагрузку, поэтому размер правится до того, как кадр
-			куда-либо уйдёт. Картинка на разницу растягивается.
-		*/
+		// Стороны округляются вверх до FRAME_ALIGNMENT, картинка растягивается
 		const int outW = align_frame_side(renderer.rotated_width());
 		const int outH = align_frame_side(renderer.rotated_height());
 		renderer.set_output_size(outW, outH);

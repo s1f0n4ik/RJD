@@ -47,6 +47,36 @@ export interface CPPCamera {
   };
 }
 
+// Кто собрал поток
+export type StreamProducer = 'birdview' | 'neural';
+
+// Поток поверх камер: сборка 360 или нейронный слот
+export interface VirtualStream {
+    // Совпадает с id комнаты сигналинга
+    id: string;
+    // Может быть пустым, тогда показывается id
+    name: string;
+    producer: StreamProducer;
+    // id конфигурации сборки или конфигурации нейросети
+    source_id: string;
+    source_name: string;
+    // Камеры источника, без повторов
+    cameras: string[];
+    // Нули - вывода ещё не было
+    width: number;
+    height: number;
+    running: boolean;
+}
+
+// Общий минимум камеры и потока, всё, что нужно сетке и киоску
+export interface StreamSource {
+    id: string;
+    name: string;
+    active: boolean;
+    // Что внутри потока, у камеры пусто
+    detail?: string;
+}
+
 export interface NeuralLoader {
   loader_name: string;
   server_endpoint: string;

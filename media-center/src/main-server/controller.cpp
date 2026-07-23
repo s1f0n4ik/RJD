@@ -20,6 +20,10 @@ UController::UController(std::shared_ptr<UMediaCenter> media_center, ULogger* lo
     , m_logger(logger)
 {}
 
+void UController::set_virtual_streams_provider(CVirtualStreamsProvider provider) {
+    m_virtual_streams = std::move(provider);
+}
+
 // GET /camera?name=XXX
 http::response<http::string_body>
 UController::get_camera(const http::request<http::string_body>& req)
@@ -73,6 +77,12 @@ UController::get_camera(const http::request<http::string_body>& req)
             }
             data[fields::CAMERAS] = cameras.empty() ? boost::json::value(nullptr) : cameras;
         }
+
+        // Только для запроса всего списка, выборка по id спрашивает про камеру
+        if (selectors.empty() && m_virtual_streams) {
+            data[fields::VIRTUAL_STREAMS] = m_virtual_streams();
+        }
+
         // Собираем итоговый
         body = create_answer_message(data, std::nullopt, std::nullopt);
         const std::string body_str = json::serialize(body);

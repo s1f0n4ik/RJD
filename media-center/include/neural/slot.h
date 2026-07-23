@@ -53,6 +53,13 @@ namespace neural {
 
         const std::string& config_id() const { return m_config.id; }
         const std::string& stream_id() const { return m_stream_id; }
+        const std::string& stream_name() const { return m_stream_name; }
+
+        // Размер кадра в эфире. Известен только после первого кадра: слот
+        // создаёт вывод под тот размер, что пришёл. Нули — вывода ещё не было
+        int stream_width() const { return m_stream_width.load(); }
+        int stream_height() const { return m_stream_height.load(); }
+
         const FCameraMatrix& cameras() const { return m_cameras; }
         const FCameraLayout& layout() const { return m_layout; }
         const std::vector<int>& cores() const { return m_npu_cores; }
@@ -124,6 +131,9 @@ namespace neural {
         std::string m_stream_ip;
         std::string m_stream_port;
         bool m_streaming_enabled = false;
+
+        std::atomic<int> m_stream_width{ 0 };
+        std::atomic<int> m_stream_height{ 0 };
 
         FCameraMessageSender m_sender;
 

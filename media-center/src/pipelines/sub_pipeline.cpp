@@ -29,7 +29,7 @@ bool UCameraSubPipeline::initialize() {
 	m_pipeline = gst_pipeline_new(m_parameters.name.c_str());
 
 	// Привязываем рестарт к пайплайну
-	setup_bus_watch(m_pipeline, false);
+	m_bus_watch = setup_bus_watch(m_pipeline, false);
 
 	std::string depay_str = m_probe.codec_name == std::string("H264") ? "rtph264depay" : "rtph265depay";
 	std::string parse_str = m_probe.codec_name == std::string("H264") ? "h264parse" : "h265parse";

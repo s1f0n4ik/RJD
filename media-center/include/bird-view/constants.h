@@ -9,7 +9,8 @@ namespace varan {
 namespace birdview {
 namespace constants {
 
-	inline const std::string VIRTUAL_CAMERA_ID = "linker_360";
+	// Подставляется, когда в состоянии конфигурации нет своего stream_id
+	inline const std::string VIRTUAL_CAMERA_ID = "birdview_linker";
 
 	const std::string CAMERA_FRONT = "front";
 	const std::string CAMERA_RIGHT = "right";

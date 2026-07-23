@@ -68,7 +68,7 @@ bool UCameraMainPipeline::initialize() {
 	m_pipeline = gst_pipeline_new(m_parameters.name.c_str());
 
 	// Привязываем рестарт к пайплайну
-	setup_bus_watch(m_pipeline, false);
+	m_bus_watch = setup_bus_watch(m_pipeline, false);
 
 	std::string depay_str = m_probe.codec_name == std::string("H264") ? "rtph264depay" : "rtph265depay";
 	std::string parse_str = m_probe.codec_name == std::string("H264") ? "h264parse" : "h265parse";
@@ -216,8 +216,7 @@ bool UCameraMainPipeline::initialize() {
 }
 
 void UCameraMainPipeline::on_bus_error(const std::string& error_code, const std::string& description, bool probe_handler) {
-	// Не отправляем сооббщения в основном пайплайне
-	//broadcast_error(error_code, description);
+	broadcast_error(error_code, description);
 	if (!probe_handler) shedule_restart();
 }
 

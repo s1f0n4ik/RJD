@@ -17,7 +17,6 @@ import {
   Hub as HubIcon,
 } from '@mui/icons-material';
 import type { SystemState } from '../types';
-import StoreIcon from '@mui/icons-material/Store' ;
 import { AddToQueue } from "@mui/icons-material";
 interface DashboardProps {
   state: SystemState;
@@ -88,7 +87,7 @@ const modules: Module[] = [
     icon: ThreeSixtyIcon,
     gradient: 'linear-gradient(135deg, #00bcd4 0%, #0097a7 100%)',
     tabIndex: -1,
-      externalUrl: '/no-react/pages/birdview.html'
+      externalUrl: '/app/birdview'
   },
   {
     id: 'krsps',

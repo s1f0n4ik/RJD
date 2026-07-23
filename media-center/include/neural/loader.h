@@ -80,6 +80,11 @@ namespace neural {
 			FCameraMatrix cameras;
 			FCameraLayout camera_layout;
 			std::string stream_id;
+			// Имя, под которым поток показывается на фронте
+			std::string stream_name;
+			// Размер кадра в эфире, нули — вывода ещё не было
+			int stream_width = 0;
+			int stream_height = 0;
 			bool running = false;
 			std::vector<int> npu_cores;
 		};

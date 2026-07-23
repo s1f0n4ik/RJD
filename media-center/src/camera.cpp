@@ -151,11 +151,7 @@ namespace neural {
 	bool UCamera::initialize() {
 		if (m_initialized) return true;
 
-		/*
-			Ждём, а не проверяем: поток GLib поднимается асинхронно из
-			конструктора, и вызов сразу после создания камеры регулярно
-			приходил раньше него. Отказ стоил пяти секунд на рестарте.
-		*/
+		// Ждём, а не проверяем: поток GLib поднимается асинхронно из конструктора
 		{
 			std::unique_lock<std::mutex> lk(m_gst_loop_mutex);
 			m_gst_loop_cv.wait_for(lk, std::chrono::seconds(1), [this] {

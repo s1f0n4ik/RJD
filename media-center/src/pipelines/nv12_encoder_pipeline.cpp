@@ -25,7 +25,7 @@ bool UNV12EncodingPipeline::initialize() {
 
 	m_pipeline = gst_pipeline_new(m_parameters.name.c_str());
 
-	setup_bus_watch(m_pipeline, false);
+	m_bus_watch = setup_bus_watch(m_pipeline, false);
 
 	auto appsrc = gst_element_factory_make("appsrc", "appsrc");
 	auto src_queue = gst_element_factory_make("queue", "src_queue");
@@ -199,13 +199,7 @@ bool UNV12EncodingPipeline::create_webrtc_session(const std::string& client_id, 
 }
 
 void UNV12EncodingPipeline::set_stream_size(int width, int height, int fps) {
-	/*
-		Размер выравнивается здесь, а не только у вызывающих.
-
-		Невыровненную ширину RGA внутри кодека отвергает и уводит ядро в
-		перезагрузку, а размер сюда приходит из трёх разных мест. Правило
-		дешевле держать в одном — на границе, за которой начинается железо.
-	*/
+	// Выравниваем здесь, а не у вызывающих: размер приходит из трёх мест
 	const int aligned_w = varan::align_frame_side(width);
 	const int aligned_h = varan::align_frame_side(height);
 
@@ -236,12 +230,7 @@ void UNV12EncodingPipeline::push_frame(cv::Mat frame) {
 	}
 	auto& ref_frame = frame.empty() ? m_cached_frame : frame;
 
-	/*
-		Кадр может прийти невыровненным: размер потока округлён вверх, а
-		вызывающий об этом знать не обязан. Тогда кадр кладётся в угол
-		выровненного буфера, остаток остаётся чёрным. Отбрасывать такой
-		кадр нельзя — поток встанет молча.
-	*/
+	// Невыровненный кадр кладём в угол выровненного буфера, остаток чёрный
 	const bool exact = ref_frame.cols == m_width && ref_frame.rows == m_height;
 	const bool paddable = ref_frame.cols == m_src_width && ref_frame.rows == m_src_height
 		&& ref_frame.cols <= m_width && ref_frame.rows <= m_height;
@@ -279,11 +268,7 @@ void UNV12EncodingPipeline::push_frame(cv::Mat frame) {
 	}
 	gst_buffer_unmap(buffer, &map);
 
-	/*
-		Шаг строки проставляем явно. Без метаданных элементы ниже считают
-		его сами, и на невыровненной ширине RGA получает шаг, которого не
-		принимает, — а падает при этом не поток, а вся плата.
-	*/
+	// Явный шаг строки, иначе элементы ниже считают его сами
 	gst_buffer_add_video_meta(
 		buffer,
 		GST_VIDEO_FRAME_FLAG_NONE,

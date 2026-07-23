@@ -15,7 +15,13 @@ using namespace varan::rest;
 
 class UController {
 public:
+    // Виртуальные потоки для ответа GET /camera, собирает их чужой контроллер
+    using CVirtualStreamsProvider = std::function<boost::json::array()>;
+
+public:
     explicit UController(std::shared_ptr<UMediaCenter> media_center, ULogger* logger = nullptr);
+
+    void set_virtual_streams_provider(CVirtualStreamsProvider provider);
 
     boost::beast::http::response<boost::beast::http::string_body>
         get_camera(const boost::beast::http::request<boost::beast::http::string_body>& req);
@@ -32,6 +38,7 @@ public:
 private:
     std::shared_ptr<UMediaCenter> m_media_center;
     ULogger* m_logger;
+    CVirtualStreamsProvider m_virtual_streams;
 
     boost::json::object make_camera_json(const FCameraStreamsData& data, const std::set<std::string>& fields);
 

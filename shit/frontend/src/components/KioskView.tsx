@@ -9,15 +9,18 @@ import {
     Menu as MenuIcon,
     Home as HomeIcon,
     FullscreenExit as FullscreenExitIcon,
-    CheckCircle as CheckCircleIcon,
-    Error as ErrorIcon,
-    DragIndicator as DragIndicatorIcon,
     Close as CloseIcon,
     Settings as SettingsIcon,
 } from '@mui/icons-material';
 import { PlayerFactory, makeCameraTypeGetter } from './WebRTCPlayerFactory';
 import { api } from '../services/api';
-import type { CPPCamera } from '../types';
+import type { CPPCamera, VirtualStream } from '../types';
+import {
+    cameraToSource,
+    makeCameraNameResolver,
+    SOURCE_PLAYER_TYPE,
+    streamToSource,
+} from './streams/stream-sources';
 import { wsUrl } from '../utils/constants';
 import CellMenu from './CellMenu';
 import { useTouchDevice } from '../utils/useTouchDevice';
@@ -25,20 +28,11 @@ import { useLayouts, type SavedLayout } from '../hooks/Layouts';
 
 const CONTROLS_HIDE_DELAY = 3000;
 
-// Дефолтные лэйауты, которые всегда присутствуют (не хранятся на сервере)
-const DEFAULT_LAYOUTS: SavedLayout[] = [
-    {
-        name: 'Панорама сверху',
-        gridSize: 'single',
-        activeCells: { single: 'linker_360' },
-        timestamp: 0,
-    },
-];
-
 const KioskView: React.FC = () => {
     const [layout, setLayout]           = useState<SavedLayout | null>(null);
     const [error, setError]             = useState<string>('');
     const [cameras, setCameras]         = useState<CPPCamera[]>([]);
+    const [virtual, setVirtual]         = useState<VirtualStream[]>([]);
     const isTouch                       = useTouchDevice();
     const [selectedCamera, setSelectedCamera] = useState<string | null>(null);
     const [controlsVisible, setControlsVisible] = useState(true);
@@ -52,10 +46,17 @@ const KioskView: React.FC = () => {
     // Сетки с сервера
     const { layouts: serverLayouts, loading: layoutsLoading } = useLayouts();
 
-    // Объединяем дефолтные + серверные
-    const availableLayouts: SavedLayout[] = [...serverLayouts, ...DEFAULT_LAYOUTS];
+    const availableLayouts: SavedLayout[] = serverLayouts;
 
-    const getCameraType       = makeCameraTypeGetter(cameras);
+    // Камеры и потоки в одном списке, ячейка хранит только id
+    const cameraSources = cameras.map(cameraToSource);
+    const streamSources = virtual.map(s => streamToSource(s, makeCameraNameResolver(cameras)));
+    const sources       = [...cameraSources, ...streamSources];
+
+    const cameraTypeOf        = makeCameraTypeGetter(cameras);
+    // У потоков обычный плеер, рамки в них уже врисованы
+    const getCameraType       = (id: string) =>
+        virtual.some(s => s.id === id) ? SOURCE_PLAYER_TYPE : cameraTypeOf(id);
     const effectiveActiveCells = activeCellsOverride ?? layout?.activeCells ?? {};
 
     const getLayoutNameFromUrl = (): string | null => {
@@ -101,8 +102,11 @@ const KioskView: React.FC = () => {
     }, [layoutsLoading, serverLayouts]);
 
     useEffect(() => {
-        api.getCameras()
-            .then(data => { if (Array.isArray(data)) setCameras(data); })
+        api.getSources()
+            .then(({ cameras: data, virtual: streams }) => {
+                if (Array.isArray(data)) setCameras(data);
+                setVirtual(streams);
+            })
             .catch(err => console.error('Kiosk: failed to load cameras', err));
     }, []);
 
@@ -232,8 +236,7 @@ const KioskView: React.FC = () => {
         setDragOverCellId(null);
     };
 
-    const getCameraStatus      = (cameraId: string) => cameras.find(c => c.id === cameraId)?.streams?.main?.status === 3;
-    const getCameraDisplayName = (cameraId: string) => cameras.find(c => c.id === cameraId)?.display_name || cameraId;
+    const getCameraDisplayName = (cameraId: string) => sources.find(s => s.id === cameraId)?.name || cameraId;
 
     const activeModeCamera = draggedCamera ?? selectedCamera;
 
@@ -540,7 +543,9 @@ const KioskView: React.FC = () => {
             >
                 {/* Заголовок */}
                 <Box sx={{ p: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-                    <Typography variant="subtitle1" fontWeight="bold">Камеры</Typography>
+                    <Typography variant="subtitle1" fontWeight="bold">
+                        {streamSources.length > 0 ? 'Источники' : 'Камеры'}
+                    </Typography>
                     <IconButton size="small" sx={{ color: 'white' }} onClick={() => setDrawerOpen(false)}>
                         <CloseIcon />
                     </IconButton>
@@ -562,40 +567,66 @@ const KioskView: React.FC = () => {
                     scrollbarWidth: 'thin',
                     scrollbarColor: 'rgba(255,255,255,0.15) transparent',
                 }}>
-                    {cameras.map(camera => {
-                        const isActive       = getCameraStatus(camera.id);
-                        const isUsed         = Object.values(effectiveActiveCells).includes(camera.id);
-                        const isBeingDragged = draggedCamera === camera.id;
-                        const isSelected     = selectedCamera === camera.id;
-                        return (
-                            <ListItem key={camera.id} draggable
-                                      onDragStart={(e) => handleDragStart(e, camera.id)}
-                                      onDragEnd={handleDragEnd}
-                                      onClick={() => setSelectedCamera(prev => prev === camera.id ? null : camera.id)}
-                                      sx={{
-                                          cursor: 'grab', opacity: isBeingDragged ? 0.5 : 1,
-                                          bgcolor: isSelected ? 'rgba(33,150,243,0.35)' : isUsed ? 'rgba(76,175,80,0.15)' : 'transparent',
-                                          borderLeft: isSelected ? '3px solid #2196f3' : isUsed ? '3px solid #4caf50' : '3px solid transparent',
-                                          '&:active': { cursor: 'grabbing' },
-                                          '&:hover': { bgcolor: isSelected ? 'rgba(33,150,243,0.45)' : 'rgba(255,255,255,0.08)' },
-                                      }}
-                            >
-                                <ListItemIcon sx={{ minWidth: 32 }}>
-                                    <DragIndicatorIcon sx={{ color: 'grey.600', fontSize: 16, mr: -0.5 }} />
-                                    {isActive
-                                        ? <CheckCircleIcon sx={{ color: 'success.main', fontSize: 18 }} />
-                                        : <ErrorIcon sx={{ color: 'grey.600', fontSize: 18 }} />}
-                                </ListItemIcon>
-                                <ListItemText
-                                    primary={camera.display_name || camera.id}
-                                    secondary={camera.display_name ? camera.id : undefined}
-                                    primaryTypographyProps={{ fontSize: '0.85rem', fontWeight: isSelected ? 600 : 400 }}
-                                    secondaryTypographyProps={{ fontSize: '0.7rem', color: 'grey.600', fontFamily: 'monospace' }}
-                                />
-                            </ListItem>
-                        );
-                    })}
-                    {cameras.length === 0 && (
+                    {/* Секции показываются только когда есть потоки */}
+                    {[
+                        { title: 'Камеры', items: cameraSources },
+                        { title: 'Виртуальные', items: streamSources },
+                    ].filter(g => g.items.length > 0).map(group => (
+                        <React.Fragment key={group.title}>
+                            {streamSources.length > 0 && (
+                                <Typography sx={{
+                                    px: 2, pt: 1.1, pb: 0.7,
+                                    fontSize: '0.65rem', fontWeight: 700,
+                                    letterSpacing: '0.12em', textTransform: 'uppercase',
+                                    color: 'grey.600',
+                                    borderTop: '1px solid rgba(255,255,255,0.07)',
+                                }}>
+                                    {group.title}
+                                </Typography>
+                            )}
+                            {group.items.map(source => {
+                                const isUsed         = Object.values(effectiveActiveCells).includes(source.id);
+                                const isBeingDragged = draggedCamera === source.id;
+                                const isSelected     = selectedCamera === source.id;
+                                return (
+                                    <ListItem key={source.id} draggable
+                                              onDragStart={(e) => handleDragStart(e, source.id)}
+                                              onDragEnd={handleDragEnd}
+                                              onClick={() => setSelectedCamera(prev => prev === source.id ? null : source.id)}
+                                              sx={{
+                                                  cursor: 'grab', opacity: isBeingDragged ? 0.5 : 1,
+                                                  bgcolor: isSelected ? 'rgba(33,150,243,0.35)' : isUsed ? 'rgba(76,175,80,0.15)' : 'transparent',
+                                                  borderLeft: isSelected ? '3px solid #2196f3' : isUsed ? '3px solid #4caf50' : '3px solid transparent',
+                                                  '&:active': { cursor: 'grabbing' },
+                                                  '&:hover': { bgcolor: isSelected ? 'rgba(33,150,243,0.45)' : 'rgba(255,255,255,0.08)' },
+                                              }}
+                                    >
+                                        <ListItemIcon sx={{ minWidth: 20, alignSelf: 'flex-start', mt: 0.9 }}>
+                                            <Box sx={{
+                                                width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                                                bgcolor: source.active ? 'success.main' : 'grey.700',
+                                            }} />
+                                        </ListItemIcon>
+                                        <ListItemText
+                                            primary={source.name}
+                                            secondary={source.detail}
+                                            primaryTypographyProps={{
+                                                fontSize: '0.85rem',
+                                                fontWeight: isSelected ? 600 : 400,
+                                                sx: { overflowWrap: 'anywhere' },
+                                            }}
+                                            secondaryTypographyProps={{
+                                                fontSize: '0.7rem',
+                                                color: 'grey.600',
+                                                sx: { overflowWrap: 'anywhere' },
+                                            }}
+                                        />
+                                    </ListItem>
+                                );
+                            })}
+                        </React.Fragment>
+                    ))}
+                    {sources.length === 0 && (
                         <Box sx={{ p: 2 }}>
                             <Typography variant="caption" color="grey.500">Нет доступных камер</Typography>
                         </Box>

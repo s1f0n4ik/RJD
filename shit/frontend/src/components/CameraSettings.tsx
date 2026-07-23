@@ -52,9 +52,10 @@ import { Search as SearchIcon, Refresh as RefreshIcon, Wifi as WifiIcon } from '
 import { List, ListItem, ListItemButton, ListItemText } from '@mui/material';
 import {RZD_COLORS} from '../theme';
 import {wsUrl} from '../utils/constants';
-import {type CPPCamera} from '../types'
+import {type CPPCamera, type VirtualStream} from '../types'
 import {api, type CameraPatchBody, MediaCenterError} from '../services/api';
 import WebRTCPlayer from './WebRTCPlayer';
+import {VirtualStreamsTable} from './streams/VirtualStreamsTable';
 
 // Используем CPPCamera из api как основной тип камеры
 type Camera = CPPCamera;
@@ -170,6 +171,7 @@ const formatError = (err: unknown): string => {
 
 const CameraSettings: React.FC = () => {
     const [cameras, setCameras] = useState<Camera[]>([]);
+    const [virtualStreams, setVirtualStreams] = useState<VirtualStream[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
@@ -249,7 +251,8 @@ const CameraSettings: React.FC = () => {
     const loadCameras = async () => {
         setLoading(true);
         try {
-            const all = await api.getCameras();
+            const { cameras: all, virtual } = await api.getSources();
+            setVirtualStreams(virtual);
 
             // Удаляем зависшие probe-камеры (фоном, не ждём)
             const stale = all.filter(
@@ -810,6 +813,8 @@ const CameraSettings: React.FC = () => {
                     </TableBody>
                 </Table>
             </TableContainer>
+
+            <VirtualStreamsTable streams={virtualStreams} cameras={cameras} />
 
             {/* Add/Edit Dialog — пошаговая форма */}
             <Dialog

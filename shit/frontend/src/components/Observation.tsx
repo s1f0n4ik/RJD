@@ -27,13 +27,10 @@ import {
 } from '@mui/material';
 
 import {
-    CheckCircle as CheckCircleIcon,
-    Error as ErrorIcon,
     Videocam as VideocamIcon,
     Close as CloseIcon,
     Fullscreen as FullscreenIcon,
     GridOn as GridOnIcon,
-    DragIndicator as DragIndicatorIcon,
     Save as SaveIcon,
     Delete as DeleteIcon,
     Visibility as VisibilityIcon,
@@ -42,8 +39,14 @@ import {
 import { PlayerFactory, makeCameraTypeGetter } from './WebRTCPlayerFactory';
 import { api } from '../services/api';
 import { wsUrl } from '../utils/constants';
-import type { CPPCamera } from '../types';
+import type { CPPCamera, VirtualStream } from '../types';
 import { isProbeCamera } from '../utils/probeFilter';
+import {
+    cameraToSource,
+    makeCameraNameResolver,
+    SOURCE_PLAYER_TYPE,
+    streamToSource,
+} from './streams/stream-sources';
 import CellMenu from './CellMenu';
 import { useTouchDevice } from '../utils/useTouchDevice';
 import { useLayouts, type SavedLayout } from '../hooks/Layouts.ts';
@@ -61,11 +64,12 @@ interface CustomCell {
 
 const Observation: React.FC = () => {
     const getCameraDisplayName = (cameraId: string): string => {
-        const c = cameras.find(c => c.id === cameraId);
-        return c?.display_name || cameraId;
+        const s = sources.find(s => s.id === cameraId);
+        return s?.name || cameraId;
     };
 
     const [cameras, setCameras]               = useState<CPPCamera[]>([]);
+    const [virtual, setVirtual]               = useState<VirtualStream[]>([]);
     const [selectedCamera, setSelectedCamera] = useState<string | null>(null);
     const [activeCells, setActiveCells]       = useState<Record<number | string, string>>({});
     const [gridSize, setGridSize]             = useState<GridSize>(4);
@@ -121,18 +125,21 @@ const Observation: React.FC = () => {
 
     const loadCameras = async () => {
         try {
-            const data = await api.getCameras();
+            const { cameras: data, virtual: streams } = await api.getSources();
             if (!Array.isArray(data)) {
                 setLoadError('Получены некорректные данные с сервера');
                 setCameras([]);
+                setVirtual([]);
                 return;
             }
             const visible = data.filter((c) => !isProbeCamera(c.id));
             setCameras(visible);
+            setVirtual(streams);
             setLoadError('');
         } catch (error) {
             setLoadError(error instanceof Error ? error.message : 'Ошибка загрузки камер');
             setCameras([]);
+            setVirtual([]);
         }
     };
 
@@ -344,8 +351,15 @@ const Observation: React.FC = () => {
         return Math.sqrt(gridSize as number);
     };
 
-    const getCameraStatus     = (cameraName: string) => cameras.find(c => c.id === cameraName)?.streams?.main?.status === 3;
-    const getCameraType       = makeCameraTypeGetter(cameras);
+    // Камеры и потоки в одном списке, ячейка хранит только id
+    const cameraSources = cameras.map(cameraToSource);
+    const streamSources = virtual.map(s => streamToSource(s, makeCameraNameResolver(cameras)));
+    const sources       = [...cameraSources, ...streamSources];
+
+    const cameraTypeOf        = makeCameraTypeGetter(cameras);
+    // У потоков обычный плеер, рамки в них уже врисованы
+    const getCameraType       = (id: string) =>
+        virtual.some(s => s.id === id) ? SOURCE_PLAYER_TYPE : cameraTypeOf(id);
     const isCameraUsedInGrid  = (cameraName: string) => Object.values(activeCells).includes(cameraName);
     const getCameraGridCell   = (cameraName: string) => Object.entries(activeCells).find(([_, n]) => n === cameraName)?.[0] ?? null;
 
@@ -492,61 +506,97 @@ const Observation: React.FC = () => {
             {/* LEFT PANEL */}
             <Paper elevation={3} sx={{ width: 200, flexShrink: 0, overflow: 'auto', borderRadius: 0 }}>
                 <Box sx={{ p: 2, borderBottom: `1px solid ${RZD_COLORS.grey[200]}` }}>
-                    <Typography variant="subtitle2" fontWeight="bold">Камеры</Typography>
+                    {/* Пока потоков нет, в колонке только камеры */}
+                    <Typography variant="subtitle2" fontWeight="bold">
+                        {streamSources.length > 0 ? 'Источники' : 'Камеры'}
+                    </Typography>
                     <Typography variant="caption" color="text.secondary">Перетащите в сетку</Typography>
                 </Box>
                 {loadError && <Alert severity="error" sx={{ m: 1 }}>{loadError}</Alert>}
-                <List dense>
-                    {cameras.map((camera) => {
-                        const isActive      = getCameraStatus(camera.id);
-                        const isSelected    = selectedCamera === camera.id;
-                        const isUsedInGrid  = isCameraUsedInGrid(camera.id);
-                        const gridCellId    = getCameraGridCell(camera.id);
-                        return (
-                            <ListItem
-                                key={camera.id}
-                                button
-                                selected={isSelected}
-                                draggable
-                                onDragStart={(e) => handleDragStart(e, camera.id)}
-                                onDragEnd={handleDragEnd}
-                                onClick={() => setSelectedCamera(prev => prev === camera.id ? null : camera.id)}
-                                sx={{
-                                    bgcolor: isSelected ? 'info.main' : isUsedInGrid ? 'rgba(76,175,80,0.08)' : 'transparent',
-                                    color: isSelected ? 'white' : 'inherit',
-                                    cursor: 'grab',
-                                    borderLeft: isUsedInGrid && !isSelected ? '3px solid #4caf50' : 'none',
-                                    paddingLeft: isUsedInGrid && !isSelected ? '13px' : '16px',
-                                    '&:active': { cursor: 'grabbing' },
-                                    '&:hover': { bgcolor: isSelected ? 'info.dark' : 'action.hover' },
-                                    '&.Mui-selected': {
-                                        bgcolor: 'info.main', borderLeft: 'none', paddingLeft: '16px',
-                                        '&:hover': { bgcolor: 'info.dark' },
-                                    },
-                                }}
-                            >
-                                <ListItemIcon sx={{ minWidth: 36 }}>
-                                    <DragIndicatorIcon sx={{ fontSize: 16, color: isSelected ? 'white' : 'text.disabled', mr: -1 }} />
-                                    {isActive
-                                        ? <CheckCircleIcon color={isSelected ? 'inherit' : 'success'} sx={{ color: isSelected ? 'white' : undefined }} />
-                                        : <ErrorIcon color="disabled" />}
-                                </ListItemIcon>
-                                <ListItemText
-                                    primary={camera.display_name || camera.id}
-                                    secondary={camera.display_name && camera.display_name !== camera.id ? camera.id : undefined}
-                                    primaryTypographyProps={{ fontSize: '0.875rem', fontWeight: isSelected ? 600 : 400 }}
-                                    secondaryTypographyProps={{ fontSize: '0.7rem', color: isSelected ? 'rgba(255,255,255,0.7)' : 'text.secondary' }}
-                                />
-                                {isUsedInGrid && (
-                                    <Tooltip title={`Ячейка ${gridCellId}`} placement="right">
-                                        <VisibilityIcon sx={{ fontSize: 18, color: isSelected ? 'white' : 'success.main', ml: 0.5 }} />
-                                    </Tooltip>
-                                )}
-                            </ListItem>
-                        );
-                    })}
-                </List>
-                {cameras.length === 0 && !loadError && (
+                {/* Секции показываются только когда есть потоки */}
+                {[
+                    { title: 'Камеры', items: cameraSources },
+                    { title: 'Виртуальные', items: streamSources },
+                ].filter(g => g.items.length > 0).map(group => (
+                    <React.Fragment key={group.title}>
+                        {streamSources.length > 0 && (
+                            <Box sx={{
+                                px: 2, pt: 0.9, pb: 0.6,
+                                bgcolor: RZD_COLORS.grey[100],
+                                borderTop: `1px solid ${RZD_COLORS.grey[200]}`,
+                                borderBottom: `1px solid ${RZD_COLORS.grey[200]}`,
+                            }}>
+                                <Typography sx={{
+                                    fontSize: '0.65rem', fontWeight: 700,
+                                    letterSpacing: '0.12em', textTransform: 'uppercase',
+                                    color: 'text.secondary',
+                                }}>
+                                    {group.title}
+                                </Typography>
+                            </Box>
+                        )}
+                        <List dense>
+                            {group.items.map((source) => {
+                                const isSelected    = selectedCamera === source.id;
+                                const isUsedInGrid  = isCameraUsedInGrid(source.id);
+                                const gridCellId    = getCameraGridCell(source.id);
+                                return (
+                                    <ListItem
+                                        key={source.id}
+                                        button
+                                        selected={isSelected}
+                                        draggable
+                                        onDragStart={(e) => handleDragStart(e, source.id)}
+                                        onDragEnd={handleDragEnd}
+                                        onClick={() => setSelectedCamera(prev => prev === source.id ? null : source.id)}
+                                        sx={{
+                                            bgcolor: isSelected ? 'info.main' : isUsedInGrid ? 'rgba(76,175,80,0.08)' : 'transparent',
+                                            color: isSelected ? 'white' : 'inherit',
+                                            cursor: 'grab',
+                                            borderLeft: isUsedInGrid && !isSelected ? '3px solid #4caf50' : 'none',
+                                            paddingLeft: isUsedInGrid && !isSelected ? '13px' : '16px',
+                                            '&:active': { cursor: 'grabbing' },
+                                            '&:hover': { bgcolor: isSelected ? 'info.dark' : 'action.hover' },
+                                            '&.Mui-selected': {
+                                                bgcolor: 'info.main', borderLeft: 'none', paddingLeft: '16px',
+                                                '&:hover': { bgcolor: 'info.dark' },
+                                            },
+                                        }}
+                                    >
+                                        <ListItemIcon sx={{ minWidth: 20, alignSelf: 'flex-start', mt: 0.9 }}>
+                                            <Box sx={{
+                                                width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                                                bgcolor: isSelected
+                                                    ? 'white'
+                                                    : source.active ? 'success.main' : RZD_COLORS.grey[300],
+                                            }} />
+                                        </ListItemIcon>
+                                        <ListItemText
+                                            primary={source.name}
+                                            secondary={source.detail}
+                                            primaryTypographyProps={{
+                                                fontSize: '0.875rem',
+                                                fontWeight: isSelected ? 600 : 400,
+                                                sx: { overflowWrap: 'anywhere' },
+                                            }}
+                                            secondaryTypographyProps={{
+                                                fontSize: '0.7rem',
+                                                color: isSelected ? 'rgba(255,255,255,0.7)' : 'text.secondary',
+                                                sx: { overflowWrap: 'anywhere' },
+                                            }}
+                                        />
+                                        {isUsedInGrid && (
+                                            <Tooltip title={`Ячейка ${gridCellId}`} placement="right">
+                                                <VisibilityIcon sx={{ fontSize: 18, color: isSelected ? 'white' : 'success.main', ml: 0.5 }} />
+                                            </Tooltip>
+                                        )}
+                                    </ListItem>
+                                );
+                            })}
+                        </List>
+                    </React.Fragment>
+                ))}
+                {sources.length === 0 && !loadError && (
                     <Box sx={{ p: 2, textAlign: 'center' }}>
                         <Typography variant="caption" color="text.secondary">Нет доступных камер</Typography>
                     </Box>

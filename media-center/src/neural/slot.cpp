@@ -159,6 +159,9 @@ namespace neural {
             if (!m_stream_name.empty())
                 m_streamer->update_metadata(m_stream_name, "");
 
+            m_stream_width.store(width);
+            m_stream_height.store(height);
+
             m_logger.info("ensure_streamer(): started stream_id=" + m_stream_id +
                 (m_stream_name.empty() ? "" : " name=" + m_stream_name));
         }
@@ -226,6 +229,9 @@ namespace neural {
             try { m_streamer->stop(); }
             catch (...) {}
             m_streamer.reset();
+            // Размер принадлежал выводу, которого больше нет
+            m_stream_width.store(0);
+            m_stream_height.store(0);
         }
         m_classifier.reset();
     }

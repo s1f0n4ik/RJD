@@ -6,6 +6,7 @@
 #include "main-server/controller.h"
 #include "main-server/linker-controller.h"
 #include "main-server/neural-controller.h"
+#include "main-server/streams-controller.h"
 #include "main-server/listener.h"
 
 class URestServer {

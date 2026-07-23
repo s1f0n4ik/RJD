@@ -6,6 +6,8 @@ import type {
   NeuralConfigurationListItem,
   NeuralRuntimeStatusItem,
   NeuralStateItem,
+  StreamProducer,
+  VirtualStream,
 } from '../types';
 
 const cameraUrl = (id: string) => `/api/camera/${encodeURIComponent(id)}`;
@@ -78,11 +80,30 @@ export class MediaCenterError extends Error {
 
 class ApiClient {
     async getCameras(): Promise<CPPCamera[]> {
-        const res = await this.fetch<{ cameras: Record<string, any> }>('/api/cameras');
+        const { cameras } = await this.getSources();
+        return cameras;
+    }
+
+    // Камеры и виртуальные потоки одним ответом
+    async getSources(): Promise<{ cameras: CPPCamera[]; virtual: VirtualStream[] }> {
+        const res = await this.fetch<{
+            cameras: Record<string, any> | null;
+            virtual?: any[] | null;
+        }>('/api/cameras');
+
         const camerasObj = res.cameras ?? {};
-        return Object.entries(camerasObj).map(([key, raw]) =>
-            this.normalize({ id: raw.id ?? key, ...raw })
-        );
+        return {
+            cameras: Object.entries(camerasObj).map(([key, raw]) =>
+                this.normalize({ id: raw.id ?? key, ...raw })
+            ),
+            virtual: (res.virtual ?? []).map(raw => this.normalizeStream(raw)),
+        };
+    }
+
+    // Только потоки, без списка камер
+    async getVirtualStreams(): Promise<VirtualStream[]> {
+        const res = await this.fetch<any[]>('/api/streams');
+        return (res ?? []).map(raw => this.normalizeStream(raw));
     }
 
     async getCamera(id: string): Promise<CPPCamera | null> {
@@ -159,6 +180,24 @@ class ApiClient {
             id,
             display_name: raw.display_name ?? raw.description ?? id,
         } as CPPCamera;
+    }
+
+    private normalizeStream(raw: any): VirtualStream {
+        const id = String(raw?.id ?? '');
+        // Неизвестный продюсер считается нейронным
+        const producer: StreamProducer = raw?.producer === 'birdview' ? 'birdview' : 'neural';
+        return {
+            id,
+            // Пустое имя подменяет экран, не клиент API
+            name: String(raw?.name ?? ''),
+            producer,
+            source_id: String(raw?.source_id ?? ''),
+            source_name: String(raw?.source_name ?? ''),
+            cameras: Array.isArray(raw?.cameras) ? raw.cameras.map(String) : [],
+            width: Number(raw?.width) || 0,
+            height: Number(raw?.height) || 0,
+            running: Boolean(raw?.running),
+        };
     }
 
         // ---------- Neural API (raw JSON, не CppResponse) ----------

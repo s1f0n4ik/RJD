@@ -24,7 +24,11 @@ URestServer::URestServer(
     m_router = std::make_shared<URouter>();
 
     auto controller = std::make_shared<UController>(media_center, &m_logger);
-    
+
+    // Виртуальные потоки отдаются двумя путями: ручкой /streams и в GET /camera
+    auto streams_ctrl = std::make_shared<UStreamsController>(linker, loader, &m_logger);
+    controller->set_virtual_streams_provider([streams_ctrl] { return streams_ctrl->collect(); });
+
     // Регистрируем маршруты
     m_router->add_route(http::verb::get, "/camera",
         [controller](const auto& req) { return controller->get_camera(req); });
@@ -105,6 +109,8 @@ URestServer::URestServer(
     m_router->add_route(http::verb::get, "/neural/camera",
         [neural_ctrl](const auto& r) {return neural_ctrl->get_camera_config(r); });
 
+    m_router->add_route(http::verb::get, "/streams",
+        [streams_ctrl](const auto& r) { return streams_ctrl->get_streams(r); });
 }
 
 URestServer::~URestServer()

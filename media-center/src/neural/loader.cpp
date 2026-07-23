@@ -509,7 +509,17 @@ namespace neural {
         std::vector<FSlotStatus> result;
         for (const auto& s : m_slots) {
             if (!s) continue;
-            result.push_back({ s->config_id(), s->cameras(), s->layout(), s->stream_id(), s->is_running(), s->cores() });
+            FSlotStatus status;
+            status.config_id = s->config_id();
+            status.cameras = s->cameras();
+            status.camera_layout = s->layout();
+            status.stream_id = s->stream_id();
+            status.stream_name = s->stream_name();
+            status.stream_width = s->stream_width();
+            status.stream_height = s->stream_height();
+            status.running = s->is_running();
+            status.npu_cores = s->cores();
+            result.push_back(std::move(status));
         }
         return result;
     }

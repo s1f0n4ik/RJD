@@ -18,6 +18,8 @@ namespace fields {
 
 	inline const std::string STREAMS = "streams"; // "streams"
 	inline const std::string CAMERAS = "cameras"; // "cameras"
+	// Потоки, собранные поверх камер: сборка 360 и нейронные слоты
+	inline const std::string VIRTUAL_STREAMS = "virtual"; // "virtual"
 	inline const std::string FIELDS = "fields";         // "fields"
 
 	// Поля внутри пайплайнов при использовании get

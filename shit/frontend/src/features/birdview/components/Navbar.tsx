@@ -54,7 +54,7 @@ export function Navbar({ screen, onScreenChange, wsState, rtcWsState, rtcState }
                     <StatusPill state={rtcState} label="RTC" />
                 </div>
 
-                <button className="nav-admin-btn" onClick={() => { window.location.href = '/'; }}>
+                <button className="nav-admin-btn" onClick={() => { window.location.href = '/app'; }}>
                     <span className="nav-admin-icon">⊹</span>
                     <span>На главную</span>
                 </button>

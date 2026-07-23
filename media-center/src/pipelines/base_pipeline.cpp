@@ -321,43 +321,20 @@ bool UCameraPipeline::probe_video_stream(int timeout_sec) {
     m_logger->debug("Setting probe pipeline to PLAYING state...");
     gst_element_set_state(pipeline, GST_STATE_PLAYING);
 
-    setup_bus_watch(pipeline, true);
+    // Локальный: в поле объекта лежит наблюдатель основного конвейера
+    auto probe_watch = setup_bus_watch(pipeline, true);
 
-    GstBus* bus = gst_element_get_bus(pipeline);
+    // Шину читает только наблюдатель, здесь ждём готовности по таймеру
     gint64 deadline = g_get_monotonic_time() + timeout_sec * G_TIME_SPAN_SECOND;
     while (!m_probe.ready() && !m_stop_requested.load() && g_get_monotonic_time() < deadline) {
-        GstMessage* msg = gst_bus_timed_pop(bus, 200 * GST_MSECOND);
-
-        if (!msg) {
-            continue;
-        }
-
-        /*
-        if (GST_MESSAGE_TYPE(msg) == GST_MESSAGE_ERROR) {
-            GError* err = nullptr;
-            gchar* debug_info = nullptr;
-            gst_message_parse_error(msg, &err, &debug_info);
-
-            std::ostringstream oss;
-            oss << "GST_MESSAGE_ERROR received from element: "
-                << GST_OBJECT_NAME(msg->src) << "\n"
-                << "Error message: " << (err ? err->message : "unknown") << "\n"
-                << "Debug info: " << (debug_info ? debug_info : "none");
-
-            if (m_logger) m_logger->error(oss.str());
-
-            if (err) g_error_free(err);
-            if (debug_info) g_free(debug_info);
-
-            gst_message_unref(msg);
-            break;
-        }
-        */
-
-        gst_message_unref(msg);
+        std::unique_lock<std::mutex> lock(m_restart_cv_mutex);
+        m_restart_cv.wait_for(lock, std::chrono::milliseconds(200),
+            [this] { return m_stop_requested.load(); }
+        );
     }
 
-    gst_object_unref(bus);
+    // Снимаем до разбора трубы, чтобы наблюдатель не пережил свою шину
+    probe_watch.reset();
 
     gst_element_set_state(pipeline, GST_STATE_NULL);
     gst_element_get_state(pipeline, nullptr, nullptr, 3 * GST_SECOND);
@@ -379,18 +356,18 @@ bool UCameraPipeline::probe_video_stream(int timeout_sec) {
     return true;
 }
 
-void UCameraPipeline::setup_bus_watch(GstElement* pipeline, bool use_probe_handler) {
-    if (!pipeline) return;
+UCameraPipeline::FBusWatch UCameraPipeline::setup_bus_watch(GstElement* pipeline, bool use_probe_handler) {
+    if (!pipeline) return {};
 
-    m_bus_ctx = std::make_shared<FBusWatchContext>();
-    m_bus_ctx->pipeline = this;
-    m_bus_ctx->use_probe_handler = use_probe_handler;
+    auto ctx = std::make_shared<FBusWatchContext>();
+    ctx->pipeline = this;
+    ctx->use_probe_handler = use_probe_handler;
 
     // Делаем копию и передаем ее в шину. Пока жив хотя бы один источник - оно работает
-    auto* ctx_holder = new std::shared_ptr<FBusWatchContext>(m_bus_ctx);
+    auto* ctx_holder = new std::shared_ptr<FBusWatchContext>(ctx);
 
     GstBus* bus = gst_element_get_bus(pipeline);
-    m_bus_watch_id = gst_bus_add_watch_full(
+    const guint watch_id = gst_bus_add_watch_full(
         bus,
         G_PRIORITY_DEFAULT,
         +[](GstBus*, GstMessage* msg, gpointer data) -> gboolean {
@@ -474,20 +451,12 @@ void UCameraPipeline::setup_bus_watch(GstElement* pipeline, bool use_probe_handl
         }
     );
     gst_object_unref(bus);
+
+    return FBusWatch(watch_id, std::move(ctx));
 }
 
 void UCameraPipeline::invalidate_bus_watch() {
-    if (m_bus_ctx) {
-        std::lock_guard<std::mutex> lock(m_bus_ctx->mutex);
-        m_bus_ctx->pipeline = nullptr; // после этой строки колбэк никогда не тронет `self`
-    }
-
-    if (m_bus_watch_id) {
-        g_source_remove(m_bus_watch_id);
-        m_bus_watch_id = 0;
-    }
-
-    m_bus_ctx.reset();
+    m_bus_watch.reset();
 }
 
 void UCameraPipeline::on_bus_error(const std::string& error_code, const std::string& description, bool is_probe) {
