@@ -70,6 +70,10 @@ URestServer::URestServer(
         [linker_ctrl](const auto& r) {return linker_ctrl->post_upload_image(r); });
     m_router->add_route(http::verb::get, "/linker/image",
         [linker_ctrl](const auto& r) { return linker_ctrl->get_image(r); });
+    m_router->add_route(http::verb::post, "/linker/surround-camera",
+        [linker_ctrl](const auto& r) { return linker_ctrl->post_surround_camera(r); });
+    m_router->add_route(http::verb::post, "/linker/view-mode",
+        [linker_ctrl](const auto& r) { return linker_ctrl->post_view_mode(r); });
     m_router->add_route(http::verb::post, "/linker/rotation",
         [linker_ctrl](const auto& r) { return linker_ctrl->post_rotation(r); });
 

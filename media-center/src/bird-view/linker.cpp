@@ -1,5 +1,7 @@
 #include "bird-view/linker.h"
 #include "bird-view/renderer.h"
+#include "bird-view/surround-renderer.h"
+#include "bird-view/surround-bake.h"
 #include "bird-view/egl-context.h"
 
 #include "utility/fd-monitor.h"
@@ -158,6 +160,11 @@ namespace birdview {
 			if (is_valid_rotation(degrees)) params.rotation = degrees;
 			else m_logger.warn("reload_from_state(): bad rotation " + std::to_string(degrees));
 		}
+		if (auto* v = entry.if_contains("view_mode"); v && v->is_string()) {
+			const std::string mode = v->as_string().c_str();
+			if (is_valid_view_mode(mode)) params.view_mode = mode;
+			else m_logger.warn("reload_from_state(): bad view_mode " + mode);
+		}
 
 		{
 			std::lock_guard<std::mutex> lk(m_mutex);
@@ -210,6 +217,39 @@ namespace birdview {
 		catch (const std::exception& e) {
 			m_logger.warn("resolve_rotation(): " + std::string(e.what()));
 			return 0;
+		}
+	}
+
+	std::string ULinker::resolve_view_mode(const std::string& export_id) const {
+		std::string target = export_id;
+		std::string stored;
+		{
+			std::lock_guard<std::mutex> lk(m_mutex);
+			if (target.empty()) target = m_export_id;
+			if (target == m_export_id) stored = m_params.view_mode;
+		}
+
+		if (is_valid_view_mode(stored)) return stored;
+		if (target.empty()) return "top";
+
+		// Про неактивные конфигурации спрашивает статус, им читается состояние
+		try {
+			auto root = read_state_root();
+			auto* configs = root.if_contains("configs");
+			if (!configs || !configs->is_object()) return "top";
+
+			auto* entry = configs->as_object().if_contains(target);
+			if (!entry || !entry->is_object()) return "top";
+
+			auto* v = entry->as_object().if_contains("view_mode");
+			if (!v || !v->is_string()) return "top";
+
+			const std::string mode = v->as_string().c_str();
+			return is_valid_view_mode(mode) ? mode : "top";
+		}
+		catch (const std::exception& e) {
+			m_logger.warn("resolve_view_mode(): " + std::string(e.what()));
+			return "top";
 		}
 	}
 
@@ -349,6 +389,7 @@ namespace birdview {
 			if (!params.stream_id.empty()) entry["stream_id"] = params.stream_id;
 			if (!params.stream_name.empty()) entry["stream_name"] = params.stream_name;
 			if (is_valid_rotation(params.rotation)) entry["rotation"] = params.rotation;
+			if (is_valid_view_mode(params.view_mode)) entry["view_mode"] = params.view_mode;
 
 			configs[export_id] = std::move(entry);
 
@@ -423,6 +464,151 @@ namespace birdview {
 			}
 		}
 
+		return true;
+	}
+
+	bool ULinker::set_view_mode(const std::string& export_id, const std::string& mode, std::string& error) {
+		if (!is_valid_view_mode(mode)) {
+			error = "view_mode must be one of: top, surround";
+			return false;
+		}
+
+		std::string target = export_id.empty() ? get_active_export_id() : export_id;
+		if (target.empty()) {
+			error = "no active configuration and no export_id given";
+			return false;
+		}
+
+		try {
+			auto root = read_state_root();
+			auto configs = root.at("configs").as_object();
+
+			boost::json::object entry;
+			if (auto* prev = configs.if_contains(target); prev && prev->is_object()) {
+				entry = prev->as_object();
+			}
+			entry["view_mode"] = mode;
+			configs[target] = std::move(entry);
+
+			root["configs"] = std::move(configs);
+
+			std::filesystem::create_directories(m_state_root);
+			std::ofstream f(state_path());
+			f << boost::json::serialize(root);
+		}
+		catch (const std::exception& e) {
+			error = e.what();
+			m_logger.error("set_view_mode(): " + error);
+			return false;
+		}
+
+		{
+			std::lock_guard<std::mutex> lk(m_mutex);
+			if (m_export_id == target) m_params.view_mode = mode;
+		}
+
+		m_logger.info("set_view_mode(): <" + target + "> -> " + mode);
+
+		// Размер кадра у режимов разный, живой вывод пересобирается
+		if (m_running.load() && get_active_export_id() == target) {
+			m_logger.info("set_view_mode(): restarting output to apply new mode");
+			if (!restart()) {
+				error = "view_mode saved, but output restart failed";
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	bool ULinker::set_surround_camera(const std::string& export_id, const std::string& place_key,
+		const boost::json::object& payload, std::string& error)
+	{
+		std::string target = export_id.empty() ? get_active_export_id() : export_id;
+		if (target.empty() || place_key.empty()) {
+			error = "export_id and place_key are required";
+			return false;
+		}
+
+		bool reset = false;
+		if (auto* v = payload.if_contains("reset"); v && v->is_bool()) reset = v->as_bool();
+
+		if (!reset) {
+			auto* pos = payload.if_contains("position");
+			if (!pos || !pos->is_array() || pos->as_array().size() != 3) {
+				error = "position must be [x,y,z] in meters from machine center";
+				return false;
+			}
+		}
+
+		// Оверрайд живёт в surround-блоке индекса экспортов, правится слиянием
+		try {
+			const auto index_path = m_exports_root / m_exports_index_json;
+			std::ifstream f(index_path);
+			if (!f) {
+				error = "cannot read exports index";
+				return false;
+			}
+			std::stringstream ss; ss << f.rdbuf();
+			auto v = boost::json::parse(ss.str());
+			if (!v.is_object()) {
+				error = "exports index is not an object";
+				return false;
+			}
+			auto root = v.as_object();
+
+			auto* entry = root.if_contains(target);
+			if (!entry || !entry->is_object()) {
+				error = "export <" + target + "> not found";
+				return false;
+			}
+			auto& entry_obj = entry->as_object();
+
+			auto* surround = entry_obj.if_contains("surround");
+			if (!surround || !surround->is_object()) {
+				error = "export <" + target + "> has no surround block";
+				return false;
+			}
+			auto& surround_obj = surround->as_object();
+
+			boost::json::object extr;
+			if (auto* e = surround_obj.if_contains("extrinsics"); e && e->is_object()) {
+				extr = e->as_object();
+			}
+
+			if (reset) {
+				extr.erase(place_key);
+			}
+			else {
+				boost::json::object rec;
+				rec["position"] = payload.at("position");
+				for (const char* k : { "yaw", "pitch", "roll" }) {
+					if (auto* a = payload.if_contains(k)) rec[k] = *a;
+				}
+				extr[place_key] = std::move(rec);
+			}
+			surround_obj["extrinsics"] = std::move(extr);
+
+			std::ofstream out(index_path);
+			out << boost::json::serialize(root);
+		}
+		catch (const std::exception& e) {
+			error = e.what();
+			m_logger.error("set_surround_camera(): " + error);
+			return false;
+		}
+
+		m_logger.info("set_surround_camera(): <" + target + "> place=" + place_key
+			+ (reset ? " reset" : " manual"));
+
+		// Печка выполняется на старте вывода, живой пересобираем
+		if (m_running.load() && get_active_export_id() == target
+			&& resolve_view_mode() == "surround") {
+			if (!restart()) {
+				error = "extrinsics saved, but output restart failed";
+				return false;
+			}
+		}
 		return true;
 	}
 
@@ -611,6 +797,12 @@ namespace birdview {
 			return;
 		}
 
+		if (resolve_view_mode() == "surround") {
+			surround_loop(fps);
+			m_context_manager->undone_current(&m_logger);
+			return;
+		}
+
 		UStitchRenderer renderer;
 		if (!renderer.init(0, m_context_manager, &m_logger)) {
 			m_logger.error("processing_loop(): renderer init failed");
@@ -736,6 +928,173 @@ namespace birdview {
 		}
 
 		m_context_manager->undone_current(&m_logger);
+	}
+
+	void ULinker::surround_loop(uint32_t fps) {
+		using clock = std::chrono::high_resolution_clock;
+
+		USurroundRenderer renderer;
+		if (!renderer.init(0, m_context_manager, &m_logger)) {
+			m_logger.error("surround_loop(): renderer init failed");
+			return;
+		}
+
+		// Печка камер: без surround-блока в экспорте остаётся сетка первого блока
+		{
+			std::string export_id_copy;
+			NCamerasPurpose bindings;
+			{
+				std::lock_guard<std::mutex> lk(m_mutex);
+				export_id_copy = m_export_id;
+				bindings = m_cameras_purpose;
+			}
+
+			boost::json::object surround_cfg;
+			bool has_cfg = false;
+			try {
+				std::ifstream f(m_exports_root / m_exports_index_json);
+				if (f) {
+					std::stringstream ss; ss << f.rdbuf();
+					auto v = boost::json::parse(ss.str());
+					if (v.is_object()) {
+						if (auto* e = v.as_object().if_contains(export_id_copy); e && e->is_object()) {
+							if (auto* s = e->as_object().if_contains("surround"); s && s->is_object()) {
+								surround_cfg = s->as_object();
+								has_cfg = true;
+							}
+						}
+					}
+				}
+			}
+			catch (const std::exception& e) {
+				m_logger.warn("surround_loop(): exports index: " + std::string(e.what()));
+			}
+
+			if (has_cfg) {
+				USurroundBaker baker(&m_logger);
+				FSurroundMachine machine;
+				FSurroundBake bake;
+				std::string bake_error;
+
+				// Габарит применяется до печки: чаша перестраивается под масштаб
+				// сцены, и проецируются уже отмасштабированные вершины
+				bool ok = USurroundBaker::parse_machine(surround_cfg, machine, bake_error);
+				if (ok) {
+					renderer.set_bowl_factors(machine.bowl_floor, machine.bowl_outer,
+						machine.bowl_wall, machine.bowl_plate);
+					renderer.set_machine(machine.width, machine.height, machine.length);
+					ok = baker.bake(
+						surround_cfg,
+						calib_consts::PROJECTION_CONFIGURES_PATH,
+						calib_consts::CALIBRATION_CONFIGURES_PATH,
+						bindings, renderer.bowl_positions(), bake, bake_error);
+				}
+
+				if (ok && renderer.set_camera_attributes(bake.camera_attributes)) {
+					std::vector<std::string> keys;
+					for (const auto& cam : bake.cameras) keys.push_back(cam.place_key);
+					std::lock_guard<std::mutex> lk(m_mutex);
+					m_camera_keys = std::move(keys);
+				}
+				else if (!ok) {
+					m_logger.error("surround_loop(): bake failed: " + bake_error + ", grid only");
+				}
+			}
+			else {
+				m_logger.info("surround_loop(): no surround block in export, grid only");
+			}
+		}
+
+		const int outW = constants::SURROUND_WIDTH;
+		const int outH = constants::SURROUND_HEIGHT;
+		renderer.set_output_size(outW, outH);
+
+		{
+			std::lock_guard<std::mutex> lk(m_mutex);
+			m_out_width = outW;
+			m_out_height = outH;
+		}
+
+		m_logger.info("surround_loop(): out=" + std::to_string(outW) + "x" + std::to_string(outH));
+
+		if (!m_context_manager->init_render_framebuffer(outW, outH, &m_logger)) {
+			m_logger.error("surround_loop(): cannot init render FBO");
+			return;
+		}
+
+		if (m_websocket.ip_adress.empty() || m_websocket.port.empty()) {
+			m_logger.error("surround_loop(): websocket is incorrect, aborted starting connection!");
+			return;
+		}
+
+		const auto params = get_stream_params();
+		m_stream_id = params.stream_id;
+		fps = params.fps;
+
+		m_streamer = std::make_unique<neural::UVirtualCamera>(m_stream_id, m_websocket);
+		if (!m_streamer->set_parameters(outW, outH, fps)) {
+			m_logger.error("surround_loop(): streamer set_parameters failed");
+			return;
+		}
+		if (!m_streamer->initialize()) {
+			m_logger.error("surround_loop(): streamer initialize failed");
+			return;
+		}
+		if (!m_streamer->start()) {
+			m_logger.error("surround_loop(): streamer start failed");
+			return;
+		}
+		m_logger.info("surround_loop(): streamer started, stream_id=" + m_stream_id);
+
+		std::vector<uint8_t> pixels(static_cast<size_t>(outW) * outH * 4);
+
+		const auto frame_time = std::chrono::microseconds(1000000 / fps);
+		const float dt = 1.0f / static_cast<float>(fps);
+		auto next_frame = clock::now();
+		auto space = create_linking_space();
+
+		// Фактический темп и стоимость кадра, раз в пять секунд
+		auto stats_start = clock::now();
+		int stats_frames = 0;
+		double stats_work_ms = 0.0;
+
+		while (m_running) {
+			next_frame += frame_time;
+			const auto work_start = clock::now();
+
+			fill_linking_space(space);
+			renderer.update_textures(space, m_context_manager->get_display());
+			renderer.update(dt);
+			renderer.render(static_cast<float>(outW) / static_cast<float>(outH));
+
+			glReadPixels(0, 0, outW, outH, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+
+			cv::Mat img(outH, outW, CV_8UC4, pixels.data());
+			if (m_streamer) m_streamer->push_frame(img);
+
+			stats_work_ms += std::chrono::duration<double, std::milli>(clock::now() - work_start).count();
+			++stats_frames;
+
+			const auto stats_elapsed = std::chrono::duration<double>(clock::now() - stats_start).count();
+			if (stats_elapsed >= 5.0 && stats_frames > 0) {
+				const int fps10 = static_cast<int>(stats_frames / stats_elapsed * 10.0 + 0.5);
+				const int work10 = static_cast<int>(stats_work_ms / stats_frames * 10.0 + 0.5);
+				m_logger.info("surround_loop(): fps=" + std::to_string(fps10 / 10) + "." + std::to_string(fps10 % 10)
+					+ ", frame work=" + std::to_string(work10 / 10) + "." + std::to_string(work10 % 10)
+					+ " ms of " + std::to_string(1000 / fps) + " ms budget");
+				stats_start = clock::now();
+				stats_frames = 0;
+				stats_work_ms = 0.0;
+			}
+
+			std::this_thread::sleep_until(next_frame);
+		}
+
+		if (m_streamer) {
+			m_streamer->stop_websocket_client();
+			m_streamer->stop();
+			m_streamer.reset();
+		}
 	}
 
 	std::filesystem::path ULinker::get_configurations_path() {

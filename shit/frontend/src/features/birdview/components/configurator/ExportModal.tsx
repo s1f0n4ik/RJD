@@ -10,8 +10,9 @@ interface ExportModalProps {
 }
 
 export function ExportModal({ onClose }: ExportModalProps) {
-    const [id, setId] = useState('');
-    const [name, setName] = useState('');
+    // Предзаполнение загруженным пресетом: сохранение перезапишет его
+    const [id, setId] = useState(confState.presetId);
+    const [name, setName] = useState(confState.presetName);
     const [scaleInput, setScaleInput] = useState('1');
     const [saving, setSaving] = useState(false);
     const showToast = useToast();
@@ -29,6 +30,9 @@ export function ExportModal({ onClose }: ExportModalProps) {
         setSaving(true);
         try {
             const result = await saveExport({ id: id.trim(), name: name.trim(), scale });
+            // Следующее сохранение перезапишет уже эту запись
+            confState.presetId = id.trim();
+            confState.presetName = name.trim();
             onClose();
             showToast('Конфигурация сохранена', `${id.trim()} · ${result.name}`, 'ok');
         } catch (err) {

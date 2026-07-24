@@ -31,7 +31,9 @@ import {
     mediaTransform,
     projDraw,
     projHasFrame,
+    projSyncZoom,
     setProjHasFrame,
+    setProjVideoSize,
 } from './proj-canvas';
 import { ProjSettings } from './ProjSettings';
 import { ProjResult } from './ProjResult';
@@ -82,6 +84,11 @@ export function ProjectionScreen({
     const [lutOpen, setLutOpen] = useState(false);
     const [lutSaving, setLutSaving] = useState(false);
 
+    // Реальное разрешение кадра из метаданных потока. Аспект слоя точек
+    // берётся отсюда: конфиг камеры может врать, и тогда клики нормализуются
+    // по letterbox-полосам, а не по кадру
+    const [videoSize, setVideoSize] = useState<{ w: number; h: number } | null>(null);
+
     // Пресет, на который оператор хочет перейти, пока не подтвердил потерю точек
     const [pendingPreset, setPendingPreset] = useState<string | null>(null);
     // Камеры, для которых в пришедшем пресете нашлась сохранённая разметка
@@ -101,10 +108,16 @@ export function ProjectionScreen({
         [showToast],
     );
 
-    /** Применяет текущий зум к слою видео. Канвас перерисовывается сам. */
+    // Смена потока — старое разрешение больше не факт
+    useEffect(() => {
+        setVideoSize(null);
+        setProjVideoSize(0, 0);
+    }, [streamId, stream.generation]);
+
+    /** Применяет текущий зум к слою видео. Канвас внутри слоя, ему нужен только bitmap. */
     const syncTransform = useCallback(() => {
         if (mediaRef.current) mediaRef.current.style.transform = mediaTransform();
-        projDraw();
+        projSyncZoom();
     }, []);
 
     // Канвас точек и указатель
@@ -452,7 +465,12 @@ export function ProjectionScreen({
         setLutOpen(true);
     };
 
-    const aspect = camera ? `${camera.width} / ${camera.height}` : '16 / 9';
+    // До прихода метаданных живём на конфиге камеры
+    const aspect = videoSize
+        ? `${videoSize.w} / ${videoSize.h}`
+        : camera
+            ? `${camera.width} / ${camera.height}`
+            : '16 / 9';
     const maxPts = currentMaxPoints();
 
     return (
@@ -485,20 +503,26 @@ export function ProjectionScreen({
                     ref={wrapperRef}
                     className={`proj-warp-wrapper${projState.applied ? ' applied' : ''}`}
                 >
-                    {streamId ? (
-                        <div
-                            ref={mediaRef}
-                            className="proj-media-layer"
-                            style={{ aspectRatio: aspect }}
-                        >
+                    <div ref={mediaRef} className="proj-media-layer" style={{ aspectRatio: aspect }}>
+                        {streamId ? (
                             <WebRTCPlayer
                                 key={`proj-${streamId}-${stream.generation}`}
                                 cameraId={streamId}
                                 signalingUrl={wsUrl(`/signaling/client/${streamId}`)}
+                                onVideoResolution={(w, h) => {
+                                    setVideoSize(prev =>
+                                        prev && prev.w === w && prev.h === h ? prev : { w, h },
+                                    );
+                                    // Letterbox канваса пересчитывается от реального кадра
+                                    setProjVideoSize(w, h);
+                                    if (camera && Math.abs(w / h - camera.width / camera.height) > 0.001) {
+                                        console.warn(
+                                            `Проекция: поток ${w}×${h} расходится по аспекту с конфигом камеры ${camera.width}×${camera.height}`,
+                                        );
+                                    }
+                                }}
                             />
-                        </div>
-                    ) : (
-                        <div ref={mediaRef} className="proj-media-layer" style={{ aspectRatio: aspect }}>
+                        ) : (
                             <div className="no-signal">
                                 <div className="no-signal-icon">{stream.pending ? '◌' : '⊘'}</div>
                                 <div className="no-signal-text">
@@ -510,10 +534,11 @@ export function ProjectionScreen({
                                         : 'Выберите камеру в настройках слева'}
                                 </div>
                             </div>
-                        </div>
-                    )}
+                        )}
 
-                    <canvas ref={canvasRef} className="proj-warp-canvas" />
+                        {/* Канвас внутри слоя: наследует его transform, как в no-react */}
+                        <canvas ref={canvasRef} className="proj-warp-canvas" />
+                    </div>
                     <div className="proj-zoom-hint">shift+scroll — zoom · shift+drag — pan</div>
                 </div>
 

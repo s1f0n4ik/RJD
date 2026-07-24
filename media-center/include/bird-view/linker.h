@@ -48,11 +48,18 @@ namespace birdview {
 				выводится из формы канваса по прежнему правилу.
 			*/
 			int rotation = -1;
+			// Режим вывода: top - сшивка сверху, surround - объёмный вид
+			// Пусто - в состоянии не задан, работает top
+			std::string view_mode;
 		};
 
 		// Допустимые углы. Всё остальное ручка отвергает
 		static bool is_valid_rotation(int degrees) {
 			return degrees == 0 || degrees == 90 || degrees == 180 || degrees == 270;
+		}
+
+		static bool is_valid_view_mode(const std::string& mode) {
+			return mode == "top" || mode == "surround";
 		}
 
 	public:
@@ -94,6 +101,9 @@ namespace birdview {
 		*/
 		int resolve_rotation(const std::string& export_id = {}) const;
 
+		// Режим вывода конфигурации: из состояния, иначе top
+		std::string resolve_view_mode(const std::string& export_id = {}) const;
+
 		/*
 			Размер кадра, который реально уходит в эфир. Больше канваса на
 			выравнивание сторон, поэтому его показывают отдельно: иначе при
@@ -124,6 +134,15 @@ namespace birdview {
 		*/
 		bool set_rotation(const std::string& export_id, int degrees, std::string& error);
 
+		// Смена режима вывода. Пустой export_id - активная конфигурация
+		// Живой вывод пересобирается: размер кадра у режимов разный
+		bool set_view_mode(const std::string& export_id, const std::string& mode, std::string& error);
+
+		// Ручной оверрайд позы камеры места в surround-блоке экспорта
+		// payload: {position:[x,y,z], yaw, pitch, roll} или {reset:true}
+		bool set_surround_camera(const std::string& export_id, const std::string& place_key,
+			const boost::json::object& payload, std::string& error);
+
 		std::vector<FExportInfo> list_exports();
 		boost::json::object get_state_raw();
 
@@ -137,6 +156,9 @@ namespace birdview {
 
 	private:
 		void processing_loop(uint32_t fps);
+
+		// Тело вывода для surround-режима, вызывается из processing_loop
+		void surround_loop(uint32_t fps);
 
 		NLinkSpace create_linking_space();
 

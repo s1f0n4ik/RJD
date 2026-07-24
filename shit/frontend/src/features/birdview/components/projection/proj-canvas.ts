@@ -2,23 +2,37 @@ import { projState } from '../../state/proj-store';
 import { CANVAS_COLORS } from '../../styles/canvas-colors';
 
 /**
- * Слой точек warp. Порт canvas.js из no-react с одним принципиальным отличием.
+ * Слой точек warp. Порт canvas.js из no-react.
  *
- * В оригинале канвас лежал внутри трансформируемого слоя и при каждом шаге
- * зума пересоздавал bitmap размером base × scale × dpr. На MAX_SCALE = 12 и
- * dpr = 2 это давало 30720×23040 — за пределом Chrome, и канвас молча
- * переставал рисовать.
+ * Канвас лежит внутри трансформируемого слоя видео и позиционируется ровно
+ * на content-box кадра: letterbox считается из videoWidth/videoHeight, как
+ * в оригинальном resizeCanvas. Зум и пан канвас наследует от слоя, поэтому
+ * нормализация точки — это просто позиция внутри собственного прямоугольника
+ * канваса, без ручного учёта трансформа.
  *
- * Здесь канвас лежит поверх области фиксированного размера, а зум и сдвиг
- * применяются прямо в отрисовке и в hit-тесте. Bitmap всегда равен размеру
- * области, точки всегда чёткие и одного экранного размера.
+ * Bitmap растёт вместе с зумом ради чёткости, как в оригинале, но ограничен
+ * MAX_BITMAP: на MAX_SCALE = 12 и dpr = 2 оригинал создавал 30720×23040 —
+ * за пределом Chrome, и канвас молча переставал рисовать.
  */
 
 let canvasEl: HTMLCanvasElement | null = null;
 let ctx: CanvasRenderingContext2D | null = null;
-/** Слой с видео: его нетрансформированный прямоугольник задаёт систему координат. */
+/** Слой с видео: канвас позиционируется внутри него. */
 let mediaEl: HTMLElement | null = null;
 let dpr = 1;
+
+// Реальное разрешение кадра, задаёт letterbox канваса внутри слоя
+let videoW = 0;
+let videoH = 0;
+
+// Content-box кадра в CSS-пикселях слоя
+let baseW = 0;
+let baseH = 0;
+
+// Scale, под который создан текущий bitmap
+let lastScale = 0;
+
+const MAX_BITMAP = 8192;
 
 /**
  * Есть ли под слоем кадр.
@@ -39,24 +53,23 @@ export function projHasFrame(): boolean {
     return hasFrame;
 }
 
+/** Реальное разрешение кадра из метаданных видео. */
+export function setProjVideoSize(width: number, height: number): void {
+    if (videoW === width && videoH === height) return;
+    videoW = width;
+    videoH = height;
+    layoutCanvas();
+}
+
 export function attachProjCanvas(canvas: HTMLCanvasElement, media: HTMLElement): () => void {
     canvasEl = canvas;
     mediaEl = media;
     ctx = canvas.getContext('2d');
     dpr = window.devicePixelRatio || 1;
 
-    const resize = () => {
-        if (!canvasEl) return;
-        const parent = canvasEl.parentElement;
-        if (!parent) return;
-        canvasEl.width = Math.round(parent.offsetWidth * dpr);
-        canvasEl.height = Math.round(parent.offsetHeight * dpr);
-        projDraw();
-    };
-
-    const observer = new ResizeObserver(resize);
-    if (canvas.parentElement) observer.observe(canvas.parentElement);
-    resize();
+    const observer = new ResizeObserver(() => layoutCanvas());
+    observer.observe(media);
+    layoutCanvas();
 
     return () => {
         observer.disconnect();
@@ -66,44 +79,61 @@ export function attachProjCanvas(canvas: HTMLCanvasElement, media: HTMLElement):
     };
 }
 
-/**
- * Нетрансформированный прямоугольник видео внутри обёртки.
- * offsetLeft/Width не учитывают CSS-трансформ — именно это и нужно.
- */
-function baseRect(): { left: number; top: number; w: number; h: number } | null {
-    if (!mediaEl) return null;
-    return {
-        left: mediaEl.offsetLeft,
-        top: mediaEl.offsetTop,
-        w: mediaEl.offsetWidth,
-        h: mediaEl.offsetHeight,
-    };
+// Канвас накрывает ровно кадр: letterbox внутри слоя по соотношению видео
+function layoutCanvas(): void {
+    if (!canvasEl || !mediaEl) return;
+    const lw = mediaEl.offsetWidth;
+    const lh = mediaEl.offsetHeight;
+    if (lw <= 0 || lh <= 0) return;
+
+    let w = lw;
+    let h = lh;
+    if (videoW > 0 && videoH > 0) {
+        const layerRatio = lw / lh;
+        const videoRatio = videoW / videoH;
+        if (videoRatio > layerRatio) {
+            w = lw;
+            h = Math.round(lw / videoRatio);
+        } else {
+            h = lh;
+            w = Math.round(lh * videoRatio);
+        }
+    }
+
+    baseW = w;
+    baseH = h;
+    canvasEl.style.width = `${w}px`;
+    canvasEl.style.height = `${h}px`;
+    canvasEl.style.left = `${Math.round((lw - w) / 2)}px`;
+    canvasEl.style.top = `${Math.round((lh - h) / 2)}px`;
+
+    resizeBitmap();
 }
 
-/** Нормализованная точка → координаты внутри обёртки, с учётом зума. */
-export function normToWrapper(nx: number, ny: number): { x: number; y: number } | null {
-    const base = baseRect();
-    if (!base) return null;
-    const v = projState.view;
-    return {
-        x: base.left + v.ox + nx * base.w * v.scale,
-        y: base.top + v.oy + ny * base.h * v.scale,
-    };
+function resizeBitmap(): void {
+    if (!canvasEl || baseW <= 0 || baseH <= 0) return;
+    const s = projState.view.scale || 1;
+    const k = Math.min(s * dpr, MAX_BITMAP / Math.max(baseW, baseH));
+    canvasEl.width = Math.round(baseW * k);
+    canvasEl.height = Math.round(baseH * k);
+    lastScale = s;
+    projDraw();
+}
+
+/** Вызывается после смены transform слоя: bitmap пересоздаётся только на смене зума. */
+export function projSyncZoom(): void {
+    if (projState.view.scale !== lastScale) resizeBitmap();
+    else projDraw();
 }
 
 /** Координаты указателя → нормализованная точка кадра. */
 export function eventToNorm(e: { clientX: number; clientY: number }): { x: number; y: number } | null {
-    const base = baseRect();
-    if (!base || !canvasEl) return null;
-
+    if (!canvasEl) return null;
     const rect = canvasEl.getBoundingClientRect();
-    const ex = e.clientX - rect.left;
-    const ey = e.clientY - rect.top;
-    const v = projState.view;
-
+    if (rect.width <= 0 || rect.height <= 0) return null;
     return {
-        x: Math.min(1, Math.max(0, (ex - base.left - v.ox) / (base.w * v.scale))),
-        y: Math.min(1, Math.max(0, (ey - base.top - v.oy) / (base.h * v.scale))),
+        x: Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)),
+        y: Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height)),
     };
 }
 
@@ -117,9 +147,10 @@ export function hitPoint(e: { clientX: number; clientY: number }): number {
     const HIT_PX = 10;
 
     for (let i = projState.points.length - 1; i >= 0; i--) {
-        const p = normToWrapper(projState.points[i].x, projState.points[i].y);
-        if (!p) continue;
-        if (Math.hypot(ex - p.x, ey - p.y) < HIT_PX) return i;
+        const p = projState.points[i];
+        const px = p.x * rect.width;
+        const py = p.y * rect.height;
+        if (Math.hypot(ex - px, ey - py) < HIT_PX) return i;
     }
     return -1;
 }
@@ -128,23 +159,25 @@ export function projDraw(): void {
     if (!ctx || !canvasEl) return;
 
     const c = ctx;
-    c.clearRect(0, 0, canvasEl.width, canvasEl.height);
+    const W = canvasEl.width;
+    const H = canvasEl.height;
+    c.clearRect(0, 0, W, H);
 
-    if (!hasFrame) return;
+    if (!hasFrame || baseW <= 0) return;
 
     const pts = projState.points;
     if (!pts.length) return;
 
-    const PX = dpr;
+    // Точки фиксированного экранного размера при любом зуме
+    const s = projState.view.scale || 1;
+    const PX = W / (baseW * s);
+
     const R = 7 * PX;
     const RING = 3 * PX;
     const LINE_W = 1.5 * PX;
     const FONT = 11 * PX;
 
-    const screen = pts.map(p => {
-        const w = normToWrapper(p.x, p.y);
-        return w ? { x: w.x * dpr, y: w.y * dpr } : null;
-    });
+    const screen = pts.map(p => ({ x: p.x * W, y: p.y * H }));
 
     // Ломаная без замыкания первой и последней точки
     if (pts.length > 1) {
@@ -152,12 +185,9 @@ export function projDraw(): void {
         c.strokeStyle = CANVAS_COLORS.accentLine;
         c.lineWidth = LINE_W;
         c.setLineDash([6 * PX, 3 * PX]);
-        let started = false;
-        screen.forEach(p => {
-            if (!p) return;
-            if (!started) {
+        screen.forEach((p, i) => {
+            if (i === 0) {
                 c.moveTo(p.x, p.y);
-                started = true;
             } else {
                 c.lineTo(p.x, p.y);
             }
@@ -167,8 +197,6 @@ export function projDraw(): void {
     }
 
     screen.forEach((p, i) => {
-        if (!p) return;
-
         c.beginPath();
         c.arc(p.x, p.y, R + RING, 0, Math.PI * 2);
         c.fillStyle = CANVAS_COLORS.shadow;
@@ -208,15 +236,14 @@ export function projDraw(): void {
  * внутрь, иначе появится пустая полоса.
  */
 export function clampPan(): void {
-    const base = baseRect();
-    if (!base || !canvasEl) return;
-    const parent = canvasEl.parentElement;
+    if (!mediaEl) return;
+    const parent = mediaEl.parentElement;
     if (!parent) return;
 
     const v = projState.view;
 
-    v.ox = clampAxis(v.ox, base.left, base.w * v.scale, parent.offsetWidth);
-    v.oy = clampAxis(v.oy, base.top, base.h * v.scale, parent.offsetHeight);
+    v.ox = clampAxis(v.ox, mediaEl.offsetLeft, mediaEl.offsetWidth * v.scale, parent.offsetWidth);
+    v.oy = clampAxis(v.oy, mediaEl.offsetTop, mediaEl.offsetHeight * v.scale, parent.offsetHeight);
 }
 
 function clampAxis(offset: number, baseStart: number, scaled: number, available: number): number {
@@ -226,7 +253,7 @@ function clampAxis(offset: number, baseStart: number, scaled: number, available:
     return Math.min(max, Math.max(min, offset));
 }
 
-/** CSS-трансформ слоя видео. Канвас его не получает — он рисует сам. */
+/** CSS-трансформ слоя видео. Канвас лежит внутри слоя и наследует его. */
 export function mediaTransform(): string {
     const v = projState.view;
     return `translate(${v.ox}px, ${v.oy}px) scale(${v.scale})`;

@@ -37,6 +37,10 @@ export interface ConfState {
 
     /** Область, которую пользователь растягивает инструментом прямо сейчас. */
     draft: { x: number; y: number; w: number; h: number } | null;
+
+    // Ключ и имя загруженного пресета, предзаполняют экспорт для перезаписи
+    presetId: string;
+    presetName: string;
 }
 
 export type HandleName = 'tl' | 'mt' | 'tr' | 'ml' | 'mr' | 'bl' | 'mb' | 'br';
@@ -60,6 +64,9 @@ export const confState: ConfState = {
     view: { ox: 0, oy: 0, scale: 1 },
 
     draft: null,
+
+    presetId: '',
+    presetName: '',
 };
 
 export const COLORS: Record<'camera' | 'zone', string[]> = {

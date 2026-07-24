@@ -46,6 +46,8 @@ interface WebRTCPlayerProps {
     onTracks?:      (tracks: Track[]) => void;
     /** Опционально: состояние соединения наружу, для своих индикаторов. */
     onStatusChange?: (info: PlayerStatusInfo) => void;
+    /** Опционально: реальное разрешение кадра из метаданных видео. */
+    onVideoResolution?: (width: number, height: number) => void;
     /**
      * Фон подложки. По умолчанию чёрный — так плеер выглядел всегда.
      * 'transparent' отдаёт фон странице: на тёмных экранах birdview чёрный
@@ -67,7 +69,7 @@ const getStreamErrorMessage = (error_code: string): string => {
     return STREAM_ERROR_MESSAGES[error_code] ?? `Ошибка потока: ${error_code}`;
 };
 
-const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signalingUrl, onError, onDetections, onTracks, onStatusChange, background = 'black' }) => {
+const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signalingUrl, onError, onDetections, onTracks, onStatusChange, onVideoResolution, background = 'black' }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const [status, setStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
     const [errorMsg, setErrorMsg] = useState<string>('');
@@ -92,6 +94,29 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
     useEffect(() => {
         emitStatus();
     }, [status]);
+
+    // Разрешение наружу. Ref по той же причине, что и onStatusChange
+    const onVideoResolutionRef = useRef(onVideoResolution);
+    onVideoResolutionRef.current = onVideoResolution;
+
+    // resize нужен: в WebRTC разрешение может смениться посреди потока
+    useEffect(() => {
+        const el = videoRef.current;
+        if (!el) return;
+
+        const report = () => {
+            if (el.videoWidth > 0 && el.videoHeight > 0) {
+                onVideoResolutionRef.current?.(el.videoWidth, el.videoHeight);
+            }
+        };
+
+        el.addEventListener('loadedmetadata', report);
+        el.addEventListener('resize', report);
+        return () => {
+            el.removeEventListener('loadedmetadata', report);
+            el.removeEventListener('resize', report);
+        };
+    }, []);
 
     const wsRef = useRef<WebSocket | null>(null);
     const pcRef = useRef<RTCPeerConnection | null>(null);

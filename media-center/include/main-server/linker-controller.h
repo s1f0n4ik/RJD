@@ -23,6 +23,8 @@
 	GET    /linker/image    → картинка-подложка по имени файла
 	POST   /linker/rotation → поворот вывода: 0, 90, 180, 270 против часовой.
 	                          Живую конфигурацию пересобирает сразу
+	POST   /linker/view-mode → режим вывода: top или surround.
+	                           Живую конфигурацию пересобирает сразу
 
 	Пресеты и экспорты — разные файлы: первым владеет конфигуратор,
 	второй собирает страница сборки.
@@ -60,6 +62,12 @@ public:
 
 	boost::beast::http::response<boost::beast::http::string_body>
 		post_rotation(const boost::beast::http::request<boost::beast::http::string_body>& req);
+
+	boost::beast::http::response<boost::beast::http::string_body>
+		post_view_mode(const boost::beast::http::request<boost::beast::http::string_body>& req);
+
+	boost::beast::http::response<boost::beast::http::string_body>
+		post_surround_camera(const boost::beast::http::request<boost::beast::http::string_body>& req);
 
 	boost::beast::http::response<boost::beast::http::string_body>
 		get_presets(const boost::beast::http::request<boost::beast::http::string_body>& req);

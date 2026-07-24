@@ -24,11 +24,19 @@ namespace rest {
 
 	// ── Логирование ──
 
+	// Тело дампится только для JSON: бинарники в websocket-лог не идут
 	inline void log_request(ULogger* logger, const http::request<http::string_body>& req, const std::string& tag) {
 		if (!logger) return;
 		logger->info(tag + " from " + std::string(req[http::field::user_agent]));
-		if (!req.body().empty()) {
+		if (req.body().empty()) return;
+
+		const auto content_type = std::string(req[http::field::content_type]);
+		if (content_type.find("application/json") != std::string::npos) {
 			logger->receive("Body: " + req.body());
+		}
+		else {
+			logger->receive("Body: <" + std::to_string(req.body().size()) + " bytes, "
+				+ (content_type.empty() ? "no content-type" : content_type) + ">");
 		}
 	}
 

@@ -916,9 +916,10 @@ void UCameraMainPipeline::destroy_gst_gl_context() {
 		m_gl_context.display = nullptr;
 	}
 
-	if (m_gl_context.display != EGL_NO_DISPLAY) {
-		eglDestroyContext(m_gl_context.display, m_gl_context.shared_context.context);
+	if (m_gl_context.root_display != EGL_NO_DISPLAY && m_gl_context.shared_context.context != EGL_NO_CONTEXT) {
+		eglDestroyContext(m_gl_context.root_display, m_gl_context.shared_context.context);
 	}
+	m_gl_context.root_display = EGL_NO_DISPLAY;
 
 	memset(&m_gl_context.shared_context, 0, sizeof(m_gl_context.shared_context));
 	m_gl_context.is_initialized = false;

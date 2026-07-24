@@ -150,6 +150,7 @@ namespace neural {
 
 	bool UCamera::initialize() {
 		if (m_initialized) return true;
+		if (m_stop_called.load()) return false;
 
 		// Ждём, а не проверяем: поток GLib поднимается асинхронно из конструктора
 		{

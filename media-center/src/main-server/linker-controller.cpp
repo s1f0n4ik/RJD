@@ -248,6 +248,99 @@ ULinkerController::post_rotation(const http::request<http::string_body>& req)
     return json_ok(m_logger, req, body, tag);
 }
 
+// ─── POST /linker/view-mode ─────────────────────────────────
+http::response<http::string_body>
+ULinkerController::post_view_mode(const http::request<http::string_body>& req)
+{
+    const std::string tag = "POST /linker/view-mode";
+    log_request(m_logger, req, tag);
+
+    std::string mode;
+    std::string export_id;
+
+    try {
+        auto v = boost::json::parse(req.body());
+        if (!v.is_object()) {
+            return json_error(m_logger, req, http::status::bad_request, "body must be object", tag);
+        }
+        const auto& obj = v.as_object();
+
+        if (auto* m = obj.if_contains("view_mode"); m && m->is_string()) {
+            mode = m->as_string().c_str();
+        }
+        else {
+            return json_error(m_logger, req, http::status::bad_request, "missing view_mode", tag);
+        }
+
+        // Без export_id правим активную конфигурацию
+        if (auto* e = obj.if_contains("export_id"); e && e->is_string()) {
+            export_id = e->as_string().c_str();
+        }
+    }
+    catch (const std::exception& e) {
+        return json_error(m_logger, req, http::status::bad_request, e.what(), tag);
+    }
+
+    std::string error;
+    if (!m_linker->set_view_mode(export_id, mode, error)) {
+        return json_error(m_logger, req, http::status::bad_request, error, tag);
+    }
+
+    boost::json::object data;
+    data["view_mode"] = mode;
+    data["export_id"] = export_id.empty() ? m_linker->get_active_export_id() : export_id;
+
+    boost::json::object body;
+    body["data"] = std::move(data);
+    return json_ok(m_logger, req, body, tag);
+}
+
+// ─── POST /linker/surround-camera ───────────────────────────
+http::response<http::string_body>
+ULinkerController::post_surround_camera(const http::request<http::string_body>& req)
+{
+    const std::string tag = "POST /linker/surround-camera";
+    log_request(m_logger, req, tag);
+
+    std::string export_id, place_key;
+    boost::json::object payload;
+
+    try {
+        auto v = boost::json::parse(req.body());
+        if (!v.is_object()) {
+            return json_error(m_logger, req, http::status::bad_request, "body must be object", tag);
+        }
+        payload = v.as_object();
+
+        if (auto* p = payload.if_contains("place_key"); p && p->is_string()) {
+            place_key = p->as_string().c_str();
+        }
+        else {
+            return json_error(m_logger, req, http::status::bad_request, "missing place_key", tag);
+        }
+        // Без export_id правим активную конфигурацию
+        if (auto* e = payload.if_contains("export_id"); e && e->is_string()) {
+            export_id = e->as_string().c_str();
+        }
+    }
+    catch (const std::exception& e) {
+        return json_error(m_logger, req, http::status::bad_request, e.what(), tag);
+    }
+
+    std::string error;
+    if (!m_linker->set_surround_camera(export_id, place_key, payload, error)) {
+        return json_error(m_logger, req, http::status::bad_request, error, tag);
+    }
+
+    boost::json::object data;
+    data["place_key"] = place_key;
+    data["export_id"] = export_id.empty() ? m_linker->get_active_export_id() : export_id;
+
+    boost::json::object body;
+    body["data"] = std::move(data);
+    return json_ok(m_logger, req, body, tag);
+}
+
 // ─── DELETE /linker/export?id=XXX ───────────────────────────
 http::response<http::string_body>
 ULinkerController::delete_export(const http::request<http::string_body>& req)
@@ -387,6 +480,7 @@ ULinkerController::get_status(const http::request<http::string_body>& req)
         data["stream_name"] = params.stream_name;
         data["fps"] = static_cast<int64_t>(params.fps);
         data["rotation"] = m_linker->resolve_rotation();
+        data["view_mode"] = m_linker->resolve_view_mode();
 
         /*
             Размер кадра шире канваса на выравнивание сторон, поэтому он

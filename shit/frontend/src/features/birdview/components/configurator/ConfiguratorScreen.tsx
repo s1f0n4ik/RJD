@@ -129,7 +129,12 @@ export function ConfiguratorScreen({ active }: ConfiguratorScreenProps) {
                             if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
                             const json = await res.json();
-                            const result = await importPreset(json.data ?? json);
+                            const data = json.data ?? json;
+                            const result = await importPreset(data);
+
+                            // Запоминаем источник: экспорт предзаполнится им для перезаписи
+                            confState.presetId = key;
+                            confState.presetName = typeof data?.name === 'string' ? data.name : '';
 
                             setLoadOpen(false);
                             redraw();

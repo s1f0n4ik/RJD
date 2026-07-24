@@ -176,51 +176,19 @@ namespace neural {
             }
         }
 
-        std::vector<std::pair<std::string, std::weak_ptr<UCamera>>> camera_refs;
+        // Инициализация и ретраи живут в worker самой камеры, как при POST /camera
+        size_t started = 0;
         {
             std::lock_guard<std::mutex> lk(m_mutex);
-            for (auto& [id, cam] : m_cameras)
-                camera_refs.push_back({ id, cam }); // weak_ptr из shared_ptr
-        }
-
-        for (auto& [id, weak_cam] : camera_refs) {
-            std::thread([this, id, weak_cam]() {
-                while (!m_shutdown_requested.load()) {
-
-                    auto cam = weak_cam.lock();
-                    if (!cam) {
-                        m_logger.warn("start_cameras_from_config(): camera "
-                            + id + " removed, exiting init thread");
-                        return;
-                    }
-
-                    {
-                        std::lock_guard<std::mutex> lk(m_mutex);
-                        if (m_cameras.find(id) == m_cameras.end()) return;
-                    }
-
-                    if (cam->initialize()) {
-                        m_logger.info("start_cameras_from_config(): camera " + id + " initialized");
-                        cam->start_async();
-                        return;
-                    }
-
-                    m_logger.error("start_cameras_from_config(): camera "
-                        + id + " failed to initialize, retry in 2s");
-
-                    cam.reset(); // отпускаем перед sleep
-
-                    std::unique_lock<std::mutex> lk(m_init_cv_mutex);
-                    m_init_cv.wait_for(lk, std::chrono::seconds(2),
-                        [this] { return m_shutdown_requested.load(); }
-                    );
-                }
-                }).detach();
+            for (auto& [id, cam] : m_cameras) {
+                cam->start_async();
+                ++started;
+            }
         }
 
         m_camera_initialization = true;
-        m_logger.info("start_cameras_from_config(): init threads launched for "
-            + std::to_string(camera_refs.size()) + " cameras");
+        m_logger.info("start_cameras_from_config(): started "
+            + std::to_string(started) + " cameras");
     }
 
     void UMediaCenter::initialize_cameras() {
