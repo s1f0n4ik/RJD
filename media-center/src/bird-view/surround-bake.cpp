@@ -520,6 +520,42 @@ namespace birdview {
 			}
 		}
 
+		// Точки фотонормализации: вершины в клине смешивания пары, где обе
+		// камеры видят землю честным UV внутри кадра
+		for (size_t a = 0; a < poses.size(); ++a) {
+			for (size_t b = a + 1; b < poses.size(); ++b) {
+				auto in_blend = [&](size_t cam, size_t vi, float& u, float& v) {
+					const float* attr = out.camera_attributes[cam].data()
+						+ vi * SURROUND_ATTR_STRIDE;
+					u = attr[0]; v = attr[1];
+					const float w = attr[2];
+					return w > 0.02f && w < 0.98f
+						&& u > 0.02f && u < 0.98f && v > 0.02f && v < 0.98f;
+				};
+
+				std::vector<std::array<float, 4>> found;
+				for (size_t vi = 0; vi < vertices.size(); ++vi) {
+					float ua, va, ub, vb;
+					if (in_blend(a, vi, ua, va) && in_blend(b, vi, ub, vb)) {
+						found.push_back({ ua, va, ub, vb });
+					}
+				}
+				if (found.size() < 16) continue;
+
+				FSurroundPhotoPair pair;
+				pair.cam_a = static_cast<int>(a);
+				pair.cam_b = static_cast<int>(b);
+				const size_t stride = std::max<size_t>(1, found.size() / SURROUND_PHOTO_SAMPLES);
+				for (size_t k = 0; k < found.size(); k += stride) {
+					if (pair.uv.size() >= SURROUND_PHOTO_SAMPLES) break;
+					pair.uv.push_back(found[k]);
+				}
+				out.photo_pairs.push_back(std::move(pair));
+			}
+		}
+
+		if (m_logger) m_logger->info("bake(): photometric pairs=" + std::to_string(out.photo_pairs.size()));
+
 		return true;
 	}
 

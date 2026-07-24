@@ -49,6 +49,8 @@ namespace constants {
 	inline const std::filesystem::path surround_vsh = "shaders/surround.vert";     // "shaders/surround.vert"
 	inline const std::filesystem::path surround_fsh = "shaders/surround.frag";     // "shaders/surround.frag"
 	inline const std::filesystem::path surround_norm_fsh = "shaders/surround-normalize.frag"; // "shaders/surround-normalize.frag"
+	inline const std::filesystem::path surround_probe_vsh = "shaders/surround-probe.vert";   // "shaders/surround-probe.vert"
+	inline const std::filesystem::path surround_probe_fsh = "shaders/surround-probe.frag";   // "shaders/surround-probe.frag"
 
 	// Размер кадра объёмного вида: 16:9, стороны кратны 16 для кодека
 	inline constexpr int SURROUND_WIDTH = 1280;

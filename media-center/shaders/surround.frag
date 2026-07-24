@@ -14,6 +14,8 @@ uniform float u_grid_step;
 
 uniform sampler2D u_plane_y;
 uniform sampler2D u_plane_uv;
+// Фотонормализация: усиление RGB камеры, выравнивает яркость на швах
+uniform vec3 u_gain;
 
 void main() {
     if (u_mode == 1) {
@@ -48,7 +50,7 @@ void main() {
     vec3 rgb = vec3(
         y + 1.402 * v,
         y - 0.344136 * u - 0.714136 * v,
-        y + 1.772 * u);
+        y + 1.772 * u) * u_gain;
 
     frag = vec4(rgb * w, w);
 }

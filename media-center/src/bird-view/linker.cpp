@@ -991,6 +991,13 @@ namespace birdview {
 				}
 
 				if (ok && renderer.set_camera_attributes(bake.camera_attributes)) {
+					// Фотонормализация отключается ключом photometric в surround-блоке
+					bool photometric = true;
+					if (auto* v = surround_cfg.if_contains("photometric"); v && v->is_bool()) {
+						photometric = v->as_bool();
+					}
+					if (photometric) renderer.set_photometric_pairs(bake.photo_pairs);
+
 					std::vector<std::string> keys;
 					for (const auto& cam : bake.cameras) keys.push_back(cam.place_key);
 					std::lock_guard<std::mutex> lk(m_mutex);

@@ -2,7 +2,12 @@
 
 #include <glm.hpp>
 
+#include <condition_variable>
+#include <mutex>
+#include <thread>
+
 #include "renderer.h"
+#include "bird-view/surround-bake.h"
 
 namespace varan {
 namespace birdview {
@@ -33,11 +38,16 @@ namespace birdview {
 		// Отступы чаши от борта в долях от min(width, length), зовётся до set_machine
 		void set_bowl_factors(float floor_f, float outer_f, float wall_f, float plate_f);
 
+		// Фотонормализация: точки пар из печки, зовётся после set_camera_attributes
+		void set_photometric_pairs(const std::vector<FSurroundPhotoPair>& pairs);
+
 	private:
 		void build_bowl();
 		void build_box();
 		bool ensure_accum();
 		void destroy_geometry();
+		void probe_step();
+		void photo_worker_loop();
 
 	private:
 		UShader m_shader;
@@ -69,6 +79,41 @@ namespace birdview {
 		};
 		std::vector<FCameraTex> m_cam_tex;
 		int m_camera_count = 0;
+
+		// Пробник фотонормализации: выборки пар в крошечный FBO, чтение через
+		// PBO с fence без ожидания GPU, обсчёт в рабочем потоке
+		struct FProbeDraw {
+			int cam_a = 0;
+			int cam_b = 0;
+			GLint first_a = 0;
+			GLint first_b = 0;
+			GLsizei count = 0;
+		};
+		UShader m_probe;
+		GLuint m_probe_vao = 0;
+		GLuint m_probe_vbo = 0;
+		GLuint m_probe_fbo = 0;
+		GLuint m_probe_tex = 0;
+		GLuint m_probe_pbo = 0;
+		GLsync m_probe_fence = nullptr;
+		int m_probe_w = 0;
+		int m_probe_h = 0;
+		int m_probe_frame = 0;
+		std::vector<FProbeDraw> m_probe_pairs;
+
+		// Применяемые усиления камер, копируются из воркера раз в кадр
+		std::vector<glm::vec3> m_gains;
+
+		std::thread m_photo_worker;
+		std::mutex m_photo_mutex;
+		std::condition_variable m_photo_cv;
+		std::vector<uint8_t> m_photo_job;
+		bool m_photo_job_ready = false;
+		bool m_photo_stop = false;
+		std::vector<glm::vec3> m_photo_gains;
+		// Последнее измерение пары: страховка на тик без кадров
+		std::vector<std::array<double, 3>> m_photo_last_m;
+		std::vector<char> m_photo_last_ok;
 
 		// База масштаба орбиты и сетки; отступы чаши идут от меньшей стороны
 		float m_base = 4.0f;

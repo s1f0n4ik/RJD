@@ -4,6 +4,7 @@
 #include <boost/json.hpp>
 #include <glm.hpp>
 
+#include <array>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -44,10 +45,21 @@ namespace birdview {
 	// рендер идёт по проходу на камеру в накопительный буфер
 	inline constexpr int SURROUND_ATTR_STRIDE = 3;
 
+	// Точки одной земли глазами двух соседних камер, вход фотонормализации
+	// uv - по паре нормированных координат на точку: ua, va, ub, vb
+	struct FSurroundPhotoPair {
+		int cam_a = 0;
+		int cam_b = 0;
+		std::vector<std::array<float, 4>> uv;
+	};
+
+	inline constexpr int SURROUND_PHOTO_SAMPLES = 256;
+
 	struct FSurroundBake {
 		FSurroundMachine machine;
 		std::vector<FSurroundBakedCamera> cameras;
 		std::vector<std::vector<float>> camera_attributes;
+		std::vector<FSurroundPhotoPair> photo_pairs;
 	};
 
 	// Печёт пер-вершинные UV чаши при старте вывода: solvePnP по точкам
