@@ -3,6 +3,7 @@
 #include <gtc/type_ptr.hpp>
 #include <vector>
 #include <cmath>
+#include <algorithm>
 
 #include "bird-view/surround-renderer.h"
 #include "bird-view/surround-bake.h"
@@ -21,7 +22,9 @@ namespace birdview {
 		constexpr float ORBIT_SPEED = 0.25f;
 
 		// Плотный меш: линейная интерполяция UV не должна ломать кривизну fisheye
-		constexpr int BOWL_SEGMENTS = 96;
+		// Сегменты раскладываются по длине контура, число адаптивно к периметру
+		constexpr int BOWL_MIN_SEGMENTS = 96;
+		constexpr int BOWL_MAX_SEGMENTS = 256;
 		constexpr int BOWL_FLOOR_RINGS = 20;
 		constexpr int BOWL_WALL_RINGS = 14;
 
@@ -129,26 +132,78 @@ namespace birdview {
 	}
 
 	void USurroundRenderer::build_bowl() {
-		const float floor_r = m_base * m_floor_f;
-		const float outer_r = m_base * m_outer_f;
-		const float wall_h = m_base * m_wall_f;
-		const float floor_part = floor_r / outer_r;
+		const float side = std::min(m_box_w, m_box_l);
+		const float floor_off = side * m_floor_f;
+		const float outer_off = side * m_outer_f;
+		const float wall_h = side * m_wall_f;
+		const float floor_part = floor_off / outer_off;
 
-		// Точка профиля: плоское дно, стенка загнута вверх квадратичной дугой
-		auto profile = [&](float t, float& radius, float& height) {
+		// Точка профиля: отступ от борта, плоское дно, стенка загнута квадратичной дугой
+		auto profile = [&](float t, float& offset, float& height) {
 			if (t <= floor_part) {
-				radius = outer_r * t;
+				offset = outer_off * t;
 				height = 0.0f;
 				return;
 			}
 			const float wall_t = (t - floor_part) / (1.0f - floor_part);
-			radius = floor_r + (outer_r - floor_r) * wall_t;
+			offset = floor_off + (outer_off - floor_off) * wall_t;
 			height = wall_h * wall_t * wall_t;
 		};
 
+		// Обкатка габарита: кольцо - контур "прямоугольник + отступ наружу",
+		// прямые участки вдоль бортов и четверти окружности на углах
+		const float hx = m_box_w * 0.5f;
+		const float hz = m_box_l * 0.5f;
+		const float half_pi = PI * 0.5f;
+		const float corner_ref = outer_off * half_pi;
+
+		struct FSpan {
+			float len;
+			bool corner;
+			float ax, az, bx, bz;
+			float nx, nz;
+			float phi0;
+		};
+		const FSpan spans[8] = {
+			{ 2 * hz, false,  hx, -hz,  hx,  hz,  1,  0, 0 },
+			{ corner_ref, true,  hx,  hz, 0, 0, 0, 0, 0 },
+			{ 2 * hx, false,  hx,  hz, -hx,  hz,  0,  1, 0 },
+			{ corner_ref, true, -hx,  hz, 0, 0, 0, 0, half_pi },
+			{ 2 * hz, false, -hx,  hz, -hx, -hz, -1,  0, 0 },
+			{ corner_ref, true, -hx, -hz, 0, 0, 0, 0, PI },
+			{ 2 * hx, false, -hx, -hz,  hx, -hz,  0, -1, 0 },
+			{ corner_ref, true,  hx, -hz, 0, 0, 0, 0, PI + half_pi },
+		};
+		float perimeter = 0.0f;
+		for (const auto& s : spans) perimeter += s.len;
+
+		// Параметр u общий для всех колец: вершины лежат на лучах от борта наружу
+		auto contour_point = [&](float u, float off, float& x, float& z) {
+			float t = u * perimeter;
+			for (const auto& s : spans) {
+				if (t > s.len) { t -= s.len; continue; }
+				if (!s.corner) {
+					const float k = t / s.len;
+					x = s.ax + (s.bx - s.ax) * k + s.nx * off;
+					z = s.az + (s.bz - s.az) * k + s.nz * off;
+				}
+				else {
+					const float phi = s.phi0 + (t / s.len) * half_pi;
+					x = s.ax + off * std::cos(phi);
+					z = s.az + off * std::sin(phi);
+				}
+				return;
+			}
+			x = spans[7].ax + off * std::cos(spans[7].phi0 + half_pi);
+			z = spans[7].az + off * std::sin(spans[7].phi0 + half_pi);
+		};
+
+		const int segments = std::clamp(static_cast<int>(perimeter / (side * 0.25f)),
+			BOWL_MIN_SEGMENTS, BOWL_MAX_SEGMENTS);
+
 		std::vector<FVertex> v;
 		const int rings = BOWL_FLOOR_RINGS + BOWL_WALL_RINGS;
-		v.reserve(static_cast<size_t>(rings) * BOWL_SEGMENTS * 6);
+		v.reserve(static_cast<size_t>(rings) * segments * 6);
 
 		for (int ring = 0; ring < rings; ++ring) {
 			const float t0 = static_cast<float>(ring) / rings;
@@ -157,14 +212,20 @@ namespace birdview {
 			profile(t0, r0, h0);
 			profile(t1, r1, h1);
 
-			for (int seg = 0; seg < BOWL_SEGMENTS; ++seg) {
-				const float a0 = 2.0f * PI * seg / BOWL_SEGMENTS;
-				const float a1 = 2.0f * PI * (seg + 1) / BOWL_SEGMENTS;
+			for (int seg = 0; seg < segments; ++seg) {
+				const float u0 = static_cast<float>(seg) / segments;
+				const float u1 = static_cast<float>(seg + 1) / segments;
 
-				const FVertex p00{ r0 * std::cos(a0), h0, r0 * std::sin(a0), 0, 1, 0 };
-				const FVertex p01{ r0 * std::cos(a1), h0, r0 * std::sin(a1), 0, 1, 0 };
-				const FVertex p10{ r1 * std::cos(a0), h1, r1 * std::sin(a0), 0, 1, 0 };
-				const FVertex p11{ r1 * std::cos(a1), h1, r1 * std::sin(a1), 0, 1, 0 };
+				float x00, z00, x01, z01, x10, z10, x11, z11;
+				contour_point(u0, r0, x00, z00);
+				contour_point(u1, r0, x01, z01);
+				contour_point(u0, r1, x10, z10);
+				contour_point(u1, r1, x11, z11);
+
+				const FVertex p00{ x00, h0, z00, 0, 1, 0 };
+				const FVertex p01{ x01, h0, z01, 0, 1, 0 };
+				const FVertex p10{ x10, h1, z10, 0, 1, 0 };
+				const FVertex p11{ x11, h1, z11, 0, 1, 0 };
 
 				v.push_back(p00); v.push_back(p10); v.push_back(p11);
 				v.push_back(p11); v.push_back(p01); v.push_back(p00);

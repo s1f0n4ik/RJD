@@ -245,8 +245,8 @@ namespace birdview {
 			std::string place_key;
 			cv::Mat R, t, K, D;
 			cv::Size image_size;
-			// Центральный азимут сектора камеры вокруг центра габарита
-			double azimuth = 0.0;
+			// Центроид canvas_region камеры в метрах на плоскости, x и z мира
+			cv::Point2d region;
 		};
 		std::vector<FPose> poses;
 
@@ -367,8 +367,8 @@ namespace birdview {
 					+ " height=" + std::to_string(height) + " m");
 			}
 
-			// Центральный азимут сектора: направление на центр региона камеры,
-			// без региона - на центр рамки её точек
+			// Центр зоны камеры: центроид её региона на канвасе,
+			// без региона - центр рамки её точек
 			double rcx = 0.0, rcy = 0.0;
 			const auto& poly = cam.canvas_region.empty() ? cam.dst_points : cam.canvas_region;
 			for (const auto& p : poly) { rcx += p.x; rcy += p.y; }
@@ -383,7 +383,7 @@ namespace birdview {
 			pose.K = calib.K;
 			pose.D = calib.D;
 			pose.image_size = calib.image_size;
-			pose.azimuth = std::atan2((rcx - cx) * scale, (rcy - cy) * scale);
+			pose.region = { (rcx - cx) * scale, (rcy - cy) * scale };
 			poses.push_back(std::move(pose));
 
 			out.cameras.push_back({ place_key, camera_id, reproj, height });
@@ -413,8 +413,8 @@ namespace birdview {
 			return theta;
 		};
 
-		const double blend = std::max(0.5, static_cast<double>(out.machine.bowl_blend))
-			* CV_PI / 180.0;
+		const double machine_side = std::min(out.machine.width, out.machine.length);
+		const double blend = std::max(1e-3, static_cast<double>(out.machine.bowl_blend) * machine_side);
 
 		for (size_t ci = 0; ci < poses.size(); ++ci) {
 			const auto& pose = poses[ci];
@@ -455,19 +455,17 @@ namespace birdview {
 				поэтому интерполяция выходит за кадр в верном направлении,
 				а фрагментный вес гаснет до мусора.
 			*/
-			// Секторный вес вершины: расстояние по азимуту до этой камеры
-			// против ближайшей из остальных, переход шириной blend у границы
+			// Вес вершины по Вороному: расстояние до центроида этой камеры
+			// против ближайшего из остальных, переход шириной blend у границы
 			auto sector_weight = [&](const glm::vec3& p) {
-				const double az = std::atan2(p.x, p.z);
-				auto ang_dist = [&](double a) {
-					double d = std::fabs(az - a);
-					return d > CV_PI ? 2.0 * CV_PI - d : d;
+				auto dist = [&](const cv::Point2d& c) {
+					return std::hypot(p.x - c.x, p.z - c.y);
 				};
-				const double d_own = ang_dist(pose.azimuth);
+				const double d_own = dist(pose.region);
 				double d_other = 1e9;
 				for (size_t j = 0; j < poses.size(); ++j) {
 					if (j == ci) continue;
-					d_other = std::min(d_other, ang_dist(poses[j].azimuth));
+					d_other = std::min(d_other, dist(poses[j].region));
 				}
 				if (d_other > 1e8) return 1.0f;
 				const double margin = (d_other - d_own) / blend + 0.5;

@@ -30,7 +30,7 @@ namespace birdview {
 		// Реальный габарит: масштабирует чашу, орбиту и параллелепипед
 		void set_machine(float width, float height, float length);
 
-		// Пропорции чаши в долях от base, зовётся до set_machine
+		// Отступы чаши от борта в долях от min(width, length), зовётся до set_machine
 		void set_bowl_factors(float floor_f, float outer_f, float wall_f, float plate_f);
 
 	private:
@@ -70,10 +70,10 @@ namespace birdview {
 		std::vector<FCameraTex> m_cam_tex;
 		int m_camera_count = 0;
 
-		// База масштаба сцены, от неё чаша и орбита. По умолчанию машина
+		// База масштаба орбиты и сетки; отступы чаши идут от меньшей стороны
 		float m_base = 4.0f;
-		float m_floor_f = 1.4f;
-		float m_outer_f = 2.8f;
+		float m_floor_f = 0.9f;
+		float m_outer_f = 2.3f;
 		float m_wall_f = 0.9f;
 		float m_plate_f = 1.5f;
 		float m_box_w = 2.6f;

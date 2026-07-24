@@ -16,19 +16,19 @@ namespace varan {
 namespace birdview {
 
 	// Габарит машины: метры и её прямоугольник на канвасе
-	// Пропорции чаши в долях от base = max(length, width), с оверрайдом из JSON
+	// Отступы чаши от борта в долях от min(length, width), с оверрайдом из JSON
 	struct FSurroundMachine {
 		float length = 0.0f;
 		float width = 0.0f;
 		float height = 0.0f;
 		cv::Rect2f canvas_rect;
 
-		float bowl_floor = 1.4f;
-		float bowl_outer = 2.8f;
+		float bowl_floor = 0.9f;
+		float bowl_outer = 2.3f;
 		float bowl_wall = 0.9f;
 		float bowl_plate = 1.5f;
-		// Ширина клина смешивания на границе секторов, градусы
-		float bowl_blend = 12.0f;
+		// Ширина перехода на границе зон Вороного, доля от min(length, width)
+		float bowl_blend = 0.3f;
 	};
 
 	struct FSurroundBakedCamera {
