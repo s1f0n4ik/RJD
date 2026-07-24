@@ -69,6 +69,7 @@ export interface LinkerStatus {
     streamName: string;
     fps: number;
     rotation: Rotation;
+    viewMode: ViewMode;
     /**
      * Размер кадра в эфире. Шире канваса: стороны округляются вверх под
      * кодек, и картинка на эту разницу растягивается. Нули — вывод не
@@ -85,6 +86,74 @@ export type LinkerBindings = Record<string, string>;
 export const ROTATIONS = [0, 90, 180, 270] as const;
 export type Rotation = (typeof ROTATIONS)[number];
 
+/** Режим вывода: сшивка сверху или объёмный вид. */
+export type ViewMode = 'top' | 'surround';
+
+/** Габарит машины в метрах. */
+export interface SurroundMachine {
+    length: number;
+    width: number;
+    height: number;
+}
+
+/** Отступы чаши от борта в долях от меньшей стороны габарита. */
+export interface SurroundBowl {
+    floor: number;
+    outer: number;
+    wall: number;
+    plate: number;
+    blend: number;
+}
+
+export interface SurroundOrbit {
+    distance: number;
+    height: number;
+    speed: number;
+}
+
+/** Размеры модели в метрах; 0 — размер габарита. */
+export interface SurroundModel {
+    length: number;
+    width: number;
+    height: number;
+    alpha: number;
+}
+
+/** Действующая поза камеры из печки: метры от центра габарита и градусы. */
+export interface SurroundCameraPose {
+    placeKey: string;
+    cameraId: string;
+    source: 'pnp' | 'manual';
+    height: number;
+    reprojectionError: number;
+    position: [number, number, number];
+    yaw: number;
+    pitch: number;
+    roll: number;
+}
+
+export interface SurroundConfig {
+    machine: SurroundMachine;
+    bowl: SurroundBowl;
+    orbit: SurroundOrbit;
+    model: SurroundModel;
+    plate: boolean;
+    wireframe: boolean;
+    photometric: boolean;
+    cameras: SurroundCameraPose[];
+}
+
+/** Частичное обновление surround-блока: только изменившиеся поля. */
+export interface SurroundPatch {
+    machine?: Partial<SurroundMachine>;
+    bowl?: Partial<SurroundBowl>;
+    orbit?: Partial<SurroundOrbit>;
+    model?: Partial<SurroundModel>;
+    plate?: boolean;
+    wireframe?: boolean;
+    photometric?: boolean;
+}
+
 /** Параметры запуска. Свои у каждой конфигурации. */
 export interface LinkerParams {
     fps: number;
@@ -95,6 +164,8 @@ export interface LinkerParams {
      * поэтому применяется только через перезапуск вывода.
      */
     rotation: Rotation;
+    /** Режим вывода. Живой применяется через перезапуск своей ручкой. */
+    viewMode: ViewMode;
 }
 
 /** Место камеры на канвасе: прямоугольник, посчитанный сервером при экспорте. */
@@ -127,6 +198,16 @@ export interface LinkerExportDetail {
 function normalizeRotation(value: unknown): Rotation {
     const n = Number(value);
     return (ROTATIONS as readonly number[]).includes(n) ? (n as Rotation) : 0;
+}
+
+/** Значение из json к режиму вывода. Всё непонятное — top. */
+function normalizeViewMode(value: unknown): ViewMode {
+    return value === 'surround' ? 'surround' : 'top';
+}
+
+function num(value: unknown, def: number): number {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : def;
 }
 
 function toRect(v: unknown): { x: number; y: number; w: number; h: number } | null {
@@ -192,6 +273,7 @@ export const linkerApi = {
             streamName: data.stream_name ?? '',
             fps: Number(data.fps) || 0,
             rotation: normalizeRotation(data.rotation),
+            viewMode: normalizeViewMode(data.view_mode),
             width: Number(data.width) || 0,
             height: Number(data.height) || 0,
         };
@@ -222,6 +304,7 @@ export const linkerApi = {
                     ...(entry.stream_id ? { streamId: String(entry.stream_id) } : {}),
                     ...(entry.stream_name ? { streamName: String(entry.stream_name) } : {}),
                     ...(entry.rotation != null ? { rotation: normalizeRotation(entry.rotation) } : {}),
+                    ...(entry.view_mode ? { viewMode: normalizeViewMode(entry.view_mode) } : {}),
                 },
             };
         } catch {
@@ -253,6 +336,101 @@ export const linkerApi = {
     async setRotation(rotation: Rotation, exportId?: string): Promise<void> {
         await fetchJson('POST', '/linker/rotation', {
             rotation,
+            ...(exportId ? { export_id: exportId } : {}),
+        });
+    },
+
+    /**
+     * Режим вывода отдельной ручкой, как поворот: сервер сам перезапускает
+     * живой вывод — размер кадра и пайплайн у режимов разные.
+     */
+    async setViewMode(mode: ViewMode, exportId?: string): Promise<void> {
+        await fetchJson('POST', '/linker/view-mode', {
+            view_mode: mode,
+            ...(exportId ? { export_id: exportId } : {}),
+        });
+    },
+
+    /** Действующие настройки объёмного вида с печёными позами камер. */
+    async getSurround(exportId?: string): Promise<SurroundConfig> {
+        const path = exportId
+            ? `/linker/surround?id=${encodeURIComponent(exportId)}`
+            : '/linker/surround';
+        const json = await fetchJson<any>('GET', path);
+        const d = json.data ?? json;
+        const machine = d.machine ?? {};
+        const bowl = d.bowl ?? {};
+        const orbit = d.orbit ?? {};
+        const model = d.model ?? {};
+
+        const cameras: SurroundCameraPose[] = (Array.isArray(d.cameras) ? d.cameras : [])
+            .map((c: any): SurroundCameraPose => ({
+                placeKey: String(c.place_key ?? ''),
+                cameraId: String(c.camera_id ?? ''),
+                source: c.source === 'manual' ? 'manual' : 'pnp',
+                height: num(c.height, 0),
+                reprojectionError: num(c.reprojection_error, 0),
+                position: [
+                    num(c.position?.[0], 0),
+                    num(c.position?.[1], 0),
+                    num(c.position?.[2], 0),
+                ],
+                yaw: num(c.yaw, 0),
+                pitch: num(c.pitch, 0),
+                roll: num(c.roll, 0),
+            }))
+            .filter((c: SurroundCameraPose) => c.placeKey);
+
+        return {
+            machine: {
+                length: num(machine.length, 0),
+                width: num(machine.width, 0),
+                height: num(machine.height, 0),
+            },
+            bowl: {
+                floor: num(bowl.floor, 0.9),
+                outer: num(bowl.outer, 2.3),
+                wall: num(bowl.wall, 0.9),
+                plate: num(bowl.plate, 1.5),
+                blend: num(bowl.blend, 0.3),
+            },
+            orbit: {
+                distance: num(orbit.distance, 3.4),
+                height: num(orbit.height, 2.0),
+                speed: num(orbit.speed, 0.25),
+            },
+            model: {
+                length: num(model.length, 0),
+                width: num(model.width, 0),
+                height: num(model.height, 0),
+                alpha: num(model.alpha, 1),
+            },
+            plate: d.plate !== false,
+            wireframe: d.wireframe === true,
+            photometric: d.photometric !== false,
+            cameras,
+        };
+    },
+
+    /** Частичный мёрж surround-блока. Живой вывод применяет без рестарта. */
+    async postSurround(patch: SurroundPatch, exportId?: string): Promise<void> {
+        await fetchJson('POST', '/linker/surround', {
+            ...patch,
+            ...(exportId ? { export_id: exportId } : {}),
+        });
+    },
+
+    /** Ручная поза камеры места либо сброс к вычисленной PnP. */
+    async setSurroundCamera(
+        placeKey: string,
+        pose:
+            | { position: [number, number, number]; yaw: number; pitch: number; roll: number }
+            | { reset: true },
+        exportId?: string,
+    ): Promise<void> {
+        await fetchJson('POST', '/linker/surround-camera', {
+            place_key: placeKey,
+            ...pose,
             ...(exportId ? { export_id: exportId } : {}),
         });
     },

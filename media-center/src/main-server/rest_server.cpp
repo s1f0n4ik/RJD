@@ -72,6 +72,10 @@ URestServer::URestServer(
         [linker_ctrl](const auto& r) { return linker_ctrl->get_image(r); });
     m_router->add_route(http::verb::post, "/linker/surround-camera",
         [linker_ctrl](const auto& r) { return linker_ctrl->post_surround_camera(r); });
+    m_router->add_route(http::verb::post, "/linker/surround",
+        [linker_ctrl](const auto& r) { return linker_ctrl->post_surround(r); });
+    m_router->add_route(http::verb::get, "/linker/surround",
+        [linker_ctrl](const auto& r) { return linker_ctrl->get_surround(r); });
     m_router->add_route(http::verb::post, "/linker/view-mode",
         [linker_ctrl](const auto& r) { return linker_ctrl->post_view_mode(r); });
     m_router->add_route(http::verb::post, "/linker/rotation",

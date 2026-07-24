@@ -386,7 +386,30 @@ namespace birdview {
 			pose.region = { (rcx - cx) * scale, (rcy - cy) * scale };
 			poses.push_back(std::move(pose));
 
-			out.cameras.push_back({ place_key, camera_id, reproj, height });
+			// Действующая поза для формы: позиция из C, углы обратно из R
+			FSurroundBakedCamera baked;
+			baked.place_key = place_key;
+			baked.camera_id = camera_id;
+			baked.reprojection_error = reproj;
+			baked.camera_height = height;
+			baked.manual = ov && ov->is_object();
+			{
+				cv::Mat C = -R.t() * tvec;
+				for (int i = 0; i < 3; ++i) baked.position[i] = C.at<double>(i);
+
+				const cv::Vec3d fwd(R.at<double>(2, 0), R.at<double>(2, 1), R.at<double>(2, 2));
+				baked.yaw = std::atan2(fwd[0], fwd[2]) * 180.0 / CV_PI;
+				baked.pitch = std::asin(std::clamp(-fwd[1], -1.0, 1.0)) * 180.0 / CV_PI;
+
+				// Крен: отклонение реального "право" от безкренового базиса
+				cv::Vec3d right0 = fwd.cross(cv::Vec3d(0, 1, 0));
+				if (cv::norm(right0) < 1e-6) right0 = cv::Vec3d(-1, 0, 0);
+				right0 = right0 / cv::norm(right0);
+				const cv::Vec3d down0 = fwd.cross(right0);
+				const cv::Vec3d right(R.at<double>(0, 0), R.at<double>(0, 1), R.at<double>(0, 2));
+				baked.roll = std::atan2(right.dot(down0), right.dot(right0)) * 180.0 / CV_PI;
+			}
+			out.cameras.push_back(std::move(baked));
 		}
 
 		if (poses.empty()) {

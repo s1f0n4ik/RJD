@@ -9,7 +9,9 @@ import type {
     LinkerParams,
     LinkerStatus,
     Rotation,
+    ViewMode,
 } from '../../api/linker';
+import { SurroundPanel } from './SurroundPanel';
 import WebRTCPlayer from '../../../../components/WebRTCPlayer';
 import { wsUrl } from '../../constants';
 import { useToast } from '../common/Toast';
@@ -44,6 +46,7 @@ const EMPTY_STATUS: LinkerStatus = {
     streamName: '',
     fps: 0,
     rotation: 0,
+    viewMode: 'top',
     width: 0,
     height: 0,
 };
@@ -53,6 +56,7 @@ const DEFAULT_PARAMS: LinkerParams = {
     streamId: DEFAULT_STREAM_ID,
     streamName: '',
     rotation: 0,
+    viewMode: 'top',
 };
 
 interface LinkerScreenProps {
@@ -181,6 +185,7 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
                 streamName: state.params.streamName ?? full.name,
                 // Сервер сам сообщает угол, с которым запустит конфигурацию
                 rotation: state.params.rotation ?? full.rotation,
+                viewMode: state.params.viewMode ?? 'top',
             });
         } catch (e) {
             toastError('Не удалось открыть конфигурацию', e);
@@ -308,7 +313,46 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
         }
     };
 
+    /**
+     * Смена режима своей ручкой, как поворот: сервер сам пересобирает живой
+     * вывод — у режимов разный размер кадра и пайплайн. После пересборки
+     * ждём подъёма стрима той же механикой, что и при запуске.
+     */
+    const applyViewMode = async (mode: ViewMode) => {
+        if (!selected || params.viewMode === mode) return;
+        const previous = params.viewMode;
+        setParams(p => ({ ...p, viewMode: mode }));
+
+        const live = status.running && status.exportId === selected.id;
+        try {
+            if (live) setStarting(true);
+            await linkerApi.setViewMode(mode, selected.id);
+            if (live) {
+                const ready = await waitForStream();
+                if (!ready) throw new Error('Вывод не поднялся после смены режима');
+                setStatus(ready);
+            }
+            showToast(
+                'Режим применён',
+                (mode === 'surround' ? 'Объёмный вид' : 'Вид сверху') +
+                    (live ? ' · вывод перезапущен' : ''),
+                'ok',
+            );
+        } catch (e) {
+            setParams(p => ({ ...p, viewMode: previous }));
+            toastError('Режим не применён', e);
+        } finally {
+            if (live) setStarting(false);
+        }
+    };
+
     const geometry = useMemo(() => (detail ? buildGeometry(detail) : null), [detail]);
+
+    const placeNames = useMemo(() => {
+        const names: Record<string, string> = {};
+        for (const p of detail?.places ?? []) names[p.key] = p.name;
+        return names;
+    }, [detail]);
 
     const places = detail?.places.length ?? 0;
     const assigned = detail ? detail.places.filter(p => bindings[p.key]).length : 0;
@@ -394,6 +438,12 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
                     <span className="linker-kv-v">{status.streamId ?? '—'}</span>
                 </div>
                 <div className="linker-kv">
+                    <span className="linker-kv-k">Режим</span>
+                    <span className="linker-kv-v">
+                        {status.viewMode === 'surround' ? 'объём' : 'сверху'}
+                    </span>
+                </div>
+                <div className="linker-kv">
                     <span className="linker-kv-k">Камер</span>
                     <span className="linker-kv-v">{assigned} / {places || '—'}</span>
                 </div>
@@ -454,7 +504,7 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
                         // отсюда чёрная полоса по размеру индикатора загрузки
                         <div className="linker-player">
                             <WebRTCPlayer
-                                key={`linker-${status.streamId}`}
+                                key={`linker-${status.streamId}-${status.viewMode}`}
                                 cameraId={status.streamId}
                                 signalingUrl={wsUrl(`/signaling/client/${status.streamId}`)}
                                 background="transparent"
@@ -548,21 +598,55 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
                 </div>
 
                 <div className="field-group">
-                    <label className="field-label">Поворот вывода</label>
-                    <div className="rot-seg" role="group" aria-label="Поворот вывода">
-                        {ROTATIONS.map(deg => (
-                            <button
-                                key={deg}
-                                type="button"
-                                aria-pressed={params.rotation === deg}
-                                disabled={!selected}
-                                onClick={() => applyRotation(deg)}
-                            >
-                                {deg}°
-                            </button>
-                        ))}
+                    <label className="field-label">Режим вывода</label>
+                    <div className="rot-seg" role="group" aria-label="Режим вывода">
+                        <button
+                            type="button"
+                            aria-pressed={params.viewMode === 'top'}
+                            disabled={!selected || starting}
+                            onClick={() => applyViewMode('top')}
+                        >
+                            Сверху
+                        </button>
+                        <button
+                            type="button"
+                            aria-pressed={params.viewMode === 'surround'}
+                            disabled={!selected || starting}
+                            onClick={() => applyViewMode('surround')}
+                        >
+                            Объём
+                        </button>
                     </div>
                 </div>
+
+                {/* Поворот — свойство плоской сшивки, в объёме его нет */}
+                {params.viewMode === 'top' && (
+                    <div className="field-group">
+                        <label className="field-label">Поворот вывода</label>
+                        <div className="rot-seg" role="group" aria-label="Поворот вывода">
+                            {ROTATIONS.map(deg => (
+                                <button
+                                    key={deg}
+                                    type="button"
+                                    aria-pressed={params.rotation === deg}
+                                    disabled={!selected}
+                                    onClick={() => applyRotation(deg)}
+                                >
+                                    {deg}°
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {params.viewMode === 'surround' && selected && (
+                    <SurroundPanel
+                        live={isLive && status.viewMode === 'surround'}
+                        exportId={selected.id}
+                        placeNames={placeNames}
+                        onError={toastError}
+                    />
+                )}
 
                 {status.running ? (
                     <>

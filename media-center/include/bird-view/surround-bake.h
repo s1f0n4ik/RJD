@@ -39,6 +39,12 @@ namespace birdview {
 		double reprojection_error = 0.0;
 		// Вычисленная высота камеры над землёй, сверяется с реальной глазами
 		double camera_height = 0.0;
+		// Действующая поза для формы настроек: метры от центра и градусы
+		bool manual = false;
+		double position[3] = { 0.0, 0.0, 0.0 };
+		double yaw = 0.0;
+		double pitch = 0.0;
+		double roll = 0.0;
 	};
 
 	// На вершину чаши 3 float на камеру: u, v, вес. Камер сколько угодно,

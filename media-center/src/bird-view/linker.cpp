@@ -542,6 +542,47 @@ namespace birdview {
 		}
 
 		// Оверрайд живёт в surround-блоке индекса экспортов, правится слиянием
+		const bool ok = mutate_surround_block(target,
+			[&](boost::json::object& surround_obj, std::string&) {
+				boost::json::object extr;
+				if (auto* e = surround_obj.if_contains("extrinsics"); e && e->is_object()) {
+					extr = e->as_object();
+				}
+
+				if (reset) {
+					extr.erase(place_key);
+				}
+				else {
+					boost::json::object rec;
+					rec["position"] = payload.at("position");
+					for (const char* k : { "yaw", "pitch", "roll" }) {
+						if (auto* a = payload.if_contains(k)) rec[k] = *a;
+					}
+					extr[place_key] = std::move(rec);
+				}
+				surround_obj["extrinsics"] = std::move(extr);
+				return true;
+			}, error);
+		if (!ok) {
+			m_logger.error("set_surround_camera(): " + error);
+			return false;
+		}
+
+		m_logger.info("set_surround_camera(): <" + target + "> place=" + place_key
+			+ (reset ? " reset" : " manual"));
+
+		// Живой вывод перепекает позы прямо в цикле, без рестарта
+		if (m_running.load() && get_active_export_id() == target
+			&& resolve_view_mode() == "surround") {
+			m_surround_dirty.fetch_or(SURROUND_DIRTY_BAKE);
+		}
+		return true;
+	}
+
+	bool ULinker::mutate_surround_block(const std::string& target,
+		const std::function<bool(boost::json::object&, std::string&)>& mutate,
+		std::string& error)
+	{
 		try {
 			const auto index_path = m_exports_root / m_exports_index_json;
 			std::ifstream f(index_path);
@@ -571,44 +612,230 @@ namespace birdview {
 			}
 			auto& surround_obj = surround->as_object();
 
-			boost::json::object extr;
-			if (auto* e = surround_obj.if_contains("extrinsics"); e && e->is_object()) {
-				extr = e->as_object();
-			}
-
-			if (reset) {
-				extr.erase(place_key);
-			}
-			else {
-				boost::json::object rec;
-				rec["position"] = payload.at("position");
-				for (const char* k : { "yaw", "pitch", "roll" }) {
-					if (auto* a = payload.if_contains(k)) rec[k] = *a;
-				}
-				extr[place_key] = std::move(rec);
-			}
-			surround_obj["extrinsics"] = std::move(extr);
+			if (!mutate(surround_obj, error)) return false;
 
 			std::ofstream out(index_path);
 			out << boost::json::serialize(root);
 		}
 		catch (const std::exception& e) {
 			error = e.what();
-			m_logger.error("set_surround_camera(): " + error);
+			return false;
+		}
+		return true;
+	}
+
+	std::optional<boost::json::object> ULinker::read_surround_cfg(const std::string& export_id) const {
+		try {
+			std::ifstream f(m_exports_root / m_exports_index_json);
+			if (!f) return std::nullopt;
+			std::stringstream ss; ss << f.rdbuf();
+			auto v = boost::json::parse(ss.str());
+			if (!v.is_object()) return std::nullopt;
+			if (auto* e = v.as_object().if_contains(export_id); e && e->is_object()) {
+				if (auto* s = e->as_object().if_contains("surround"); s && s->is_object()) {
+					return s->as_object();
+				}
+			}
+		}
+		catch (...) {}
+		return std::nullopt;
+	}
+
+	bool ULinker::set_surround(const std::string& export_id,
+		const boost::json::object& payload, std::string& error)
+	{
+		std::string target = export_id.empty() ? get_active_export_id() : export_id;
+		if (target.empty()) {
+			error = "export_id is required when output is stopped";
 			return false;
 		}
 
-		m_logger.info("set_surround_camera(): <" + target + "> place=" + place_key
-			+ (reset ? " reset" : " manual"));
+		auto check_num = [&](const boost::json::value& v, const char* name,
+			double min_v, bool strict) {
+			if (!v.is_number()) {
+				error = std::string(name) + " must be a number";
+				return false;
+			}
+			const double d = v.to_number<double>();
+			if (strict ? d <= min_v : d < min_v) {
+				error = std::string(name) + " out of range";
+				return false;
+			}
+			return true;
+		};
 
-		// Печка выполняется на старте вывода, живой пересобираем
-		if (m_running.load() && get_active_export_id() == target
-			&& resolve_view_mode() == "surround") {
-			if (!restart()) {
-				error = "extrinsics saved, but output restart failed";
+		// Тяжесть изменения решает, что сделает живой цикл: перепечку или сеттеры
+		unsigned dirty = 0;
+		bool any = false;
+		for (const auto& kv : payload) {
+			const std::string key(kv.key());
+			if (key == "export_id") continue;
+			any = true;
+
+			if (key == "machine" || key == "bowl") {
+				if (!kv.value().is_object()) { error = key + " must be an object"; return false; }
+				dirty |= SURROUND_DIRTY_BAKE;
+			}
+			else if (key == "orbit" || key == "model") {
+				if (!kv.value().is_object()) { error = key + " must be an object"; return false; }
+				dirty |= SURROUND_DIRTY_VISUAL;
+			}
+			else if (key == "plate" || key == "wireframe" || key == "photometric") {
+				if (!kv.value().is_bool()) { error = key + " must be a bool"; return false; }
+				dirty |= SURROUND_DIRTY_VISUAL;
+			}
+			else {
+				error = "unknown key <" + key + ">";
 				return false;
 			}
 		}
+		if (!any) {
+			error = "empty payload";
+			return false;
+		}
+
+		if (auto* m = payload.if_contains("machine"); m && m->is_object()) {
+			for (const char* k : { "length", "width", "height" }) {
+				if (auto* v = m->as_object().if_contains(k)) {
+					if (!check_num(*v, k, 0.0, true)) return false;
+				}
+			}
+		}
+		if (auto* b = payload.if_contains("bowl"); b && b->is_object()) {
+			for (const char* k : { "floor", "outer", "wall", "plate", "blend" }) {
+				if (auto* v = b->as_object().if_contains(k)) {
+					if (!check_num(*v, k, 0.0, true)) return false;
+				}
+			}
+		}
+		if (auto* o = payload.if_contains("orbit"); o && o->is_object()) {
+			for (const char* k : { "distance", "height" }) {
+				if (auto* v = o->as_object().if_contains(k)) {
+					if (!check_num(*v, k, 0.0, true)) return false;
+				}
+			}
+			if (auto* v = o->as_object().if_contains("speed")) {
+				if (!check_num(*v, "speed", 0.0, false)) return false;
+			}
+		}
+		if (auto* mo = payload.if_contains("model"); mo && mo->is_object()) {
+			for (const char* k : { "length", "width", "height" }) {
+				if (auto* v = mo->as_object().if_contains(k)) {
+					if (!check_num(*v, k, 0.0, false)) return false;
+				}
+			}
+			if (auto* v = mo->as_object().if_contains("alpha")) {
+				if (!check_num(*v, "alpha", 0.0, false)) return false;
+				if (v->to_number<double>() > 1.0) { error = "alpha out of range"; return false; }
+			}
+		}
+
+		const bool ok = mutate_surround_block(target,
+			[&](boost::json::object& surround_obj, std::string&) {
+				for (const auto& kv : payload) {
+					const std::string key(kv.key());
+					if (key == "export_id") continue;
+					if (kv.value().is_object()) {
+						// Группы мёржатся пообъектно, соседние поля не затираются
+						boost::json::object group;
+						if (auto* g = surround_obj.if_contains(key); g && g->is_object()) {
+							group = g->as_object();
+						}
+						for (const auto& sub : kv.value().as_object()) {
+							group[sub.key()] = sub.value();
+						}
+						surround_obj[key] = std::move(group);
+					}
+					else {
+						surround_obj[key] = kv.value();
+					}
+				}
+				return true;
+			}, error);
+		if (!ok) {
+			m_logger.error("set_surround(): " + error);
+			return false;
+		}
+
+		m_logger.info("set_surround(): <" + target + "> merged, dirty=" + std::to_string(dirty));
+
+		if (m_running.load() && get_active_export_id() == target
+			&& resolve_view_mode() == "surround") {
+			m_surround_dirty.fetch_or(dirty);
+		}
+		return true;
+	}
+
+	bool ULinker::get_surround(const std::string& export_id,
+		boost::json::object& out, std::string& error)
+	{
+		std::string target = export_id.empty() ? get_active_export_id() : export_id;
+		if (target.empty()) {
+			error = "no active export";
+			return false;
+		}
+
+		auto cfg_opt = read_surround_cfg(target);
+		if (!cfg_opt) {
+			error = "export <" + target + "> has no surround block";
+			return false;
+		}
+		const auto& cfg = *cfg_opt;
+
+		// Дефолты совпадают с печкой и рендерером, поверх — сохранённое
+		boost::json::object machine{ {"length", 0.0}, {"width", 0.0}, {"height", 0.0} };
+		boost::json::object bowl{ {"floor", 0.9}, {"outer", 2.3}, {"wall", 0.9},
+			{"plate", 1.5}, {"blend", 0.3} };
+		boost::json::object orbit{ {"distance", 3.4}, {"height", 2.0}, {"speed", 0.25} };
+		boost::json::object model{ {"length", 0.0}, {"width", 0.0}, {"height", 0.0}, {"alpha", 1.0} };
+
+		auto overlay = [&](boost::json::object& base, const char* key) {
+			if (auto* g = cfg.if_contains(key); g && g->is_object()) {
+				for (const auto& kv : g->as_object()) base[kv.key()] = kv.value();
+			}
+		};
+		overlay(machine, "machine");
+		overlay(bowl, "bowl");
+		overlay(orbit, "orbit");
+		overlay(model, "model");
+
+		auto flag = [&](const char* key, bool def) {
+			if (auto* v = cfg.if_contains(key); v && v->is_bool()) return v->as_bool();
+			return def;
+		};
+
+		out["export_id"] = target;
+		if (auto* p = cfg.if_contains("preset")) out["preset"] = *p;
+		out["machine"] = std::move(machine);
+		out["bowl"] = std::move(bowl);
+		out["orbit"] = std::move(orbit);
+		out["model"] = std::move(model);
+		out["plate"] = flag("plate", true);
+		out["wireframe"] = flag("wireframe", false);
+		out["photometric"] = flag("photometric", true);
+
+		// Позы есть только у живой печки активного экспорта
+		boost::json::array cams;
+		{
+			std::lock_guard<std::mutex> lk(m_mutex);
+			if (m_running.load() && m_export_id == target) {
+				for (const auto& c : m_surround_cameras) {
+					boost::json::object o;
+					o["place_key"] = c.place_key;
+					o["camera_id"] = c.camera_id;
+					o["source"] = c.manual ? "manual" : "pnp";
+					o["height"] = c.camera_height;
+					o["reprojection_error"] = c.reprojection_error;
+					o["position"] = boost::json::array{
+						c.position[0], c.position[1], c.position[2] };
+					o["yaw"] = c.yaw;
+					o["pitch"] = c.pitch;
+					o["roll"] = c.roll;
+					cams.push_back(std::move(o));
+				}
+			}
+		}
+		out["cameras"] = std::move(cams);
 		return true;
 	}
 
@@ -939,78 +1166,86 @@ namespace birdview {
 			return;
 		}
 
-		// Печка камер: без surround-блока в экспорте остаётся сетка первого блока
+		std::string export_id_copy;
+		NCamerasPurpose bindings;
 		{
-			std::string export_id_copy;
-			NCamerasPurpose bindings;
-			{
-				std::lock_guard<std::mutex> lk(m_mutex);
-				export_id_copy = m_export_id;
-				bindings = m_cameras_purpose;
-			}
-
-			boost::json::object surround_cfg;
-			bool has_cfg = false;
-			try {
-				std::ifstream f(m_exports_root / m_exports_index_json);
-				if (f) {
-					std::stringstream ss; ss << f.rdbuf();
-					auto v = boost::json::parse(ss.str());
-					if (v.is_object()) {
-						if (auto* e = v.as_object().if_contains(export_id_copy); e && e->is_object()) {
-							if (auto* s = e->as_object().if_contains("surround"); s && s->is_object()) {
-								surround_cfg = s->as_object();
-								has_cfg = true;
-							}
-						}
-					}
-				}
-			}
-			catch (const std::exception& e) {
-				m_logger.warn("surround_loop(): exports index: " + std::string(e.what()));
-			}
-
-			if (has_cfg) {
-				USurroundBaker baker(&m_logger);
-				FSurroundMachine machine;
-				FSurroundBake bake;
-				std::string bake_error;
-
-				// Габарит применяется до печки: чаша перестраивается под масштаб
-				// сцены, и проецируются уже отмасштабированные вершины
-				bool ok = USurroundBaker::parse_machine(surround_cfg, machine, bake_error);
-				if (ok) {
-					renderer.set_bowl_factors(machine.bowl_floor, machine.bowl_outer,
-						machine.bowl_wall, machine.bowl_plate);
-					renderer.set_machine(machine.width, machine.height, machine.length);
-					ok = baker.bake(
-						surround_cfg,
-						calib_consts::PROJECTION_CONFIGURES_PATH,
-						calib_consts::CALIBRATION_CONFIGURES_PATH,
-						bindings, renderer.bowl_positions(), bake, bake_error);
-				}
-
-				if (ok && renderer.set_camera_attributes(bake.camera_attributes)) {
-					// Фотонормализация отключается ключом photometric в surround-блоке
-					bool photometric = true;
-					if (auto* v = surround_cfg.if_contains("photometric"); v && v->is_bool()) {
-						photometric = v->as_bool();
-					}
-					if (photometric) renderer.set_photometric_pairs(bake.photo_pairs);
-
-					std::vector<std::string> keys;
-					for (const auto& cam : bake.cameras) keys.push_back(cam.place_key);
-					std::lock_guard<std::mutex> lk(m_mutex);
-					m_camera_keys = std::move(keys);
-				}
-				else if (!ok) {
-					m_logger.error("surround_loop(): bake failed: " + bake_error + ", grid only");
-				}
-			}
-			else {
-				m_logger.info("surround_loop(): no surround block in export, grid only");
-			}
+			std::lock_guard<std::mutex> lk(m_mutex);
+			export_id_copy = m_export_id;
+			bindings = m_cameras_purpose;
 		}
+
+		// Лёгкие параметры сцены: и на старте, и на живом изменении ручкой
+		auto apply_visuals = [&](const boost::json::object& cfg) {
+			auto num = [](const boost::json::object& o, const char* k, double def) {
+				if (auto* v = o.if_contains(k); v && v->is_number()) return v->to_number<double>();
+				return def;
+			};
+			auto flag = [&](const char* k, bool def) {
+				if (auto* v = cfg.if_contains(k); v && v->is_bool()) return v->as_bool();
+				return def;
+			};
+			boost::json::object orbit, model;
+			if (auto* v = cfg.if_contains("orbit"); v && v->is_object()) orbit = v->as_object();
+			if (auto* v = cfg.if_contains("model"); v && v->is_object()) model = v->as_object();
+
+			renderer.set_orbit(
+				static_cast<float>(num(orbit, "distance", 3.4)),
+				static_cast<float>(num(orbit, "height", 2.0)),
+				static_cast<float>(num(orbit, "speed", 0.25)));
+			renderer.set_model(
+				static_cast<float>(num(model, "width", 0.0)),
+				static_cast<float>(num(model, "height", 0.0)),
+				static_cast<float>(num(model, "length", 0.0)),
+				static_cast<float>(num(model, "alpha", 1.0)));
+			renderer.set_plate(flag("plate", true));
+			renderer.set_wireframe(flag("wireframe", false));
+			renderer.set_photometric_enabled(flag("photometric", true));
+		};
+
+		// Печка: габарит применяется до неё, чаша перестраивается под масштаб
+		// сцены, и проецируются уже отмасштабированные вершины
+		auto apply_bake = [&](const boost::json::object& cfg) -> bool {
+			USurroundBaker baker(&m_logger);
+			FSurroundMachine machine;
+			FSurroundBake bake;
+			std::string bake_error;
+
+			bool ok = USurroundBaker::parse_machine(cfg, machine, bake_error);
+			if (ok) {
+				renderer.set_bowl_factors(machine.bowl_floor, machine.bowl_outer,
+					machine.bowl_wall, machine.bowl_plate);
+				renderer.set_machine(machine.width, machine.height, machine.length);
+				ok = baker.bake(
+					cfg,
+					calib_consts::PROJECTION_CONFIGURES_PATH,
+					calib_consts::CALIBRATION_CONFIGURES_PATH,
+					bindings, renderer.bowl_positions(), bake, bake_error);
+			}
+
+			if (!ok || !renderer.set_camera_attributes(bake.camera_attributes)) {
+				m_logger.error("surround_loop(): bake failed: " + bake_error + ", grid only");
+				return false;
+			}
+
+			renderer.set_photometric_pairs(bake.photo_pairs);
+
+			std::vector<std::string> keys;
+			for (const auto& cam : bake.cameras) keys.push_back(cam.place_key);
+			std::lock_guard<std::mutex> lk(m_mutex);
+			m_camera_keys = std::move(keys);
+			m_surround_cameras = std::move(bake.cameras);
+			return true;
+		};
+
+		// Без surround-блока в экспорте остаётся сетка первого блока
+		if (auto cfg = read_surround_cfg(export_id_copy)) {
+			apply_visuals(*cfg);
+			apply_bake(*cfg);
+		}
+		else {
+			m_logger.info("surround_loop(): no surround block in export, grid only");
+		}
+		m_surround_dirty.store(0);
 
 		const int outW = constants::SURROUND_WIDTH;
 		const int outH = constants::SURROUND_HEIGHT;
@@ -1068,6 +1303,16 @@ namespace birdview {
 		while (m_running) {
 			next_frame += frame_time;
 			const auto work_start = clock::now();
+
+			// Живые изменения ручки: лёгкие - сеттеры, тяжёлые - перепечка
+			if (const unsigned dirty = m_surround_dirty.exchange(0)) {
+				if (auto cfg = read_surround_cfg(export_id_copy)) {
+					apply_visuals(*cfg);
+					if (dirty & SURROUND_DIRTY_BAKE) {
+						if (apply_bake(*cfg)) space = create_linking_space();
+					}
+				}
+			}
 
 			fill_linking_space(space);
 			renderer.update_textures(space, m_context_manager->get_display());

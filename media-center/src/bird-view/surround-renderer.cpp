@@ -17,10 +17,6 @@ namespace birdview {
 
 		constexpr float PI = 3.14159265358979f;
 
-		constexpr float ORBIT_DIST_FACTOR = 3.4f;
-		constexpr float ORBIT_HEIGHT_FACTOR = 2.0f;
-		constexpr float ORBIT_SPEED = 0.25f;
-
 		// Кадров между выборками фотонормализации, ~секунда на 25 fps
 		constexpr int PROBE_INTERVAL = 25;
 		constexpr float GAIN_MIN = 0.5f;
@@ -153,7 +149,27 @@ namespace birdview {
 	}
 
 	void USurroundRenderer::set_photometric_pairs(const std::vector<FSurroundPhotoPair>& pairs) {
-		if (pairs.empty() || m_camera_count < 2 || m_photo_worker.joinable()) return;
+		// Перепечка приносит новые пары: старый пробник и воркер сносятся
+		if (m_photo_worker.joinable()) {
+			{
+				std::lock_guard<std::mutex> lk(m_photo_mutex);
+				m_photo_stop = true;
+				m_photo_job_ready = false;
+			}
+			m_photo_cv.notify_one();
+			m_photo_worker.join();
+		}
+		if (m_probe_fence) { glDeleteSync(m_probe_fence); m_probe_fence = nullptr; }
+		if (m_probe_pbo) { glDeleteBuffers(1, &m_probe_pbo); m_probe_pbo = 0; }
+		if (m_probe_vbo) { glDeleteBuffers(1, &m_probe_vbo); m_probe_vbo = 0; }
+		if (m_probe_vao) { glDeleteVertexArrays(1, &m_probe_vao); m_probe_vao = 0; }
+		if (m_probe_tex) { glDeleteTextures(1, &m_probe_tex); m_probe_tex = 0; }
+		if (m_probe_fbo) { glDeleteFramebuffers(1, &m_probe_fbo); m_probe_fbo = 0; }
+		m_probe_pairs.clear();
+		m_probe_frame = 0;
+		if (m_camera_count > 0) m_gains.assign(static_cast<size_t>(m_camera_count), glm::vec3(1.0f));
+
+		if (pairs.empty() || m_camera_count < 2) return;
 
 		auto vsh = constants::current_shader_path(constants::surround_probe_vsh);
 		auto fsh = constants::current_shader_path(constants::surround_probe_fsh);
@@ -235,6 +251,16 @@ namespace birdview {
 
 	void USurroundRenderer::probe_step() {
 		if (!m_probe_fbo) return;
+
+		// Выключенная нормализация: усиления единичные, пробник спит
+		if (!m_photo_enabled) {
+			std::fill(m_gains.begin(), m_gains.end(), glm::vec3(1.0f));
+			{
+				std::lock_guard<std::mutex> lk(m_photo_mutex);
+				std::fill(m_photo_gains.begin(), m_photo_gains.end(), glm::vec3(1.0f));
+			}
+			return;
+		}
 
 		// Готовность чтения проверяется мгновенно, рендер не ждёт GPU
 		if (m_probe_fence) {
@@ -535,9 +561,10 @@ namespace birdview {
 	}
 
 	void USurroundRenderer::build_box() {
-		const float x = m_box_w * 0.5f;
-		const float y = m_box_h;
-		const float z = m_box_l * 0.5f;
+		// Модель может отличаться от габарита, платформа всегда от габарита
+		const float x = (m_model_w > 0 ? m_model_w : m_box_w) * 0.5f;
+		const float y = m_model_h > 0 ? m_model_h : m_box_h;
+		const float z = (m_model_l > 0 ? m_model_l : m_box_l) * 0.5f;
 
 		std::vector<FVertex> v;
 		v.reserve(36);
@@ -561,8 +588,8 @@ namespace birdview {
 		m_box_vertices = static_cast<GLsizei>(v.size());
 
 		// Платформа: тёмный лист чуть выше пола, размер от габарита
-		const float px = x * m_plate_f;
-		const float pz = z * m_plate_f;
+		const float px = m_box_w * 0.5f * m_plate_f;
+		const float pz = m_box_l * 0.5f * m_plate_f;
 		const float py = m_base * 0.004f;
 		add_face({ -px, py,  pz }, { px, py,  pz }, { px, py, -pz }, { -px, py, -pz }, { 0, 1, 0 });
 		m_plate_vertices = static_cast<GLsizei>(v.size()) - m_box_vertices;
@@ -605,8 +632,40 @@ namespace birdview {
 	}
 
 	void USurroundRenderer::update(float dt) {
-		m_yaw += dt * ORBIT_SPEED;
+		m_yaw += dt * m_orbit_speed;
 		if (m_yaw > 2.0f * PI) m_yaw -= 2.0f * PI;
+	}
+
+	void USurroundRenderer::set_orbit(float dist_f, float height_f, float speed) {
+		if (dist_f > 0) m_orbit_dist_f = dist_f;
+		if (height_f > 0) m_orbit_height_f = height_f;
+		if (speed >= 0) m_orbit_speed = speed;
+	}
+
+	void USurroundRenderer::set_plate(bool visible) {
+		m_plate_visible = visible;
+	}
+
+	void USurroundRenderer::set_model(float width, float height, float length, float alpha) {
+		m_model_w = width > 0 ? width : 0.0f;
+		m_model_h = height > 0 ? height : 0.0f;
+		m_model_l = length > 0 ? length : 0.0f;
+		m_model_alpha = std::clamp(alpha, 0.0f, 1.0f);
+
+		// Бокс лежит в своём VBO, пересборка не трогает чашу и печку
+		if (m_box_vao) {
+			glDeleteBuffers(1, &m_box_vbo); m_box_vbo = 0;
+			glDeleteVertexArrays(1, &m_box_vao); m_box_vao = 0;
+			build_box();
+		}
+	}
+
+	void USurroundRenderer::set_wireframe(bool on) {
+		m_wireframe = on;
+	}
+
+	void USurroundRenderer::set_photometric_enabled(bool on) {
+		m_photo_enabled = on;
 	}
 
 	void USurroundRenderer::update_textures(std::vector<NPFrame>& frames, EGLDisplay display) {
@@ -637,9 +696,9 @@ namespace birdview {
 
 	void USurroundRenderer::render(float aspect) {
 		const glm::vec3 eye{
-			m_base * ORBIT_DIST_FACTOR * std::cos(m_yaw),
-			m_base * ORBIT_HEIGHT_FACTOR,
-			m_base * ORBIT_DIST_FACTOR * std::sin(m_yaw)
+			m_base * m_orbit_dist_f * std::cos(m_yaw),
+			m_base * m_orbit_height_f,
+			m_base * m_orbit_dist_f * std::sin(m_yaw)
 		};
 		const glm::vec3 target{ 0.0f, m_box_h * 0.4f, 0.0f };
 
@@ -654,10 +713,33 @@ namespace birdview {
 		glUniformMatrix4fv(glGetUniformLocation(prog, "u_mvp"), 1, GL_FALSE, glm::value_ptr(mvp));
 		const GLint u_mode = glGetUniformLocation(prog, "u_mode");
 		const GLint u_color = glGetUniformLocation(prog, "u_color");
+		const GLint u_alpha = glGetUniformLocation(prog, "u_alpha");
 		glUniform1f(glGetUniformLocation(prog, "u_grid_step"), m_base / 8.0f);
+		glUniform1f(u_alpha, 1.0f);
 
-		if (m_camera_count == 0) {
-			// Камер нет: сетка и габарит сразу в основной кадр
+		// Габарит и платформа поверх картинки, модель может быть полупрозрачной
+		auto draw_overlay = [&]() {
+			glUniform1i(u_mode, 1);
+			glBindVertexArray(m_box_vao);
+			if (m_plate_visible) {
+				glUniform3f(u_color, 0.09f, 0.10f, 0.12f);
+				glDrawArrays(GL_TRIANGLES, m_box_vertices, m_plate_vertices);
+			}
+			if (m_model_alpha > 0.01f) {
+				if (m_model_alpha < 0.99f) {
+					glEnable(GL_BLEND);
+					glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+				}
+				glUniform1f(u_alpha, m_model_alpha);
+				glUniform3f(u_color, 0.62f, 0.16f, 0.14f);
+				glDrawArrays(GL_TRIANGLES, 0, m_box_vertices);
+				glUniform1f(u_alpha, 1.0f);
+				if (m_model_alpha < 0.99f) glDisable(GL_BLEND);
+			}
+		};
+
+		if (m_camera_count == 0 || m_wireframe) {
+			// Без камер или в режиме сетки: чаша-сетка и габарит сразу в кадр
 			glBindFramebuffer(GL_FRAMEBUFFER, m_context->get_fbo());
 			glViewport(0, 0, m_out_w, m_out_h);
 			glEnable(GL_DEPTH_TEST);
@@ -669,10 +751,7 @@ namespace birdview {
 			glBindVertexArray(m_bowl_vao);
 			glDrawArrays(GL_TRIANGLES, 0, m_bowl_vertices);
 
-			glUniform1i(u_mode, 1);
-			glUniform3f(u_color, 0.62f, 0.16f, 0.14f);
-			glBindVertexArray(m_box_vao);
-			glDrawArrays(GL_TRIANGLES, 0, m_box_vertices);
+			draw_overlay();
 
 			glBindVertexArray(0);
 			glDisable(GL_DEPTH_TEST);
@@ -697,8 +776,11 @@ namespace birdview {
 
 		glBindVertexArray(m_bowl_vao);
 		glDrawArrays(GL_TRIANGLES, 0, m_bowl_vertices);
+		// Прозрачная модель в глубину не пишется: она не должна гасить
+		// накопление камер позади себя
 		glBindVertexArray(m_box_vao);
-		glDrawArrays(GL_TRIANGLES, 0, m_box_vertices + m_plate_vertices);
+		if (m_model_alpha >= 0.99f) glDrawArrays(GL_TRIANGLES, 0, m_box_vertices);
+		if (m_plate_visible) glDrawArrays(GL_TRIANGLES, m_box_vertices, m_plate_vertices);
 
 		// Проходы камер: аддитивно, строго по глубине препасса
 		glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
@@ -752,12 +834,7 @@ namespace birdview {
 		m_shader.use();
 		glEnable(GL_DEPTH_TEST);
 		glClear(GL_DEPTH_BUFFER_BIT);
-		glUniform1i(u_mode, 1);
-		glBindVertexArray(m_box_vao);
-		glUniform3f(u_color, 0.09f, 0.10f, 0.12f);
-		glDrawArrays(GL_TRIANGLES, m_box_vertices, m_plate_vertices);
-		glUniform3f(u_color, 0.62f, 0.16f, 0.14f);
-		glDrawArrays(GL_TRIANGLES, 0, m_box_vertices);
+		draw_overlay();
 
 		glBindVertexArray(0);
 		glDisable(GL_DEPTH_TEST);

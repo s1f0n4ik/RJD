@@ -39,7 +39,16 @@ namespace birdview {
 		void set_bowl_factors(float floor_f, float outer_f, float wall_f, float plate_f);
 
 		// Фотонормализация: точки пар из печки, зовётся после set_camera_attributes
+		// Повторный вызов пересобирает пробник под новую печку
 		void set_photometric_pairs(const std::vector<FSurroundPhotoPair>& pairs);
+
+		// Живые параметры, применяются со следующего кадра без перепечки
+		void set_orbit(float dist_f, float height_f, float speed);
+		void set_plate(bool visible);
+		// Размеры модели-бокса в метрах, 0 - размер габарита; alpha 0 скрывает
+		void set_model(float width, float height, float length, float alpha);
+		void set_wireframe(bool on);
+		void set_photometric_enabled(bool on);
 
 	private:
 		void build_bowl();
@@ -124,6 +133,18 @@ namespace birdview {
 		float m_box_w = 2.6f;
 		float m_box_h = 3.6f;
 		float m_box_l = 13.0f;
+
+		// Живые параметры сцены, правятся ручкой /linker/surround
+		float m_orbit_dist_f = 3.4f;
+		float m_orbit_height_f = 2.0f;
+		float m_orbit_speed = 0.25f;
+		bool m_plate_visible = true;
+		float m_model_w = 0.0f;
+		float m_model_h = 0.0f;
+		float m_model_l = 0.0f;
+		float m_model_alpha = 1.0f;
+		bool m_wireframe = false;
+		bool m_photo_enabled = true;
 
 		// Автооблёт, до появления ручного управления в третьем блоке
 		float m_yaw = 0.0f;

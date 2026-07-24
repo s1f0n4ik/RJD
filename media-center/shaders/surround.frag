@@ -16,13 +16,15 @@ uniform sampler2D u_plane_y;
 uniform sampler2D u_plane_uv;
 // Фотонормализация: усиление RGB камеры, выравнивает яркость на швах
 uniform vec3 u_gain;
+// Прозрачность модели в режиме габарита
+uniform float u_alpha;
 
 void main() {
     if (u_mode == 1) {
         // Свет фиксированный, сверху-сбоку, чтобы грани различались
         vec3 light = normalize(vec3(0.4, 1.0, 0.3));
         float shade = 0.35 + 0.65 * abs(dot(normalize(v_normal), light));
-        frag = vec4(u_color * shade, 1.0);
+        frag = vec4(u_color * shade, u_alpha);
         return;
     }
 

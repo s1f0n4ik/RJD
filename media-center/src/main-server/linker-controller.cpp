@@ -341,6 +341,69 @@ ULinkerController::post_surround_camera(const http::request<http::string_body>& 
     return json_ok(m_logger, req, body, tag);
 }
 
+// ─── POST /linker/surround ──────────────────────────────────
+http::response<http::string_body>
+ULinkerController::post_surround(const http::request<http::string_body>& req)
+{
+    const std::string tag = "POST /linker/surround";
+    log_request(m_logger, req, tag);
+
+    std::string export_id;
+    boost::json::object payload;
+
+    try {
+        auto v = boost::json::parse(req.body());
+        if (!v.is_object()) {
+            return json_error(m_logger, req, http::status::bad_request, "body must be object", tag);
+        }
+        payload = v.as_object();
+
+        // Без export_id правим активную конфигурацию
+        if (auto* e = payload.if_contains("export_id"); e && e->is_string()) {
+            export_id = e->as_string().c_str();
+        }
+    }
+    catch (const std::exception& e) {
+        return json_error(m_logger, req, http::status::bad_request, e.what(), tag);
+    }
+
+    std::string error;
+    if (!m_linker->set_surround(export_id, payload, error)) {
+        return json_error(m_logger, req, http::status::bad_request, error, tag);
+    }
+
+    boost::json::object data;
+    data["export_id"] = export_id.empty() ? m_linker->get_active_export_id() : export_id;
+
+    boost::json::object body;
+    body["data"] = std::move(data);
+    return json_ok(m_logger, req, body, tag);
+}
+
+// ─── GET /linker/surround?id=XXX ────────────────────────────
+http::response<http::string_body>
+ULinkerController::get_surround(const http::request<http::string_body>& req)
+{
+    const std::string tag = "GET /linker/surround";
+    log_request(m_logger, req, tag);
+
+    // Без id отдаётся активная конфигурация
+    std::string export_id;
+    if (auto id = get_query_param(std::string(req.target()), "id"); id && !id->empty()) {
+        export_id = *id;
+    }
+
+    std::string error;
+    boost::json::object data;
+    if (!m_linker->get_surround(export_id, data, error)) {
+        return json_error(m_logger, req, http::status::not_found, error, tag);
+    }
+
+    boost::json::object body;
+    body["data"] = std::move(data);
+    return json_ok(m_logger, req, body, tag);
+}
+
 // ─── DELETE /linker/export?id=XXX ───────────────────────────
 http::response<http::string_body>
 ULinkerController::delete_export(const http::request<http::string_body>& req)

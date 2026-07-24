@@ -19,6 +19,7 @@
 #include "utility.h"
 #include "egl-context.h"
 #include "camera.h"
+#include "bird-view/surround-bake.h"
 
 namespace nvr = varan::nvr;
 
@@ -143,6 +144,15 @@ namespace birdview {
 		bool set_surround_camera(const std::string& export_id, const std::string& place_key,
 			const boost::json::object& payload, std::string& error);
 
+		// Частичный мёрж surround-блока: machine, bowl, orbit, model,
+		// plate, wireframe, photometric. Живой вывод применяет без рестарта
+		bool set_surround(const std::string& export_id,
+			const boost::json::object& payload, std::string& error);
+
+		// Действующий surround-блок с дефолтами плюс печёные позы камер
+		bool get_surround(const std::string& export_id,
+			boost::json::object& out, std::string& error);
+
 		std::vector<FExportInfo> list_exports();
 		boost::json::object get_state_raw();
 
@@ -170,6 +180,14 @@ namespace birdview {
 
 		// Чтение состояния с приведением старого формата из одной записи к словарю
 		boost::json::object read_state_root() const;
+
+		// Мёрж surround-блока экспорта на диске под мутатором
+		bool mutate_surround_block(const std::string& target,
+			const std::function<bool(boost::json::object&, std::string&)>& mutate,
+			std::string& error);
+
+		// Чтение surround-блока экспорта с диска
+		std::optional<boost::json::object> read_surround_cfg(const std::string& export_id) const;
 
 	private:
 		FFrameStorage<IFrame>* m_storage;
@@ -204,6 +222,13 @@ namespace birdview {
 		nvr::FWebSocketOptions m_websocket;
 		std::unique_ptr<varan::neural::UVirtualCamera> m_streamer;
 		std::string m_stream_id;
+
+		// Живые изменения surround: цикл забирает флаги и перечитывает конфиг
+		static constexpr unsigned SURROUND_DIRTY_VISUAL = 1;
+		static constexpr unsigned SURROUND_DIRTY_BAKE = 2;
+		std::atomic<unsigned> m_surround_dirty{ 0 };
+		// Позы последней печки, отдаются ручкой GET /linker/surround
+		std::vector<FSurroundBakedCamera> m_surround_cameras;
 	};
 
 }; // birdview
