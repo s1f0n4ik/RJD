@@ -16,6 +16,14 @@ interface PresetJson {
     canvas?: { width?: number; height?: number };
     cameras?: Record<string, PresetCameraJson>;
     images?: Array<{ name?: string; rect?: number[] }>;
+    /** Габарит машины и реальные метры мира. */
+    machine?: {
+        rect?: number[];
+        length?: number;
+        width?: number;
+        height?: number;
+        mat_m?: number;
+    };
     /** Блок редактора: то, чего нет в производной геометрии. */
     editor?: { step?: number; zones?: Record<string, string[]> };
 }
@@ -180,6 +188,22 @@ export async function importPreset(preset: PresetJson): Promise<ImportResult> {
         .map(o => o.image)
         .filter((img): img is ConfImage => img !== null);
     const missingImages = overlays.filter(o => o.image === null).map(o => o.name);
+
+    // Габарит и метры: без блока сбрасываются, а не остаются от прошлого пресета
+    const mach = preset.machine;
+    const rect = Array.isArray(mach?.rect) && mach.rect.length >= 4
+        && mach.rect.every(Number.isFinite)
+        ? mach.rect
+        : null;
+    confState.gabarits = rect
+        ? [{ id: makeId('gab'), x: rect[0], y: rect[1], w: rect[2], h: rect[3] }]
+        : [];
+    confState.machine = {
+        length: Number(mach?.length) > 0 ? Number(mach?.length) : 0,
+        width: Number(mach?.width) > 0 ? Number(mach?.width) : 0,
+        height: Number(mach?.height) > 0 ? Number(mach?.height) : 0,
+        mat: Number(mach?.mat_m) > 0 ? Number(mach?.mat_m) : 0,
+    };
 
     confState.cameras = cameras;
     confState.zones = zones;

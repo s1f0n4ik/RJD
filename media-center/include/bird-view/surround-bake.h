@@ -23,13 +23,20 @@ namespace birdview {
 		float width = 0.0f;
 		float height = 0.0f;
 		cv::Rect2f canvas_rect;
+		// Разметочный мат: метры и пиксели канваса; оба заданы - масштаб
+		// мира считается по мату, он точнее ректа, нарисованного на глаз
+		float mat_m = 0.0f;
+		float mat_px = 0.0f;
 
 		float bowl_floor = 0.9f;
-		float bowl_outer = 2.3f;
+		// Вынос стенки от конца дна: дно сдвигает стенку, не меняя её наклона
+		float bowl_outer = 1.4f;
 		float bowl_wall = 0.9f;
 		float bowl_plate = 1.5f;
 		// Ширина перехода на границе зон Вороного, доля от min(length, width)
 		float bowl_blend = 0.3f;
+		// Скругление углов плана и стыка дна со стенкой: 0 - параллелепипед
+		float bowl_corner = 1.0f;
 	};
 
 	struct FSurroundBakedCamera {

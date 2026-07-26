@@ -6,7 +6,8 @@ in vec3 v_normal;
 in vec3 v_uvw;
 out vec4 frag;
 
-// 0 - проход камеры в накопитель, 1 - габарит, 2 - сетка без камер
+// 0 - проход камеры в накопитель, 1 - габарит, 2 - сетка без камер,
+// 3 - текстурированный примитив загруженной модели
 uniform int u_mode;
 uniform vec3 u_color;
 // Шаг сетки в метрах, масштабируется от габарита
@@ -14,6 +15,8 @@ uniform float u_grid_step;
 
 uniform sampler2D u_plane_y;
 uniform sampler2D u_plane_uv;
+// Базовая текстура модели, множится на u_color (baseColorFactor)
+uniform sampler2D u_model_tex;
 // Фотонормализация: усиление RGB камеры, выравнивает яркость на швах
 uniform vec3 u_gain;
 // Прозрачность модели в режиме габарита
@@ -32,6 +35,15 @@ void main() {
         vec2 cell = abs(fract(v_world.xz / u_grid_step) - 0.5);
         float line = smoothstep(0.46, 0.5, max(cell.x, cell.y));
         frag = vec4(mix(u_color, u_color * 1.8, line), 1.0);
+        return;
+    }
+
+    if (u_mode == 3) {
+        // Тот же свет, что у габарита; цвет - текстура на baseColorFactor
+        vec3 light = normalize(vec3(0.4, 1.0, 0.3));
+        float shade = 0.35 + 0.65 * abs(dot(normalize(v_normal), light));
+        vec3 base = texture(u_model_tex, v_uvw.xy).rgb * u_color;
+        frag = vec4(base * shade, u_alpha);
         return;
     }
 

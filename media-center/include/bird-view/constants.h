@@ -60,6 +60,7 @@ namespace constants {
 	// здесь строкой — два имени на один файл расходились при любой правке
 	inline const std::filesystem::path LINKER_CONFIGURATIONS = calibration::constants::PROJECTION_CONFIGURES_PATH;
 	inline const std::filesystem::path LINKER_IMAGES_PATH    = calibration::constants::PROJECTION_IMAGES_PATH;
+	inline const std::filesystem::path LINKER_MODELS_PATH    = calibration::constants::PROJECTION_MODELS_PATH;
 	 
 	inline const std::filesystem::path current_shader_path(const std::filesystem::path& shader) {
 		return std::filesystem::current_path() / shader;

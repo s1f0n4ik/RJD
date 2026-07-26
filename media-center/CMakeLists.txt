@@ -126,6 +126,9 @@ endif()
 # glm
 set(GLM ${CMAKE_SOURCE_DIR}/3rdparty/glm)
 
+# tinygltf (header-only, разбор .glb моделей surround view)
+set(TINYGLTF ${CMAKE_SOURCE_DIR}/3rdparty/tinygltf)
+
 # Boost (локальная папка 3rdparty/boost)
 set(BOOST_ROOT ${CMAKE_SOURCE_DIR}/3rdparty/boost)
 set(BOOST_INCLUDEDIR ${BOOST_ROOT}/include)
@@ -143,6 +146,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${BOOST_INCLUDEDIR}
     ${GBM_INCLUDE_DIRS}
     ${GLM}
+    ${TINYGLTF}
 )
 
 # Линковка библиотек

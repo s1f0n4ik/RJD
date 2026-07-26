@@ -53,6 +53,8 @@ export interface LinkerExport {
     name?: string;
     /** Ключи позиций камер — то, что в конфигураторе задано полем «Ключ». */
     cameras?: string[];
+    /** Есть рект габарита или картинка. Без них открыть в линкере нельзя. */
+    valid: boolean;
 }
 
 /** Камера, пригодная для birdview (type === 3). */
@@ -96,19 +98,25 @@ export interface SurroundMachine {
     height: number;
 }
 
-/** Отступы чаши от борта в долях от меньшей стороны габарита. */
+/**
+ * Пропорции чаши в долях от меньшей стороны габарита: дно от борта,
+ * вынос стенки от конца дна, скругление углов (0 — прямоугольник).
+ */
 export interface SurroundBowl {
     floor: number;
     outer: number;
     wall: number;
     plate: number;
     blend: number;
+    corner: number;
 }
 
 export interface SurroundOrbit {
     distance: number;
     height: number;
     speed: number;
+    /** Дефолт ручного вращения: с ним вывод стартует без автооблёта. */
+    interactive: boolean;
 }
 
 /** Размеры модели в метрах; 0 — размер габарита. */
@@ -117,6 +125,10 @@ export interface SurroundModel {
     width: number;
     height: number;
     alpha: number;
+    /** Поворот вокруг вертикали, градусы. */
+    rotation: number;
+    /** Файл .glb из библиотеки моделей; пусто — параллелепипед. */
+    source: string;
 }
 
 /** Действующая поза камеры из печки: метры от центра габарита и градусы. */
@@ -138,6 +150,11 @@ export interface SurroundConfig {
     orbit: SurroundOrbit;
     model: SurroundModel;
     plate: boolean;
+    /** Свои размеры подложки в метрах; 0 — авто, габарит × 1.5. */
+    plateLength: number;
+    plateWidth: number;
+    /** Разрешение surround-кадра. Смена перезапускает вывод. */
+    resolution: { width: number; height: number };
     wireframe: boolean;
     photometric: boolean;
     cameras: SurroundCameraPose[];
@@ -150,8 +167,17 @@ export interface SurroundPatch {
     orbit?: Partial<SurroundOrbit>;
     model?: Partial<SurroundModel>;
     plate?: boolean;
+    plate_length?: number;
+    plate_width?: number;
+    resolution?: { width: number; height: number };
     wireframe?: boolean;
     photometric?: boolean;
+}
+
+/** Файл из библиотеки моделей. */
+export interface SurroundModelFile {
+    name: string;
+    size: number;
 }
 
 /** Параметры запуска. Свои у каждой конфигурации. */
@@ -190,6 +216,8 @@ export interface LinkerExportDetail {
     canvas: { width: number; height: number };
     places: LinkerPlace[];
     images: LinkerOverlay[];
+    /** Габарит машины из конфигуратора; null у старых записей. */
+    machineRect: { x: number; y: number; w: number; h: number } | null;
     /** Угол, с которым конфигурация пойдёт в эфир. Считает сервер. */
     rotation: Rotation;
 }
@@ -220,7 +248,9 @@ function toRect(v: unknown): { x: number; y: number; w: number; h: number } | nu
 export const linkerApi = {
     async getExports(): Promise<LinkerExport[]> {
         const json = await fetchJson<any>('GET', '/linker/exports');
-        return json.data?.exports ?? json.exports ?? [];
+        const list = json.data?.exports ?? json.exports ?? [];
+        // Старый сервер флага не шлёт — такие записи считаются годными
+        return list.map((e: any): LinkerExport => ({ ...e, valid: e.valid !== false }));
     },
 
     /** Только камеры type === 3 — остальные для birdview не годятся. */
@@ -257,6 +287,7 @@ export const linkerApi = {
             },
             places,
             images,
+            machineRect: toRect(data.machine?.rect),
             rotation: normalizeRotation(data.rotation),
         };
     },
@@ -389,27 +420,65 @@ export const linkerApi = {
             },
             bowl: {
                 floor: num(bowl.floor, 0.9),
-                outer: num(bowl.outer, 2.3),
+                outer: num(bowl.outer, 1.4),
                 wall: num(bowl.wall, 0.9),
                 plate: num(bowl.plate, 1.5),
                 blend: num(bowl.blend, 0.3),
+                corner: num(bowl.corner, 1),
             },
             orbit: {
                 distance: num(orbit.distance, 3.4),
                 height: num(orbit.height, 2.0),
                 speed: num(orbit.speed, 0.25),
+                interactive: orbit.interactive === true,
             },
             model: {
                 length: num(model.length, 0),
                 width: num(model.width, 0),
                 height: num(model.height, 0),
                 alpha: num(model.alpha, 1),
+                rotation: num(model.rotation, 0),
+                source: typeof model.source === 'string' ? model.source : '',
             },
             plate: d.plate !== false,
+            plateLength: num(d.plate_length, 0),
+            plateWidth: num(d.plate_width, 0),
+            resolution: {
+                width: num(d.resolution?.width, 1280),
+                height: num(d.resolution?.height, 720),
+            },
             wireframe: d.wireframe === true,
             photometric: d.photometric !== false,
             cameras,
         };
+    },
+
+    /** Библиотека загруженных моделей .glb. */
+    async listModels(): Promise<SurroundModelFile[]> {
+        const json = await fetchJson<any>('GET', '/linker/models');
+        const list = json.data?.models ?? json.models ?? [];
+        return (Array.isArray(list) ? list : [])
+            .map((m: any): SurroundModelFile => ({
+                name: String(m?.name ?? ''),
+                size: Number(m?.size) || 0,
+            }))
+            .filter(m => m.name);
+    },
+
+    /**
+     * Файл .glb в библиотеку моделей. Возвращает имя, под которым сохранён;
+     * привязка к конфигурации — отдельным postSurround({model:{source}}).
+     */
+    async uploadModel(file: File): Promise<string> {
+        const form = new FormData();
+        form.append('model', file, file.name);
+        const res = await fetch('/linker/upload-model', { method: 'POST', body: form });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            throw new LinkerError(res.status,
+                json.error ?? json.description ?? `${res.status}`);
+        }
+        return String(json.data?.filename ?? file.name);
     },
 
     /** Частичный мёрж surround-блока. Живой вывод применяет без рестарта. */

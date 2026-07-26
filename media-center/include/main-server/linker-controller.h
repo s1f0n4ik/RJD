@@ -91,6 +91,12 @@ public:
 		post_upload_image(const boost::beast::http::request<boost::beast::http::string_body>& req);
 
 	boost::beast::http::response<boost::beast::http::string_body>
+		post_upload_model(const boost::beast::http::request<boost::beast::http::string_body>& req);
+
+	boost::beast::http::response<boost::beast::http::string_body>
+		get_models(const boost::beast::http::request<boost::beast::http::string_body>& req);
+
+	boost::beast::http::response<boost::beast::http::string_body>
 		get_image(const boost::beast::http::request<boost::beast::http::string_body>& req);
 
 

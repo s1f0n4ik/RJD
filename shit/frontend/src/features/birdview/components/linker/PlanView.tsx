@@ -73,6 +73,32 @@ export function PlanView({ geometry, bindings, cameras, locked, onAssign }: Plan
                 role="group"
                 aria-label="Схема мест камер"
             >
+                {geometry.machine && (
+                    <g className="plan-machine-group">
+                        <rect
+                            className="plan-machine"
+                            x={geometry.machine.x}
+                            y={geometry.machine.y}
+                            width={geometry.machine.w}
+                            height={geometry.machine.h}
+                            rx={Math.min(geometry.machine.w, geometry.machine.h) * 0.04}
+                            fill="rgba(232,163,61,0.08)"
+                            stroke="#E8A33D"
+                            strokeDasharray="8 5"
+                            strokeWidth={Math.max(geometry.view.width, geometry.view.height) * 0.003}
+                        />
+                        <text
+                            x={geometry.machine.x + geometry.machine.w / 2}
+                            y={geometry.machine.y + geometry.machine.h / 2}
+                            textAnchor="middle"
+                            fill="#E8A33D"
+                            style={{ fontSize: fit('МАШИНА', geometry.machine, label * 0.8) }}
+                        >
+                            МАШИНА
+                        </text>
+                    </g>
+                )}
+
                 {geometry.overlays.map((ov, i) => {
                     const cx = ov.rect.x + ov.rect.w / 2;
                     const cy = ov.rect.y + ov.rect.h / 2;

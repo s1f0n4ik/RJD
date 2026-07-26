@@ -26,11 +26,25 @@ export interface ExportEditorBlock {
     zones: Record<string, string[]>;
 }
 
+/**
+ * Габарит и реальные метры мира. rect в пикселях канваса экспорта;
+ * mat_px — шаг разметки там же: из пары mat_m/mat_px линкер берёт масштаб.
+ */
+export interface ExportMachineBlock {
+    rect?: number[];
+    length?: number;
+    width?: number;
+    height?: number;
+    mat_m?: number;
+    mat_px?: number;
+}
+
 export interface ExportResult {
     name: string;
     canvas: { width: number; height: number };
     cameras: Record<string, ExportCameraEntry>;
     images?: Array<{ name: string; rect: number[] }>;
+    machine?: ExportMachineBlock;
     editor?: ExportEditorBlock;
 }
 
@@ -120,6 +134,27 @@ export function buildExportJson(params: ExportParams): ExportResult {
     };
 
     if (images.length) result.images = images;
+
+    // Габарит и метры пишутся только заданные: пустой блок не нужен
+    const machine: ExportMachineBlock = {};
+    const gab = confState.gabarits[0];
+    if (gab) {
+        machine.rect = [
+            Math.round(gab.x * s),
+            Math.round(gab.y * s),
+            Math.round(gab.w * s),
+            Math.round(gab.h * s),
+        ];
+    }
+    const m = confState.machine;
+    if (m.length > 0) machine.length = m.length;
+    if (m.width > 0) machine.width = m.width;
+    if (m.height > 0) machine.height = m.height;
+    if (m.mat > 0) {
+        machine.mat_m = m.mat;
+        machine.mat_px = f.step * s;
+    }
+    if (Object.keys(machine).length) result.machine = machine;
 
     return result;
 }

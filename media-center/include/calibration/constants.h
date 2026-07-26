@@ -30,6 +30,7 @@ namespace constants {
 	inline const std::filesystem::path PRESETS_ROOT = SURROUND_VIEW_ROOT / "presets";
 	inline const std::filesystem::path PROJECTION_CONFIGURES_PATH = PRESETS_ROOT / "presets.json";
 	inline const std::filesystem::path PROJECTION_IMAGES_PATH     = PRESETS_ROOT / "images";
+	inline const std::filesystem::path PROJECTION_MODELS_PATH     = PRESETS_ROOT / "models";
 
 	inline const std::filesystem::path LINKER_CONFIGURES_ROOT     = SURROUND_VIEW_ROOT / "projection";
 	inline const std::filesystem::path LINKER_CONFIGURATION_INDEX = "projection.json";

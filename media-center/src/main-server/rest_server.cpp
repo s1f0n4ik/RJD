@@ -68,6 +68,10 @@ URestServer::URestServer(
         [linker_ctrl](const auto& r) { return linker_ctrl->post_exports(r); });
     m_router->add_route(http::verb::post, "/linker/upload",
         [linker_ctrl](const auto& r) {return linker_ctrl->post_upload_image(r); });
+    m_router->add_route(http::verb::post, "/linker/upload-model",
+        [linker_ctrl](const auto& r) {return linker_ctrl->post_upload_model(r); });
+    m_router->add_route(http::verb::get, "/linker/models",
+        [linker_ctrl](const auto& r) {return linker_ctrl->get_models(r); });
     m_router->add_route(http::verb::get, "/linker/image",
         [linker_ctrl](const auto& r) { return linker_ctrl->get_image(r); });
     m_router->add_route(http::verb::post, "/linker/surround-camera",

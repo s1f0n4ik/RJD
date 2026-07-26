@@ -43,6 +43,8 @@ export function NumberField({ label, value, min, step, onCommit }: NumberFieldPr
                 value={draft}
                 onChange={e => setDraft(e.target.value)}
                 onBlur={commit}
+                // Колесо меняло значение под курсором и мешало ввести своё
+                onWheel={e => e.currentTarget.blur()}
                 onKeyDown={e => {
                     if (e.key === 'Enter') e.currentTarget.blur();
                 }}

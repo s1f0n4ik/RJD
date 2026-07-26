@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import type {
     ConfCamera,
+    ConfGabarit,
     ConfImage,
     ConfItemType,
     ConfSelection,
@@ -24,6 +25,10 @@ export interface ConfState {
     cameras: ConfCamera[];
     zones: ConfZone[];
     images: ConfImage[];
+    /** Массив ради getList и Delete, но габарит один: кнопка не даст второй. */
+    gabarits: ConfGabarit[];
+    /** Реальные размеры мира в метрах; 0 — не задано. */
+    machine: { length: number; width: number; height: number; mat: number };
 
     selected: ConfSelection | null;
     dragging: { id: string; type: ConfItemType; offsetX: number; offsetY: number } | null;
@@ -52,6 +57,8 @@ export const confState: ConfState = {
     cameras: [],
     zones: [],
     images: [],
+    gabarits: [],
+    machine: { length: 0, width: 0, height: 0, mat: 0 },
 
     selected: null,
     dragging: null,
@@ -130,8 +137,9 @@ export function useConfStore(): number {
     return useSyncExternalStore(subscribe, getSnapshot);
 }
 
-export function getList(type: ConfItemType): Array<ConfCamera | ConfZone | ConfImage> {
+export function getList(type: ConfItemType): Array<ConfCamera | ConfZone | ConfImage | ConfGabarit> {
     if (type === 'camera') return confState.cameras;
     if (type === 'zone') return confState.zones;
+    if (type === 'gabarit') return confState.gabarits;
     return confState.images;
 }

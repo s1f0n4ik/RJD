@@ -4,11 +4,13 @@ import { useToast } from '../common/Toast';
 import { NumberField } from '../common/NumberField';
 import {
     confAddCamera,
+    confAddGabarit,
     confAddImageFile,
     confAddZone,
     confToggleFixedZone,
     confUpdateField,
     confUpdateFixedZone,
+    confUpdateMachine,
 } from './conf-actions';
 import { CameraList } from './CameraList';
 import { ZoneList } from './ZoneList';
@@ -65,6 +67,58 @@ export function ConfiguratorPanel({ open, onOpenExport }: ConfiguratorPanelProps
                             value={f.step}
                             onCommit={v => confUpdateField({ step: v || 10 })}
                         />
+                    </div>
+                </details>
+
+                <details className="conf-section">
+                    <summary className="conf-section-header">
+                        <span>Габарит</span>
+                        <span className="conf-section-count">
+                            {confState.gabarits.length ? '✓' : '—'}
+                        </span>
+                        <span className="collapsible-arrow">›</span>
+                    </summary>
+                    <div className="conf-section-body">
+                        {/* Рект на канвасе — место машины; метры уходят в линкер */}
+                        <button
+                            className="btn btn-ghost btn-sm"
+                            style={{ width: '100%' }}
+                            onClick={confAddGabarit}
+                        >
+                            {confState.gabarits.length ? 'Выбрать габарит' : '+ Задать габарит'}
+                        </button>
+                        <div className="field-row">
+                            <NumberField
+                                label="Длина, м"
+                                min={0}
+                                step={0.1}
+                                value={confState.machine.length}
+                                onCommit={v => confUpdateMachine({ length: v })}
+                            />
+                            <NumberField
+                                label="Ширина, м"
+                                min={0}
+                                step={0.1}
+                                value={confState.machine.width}
+                                onCommit={v => confUpdateMachine({ width: v })}
+                            />
+                        </div>
+                        <div className="field-row">
+                            <NumberField
+                                label="Высота, м"
+                                min={0}
+                                step={0.1}
+                                value={confState.machine.height}
+                                onCommit={v => confUpdateMachine({ height: v })}
+                            />
+                            <NumberField
+                                label="Мат, м"
+                                min={0}
+                                step={0.01}
+                                value={confState.machine.mat}
+                                onCommit={v => confUpdateMachine({ mat: v })}
+                            />
+                        </div>
                     </div>
                 </details>
 

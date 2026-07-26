@@ -35,6 +35,9 @@ namespace birdview {
 			std::string id;
 			std::string name;
 			std::vector<std::string> cameras;
+			// Есть рект габарита, картинки или ручной рект в surround-блоке.
+			// Без них схему не построить и surround не запечь - открывать нельзя
+			bool valid = true;
 		};
 
 		// Параметры запуска. Свои у каждой конфигурации: имя вывода описывает
@@ -164,6 +167,9 @@ namespace birdview {
 
 		std::filesystem::path get_images_list_path();
 
+		// Библиотека .glb моделей, лежит рядом с картинками пресетов
+		std::filesystem::path get_models_list_path();
+
 	private:
 		void processing_loop(uint32_t fps);
 
@@ -185,6 +191,9 @@ namespace birdview {
 		bool mutate_surround_block(const std::string& target,
 			const std::function<bool(boost::json::object&, std::string&)>& mutate,
 			std::string& error);
+
+		// Чтение целой записи экспорта с диска: machine, images, surround
+		std::optional<boost::json::object> read_export_entry(const std::string& export_id) const;
 
 		// Чтение surround-блока экспорта с диска
 		std::optional<boost::json::object> read_surround_cfg(const std::string& export_id) const;
@@ -227,6 +236,11 @@ namespace birdview {
 		static constexpr unsigned SURROUND_DIRTY_VISUAL = 1;
 		static constexpr unsigned SURROUND_DIRTY_BAKE = 2;
 		std::atomic<unsigned> m_surround_dirty{ 0 };
+		// Запрос смены режима орбиты от ручки: -1 нет, 0 авто, 1 ручной
+		std::atomic<int> m_surround_mode_request{ -1 };
+		// Индекс экспортов пишет REST-поток, читает цикл кадра: без замка
+		// чтение ловит полузаписанный файл и живое применение теряется
+		mutable std::mutex m_exports_mutex;
 		// Позы последней печки, отдаются ручкой GET /linker/surround
 		std::vector<FSurroundBakedCamera> m_surround_cameras;
 	};

@@ -37,6 +37,13 @@ export interface PlayerStatusInfo {
     conn: string;
 }
 
+/** Доступ к сигналинг-WS плеера: отправка своих сообщений камере. */
+export interface SignalingSender {
+    clientId: string;
+    /** client_id и camera подмешиваются сами. false — сокет не открыт. */
+    send: (payload: Record<string, unknown>) => boolean;
+}
+
 interface WebRTCPlayerProps {
     cameraId: string;
     cameraName?: string;
@@ -44,6 +51,10 @@ interface WebRTCPlayerProps {
     onError?: (error: string) => void;
     onDetections?:  (detections: Detection[]) => void;
     onTracks?:      (tracks: Track[]) => void;
+    /** Опционально: наружу отправитель в сигналинг-WS (управление орбитой 360). */
+    signalingRef?: React.MutableRefObject<SignalingSender | null>;
+    /** Опционально: сообщения, которые плеер сам не обрабатывает (type=orbit). */
+    onExtraMessage?: (msg: Record<string, unknown>) => void;
     /** Опционально: состояние соединения наружу, для своих индикаторов. */
     onStatusChange?: (info: PlayerStatusInfo) => void;
     /** Опционально: реальное разрешение кадра из метаданных видео. */
@@ -69,10 +80,14 @@ const getStreamErrorMessage = (error_code: string): string => {
     return STREAM_ERROR_MESSAGES[error_code] ?? `Ошибка потока: ${error_code}`;
 };
 
-const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signalingUrl, onError, onDetections, onTracks, onStatusChange, onVideoResolution, background = 'black' }) => {
+const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signalingUrl, onError, onDetections, onTracks, signalingRef, onExtraMessage, onStatusChange, onVideoResolution, background = 'black' }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const [status, setStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
     const [errorMsg, setErrorMsg] = useState<string>('');
+
+    // Ref, чтобы инлайн-колбэк родителя не перезапускал основной эффект
+    const onExtraMessageRef = useRef(onExtraMessage);
+    onExtraMessageRef.current = onExtraMessage;
 
     // Состояние наружу. Держим в ref, чтобы не перезапускать основной эффект
     // при каждом новом инлайн-колбэке от родителя.
@@ -275,9 +290,32 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
 
     useEffect(() => {
         isMountedRef.current = true;
+        /*
+            Сброс флагов прошлого цикла обязателен: StrictMode в dev гоняет
+            эффект дважды на одном экземпляре, cleanup() взводит
+            intentionalClose — и без сброса все реконнекты молча глохли.
+        */
+        intentionalCloseRef.current = false;
+        isRetryingRef.current = false;
+        retryAttemptRef.current = 0;
         clientIdRef.current = `client_${Math.random().toString(36).substr(2, 9)}`;
 
         console.log(`[${cameraId}] 🚀 Component mounted, client_id: ${clientIdRef.current}`);
+
+        if (signalingRef) {
+            signalingRef.current = {
+                clientId: clientIdRef.current,
+                send: (payload) => {
+                    if (wsRef.current?.readyState !== WebSocket.OPEN) return false;
+                    wsRef.current.send(JSON.stringify({
+                        ...payload,
+                        client_id: clientIdRef.current,
+                        camera: cameraId,
+                    }));
+                    return true;
+                },
+            };
+        }
 
         // Небольшая задержка перед подключением, чтобы избежать race conditions
         cleanupTimeoutRef.current = window.setTimeout(() => {
@@ -289,6 +327,8 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
         return () => {
             console.log(`[${cameraId}] 🔴 Component unmounting, cleaning up...`);
             isMountedRef.current = false;
+
+            if (signalingRef) signalingRef.current = null;
 
             if (cleanupTimeoutRef.current) {
                 clearTimeout(cleanupTimeoutRef.current);
@@ -399,6 +439,10 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
                     if (onTracks && Array.isArray(msg.meta?.tracks)) {
                         onTracks(msg.meta.tracks);
                     }
+                }
+
+                if (msg.type === 'orbit') {
+                    onExtraMessageRef.current?.(msg);
                 }
 
                 if (msg.type === 'stream_error') {
@@ -535,6 +579,8 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
                 console.log(`[${cameraId}] WebRTC turned to connecting state!`);
             }
             else if (s === 'disconnected') {
+                // Транзиентное состояние ICE: рвать сессию нельзя, само вернётся.
+                // Перезапуски вывода 360 пересоздают плеер снаружи по статусу
                 setStatus('error');
                 setErrorMsg('Обрыв соединения. Ожидание переподключения');
                 console.warn(`[${cameraId}] WebRTC turned to disconnected state!`);

@@ -42,7 +42,52 @@ export function confUpdateField(next: Partial<{ w: number; h: number; step: numb
         img.y = c.y;
     });
 
+    confState.gabarits.forEach(g => {
+        if (g.w > confState.field.w) g.w = confState.field.w;
+        if (g.h > confState.field.h) g.h = confState.field.h;
+        const c = clampToField(g.x, g.y, g.w, g.h);
+        g.x = c.x;
+        g.y = c.y;
+    });
+
     confDraw();
+    emitConfChange();
+}
+
+/** Габарит один на конфигурацию: повторное нажатие выбирает существующий. */
+export function confAddGabarit(): void {
+    const existing = confState.gabarits[0];
+    if (existing) {
+        confState.selected = { type: 'gabarit', id: existing.id };
+        confDraw();
+        emitConfChange();
+        return;
+    }
+
+    const f = confState.field;
+    const w = snap(Math.round(f.w * 0.25));
+    const h = snap(Math.round(f.h * 0.5));
+    confState.gabarits.push({
+        id: uid(),
+        x: snap((f.w - w) / 2),
+        y: snap((f.h - h) / 2),
+        w,
+        h,
+    });
+    confState.selected = { type: 'gabarit', id: confState.gabarits[0].id };
+    confDraw();
+    emitConfChange();
+}
+
+/** Реальные метры мира: габарит машины и размер разметочного мата. */
+export function confUpdateMachine(
+    next: Partial<{ length: number; width: number; height: number; mat: number }>,
+): void {
+    const m = confState.machine;
+    if (next.length !== undefined) m.length = Math.max(0, next.length);
+    if (next.width !== undefined) m.width = Math.max(0, next.width);
+    if (next.height !== undefined) m.height = Math.max(0, next.height);
+    if (next.mat !== undefined) m.mat = Math.max(0, next.mat);
     emitConfChange();
 }
 

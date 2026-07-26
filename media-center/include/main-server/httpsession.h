@@ -3,6 +3,7 @@
 #include <boost/beast.hpp>
 #include <boost/asio.hpp>
 #include <memory>
+#include <optional>
 
 #include "main-server/router.h"
 
@@ -23,6 +24,8 @@ private:
     boost::beast::tcp_stream m_stream;
     boost::asio::strand<boost::asio::any_io_executor> m_strand;
     boost::beast::flat_buffer m_buffer;
+    // Парсер на каждый запрос: дефолтный лимит тела 8 МБ режет .glb модели
+    std::optional<boost::beast::http::request_parser<boost::beast::http::string_body>> m_parser;
     boost::beast::http::request<boost::beast::http::string_body> m_request;
     std::shared_ptr<URouter> m_router;
 };

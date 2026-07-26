@@ -35,7 +35,10 @@ export interface ConfImage extends ConfItem {
     img: HTMLImageElement;
 }
 
-export type ConfItemType = 'camera' | 'zone' | 'image';
+/** Габарит машины: один прямоугольник на конфигурацию, без картинки. */
+export type ConfGabarit = ConfItem;
+
+export type ConfItemType = 'camera' | 'zone' | 'image' | 'gabarit';
 
 export type ConfTool = 'select' | 'camera' | 'zone';
 

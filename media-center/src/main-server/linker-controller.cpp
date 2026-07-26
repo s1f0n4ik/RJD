@@ -96,6 +96,7 @@ ULinkerController::get_exports(const http::request<http::string_body>& req)
             boost::json::array cams;
             for (const auto& k : e.cameras) cams.emplace_back(k);
             item["cameras"] = std::move(cams);
+            item["valid"] = e.valid;
             arr.push_back(std::move(item));
         }
         boost::json::object data;
@@ -847,6 +848,127 @@ ULinkerController::post_upload_image(const http::request<http::string_body>& req
         result["data"] = std::move(data);
 
         return json_ok(m_logger, req, result, tag);
+    }
+    catch (const std::exception& e) {
+        return json_error(m_logger, req, http::status::internal_server_error, e.what(), tag);
+    }
+}
+
+// ─── POST /linker/upload-model ──────────────────────────────
+/*
+    Модель .glb в общую библиотеку моделей. Только glTF-binary: первые
+    четыре байта данных обязаны быть магией "glTF". Привязку к конфигурации
+    делает отдельный POST /linker/surround {model:{source}}.
+*/
+http::response<http::string_body>
+ULinkerController::post_upload_model(const http::request<http::string_body>& req)
+{
+    const std::string tag = "POST /linker/upload-model";
+    log_request(m_logger, req, tag);
+
+    try {
+        auto content_type = std::string(req[http::field::content_type]);
+
+        auto pos = content_type.find("boundary=");
+        if (pos == std::string::npos) {
+            return json_error(m_logger, req, http::status::bad_request,
+                "missing boundary in content-type", tag);
+        }
+        std::string boundary = "--" + content_type.substr(pos + 9);
+
+        const auto& body = req.body();
+
+        auto fn_pos = body.find("filename=\"");
+        if (fn_pos == std::string::npos) {
+            return json_error(m_logger, req, http::status::bad_request, "missing filename", tag);
+        }
+        fn_pos += 10;
+        auto fn_end = body.find("\"", fn_pos);
+        std::string filename = body.substr(fn_pos, fn_end - fn_pos);
+
+        // Санитизация имени файла
+        for (auto& c : filename) {
+            if (c == '/' || c == '\\' || c == '.') {
+                if (c == '.' && (&c - &filename[0]) > 0) continue; // оставить расширение
+                c = '_';
+            }
+        }
+        if (filename.size() < 5
+            || filename.substr(filename.size() - 4) != ".glb") {
+            return json_error(m_logger, req, http::status::bad_request,
+                "model must be a .glb file", tag);
+        }
+
+        auto header_end = body.find("\r\n\r\n", fn_pos);
+        if (header_end == std::string::npos) {
+            return json_error(m_logger, req, http::status::bad_request, "malformed multipart", tag);
+        }
+        auto data_start = header_end + 4;
+
+        auto data_end = body.find(boundary, data_start);
+        if (data_end == std::string::npos) {
+            data_end = body.size();
+        }
+        if (data_end >= 2 && body[data_end - 2] == '\r' && body[data_end - 1] == '\n') {
+            data_end -= 2;
+        }
+
+        // Магия glTF-binary в начале данных, расширению веры нет
+        if (data_end - data_start < 12 || body.compare(data_start, 4, "glTF") != 0) {
+            return json_error(m_logger, req, http::status::bad_request,
+                "file is not a binary glTF (glb)", tag);
+        }
+
+        auto models_dir = m_linker->get_models_list_path();
+        std::filesystem::create_directories(models_dir);
+
+        auto file_path = models_dir / filename;
+        std::ofstream out(file_path, std::ios::binary);
+        out.write(body.data() + data_start, data_end - data_start);
+        out.close();
+
+        if (m_logger) m_logger->info(tag + ": saved " + file_path.string());
+
+        boost::json::object data;
+        data["filename"] = filename;
+        boost::json::object result;
+        result["data"] = std::move(data);
+
+        return json_ok(m_logger, req, result, tag);
+    }
+    catch (const std::exception& e) {
+        return json_error(m_logger, req, http::status::internal_server_error, e.what(), tag);
+    }
+}
+
+// ─── GET /linker/models ─────────────────────────────────────
+// Библиотека .glb: имя и размер каждого файла, панель показывает список
+http::response<http::string_body>
+ULinkerController::get_models(const http::request<http::string_body>& req)
+{
+    const std::string tag = "GET /linker/models";
+    log_request(m_logger, req, tag);
+
+    try {
+        boost::json::array models;
+        const auto dir = m_linker->get_models_list_path();
+        if (std::filesystem::exists(dir)) {
+            for (const auto& entry : std::filesystem::directory_iterator(dir)) {
+                if (!entry.is_regular_file()) continue;
+                if (entry.path().extension() != ".glb") continue;
+                boost::json::object item;
+                item["name"] = entry.path().filename().string();
+                item["size"] = static_cast<int64_t>(entry.file_size());
+                models.push_back(std::move(item));
+            }
+        }
+
+        boost::json::object data;
+        data["models"] = std::move(models);
+        boost::json::object body;
+        body["data"] = std::move(data);
+
+        return json_ok(m_logger, req, body, tag);
     }
     catch (const std::exception& e) {
         return json_error(m_logger, req, http::status::internal_server_error, e.what(), tag);

@@ -36,6 +36,8 @@ export interface PlanGeometry {
     rotated: boolean;
     tiles: PlanTile[];
     overlays: PlanOverlay[];
+    /** Габарит машины из конфигуратора; null у записей без него. */
+    machine: Rect | null;
     /** Ключи камер, для которых сервер не прислал region. */
     missing: string[];
 }
@@ -62,6 +64,7 @@ export function buildGeometry(detail: LinkerExportDetail): PlanGeometry | null {
             rotated: false,
             tiles: [],
             overlays: [],
+            machine: null,
             missing,
         };
     }
@@ -82,6 +85,7 @@ export function buildGeometry(detail: LinkerExportDetail): PlanGeometry | null {
             name: img.name,
             rect: lay(img.rect, rotated),
         })),
+        machine: detail.machineRect ? lay(detail.machineRect, rotated) : null,
         missing,
     };
 }

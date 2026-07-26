@@ -20,6 +20,7 @@
 import React from 'react';
 import WebRTCPlayer from './WebRTCPlayer';
 import NeuralWebRTCPlayer from './NeuralWebRTCPlayer';
+import SurroundWebRTCPlayer from './SurroundWebRTCPlayer';
 
 interface PlayerFactoryProps {
   cameraType:   number;
@@ -30,6 +31,8 @@ interface PlayerFactoryProps {
 }
 
 const NEURAL_CAMERA_TYPE = 2;
+// ECameraType::VIRTUAL — вывод линкера 360
+export const SURROUND_PLAYER_TYPE = 4;
 
 export const PlayerFactory: React.FC<PlayerFactoryProps> = ({
   cameraType,
@@ -46,6 +49,20 @@ export const PlayerFactory: React.FC<PlayerFactoryProps> = ({
         cameraName={cameraName}
         signalingUrl={signalingUrl}
         onError={onError}
+      />
+    );
+  }
+
+  // Поток 360: жесты вращения плюс кнопки режима — везде, кроме линкера
+  if (cameraType === SURROUND_PLAYER_TYPE) {
+    return (
+      <SurroundWebRTCPlayer
+        key={`surround-${cameraId}`}
+        cameraId={cameraId}
+        cameraName={cameraName}
+        signalingUrl={signalingUrl}
+        onError={onError}
+        controls
       />
     );
   }

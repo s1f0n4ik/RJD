@@ -12,7 +12,7 @@ import {
     Close as CloseIcon,
     Settings as SettingsIcon,
 } from '@mui/icons-material';
-import { PlayerFactory, makeCameraTypeGetter } from './WebRTCPlayerFactory';
+import { PlayerFactory, makeCameraTypeGetter, SURROUND_PLAYER_TYPE } from './WebRTCPlayerFactory';
 import { api } from '../services/api';
 import type { CPPCamera, VirtualStream } from '../types';
 import {
@@ -54,9 +54,12 @@ const KioskView: React.FC = () => {
     const sources       = [...cameraSources, ...streamSources];
 
     const cameraTypeOf        = makeCameraTypeGetter(cameras);
-    // У потоков обычный плеер, рамки в них уже врисованы
-    const getCameraType       = (id: string) =>
-        virtual.some(s => s.id === id) ? SOURCE_PLAYER_TYPE : cameraTypeOf(id);
+    // У neural-потоков обычный плеер (рамки врисованы), у 360 — жестовый
+    const getCameraType       = (id: string) => {
+        const stream = virtual.find(s => s.id === id);
+        if (!stream) return cameraTypeOf(id);
+        return stream.producer === 'birdview' ? SURROUND_PLAYER_TYPE : SOURCE_PLAYER_TYPE;
+    };
     const effectiveActiveCells = activeCellsOverride ?? layout?.activeCells ?? {};
 
     const getLayoutNameFromUrl = (): string | null => {

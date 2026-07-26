@@ -436,6 +436,11 @@ function hitTest(wx: number, wy: number): { type: ConfItemType; id: string } | n
         if (wx >= c.x && wx <= c.x + c.w && wy >= c.y && wy <= c.y + c.h)
             return { type: 'camera', id: c.id };
     }
+    for (let i = confState.gabarits.length - 1; i >= 0; i--) {
+        const g = confState.gabarits[i];
+        if (wx >= g.x && wx <= g.x + g.w && wy >= g.y && wy <= g.y + g.h)
+            return { type: 'gabarit', id: g.id };
+    }
     for (let i = confState.images.length - 1; i >= 0; i--) {
         const img = confState.images[i];
         if (wx >= img.x && wx <= img.x + img.w && wy >= img.y && wy <= img.y + img.h)
@@ -542,7 +547,7 @@ function applyResize(
     }
 
     // Ограничения по типу
-    if (type === 'camera' || type === 'image') {
+    if (type === 'camera' || type === 'image' || type === 'gabarit') {
         const f = confState.field;
         if (newX < 0) { newW += newX; newX = 0; }
         if (newY < 0) { newH += newY; newY = 0; }

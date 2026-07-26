@@ -145,10 +145,50 @@ export function confDraw(): void {
 
     drawGrid(ctx);
     drawImages(ctx);
+    drawGabarit(ctx);
     drawCameras(ctx);
     drawZones(ctx);
     drawSelection(ctx);
     drawDraft(ctx);
+}
+
+/** Прямоугольник машины: под камерами, чтобы не мешал разметке. */
+function drawGabarit(c: CanvasRenderingContext2D): void {
+    const color = '#E8A33D';
+    confState.gabarits.forEach(g => {
+        const tl = worldToCanvas(g.x, g.y);
+        const br = worldToCanvas(g.x + g.w, g.y + g.h);
+        const w = br.x - tl.x;
+        const h = br.y - tl.y;
+
+        c.fillStyle = 'rgba(232,163,61,0.08)';
+        c.strokeStyle = color;
+        c.lineWidth = 2 * dpr;
+        c.setLineDash([8 * dpr, 5 * dpr]);
+        c.fillRect(tl.x, tl.y, w, h);
+        c.strokeRect(tl.x, tl.y, w, h);
+        c.setLineDash([]);
+
+        // Диагонали, чтобы не путать с камерой
+        c.strokeStyle = 'rgba(232,163,61,0.35)';
+        c.lineWidth = 1 * dpr;
+        c.beginPath();
+        c.moveTo(tl.x, tl.y);
+        c.lineTo(br.x, br.y);
+        c.moveTo(br.x, tl.y);
+        c.lineTo(tl.x, br.y);
+        c.stroke();
+
+        const m = confState.machine;
+        const dims = m.length > 0 && m.width > 0
+            ? ` ${m.length}×${m.width} м`
+            : '';
+        c.fillStyle = color;
+        c.font = `bold ${11 * dpr}px monospace`;
+        c.textAlign = 'left';
+        c.textBaseline = 'top';
+        c.fillText(`Габарит${dims}`, tl.x + 4 * dpr, tl.y + 4 * dpr);
+    });
 }
 
 /** Рамка области, которую пользователь сейчас растягивает инструментом. */
@@ -318,6 +358,7 @@ function drawSelection(c: CanvasRenderingContext2D): void {
     if (sel.type === 'camera') item = confState.cameras.find(i => i.id === sel.id);
     if (sel.type === 'zone') item = confState.zones.find(i => i.id === sel.id);
     if (sel.type === 'image') item = confState.images.find(i => i.id === sel.id);
+    if (sel.type === 'gabarit') item = confState.gabarits.find(i => i.id === sel.id);
     if (!item) return;
 
     const tl = worldToCanvas(item.x, item.y);

@@ -798,6 +798,7 @@ namespace calibration {
         cv::Size canvas_size;
         boost::json::array overlay_images;
         std::unordered_map<std::string, FProjectionCamera> cams_copy;
+        std::string preset_key;
         {
             std::lock_guard<std::mutex> preset_lk(m_active_preset_mutex);
             if (!m_active_preset) {
@@ -806,12 +807,36 @@ namespace calibration {
             }
             canvas_size = m_active_preset->canvas_size;
             cams_copy = m_active_preset->cameras;
+            preset_key = m_active_preset->key;
             try {
                 overlay_images = m_projection_config.serialize_images(m_active_preset->images);
             }
             catch (...) {
                 m_logger.warn("save_stitching_export(): cannot serialize images from active preset!");
             }
+        }
+
+        // Габарит и метры мира из пресета: печка и схема линкера читают их
+        // из записи экспорта, модель пресета этот блок не разбирает
+        boost::json::value machine_block;
+        bool has_machine = false;
+        try {
+            std::ifstream pf(constants::PROJECTION_CONFIGURES_PATH);
+            if (pf) {
+                std::stringstream pss; pss << pf.rdbuf();
+                auto pv = boost::json::parse(pss.str());
+                if (pv.is_object()) {
+                    if (auto* p = pv.as_object().if_contains(preset_key); p && p->is_object()) {
+                        if (auto* m = p->as_object().if_contains("machine"); m && m->is_object()) {
+                            machine_block = *m;
+                            has_machine = true;
+                        }
+                    }
+                }
+            }
+        }
+        catch (...) {
+            m_logger.warn("save_stitching_export(): cannot read machine block from presets");
         }
         if (canvas_size.width <= 0 || canvas_size.height <= 0) {
             error = "save_stitching_export(): invalid canvas size";
@@ -973,6 +998,7 @@ namespace calibration {
         record["height"] = canvas_size.height;
         record["cameras"] = std::move(cameras_json);
         record["images"] = overlay_images;
+        if (has_machine) record["machine"] = machine_block;
 
         const auto json_path = export_root / constants::LINKER_CONFIGURATION_INDEX;
 

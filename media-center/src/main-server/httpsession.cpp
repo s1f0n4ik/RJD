@@ -20,8 +20,11 @@ void UHttpSession::run() {
 }
 
 void UHttpSession::do_read() {
-    m_request = {};
-    http::async_read(m_stream, m_buffer, m_request,
+    // Свой парсер вместо чтения сразу в request: у дефолтного лимит тела
+    // 8 МБ, и загрузка .glb моделей рвалась молча ещё до роутера
+    m_parser.emplace();
+    m_parser->body_limit(128 * 1024 * 1024);
+    http::async_read(m_stream, m_buffer, *m_parser,
         asio::bind_executor(
             m_strand,
             beast::bind_front_handler(&UHttpSession::on_read, shared_from_this())
@@ -31,7 +34,12 @@ void UHttpSession::do_read() {
 
 void UHttpSession::on_read(beast::error_code ec, std::size_t) {
     if (ec == http::error::end_of_stream) return do_close();
-    if (ec) return;
+    if (ec) {
+        // Обрыв чтения виден хотя бы в консоли, а не пропадает молча
+        std::cerr << "[UHttpSession] read error: " << ec.message() << "\n";
+        return;
+    }
+    m_request = m_parser->release();
 
     // Временно для отладки:
     //std::cerr << "[DEBUG] method=" << m_request.method_string() << " target=" << m_request.target() << "\n";

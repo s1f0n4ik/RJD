@@ -164,6 +164,14 @@ namespace birdview {
 			return false;
 		}
 
+		// Мат из конфигуратора, необязательный
+		if (auto* v = m.if_contains("mat_m"); v && v->is_number()) {
+			out.mat_m = static_cast<float>(v->to_number<double>());
+		}
+		if (auto* v = m.if_contains("mat_px"); v && v->is_number()) {
+			out.mat_px = static_cast<float>(v->to_number<double>());
+		}
+
 		// Необязательные пропорции чаши, без блока остаются значения по умолчанию
 		if (auto* b = surround_cfg.if_contains("bowl"); b && b->is_object()) {
 			const auto& obj = b->as_object();
@@ -174,10 +182,18 @@ namespace birdview {
 				}
 			};
 			pick("floor", out.bowl_floor);
-			pick("outer", out.bowl_outer);
 			pick("wall", out.bowl_wall);
 			pick("plate", out.bowl_plate);
 			pick("blend", out.bowl_blend);
+			// Ноль допустим: вертикальная стенка и прямые углы
+			auto pick_zero = [&](const char* key, float& dst) {
+				if (auto* v = obj.if_contains(key); v && v->is_number()) {
+					const float f = static_cast<float>(v->to_number<double>());
+					if (f >= 0) dst = f;
+				}
+			};
+			pick_zero("outer", out.bowl_outer);
+			pick_zero("corner", out.bowl_corner);
 		}
 		return true;
 	}
@@ -236,8 +252,11 @@ namespace birdview {
 			calib_keys = v->as_object();
 		}
 
-		// Канвас в метры: масштаб по длине машины, начало в её центре
-		const float scale = out.machine.length / out.machine.canvas_rect.height;
+		// Канвас в метры: мат мерян рулеткой и точнее ректа на глаз;
+		// без мата масштаб по длине машины, начало всегда в её центре
+		const float scale = (out.machine.mat_m > 0 && out.machine.mat_px > 0)
+			? out.machine.mat_m / out.machine.mat_px
+			: out.machine.length / out.machine.canvas_rect.height;
 		const float cx = out.machine.canvas_rect.x + out.machine.canvas_rect.width * 0.5f;
 		const float cy = out.machine.canvas_rect.y + out.machine.canvas_rect.height * 0.5f;
 
@@ -469,15 +488,6 @@ namespace birdview {
 			const float W = static_cast<float>(pose.image_size.width);
 			const float H = static_cast<float>(pose.image_size.height);
 
-			/*
-				UV нужен каждой вершине, даже вне кадра: сосед по треугольнику
-				с честным UV интерполируется к нему, и мусорное значение
-				растягивало бы цвет вдоль всего треугольника. Внутри угла
-				объектива точная fisheye-проекция, дальше равноугольная
-				r = f*theta - она монотонна до 180 градусов и не заворачивает,
-				поэтому интерполяция выходит за кадр в верном направлении,
-				а фрагментный вес гаснет до мусора.
-			*/
 			// Вес вершины по Вороному: расстояние до центроида этой камеры
 			// против ближайшего из остальных, переход шириной blend у границы
 			auto sector_weight = [&](const glm::vec3& p) {
