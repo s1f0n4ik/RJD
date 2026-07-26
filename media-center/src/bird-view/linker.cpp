@@ -1,12 +1,10 @@
 #include "bird-view/linker.h"
-#include "bird-view/renderer.h"
-#include "bird-view/surround-renderer.h"
-#include "bird-view/surround-bake.h"
+#include "bird-view/output-mode.h"
+#include "bird-view/top-output.h"
+#include "bird-view/surround-output.h"
 #include "bird-view/surround-camera.h"
-#include "bird-view/surround-model.h"
 #include "bird-view/egl-context.h"
 
-#include "utility/fd-monitor.h"
 #include "calibration/constants.h"
 
 #include <boost/json.hpp>
@@ -19,19 +17,6 @@ namespace calib_consts = varan::calibration::constants;
 namespace varan {
 namespace birdview {
 
-	namespace {
-		// Кратность 16 обязательна: RGA валит плату на невыровненных сторонах
-		int clamp_align16(double v, int lo, int hi) {
-			int i = std::clamp(static_cast<int>(v), lo, hi);
-			i = (i + 8) / 16 * 16;
-			return std::clamp(i, lo, hi);
-		}
-
-		constexpr int SURROUND_RES_MIN = 256;
-		constexpr int SURROUND_RES_MAX_W = 3840;
-		constexpr int SURROUND_RES_MAX_H = 2160;
-	}
-
 	ULinker::ULinker(
 		const nvr::FWebSocketOptions& websocket,
 		UEGLContextManager* manager,
@@ -39,15 +24,17 @@ namespace birdview {
 		uint32_t fps,
 		ULogger::ELoggerLevel level
 	)
-		: m_logger("Bird ULinker", level)
-		, m_websocket(websocket)
-		, m_storage(storage)
+		: m_storage(storage)
 		, m_context_manager(manager)
-		, m_exports_root(calib_consts::LINKER_CONFIGURES_ROOT)
-		, m_exports_index_json(calib_consts::LINKER_CONFIGURATION_INDEX)
-		, m_state_root(calib_consts::LINKER_STATE_ROOT)
-		, m_state_index(calib_consts::LINKER_STATE_INDEX)
+		, m_logger("Bird ULinker", level)
+		, m_store(
+			calib_consts::LINKER_CONFIGURES_ROOT,
+			calib_consts::LINKER_CONFIGURATION_INDEX,
+			calib_consts::LINKER_STATE_ROOT,
+			calib_consts::LINKER_STATE_INDEX,
+			&m_logger)
 		, m_fps(fps)
+		, m_websocket(websocket)
 	{
 		reload_from_state();
 	}
@@ -56,103 +43,25 @@ namespace birdview {
 		stop();
 	}
 
-	std::filesystem::path ULinker::state_path() const {
-		return m_state_root / m_state_index;
-	}
-
-	/*
-		Состояние — словарь по export_id:
-
-		{
-			"active": "<export_id>",
-			"configs": {
-				"<export_id>": {
-					"cameras": { "<key>": "<camera_id>" | null },
-					"fps": 15,
-					"stream_id": "...",
-					"stream_name": "..."
-				}
-			}
-		}
-
-		Старый формат из одной записи { export_id, cameras } читается и
-		приводится к этому виду: иначе обновление потеряло бы уже настроенные
-		привязки, а их набивают руками по шесть камер.
-	*/
-	boost::json::object ULinker::read_state_root() const {
-		boost::json::object empty;
-		empty["active"] = "";
-		empty["configs"] = boost::json::object();
-
-		const auto path = state_path();
-		if (!std::filesystem::exists(path)) return empty;
-
-		try {
-			std::ifstream f(path);
-			std::stringstream ss; ss << f.rdbuf();
-			auto v = boost::json::parse(ss.str());
-			if (!v.is_object()) return empty;
-
-			auto root = v.as_object();
-
-			// Уже новый формат
-			if (root.contains("configs") && root.at("configs").is_object()) {
-				if (!root.contains("active")) root["active"] = "";
-				return root;
-			}
-
-			// Старый формат: одна активная запись
-			std::string old_id;
-			if (auto* eid = root.if_contains("export_id"); eid && eid->is_string()) {
-				old_id = eid->as_string().c_str();
-			}
-			if (old_id.empty()) return empty;
-
-			boost::json::object entry;
-			if (auto* cams = root.if_contains("cameras"); cams && cams->is_object()) {
-				entry["cameras"] = *cams;
-			}
-			else {
-				entry["cameras"] = boost::json::object();
-			}
-
-			boost::json::object configs;
-			configs[old_id] = std::move(entry);
-
-			boost::json::object migrated;
-			migrated["active"] = old_id;
-			migrated["configs"] = std::move(configs);
-			return migrated;
-		}
-		catch (const std::exception& e) {
-			m_logger.error("read_state_root(): " + std::string(e.what()));
-			return empty;
-		}
-	}
-
 	bool ULinker::reload_from_state() {
-		auto root = read_state_root();
+		auto root = m_store.read_state();
 
-		std::string export_id_from_state;
-		if (auto* a = root.if_contains("active"); a && a->is_string()) {
-			export_id_from_state = a->as_string().c_str();
-		}
+		const std::string export_id_from_state = js::str(root, "active");
 		if (export_id_from_state.empty()) {
 			m_logger.warn("reload_from_state(): no active configuration");
 			return false;
 		}
 
-		const auto& configs = root.at("configs").as_object();
-		auto it = configs.find(export_id_from_state);
-		if (it == configs.end() || !it->value().is_object()) {
+		const auto* configs = js::obj(root, "configs");
+		const auto* entry = configs ? js::obj(*configs, export_id_from_state.c_str()) : nullptr;
+		if (!entry) {
 			m_logger.warn("reload_from_state(): no entry for <" + export_id_from_state + ">");
 			return false;
 		}
-		const auto& entry = it->value().as_object();
 
 		NCamerasPurpose desired;
-		if (auto* cams = entry.if_contains("cameras"); cams && cams->is_object()) {
-			for (const auto& [k, val] : cams->as_object()) {
+		if (const auto* cams = js::obj(*entry, "cameras")) {
+			for (const auto& [k, val] : *cams) {
 				if (val.is_string()) {
 					desired[std::string(k)] = std::string(val.as_string().c_str());
 				}
@@ -163,24 +72,20 @@ namespace birdview {
 		}
 
 		FStreamParams params;
-		if (auto* v = entry.if_contains("fps"); v && v->is_int64()) {
-			params.fps = static_cast<uint32_t>(v->as_int64());
+		params.fps = static_cast<uint32_t>(js::num(*entry, "fps", 0));
+		params.stream_id = js::str(*entry, "stream_id");
+		params.stream_name = js::str(*entry, "stream_name");
+
+		const int degrees = static_cast<int>(js::num(*entry, "rotation", -1));
+		if (is_valid_rotation(degrees)) params.rotation = degrees;
+		else if (degrees != -1) {
+			m_logger.warn("reload_from_state(): bad rotation " + std::to_string(degrees));
 		}
-		if (auto* v = entry.if_contains("stream_id"); v && v->is_string()) {
-			params.stream_id = v->as_string().c_str();
-		}
-		if (auto* v = entry.if_contains("stream_name"); v && v->is_string()) {
-			params.stream_name = v->as_string().c_str();
-		}
-		if (auto* v = entry.if_contains("rotation"); v && v->is_int64()) {
-			const int degrees = static_cast<int>(v->as_int64());
-			if (is_valid_rotation(degrees)) params.rotation = degrees;
-			else m_logger.warn("reload_from_state(): bad rotation " + std::to_string(degrees));
-		}
-		if (auto* v = entry.if_contains("view_mode"); v && v->is_string()) {
-			const std::string mode = v->as_string().c_str();
-			if (is_valid_view_mode(mode)) params.view_mode = mode;
-			else m_logger.warn("reload_from_state(): bad view_mode " + mode);
+
+		const std::string mode = js::str(*entry, "view_mode");
+		if (is_valid_view_mode(mode)) params.view_mode = mode;
+		else if (!mode.empty()) {
+			m_logger.warn("reload_from_state(): bad view_mode " + mode);
 		}
 
 		{
@@ -217,24 +122,13 @@ namespace birdview {
 			Ничего не нашлось — 0: раньше здесь угол выводился из формы канваса,
 			и это правило годами прятало падение на невыровненной ширине.
 		*/
-		try {
-			auto root = read_state_root();
-			auto* configs = root.if_contains("configs");
-			if (!configs || !configs->is_object()) return 0;
+		auto root = m_store.read_state();
+		const auto* configs = js::obj(root, "configs");
+		const auto* entry = configs ? js::obj(*configs, target.c_str()) : nullptr;
+		if (!entry) return 0;
 
-			auto* entry = configs->as_object().if_contains(target);
-			if (!entry || !entry->is_object()) return 0;
-
-			auto* v = entry->as_object().if_contains("rotation");
-			if (!v || !v->is_int64()) return 0;
-
-			const int degrees = static_cast<int>(v->as_int64());
-			return is_valid_rotation(degrees) ? degrees : 0;
-		}
-		catch (const std::exception& e) {
-			m_logger.warn("resolve_rotation(): " + std::string(e.what()));
-			return 0;
-		}
+		const int degrees = static_cast<int>(js::num(*entry, "rotation", 0));
+		return is_valid_rotation(degrees) ? degrees : 0;
 	}
 
 	std::string ULinker::resolve_view_mode(const std::string& export_id) const {
@@ -250,24 +144,13 @@ namespace birdview {
 		if (target.empty()) return "top";
 
 		// Про неактивные конфигурации спрашивает статус, им читается состояние
-		try {
-			auto root = read_state_root();
-			auto* configs = root.if_contains("configs");
-			if (!configs || !configs->is_object()) return "top";
+		auto root = m_store.read_state();
+		const auto* configs = js::obj(root, "configs");
+		const auto* entry = configs ? js::obj(*configs, target.c_str()) : nullptr;
+		if (!entry) return "top";
 
-			auto* entry = configs->as_object().if_contains(target);
-			if (!entry || !entry->is_object()) return "top";
-
-			auto* v = entry->as_object().if_contains("view_mode");
-			if (!v || !v->is_string()) return "top";
-
-			const std::string mode = v->as_string().c_str();
-			return is_valid_view_mode(mode) ? mode : "top";
-		}
-		catch (const std::exception& e) {
-			m_logger.warn("resolve_view_mode(): " + std::string(e.what()));
-			return "top";
-		}
+		const std::string mode = js::str(*entry, "view_mode");
+		return is_valid_view_mode(mode) ? mode : "top";
 	}
 
 	std::pair<int, int> ULinker::get_output_size() const {
@@ -281,37 +164,25 @@ namespace birdview {
 	}
 
 	bool ULinker::apply_export(const std::string& export_id, NCamerasPurpose desired_bindings) {
-		// Достаём камеры из JSON-индекса экспорта — это правда о ключах.
-		auto linker_configures = m_exports_root / m_exports_index_json;
-		std::ifstream f(linker_configures);
-		if (!f.is_open()) {
-			m_logger.error("apply_export(): cannot open " + linker_configures.string());
-			return false;
-		}
-		std::stringstream ss; ss << f.rdbuf();
-		boost::json::value v;
-		try { 
-			v = boost::json::parse(ss.str()); 
-		}
-		catch (...) {
-			m_logger.error("apply_export(): json parse error");
-			return false;
-		}
-		if (!v.is_object() || !v.as_object().contains(export_id)) {
+		// Ключи камер берутся из записи экспорта — это правда о конфигурации
+		auto entry = m_store.read_export_entry(export_id);
+		if (!entry) {
 			m_logger.error("apply_export(): export <" + export_id + "> not found in index");
 			return false;
 		}
-		const auto& obj = v.as_object().at(export_id).as_object();
-		const auto& cams = obj.at("cameras").as_object();
+		const auto* cams = js::obj(*entry, "cameras");
+		if (!cams) {
+			m_logger.error("apply_export(): export <" + export_id + "> has no cameras");
+			return false;
+		}
 
-		// Собираем итоговый purpose: ключи берутся из JSON-индекса,
-		// значения — из save-файла (если там есть, иначе nullopt).
+		// Собираем итоговый purpose: ключи из записи, значения из состояния
 		std::lock_guard<std::mutex> lk(m_mutex);
 		m_export_id = export_id;
 		m_camera_keys.clear();
 		m_cameras_purpose.clear();
 
-		for (const auto& [k, _] : cams) {
+		for (const auto& [k, _] : *cams) {
 			std::string key(k);
 			auto it = desired_bindings.find(key);
 			m_cameras_purpose[key] = (it != desired_bindings.end()) ? it->second : std::nullopt;
@@ -329,71 +200,46 @@ namespace birdview {
 
 	std::vector<ULinker::FExportInfo> ULinker::list_exports() {
 		std::vector<FExportInfo> result;
-		try {
-			auto list_confihuration_file_path = calib_consts::LINKER_CONFIGURES_ROOT / calib_consts::LINKER_CONFIGURATION_INDEX; 
-			if (!std::filesystem::exists(list_confihuration_file_path)) return result;
 
-			std::ifstream f(list_confihuration_file_path);
-			std::stringstream ss; ss << f.rdbuf();
-			auto v = boost::json::parse(ss.str());
-			if (!v.is_object()) return result;
+		auto rect_ok = [](const boost::json::object& o) {
+			const auto* r = js::arr(o, "rect");
+			return r && r->size() == 4;
+		};
 
-			for (const auto& [id, val] : v.as_object()) {
-				if (!val.is_object()) continue;
-				const auto& obj = val.as_object();
+		for (const auto& [id, val] : m_store.read_exports_root()) {
+			if (!val.is_object()) continue;
+			const auto& obj = val.as_object();
 
-				FExportInfo info;
-				info.id = id;
-				if (auto* name = obj.if_contains("name"); name && name->is_string()) {
-					info.name = name->as_string().c_str();
-				}
-				else {
-					info.name = info.id;
-				}
-				if (auto* cams = obj.if_contains("cameras"); cams && cams->is_object()) {
-					for (const auto& [k, _] : cams->as_object()) {
-						info.cameras.emplace_back(k);
-					}
-				}
-
-				// Рект машины по цепочке: габарит, картинка, ручной surround
-				auto rect_ok = [](const boost::json::object& o) {
-					auto* r = o.if_contains("rect");
-					return r && r->is_array() && r->as_array().size() == 4;
-				};
-				bool has_rect = false;
-				if (auto* m = obj.if_contains("machine"); m && m->is_object()) {
-					has_rect = rect_ok(m->as_object());
-				}
-				if (!has_rect) {
-					if (auto* imgs = obj.if_contains("images"); imgs && imgs->is_array()
-						&& !imgs->as_array().empty() && imgs->as_array().front().is_object()) {
-						has_rect = rect_ok(imgs->as_array().front().as_object());
-					}
-				}
-				if (!has_rect) {
-					if (auto* s = obj.if_contains("surround"); s && s->is_object()) {
-						if (auto* m = s->as_object().if_contains("machine"); m && m->is_object()) {
-							has_rect = rect_ok(m->as_object());
-						}
-					}
-				}
-				info.valid = has_rect;
-
-				result.push_back(std::move(info));
+			FExportInfo info;
+			info.id = id;
+			info.name = js::str(obj, "name", info.id);
+			if (const auto* cams = js::obj(obj, "cameras")) {
+				for (const auto& [k, _] : *cams) info.cameras.emplace_back(k);
 			}
-		}
-		catch (const std::exception& e) {
-			 m_logger.error("list_exports(): " + std::string(e.what()));
+
+			// Рект машины по цепочке: габарит, картинка, ручной surround
+			bool has_rect = false;
+			if (const auto* m = js::obj(obj, "machine")) has_rect = rect_ok(*m);
+			if (!has_rect) {
+				if (const auto* imgs = js::arr(obj, "images"); imgs && !imgs->empty()
+					&& imgs->front().is_object()) {
+					has_rect = rect_ok(imgs->front().as_object());
+				}
+			}
+			if (!has_rect) {
+				if (const auto* s = js::obj(obj, "surround")) {
+					if (const auto* m = js::obj(*s, "machine")) has_rect = rect_ok(*m);
+				}
+			}
+			info.valid = has_rect;
+
+			result.push_back(std::move(info));
 		}
 		return result;
 	}
 
 	boost::json::object ULinker::get_state_raw() {
-		// Читаем тем же путём, что и reload_from_state(): раньше здесь стояло
-		// голое m_state_index, то есть путь относительно рабочего каталога,
-		// и ручка состояния почти всегда отдавала пустоту
-		return read_state_root();
+		return m_store.read_state();
 	}
 
 	bool ULinker::write_state(
@@ -405,45 +251,24 @@ namespace birdview {
 			m_logger.error("write_state(): empty export_id");
 			return false;
 		}
-		try {
-			auto root = read_state_root();
-			auto configs = root.at("configs").as_object();
 
-			/*
-				Запись правится, а не собирается заново.
-
-				Собранная с нуля теряет всё, чего не передали в этом вызове.
-				Так пропадал поворот: его писала своя ручка, а следующее
-				сохранение привязок затирало запись целиком.
-			*/
-			boost::json::object entry;
-			if (auto* prev = configs.if_contains(export_id); prev && prev->is_object()) {
-				entry = prev->as_object();
-			}
-
-			boost::json::object cams;
-			for (const auto& [k, v] : bindings) {
-				if (v.empty()) cams[k] = nullptr;
-				else           cams[k] = v;
-			}
-			entry["cameras"] = std::move(cams);
-			if (params.fps > 0) entry["fps"] = static_cast<int64_t>(params.fps);
-			if (!params.stream_id.empty()) entry["stream_id"] = params.stream_id;
-			if (!params.stream_name.empty()) entry["stream_name"] = params.stream_name;
-			if (is_valid_rotation(params.rotation)) entry["rotation"] = params.rotation;
-			if (is_valid_view_mode(params.view_mode)) entry["view_mode"] = params.view_mode;
-
-			configs[export_id] = std::move(entry);
-
-			root["configs"] = std::move(configs);
-			root["active"] = export_id;
-
-			std::filesystem::create_directories(m_state_root);
-			std::ofstream f(state_path());
-			f << boost::json::serialize(root);
-		}
-		catch (const std::exception& e) {
-			m_logger.error("write_state(): " + std::string(e.what()));
+		std::string error;
+		const bool ok = m_store.mutate_state_entry(export_id,
+			[&](boost::json::object& entry) {
+				boost::json::object cams;
+				for (const auto& [k, v] : bindings) {
+					if (v.empty()) cams[k] = nullptr;
+					else           cams[k] = v;
+				}
+				entry["cameras"] = std::move(cams);
+				if (params.fps > 0) entry["fps"] = static_cast<int64_t>(params.fps);
+				if (!params.stream_id.empty()) entry["stream_id"] = params.stream_id;
+				if (!params.stream_name.empty()) entry["stream_name"] = params.stream_name;
+				if (is_valid_rotation(params.rotation)) entry["rotation"] = params.rotation;
+				if (is_valid_view_mode(params.view_mode)) entry["view_mode"] = params.view_mode;
+			}, true, error);
+		if (!ok) {
+			m_logger.error("write_state(): " + error);
 			return false;
 		}
 
@@ -463,26 +288,9 @@ namespace birdview {
 			return false;
 		}
 
-		// Пишем в состояние
-		try {
-			auto root = read_state_root();
-			auto configs = root.at("configs").as_object();
-
-			boost::json::object entry;
-			if (auto* prev = configs.if_contains(target); prev && prev->is_object()) {
-				entry = prev->as_object();
-			}
-			entry["rotation"] = degrees;
-			configs[target] = std::move(entry);
-
-			root["configs"] = std::move(configs);
-
-			std::filesystem::create_directories(m_state_root);
-			std::ofstream f(state_path());
-			f << boost::json::serialize(root);
-		}
-		catch (const std::exception& e) {
-			error = e.what();
+		if (!m_store.mutate_state_entry(target,
+			[&](boost::json::object& entry) { entry["rotation"] = degrees; },
+			false, error)) {
 			m_logger.error("set_rotation(): " + error);
 			return false;
 		}
@@ -521,25 +329,9 @@ namespace birdview {
 			return false;
 		}
 
-		try {
-			auto root = read_state_root();
-			auto configs = root.at("configs").as_object();
-
-			boost::json::object entry;
-			if (auto* prev = configs.if_contains(target); prev && prev->is_object()) {
-				entry = prev->as_object();
-			}
-			entry["view_mode"] = mode;
-			configs[target] = std::move(entry);
-
-			root["configs"] = std::move(configs);
-
-			std::filesystem::create_directories(m_state_root);
-			std::ofstream f(state_path());
-			f << boost::json::serialize(root);
-		}
-		catch (const std::exception& e) {
-			error = e.what();
+		if (!m_store.mutate_state_entry(target,
+			[&](boost::json::object& entry) { entry["view_mode"] = mode; },
+			false, error)) {
 			m_logger.error("set_view_mode(): " + error);
 			return false;
 		}
@@ -572,8 +364,7 @@ namespace birdview {
 			return false;
 		}
 
-		bool reset = false;
-		if (auto* v = payload.if_contains("reset"); v && v->is_bool()) reset = v->as_bool();
+		const bool reset = js::flag(payload, "reset", false);
 
 		if (!reset) {
 			auto* pos = payload.if_contains("position");
@@ -584,12 +375,10 @@ namespace birdview {
 		}
 
 		// Оверрайд живёт в surround-блоке индекса экспортов, правится слиянием
-		const bool ok = mutate_surround_block(target,
+		const bool ok = m_store.mutate_surround_block(target,
 			[&](boost::json::object& surround_obj, std::string&) {
 				boost::json::object extr;
-				if (auto* e = surround_obj.if_contains("extrinsics"); e && e->is_object()) {
-					extr = e->as_object();
-				}
+				if (auto* e = js::obj(surround_obj, "extrinsics")) extr = *e;
 
 				if (reset) {
 					extr.erase(place_key);
@@ -621,76 +410,120 @@ namespace birdview {
 		return true;
 	}
 
-	bool ULinker::mutate_surround_block(const std::string& target,
-		const std::function<bool(boost::json::object&, std::string&)>& mutate,
-		std::string& error)
-	{
-		std::lock_guard<std::mutex> lk(m_exports_mutex);
-		try {
-			const auto index_path = m_exports_root / m_exports_index_json;
-			std::ifstream f(index_path);
-			if (!f) {
-				error = "cannot read exports index";
-				return false;
-			}
-			std::stringstream ss; ss << f.rdbuf();
-			auto v = boost::json::parse(ss.str());
-			if (!v.is_object()) {
-				error = "exports index is not an object";
-				return false;
-			}
-			auto root = v.as_object();
+	namespace {
 
-			auto* entry = root.if_contains(target);
-			if (!entry || !entry->is_object()) {
-				error = "export <" + target + "> not found";
-				return false;
+		// Вид проверки одного поля ручки /linker/surround
+		enum class EFieldKind {
+			NumPositive,     // число строго больше нуля
+			NumNonNegative,  // число, ноль допустим
+			NumAny,          // любое число
+			NumAlpha,        // число в [0..1]
+			Flag,            // bool
+			SourceName,      // имя файла модели, пустое снимает модель
+		};
+
+		struct FSurroundField {
+			const char* group;   // nullptr — ключ верхнего уровня
+			const char* key;
+			EFieldKind kind;
+			unsigned dirty;
+		};
+
+		// Правила всех полей в одном месте: тип, диапазон и тяжесть применения
+		const FSurroundField SURROUND_FIELDS[] = {
+			{ "machine", "length", EFieldKind::NumPositive,   SURROUND_DIRTY_BAKE },
+			{ "machine", "width",  EFieldKind::NumPositive,   SURROUND_DIRTY_BAKE },
+			{ "machine", "height", EFieldKind::NumPositive,   SURROUND_DIRTY_BAKE },
+			{ "bowl", "floor",     EFieldKind::NumPositive,   SURROUND_DIRTY_BAKE },
+			{ "bowl", "wall",      EFieldKind::NumPositive,   SURROUND_DIRTY_BAKE },
+			{ "bowl", "plate",     EFieldKind::NumPositive,   SURROUND_DIRTY_BAKE },
+			{ "bowl", "blend",     EFieldKind::NumPositive,   SURROUND_DIRTY_BAKE },
+			// Ноль допустим: вертикальная стенка и прямые углы
+			{ "bowl", "outer",     EFieldKind::NumNonNegative, SURROUND_DIRTY_BAKE },
+			{ "bowl", "corner",    EFieldKind::NumNonNegative, SURROUND_DIRTY_BAKE },
+			{ "orbit", "distance", EFieldKind::NumPositive,   SURROUND_DIRTY_VISUAL },
+			{ "orbit", "height",   EFieldKind::NumPositive,   SURROUND_DIRTY_VISUAL },
+			{ "orbit", "speed",    EFieldKind::NumNonNegative, SURROUND_DIRTY_VISUAL },
+			// Дефолт ручного управления на отображении, применяется и живьём
+			{ "orbit", "interactive", EFieldKind::Flag,       SURROUND_DIRTY_VISUAL },
+			{ "model", "length",   EFieldKind::NumNonNegative, SURROUND_DIRTY_VISUAL },
+			{ "model", "width",    EFieldKind::NumNonNegative, SURROUND_DIRTY_VISUAL },
+			{ "model", "height",   EFieldKind::NumNonNegative, SURROUND_DIRTY_VISUAL },
+			{ "model", "alpha",    EFieldKind::NumAlpha,      SURROUND_DIRTY_VISUAL },
+			{ "model", "rotation", EFieldKind::NumAny,        SURROUND_DIRTY_VISUAL },
+			{ "model", "source",   EFieldKind::SourceName,    SURROUND_DIRTY_VISUAL },
+			{ nullptr, "plate",       EFieldKind::Flag,           SURROUND_DIRTY_VISUAL },
+			{ nullptr, "wireframe",   EFieldKind::Flag,           SURROUND_DIRTY_VISUAL },
+			{ nullptr, "photometric", EFieldKind::Flag,           SURROUND_DIRTY_VISUAL },
+			{ nullptr, "plate_length", EFieldKind::NumNonNegative, SURROUND_DIRTY_VISUAL },
+			{ nullptr, "plate_width",  EFieldKind::NumNonNegative, SURROUND_DIRTY_VISUAL },
+		};
+
+		bool check_surround_field(const FSurroundField& rule,
+			const boost::json::value& v, std::string& error)
+		{
+			const std::string name = rule.key;
+			switch (rule.kind) {
+			case EFieldKind::NumPositive:
+			case EFieldKind::NumNonNegative:
+			case EFieldKind::NumAny:
+			case EFieldKind::NumAlpha: {
+				if (!v.is_number()) {
+					error = name + " must be a number";
+					return false;
+				}
+				const double d = v.to_number<double>();
+				if (rule.kind == EFieldKind::NumPositive && d <= 0.0) {
+					error = name + " out of range";
+					return false;
+				}
+				if ((rule.kind == EFieldKind::NumNonNegative
+					|| rule.kind == EFieldKind::NumAlpha) && d < 0.0) {
+					error = name + " out of range";
+					return false;
+				}
+				if (rule.kind == EFieldKind::NumAlpha && d > 1.0) {
+					error = name + " out of range";
+					return false;
+				}
+				return true;
 			}
-			auto& entry_obj = entry->as_object();
-
-			auto* surround = entry_obj.if_contains("surround");
-			if (!surround || !surround->is_object()) {
-				error = "export <" + target + "> has no surround block";
-				return false;
+			case EFieldKind::Flag:
+				if (!v.is_bool()) {
+					error = name + " must be a bool";
+					return false;
+				}
+				return true;
+			case EFieldKind::SourceName: {
+				if (!v.is_string()) {
+					error = name + " must be a string";
+					return false;
+				}
+				// Имя уходит в путь; пустая строка снимает модель
+				const std::string src = v.as_string().c_str();
+				for (char c : src) {
+					const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+						|| (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.';
+					if (!ok) {
+						error = name + " contains invalid characters";
+						return false;
+					}
+				}
+				if (src.find("..") != std::string::npos) {
+					error = name + " contains invalid characters";
+					return false;
+				}
+				return true;
 			}
-			auto& surround_obj = surround->as_object();
-
-			if (!mutate(surround_obj, error)) return false;
-
-			std::ofstream out(index_path);
-			out << boost::json::serialize(root);
+			}
+			return true;
 		}
-		catch (const std::exception& e) {
-			error = e.what();
-			return false;
-		}
-		return true;
-	}
 
-	std::optional<boost::json::object> ULinker::read_export_entry(const std::string& export_id) const {
-		std::lock_guard<std::mutex> lk(m_exports_mutex);
-		try {
-			std::ifstream f(m_exports_root / m_exports_index_json);
-			if (!f) return std::nullopt;
-			std::stringstream ss; ss << f.rdbuf();
-			auto v = boost::json::parse(ss.str());
-			if (!v.is_object()) return std::nullopt;
-			if (auto* e = v.as_object().if_contains(export_id); e && e->is_object()) {
-				return e->as_object();
-			}
+		bool is_surround_group(const std::string& key) {
+			return key == "machine" || key == "bowl" || key == "orbit" || key == "model";
 		}
-		catch (...) {}
-		return std::nullopt;
-	}
 
-	std::optional<boost::json::object> ULinker::read_surround_cfg(const std::string& export_id) const {
-		if (auto entry = read_export_entry(export_id)) {
-			if (auto* s = entry->if_contains("surround"); s && s->is_object()) {
-				return s->as_object();
-			}
-		}
-		return std::nullopt;
-	}
+	} // namespace
 
 	bool ULinker::set_surround(const std::string& export_id,
 		const boost::json::object& payload, std::string& error)
@@ -701,21 +534,7 @@ namespace birdview {
 			return false;
 		}
 
-		auto check_num = [&](const boost::json::value& v, const char* name,
-			double min_v, bool strict) {
-			if (!v.is_number()) {
-				error = std::string(name) + " must be a number";
-				return false;
-			}
-			const double d = v.to_number<double>();
-			if (strict ? d <= min_v : d < min_v) {
-				error = std::string(name) + " out of range";
-				return false;
-			}
-			return true;
-		};
-
-		// Тяжесть изменения решает, что сделает живой цикл: перепечку или сеттеры
+		// Проверка по таблице; тяжесть изменения решает, что сделает живой цикл
 		unsigned dirty = 0;
 		bool any = false;
 		for (const auto& kv : payload) {
@@ -723,100 +542,47 @@ namespace birdview {
 			if (key == "export_id") continue;
 			any = true;
 
-			if (key == "machine" || key == "bowl") {
-				if (!kv.value().is_object()) { error = key + " must be an object"; return false; }
-				dirty |= SURROUND_DIRTY_BAKE;
-			}
-			else if (key == "orbit" || key == "model") {
-				if (!kv.value().is_object()) { error = key + " must be an object"; return false; }
-				dirty |= SURROUND_DIRTY_VISUAL;
-			}
-			else if (key == "plate" || key == "wireframe" || key == "photometric") {
-				if (!kv.value().is_bool()) { error = key + " must be a bool"; return false; }
-				dirty |= SURROUND_DIRTY_VISUAL;
-			}
-			else if (key == "plate_length" || key == "plate_width") {
-				if (!kv.value().is_number() || kv.value().to_number<double>() < 0) {
-					error = key + " must be a non-negative number";
+			if (key == "resolution") {
+				// Применяется рестартом вывода, dirty-флаги ей не нужны
+				if (!kv.value().is_object()) {
+					error = key + " must be an object";
 					return false;
 				}
-				dirty |= SURROUND_DIRTY_VISUAL;
+				continue;
 			}
-			else if (key == "resolution") {
-				// Применяется рестартом вывода, dirty-флаги ей не нужны
-				if (!kv.value().is_object()) { error = key + " must be an object"; return false; }
+
+			if (is_surround_group(key)) {
+				if (!kv.value().is_object()) {
+					error = key + " must be an object";
+					return false;
+				}
+				dirty |= (key == "machine" || key == "bowl")
+					? SURROUND_DIRTY_BAKE : SURROUND_DIRTY_VISUAL;
+
+				const auto& group = kv.value().as_object();
+				for (const auto& rule : SURROUND_FIELDS) {
+					if (!rule.group || key != rule.group) continue;
+					if (auto* v = group.if_contains(rule.key)) {
+						if (!check_surround_field(rule, *v, error)) return false;
+					}
+				}
+				continue;
 			}
-			else {
+
+			const FSurroundField* rule = nullptr;
+			for (const auto& r : SURROUND_FIELDS) {
+				if (!r.group && key == r.key) { rule = &r; break; }
+			}
+			if (!rule) {
 				error = "unknown key <" + key + ">";
 				return false;
 			}
+			if (!check_surround_field(*rule, kv.value(), error)) return false;
+			dirty |= rule->dirty;
 		}
 		if (!any) {
 			error = "empty payload";
 			return false;
-		}
-
-		if (auto* m = payload.if_contains("machine"); m && m->is_object()) {
-			for (const char* k : { "length", "width", "height" }) {
-				if (auto* v = m->as_object().if_contains(k)) {
-					if (!check_num(*v, k, 0.0, true)) return false;
-				}
-			}
-		}
-		if (auto* b = payload.if_contains("bowl"); b && b->is_object()) {
-			for (const char* k : { "floor", "wall", "plate", "blend" }) {
-				if (auto* v = b->as_object().if_contains(k)) {
-					if (!check_num(*v, k, 0.0, true)) return false;
-				}
-			}
-			// Ноль допустим: вертикальная стенка и прямые углы
-			for (const char* k : { "outer", "corner" }) {
-				if (auto* v = b->as_object().if_contains(k)) {
-					if (!check_num(*v, k, 0.0, false)) return false;
-				}
-			}
-		}
-		if (auto* o = payload.if_contains("orbit"); o && o->is_object()) {
-			for (const char* k : { "distance", "height" }) {
-				if (auto* v = o->as_object().if_contains(k)) {
-					if (!check_num(*v, k, 0.0, true)) return false;
-				}
-			}
-			if (auto* v = o->as_object().if_contains("speed")) {
-				if (!check_num(*v, "speed", 0.0, false)) return false;
-			}
-			// Дефолт ручного управления на отображении, применяется при старте вывода
-			if (auto* v = o->as_object().if_contains("interactive")) {
-				if (!v->is_bool()) { error = "interactive must be a bool"; return false; }
-			}
-		}
-		if (auto* mo = payload.if_contains("model"); mo && mo->is_object()) {
-			for (const char* k : { "length", "width", "height" }) {
-				if (auto* v = mo->as_object().if_contains(k)) {
-					if (!check_num(*v, k, 0.0, false)) return false;
-				}
-			}
-			if (auto* v = mo->as_object().if_contains("alpha")) {
-				if (!check_num(*v, "alpha", 0.0, false)) return false;
-				if (v->to_number<double>() > 1.0) { error = "alpha out of range"; return false; }
-			}
-			if (auto* v = mo->as_object().if_contains("rotation")) {
-				if (!v->is_number()) { error = "rotation must be a number"; return false; }
-			}
-			// Имя файла из библиотеки моделей; пустая строка снимает модель
-			if (auto* v = mo->as_object().if_contains("source")) {
-				if (!v->is_string()) { error = "source must be a string"; return false; }
-				const std::string src = v->as_string().c_str();
-				for (char c : src) {
-					const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
-						|| (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.';
-					if (!ok) { error = "source contains invalid characters"; return false; }
-				}
-				if (src.find("..") != std::string::npos) {
-					error = "source contains invalid characters";
-					return false;
-				}
-			}
 		}
 
 		// Разрешение сервер страхует сам: кламп и кратность 16 до записи
@@ -824,40 +590,33 @@ namespace birdview {
 		bool resolution_changed = false;
 		if (auto* r = body.if_contains("resolution"); r && r->is_object()) {
 			auto& ro = r->as_object();
-			auto norm = [&](const char* k, int def, int hi, int& out_v) {
-				double v = def;
-				if (auto* x = ro.if_contains(k)) {
-					if (!x->is_number()) {
-						error = std::string(k) + " must be a number";
-						return false;
-					}
-					v = x->to_number<double>();
+			for (const char* k : { "width", "height" }) {
+				if (auto* v = ro.if_contains(k); v && !v->is_number()) {
+					error = std::string(k) + " must be a number";
+					return false;
 				}
-				out_v = clamp_align16(v, SURROUND_RES_MIN, hi);
-				return true;
-			};
-			int res_w = 0, res_h = 0;
-			if (!norm("width", constants::SURROUND_WIDTH, SURROUND_RES_MAX_W, res_w)) return false;
-			if (!norm("height", constants::SURROUND_HEIGHT, SURROUND_RES_MAX_H, res_h)) return false;
+			}
+			const int res_w = clamp_frame_side(
+				js::num(ro, "width", constants::SURROUND_WIDTH),
+				SURROUND_RES_MIN, SURROUND_RES_MAX_W);
+			const int res_h = clamp_frame_side(
+				js::num(ro, "height", constants::SURROUND_HEIGHT),
+				SURROUND_RES_MIN, SURROUND_RES_MAX_H);
 			ro["width"] = res_w;
 			ro["height"] = res_h;
 
 			int old_w = constants::SURROUND_WIDTH;
 			int old_h = constants::SURROUND_HEIGHT;
-			if (auto cfg = read_surround_cfg(target)) {
-				if (auto* rr = cfg->if_contains("resolution"); rr && rr->is_object()) {
-					if (auto* v = rr->as_object().if_contains("width"); v && v->is_number()) {
-						old_w = static_cast<int>(v->to_number<double>());
-					}
-					if (auto* v = rr->as_object().if_contains("height"); v && v->is_number()) {
-						old_h = static_cast<int>(v->to_number<double>());
-					}
+			if (auto cfg = m_store.read_surround_cfg(target)) {
+				if (auto* rr = js::obj(*cfg, "resolution")) {
+					old_w = static_cast<int>(js::num(*rr, "width", old_w));
+					old_h = static_cast<int>(js::num(*rr, "height", old_h));
 				}
 			}
 			resolution_changed = (res_w != old_w || res_h != old_h);
 		}
 
-		const bool ok = mutate_surround_block(target,
+		const bool ok = m_store.mutate_surround_block(target,
 			[&](boost::json::object& surround_obj, std::string&) {
 				for (const auto& kv : body) {
 					const std::string key(kv.key());
@@ -865,9 +624,7 @@ namespace birdview {
 					if (kv.value().is_object()) {
 						// Группы мёржатся пообъектно, соседние поля не затираются
 						boost::json::object group;
-						if (auto* g = surround_obj.if_contains(key); g && g->is_object()) {
-							group = g->as_object();
-						}
+						if (auto* g = js::obj(surround_obj, key.c_str())) group = *g;
 						for (const auto& sub : kv.value().as_object()) {
 							group[sub.key()] = sub.value();
 						}
@@ -890,8 +647,8 @@ namespace birdview {
 			&& resolve_view_mode() == "surround") {
 			m_surround_dirty.fetch_or(dirty);
 			// Тумблер ручного вращения действует сразу, кнопка плеера может перебить
-			if (auto* o = payload.if_contains("orbit"); o && o->is_object()) {
-				if (auto* v = o->as_object().if_contains("interactive"); v && v->is_bool()) {
+			if (auto* o = js::obj(payload, "orbit")) {
+				if (auto* v = o->if_contains("interactive"); v && v->is_bool()) {
 					m_surround_mode_request.store(v->as_bool() ? 1 : 0);
 				}
 			}
@@ -916,7 +673,7 @@ namespace birdview {
 			return false;
 		}
 
-		auto cfg_opt = read_surround_cfg(target);
+		auto cfg_opt = m_store.read_surround_cfg(target);
 		if (!cfg_opt) {
 			error = "export <" + target + "> has no surround block";
 			return false;
@@ -935,17 +692,15 @@ namespace birdview {
 			{"height", constants::SURROUND_HEIGHT} };
 
 		auto overlay = [&](boost::json::object& base, const char* key) {
-			if (auto* g = cfg.if_contains(key); g && g->is_object()) {
-				for (const auto& kv : g->as_object()) base[kv.key()] = kv.value();
+			if (const auto* g = js::obj(cfg, key)) {
+				for (const auto& kv : *g) base[kv.key()] = kv.value();
 			}
 		};
 		// Пресет конфигуратора предзаполняет метры, правка пользователя выше
-		if (auto entry = read_export_entry(target)) {
-			if (auto* m = entry->if_contains("machine"); m && m->is_object()) {
+		if (auto entry = m_store.read_export_entry(target)) {
+			if (const auto* m = js::obj(*entry, "machine")) {
 				for (const char* k : { "length", "width", "height" }) {
-					if (auto* v = m->as_object().if_contains(k); v && v->is_number()) {
-						machine[k] = *v;
-					}
+					if (auto* v = m->if_contains(k); v && v->is_number()) machine[k] = *v;
 				}
 			}
 		}
@@ -955,11 +710,6 @@ namespace birdview {
 		overlay(model, "model");
 		overlay(resolution, "resolution");
 
-		auto flag = [&](const char* key, bool def) {
-			if (auto* v = cfg.if_contains(key); v && v->is_bool()) return v->as_bool();
-			return def;
-		};
-
 		out["export_id"] = target;
 		if (auto* p = cfg.if_contains("preset")) out["preset"] = *p;
 		out["machine"] = std::move(machine);
@@ -967,16 +717,11 @@ namespace birdview {
 		out["orbit"] = std::move(orbit);
 		out["model"] = std::move(model);
 		out["resolution"] = std::move(resolution);
-		out["plate"] = flag("plate", true);
-		out["wireframe"] = flag("wireframe", false);
-		out["photometric"] = flag("photometric", true);
-
-		auto numf = [&](const char* key, double def) {
-			if (auto* v = cfg.if_contains(key); v && v->is_number()) return v->to_number<double>();
-			return def;
-		};
-		out["plate_length"] = numf("plate_length", 0.0);
-		out["plate_width"] = numf("plate_width", 0.0);
+		out["plate"] = js::flag(cfg, "plate", true);
+		out["wireframe"] = js::flag(cfg, "wireframe", false);
+		out["photometric"] = js::flag(cfg, "photometric", true);
+		out["plate_length"] = js::num(cfg, "plate_length", 0.0);
+		out["plate_width"] = js::num(cfg, "plate_width", 0.0);
 
 		// Позы есть только у живой печки активного экспорта
 		boost::json::array cams;
@@ -1027,54 +772,27 @@ namespace birdview {
 			}
 		}
 
+		// 1) Запись в индексе экспортов
+		if (!m_store.erase_export_entry(export_id, error)) {
+			m_logger.error("delete_export(): " + error);
+			return false;
+		}
+
+		// 2) Каталог с картами remap и weight
 		try {
-			// 1) Запись в индексе экспортов
-			const auto index_path = m_exports_root / m_exports_index_json;
-			if (std::filesystem::exists(index_path)) {
-				std::ifstream f(index_path);
-				std::stringstream ss; ss << f.rdbuf();
-				f.close();
-
-				auto v = boost::json::parse(ss.str());
-				if (v.is_object()) {
-					auto root = v.as_object();
-					if (!root.contains(export_id)) {
-						error = "export <" + export_id + "> not found";
-						return false;
-					}
-					root.erase(export_id);
-					std::ofstream out(index_path);
-					out << boost::json::serialize(root);
-				}
-			}
-			else {
-				error = "exports index not found";
-				return false;
-			}
-
-			// 2) Каталог с картами remap и weight
-			const auto dir = m_exports_root / export_id;
+			const auto dir = m_store.exports_root() / export_id;
 			if (std::filesystem::exists(dir)) {
 				std::filesystem::remove_all(dir);
 			}
-
-			// 3) Привязки и параметры этой конфигурации
-			auto state = read_state_root();
-			auto configs = state.at("configs").as_object();
-			configs.erase(export_id);
-
-			std::string active;
-			if (auto* a = state.if_contains("active"); a && a->is_string()) {
-				active = a->as_string().c_str();
-			}
-			if (active == export_id) state["active"] = "";
-
-			state["configs"] = std::move(configs);
-			std::ofstream sf(state_path());
-			sf << boost::json::serialize(state);
 		}
 		catch (const std::exception& e) {
 			error = e.what();
+			m_logger.error("delete_export(): " + error);
+			return false;
+		}
+
+		// 3) Привязки и параметры этой конфигурации
+		if (!m_store.erase_state_entry(export_id, error)) {
 			m_logger.error("delete_export(): " + error);
 			return false;
 		}
@@ -1162,7 +880,6 @@ namespace birdview {
 			m_logger.warn("async_start(): already running");
 			return true;
 		}
-		// TO DO: заменть это говноа на условуню переменную
 		m_worker = std::thread([this] {
 			while (m_running.load()) {
 				processing_loop(m_fps);
@@ -1188,149 +905,6 @@ namespace birdview {
 			return;
 		}
 
-		if (resolve_view_mode() == "surround") {
-			surround_loop(fps);
-			m_context_manager->undone_current(&m_logger);
-			return;
-		}
-
-		UStitchRenderer renderer;
-		if (!renderer.init(0, m_context_manager, &m_logger)) {
-			m_logger.error("processing_loop(): renderer init failed");
-			return;
-		}
-
-		std::string export_id_copy;
-		{ std::lock_guard<std::mutex> lk(m_mutex); export_id_copy = m_export_id; }
-
-		if (export_id_copy.empty() ||
-			!renderer.load_export(m_exports_root, m_exports_index_json, export_id_copy))
-		{
-			m_logger.error("processing_loop(): no active export, abort");
-			return;
-		}
-
-		const int W = renderer.canvas_width();
-		const int H = renderer.canvas_height();
-
-		// Поворот — параметр конфигурации, из формы канваса он больше не выводится
-		const int degrees = resolve_rotation();
-		renderer.set_rotation(degrees / 90);
-
-		// Стороны округляются вверх до FRAME_ALIGNMENT, картинка растягивается
-		const int outW = align_frame_side(renderer.rotated_width());
-		const int outH = align_frame_side(renderer.rotated_height());
-		renderer.set_output_size(outW, outH);
-
-		{
-			std::lock_guard<std::mutex> lk(m_mutex);
-			m_out_width = outW;
-			m_out_height = outH;
-		}
-
-		m_logger.info("processing_loop(): src=" + std::to_string(W) + "x" + std::to_string(H) +
-			", out=" + std::to_string(outW) + "x" + std::to_string(outH) +
-			", rotation=" + std::to_string(degrees));
-
-		if (outW != renderer.rotated_width() || outH != renderer.rotated_height()) {
-			m_logger.warn("processing_loop(): output aligned from " +
-				std::to_string(renderer.rotated_width()) + "x" + std::to_string(renderer.rotated_height()));
-		}
-
-		if (!m_context_manager->init_render_framebuffer(outW, outH, &m_logger)) {
-			m_logger.error("processing_loop(): cannot init render FBO");
-			return;
-		}
-
-		//cv::VideoWriter writer;
-		//writer.open("/home/orangepi/render/output.avi",
-		//	cv::VideoWriter::fourcc('M', 'J', 'P', 'G'),
-		//	fps, cv::Size(W, H));
-
-		// Проверка вебсокета
-		if (m_websocket.ip_adress.empty() || m_websocket.port.empty()) {
-			m_logger.error("processing_loop(): websocket is incorrect, aborted starting connection!");
-			return;
-		}
-
-		// Запуск вирутальной камеры. Идентификатор и частота берутся из настроек
-		// активной конфигурации; без них остаются прежние значения по умолчанию
-		const auto params = get_stream_params();
-		m_stream_id = params.stream_id;
-		fps = params.fps;
-
-		// Та же камера, что и в surround: без колбэков orbit-сообщения получают отказ
-		m_streamer = std::make_unique<USurroundCamera>(m_stream_id, m_websocket);
-		if (!m_streamer) {
-			m_logger.error("processing_loop(): streamer didn't create");
-			return;
-		}
-		if (!m_streamer->set_parameters(outW, outH, fps)) {
-			m_logger.error("processing_loop(): streamer set_parameters failed");
-			return;
-		}
-		if (!m_streamer->initialize()) {
-			m_logger.error("processing_loop(): streamer initialize failed");
-			return;
-		}
-		if (!m_streamer->start()) {
-			m_logger.error("processing_loop(): streamer start failed");
-			return;
-		}
-		m_logger.info("processing_loop(): streamer started, stream_id=" + m_stream_id);
-
-		std::vector<uint8_t> pixels(static_cast<size_t>(outW) * outH * 4);
-
-		// Синхронизируем порядок ключей с тем, что вернул рендерер.
-		{
-			std::lock_guard<std::mutex> lk(m_mutex);
-			m_camera_keys = renderer.ordered_camera_keys();
-		}
-
-		const auto frame_time = std::chrono::microseconds(1000000 / fps);
-		auto next_frame = clock::now();
-		auto space = create_linking_space();
-
-		while (m_running) {
-			next_frame += frame_time;
-
-			fill_linking_space(space);
-
-			renderer.update_textures(space, m_context_manager->get_display());
-			renderer.update(0.0f);
-			renderer.render(1.0f);
-
-			glReadPixels(0, 0, outW, outH, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
-
-			cv::Mat img(outH, outW, CV_8UC4, pixels.data());
-			//cv::flip(img, img, 0);
-			//cv::Mat bgr;
-			//cv::cvtColor(img, bgr, cv::COLOR_RGBA2BGR);
-			//if (writer.isOpened()) writer.write(bgr);
-
-			if (m_streamer) m_streamer->push_frame(img);
-
-			std::this_thread::sleep_until(next_frame);
-		}
-
-		if (m_streamer) {
-			m_streamer->stop_websocket_client();
-			m_streamer->stop();
-			m_streamer.reset();
-		}
-
-		m_context_manager->undone_current(&m_logger);
-	}
-
-	void ULinker::surround_loop(uint32_t fps) {
-		using clock = std::chrono::high_resolution_clock;
-
-		USurroundRenderer renderer;
-		if (!renderer.init(0, m_context_manager, &m_logger)) {
-			m_logger.error("surround_loop(): renderer init failed");
-			return;
-		}
-
 		std::string export_id_copy;
 		NCamerasPurpose bindings;
 		{
@@ -1338,212 +912,92 @@ namespace birdview {
 			export_id_copy = m_export_id;
 			bindings = m_cameras_purpose;
 		}
+		if (export_id_copy.empty()) {
+			m_logger.error("processing_loop(): no active export, abort");
+			m_context_manager->undone_current(&m_logger);
+			return;
+		}
 
-		// Файл модели, который сейчас загружен в рендерер
-		std::string loaded_model_source;
-
-		// Лёгкие параметры сцены: и на старте, и на живом изменении ручкой
-		auto apply_visuals = [&](const boost::json::object& cfg) {
-			auto num = [](const boost::json::object& o, const char* k, double def) {
-				if (auto* v = o.if_contains(k); v && v->is_number()) return v->to_number<double>();
-				return def;
-			};
-			auto flag = [&](const char* k, bool def) {
-				if (auto* v = cfg.if_contains(k); v && v->is_bool()) return v->as_bool();
-				return def;
-			};
-			boost::json::object orbit, model;
-			if (auto* v = cfg.if_contains("orbit"); v && v->is_object()) orbit = v->as_object();
-			if (auto* v = cfg.if_contains("model"); v && v->is_object()) model = v->as_object();
-
-			renderer.set_orbit(
-				static_cast<float>(num(orbit, "distance", 3.4)),
-				static_cast<float>(num(orbit, "height", 2.0)),
-				static_cast<float>(num(orbit, "speed", 0.25)));
-			renderer.set_model(
-				static_cast<float>(num(model, "width", 0.0)),
-				static_cast<float>(num(model, "height", 0.0)),
-				static_cast<float>(num(model, "length", 0.0)),
-				static_cast<float>(num(model, "alpha", 1.0)));
-			renderer.set_model_rotation(static_cast<float>(num(model, "rotation", 0.0)));
-			renderer.set_plate(flag("plate", true));
-			renderer.set_plate_size(
-				static_cast<float>(num(cfg, "plate_width", 0.0)),
-				static_cast<float>(num(cfg, "plate_length", 0.0)));
-			renderer.set_wireframe(flag("wireframe", false));
-			renderer.set_photometric_enabled(flag("photometric", true));
-
-			// Смена файла модели: перезагрузка прямо в потоке рендера,
-			// запинка на кадр допустима так же, как у перепечки
-			std::string source;
-			if (auto* v = model.if_contains("source"); v && v->is_string()) {
-				source = v->as_string().c_str();
-			}
-			if (source != loaded_model_source) {
-				if (source.empty()) {
-					renderer.clear_model_mesh();
-				}
-				else {
-					FSurroundModel mesh;
-					std::string model_error;
-					if (load_surround_model(get_models_list_path() / source, mesh, model_error)
-						&& renderer.set_model_mesh(mesh)) {
-						m_logger.info("apply_visuals(): model <" + source + "> loaded");
-					}
-					else {
-						m_logger.error("apply_visuals(): model <" + source + "> failed: "
-							+ model_error + ", box fallback");
-						renderer.clear_model_mesh();
-					}
-				}
-				loaded_model_source = source;
-			}
-		};
-
-		// Печка: габарит применяется до неё, чаша перестраивается под масштаб
-		// сцены, и проецируются уже отмасштабированные вершины
-		auto apply_bake = [&](const boost::json::object& cfg) -> bool {
-			USurroundBaker baker(&m_logger);
-			FSurroundMachine machine;
-			FSurroundBake bake;
-			std::string bake_error;
-
-			// Действующий габарит: пресет конфигуратора, рект первой картинки
-			// как запасной, пользовательские правки панели поверх
-			boost::json::object effective_cfg = cfg;
-			{
-				boost::json::object machine_obj;
-				if (auto entry = read_export_entry(export_id_copy)) {
-					if (auto* m = entry->if_contains("machine"); m && m->is_object()) {
-						machine_obj = m->as_object();
-					}
-					if (!machine_obj.contains("rect")) {
-						if (auto* imgs = entry->if_contains("images"); imgs && imgs->is_array()
-							&& !imgs->as_array().empty() && imgs->as_array().front().is_object()) {
-							if (auto* r = imgs->as_array().front().as_object().if_contains("rect")) {
-								machine_obj["rect"] = *r;
-							}
-						}
-					}
-				}
-				if (auto* um = cfg.if_contains("machine"); um && um->is_object()) {
-					for (const auto& kv : um->as_object()) machine_obj[kv.key()] = kv.value();
-				}
-				effective_cfg["machine"] = std::move(machine_obj);
-			}
-
-			bool ok = USurroundBaker::parse_machine(effective_cfg, machine, bake_error);
-			if (ok) {
-				renderer.set_bowl_factors(machine.bowl_floor, machine.bowl_outer,
-					machine.bowl_wall, machine.bowl_plate, machine.bowl_corner);
-				renderer.set_machine(machine.width, machine.height, machine.length);
-				ok = baker.bake(
-					effective_cfg,
-					calib_consts::PROJECTION_CONFIGURES_PATH,
-					calib_consts::CALIBRATION_CONFIGURES_PATH,
-					bindings, renderer.bowl_positions(), bake, bake_error);
-			}
-
-			if (!ok || !renderer.set_camera_attributes(bake.camera_attributes)) {
-				m_logger.error("surround_loop(): bake failed: " + bake_error + ", grid only");
-				return false;
-			}
-
-			renderer.set_photometric_pairs(bake.photo_pairs);
-
-			std::vector<std::string> keys;
-			for (const auto& cam : bake.cameras) keys.push_back(cam.place_key);
-			std::lock_guard<std::mutex> lk(m_mutex);
-			m_camera_keys = std::move(keys);
-			m_surround_cameras = std::move(bake.cameras);
-			return true;
-		};
-
-		// Без surround-блока в экспорте остаётся сетка первого блока
-		bool interactive = false;
-		if (auto cfg = read_surround_cfg(export_id_copy)) {
-			apply_visuals(*cfg);
-			apply_bake(*cfg);
-			// Стартовый режим орбиты, дальше его меняют тумблер и кнопка плеера
-			if (auto* o = cfg->if_contains("orbit"); o && o->is_object()) {
-				if (auto* v = o->as_object().if_contains("interactive"); v && v->is_bool()) {
-					interactive = v->as_bool();
-				}
-			}
+		// Режим вывода собирается по view_mode конфигурации
+		std::unique_ptr<IOutputMode> mode;
+		if (resolve_view_mode() == "surround") {
+			mode = std::make_unique<USurroundOutput>(
+				m_context_manager, &m_store, export_id_copy, std::move(bindings),
+				&m_surround_dirty, &m_surround_mode_request,
+				[this](std::vector<FSurroundBakedCamera> cams) {
+					std::lock_guard<std::mutex> lk(m_mutex);
+					m_surround_cameras = std::move(cams);
+				},
+				&m_logger);
 		}
 		else {
-			m_logger.info("surround_loop(): no surround block in export, grid only");
+			mode = std::make_unique<UTopOutput>(
+				m_context_manager, m_store.exports_root(), m_store.exports_index_file(),
+				export_id_copy, resolve_rotation(), &m_logger);
 		}
-		renderer.set_orbit_mode(interactive);
-		m_surround_dirty.store(0);
-		m_surround_mode_request.store(-1);
 
-		// Разрешение из конфигурации; страховка клампом на случай ручной правки файла
-		int outW = constants::SURROUND_WIDTH;
-		int outH = constants::SURROUND_HEIGHT;
-		if (auto cfg = read_surround_cfg(export_id_copy)) {
-			if (auto* r = cfg->if_contains("resolution"); r && r->is_object()) {
-				if (auto* v = r->as_object().if_contains("width"); v && v->is_number()) {
-					outW = clamp_align16(v->to_number<double>(), SURROUND_RES_MIN, SURROUND_RES_MAX_W);
-				}
-				if (auto* v = r->as_object().if_contains("height"); v && v->is_number()) {
-					outH = clamp_align16(v->to_number<double>(), SURROUND_RES_MIN, SURROUND_RES_MAX_H);
-				}
-			}
+		int outW = 0;
+		int outH = 0;
+		std::string mode_error;
+		if (!mode->prepare(outW, outH, mode_error)) {
+			m_logger.error("processing_loop(): " + mode_error);
+			m_context_manager->undone_current(&m_logger);
+			return;
 		}
-		renderer.set_output_size(outW, outH);
 
 		{
 			std::lock_guard<std::mutex> lk(m_mutex);
 			m_out_width = outW;
 			m_out_height = outH;
+			m_camera_keys = mode->camera_keys();
 		}
 
-		m_logger.info("surround_loop(): out=" + std::to_string(outW) + "x" + std::to_string(outH));
-
 		if (!m_context_manager->init_render_framebuffer(outW, outH, &m_logger)) {
-			m_logger.error("surround_loop(): cannot init render FBO");
+			m_logger.error("processing_loop(): cannot init render FBO");
+			m_context_manager->undone_current(&m_logger);
 			return;
 		}
 
 		if (m_websocket.ip_adress.empty() || m_websocket.port.empty()) {
-			m_logger.error("surround_loop(): websocket is incorrect, aborted starting connection!");
+			m_logger.error("processing_loop(): websocket is incorrect, aborted starting connection!");
+			m_context_manager->undone_current(&m_logger);
 			return;
 		}
 
+		// Идентификатор и частота из настроек активной конфигурации;
+		// без них остаются значения по умолчанию
 		const auto params = get_stream_params();
 		m_stream_id = params.stream_id;
 		fps = params.fps;
 
-		auto surround_camera = std::make_unique<USurroundCamera>(m_stream_id, m_websocket);
-		// Рендерер живёт до конца функции, стример гасится раньше него
-		surround_camera->set_orbit_callbacks(
-			[&renderer](bool manual) { renderer.set_orbit_mode(manual); },
-			[&renderer](float dx, float dy, float dzoom) {
-				renderer.apply_orbit_input(dx, dy, dzoom);
-			});
-		m_streamer = std::move(surround_camera);
-		// Отказ на старте сносит камеру сразу: колбэки держат стековый рендерер
+		auto camera = std::make_unique<USurroundCamera>(m_stream_id, m_websocket);
+		mode->bind_camera(*camera);
+		m_streamer = std::move(camera);
+
+		// Отказ на старте сносит камеру сразу: её колбэки держат режим на стеке
 		auto drop_streamer = [this] {
 			m_streamer->stop();
 			m_streamer.reset();
 		};
 		if (!m_streamer->set_parameters(outW, outH, fps)) {
-			m_logger.error("surround_loop(): streamer set_parameters failed");
+			m_logger.error("processing_loop(): streamer set_parameters failed");
 			drop_streamer();
+			m_context_manager->undone_current(&m_logger);
 			return;
 		}
 		if (!m_streamer->initialize()) {
-			m_logger.error("surround_loop(): streamer initialize failed");
+			m_logger.error("processing_loop(): streamer initialize failed");
 			drop_streamer();
+			m_context_manager->undone_current(&m_logger);
 			return;
 		}
 		if (!m_streamer->start()) {
-			m_logger.error("surround_loop(): streamer start failed");
+			m_logger.error("processing_loop(): streamer start failed");
 			drop_streamer();
+			m_context_manager->undone_current(&m_logger);
 			return;
 		}
-		m_logger.info("surround_loop(): streamer started, stream_id=" + m_stream_id);
+		m_logger.info("processing_loop(): streamer started, stream_id=" + m_stream_id);
 
 		std::vector<uint8_t> pixels(static_cast<size_t>(outW) * outH * 4);
 
@@ -1561,23 +1015,17 @@ namespace birdview {
 			next_frame += frame_time;
 			const auto work_start = clock::now();
 
-			// Живые изменения ручки: лёгкие - сеттеры, тяжёлые - перепечка
-			if (const unsigned dirty = m_surround_dirty.exchange(0)) {
-				if (auto cfg = read_surround_cfg(export_id_copy)) {
-					apply_visuals(*cfg);
-					if (dirty & SURROUND_DIRTY_BAKE) {
-						if (apply_bake(*cfg)) space = create_linking_space();
-					}
+			// Перепечка меняет состав камер — пространство пересоздаётся
+			if (mode->apply_live_changes()) {
+				{
+					std::lock_guard<std::mutex> lk(m_mutex);
+					m_camera_keys = mode->camera_keys();
 				}
-			}
-			if (const int mode_req = m_surround_mode_request.exchange(-1); mode_req >= 0) {
-				renderer.set_orbit_mode(mode_req == 1);
+				space = create_linking_space();
 			}
 
 			fill_linking_space(space);
-			renderer.update_textures(space, m_context_manager->get_display());
-			renderer.update(dt);
-			renderer.render(static_cast<float>(outW) / static_cast<float>(outH));
+			mode->render_frame(space, dt, m_context_manager->get_display());
 
 			glReadPixels(0, 0, outW, outH, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
 
@@ -1591,7 +1039,7 @@ namespace birdview {
 			if (stats_elapsed >= 5.0 && stats_frames > 0) {
 				const int fps10 = static_cast<int>(stats_frames / stats_elapsed * 10.0 + 0.5);
 				const int work10 = static_cast<int>(stats_work_ms / stats_frames * 10.0 + 0.5);
-				m_logger.info("surround_loop(): fps=" + std::to_string(fps10 / 10) + "." + std::to_string(fps10 % 10)
+				m_logger.info("processing_loop(): fps=" + std::to_string(fps10 / 10) + "." + std::to_string(fps10 % 10)
 					+ ", frame work=" + std::to_string(work10 / 10) + "." + std::to_string(work10 % 10)
 					+ " ms of " + std::to_string(1000 / fps) + " ms budget");
 				stats_start = clock::now();
@@ -1607,6 +1055,8 @@ namespace birdview {
 			m_streamer->stop();
 			m_streamer.reset();
 		}
+
+		m_context_manager->undone_current(&m_logger);
 	}
 
 	std::filesystem::path ULinker::get_configurations_path() {
@@ -1614,7 +1064,7 @@ namespace birdview {
 	}
 
 	std::filesystem::path ULinker::get_exports_index_path() const {
-		return m_exports_root / m_exports_index_json;
+		return m_store.exports_index_path();
 	}
 
 	std::filesystem::path ULinker::get_images_list_path() {
@@ -1625,90 +1075,5 @@ namespace birdview {
 		return constants::LINKER_MODELS_PATH;
 	}
 
-	/*
-	void ULinker::processing_cube_loop(uint32_t fps)
-	{
-		if (!m_context_manager) {
-			m_logger.error("processing_loop(): cannot start render loop, context doesn't initialized");
-			return;
-		}
-		using clock = std::chrono::high_resolution_clock;
-		// Установление контекста
-		if (!m_context_manager->make_current(&m_logger)) {
-			return;
-		}
-		if (!m_context_manager->init_render_framebuffer(1024, 1024, &m_logger)) {
-			m_logger.error("processing_loop(): render framebuffer didn't initialize, abort linking loop!");
-			return;
-		}
-		else {
-			m_logger.info("processing_loop(): render framebuffer successfully initialized with (" + std::to_string(1024) + "," + std::to_string(1024) + ")");
-		}
-		glBindFramebuffer(GL_FRAMEBUFFER, m_context_manager->get_fbo());
-		auto render = UCubeRenderer();
-		if (render.init(m_cameras_purpose.size(), m_context_manager, &m_logger) == false) {
-			m_logger.error("processing_loop(): render didn't initialize, abort linking loop!");
-			return;
-		}
-
-		std::string video_path = "/home/orangepi/render/output.avi";
-		cv::VideoWriter writer;
-		writer.open(video_path, cv::VideoWriter::fourcc('M', 'J', 'P', 'G'), fps, cv::Size(1024, 1024));
-
-		if (!writer.isOpened()) {
-			m_logger.error("processing_loop(): cannot open VideoWriter!");
-			return;
-		}
-
-		// Собираем хранилище для кажров
-		auto space = create_linking_space();
-		// получаем время кадра
-		const auto frame_time = std::chrono::microseconds(1000000 / fps);
-		// Цикл обработки
-		auto next_frame = clock::now();
-
-		std::vector<uint8_t> pixels(1024 * 1024 * 4); // RGBA8
-
-		while (m_running) {
-			next_frame += frame_time;
-
-			// Заполняем фреймами буфер
-			fill_linking_space(space);
-
-			// Устанавливаем viewport
-			glViewport(0, 0, 1024, 1024);
-
-			glEnable(GL_DEPTH_TEST);
-			glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-			// Обнолвяем рендер
-			render.update_textures(space, m_context_manager->get_display());
-			render.update(0.025f);
-
-			render.render(1.0f);
-
-			// Считываем пиксели с FBO
-			glReadPixels(0, 0, 1024, 1024, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
-
-			for (auto& slot : space) {
-				slot.reset(); // если slot уже release()-нут — это no-op
-			}
-
-			cv::Mat img(1024, 1024, CV_8UC4, pixels.data());
-			cv::flip(img, img, 0);
-
-			cv::Mat bgr;
-			cv::cvtColor(img, bgr, cv::COLOR_RGBA2BGR);
-
-			writer.write(bgr);
-
-			// Соблюдаем фпс цикла
-			std::this_thread::sleep_until(next_frame);
-		}
-
-		m_context_manager->undone_current(&m_logger);
-	}
-	*/
 }; // birdview
 }; // varan

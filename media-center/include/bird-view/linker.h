@@ -15,10 +15,9 @@
 
 #include <boost/json.hpp>
 
-#include "shader.h"
-#include "utility.h"
 #include "egl-context.h"
 #include "camera.h"
+#include "bird-view/linker-store.h"
 #include "bird-view/surround-bake.h"
 
 namespace nvr = varan::nvr;
@@ -147,8 +146,8 @@ namespace birdview {
 		bool set_surround_camera(const std::string& export_id, const std::string& place_key,
 			const boost::json::object& payload, std::string& error);
 
-		// Частичный мёрж surround-блока: machine, bowl, orbit, model,
-		// plate, wireframe, photometric. Живой вывод применяет без рестарта
+		// Частичный мёрж surround-блока: живой вывод применяет без рестарта,
+		// смена resolution перезапускает вывод сама
 		bool set_surround(const std::string& export_id,
 			const boost::json::object& payload, std::string& error);
 
@@ -171,10 +170,8 @@ namespace birdview {
 		std::filesystem::path get_models_list_path();
 
 	private:
+		// Общий кадровый цикл: режим вывода собирается по view_mode
 		void processing_loop(uint32_t fps);
-
-		// Тело вывода для surround-режима, вызывается из processing_loop
-		void surround_loop(uint32_t fps);
 
 		NLinkSpace create_linking_space();
 
@@ -182,25 +179,13 @@ namespace birdview {
 
 		bool apply_export(const std::string& export_id, NCamerasPurpose desired_bindings);
 
-		std::filesystem::path state_path() const;
-
-		// Чтение состояния с приведением старого формата из одной записи к словарю
-		boost::json::object read_state_root() const;
-
-		// Мёрж surround-блока экспорта на диске под мутатором
-		bool mutate_surround_block(const std::string& target,
-			const std::function<bool(boost::json::object&, std::string&)>& mutate,
-			std::string& error);
-
-		// Чтение целой записи экспорта с диска: machine, images, surround
-		std::optional<boost::json::object> read_export_entry(const std::string& export_id) const;
-
-		// Чтение surround-блока экспорта с диска
-		std::optional<boost::json::object> read_surround_cfg(const std::string& export_id) const;
-
 	private:
 		FFrameStorage<IFrame>* m_storage;
 		UEGLContextManager* m_context_manager;
+
+		// Логгер раньше стора: стор держит на него указатель
+		ULogger m_logger;
+		ULinkerStore m_store;
 
 		std::string m_export_id;
 		std::vector<std::string> m_camera_keys;
@@ -209,14 +194,6 @@ namespace birdview {
 		mutable std::mutex m_mutex;
 		std::thread m_worker;
 		std::atomic<bool> m_running{ false };
-
-		ULogger m_logger;
-
-		std::filesystem::path m_exports_root;
-		std::filesystem::path m_exports_index_json;
-		// Состояние живёт в своём каталоге: линкер не хранит ничего, кроме него
-		std::filesystem::path m_state_root;
-		std::filesystem::path m_state_index;
 
 		// fps из конфига процесса. Служит значением по умолчанию, когда
 		// у конфигурации своего не задано
@@ -233,14 +210,9 @@ namespace birdview {
 		std::string m_stream_id;
 
 		// Живые изменения surround: цикл забирает флаги и перечитывает конфиг
-		static constexpr unsigned SURROUND_DIRTY_VISUAL = 1;
-		static constexpr unsigned SURROUND_DIRTY_BAKE = 2;
 		std::atomic<unsigned> m_surround_dirty{ 0 };
 		// Запрос смены режима орбиты от ручки: -1 нет, 0 авто, 1 ручной
 		std::atomic<int> m_surround_mode_request{ -1 };
-		// Индекс экспортов пишет REST-поток, читает цикл кадра: без замка
-		// чтение ловит полузаписанный файл и живое применение теряется
-		mutable std::mutex m_exports_mutex;
 		// Позы последней печки, отдаются ручкой GET /linker/surround
 		std::vector<FSurroundBakedCamera> m_surround_cameras;
 	};
