@@ -28,7 +28,8 @@ export interface ExportEditorBlock {
 
 /**
  * Габарит и реальные метры мира. rect в пикселях канваса экспорта;
- * mat_px — шаг разметки там же: из пары mat_m/mat_px линкер берёт масштаб.
+ * mat_px — сторона квадрата разметки там же: из пары mat_m/mat_px
+ * линкер берёт масштаб мира.
  */
 export interface ExportMachineBlock {
     rect?: number[];
@@ -152,7 +153,8 @@ export function buildExportJson(params: ExportParams): ExportResult {
     if (m.height > 0) machine.height = m.height;
     if (m.mat > 0) {
         machine.mat_m = m.mat;
-        machine.mat_px = f.step * s;
+        // Мат = квадрат разметки: его сторона на канвасе задаёт масштаб мира
+        machine.mat_px = confState.zoneSize * s;
     }
     if (Object.keys(machine).length) result.machine = machine;
 

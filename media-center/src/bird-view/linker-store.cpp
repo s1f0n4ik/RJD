@@ -164,6 +164,76 @@ namespace birdview {
 		return std::nullopt;
 	}
 
+	std::optional<boost::json::object> ULinkerStore::read_top_cfg(
+		const std::string& export_id) const
+	{
+		if (auto entry = read_export_entry(export_id)) {
+			if (auto* t = js::obj(*entry, "top")) return *t;
+		}
+		return std::nullopt;
+	}
+
+	bool ULinkerStore::mutate_top_block(const std::string& export_id,
+		const std::function<bool(boost::json::object&, std::string&)>& mutate,
+		std::string& error)
+	{
+		std::lock_guard<std::mutex> lk(m_exports_mutex);
+		try {
+			auto root = read_json_object(exports_index_path());
+			if (root.empty()) {
+				error = "cannot read exports index";
+				return false;
+			}
+
+			auto* entry = root.if_contains(export_id);
+			if (!entry || !entry->is_object()) {
+				error = "export <" + export_id + "> not found";
+				return false;
+			}
+			auto& entry_obj = entry->as_object();
+
+			// Блок заводится на месте: у экспортов до этой фичи его нет
+			boost::json::object top;
+			if (auto* t = js::obj(entry_obj, "top")) top = *t;
+			if (!mutate(top, error)) return false;
+			entry_obj["top"] = std::move(top);
+
+			return write_json_object(exports_index_path(), root, error);
+		}
+		catch (const std::exception& e) {
+			error = e.what();
+			return false;
+		}
+	}
+
+	bool ULinkerStore::mutate_export_entry(const std::string& export_id,
+		const std::function<bool(boost::json::object&, std::string&)>& mutate,
+		std::string& error)
+	{
+		std::lock_guard<std::mutex> lk(m_exports_mutex);
+		try {
+			auto root = read_json_object(exports_index_path());
+			if (root.empty()) {
+				error = "cannot read exports index";
+				return false;
+			}
+
+			auto* entry = root.if_contains(export_id);
+			if (!entry || !entry->is_object()) {
+				error = "export <" + export_id + "> not found";
+				return false;
+			}
+
+			if (!mutate(entry->as_object(), error)) return false;
+
+			return write_json_object(exports_index_path(), root, error);
+		}
+		catch (const std::exception& e) {
+			error = e.what();
+			return false;
+		}
+	}
+
 	bool ULinkerStore::mutate_surround_block(const std::string& export_id,
 		const std::function<bool(boost::json::object&, std::string&)>& mutate,
 		std::string& error)

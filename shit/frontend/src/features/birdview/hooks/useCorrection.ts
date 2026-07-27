@@ -8,9 +8,14 @@ import type { ConfigSummary } from '../components/calibration/ConfigModal';
  * Выбор конфигурации коррекции, общий для калибровки и проекции.
  *
  * Порядок задаёт клиент. Сервер принимает load только когда разрешение
- * конфигурации совпадает с текущим кадром ([calibrator.cpp] load configuration),
- * то есть до подъёма стрима загружать нечего. Поэтому выбор запоминается как
- * намерение, а load уходит после успешного connection.
+ * конфигурации совпадает с текущим кадром ([calibrator.cpp] load configuration).
+ * На живом стриме load уходит прямо из select; до подъёма выбор запоминается
+ * как намерение, и load отправляет applyPending после успешного connection.
+ *
+ * Готовность и показ коррекции — состояние сервера из сообщений status
+ * (is_undistortion / show_undistortion): их он шлёт и после load, и по
+ * запросу. Так лампа и тумблер честны, кем бы коррекция ни была загружена —
+ * модалкой калибровки, планкой проекции или пересчётом на самом сервере.
  */
 
 export interface Correction {
@@ -20,6 +25,8 @@ export interface Correction {
     selectedKey: string | null;
     /** Конфигурация, которую калибратор подтвердил загрузкой. */
     loadedKey: string | null;
+    /** Коррекция на сервере готова к показу — из status.is_undistortion. */
+    ready: boolean;
     /** Коррекция показывается в кадре. */
     enabled: boolean;
 
@@ -39,12 +46,17 @@ interface Options {
     ws: BirdviewWs;
     log: LogFn;
     onToast: (title: string, desc: string, type: 'ok' | 'err' | 'info') => void;
+    /** Текущая камера: load сверяется с её разрешением до отправки. */
+    getCamera: () => CalibrationCamera | null;
+    /** Стрим поднят — load можно слать сразу, не дожидаясь connection. */
+    isStreamLive: () => boolean;
 }
 
-export function useCorrection({ ws, log, onToast }: Options): Correction {
+export function useCorrection({ ws, log, onToast, getCamera, isStreamLive }: Options): Correction {
     const [configs, setConfigs] = useState<ConfigSummary[]>([]);
     const [selectedKey, setSelectedKey] = useState<string | null>(null);
     const [loadedKey, setLoadedKey] = useState<string | null>(null);
+    const [ready, setReady] = useState(false);
     const [enabled, setEnabledState] = useState(false);
 
     // Ответы calibration_configuration слушает ещё и экран калибровки со своей
@@ -58,6 +70,8 @@ export function useCorrection({ ws, log, onToast }: Options): Correction {
     configsRef.current = configs;
     const loadedKeyRef = useRef(loadedKey);
     loadedKeyRef.current = loadedKey;
+    const readyRef = useRef(ready);
+    readyRef.current = ready;
 
     const logRef = useRef(log);
     logRef.current = log;
@@ -101,7 +115,7 @@ export function useCorrection({ ws, log, onToast }: Options): Correction {
     /** Показ коррекции переключаем через view_undistort — состояние ждём от сервера. */
     const setEnabled = useCallback(
         (on: boolean) => {
-            if (on && !loadedKeyRef.current) {
+            if (on && !readyRef.current) {
                 toastRef.current('Коррекция не загружена', 'Выберите конфигурацию и поднимите стрим', 'err');
                 return;
             }
@@ -110,23 +124,9 @@ export function useCorrection({ ws, log, onToast }: Options): Correction {
         [ws],
     );
 
-    const select = useCallback(
-        (key: string | null) => {
-            setSelectedKey(key);
-            if (key === null) {
-                setLoadedKey(null);
-                return;
-            }
-            if (key !== loadedKeyRef.current) setLoadedKey(null);
-        },
-        [],
-    );
-
-    const applyPending = useCallback(
-        (cam: CalibrationCamera | null) => {
-            const key = selectedKeyRef.current;
-            if (!key || key === loadedKeyRef.current) return;
-
+    // Общий шаг select и applyPending: проверка разрешения и отправка load
+    const loadIfFits = useCallback(
+        (key: string, cam: CalibrationCamera | null) => {
             const cfg = findConfig(key);
             if (cfg && cam && (cfg.width !== cam.width || cfg.height !== cam.height)) {
                 logRef.current(
@@ -140,8 +140,34 @@ export function useCorrection({ ws, log, onToast }: Options): Correction {
         [findConfig, sendLoad],
     );
 
+    const select = useCallback(
+        (key: string | null) => {
+            setSelectedKey(key);
+            if (key === null) {
+                setLoadedKey(null);
+                return;
+            }
+            if (key !== loadedKeyRef.current) setLoadedKey(null);
+
+            // Живой стрим: load сразу, connection уже не придёт.
+            // Без стрима выбор остаётся намерением до applyPending
+            if (isStreamLive()) loadIfFits(key, getCamera());
+        },
+        [isStreamLive, getCamera, loadIfFits],
+    );
+
+    const applyPending = useCallback(
+        (cam: CalibrationCamera | null) => {
+            const key = selectedKeyRef.current;
+            if (!key || key === loadedKeyRef.current) return;
+            loadIfFits(key, cam);
+        },
+        [loadIfFits],
+    );
+
     const reset = useCallback(() => {
         setLoadedKey(null);
+        setReady(false);
         setEnabledState(false);
         awaitingLoadRef.current = null;
     }, []);
@@ -180,18 +206,29 @@ export function useCorrection({ ws, log, onToast }: Options): Correction {
         setEnabledState(Boolean(msg.meta?.show));
     }, []);
 
+    // Правда о готовности и показе — status: сервер шлёт его после load
+    // и по запросу, кем бы коррекция ни была загружена
+    const handleStatus = useCallback((msg: WsMessage) => {
+        if (!msg.ret) return;
+        const meta = msg.meta ?? {};
+        if (meta.is_undistortion !== undefined) setReady(Boolean(meta.is_undistortion));
+        if (meta.show_undistortion !== undefined) setEnabledState(Boolean(meta.show_undistortion));
+    }, []);
+
     useEffect(() => {
         const unsubs = [
             ws.subscribe('calibration_configuration', handleConfiguration),
             ws.subscribe('view_undistort', handleViewUndistort),
+            ws.subscribe('status', handleStatus),
         ];
         return () => unsubs.forEach(u => u());
-    }, [ws, handleConfiguration, handleViewUndistort]);
+    }, [ws, handleConfiguration, handleViewUndistort, handleStatus]);
 
     return {
         configs,
         selectedKey,
         loadedKey,
+        ready,
         enabled,
         requestList,
         select,

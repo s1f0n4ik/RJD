@@ -189,18 +189,9 @@ export function confAddZone(): string | null {
             ? confState.cameras.find(c => c.id === confState.selected?.id) ?? confState.cameras[0]
             : confState.cameras[0];
 
-    let w: number;
-    let h: number;
-    if (confState.fixedZoneSize.enabled) {
-        w = confState.fixedZoneSize.w;
-        h = confState.fixedZoneSize.h;
-    } else {
-        w = Math.round(cam.w * 0.4);
-        h = Math.round(cam.h * 0.4);
-    }
-
-    if (w > cam.w) w = cam.w;
-    if (h > cam.h) h = cam.h;
+    // Разметка всегда квадратная и одного размера: это физический мат
+    const w = Math.min(confState.zoneSize, cam.w, cam.h);
+    const h = w;
 
     const zone: ConfZone = {
         id: uid(),
@@ -222,14 +213,22 @@ export function confAddZone(): string | null {
     return null;
 }
 
-export function confToggleFixedZone(enabled: boolean): void {
-    confState.fixedZoneSize.enabled = enabled;
-    emitConfChange();
-}
+/** Смена стороны квадрата применяется ко всем зонам сразу, вокруг их центров. */
+export function confUpdateZoneSize(size: number): void {
+    const s = Math.max(1, Math.round(size));
+    confState.zoneSize = s;
 
-export function confUpdateFixedZone(next: Partial<{ w: number; h: number }>): void {
-    if (next.w !== undefined) confState.fixedZoneSize.w = Math.max(1, next.w);
-    if (next.h !== undefined) confState.fixedZoneSize.h = Math.max(1, next.h);
+    confState.zones.forEach(zone => {
+        const cx = zone.x + zone.w / 2;
+        const cy = zone.y + zone.h / 2;
+        zone.w = s;
+        zone.h = s;
+        zone.x = Math.round(cx - s / 2);
+        zone.y = Math.round(cy - s / 2);
+        clampZoneToCamera(zone);
+    });
+
+    confDraw();
     emitConfChange();
 }
 

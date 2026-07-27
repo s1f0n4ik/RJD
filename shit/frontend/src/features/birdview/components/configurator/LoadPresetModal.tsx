@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useBackdropClose } from '../../hooks/useBackdropClose';
 import { PresetPreview } from './PresetPreview';
 import type { PresetPreviewData } from './PresetPreview';
 
@@ -24,6 +25,7 @@ interface LoadPresetModalProps {
 }
 
 export function LoadPresetModal({ dirty, onLoad, onClose }: LoadPresetModalProps) {
+    const backdrop = useBackdropClose(onClose);
     const [presets, setPresets] = useState<PresetSummary[] | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [selected, setSelected] = useState<string | null>(null);
@@ -99,7 +101,7 @@ export function LoadPresetModal({ dirty, onLoad, onClose }: LoadPresetModalProps
     };
 
     return (
-        <div className="modal-backdrop" onClick={onClose}>
+        <div className="modal-backdrop" {...backdrop}>
             <div className="modal-window modal-window--wide" onClick={e => e.stopPropagation()}>
                 <div className="modal-header">
                     <span className="modal-title">Загрузка конфигурации</span>

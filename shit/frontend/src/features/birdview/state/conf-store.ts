@@ -35,7 +35,12 @@ export interface ConfState {
     rotating: { id: string; type: ConfItemType } | null;
     resize: { id: string; type: ConfItemType; handle: HandleName } | null;
 
-    fixedZoneSize: { enabled: boolean; w: number; h: number };
+    /**
+     * Сторона квадрата разметки в пикселях поля, одна на все зоны.
+     * Разметка — физические маты одного размера, поэтому произвольных
+     * прямоугольников нет: из этой стороны и «Мат, м» выводится масштаб мира.
+     */
+    zoneSize: number;
     exportScale: number;
 
     view: { ox: number; oy: number; scale: number };
@@ -65,7 +70,7 @@ export const confState: ConfState = {
     rotating: null,
     resize: null,
 
-    fixedZoneSize: { enabled: false, w: 100, h: 100 },
+    zoneSize: 100,
     exportScale: 1,
 
     view: { ox: 0, oy: 0, scale: 1 },

@@ -1,3 +1,5 @@
+import { useBackdropClose } from '../../hooks/useBackdropClose';
+
 /** Модалка подтверждения в теме страницы. Разметка та же, что у остальных модалок. */
 
 interface ConfirmModalProps {
@@ -17,8 +19,9 @@ export function ConfirmModal({
     onConfirm,
     onCancel,
 }: ConfirmModalProps) {
+    const backdrop = useBackdropClose(onCancel);
     return (
-        <div className="modal-backdrop" onClick={onCancel}>
+        <div className="modal-backdrop" {...backdrop}>
             <div className="modal-window" onClick={e => e.stopPropagation()}>
                 <div className="modal-header">
                     <span className="modal-title">{title}</span>

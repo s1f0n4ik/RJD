@@ -7,10 +7,9 @@ import {
     confAddGabarit,
     confAddImageFile,
     confAddZone,
-    confToggleFixedZone,
     confUpdateField,
-    confUpdateFixedZone,
     confUpdateMachine,
+    confUpdateZoneSize,
 } from './conf-actions';
 import { CameraList } from './CameraList';
 import { ZoneList } from './ZoneList';
@@ -30,7 +29,6 @@ export function ConfiguratorPanel({ open, onOpenExport }: ConfiguratorPanelProps
     useConfStore();
 
     const f = confState.field;
-    const fixed = confState.fixedZoneSize;
 
     const handleAddZone = () => {
         const err = confAddZone();
@@ -147,35 +145,14 @@ export function ConfiguratorPanel({ open, onOpenExport }: ConfiguratorPanelProps
                         <span className="collapsible-arrow">›</span>
                     </summary>
                     <div className="conf-section-body">
-                        <label className="toggle-row" style={{ padding: '4px 0' }}>
-                            <span className="toggle-label">Фикс. размер</span>
-                            <input
-                                className="toggle-input"
-                                type="checkbox"
-                                checked={fixed.enabled}
-                                onChange={e => confToggleFixedZone(e.target.checked)}
-                            />
-                            <span className="toggle-track"><span className="toggle-thumb" /></span>
-                        </label>
-
-                        {fixed.enabled && (
-                            <div className="conf-fixed-zone-fields">
-                                <div className="field-row">
-                                    <NumberField
-                                        label="Ширина"
-                                        min={1}
-                                        value={fixed.w}
-                                        onCommit={v => confUpdateFixedZone({ w: v || 100 })}
-                                    />
-                                    <NumberField
-                                        label="Высота"
-                                        min={1}
-                                        value={fixed.h}
-                                        onCommit={v => confUpdateFixedZone({ h: v || 100 })}
-                                    />
-                                </div>
-                            </div>
-                        )}
+                        {/* Разметка — квадраты одного размера: физические маты.
+                            Смена стороны применяется ко всем зонам сразу */}
+                        <NumberField
+                            label="Размер разметки, px"
+                            min={1}
+                            value={confState.zoneSize}
+                            onCommit={v => confUpdateZoneSize(v || 100)}
+                        />
 
                         <ZoneList />
                         <button

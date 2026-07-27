@@ -155,6 +155,27 @@ namespace birdview {
 		bool get_surround(const std::string& export_id,
 			boost::json::object& out, std::string& error);
 
+		/*
+			Частичный мёрж top-блока. Работает только на активной версии
+			текущего поколения печки: на легаси v1 настроек top нет.
+			blend перепекает веса активной версии на месте, resolution
+			перезапускает вывод, остальное живой цикл применяет сам.
+		*/
+		bool set_top(const std::string& export_id,
+			const boost::json::object& payload, std::string& error);
+
+		// Действующий top-блок с дефолтами, версиями и доступностью пересчёта
+		bool get_top(const std::string& export_id,
+			boost::json::object& out, std::string& error);
+
+		// Смена активной версии карт; живой top-вывод перезапускается
+		bool set_top_version(const std::string& export_id,
+			const std::string& version, std::string& error);
+
+		// Полный пересчёт из пресета: src-точки -> remap + веса -> версия
+		// текущего поколения, она сразу активна. Синхронный, секунды
+		bool recalc_top(const std::string& export_id, std::string& error);
+
 		std::vector<FExportInfo> list_exports();
 		boost::json::object get_state_raw();
 
@@ -211,6 +232,8 @@ namespace birdview {
 
 		// Живые изменения surround: цикл забирает флаги и перечитывает конфиг
 		std::atomic<unsigned> m_surround_dirty{ 0 };
+		// То же для top: сцена, фотонормализация и перепечённые веса
+		std::atomic<unsigned> m_top_dirty{ 0 };
 		// Запрос смены режима орбиты от ручки: -1 нет, 0 авто, 1 ручной
 		std::atomic<int> m_surround_mode_request{ -1 };
 		// Позы последней печки, отдаются ручкой GET /linker/surround

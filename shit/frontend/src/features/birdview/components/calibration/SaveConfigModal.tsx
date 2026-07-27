@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useBackdropClose } from '../../hooks/useBackdropClose';
 import type { ConfigSummary } from './ConfigModal';
 
 /**
@@ -47,6 +48,7 @@ export function SaveConfigModal({
     onSubmit,
     onClose,
 }: SaveConfigModalProps) {
+    const backdrop = useBackdropClose(onClose);
     const taken = new Set(existing.map(c => c.config_key ?? c.id));
 
     const [key, setKey] = useState(() => suggestKey(cameraId, width, height, taken));
@@ -76,7 +78,7 @@ export function SaveConfigModal({
     };
 
     return (
-        <div className="modal-backdrop" onClick={onClose}>
+        <div className="modal-backdrop" {...backdrop}>
             <div className="modal-window" onClick={e => e.stopPropagation()}>
                 <div className="modal-header">
                     <span className="modal-title">Сохранение конфигурации</span>

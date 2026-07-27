@@ -79,6 +79,18 @@ public:
 		get_surround(const boost::beast::http::request<boost::beast::http::string_body>& req);
 
 	boost::beast::http::response<boost::beast::http::string_body>
+		post_top(const boost::beast::http::request<boost::beast::http::string_body>& req);
+
+	boost::beast::http::response<boost::beast::http::string_body>
+		get_top(const boost::beast::http::request<boost::beast::http::string_body>& req);
+
+	boost::beast::http::response<boost::beast::http::string_body>
+		post_top_version(const boost::beast::http::request<boost::beast::http::string_body>& req);
+
+	boost::beast::http::response<boost::beast::http::string_body>
+		post_recalc(const boost::beast::http::request<boost::beast::http::string_body>& req);
+
+	boost::beast::http::response<boost::beast::http::string_body>
 		get_presets(const boost::beast::http::request<boost::beast::http::string_body>& req);
 
 	boost::beast::http::response<boost::beast::http::string_body>

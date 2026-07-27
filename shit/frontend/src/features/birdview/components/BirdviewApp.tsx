@@ -48,6 +48,9 @@ function BirdviewContent() {
     const clientIdRef = useRef('web_' + Math.random().toString(16).slice(2, 10));
 
     const [camera, setCamera] = useState<CalibrationCamera | null>(null);
+    // Актуальная камера для колбэков, не завязанных на рендер
+    const cameraRef = useRef<CalibrationCamera | null>(null);
+    cameraRef.current = camera;
 
     // Состояние плеера поднято сюда ради пилюль в навбаре и сброса при смене камеры
     const [playerInfo, setPlayerInfo] = useState<PlayerStatusInfo>(IDLE_PLAYER);
@@ -84,7 +87,13 @@ function BirdviewContent() {
 
     streamIdRef.current = stream.streamId;
 
-    const correction = useCorrection({ ws, log: eventLog.log, onToast: toast });
+    const correction = useCorrection({
+        ws,
+        log: eventLog.log,
+        onToast: toast,
+        getCamera: () => cameraRef.current,
+        isStreamLive: () => Boolean(streamIdRef.current),
+    });
 
     // Камера до последней смены: если калибратор откажет, выбор надо вернуть
     const prevCameraRef = useRef<CalibrationCamera | null>(null);

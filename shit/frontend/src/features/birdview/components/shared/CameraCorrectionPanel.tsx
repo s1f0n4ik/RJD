@@ -1,5 +1,3 @@
-import { useEffect, useState } from 'react';
-import { fetchCalibrationCameras } from '../../api/cameras';
 import { CustomSelect } from '../common/CustomSelect';
 import type { SelectOption } from '../common/CustomSelect';
 import type { Correction } from '../../hooks/useCorrection';
@@ -28,6 +26,9 @@ interface CameraCorrectionPanelProps {
     stream: StreamControl;
     /** Основной WS не открыт — трогать поток бессмысленно. */
     disabled: boolean;
+    /** Список камер грузит владелец: он нужен и клику по месту пресета. */
+    cameras: CalibrationCamera[];
+    camerasError: boolean;
 }
 
 export function CameraCorrectionPanel({
@@ -36,24 +37,9 @@ export function CameraCorrectionPanel({
     correction,
     stream,
     disabled,
+    cameras,
+    camerasError,
 }: CameraCorrectionPanelProps) {
-    const [cameras, setCameras] = useState<CalibrationCamera[]>([]);
-    const [loadError, setLoadError] = useState(false);
-
-    useEffect(() => {
-        let alive = true;
-        fetchCalibrationCameras()
-            .then(list => {
-                if (alive) setCameras(list);
-            })
-            .catch(() => {
-                if (alive) setLoadError(true);
-            });
-        return () => {
-            alive = false;
-        };
-    }, []);
-
     const size = correction.selectedSize();
 
     const cameraOptions: SelectOption[] = cameras.map(c => ({
@@ -81,7 +67,7 @@ export function CameraCorrectionPanel({
                     <span className={`cc-lamp${camera ? ' on' : ''}`}>
                         <i />CAM
                     </span>
-                    <span className={`cc-lamp${correction.loadedKey ? ' on' : ''}`}>
+                    <span className={`cc-lamp${correction.ready ? ' on' : ''}`}>
                         <i />CFG
                     </span>
                     <span
@@ -136,7 +122,7 @@ export function CameraCorrectionPanel({
                 options={cameraOptions}
                 value={camera?.id ?? null}
                 placeholder="Выберите камеру"
-                emptyText={loadError ? 'Ошибка загрузки' : 'Нет доступных камер'}
+                emptyText={camerasError ? 'Ошибка загрузки' : 'Нет доступных камер'}
                 onChange={id => {
                     const found = cameras.find(c => c.id === id);
                     if (found) onSelectCamera(found);
@@ -152,19 +138,23 @@ export function CameraCorrectionPanel({
                 onChange={key => correction.select(key)}
             />
 
-            <label className="toggle-row">
-                <span className="toggle-label">Коррекция</span>
-                <input
-                    className="toggle-input"
-                    type="checkbox"
-                    checked={correction.enabled}
-                    disabled={disabled || !correction.loadedKey}
-                    onChange={e => correction.setEnabled(e.target.checked)}
-                />
-                <span className="toggle-track">
-                    <span className="toggle-thumb" />
-                </span>
-            </label>
+            {/* Пока коррекция на сервере не готова, переключать нечего —
+                тумблер скрыт, а не задизейблен */}
+            {correction.ready && (
+                <label className="toggle-row">
+                    <span className="toggle-label">Коррекция</span>
+                    <input
+                        className="toggle-input"
+                        type="checkbox"
+                        checked={correction.enabled}
+                        disabled={disabled}
+                        onChange={e => correction.setEnabled(e.target.checked)}
+                    />
+                    <span className="toggle-track">
+                        <span className="toggle-thumb" />
+                    </span>
+                </label>
+            )}
         </section>
     );
 }

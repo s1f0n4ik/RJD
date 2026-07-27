@@ -312,6 +312,31 @@ namespace birdview {
 			cv::Mat R, tvec;
 			double reproj = 0.0, height = 0.0;
 
+			/*
+				PnP считается всегда, даже под ручным оверрайдом: расчётная
+				поза - база, к которой форма настроек откатывает отдельные
+				поля. Ошибка репроекции тоже всегда расчётная - у ручной позы
+				своей метрики качества нет.
+			*/
+			cv::Mat R_pnp, t_pnp;
+			bool pnp_ok = false;
+			{
+				cv::Mat rvec;
+				if (cv::solvePnP(object_points, image_points, calib.new_K, cv::Mat(),
+					rvec, t_pnp, false, cv::SOLVEPNP_IPPE)) {
+					cv::Rodrigues(rvec, R_pnp);
+					pnp_ok = true;
+
+					std::vector<cv::Point2f> reprojected;
+					cv::projectPoints(object_points, rvec, t_pnp, calib.new_K, cv::Mat(), reprojected);
+					double err_sum = 0.0;
+					for (size_t i = 0; i < reprojected.size(); ++i) {
+						err_sum += cv::norm(reprojected[i] - image_points[i]);
+					}
+					reproj = err_sum / reprojected.size();
+				}
+			}
+
 			const auto* ov = overrides.if_contains(place_key);
 			if (ov && ov->is_object()) {
 				// Ручная поза вместо PnP: позиция в метрах от центра габарита,
@@ -360,26 +385,17 @@ namespace birdview {
 					+ " manual extrinsics, height=" + std::to_string(height) + " m");
 			}
 			else {
-				// Поза по плоским точкам: точки в исправленном кадре, дисторсия нулевая
-				cv::Mat rvec;
-				if (!cv::solvePnP(object_points, image_points, calib.new_K, cv::Mat(),
-					rvec, tvec, false, cv::SOLVEPNP_IPPE)) {
+				// Расчётная поза и есть действующая
+				if (!pnp_ok) {
 					error = "solvePnP failed for <" + place_key + ">";
 					return false;
 				}
-				cv::Rodrigues(rvec, R);
+				R = R_pnp;
+				tvec = t_pnp;
 
 				// Позиция камеры в мире, высота — мгновенная проверка позы глазами
 				cv::Mat C = -R.t() * tvec;
 				height = C.at<double>(1);
-
-				std::vector<cv::Point2f> reprojected;
-				cv::projectPoints(object_points, rvec, tvec, calib.new_K, cv::Mat(), reprojected);
-				double err_sum = 0.0;
-				for (size_t i = 0; i < reprojected.size(); ++i) {
-					err_sum += cv::norm(reprojected[i] - image_points[i]);
-				}
-				reproj = err_sum / reprojected.size();
 
 				if (m_logger) m_logger->info("bake(): <" + place_key + "> camera=" + camera_id
 					+ " reproj=" + std::to_string(reproj) + " px"
@@ -405,28 +421,42 @@ namespace birdview {
 			pose.region = { (rcx - cx) * scale, (rcy - cy) * scale };
 			poses.push_back(std::move(pose));
 
-			// Действующая поза для формы: позиция из C, углы обратно из R
-			FSurroundBakedCamera baked;
-			baked.place_key = place_key;
-			baked.camera_id = camera_id;
-			baked.reprojection_error = reproj;
-			baked.camera_height = height;
-			baked.manual = ov && ov->is_object();
-			{
-				cv::Mat C = -R.t() * tvec;
-				for (int i = 0; i < 3; ++i) baked.position[i] = C.at<double>(i);
+			// Разбор позы для формы: позиция из C, углы обратно из R
+			auto pose_out = [](const cv::Mat& Rm, const cv::Mat& tm,
+				double pos[3], double& o_yaw, double& o_pitch, double& o_roll) {
+				cv::Mat C = -Rm.t() * tm;
+				for (int i = 0; i < 3; ++i) pos[i] = C.at<double>(i);
 
-				const cv::Vec3d fwd(R.at<double>(2, 0), R.at<double>(2, 1), R.at<double>(2, 2));
-				baked.yaw = std::atan2(fwd[0], fwd[2]) * 180.0 / CV_PI;
-				baked.pitch = std::asin(std::clamp(-fwd[1], -1.0, 1.0)) * 180.0 / CV_PI;
+				const cv::Vec3d fwd(Rm.at<double>(2, 0), Rm.at<double>(2, 1), Rm.at<double>(2, 2));
+				o_yaw = std::atan2(fwd[0], fwd[2]) * 180.0 / CV_PI;
+				o_pitch = std::asin(std::clamp(-fwd[1], -1.0, 1.0)) * 180.0 / CV_PI;
 
 				// Крен: отклонение реального "право" от безкренового базиса
 				cv::Vec3d right0 = fwd.cross(cv::Vec3d(0, 1, 0));
 				if (cv::norm(right0) < 1e-6) right0 = cv::Vec3d(-1, 0, 0);
 				right0 = right0 / cv::norm(right0);
 				const cv::Vec3d down0 = fwd.cross(right0);
-				const cv::Vec3d right(R.at<double>(0, 0), R.at<double>(0, 1), R.at<double>(0, 2));
-				baked.roll = std::atan2(right.dot(down0), right.dot(right0)) * 180.0 / CV_PI;
+				const cv::Vec3d right(Rm.at<double>(0, 0), Rm.at<double>(0, 1), Rm.at<double>(0, 2));
+				o_roll = std::atan2(right.dot(down0), right.dot(right0)) * 180.0 / CV_PI;
+			};
+
+			FSurroundBakedCamera baked;
+			baked.place_key = place_key;
+			baked.camera_id = camera_id;
+			baked.reprojection_error = reproj;
+			baked.camera_height = height;
+			baked.manual = ov && ov->is_object();
+			pose_out(R, tvec, baked.position, baked.yaw, baked.pitch, baked.roll);
+			if (pnp_ok) {
+				pose_out(R_pnp, t_pnp, baked.pnp_position,
+					baked.pnp_yaw, baked.pnp_pitch, baked.pnp_roll);
+			}
+			else {
+				// PnP не сошёлся: база сброса равна действующей позе
+				for (int i = 0; i < 3; ++i) baked.pnp_position[i] = baked.position[i];
+				baked.pnp_yaw = baked.yaw;
+				baked.pnp_pitch = baked.pitch;
+				baked.pnp_roll = baked.roll;
 			}
 			out.cameras.push_back(std::move(baked));
 		}

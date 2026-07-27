@@ -57,10 +57,10 @@ export function CustomSelect({
                 className="custom-select-trigger"
                 onClick={e => {
                     e.stopPropagation();
-                    setOpen(v => {
-                        if (!v) onOpen?.();
-                        return !v;
-                    });
+                    // Вне апдейтера: StrictMode прогоняет апдейтеры дважды,
+                    // и запрос списка уходил в два экземпляра
+                    if (!open) onOpen?.();
+                    setOpen(!open);
                 }}
             >
                 <span className={`custom-select-label${selected ? ' selected' : ''}`}>

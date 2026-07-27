@@ -19,17 +19,21 @@ interface PlanViewProps {
     onAssign: (key: string, cameraId: string | null) => void;
 }
 
+// Ширина пикера из темы: нужна для зажима позиции в границы схемы
+const PICKER_W = 230;
+
 export function PlanView({ geometry, bindings, cameras, locked, onAssign }: PlanViewProps) {
-    const [openKey, setOpenKey] = useState<string | null>(null);
+    // Пикер открывается у точки клика, а не по центру сцены
+    const [openAt, setOpenAt] = useState<{ key: string; x: number; y: number } | null>(null);
     const hostRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
-        if (!openKey) return;
+        if (!openAt) return;
         const onOutside = (e: MouseEvent) => {
-            if (!hostRef.current?.contains(e.target as Node)) setOpenKey(null);
+            if (!hostRef.current?.contains(e.target as Node)) setOpenAt(null);
         };
         const onEsc = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') setOpenKey(null);
+            if (e.key === 'Escape') setOpenAt(null);
         };
         document.addEventListener('mousedown', onOutside);
         document.addEventListener('keydown', onEsc);
@@ -37,14 +41,35 @@ export function PlanView({ geometry, bindings, cameras, locked, onAssign }: Plan
             document.removeEventListener('mousedown', onOutside);
             document.removeEventListener('keydown', onEsc);
         };
-    }, [openKey]);
+    }, [openAt]);
 
     useEffect(() => {
-        if (locked) setOpenKey(null);
+        if (locked) setOpenAt(null);
     }, [locked]);
 
+    /** Точка клика в координатах контейнера, зажатая так, чтобы пикер поместился. */
+    const pickerPos = (clientX: number, clientY: number) => {
+        const host = hostRef.current?.getBoundingClientRect();
+        if (!host) return { x: 8, y: 8 };
+        const x = Math.max(8, Math.min(clientX - host.left, host.width - PICKER_W - 8));
+        const y = Math.max(8, Math.min(clientY - host.top, host.height - 280));
+        return { x, y };
+    };
+
+    const togglePicker = (key: string, clientX?: number, clientY?: number) => {
+        setOpenAt(prev => {
+            if (prev?.key === key) return null;
+            // Клавиатура координат не даёт — пикер встаёт по центру
+            const host = hostRef.current?.getBoundingClientRect();
+            const pos = clientX !== undefined && clientY !== undefined
+                ? pickerPos(clientX, clientY)
+                : { x: ((host?.width ?? 0) - PICKER_W) / 2, y: (host?.height ?? 0) * 0.3 };
+            return { key, ...pos };
+        });
+    };
+
     const nameOf = (id: string) => cameras.find(c => c.id === id)?.display_name ?? id;
-    const open = geometry.tiles.find(t => t.key === openKey) ?? null;
+    const open = geometry.tiles.find(t => t.key === openAt?.key) ?? null;
 
     // Отправная точка кегля: канвасы бывают и 570, и 1850 в стороне, и
     // фиксированный размер в одном случае теряется, в другом закрывает всё
@@ -164,18 +189,18 @@ export function PlanView({ geometry, bindings, cameras, locked, onAssign }: Plan
                             className={
                                 'plan-place' +
                                 (camera ? ' assigned' : '') +
-                                (openKey === t.key ? ' active' : '') +
+                                (openAt?.key === t.key ? ' active' : '') +
                                 (locked ? ' locked' : '')
                             }
                             tabIndex={locked ? -1 : 0}
                             role="button"
                             aria-label={`Место ${t.name}`}
-                            onClick={() => !locked && setOpenKey(k => (k === t.key ? null : t.key))}
+                            onClick={e => !locked && togglePicker(t.key, e.clientX, e.clientY)}
                             onKeyDown={e => {
                                 if (locked) return;
                                 if (e.key === 'Enter' || e.key === ' ') {
                                     e.preventDefault();
-                                    setOpenKey(k => (k === t.key ? null : t.key));
+                                    togglePicker(t.key);
                                 }
                             }}
                         >
@@ -210,19 +235,27 @@ export function PlanView({ geometry, bindings, cameras, locked, onAssign }: Plan
                 })}
             </svg>
 
-            {open && !locked && (
+            {open && openAt && !locked && (
                 <PlacePicker
                     title={open.name}
                     cameras={cameras}
                     bindings={bindings}
                     placeKey={open.key}
+                    position={{ left: openAt.x, top: openAt.y }}
                     onPick={id => {
                         onAssign(open.key, id);
-                        setOpenKey(null);
+                        setOpenAt(null);
                     }}
                 />
             )}
 
+            {locked && (
+                <div className="plan-lock">
+                    Вывод в эфире — назначение камер заблокировано.
+                    <br />
+                    Остановите вывод, чтобы изменить привязки
+                </div>
+            )}
         </div>
     );
 }
@@ -232,19 +265,18 @@ interface PlacePickerProps {
     placeKey: string;
     cameras: LinkerCamera[];
     bindings: LinkerBindings;
+    /** Точка клика в координатах контейнера, уже зажатая в его границы. */
+    position: { left: number; top: number };
     onPick: (cameraId: string | null) => void;
 }
 
-/**
- * Список камер для места. Выпадает по центру сцены, а не у самого места:
- * места бывают у самого края, и всплывающий список там пришлось бы поджимать.
- */
-function PlacePicker({ title, placeKey, cameras, bindings, onPick }: PlacePickerProps) {
+/** Список камер для места. Выпадает у точки клика по месту. */
+function PlacePicker({ title, placeKey, cameras, bindings, position, onPick }: PlacePickerProps) {
     const takenBy = (id: string) =>
         Object.entries(bindings).find(([key, cam]) => cam === id && key !== placeKey)?.[0];
 
     return (
-        <div className="plan-picker" role="menu" onClick={e => e.stopPropagation()}>
+        <div className="plan-picker" role="menu" style={position} onClick={e => e.stopPropagation()}>
             <div className="plan-picker-head">{title}</div>
 
             {cameras.length === 0 ? (

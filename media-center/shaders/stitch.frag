@@ -13,6 +13,10 @@ uniform sampler2D u_plane_uv;  // NV12 UV (interleaved)
 
 uniform int u_has_frame;
 
+// Фотонормализация: усиление RGB камеры, выравнивает яркость на швах
+// Задаётся на каждый проход камеры, дефолта у uniform нет
+uniform vec3 u_gain;
+
 void main() {
     if (u_has_frame == 0) {
         frag = vec4(0.0);
@@ -41,5 +45,5 @@ void main() {
     float g = y - 0.344136 * u - 0.714136 * v;
     float b = y + 1.772    * u;
 
-    frag = vec4(vec3(r, g, b) * w, w);
+    frag = vec4(vec3(r, g, b) * u_gain * w, w);
 }

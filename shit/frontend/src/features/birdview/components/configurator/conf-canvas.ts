@@ -385,16 +385,8 @@ function drawSelection(c: CanvasRenderingContext2D): void {
         c.strokeRect(-w / 2, -h / 2, w, h);
         c.setLineDash([]);
 
-        // 8 handle
-        const handles: Array<[number, number]> = [
-            [-w / 2, -h / 2], [0, -h / 2], [w / 2, -h / 2],
-            [-w / 2, 0], [w / 2, 0],
-            [-w / 2, h / 2], [0, h / 2], [w / 2, h / 2],
-        ];
-        c.fillStyle = CANVAS_COLORS.accent;
-        for (const [px, py] of handles) {
-            c.fillRect(px - hs, py - hs, hs * 2, hs * 2);
-        }
+        // Ручек размера у разметки нет: сторона квадрата общая,
+        // меняется полем «Размер разметки» в панели
 
         // Handle поворота — круг сверху на ножке
         const stalkLen = 24 * dpr;

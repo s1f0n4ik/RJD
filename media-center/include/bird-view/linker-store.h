@@ -96,10 +96,28 @@ namespace birdview {
 
 		std::optional<boost::json::object> read_surround_cfg(const std::string& export_id) const;
 
+		std::optional<boost::json::object> read_top_cfg(const std::string& export_id) const;
+
 		// Мёрж surround-блока записи: чтение, правка и запись под одним замком
 		bool mutate_surround_block(const std::string& export_id,
 			const std::function<bool(boost::json::object&, std::string&)>& mutate,
 			std::string& error);
+
+		// Мёрж top-блока; блока может ещё не быть - он заводится на месте
+		bool mutate_top_block(const std::string& export_id,
+			const std::function<bool(boost::json::object&, std::string&)>& mutate,
+			std::string& error);
+
+		// Правка записи целиком: смена активной версии и прочие поля корня
+		bool mutate_export_entry(const std::string& export_id,
+			const std::function<bool(boost::json::object&, std::string&)>& mutate,
+			std::string& error);
+
+		// Замок индекса для печки, пишущей файл напрямую: пересчёт и
+		// перепечка весов не должны рвать параллельные мёржи ручек
+		std::unique_lock<std::mutex> lock_exports() const {
+			return std::unique_lock<std::mutex>(m_exports_mutex);
+		}
 
 		// Удаление записи из индекса; отсутствие записи или индекса - ошибка
 		bool erase_export_entry(const std::string& export_id, std::string& error);

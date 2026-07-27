@@ -208,6 +208,23 @@ export async function importPreset(preset: PresetJson): Promise<ImportResult> {
     confState.cameras = cameras;
     confState.zones = zones;
     confState.images = images;
+
+    /*
+        Разметка всегда квадратная и одного размера. Пресеты старше этого
+        правила могли нести прямоугольники: общий размер берётся из первой
+        зоны, остальные приводятся к нему вокруг своих центров.
+    */
+    if (zones.length) {
+        confState.zoneSize = Math.max(1, Math.round(zones[0].w));
+        zones.forEach(zone => {
+            const cx = zone.x + zone.w / 2;
+            const cy = zone.y + zone.h / 2;
+            zone.w = confState.zoneSize;
+            zone.h = confState.zoneSize;
+            zone.x = Math.round(cx - confState.zoneSize / 2);
+            zone.y = Math.round(cy - confState.zoneSize / 2);
+        });
+    }
     confState.selected = null;
     confState.dragging = null;
     confState.rotating = null;

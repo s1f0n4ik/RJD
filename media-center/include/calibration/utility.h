@@ -56,6 +56,11 @@ namespace utility {
 		std::string key;    // Ключ камеры
 		std::string name;   // Отображаемое имя камеры
 
+		// id физической камеры, чей кадр размечали; пишется вместе с точками
+		std::string camera_id;
+		// Ключ конфигурации калибровки, с которой размечали; пусто - без неё
+		std::string calibration_key;
+
 		std::vector<cv::Point2f> src_points;     // Координаты точек на изображении
 		std::vector<cv::Point2f> dst_points;     // Координаты точек внутри roi канваса
 		std::vector<cv::Point2f> canvas_region;

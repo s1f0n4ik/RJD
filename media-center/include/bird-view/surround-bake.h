@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "logger.h"
+#include "bird-view/photometric.h"
 
 namespace varan {
 namespace birdview {
@@ -52,21 +53,22 @@ namespace birdview {
 		double yaw = 0.0;
 		double pitch = 0.0;
 		double roll = 0.0;
+		// Расчётная PnP-поза считается всегда, даже при ручном оверрайде:
+		// к ней откатывают отдельные поля формы
+		double pnp_position[3] = { 0.0, 0.0, 0.0 };
+		double pnp_yaw = 0.0;
+		double pnp_pitch = 0.0;
+		double pnp_roll = 0.0;
 	};
 
 	// На вершину чаши 3 float на камеру: u, v, вес. Камер сколько угодно,
 	// рендер идёт по проходу на камеру в накопительный буфер
 	inline constexpr int SURROUND_ATTR_STRIDE = 3;
 
-	// Точки одной земли глазами двух соседних камер, вход фотонормализации
-	// uv - по паре нормированных координат на точку: ua, va, ub, vb
-	struct FSurroundPhotoPair {
-		int cam_a = 0;
-		int cam_b = 0;
-		std::vector<std::array<float, 4>> uv;
-	};
+	// Пары точек фотонормализации теперь общие для top и surround
+	using FSurroundPhotoPair = FPhotoPair;
 
-	inline constexpr int SURROUND_PHOTO_SAMPLES = 256;
+	inline constexpr int SURROUND_PHOTO_SAMPLES = PHOTO_SAMPLES;
 
 	struct FSurroundBake {
 		FSurroundMachine machine;

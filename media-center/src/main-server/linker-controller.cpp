@@ -405,6 +405,151 @@ ULinkerController::get_surround(const http::request<http::string_body>& req)
     return json_ok(m_logger, req, body, tag);
 }
 
+// ─── POST /linker/top ───────────────────────────────────────
+http::response<http::string_body>
+ULinkerController::post_top(const http::request<http::string_body>& req)
+{
+    const std::string tag = "POST /linker/top";
+    log_request(m_logger, req, tag);
+
+    std::string export_id;
+    boost::json::object payload;
+
+    try {
+        auto v = boost::json::parse(req.body());
+        if (!v.is_object()) {
+            return json_error(m_logger, req, http::status::bad_request, "body must be object", tag);
+        }
+        payload = v.as_object();
+
+        // Без export_id правим активную конфигурацию
+        if (auto* e = payload.if_contains("export_id"); e && e->is_string()) {
+            export_id = e->as_string().c_str();
+        }
+    }
+    catch (const std::exception& e) {
+        return json_error(m_logger, req, http::status::bad_request, e.what(), tag);
+    }
+
+    std::string error;
+    if (!m_linker->set_top(export_id, payload, error)) {
+        return json_error(m_logger, req, http::status::bad_request, error, tag);
+    }
+
+    boost::json::object data;
+    data["export_id"] = export_id.empty() ? m_linker->get_active_export_id() : export_id;
+
+    boost::json::object body;
+    body["data"] = std::move(data);
+    return json_ok(m_logger, req, body, tag);
+}
+
+// ─── GET /linker/top?id=XXX ─────────────────────────────────
+http::response<http::string_body>
+ULinkerController::get_top(const http::request<http::string_body>& req)
+{
+    const std::string tag = "GET /linker/top";
+    log_request(m_logger, req, tag);
+
+    // Без id отдаётся активная конфигурация
+    std::string export_id;
+    if (auto id = get_query_param(std::string(req.target()), "id"); id && !id->empty()) {
+        export_id = *id;
+    }
+
+    std::string error;
+    boost::json::object data;
+    if (!m_linker->get_top(export_id, data, error)) {
+        return json_error(m_logger, req, http::status::not_found, error, tag);
+    }
+
+    boost::json::object body;
+    body["data"] = std::move(data);
+    return json_ok(m_logger, req, body, tag);
+}
+
+// ─── POST /linker/top-version ───────────────────────────────
+http::response<http::string_body>
+ULinkerController::post_top_version(const http::request<http::string_body>& req)
+{
+    const std::string tag = "POST /linker/top-version";
+    log_request(m_logger, req, tag);
+
+    std::string export_id, version;
+
+    try {
+        auto v = boost::json::parse(req.body());
+        if (!v.is_object()) {
+            return json_error(m_logger, req, http::status::bad_request, "body must be object", tag);
+        }
+        const auto& obj = v.as_object();
+
+        if (auto* p = obj.if_contains("version"); p && p->is_string()) {
+            version = p->as_string().c_str();
+        }
+        else {
+            return json_error(m_logger, req, http::status::bad_request, "missing version", tag);
+        }
+        if (auto* e = obj.if_contains("export_id"); e && e->is_string()) {
+            export_id = e->as_string().c_str();
+        }
+    }
+    catch (const std::exception& e) {
+        return json_error(m_logger, req, http::status::bad_request, e.what(), tag);
+    }
+
+    std::string error;
+    if (!m_linker->set_top_version(export_id, version, error)) {
+        return json_error(m_logger, req, http::status::bad_request, error, tag);
+    }
+
+    boost::json::object data;
+    data["version"] = version;
+    data["export_id"] = export_id.empty() ? m_linker->get_active_export_id() : export_id;
+
+    boost::json::object body;
+    body["data"] = std::move(data);
+    return json_ok(m_logger, req, body, tag);
+}
+
+// ─── POST /linker/recalc ────────────────────────────────────
+http::response<http::string_body>
+ULinkerController::post_recalc(const http::request<http::string_body>& req)
+{
+    const std::string tag = "POST /linker/recalc";
+    log_request(m_logger, req, tag);
+
+    std::string export_id;
+
+    try {
+        // Тело необязательно: без export_id пересчитывается активная
+        if (!req.body().empty()) {
+            auto v = boost::json::parse(req.body());
+            if (v.is_object()) {
+                if (auto* e = v.as_object().if_contains("export_id"); e && e->is_string()) {
+                    export_id = e->as_string().c_str();
+                }
+            }
+        }
+    }
+    catch (const std::exception& e) {
+        return json_error(m_logger, req, http::status::bad_request, e.what(), tag);
+    }
+
+    // Синхронный пересчёт на несколько секунд: фронт держит спиннер
+    std::string error;
+    if (!m_linker->recalc_top(export_id, error)) {
+        return json_error(m_logger, req, http::status::bad_request, error, tag);
+    }
+
+    boost::json::object data;
+    data["export_id"] = export_id.empty() ? m_linker->get_active_export_id() : export_id;
+
+    boost::json::object body;
+    body["data"] = std::move(data);
+    return json_ok(m_logger, req, body, tag);
+}
+
 // ─── DELETE /linker/export?id=XXX ───────────────────────────
 http::response<http::string_body>
 ULinkerController::delete_export(const http::request<http::string_body>& req)
@@ -755,9 +900,52 @@ ULinkerController::post_exports(const http::request<http::string_body>& req)
             if (parsed.is_object()) index = parsed.as_object();
         }
 
-        // Мержим
-        for (const auto& [key, val] : config_obj) {
-            index[key] = val;
+        /*
+            Мёрж с переносом разметки. Конфигуратор владеет геометрией пресета,
+            но ничего не знает про src-точки и привязки камер со страницы
+            сборки: его payload несёт пустые src_points. Замена записи целиком
+            стирала бы разметку при каждом пересохранении пресета.
+        */
+        for (auto& kv : config_obj) {
+            const std::string key(kv.key());
+
+            const auto* old_entry = index.if_contains(key);
+            if (old_entry && old_entry->is_object() && kv.value().is_object()) {
+                auto& new_obj = kv.value().as_object();
+                const auto& old_obj = old_entry->as_object();
+                const auto* old_cams_v = old_obj.if_contains("cameras");
+                auto* new_cams_v = new_obj.if_contains("cameras");
+                if (old_cams_v && old_cams_v->is_object()
+                    && new_cams_v && new_cams_v->is_object()) {
+                    const auto& old_cams = old_cams_v->as_object();
+                    for (auto& cam_kv : new_cams_v->as_object()) {
+                        const auto* old_cam_v = old_cams.if_contains(cam_kv.key());
+                        if (!old_cam_v || !old_cam_v->is_object()
+                            || !cam_kv.value().is_object()) continue;
+                        auto& new_cam = cam_kv.value().as_object();
+                        const auto& old_cam = old_cam_v->as_object();
+
+                        const auto* sp = new_cam.if_contains("src_points");
+                        if (!sp || !sp->is_array() || sp->as_array().empty()) {
+                            if (const auto* osp = old_cam.if_contains("src_points")) {
+                                new_cam["src_points"] = *osp;
+                            }
+                        }
+                        if (!new_cam.contains("camera_id")) {
+                            if (const auto* oid = old_cam.if_contains("camera_id")) {
+                                new_cam["camera_id"] = *oid;
+                            }
+                        }
+                        if (!new_cam.contains("calibration")) {
+                            if (const auto* oc = old_cam.if_contains("calibration")) {
+                                new_cam["calibration"] = *oc;
+                            }
+                        }
+                    }
+                }
+            }
+
+            index[key] = kv.value();
         }
 
         // Записываем

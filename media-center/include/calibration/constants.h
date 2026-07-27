@@ -211,6 +211,7 @@ namespace constants {
 	inline const std::string METHOD_PROJECTION_SET_PRESET = "set_preset";         // set_preset
 	inline const std::string METHOD_PROJECTION_APPLY_WARP = "apply_warp";         // apply_warp
 	inline const std::string METHOD_PROJECTION_SAVE_LUT = "save_lut";             // save_lut
+	inline const std::string METHOD_PROJECTION_RESET_WARP = "reset_warp";         // reset_warp
 
 	inline const  std::string META_PROJECTION_CONFIG_KEY = "config_key";         // config_key
 	inline const  std::string META_PROJECTION_METHOD = "method";                 // method

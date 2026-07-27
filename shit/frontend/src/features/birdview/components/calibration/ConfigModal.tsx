@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useBackdropClose } from '../../hooks/useBackdropClose';
 import { fetchCameraNames } from '../../api/cameras';
 
 /** Модалка загрузки конфигураций калибровки. Порт config.js и loadConfigModal. */
@@ -48,6 +49,7 @@ export function ConfigModal({
     onLoad,
     onClose,
 }: ConfigModalProps) {
+    const backdrop = useBackdropClose(onClose);
     const [names, setNames] = useState<Record<string, string>>({});
 
     useEffect(() => {
@@ -61,7 +63,7 @@ export function ConfigModal({
     }, []);
 
     return (
-        <div className="modal-backdrop" onClick={onClose}>
+        <div className="modal-backdrop" {...backdrop}>
             <div className="modal-window modal-window--wide" onClick={e => e.stopPropagation()}>
                 <div className="modal-header">
                     <span className="modal-title">Конфигурации калибровки</span>

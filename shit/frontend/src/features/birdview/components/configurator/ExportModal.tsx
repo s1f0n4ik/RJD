@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useBackdropClose } from '../../hooks/useBackdropClose';
 import { confState } from '../../state/conf-store';
 import { useToast } from '../common/Toast';
 import { buildExportJson, formatExportJson, saveExport } from './conf-export';
@@ -10,6 +11,7 @@ interface ExportModalProps {
 }
 
 export function ExportModal({ onClose }: ExportModalProps) {
+    const backdrop = useBackdropClose(onClose);
     // Предзаполнение загруженным пресетом: сохранение перезапишет его
     const [id, setId] = useState(confState.presetId);
     const [name, setName] = useState(confState.presetName);
@@ -44,7 +46,7 @@ export function ExportModal({ onClose }: ExportModalProps) {
     };
 
     return (
-        <div className="modal-backdrop" onClick={onClose}>
+        <div className="modal-backdrop" {...backdrop}>
             <div className="modal-window modal-window--wide" onClick={e => e.stopPropagation()}>
                 <div className="modal-header">
                     <span className="modal-title">Экспорт конфигурации</span>

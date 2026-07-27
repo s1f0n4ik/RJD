@@ -152,14 +152,14 @@ export function attachConfInteract(canvas: HTMLCanvasElement, opts: AttachOption
 
         const p = clampToRect(snapPoint(canvasToWorld(e.clientX, e.clientY)), drawBounds);
 
-        // Фиксированный размер — область не растягивают, её ставят одним кликом
-        if (tool === 'zone' && confState.fixedZoneSize.enabled && drawCameraId) {
-            const fz = confState.fixedZoneSize;
+        // Разметка всегда фиксированный квадрат — её ставят одним кликом
+        if (tool === 'zone' && drawCameraId) {
+            const s = confState.zoneSize;
             confCreateZoneFromRect(drawCameraId, {
-                x: p.x - fz.w / 2,
-                y: p.y - fz.h / 2,
-                w: fz.w,
-                h: fz.h,
+                x: p.x - s / 2,
+                y: p.y - s / 2,
+                w: s,
+                h: s,
             });
             drawBounds = null;
             drawCameraId = null;
@@ -472,7 +472,8 @@ function hitHandle(
         ly = cy + dx * Math.sin(rad) + dy * Math.cos(rad);
     }
 
-    // Handle поворота — только у зон
+    // Handle поворота — только у зон; ручек размера у них нет вовсе:
+    // сторона квадрата общая и меняется полем в панели
     if (type === 'zone') {
         const stalkWorld = ROTATION_STALK / confState.view.scale;
         const rotHx = item.x + item.w / 2;
@@ -480,6 +481,7 @@ function hitHandle(
         if (Math.abs(lx - rotHx) <= hitR * 1.5 && Math.abs(ly - rotHy) <= hitR * 1.5) {
             return 'rotate';
         }
+        return null;
     }
 
     const handles: Array<{ name: HandleName; hx: number; hy: number }> = [
@@ -506,7 +508,8 @@ function applyResize(
     wx: number,
     wy: number,
 ): void {
-    if (type === 'zone' && confState.fixedZoneSize.enabled) return;
+    // Размер разметки общий и меняется только полем в панели
+    if (type === 'zone') return;
 
     const nx = snap(wx);
     const ny = snap(wy);

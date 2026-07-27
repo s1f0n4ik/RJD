@@ -130,31 +130,8 @@ namespace calibration {
 			const std::vector<cv::Point2f>& normalized_src_points
 		);
 
-		bool build_warp_remap(
-			const std::vector<cv::Point2f>& src_points,
-			const std::vector<cv::Point2f>& dst_points,
-			const cv::Size& canvas_size,
-			cv::Mat& out_map_x,
-			cv::Mat& out_map_y,
-			std::string& error
-		);
-
-		bool build_warp_extras(
-			const std::string& camera_key,
-			const cv::Mat& map_x,
-			const cv::Mat& map_y,
-			const cv::Size& snapshot_size,
-			const std::vector<cv::Point2f>& canvas_region,
-			const std::vector<cv::Point2f>& dst_points
-		);
-
-		bool compose_remap_to_raw(
-			const cv::Mat& warp_x, const cv::Mat& warp_y,
-			const cv::Mat& undist_x, const cv::Mat& undist_y,
-			const cv::Size& raw_size,
-			cv::Mat& out_remap_32fc2,
-			std::string& error
-		);
+		// Секторные веса превью для всех камер с warp; лок пресета берёт вызывающий
+		bool rebuild_warp_extras();
 
 		bool save_stitching_export(
 			const std::filesystem::path& export_root,
@@ -197,6 +174,9 @@ namespace calibration {
 
 		FUndistortMaps m_undistort;
 		std::mutex m_undistort_mutex;
+		// Ключ конфигурации последнего load; ручной пересчёт коррекции его
+		// стирает - картам он больше не соответствует
+		std::string m_loaded_calibration_key;
 		std::atomic<bool> m_use_panorama_remap{false};
 		std::atomic<bool> m_apply_undistort{false};
 
@@ -221,8 +201,7 @@ namespace calibration {
 		cv::Mat m_canvas;
 
 		struct FWarpExtras {
-			cv::Mat mask;    // CV_8UC1, canvas size, 0/255
-			cv::Mat weight;  // CV_32FC1, canvas size, distance transform внутри маски
+			cv::Mat weight;  // CV_32FC1, canvas size, секторные веса 0..1
 		};
 		std::unordered_map<std::string, FWarpExtras> m_warp_extras;
 

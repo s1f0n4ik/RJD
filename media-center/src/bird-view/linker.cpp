@@ -1,6 +1,7 @@
 #include "bird-view/linker.h"
 #include "bird-view/output-mode.h"
 #include "bird-view/top-output.h"
+#include "bird-view/top-bake.h"
 #include "bird-view/surround-output.h"
 #include "bird-view/surround-camera.h"
 #include "bird-view/egl-context.h"
@@ -11,6 +12,9 @@
 #include <opencv2/opencv.hpp>
 
 #include <algorithm>
+#include <cmath>
+#include <fstream>
+#include <sstream>
 
 namespace calib_consts = varan::calibration::constants;
 
@@ -551,6 +555,23 @@ namespace birdview {
 				continue;
 			}
 
+			if (key == "calibration") {
+				// Карта camera_id - ключ записи калибровки; раньше её можно
+				// было завести только правкой файла руками
+				if (!kv.value().is_object()) {
+					error = key + " must be an object";
+					return false;
+				}
+				for (const auto& sub : kv.value().as_object()) {
+					if (!sub.value().is_string()) {
+						error = "calibration values must be strings";
+						return false;
+					}
+				}
+				dirty |= SURROUND_DIRTY_BAKE;
+				continue;
+			}
+
 			if (is_surround_group(key)) {
 				if (!kv.value().is_object()) {
 					error = key + " must be an object";
@@ -712,6 +733,7 @@ namespace birdview {
 
 		out["export_id"] = target;
 		if (auto* p = cfg.if_contains("preset")) out["preset"] = *p;
+		if (auto* c = cfg.if_contains("calibration")) out["calibration"] = *c;
 		out["machine"] = std::move(machine);
 		out["bowl"] = std::move(bowl);
 		out["orbit"] = std::move(orbit);
@@ -740,11 +762,491 @@ namespace birdview {
 					o["yaw"] = c.yaw;
 					o["pitch"] = c.pitch;
 					o["roll"] = c.roll;
+					// Расчётная база: к ней форма откатывает отдельные поля
+					o["pnp_position"] = boost::json::array{
+						c.pnp_position[0], c.pnp_position[1], c.pnp_position[2] };
+					o["pnp_yaw"] = c.pnp_yaw;
+					o["pnp_pitch"] = c.pnp_pitch;
+					o["pnp_roll"] = c.pnp_roll;
 					cams.push_back(std::move(o));
 				}
 			}
 		}
 		out["cameras"] = std::move(cams);
+		return true;
+	}
+
+	namespace {
+
+		// Правила полей ручки /linker/top: та же таблица, что у surround
+		const FSurroundField TOP_FIELDS[] = {
+			{ "model", "length",   EFieldKind::NumNonNegative, TOP_DIRTY_VISUAL },
+			{ "model", "width",    EFieldKind::NumNonNegative, TOP_DIRTY_VISUAL },
+			{ "model", "height",   EFieldKind::NumNonNegative, TOP_DIRTY_VISUAL },
+			{ "model", "alpha",    EFieldKind::NumAlpha,       TOP_DIRTY_VISUAL },
+			{ "model", "rotation", EFieldKind::NumAny,         TOP_DIRTY_VISUAL },
+			{ "model", "source",   EFieldKind::SourceName,     TOP_DIRTY_VISUAL },
+			// Ширина шва применяется перепечкой весов, не dirty-флагом
+			{ nullptr, "blend",        EFieldKind::NumPositive,    0 },
+			{ nullptr, "photometric",  EFieldKind::Flag,           TOP_DIRTY_VISUAL },
+			{ nullptr, "plate",        EFieldKind::Flag,           TOP_DIRTY_VISUAL },
+			{ nullptr, "plate_length", EFieldKind::NumNonNegative, TOP_DIRTY_VISUAL },
+			{ nullptr, "plate_width",  EFieldKind::NumNonNegative, TOP_DIRTY_VISUAL },
+		};
+
+		// Выровненный размер канваса с учётом поворота: разрешение по умолчанию
+		void top_natural_size(const boost::json::object& entry, int rotation,
+			int& out_w, int& out_h)
+		{
+			int cw = static_cast<int>(js::num(entry, "width", 0));
+			int ch = static_cast<int>(js::num(entry, "height", 0));
+			if (rotation == 90 || rotation == 270) std::swap(cw, ch);
+			out_w = align_frame_side(cw);
+			out_h = align_frame_side(ch);
+		}
+
+		// Список версий записи; легаси без поля versions - единственная v1
+		boost::json::array top_versions_of(const boost::json::object& entry) {
+			if (const auto* v = js::arr(entry, "versions"); v && !v->empty()) return *v;
+			return boost::json::array{ boost::json::object{ {"key", "v1"}, {"created", 0} } };
+		}
+
+	} // namespace
+
+	bool ULinker::set_top(const std::string& export_id,
+		const boost::json::object& payload, std::string& error)
+	{
+		std::string target = export_id.empty() ? get_active_export_id() : export_id;
+		if (target.empty()) {
+			error = "export_id is required when output is stopped";
+			return false;
+		}
+
+		auto entry = m_store.read_export_entry(target);
+		if (!entry) {
+			error = "export <" + target + "> not found";
+			return false;
+		}
+
+		// Всё новое живёт на версиях текущего поколения печки
+		const std::string version = top_active_version(*entry);
+		if (top_version_generation(version) < TOP_BAKE_GENERATION) {
+			error = "top settings need version v" + std::to_string(TOP_BAKE_GENERATION)
+				+ ", recalculate the export first";
+			return false;
+		}
+
+		unsigned dirty = 0;
+		bool any = false;
+		for (const auto& kv : payload) {
+			const std::string key(kv.key());
+			if (key == "export_id") continue;
+			any = true;
+
+			if (key == "resolution") {
+				// Применяется рестартом вывода, dirty-флаги ей не нужны
+				if (!kv.value().is_object()) {
+					error = key + " must be an object";
+					return false;
+				}
+				continue;
+			}
+
+			if (key == "calibration") {
+				// Карта camera_id - ключ записи калибровки, читает её пересчёт
+				if (!kv.value().is_object()) {
+					error = key + " must be an object";
+					return false;
+				}
+				for (const auto& sub : kv.value().as_object()) {
+					if (!sub.value().is_string()) {
+						error = "calibration values must be strings";
+						return false;
+					}
+				}
+				continue;
+			}
+
+			if (key == "images") {
+				// Правки рисунков по имени файла: показ и размер в пикселях
+				if (!kv.value().is_object()) {
+					error = key + " must be an object";
+					return false;
+				}
+				for (const auto& sub : kv.value().as_object()) {
+					if (!sub.value().is_object()) {
+						error = "images values must be objects";
+						return false;
+					}
+					const auto& io = sub.value().as_object();
+					if (auto* v = io.if_contains("visible"); v && !v->is_bool()) {
+						error = "visible must be a bool";
+						return false;
+					}
+					for (const char* f : { "width", "height" }) {
+						if (auto* v = io.if_contains(f)) {
+							if (!v->is_number() || v->to_number<double>() <= 0) {
+								error = std::string(f) + " out of range";
+								return false;
+							}
+						}
+					}
+				}
+				dirty |= TOP_DIRTY_VISUAL;
+				continue;
+			}
+
+			if (key == "model") {
+				if (!kv.value().is_object()) {
+					error = key + " must be an object";
+					return false;
+				}
+				dirty |= TOP_DIRTY_VISUAL;
+				const auto& group = kv.value().as_object();
+				for (const auto& rule : TOP_FIELDS) {
+					if (!rule.group || key != rule.group) continue;
+					if (auto* v = group.if_contains(rule.key)) {
+						if (!check_surround_field(rule, *v, error)) return false;
+					}
+				}
+				continue;
+			}
+
+			const FSurroundField* rule = nullptr;
+			for (const auto& r : TOP_FIELDS) {
+				if (!r.group && key == r.key) { rule = &r; break; }
+			}
+			if (!rule) {
+				error = "unknown key <" + key + ">";
+				return false;
+			}
+			if (!check_surround_field(*rule, kv.value(), error)) return false;
+			dirty |= rule->dirty;
+		}
+		if (!any) {
+			error = "empty payload";
+			return false;
+		}
+
+		boost::json::object cfg;
+		if (auto c = m_store.read_top_cfg(target)) cfg = *c;
+
+		// Разрешение сервер страхует сам: кламп и кратность 16 до записи
+		boost::json::object body = payload;
+		bool resolution_changed = false;
+		if (auto* r = body.if_contains("resolution"); r && r->is_object()) {
+			auto& ro = r->as_object();
+			for (const char* k : { "width", "height" }) {
+				if (auto* v = ro.if_contains(k); v && !v->is_number()) {
+					error = std::string(k) + " must be a number";
+					return false;
+				}
+			}
+			int def_w = 0, def_h = 0;
+			top_natural_size(*entry, resolve_rotation(target), def_w, def_h);
+			const int res_w = clamp_frame_side(
+				js::num(ro, "width", def_w), SURROUND_RES_MIN, SURROUND_RES_MAX_W);
+			const int res_h = clamp_frame_side(
+				js::num(ro, "height", def_h), SURROUND_RES_MIN, SURROUND_RES_MAX_H);
+			ro["width"] = res_w;
+			ro["height"] = res_h;
+
+			int old_w = def_w, old_h = def_h;
+			if (auto* rr = js::obj(cfg, "resolution")) {
+				old_w = static_cast<int>(js::num(*rr, "width", old_w));
+				old_h = static_cast<int>(js::num(*rr, "height", old_h));
+			}
+			resolution_changed = (res_w != old_w || res_h != old_h);
+		}
+
+		// Смена ширины шва: перепечка весов активной версии на месте
+		const double old_blend = js::num(cfg, "blend", TOP_BLEND_DEFAULT);
+		double new_blend = old_blend;
+		bool blend_changed = false;
+		if (auto* b = body.if_contains("blend"); b && b->is_number()) {
+			new_blend = b->to_number<double>();
+			blend_changed = std::abs(new_blend - old_blend) > 1e-9;
+		}
+
+		const bool ok = m_store.mutate_top_block(target,
+			[&](boost::json::object& top_obj, std::string&) {
+				for (const auto& kv : body) {
+					const std::string key(kv.key());
+					if (key == "export_id") continue;
+					if (kv.value().is_object()) {
+						// Группы мёржатся пообъектно, соседние поля не затираются
+						boost::json::object group;
+						if (auto* g = js::obj(top_obj, key.c_str())) group = *g;
+						for (const auto& sub : kv.value().as_object()) {
+							group[sub.key()] = sub.value();
+						}
+						top_obj[key] = std::move(group);
+					}
+					else {
+						top_obj[key] = kv.value();
+					}
+				}
+				return true;
+			}, error);
+		if (!ok) {
+			m_logger.error("set_top(): " + error);
+			return false;
+		}
+
+		if (blend_changed) {
+			auto fresh = m_store.read_export_entry(target);
+			UTopBaker baker(&m_logger);
+			if (!fresh || !baker.rebake_weights(m_store.exports_root(), *fresh, target,
+				static_cast<float>(new_blend), error)) {
+				m_logger.error("set_top(): rebake failed: " + error);
+				return false;
+			}
+			dirty |= TOP_DIRTY_WEIGHTS;
+		}
+
+		m_logger.info("set_top(): <" + target + "> merged, dirty=" + std::to_string(dirty));
+
+		if (m_running.load() && get_active_export_id() == target
+			&& resolve_view_mode() == "top") {
+			m_top_dirty.fetch_or(dirty);
+			// Размер кадра задан пайплайну при создании, живьём его не сменить
+			if (resolution_changed) {
+				m_logger.info("set_top(): resolution changed, restarting output");
+				if (!restart()) {
+					error = "resolution saved, but output restart failed";
+					return false;
+				}
+			}
+		}
+		return true;
+	}
+
+	bool ULinker::get_top(const std::string& export_id,
+		boost::json::object& out, std::string& error)
+	{
+		std::string target = export_id.empty() ? get_active_export_id() : export_id;
+		if (target.empty()) {
+			error = "no active export";
+			return false;
+		}
+
+		auto entry = m_store.read_export_entry(target);
+		if (!entry) {
+			error = "export <" + target + "> not found";
+			return false;
+		}
+
+		boost::json::object cfg;
+		if (auto c = m_store.read_top_cfg(target)) cfg = *c;
+
+		// Дефолты совпадают с печкой и рендерером, поверх - сохранённое
+		boost::json::object model{ {"length", 0.0}, {"width", 0.0}, {"height", 0.0},
+			{"alpha", 1.0}, {"rotation", 0.0}, {"source", ""} };
+		if (const auto* g = js::obj(cfg, "model")) {
+			for (const auto& kv : *g) model[kv.key()] = kv.value();
+		}
+
+		int def_w = 0, def_h = 0;
+		top_natural_size(*entry, resolve_rotation(target), def_w, def_h);
+		boost::json::object resolution{ {"width", def_w}, {"height", def_h} };
+		if (const auto* g = js::obj(cfg, "resolution")) {
+			for (const auto& kv : *g) resolution[kv.key()] = kv.value();
+		}
+
+		const std::string active = top_active_version(*entry);
+
+		out["export_id"] = target;
+		out["versions"] = top_versions_of(*entry);
+		out["active_version"] = active;
+		out["generation"] = top_version_generation(active);
+		out["current_generation"] = TOP_BAKE_GENERATION;
+		if (auto* p = entry->if_contains("preset")) out["preset"] = *p;
+		out["blend"] = js::num(cfg, "blend", TOP_BLEND_DEFAULT);
+		out["photometric"] = js::flag(cfg, "photometric", true);
+		out["plate"] = js::flag(cfg, "plate", true);
+		out["plate_length"] = js::num(cfg, "plate_length", 0.0);
+		out["plate_width"] = js::num(cfg, "plate_width", 0.0);
+		out["model"] = std::move(model);
+		out["resolution"] = std::move(resolution);
+
+		// Рисунки экспорта с действующими правками: дефолты из ректа записи
+		{
+			boost::json::array images_out;
+			const auto* overrides = js::obj(cfg, "images");
+			if (const auto* imgs = js::arr(*entry, "images")) {
+				for (const auto& img_v : *imgs) {
+					if (!img_v.is_object()) continue;
+					const auto& img = img_v.as_object();
+					const std::string img_name = js::str(img, "name");
+					const auto* r = js::arr(img, "rect");
+					if (img_name.empty() || !r || r->size() != 4) continue;
+
+					const int def_img_w = static_cast<int>(r->at(2).to_number<double>());
+					const int def_img_h = static_cast<int>(r->at(3).to_number<double>());
+					bool visible = true;
+					int img_w = def_img_w;
+					int img_h = def_img_h;
+					if (const auto* o = overrides
+						? js::obj(*overrides, img_name.c_str()) : nullptr) {
+						visible = js::flag(*o, "visible", true);
+						img_w = static_cast<int>(js::num(*o, "width", def_img_w));
+						img_h = static_cast<int>(js::num(*o, "height", def_img_h));
+					}
+
+					images_out.push_back(boost::json::object{
+						{"name", img_name},
+						{"visible", visible},
+						{"width", img_w},
+						{"height", img_h},
+						{"default_width", def_img_w},
+						{"default_height", def_img_h} });
+				}
+			}
+			out["images"] = std::move(images_out);
+		}
+
+		/*
+			Доступность пересчёта считает сервер: ему видно и ключ пресета,
+			и src-точки. Фронту остаётся показать кнопку или причину отказа.
+		*/
+		bool can_recalc = false;
+		std::string reason;
+		const std::string preset_key = js::str(*entry, "preset");
+		if (preset_key.empty()) {
+			reason = "export has no preset key, re-export it from the projection page";
+		}
+		else {
+			try {
+				std::ifstream f(constants::LINKER_CONFIGURATIONS);
+				std::stringstream ss;
+				ss << f.rdbuf();
+				auto pv = boost::json::parse(ss.str());
+				const auto* preset = pv.is_object()
+					? js::obj(pv.as_object(), preset_key.c_str()) : nullptr;
+				const auto* cams = preset ? js::obj(*preset, "cameras") : nullptr;
+				if (!cams) {
+					reason = "preset <" + preset_key + "> not found";
+				}
+				else {
+					can_recalc = true;
+					if (const auto* rec_cams = js::obj(*entry, "cameras")) {
+						for (const auto& [key, _] : *rec_cams) {
+							const auto* cam = js::obj(*cams, std::string(key).c_str());
+							const auto* src = cam ? js::arr(*cam, "src_points") : nullptr;
+							if (!src || src->size() < 4) {
+								can_recalc = false;
+								reason = "camera <" + std::string(key) + "> has no saved src points";
+								break;
+							}
+						}
+					}
+				}
+			}
+			catch (...) {
+				reason = "cannot read presets";
+			}
+		}
+		out["can_recalc"] = can_recalc;
+		if (!can_recalc) out["recalc_reason"] = reason;
+
+		return true;
+	}
+
+	bool ULinker::set_top_version(const std::string& export_id,
+		const std::string& version, std::string& error)
+	{
+		std::string target = export_id.empty() ? get_active_export_id() : export_id;
+		if (target.empty() || version.empty()) {
+			error = "export_id and version are required";
+			return false;
+		}
+
+		auto entry = m_store.read_export_entry(target);
+		if (!entry) {
+			error = "export <" + target + "> not found";
+			return false;
+		}
+
+		bool found = false;
+		for (const auto& v : top_versions_of(*entry)) {
+			if (v.is_object() && js::str(v.as_object(), "key") == version) {
+				found = true;
+				break;
+			}
+		}
+		if (!found) {
+			error = "version <" + version + "> not found";
+			return false;
+		}
+
+		if (top_active_version(*entry) == version) return true;
+
+		const bool ok = m_store.mutate_export_entry(target,
+			[&](boost::json::object& obj, std::string&) {
+				obj["active_version"] = version;
+				return true;
+			}, error);
+		if (!ok) {
+			m_logger.error("set_top_version(): " + error);
+			return false;
+		}
+
+		m_logger.info("set_top_version(): <" + target + "> -> " + version);
+
+		// Карты грузятся при создании вывода, живой top пересобирается
+		if (m_running.load() && get_active_export_id() == target
+			&& resolve_view_mode() == "top") {
+			if (!restart()) {
+				error = "version saved, but output restart failed";
+				return false;
+			}
+		}
+		return true;
+	}
+
+	bool ULinker::recalc_top(const std::string& export_id, std::string& error) {
+		std::string target = export_id.empty() ? get_active_export_id() : export_id;
+		if (target.empty()) {
+			error = "export_id is required when output is stopped";
+			return false;
+		}
+
+		// Привязки мест к камерам: по ним пересчёт ищет записи калибровки
+		NCamerasPurpose bindings;
+		{
+			auto root = m_store.read_state();
+			const auto* configs = js::obj(root, "configs");
+			const auto* entry = configs ? js::obj(*configs, target.c_str()) : nullptr;
+			if (const auto* cams = entry ? js::obj(*entry, "cameras") : nullptr) {
+				for (const auto& [k, val] : *cams) {
+					if (val.is_string()) bindings[std::string(k)] = std::string(val.as_string().c_str());
+					else bindings[std::string(k)] = std::nullopt;
+				}
+			}
+		}
+
+		UTopBaker baker(&m_logger);
+		{
+			// Печка пишет индекс напрямую, мёржи ручек ждут под замком
+			auto lock = m_store.lock_exports();
+			if (!baker.recalc_export(m_store.exports_root(), m_store.exports_index_file(),
+				target, constants::LINKER_CONFIGURATIONS,
+				calib_consts::CALIBRATION_CONFIGURES_PATH, bindings, error)) {
+				m_logger.error("recalc_top(): " + error);
+				return false;
+			}
+		}
+
+		m_logger.info("recalc_top(): <" + target + "> done");
+
+		// Новая версия сразу активна, живой top подхватывает её рестартом
+		if (m_running.load() && get_active_export_id() == target
+			&& resolve_view_mode() == "top") {
+			if (!restart()) {
+				error = "recalculated, but output restart failed";
+				return false;
+			}
+		}
 		return true;
 	}
 
@@ -932,8 +1434,8 @@ namespace birdview {
 		}
 		else {
 			mode = std::make_unique<UTopOutput>(
-				m_context_manager, m_store.exports_root(), m_store.exports_index_file(),
-				export_id_copy, resolve_rotation(), &m_logger);
+				m_context_manager, &m_store, export_id_copy,
+				resolve_rotation(), &m_top_dirty, &m_logger);
 		}
 
 		int outW = 0;

@@ -80,6 +80,14 @@ URestServer::URestServer(
         [linker_ctrl](const auto& r) { return linker_ctrl->post_surround(r); });
     m_router->add_route(http::verb::get, "/linker/surround",
         [linker_ctrl](const auto& r) { return linker_ctrl->get_surround(r); });
+    m_router->add_route(http::verb::post, "/linker/top",
+        [linker_ctrl](const auto& r) { return linker_ctrl->post_top(r); });
+    m_router->add_route(http::verb::get, "/linker/top",
+        [linker_ctrl](const auto& r) { return linker_ctrl->get_top(r); });
+    m_router->add_route(http::verb::post, "/linker/top-version",
+        [linker_ctrl](const auto& r) { return linker_ctrl->post_top_version(r); });
+    m_router->add_route(http::verb::post, "/linker/recalc",
+        [linker_ctrl](const auto& r) { return linker_ctrl->post_recalc(r); });
     m_router->add_route(http::verb::post, "/linker/view-mode",
         [linker_ctrl](const auto& r) { return linker_ctrl->post_view_mode(r); });
     m_router->add_route(http::verb::post, "/linker/rotation",

@@ -23,6 +23,10 @@ export interface ProjPresetCamera {
     points_count?: number;
     /** Точки, сохранённые в пресете на сервере. Нормированные 0..1. */
     src_points?: Array<{ x: number; y: number }>;
+    /** Привязанная физическая камера из пресета: чей кадр размечали. */
+    camera_id?: string;
+    /** Ключ конфигурации коррекции, с которой размечали. */
+    calibration?: string;
 }
 
 export interface ProjPresetSummary {
@@ -52,8 +56,10 @@ export interface ProjState {
     /** Камеры, для которых warp применён. */
     doneSet: Set<string>;
     maxPointsByCam: Record<string, number>;
-    /** camera_id, который сервер вернул в ответе apply_warp. */
+    /** Привязка места к камере: из пресета при set_preset, из ответа apply_warp. */
     camId: Record<string, string>;
+    /** Ключ конфигурации коррекции места — источники те же. */
+    calibKey: Record<string, string>;
 
     applied: boolean;
 
@@ -79,6 +85,7 @@ export const projState: ProjState = {
     doneSet: new Set(),
     maxPointsByCam: {},
     camId: {},
+    calibKey: {},
 
     applied: false,
 
@@ -159,6 +166,7 @@ export function resetPreset(preset: ProjActivePreset): void {
     projState.doneSet = new Set();
     projState.maxPointsByCam = {};
     projState.camId = {};
+    projState.calibKey = {};
     projState.applied = false;
 
     // doneSet заполняется только фактическими apply_warp в текущей сессии.
@@ -171,5 +179,8 @@ export function resetPreset(preset: ProjActivePreset): void {
             y: p.y,
             id: Date.now() + idx,
         }));
+        // Привязка из пресета видна сразу, до всякого warp в этой сессии
+        if (cam.camera_id) projState.camId[cam.key] = cam.camera_id;
+        if (cam.calibration) projState.calibKey[cam.key] = cam.calibration;
     });
 }

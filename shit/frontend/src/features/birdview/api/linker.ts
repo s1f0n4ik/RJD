@@ -142,6 +142,13 @@ export interface SurroundCameraPose {
     yaw: number;
     pitch: number;
     roll: number;
+    /** Расчётная PnP-база: к ней откатываются отдельные поля формы. */
+    pnp: {
+        position: [number, number, number];
+        yaw: number;
+        pitch: number;
+        roll: number;
+    };
 }
 
 export interface SurroundConfig {
@@ -180,6 +187,63 @@ export interface SurroundModelFile {
     size: number;
 }
 
+/** Версия карт экспорта: поколение печки, created — unix-секунды (0 у легаси). */
+export interface TopVersion {
+    key: string;
+    created: number;
+}
+
+/** Рисунок экспорта с действующими правками показа и размера. */
+export interface TopImage {
+    name: string;
+    visible: boolean;
+    width: number;
+    height: number;
+    /** Исходный размер из экспорта — база кнопки сброса. */
+    defaultWidth: number;
+    defaultHeight: number;
+}
+
+/**
+ * Настройки плоской сшивки. Всё новое живёт только на версиях текущего
+ * поколения печки: generation < currentGeneration — панель предлагает
+ * пересчитать.
+ */
+export interface TopConfig {
+    versions: TopVersion[];
+    activeVersion: string;
+    /** Поколение активной версии. */
+    generation: number;
+    /** Поколение печки в текущей сборке сервера. */
+    currentGeneration: number;
+    /** Доступность пересчёта считает сервер: пресет и src-точки видны ему. */
+    canRecalc: boolean;
+    recalcReason: string;
+    /** Ширина шва, доля от меньшей стороны канваса. */
+    blend: number;
+    photometric: boolean;
+    plate: boolean;
+    plateLength: number;
+    plateWidth: number;
+    model: SurroundModel;
+    /** Разрешение кадра; по умолчанию — выровненный канвас с поворотом. */
+    resolution: { width: number; height: number };
+    images: TopImage[];
+}
+
+/** Частичное обновление top-блока: только изменившиеся поля. */
+export interface TopPatch {
+    blend?: number;
+    photometric?: boolean;
+    plate?: boolean;
+    plate_length?: number;
+    plate_width?: number;
+    model?: Partial<SurroundModel>;
+    resolution?: { width: number; height: number };
+    /** Правки рисунков по имени файла; тройка шлётся целиком. */
+    images?: Record<string, { visible: boolean; width: number; height: number }>;
+}
+
 /** Параметры запуска. Свои у каждой конфигурации. */
 export interface LinkerParams {
     fps: number;
@@ -201,6 +265,8 @@ export interface LinkerPlace {
     name: string;
     /** null — запись сделана до появления region, схему по ней не построить. */
     rect: { x: number; y: number; w: number; h: number } | null;
+    /** Камера, чей кадр размечали на сборке; префилл назначения без state. */
+    cameraId: string | null;
 }
 
 /** Подложка схемы: картинка конфигурации с её местом на канвасе. */
@@ -272,6 +338,7 @@ export const linkerApi = {
             // Записи, сделанные до появления имени, показываются по ключу
             name: typeof cam?.name === 'string' && cam.name ? cam.name : key,
             rect: toRect(cam?.region),
+            cameraId: typeof cam?.camera_id === 'string' && cam.camera_id ? cam.camera_id : null,
         }));
 
         const images: LinkerOverlay[] = (Array.isArray(data.images) ? data.images : [])
@@ -409,6 +476,18 @@ export const linkerApi = {
                 yaw: num(c.yaw, 0),
                 pitch: num(c.pitch, 0),
                 roll: num(c.roll, 0),
+                // Старый сервер базы не шлёт: тогда она равна действующей позе,
+                // и кнопки отката просто остаются неактивными
+                pnp: {
+                    position: [
+                        num(c.pnp_position?.[0], num(c.position?.[0], 0)),
+                        num(c.pnp_position?.[1], num(c.position?.[1], 0)),
+                        num(c.pnp_position?.[2], num(c.position?.[2], 0)),
+                    ],
+                    yaw: num(c.pnp_yaw, num(c.yaw, 0)),
+                    pitch: num(c.pnp_pitch, num(c.pitch, 0)),
+                    roll: num(c.pnp_roll, num(c.roll, 0)),
+                },
             }))
             .filter((c: SurroundCameraPose) => c.placeKey);
 
@@ -487,6 +566,88 @@ export const linkerApi = {
             ...patch,
             ...(exportId ? { export_id: exportId } : {}),
         });
+    },
+
+    /** Действующие настройки плоской сшивки с версиями карт. */
+    async getTop(exportId?: string): Promise<TopConfig> {
+        const path = exportId
+            ? `/linker/top?id=${encodeURIComponent(exportId)}`
+            : '/linker/top';
+        const json = await fetchJson<any>('GET', path);
+        const d = json.data ?? json;
+        const model = d.model ?? {};
+
+        const versions: TopVersion[] = (Array.isArray(d.versions) ? d.versions : [])
+            .map((v: any): TopVersion => ({
+                key: String(v?.key ?? ''),
+                created: num(v?.created, 0),
+            }))
+            .filter((v: TopVersion) => v.key);
+
+        return {
+            versions: versions.length ? versions : [{ key: 'v1', created: 0 }],
+            activeVersion: typeof d.active_version === 'string' ? d.active_version : 'v1',
+            generation: num(d.generation, 1),
+            currentGeneration: num(d.current_generation, 2),
+            canRecalc: d.can_recalc === true,
+            recalcReason: typeof d.recalc_reason === 'string' ? d.recalc_reason : '',
+            blend: num(d.blend, 0.3),
+            photometric: d.photometric !== false,
+            plate: d.plate !== false,
+            plateLength: num(d.plate_length, 0),
+            plateWidth: num(d.plate_width, 0),
+            model: {
+                length: num(model.length, 0),
+                width: num(model.width, 0),
+                height: num(model.height, 0),
+                alpha: num(model.alpha, 1),
+                rotation: num(model.rotation, 0),
+                source: typeof model.source === 'string' ? model.source : '',
+            },
+            resolution: {
+                width: num(d.resolution?.width, 0),
+                height: num(d.resolution?.height, 0),
+            },
+            images: (Array.isArray(d.images) ? d.images : [])
+                .map((img: any): TopImage => ({
+                    name: String(img?.name ?? ''),
+                    visible: img?.visible !== false,
+                    width: num(img?.width, 0),
+                    height: num(img?.height, 0),
+                    defaultWidth: num(img?.default_width, 0),
+                    defaultHeight: num(img?.default_height, 0),
+                }))
+                .filter((img: TopImage) => img.name),
+        };
+    },
+
+    /**
+     * Частичный мёрж top-блока. Живой вывод применяет без рестарта;
+     * blend перепекает веса на сервере, смена resolution делается
+     * фронтовой связкой стоп → запись → старт.
+     */
+    async postTop(patch: TopPatch, exportId?: string): Promise<void> {
+        await fetchJson('POST', '/linker/top', {
+            ...patch,
+            ...(exportId ? { export_id: exportId } : {}),
+        });
+    },
+
+    /** Смена активной версии карт; живой top-вывод сервер перезапустит сам. */
+    async setTopVersion(version: string, exportId?: string): Promise<void> {
+        await fetchJson('POST', '/linker/top-version', {
+            version,
+            ...(exportId ? { export_id: exportId } : {}),
+        });
+    },
+
+    /**
+     * Полный пересчёт из пресета: src-точки → remap + веса → версия текущего
+     * поколения. Синхронный, держится секунды — кнопка показывает спиннер.
+     */
+    async recalcTop(exportId?: string): Promise<void> {
+        await fetchJson('POST', '/linker/recalc',
+            exportId ? { export_id: exportId } : {});
     },
 
     /** Ручная поза камеры места либо сброс к вычисленной PnP. */

@@ -901,6 +901,8 @@ namespace calibration {
 		send_message(make_socket_message(constants::TYPE_UNDISTORT_COMPUTE, true, &client_id, &m_name, &send_meta));
 		m_logger.debug("compute_undistort_maps(): Successfully computed undistort maps!");
 		m_undistort.ready = true;
+		// Карты пересчитаны руками: ключ загруженной конфигурации им не соответствует
+		m_loaded_calibration_key.clear();
 	}
 
 	bool UCalibrator::restart_streamer(
@@ -1296,6 +1298,9 @@ namespace calibration {
 					m_logger.warn("load configuration: failed to parse undistortion fields: " + std::string(e.what()));
 				}
 			}
+
+			// Ключ уходит в пресет при warp и дальше в surround.calibration экспорта
+			m_loaded_calibration_key = key;
 
 			boost::json::object send_meta;
 			send_meta[constants::META_CONFIGURATION_METHOD] = constants::METHOD_CONFIGURATION_LOAD;

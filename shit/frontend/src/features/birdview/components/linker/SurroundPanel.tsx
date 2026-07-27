@@ -21,30 +21,15 @@ import type {
 
 const REFRESH_AFTER_BAKE_MS = 800;
 
-export type SurroundTab = 'stream' | 'scene' | 'model' | 'cameras';
+// 'images' живёт только у top-панели, surround её не получает
+export type SurroundTab = 'stream' | 'scene' | 'model' | 'cameras' | 'images';
 
-/** Черновик позы: правки копятся локально и уходят одной кнопкой. */
-interface PoseDraft {
+/** Полная поза, которую ждёт ручка оверрайда. */
+interface PosePayload {
     position: [number, number, number];
     yaw: number;
     pitch: number;
     roll: number;
-}
-
-function poseOf(pose: SurroundCameraPose): PoseDraft {
-    return {
-        position: [...pose.position] as [number, number, number],
-        yaw: pose.yaw,
-        pitch: pose.pitch,
-        roll: pose.roll,
-    };
-}
-
-function samePose(a: PoseDraft, b: PoseDraft): boolean {
-    return a.position[0] === b.position[0]
-        && a.position[1] === b.position[1]
-        && a.position[2] === b.position[2]
-        && a.yaw === b.yaw && a.pitch === b.pitch && a.roll === b.roll;
 }
 
 interface SurroundPanelProps {
@@ -61,7 +46,7 @@ interface SurroundPanelProps {
 }
 
 /** Компактное числовое поле с фиксацией по blur или Enter. */
-function Num({
+export function Num({
     label,
     value,
     step,
@@ -118,12 +103,12 @@ function Num({
 }
 
 /** Кламп стороны кадра: диапазон кодека и кратность 16. */
-function clampSide(v: number, hi: number): number {
+export function clampSide(v: number, hi: number): number {
     return Math.min(hi, Math.max(256, Math.round(v / 16) * 16));
 }
 
 /** Слайдер: значение видно при перетаскивании, уходит только по отпусканию. */
-function Range({
+export function Range({
     label,
     value,
     min,
@@ -169,7 +154,7 @@ function Range({
 }
 
 /** Слайдер угла в ряду кнопок: значение видно, уходит по отпусканию. */
-function RotSlider({ value, onCommit }: { value: number; onCommit: (v: number) => void }) {
+export function RotSlider({ value, onCommit }: { value: number; onCommit: (v: number) => void }) {
     const [drag, setDrag] = useState<number | null>(null);
     const shown = drag ?? value;
 
@@ -195,7 +180,7 @@ function RotSlider({ value, onCommit }: { value: number; onCommit: (v: number) =
     );
 }
 
-function Toggle({
+export function Toggle({
     label,
     on,
     onChange,
@@ -220,8 +205,144 @@ function Toggle({
 }
 
 /** Заголовок группы внутри вкладки. */
-function Subhead({ children }: { children: React.ReactNode }) {
+export function Subhead({ children }: { children: React.ReactNode }) {
     return <div className="srd-subhead">{children}</div>;
+}
+
+/**
+ * Строка поля позы: подпись, текущее значение и откат к PnP сверху,
+ * контрол на всю ширину снизу. Откат жив, только когда значение отличается
+ * от расчётного — тогда он красный, а значение подсвечено акцентом.
+ */
+function PoseRow({
+    label,
+    shown,
+    changed,
+    onReset,
+    children,
+}: {
+    label: string;
+    shown: string;
+    changed: boolean;
+    onReset: () => void;
+    children: React.ReactNode;
+}) {
+    return (
+        <div className="srd-pose">
+            <div className="srd-pose-head">
+                <span className="srd-num-label">{label}</span>
+                <span className={`srd-pose-val${changed ? ' changed' : ''}`}>{shown}</span>
+                <button
+                    type="button"
+                    className={`srd-pose-reset${changed ? ' active' : ''}`}
+                    disabled={!changed}
+                    title="Откатить поле к PnP"
+                    onClick={onReset}
+                >
+                    ↺
+                </button>
+            </div>
+            {children}
+        </div>
+    );
+}
+
+/** Позиция: ручной ввод плюс степпер с крупными кнопками по краям. */
+function PoseStepper({
+    label,
+    value,
+    base,
+    step,
+    onCommit,
+}: {
+    label: string;
+    value: number;
+    /** Расчётное PnP-значение — база отката. */
+    base: number;
+    step: number;
+    onCommit: (value: number) => void;
+}) {
+    const [draft, setDraft] = useState(value.toFixed(3));
+
+    useEffect(() => {
+        setDraft(value.toFixed(3));
+    }, [value]);
+
+    const changed = Math.abs(value - base) > 1e-6;
+
+    const commitDraft = () => {
+        const parsed = Number(draft);
+        if (Number.isFinite(parsed) && parsed !== value) onCommit(parsed);
+        else setDraft(value.toFixed(3));
+    };
+
+    return (
+        <PoseRow label={label} shown={value.toFixed(3)} changed={changed}
+            onReset={() => onCommit(base)}>
+            <div className="srd-stepper">
+                <button type="button" onClick={() => onCommit(+(value - step).toFixed(4))}>−</button>
+                <input
+                    type="number"
+                    step={step}
+                    value={draft}
+                    onChange={e => setDraft(e.target.value)}
+                    onBlur={commitDraft}
+                    onWheel={e => e.currentTarget.blur()}
+                    onKeyDown={e => {
+                        if (e.key === 'Enter') e.currentTarget.blur();
+                    }}
+                />
+                <button type="button" onClick={() => onCommit(+(value + step).toFixed(4))}>+</button>
+            </div>
+        </PoseRow>
+    );
+}
+
+/** Угол: слайдер во всю строку, уходит по отпусканию. */
+function PoseSlider({
+    label,
+    value,
+    base,
+    min,
+    max,
+    onCommit,
+}: {
+    label: string;
+    value: number;
+    base: number;
+    min: number;
+    max: number;
+    onCommit: (value: number) => void;
+}) {
+    const [drag, setDrag] = useState<number | null>(null);
+    const shown = drag ?? value;
+    const changed = Math.abs(value - base) > 1e-6;
+
+    const commit = () => {
+        if (drag !== null && drag !== value) onCommit(drag);
+        setDrag(null);
+    };
+
+    return (
+        <PoseRow label={label} shown={`${shown.toFixed(1)}°`} changed={changed}
+            onReset={() => onCommit(base)}>
+            <input
+                type="range"
+                min={min}
+                max={max}
+                step={0.5}
+                value={shown}
+                onChange={e => setDrag(Number(e.target.value))}
+                onPointerUp={commit}
+                onBlur={commit}
+            />
+            <div className="srd-ticks">
+                <span>{min}°</span>
+                <span>0°</span>
+                <span>{max}°</span>
+            </div>
+        </PoseRow>
+    );
 }
 
 export function SurroundPanel({
@@ -243,9 +364,9 @@ export function SurroundPanel({
     // Черновик разрешения: уходит кнопкой, поле само держит кратность 16
     const [resDraft, setResDraft] = useState<{ width: number; height: number } | null>(null);
     const [resApplying, setResApplying] = useState(false);
-    // Черновики поз по местам: одна кнопка шлёт все изменённые
-    const [poseDrafts, setPoseDrafts] = useState<Record<string, PoseDraft>>({});
-    const [applyingPoses, setApplyingPoses] = useState(false);
+    // Живая отправка позы с дебаунсом: щелчки степпера склеиваются в один POST
+    const poseTimer = useRef<number>(0);
+    const posePendingRef = useRef<{ placeKey: string; pose: PosePayload } | null>(null);
 
     const refetchModels = useCallback(() => {
         linkerApi.listModels().then(setModels).catch(() => setModels([]));
@@ -310,49 +431,57 @@ export function SurroundPanel({
         [cfg, exportId, scheduleRefetch, refetch, onError],
     );
 
-    // Правка позы копится в черновике места, на сервер не уходит
-    const editPose = useCallback(
-        (pose: SurroundCameraPose, current: PoseDraft, patch: Partial<PoseDraft>) => {
-            setPoseDrafts(prev => ({
-                ...prev,
-                [pose.placeKey]: { ...current, ...patch },
-            }));
+    // Отправка накопленной позы немедленно: смена места не должна её терять
+    const flushPose = useCallback(() => {
+        window.clearTimeout(poseTimer.current);
+        const p = posePendingRef.current;
+        posePendingRef.current = null;
+        if (!p || !exportId) return;
+        linkerApi
+            .setSurroundCamera(p.placeKey, p.pose, exportId)
+            .then(scheduleRefetch)
+            .catch(e => {
+                onError('Поза не применена', e);
+                void refetch();
+            });
+    }, [exportId, scheduleRefetch, refetch, onError]);
+
+    /**
+     * Живое применение позы: значение сразу видно в форме и уходит на сервер
+     * одним POST после паузы в 300 мс — щелчки степпера склеиваются, каждая
+     * отправка перепекается в цикле кадра.
+     */
+    const sendPose = useCallback(
+        (placeKey: string, pose: PosePayload) => {
+            if (!exportId) return;
+            setCfg(prev => prev
+                ? {
+                    ...prev,
+                    cameras: prev.cameras.map(c => c.placeKey === placeKey
+                        ? { ...c, ...pose, source: 'manual' as const }
+                        : c),
+                }
+                : prev);
+
+            if (posePendingRef.current && posePendingRef.current.placeKey !== placeKey) {
+                flushPose();
+            }
+            posePendingRef.current = { placeKey, pose };
+            window.clearTimeout(poseTimer.current);
+            poseTimer.current = window.setTimeout(flushPose, 300);
         },
-        [],
+        [exportId, flushPose],
     );
 
-    // Отправка всех изменённых поз разом, перепечка одна на пакет
-    const applyPoses = useCallback(async () => {
-        if (!exportId || !cfg) return;
-        const dirty = Object.entries(poseDrafts).filter(([key, draft]) => {
-            const server = cfg.cameras.find(c => c.placeKey === key);
-            return server && !samePose(draft, poseOf(server));
-        });
-        if (dirty.length === 0) return;
-
-        setApplyingPoses(true);
-        try {
-            for (const [key, draft] of dirty) {
-                await linkerApi.setSurroundCamera(key, draft, exportId);
-            }
-            setPoseDrafts({});
-            scheduleRefetch();
-        } catch (e) {
-            onError('Позы не применены', e);
-            void refetch();
-        } finally {
-            setApplyingPoses(false);
-        }
-    }, [exportId, cfg, poseDrafts, scheduleRefetch, refetch, onError]);
+    useEffect(() => {
+        return () => window.clearTimeout(poseTimer.current);
+    }, []);
 
     const resetPose = useCallback(
         (pose: SurroundCameraPose) => {
             if (!exportId) return;
-            setPoseDrafts(prev => {
-                const next = { ...prev };
-                delete next[pose.placeKey];
-                return next;
-            });
+            posePendingRef.current = null;
+            window.clearTimeout(poseTimer.current);
             linkerApi
                 .setSurroundCamera(pose.placeKey, { reset: true }, exportId)
                 .then(scheduleRefetch)
@@ -622,13 +751,13 @@ export function SurroundPanel({
     }
 
     // tab === 'cameras'
-    const shown = selectedPose
-        ? poseDrafts[selectedPose.placeKey] ?? poseOf(selectedPose)
-        : null;
-    const dirtyCount = Object.entries(poseDrafts).filter(([key, draft]) => {
-        const server = cfg.cameras.find(c => c.placeKey === key);
-        return server && !samePose(draft, poseOf(server));
-    }).length;
+    // Шаг степпера от габарита: у стенда миллиметры, у машины сантиметры
+    const minSide = Math.min(m.length || 0, m.width || 0);
+    const posStep = minSide > 0
+        ? Math.min(0.05, Math.max(0.005, Math.round(minSide / 50 / 0.005) * 0.005))
+        : 0.01;
+
+    const p = selectedPose;
 
     return (
         <div className="srd-panel">
@@ -642,64 +771,69 @@ export function SurroundPanel({
                                 key={c.placeKey}
                                 type="button"
                                 className="srd-chip"
-                                aria-pressed={selectedPose?.placeKey === c.placeKey}
+                                aria-pressed={p?.placeKey === c.placeKey}
                                 onClick={() => setPlace(c.placeKey)}
                             >
                                 {placeNames[c.placeKey] || c.placeKey}
                             </button>
                         ))}
                     </div>
-                    {selectedPose && shown && (
+                    {p && (
                         <>
                             <div className="srd-pnp">
-                                {selectedPose.source === 'manual' ? 'ручная поза' : 'PnP'}
+                                {p.source === 'manual' ? 'ручная поза' : 'PnP'}
                                 {' · h='}
-                                {selectedPose.height.toFixed(3)} м
-                                {selectedPose.source === 'pnp' &&
-                                    ` · ${selectedPose.reprojectionError.toFixed(1)} px`}
+                                {p.height.toFixed(3)} м
+                                {` · ${p.reprojectionError.toFixed(1)} px`}
                             </div>
-                            <div className="srd-row">
-                                <Num label="X, м" value={shown.position[0]}
-                                    onCommit={v => editPose(selectedPose, shown, {
-                                        position: [v, shown.position[1], shown.position[2]],
-                                    })} />
-                                <Num label="Y, м" value={shown.position[1]}
-                                    onCommit={v => editPose(selectedPose, shown, {
-                                        position: [shown.position[0], v, shown.position[2]],
-                                    })} />
-                                <Num label="Z, м" value={shown.position[2]}
-                                    onCommit={v => editPose(selectedPose, shown, {
-                                        position: [shown.position[0], shown.position[1], v],
-                                    })} />
-                            </div>
-                            <div className="srd-row">
-                                <Num label="Yaw, °" value={shown.yaw} step={1}
-                                    onCommit={v => editPose(selectedPose, shown, { yaw: v })} />
-                                <Num label="Pitch, °" value={shown.pitch} step={1}
-                                    onCommit={v => editPose(selectedPose, shown, { pitch: v })} />
-                                <Num label="Roll, °" value={shown.roll} step={1}
-                                    onCommit={v => editPose(selectedPose, shown, { roll: v })} />
-                            </div>
-                            {/* Черновики переживают переключение мест: пакет уходит один */}
-                            <button
-                                type="button"
-                                className="srd-apply"
-                                disabled={dirtyCount === 0 || applyingPoses}
-                                onClick={() => void applyPoses()}
-                            >
-                                {applyingPoses
-                                    ? 'Применение…'
-                                    : dirtyCount > 1
-                                      ? `Применить (${dirtyCount} камеры)`
-                                      : 'Применить'}
-                            </button>
+
+                            <Subhead>Позиция, м</Subhead>
+                            <PoseStepper label="X" value={p.position[0]}
+                                base={p.pnp.position[0]} step={posStep}
+                                onCommit={v => sendPose(p.placeKey, {
+                                    position: [v, p.position[1], p.position[2]],
+                                    yaw: p.yaw, pitch: p.pitch, roll: p.roll,
+                                })} />
+                            <PoseStepper label="Y (высота)" value={p.position[1]}
+                                base={p.pnp.position[1]} step={posStep}
+                                onCommit={v => sendPose(p.placeKey, {
+                                    position: [p.position[0], v, p.position[2]],
+                                    yaw: p.yaw, pitch: p.pitch, roll: p.roll,
+                                })} />
+                            <PoseStepper label="Z" value={p.position[2]}
+                                base={p.pnp.position[2]} step={posStep}
+                                onCommit={v => sendPose(p.placeKey, {
+                                    position: [p.position[0], p.position[1], v],
+                                    yaw: p.yaw, pitch: p.pitch, roll: p.roll,
+                                })} />
+
+                            <Subhead>Углы, °</Subhead>
+                            <PoseSlider label="Yaw" value={p.yaw} base={p.pnp.yaw}
+                                min={-180} max={180}
+                                onCommit={v => sendPose(p.placeKey, {
+                                    position: [...p.position] as [number, number, number],
+                                    yaw: v, pitch: p.pitch, roll: p.roll,
+                                })} />
+                            <PoseSlider label="Pitch" value={p.pitch} base={p.pnp.pitch}
+                                min={-90} max={90}
+                                onCommit={v => sendPose(p.placeKey, {
+                                    position: [...p.position] as [number, number, number],
+                                    yaw: p.yaw, pitch: v, roll: p.roll,
+                                })} />
+                            <PoseSlider label="Roll" value={p.roll} base={p.pnp.roll}
+                                min={-180} max={180}
+                                onCommit={v => sendPose(p.placeKey, {
+                                    position: [...p.position] as [number, number, number],
+                                    yaw: p.yaw, pitch: p.pitch, roll: v,
+                                })} />
+
                             <button
                                 type="button"
                                 className="srd-reset"
-                                disabled={selectedPose.source !== 'manual'}
-                                onClick={() => resetPose(selectedPose)}
+                                disabled={p.source !== 'manual'}
+                                onClick={() => resetPose(p)}
                             >
-                                ↺ Сбросить к PnP
+                                ↺ Сбросить камеру к PnP
                             </button>
                         </>
                     )}

@@ -12,6 +12,7 @@ export const PROJ_METHOD = {
     SET_PRESET: 'set_preset',
     APPLY_WARP: 'apply_warp',
     SAVE_LUT: 'save_lut',
+    RESET_WARP: 'reset_warp',
 } as const;
 
 export type ProjMethod = (typeof PROJ_METHOD)[keyof typeof PROJ_METHOD];

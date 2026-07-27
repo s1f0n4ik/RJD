@@ -22,8 +22,9 @@ void main() {
     vec4 acc = texture(u_accum, uv);
     float w  = acc.a;
 
+    // Непокрытые места чёрные: совпадает с полями вписывания
     if (w <= 0.0) {
-        frag = vec4(0.3, 0.3, 0.3, 0.7);
+        frag = vec4(0.0, 0.0, 0.0, 1.0);
         return;
     }
     frag = vec4(acc.rgb / w, 1.0);

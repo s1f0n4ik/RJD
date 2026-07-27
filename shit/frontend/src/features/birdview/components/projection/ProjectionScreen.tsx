@@ -4,6 +4,8 @@ import type { BirdviewWs } from '../../hooks/useBirdviewWs';
 import type { EventLog } from '../../hooks/useEventLog';
 import type { CalibrationCamera, WsMessage } from '../../api/ws-types';
 import { wsUrl } from '../../constants';
+import { linkerApi } from '../../api/linker';
+import { fetchCalibrationCameras } from '../../api/cameras';
 import { useToast } from '../common/Toast';
 import { PROJ_METHOD, PROJ_TYPE, toWarpPoints } from '../../api/projection';
 import {
@@ -93,6 +95,34 @@ export function ProjectionScreen({
     const [pendingPreset, setPendingPreset] = useState<string | null>(null);
     // Камеры, для которых в пришедшем пресете нашлась сохранённая разметка
     const [restorable, setRestorable] = useState<string[]>([]);
+
+    // Список камер: селект планки, клик по месту и проход «Применить все»
+    const [sourceCams, setSourceCams] = useState<CalibrationCamera[]>([]);
+    const [sourceCamsError, setSourceCamsError] = useState(false);
+
+    useEffect(() => {
+        let alive = true;
+        fetchCalibrationCameras()
+            .then(list => {
+                if (alive) setSourceCams(list);
+            })
+            .catch(() => {
+                if (alive) setSourceCamsError(true);
+            });
+        return () => {
+            alive = false;
+        };
+    }, []);
+
+    // Прогресс прохода по всем камерам; null - проход не идёт
+    const [applyAllBusy, setApplyAllBusy] = useState<string | null>(null);
+    // Свежие пропсы для асинхронного прохода: замыкание их не видит
+    const cameraRef = useRef(camera);
+    cameraRef.current = camera;
+    const streamRef = useRef(stream);
+    streamRef.current = stream;
+    // Ошибка apply_warp во время прохода; null - ответа ещё нет
+    const warpFailRef = useRef<string | null>(null);
 
     const resultUrlRef = useRef<string | null>(null);
 
@@ -339,6 +369,8 @@ export function ProjectionScreen({
 
                 case PROJ_METHOD.APPLY_WARP: {
                     if (msg.ret !== true) {
+                        // Проход «Применить все» останавливается на первой ошибке
+                        warpFailRef.current = meta.error ?? meta.description ?? 'Сервер вернул ошибку';
                         toast('Warp не применён', meta.error ?? 'Сервер вернул ошибку', 'err');
                         return;
                     }
@@ -366,7 +398,30 @@ export function ProjectionScreen({
                         log.log(`apply_warp: нет camera_id для <${key}>`, 'warn');
                     }
 
+                    // Ключ коррекции зеркалит запись в пресет: warp без
+                    // конфигурации стирает метку у места
+                    if (typeof meta.calibration === 'string' && meta.calibration) {
+                        projState.calibKey[key] = meta.calibration;
+                    } else {
+                        delete projState.calibKey[key];
+                    }
+
                     emitProjChange();
+                    return;
+                }
+
+                case PROJ_METHOD.RESET_WARP: {
+                    if (msg.ret !== true) {
+                        toast('Сброс не выполнен', meta.description ?? 'Сервер вернул ошибку', 'err');
+                        return;
+                    }
+                    // Точки и привязки остаются; гаснут галочки и результат
+                    projState.doneSet = new Set();
+                    projState.applied = false;
+                    clearResult();
+                    emitProjChange();
+                    projDraw();
+                    log.log('Печка warp сброшена', 'ok');
                     return;
                 }
 
@@ -381,6 +436,22 @@ export function ProjectionScreen({
                     log.log(`save_lut ok: id=${meta.id ?? '?'}`, 'ok');
                     toast('Сохранено', `Конфигурация <${meta.id ?? ''}>`, 'ok');
                     setLutOpen(false);
+
+                    // Перезапись живой конфигурации: рестарт вывода за оператором
+                    const savedId = String(meta.id ?? '');
+                    if (savedId) {
+                        void linkerApi.getStatus()
+                            .then(st => {
+                                if (st.running && st.exportId === savedId) {
+                                    toast(
+                                        'Конфигурация в эфире',
+                                        'Перезапустите вывод в линкере, чтобы применить новые карты',
+                                        'info',
+                                    );
+                                }
+                            })
+                            .catch(() => {});
+                    }
                     return;
                 }
 
@@ -457,6 +528,95 @@ export function ProjectionScreen({
         });
     };
 
+    /** Очередь прохода: места с полной разметкой и доступной привязанной камерой. */
+    const applyAllQueue = () => {
+        const preset = projState.activePreset;
+        if (!preset) return [];
+        return preset.cameras
+            .map(c => {
+                const pts = (projState.pointsByCam[c.key]?.length
+                    ? projState.pointsByCam[c.key]
+                    : projState.savedPointsByCam[c.key]) ?? [];
+                const maxPts = projState.maxPointsByCam[c.key] ?? 0;
+                const cam = sourceCams.find(sc => sc.id === projState.camId[c.key]) ?? null;
+                return { key: c.key, pts, maxPts, cam };
+            })
+            .filter(q => q.cam && q.maxPts > 0 && q.pts.length >= q.maxPts);
+    };
+
+    /** Ожидание условия опросом: пропсы в асинхронном цикле видны через refs. */
+    const waitFor = (cond: () => boolean, timeoutMs: number) =>
+        new Promise<boolean>(resolve => {
+            const start = Date.now();
+            const tick = () => {
+                if (cond()) return resolve(true);
+                if (Date.now() - start > timeoutMs) return resolve(false);
+                window.setTimeout(tick, 200);
+            };
+            tick();
+        });
+
+    /**
+     * Проход по всем местам с точками и привязками: переключение камеры той же
+     * логикой, что клик по месту, затем apply_warp её точками. Камеру надо
+     * переключать честно: сервер пишет привязку и снимает кадр с текущей.
+     * Первая ошибка останавливает проход, успевшее примениться остаётся.
+     */
+    const applyAll = async () => {
+        const queue = applyAllQueue();
+        if (queue.length === 0) return;
+
+        setApplyAllBusy(`0/${queue.length}`);
+        try {
+            for (let i = 0; i < queue.length; i++) {
+                const q = queue[i];
+                setApplyAllBusy(`${i + 1}/${queue.length}`);
+
+                if (cameraRef.current?.id !== q.cam!.id) {
+                    onSelectCamera(q.cam!);
+                    const up = await waitFor(
+                        () => cameraRef.current?.id === q.cam!.id
+                            && Boolean(streamRef.current.streamId)
+                            && !streamRef.current.pending,
+                        20_000,
+                    );
+                    if (!up) throw new Error(`Камера ${q.cam!.displayName} не поднялась`);
+                }
+
+                // Место и его точки в рабочий набор, как при клике по списку
+                projState.activeCam = q.key;
+                projState.applied = false;
+                projState.points = q.pts.map(p => ({ ...p }));
+                projState.pointsByCam[q.key] = q.pts.map(p => ({ ...p }));
+                projState.doneSet.delete(q.key);
+                emitProjChange();
+                projDraw();
+
+                warpFailRef.current = null;
+                ws.sendMessage(PROJ_TYPE, {
+                    method: PROJ_METHOD.APPLY_WARP,
+                    key: q.key,
+                    src_points: toWarpPoints(projState.points),
+                });
+                const done = await waitFor(
+                    () => projState.doneSet.has(q.key) || warpFailRef.current !== null,
+                    15_000,
+                );
+                if (!done) throw new Error(`Ответ по <${q.key}> не пришёл`);
+                if (warpFailRef.current) throw new Error(warpFailRef.current);
+            }
+            toast('Готово', 'Warp применён для всех камер', 'ok');
+        } catch (e) {
+            toast('Проход остановлен', e instanceof Error ? e.message : String(e), 'err');
+        } finally {
+            setApplyAllBusy(null);
+        }
+    };
+
+    const resetWarp = () => {
+        ws.sendMessage(PROJ_TYPE, { method: PROJ_METHOD.RESET_WARP });
+    };
+
     const openLut = () => {
         if (!allCamerasDone()) {
             toast('Нельзя сохранить', 'Не все камеры применены', 'err');
@@ -486,6 +646,8 @@ export function ProjectionScreen({
                 correction={correction}
                 stream={stream}
                 wsReady={wsReady}
+                sourceCams={sourceCams}
+                sourceCamsError={sourceCamsError}
             />
 
             <section className={`proj-warp-area${settingsOpen ? ' shifted' : ''}`}>
@@ -550,9 +712,29 @@ export function ProjectionScreen({
                         <button className="btn btn-ghost btn-sm" onClick={clearPoints}>
                             ✕ Очистить
                         </button>
+                        {/* Сбрасывает печку и превью, точки и привязки остаются */}
+                        <button
+                            className="btn btn-ghost btn-sm"
+                            disabled={applyAllBusy !== null || projState.doneSet.size === 0}
+                            onClick={resetWarp}
+                        >
+                            ↺ Сбросить варп
+                        </button>
                     </div>
                     <div className="footer-right">
-                        <button className="btn btn-primary btn-sm" onClick={toggleApply}>
+                        {/* Проход по всем местам с точками и привязками из пресета */}
+                        <button
+                            className="btn btn-applyall btn-sm"
+                            disabled={applyAllBusy !== null || applyAllQueue().length === 0}
+                            onClick={() => void applyAll()}
+                        >
+                            {applyAllBusy ? `Применяю ${applyAllBusy}…` : '⊛⊛ Применить все'}
+                        </button>
+                        <button
+                            className="btn btn-primary btn-sm"
+                            disabled={applyAllBusy !== null}
+                            onClick={toggleApply}
+                        >
                             {projState.applied ? '✎ Вернуть редактирование' : '⊛ Применить warp'}
                         </button>
                     </div>

@@ -262,6 +262,14 @@ namespace calibration {
 			}
 			else { cam.name = constants::PROJ_CAM_UNDEFINED; }
 
+			if (auto* id = obj.if_contains(constants::META_CAMERA_ID_FIELD); id && id->is_string()) {
+				cam.camera_id = id->as_string();
+			}
+
+			if (auto* ck = obj.if_contains("calibration"); ck && ck->is_string()) {
+				cam.calibration_key = ck->as_string();
+			}
+
 			if (auto* sp = obj.if_contains(constants::PROJ_SRC_POINTS)) {
 				cam.src_points = parse_points(*sp);
 			}
@@ -383,6 +391,18 @@ namespace calibration {
 		static void merge_camera(boost::json::object& o, const FProjectionCamera& cam) {
 			o[constants::PROJ_CAM_KEY] = cam.key;
 			o[constants::PROJ_CAM_NAME] = cam.name;
+			// Только непустой: запись из потока без привязки её не затирает
+			if (!cam.camera_id.empty()) {
+				o[constants::META_CAMERA_ID_FIELD] = cam.camera_id;
+			}
+			// А вот ключ калибровки пустым значением стирается: warp без
+			// конфигурации значит, что старый ключ точкам больше не соответствует
+			if (!cam.calibration_key.empty()) {
+				o["calibration"] = cam.calibration_key;
+			}
+			else {
+				o.erase("calibration");
+			}
 			o[constants::PROJ_SRC_POINTS] = serialize_points(cam.src_points);
 			o[constants::PROJ_DST_POINTS] = serialize_points(cam.dst_points);
 			o[constants::PROJ_CANVAS_REGION] = serialize_points(cam.canvas_region);

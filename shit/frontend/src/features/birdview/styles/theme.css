@@ -1056,6 +1056,20 @@
 }
 .birdview-root .custom-select.open .custom-select-arrow { transform: rotate(90deg); }
 
+/* Поле ID в модалке LUT: стрелка раскрывает список конфигураций для перезаписи */
+.birdview-root .lut-id-input { width: 100%; padding-right: 30px; }
+.birdview-root .lut-id-arrow {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px 6px;
+    line-height: 1;
+}
+
 .birdview-root .custom-select-dropdown {
     position: absolute;
     top: calc(100% + 4px);
@@ -1164,15 +1178,16 @@
   ключи камер вроде left_front в интерфейс не попадают.
 */
 
+/* Обе колонки одной ширины: правая не дышит при скрытии левой */
 .birdview-root .linker-layout {
-    grid-template-columns: var(--bv-sidebar-w) 1fr 340px !important;
+    grid-template-columns: 340px 1fr 340px !important;
     position: relative;
     transition: grid-template-columns 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* Список конфигураций убирается: схеме на узком канвасе нужна ширина */
 .birdview-root .linker-layout.aside-hidden {
-    grid-template-columns: 0 1fr 280px !important;
+    grid-template-columns: 0 1fr 340px !important;
 }
 .birdview-root .linker-layout.aside-hidden > .linker-aside:first-of-type {
     opacity: 0;
@@ -1207,7 +1222,7 @@
     border-color: var(--bv-border-bright);
 }
 .birdview-root .linker-aside-tab.open {
-    left: var(--bv-sidebar-w);
+    left: 340px;
     border-color: var(--bv-accent);
     color: var(--bv-accent);
 }
@@ -1607,14 +1622,12 @@
     fill: var(--bv-text-secondary);
 }
 
+/* Позицию задаёт клик по месту: left/top приходят инлайном с зажимом в границы */
 .birdview-root .plan-picker {
     position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
     z-index: 5;
-    min-width: 200px;
-    max-height: 80%;
+    width: 230px;
+    max-height: 60%;
     overflow-y: auto;
     background: var(--bv-bg-panel);
     border: 1px solid var(--bv-border-bright);
@@ -1662,6 +1675,24 @@
     color: var(--bv-text-primary);
 }
 .birdview-root .plan-picker-item.taken { color: var(--bv-text-dim); }
+
+/* Эфир: назначение камер заблокировано, схема под тёмной вуалью */
+.birdview-root .plan-lock {
+    position: absolute;
+    inset: 0;
+    z-index: 6;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 24px;
+    background: rgba(var(--bv-bg-base-rgb), 0.72);
+    backdrop-filter: blur(1.5px);
+    font-family: var(--bv-font-mono);
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--bv-text-secondary);
+}
 .birdview-root .plan-picker-item.clear { color: var(--bv-err); }
 .birdview-root .plan-picker-note {
     font-family: var(--bv-font-mono);
@@ -3333,6 +3364,107 @@
     font-size: 11.5px;
     line-height: 1.5;
     color: var(--bv-text-secondary);
+}
+
+/* «Применить все» на сборке: синяя, чтобы не путать с обычным применением */
+.birdview-root .btn-applyall {
+    background: #2b6fd4;
+    border: 1px solid #2b6fd4;
+    color: #fff;
+}
+.birdview-root .btn-applyall:hover:not(:disabled) {
+    background: #3d80e4;
+    border-color: #3d80e4;
+}
+.birdview-root .btn-applyall:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* Карточка рисунка во вкладке «Рисунки»: тумблер, размеры, сброс */
+.birdview-root .srd-image {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--bv-border);
+}
+.birdview-root .srd-image:last-child { border-bottom: none; padding-bottom: 0; }
+
+/* Строка поля позы: подпись + значение + откат сверху, контрол на всю ширину */
+.birdview-root .srd-pose { display: flex; flex-direction: column; gap: 5px; }
+.birdview-root .srd-pose-head { display: flex; align-items: baseline; gap: 8px; }
+.birdview-root .srd-pose-val {
+    margin-left: auto;
+    font-family: var(--bv-font-mono);
+    font-size: 11.5px;
+    color: var(--bv-text-secondary);
+}
+.birdview-root .srd-pose-val.changed { color: var(--bv-accent); }
+
+/* Откат поля к PnP: мёртвый — едва виден, живой — красный */
+.birdview-root .srd-pose-reset {
+    background: none;
+    border: none;
+    padding: 0 2px;
+    line-height: 1;
+    font-family: var(--bv-font-mono);
+    font-size: 13px;
+    color: var(--bv-text-dim);
+    opacity: 0.35;
+    cursor: default;
+}
+.birdview-root .srd-pose-reset.active {
+    color: var(--bv-err);
+    opacity: 1;
+    cursor: pointer;
+}
+.birdview-root .srd-pose-reset.active:hover { text-shadow: 0 0 8px rgba(255, 96, 118, 0.6); }
+
+/* Степпер позиции: ввод руками и крупные кнопки шага по краям */
+.birdview-root .srd-stepper {
+    display: flex;
+    align-items: stretch;
+    background: var(--bv-bg-input);
+    border: 1px solid var(--bv-border);
+    border-radius: var(--bv-radius);
+    overflow: hidden;
+}
+.birdview-root .srd-stepper:focus-within {
+    border-color: var(--bv-accent-dim);
+    box-shadow: 0 0 0 2px var(--bv-accent-glow);
+}
+.birdview-root .srd-stepper button {
+    width: 34px;
+    flex-shrink: 0;
+    background: var(--bv-bg-panel);
+    border: none;
+    color: var(--bv-text-secondary);
+    font-family: var(--bv-font-mono);
+    font-size: 14px;
+    cursor: pointer;
+}
+.birdview-root .srd-stepper button:hover { color: var(--bv-accent); }
+.birdview-root .srd-stepper button:first-child { border-right: 1px solid var(--bv-border); }
+.birdview-root .srd-stepper button:last-child { border-left: 1px solid var(--bv-border); }
+.birdview-root .srd-stepper input {
+    flex: 1;
+    min-width: 0;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--bv-text-primary);
+    font-family: var(--bv-font-mono);
+    font-size: 12.5px;
+    text-align: center;
+    padding: 7px 4px;
+}
+
+/* Шкала под слайдером угла */
+.birdview-root .srd-ticks {
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--bv-font-mono);
+    font-size: 9px;
+    color: var(--bv-text-dim);
+    margin-top: -2px;
 }
 
 .birdview-root .srd-chips { display: flex; flex-wrap: wrap; gap: 4px; }

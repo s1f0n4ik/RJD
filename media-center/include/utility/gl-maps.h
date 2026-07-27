@@ -15,7 +15,7 @@ namespace gl_maps {
 	/*
 		Бинарный формат для карт, читаемых напрямую в OpenGL-текстуру.
 
-		Header (24 байта):
+		Header (28 байт):
 			magic:    4   "VRMP" (remap, 2 канала float)
 							"VWGT" (weight, 1 канал uint8)
 			version:  u32 = 1
@@ -103,6 +103,33 @@ namespace gl_maps {
 				static_cast<std::streamsize>(weight_8u.cols));
 		}
 		return f.good();
+	}
+
+	// Чтение карты в cv::Mat без GL: печка весов и фотопары работают на CPU
+	inline cv::Mat load_map_mat(const std::filesystem::path& path, uint32_t magic, int cv_type) {
+		std::ifstream f(path, std::ios::binary);
+		if (!f.is_open()) return {};
+
+		FHeader header{};
+		f.read(reinterpret_cast<char*>(&header), sizeof(header));
+		if (!f || header.magic != magic) return {};
+		if (header.width == 0 || header.height == 0) return {};
+
+		cv::Mat out(static_cast<int>(header.height), static_cast<int>(header.width), cv_type);
+		const size_t row_bytes = out.cols * out.elemSize();
+		for (int y = 0; y < out.rows; ++y) {
+			f.read(reinterpret_cast<char*>(out.ptr(y)), static_cast<std::streamsize>(row_bytes));
+		}
+		if (!f) return {};
+		return out;
+	}
+
+	inline cv::Mat load_remap_mat(const std::filesystem::path& path) {
+		return load_map_mat(path, MAGIC_REMAP, CV_32FC2);
+	}
+
+	inline cv::Mat load_weight_mat(const std::filesystem::path& path) {
+		return load_map_mat(path, MAGIC_WEIGHT, CV_8UC1);
 	}
 
 	inline GLuint load_gl_map(const std::filesystem::path& path, int& out_w, int& out_h, ULogger* logger = nullptr) {

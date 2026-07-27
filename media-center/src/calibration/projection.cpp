@@ -1,10 +1,9 @@
 #include "calibration/calibrator.h"
 #include "calibration/constants.h"
 #include "calibration/utility.h"
-#include "calibration/json-export.h"
 #include "signaling_definers.h"
 
-#include "utility/gl-maps.h"
+#include "bird-view/top-bake.h"
 
 namespace varan {
 namespace calibration {
@@ -118,6 +117,14 @@ namespace calibration {
                     item[constants::PROJ_CAM_NAME] = cam.name;
                     item[constants::META_PROJECTION_MAX_POINTS] = static_cast<int>(cam.dst_points.size());
                     item[constants::META_PROJECTION_POINTS_COUNT] = static_cast<int>(cam.src_points.size());
+                    // Сохранённая привязка места: клик по нему переключает камеру
+                    if (!cam.camera_id.empty()) {
+                        item[constants::META_PROJECTION_CAMERA_ID] = cam.camera_id;
+                    }
+                    // Ключ конфигурации коррекции, с которой размечали
+                    if (!cam.calibration_key.empty()) {
+                        item["calibration"] = cam.calibration_key;
+                    }
 
                     // Сохранённые точки отдаём клиенту целиком, чтобы он мог их восстановить.
                     // Координаты нормированные, поэтому не зависят от разрешения камеры.
@@ -216,7 +223,8 @@ namespace calibration {
 
                 // Строим карты проекции текущей камеры на канвас
                 std::string error; cv::Mat proj_map_x; cv::Mat proj_map_y;
-                if (!build_warp_remap(src_points, dst_points, canvas, proj_map_x, proj_map_y, error)) {
+                if (!birdview::UTopBaker::build_warp_remap(src_points, dst_points, canvas,
+                    proj_map_x, proj_map_y, error)) {
                     if (on_error) on_error(constants::TYPE_PROJECTION_CONFIGURATION, error, &client_id);
                     return;
                 }
@@ -225,24 +233,9 @@ namespace calibration {
                     std::lock_guard<std::mutex> lock(m_active_preset_mutex);
                     m_warped_mats[camera_key] = std::make_pair(std::move(proj_map_x), std::move(proj_map_y));
 
-                    std::vector<cv::Point2f> region_pts;
-                    std::vector<cv::Point2f> dst_pts_copy;
-                    {
-                        // m_active_preset_mutex уже захвачен на этом участке.
-                        auto cam_it = m_active_preset->cameras.find(camera_key);
-                        if (cam_it != m_active_preset->cameras.end()) {
-                            region_pts = cam_it->second.canvas_region;
-                            dst_pts_copy = cam_it->second.dst_points;
-                        }
-                    }
-
-                    const cv::Size snapshot_size{ m_raw_image.width, m_raw_image.height };
-
-                    // Берём карты ИЗ контейнера, а не локальные (они уже moved выше).
-                    const auto& mx_ref = m_warped_mats[camera_key].first;
-                    const auto& my_ref = m_warped_mats[camera_key].second;
-
-                    if (!build_warp_extras(camera_key, mx_ref, my_ref, snapshot_size, region_pts, dst_pts_copy)) {
+                    // Секторные веса зависят от всех камер разом: новая зона
+                    // двигает швы соседей, поэтому пересчёт идёт целиком
+                    if (!rebuild_warp_extras()) {
                         if (on_error) on_error(constants::TYPE_PROJECTION_CONFIGURATION,
                             "Error: failed to build warp extras for camera <" + camera_key + ">",
                             &client_id);
@@ -280,6 +273,11 @@ namespace calibration {
                 send_meta[constants::META_PROJECTION_METHOD] = constants::METHOD_PROJECTION_APPLY_WARP;
                 send_meta[constants::META_PROJECTION_KEY] = camera_key;
                 send_meta[constants::META_PROJECTION_CAMERA_ID] = m_camera_id;
+                // Ключ коррекции по правилу записи в пресет; без него фронт
+                // стирает метку у места
+                if (m_undistort.ready && !m_loaded_calibration_key.empty()) {
+                    send_meta["calibration"] = m_loaded_calibration_key;
+                }
 
                 if (!send_canvas_as_binary(client_id, send_meta, error)) {
                     if (on_error) on_error(constants::TYPE_PROJECTION_CONFIGURATION, error, &client_id);
@@ -292,6 +290,31 @@ namespace calibration {
                 return;
             }
 
+        }
+
+        // ----------------------- Сброс печки warp --------------------------
+        if (method == constants::METHOD_PROJECTION_RESET_WARP) {
+            // Точки и привязки пресета не трогаются: сбрасываются только
+            // карты сессии, снятые кадры и превью-канвас
+            {
+                std::lock_guard<std::mutex> lock(m_active_preset_mutex);
+                m_warped_mats.clear();
+                m_warp_extras.clear();
+                m_saved_to_warp_camera_images.clear();
+            }
+            {
+                std::lock_guard<std::mutex> canvas_lk(m_cached_image_mutex);
+                if (!m_canvas.empty()) {
+                    m_canvas = cv::Mat::zeros(m_canvas.size(), CV_8UC3);
+                }
+            }
+
+            boost::json::object send_meta;
+            send_meta[constants::META_PROJECTION_METHOD] = constants::METHOD_PROJECTION_RESET_WARP;
+            send_message(make_socket_message(constants::TYPE_PROJECTION_CONFIGURATION,
+                true, &client_id, &m_name, &send_meta));
+            m_logger.info("handle_projection_configuration(): warp session reset");
+            return;
         }
 
         // ----------------------- Сохранение LUT в OpenGL формате --------------------------
@@ -324,8 +347,7 @@ namespace calibration {
         struct FFeedItem {
             std::string key;
             cv::Mat warped;   // CV_8UC3 (RGB) после remap
-            cv::Mat mask;     // CV_8UC1
-            cv::Mat weight;   // CV_32FC1 — distance transform, посчитан заранее
+            cv::Mat weight;   // CV_32FC1 — секторные веса 0..1, посчитаны заранее
         };
         std::vector<FFeedItem> items;
         items.reserve(m_saved_to_warp_camera_images.size());
@@ -350,7 +372,6 @@ namespace calibration {
             items.push_back({
                 key,
                 std::move(warped),
-                extras_it->second.mask,
                 extras_it->second.weight
                 });
         }
@@ -362,10 +383,8 @@ namespace calibration {
             return true;
         }
 
-        // Ручной feather-blending по заранее посчитанным weight-картам.
-        // (cv::detail::FeatherBlender внутри делает distanceTransform сам, что
-        //  игнорирует наш canvas_region. Считаем сами: это буквально пара
-        //  поканальных операций.)
+        // Ручное смешивание по заранее посчитанным секторным весам:
+        // превью показывает те же швы, что рендер линкера
         cv::Mat acc = cv::Mat::zeros(canvas_size, CV_32FC3);
         cv::Mat wsum = cv::Mat::zeros(canvas_size, CV_32FC1);
 
@@ -409,161 +428,89 @@ namespace calibration {
         return true;
     }
 
-    bool UCalibrator::build_warp_remap(
-        const std::vector<cv::Point2f>& src_points,
-        const std::vector<cv::Point2f>& dst_points,
-        const cv::Size& canvas_size,
-        cv::Mat& out_map_x,
-        cv::Mat& out_map_y,
-        std::string& error
-    ) {
-        if (src_points.size() != dst_points.size() || src_points.size() < 4) {
-            error = "build_warp_remap(): need >= 4 matching points, got " +
-                std::to_string(src_points.size()) + "/" +
-                std::to_string(dst_points.size());
+    /*
+        Секторные веса превью по всем камерам с применённым warp.
+
+        Та же печка, что у экспорта и линкера: Вороной по центроидам зон
+        с шириной шва по умолчанию. Свой blend появляется у конфигурации
+        только после экспорта, поэтому превью всегда с дефолтным.
+
+        ВАЖНО: лок m_active_preset_mutex берётся снаружи, как для m_warped_mats.
+    */
+    bool UCalibrator::rebuild_warp_extras() {
+        if (!m_active_preset) {
+            m_logger.error("rebuild_warp_extras(): no active preset");
             return false;
         }
-        if (canvas_size.width <= 0 || canvas_size.height <= 0) {
-            error = "build_warp_remap(): invalid canvas size";
-            return false;
+        if (m_warped_mats.empty()) {
+            m_warp_extras.clear();
+            return true;
         }
 
-        cv::Mat H;
-        if (src_points.size() == 4) {
-            H = cv::getPerspectiveTransform(src_points, dst_points);
-        }
-        else {
-            H = cv::findHomography(src_points, dst_points, 0);
-        }
-        if (H.empty()) {
-            error = "build_warp_remap(): homography computation failed";
+        const cv::Size raw{ m_raw_image.width, m_raw_image.height };
+        if (raw.width <= 0 || raw.height <= 0) {
+            m_logger.error("rebuild_warp_extras(): invalid snapshot size");
             return false;
         }
 
-        // Чтобы построить map'ы, для каждого пикселя канваса (u,v) нужно найти
-        // соответствующий пиксель в исходном изображении. Это обратное преобразование.
-        cv::Mat H_inv;
-        if (!cv::invert(H, H_inv)) {
-            error = "build_warp_remap(): H is degenerate";
-            return false;
-        }
+        std::vector<std::string> keys;
+        std::vector<cv::Mat> remaps;
+        std::vector<cv::Point2f> centers;
+        std::vector<std::vector<cv::Point2f>> regions;
+        cv::Size canvas{ 0, 0 };
 
-        // Готовим сетку точек канваса: { (0,0), (1,0), ..., (W-1, H-1) }
-        const int W = canvas_size.width;
-        const int H_px = canvas_size.height;
-
-        std::vector<cv::Point2f> grid;
-        grid.reserve(static_cast<size_t>(W) * H_px);
-        for (int y = 0; y < H_px; ++y) {
-            for (int x = 0; x < W; ++x) {
-                grid.emplace_back(static_cast<float>(x), static_cast<float>(y));
+        for (const auto& [key, maps] : m_warped_mats) {
+            const cv::Mat& mx = maps.first;
+            const cv::Mat& my = maps.second;
+            if (mx.empty() || my.empty() || mx.size() != my.size()) {
+                m_logger.error("rebuild_warp_extras(<" + key + ">): invalid maps");
+                return false;
             }
-        }
+            canvas = mx.size();
 
-        std::vector<cv::Point2f> mapped;
-        cv::perspectiveTransform(grid, mapped, H_inv);
-
-        out_map_x.create(canvas_size, CV_32FC1);
-        out_map_y.create(canvas_size, CV_32FC1);
-
-        // Раскладываем результат в две одноканальные карты.
-        for (int y = 0; y < H_px; ++y) {
-            float* row_x = out_map_x.ptr<float>(y);
-            float* row_y = out_map_y.ptr<float>(y);
-            const cv::Point2f* src_row = mapped.data() + static_cast<size_t>(y) * W;
-            for (int x = 0; x < W; ++x) {
-                row_x[x] = src_row[x].x;
-                row_y[x] = src_row[x].y;
-            }
-        }
-
-        return true;
-    }
-
-    bool UCalibrator::build_warp_extras(
-        const std::string& camera_key,
-        const cv::Mat& map_x,
-        const cv::Mat& map_y,
-        const cv::Size& snapshot_size,
-        const std::vector<cv::Point2f>& canvas_region,
-        const std::vector<cv::Point2f>& dst_points)
-    {
-        if (map_x.empty() || map_y.empty() || map_x.size() != map_y.size()) {
-            m_logger.error("build_warp_extras(<" + camera_key + ">): invalid maps");
-            return false;
-        }
-        if (snapshot_size.width <= 0 || snapshot_size.height <= 0) {
-            m_logger.error("build_warp_extras(<" + camera_key + ">): invalid snapshot size");
-            return false;
-        }
-
-        const cv::Size canvas_size = map_x.size();
-
-        // 1) Полигон зоны. Если canvas_region пуст — берём выпуклую оболочку dst_points.
-        std::vector<cv::Point> region_int;
-        if (!canvas_region.empty()) {
-            region_int.reserve(canvas_region.size());
-            for (const auto& p : canvas_region) {
-                region_int.emplace_back(cvRound(p.x), cvRound(p.y));
-            }
-        }
-        else if (!dst_points.empty()) {
-            std::vector<cv::Point> dst_int;
-            dst_int.reserve(dst_points.size());
-            for (const auto& p : dst_points) {
-                dst_int.emplace_back(cvRound(p.x), cvRound(p.y));
-            }
-            cv::convexHull(dst_int, region_int);
-        }
-        else {
-            m_logger.error("build_warp_extras(<" + camera_key + ">): no region and no dst_points");
-            return false;
-        }
-
-        // 2) Маска полигона.
-        cv::Mat region_mask(canvas_size, CV_8UC1, cv::Scalar(0));
-        {
-            std::vector<std::vector<cv::Point>> polys{ region_int };
-            cv::fillPoly(region_mask, polys, cv::Scalar(255));
-        }
-
-        // 3) Маска валидных source-координат (там, где remap указывает внутрь снимка).
-        cv::Mat source_mask(canvas_size, CV_8UC1, cv::Scalar(0));
-        {
-            const float W = static_cast<float>(snapshot_size.width);
-            const float H = static_cast<float>(snapshot_size.height);
-            for (int y = 0; y < canvas_size.height; ++y) {
-                const float* rx = map_x.ptr<float>(y);
-                const float* ry = map_y.ptr<float>(y);
-                uchar* row = source_mask.ptr<uchar>(y);
-                for (int x = 0; x < canvas_size.width; ++x) {
-                    const float sx = rx[x];
-                    const float sy = ry[x];
-                    if (sx >= 0.0f && sx < W && sy >= 0.0f && sy < H) {
-                        row[x] = 255;
+            // Печка ждёт нормированный remap: валидность и затухание от него
+            cv::Mat norm(canvas, CV_32FC2);
+            const float inv_W = 1.0f / static_cast<float>(raw.width);
+            const float inv_H = 1.0f / static_cast<float>(raw.height);
+            for (int y = 0; y < canvas.height; ++y) {
+                const float* rx = mx.ptr<float>(y);
+                const float* ry = my.ptr<float>(y);
+                cv::Vec2f* out = norm.ptr<cv::Vec2f>(y);
+                for (int x = 0; x < canvas.width; ++x) {
+                    if (rx[x] < 0.0f || ry[x] < 0.0f
+                        || rx[x] >= raw.width || ry[x] >= raw.height) {
+                        out[x] = cv::Vec2f(-1.0f, -1.0f);
+                    }
+                    else {
+                        out[x] = cv::Vec2f(rx[x] * inv_W, ry[x] * inv_H);
                     }
                 }
             }
+
+            cv::Point2f center{ canvas.width * 0.5f, canvas.height * 0.5f };
+            std::vector<cv::Point2f> region;
+            if (auto cam_it = m_active_preset->cameras.find(key);
+                cam_it != m_active_preset->cameras.end()) {
+                region = !cam_it->second.canvas_region.empty()
+                    ? cam_it->second.canvas_region
+                    : birdview::UTopBaker::hull_of(cam_it->second.dst_points);
+                if (!region.empty()) center = birdview::UTopBaker::region_centroid(region);
+            }
+
+            keys.push_back(key);
+            remaps.push_back(std::move(norm));
+            centers.push_back(center);
+            regions.push_back(std::move(region));
         }
 
-        // 4) Итоговая маска = пересечение.
-        cv::Mat mask;
-        mask = region_mask.clone();
+        std::vector<cv::Mat> weights;
+        birdview::UTopBaker::build_weights(canvas, remaps, centers, regions,
+            birdview::TOP_BLEND_DEFAULT, weights);
 
-        cv::Mat mask_eroded;
-        cv::erode(mask, mask_eroded, cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3)));
-
-        cv::Mat weight;
-        cv::distanceTransform(mask_eroded, weight, cv::DIST_L2, 3, CV_32F);
-
-        // Внутри ИСХОДНОЙ маски (включая граничные пиксели, которые отрезала эрозия)
-        // поднимаем weight до минимума >= 1, чтобы при нормализации не было 0.
-        weight.setTo(1.0f, (mask > 0) & (weight < 1.0f));
-
-        // Сохраняем в m_warp_extras рядом с m_warped_mats.
-        // ВАЖНО: лок берётся снаружи (в обработчике apply_warp), как для m_warped_mats.
-        m_warp_extras[camera_key] = FWarpExtras{ std::move(mask), std::move(weight) };
-
+        m_warp_extras.clear();
+        for (size_t i = 0; i < keys.size(); ++i) {
+            m_warp_extras[keys[i]] = FWarpExtras{ std::move(weights[i]) };
+        }
         return true;
     }
 
@@ -621,7 +568,25 @@ namespace calibration {
             }
 
             cam_it->second.src_points = normalized_src_points;
+            // Привязка места к физической камере: чей кадр размечали, та и пишется
+            if (!m_camera_id.empty()) {
+                cam_it->second.camera_id = m_camera_id;
+            }
+            // Ключ конфигурации коррекции по правилу компоновки карт: живые
+            // undistort-карты сессии из load - пишется, иначе стирается
+            if (m_undistort.ready && !m_loaded_calibration_key.empty()) {
+                cam_it->second.calibration_key = m_loaded_calibration_key;
+            }
+            else {
+                cam_it->second.calibration_key.clear();
+            }
             preset_copy = *m_active_preset;
+        }
+
+        // Свежий файл перед мёржем: пресет параллельно правит конфигуратор,
+        // и мёрж в старую копию затирал бы его габарит и картинки
+        if (!m_projection_config.read(constants::PROJECTION_CONFIGURES_PATH)) {
+            m_logger.warn("save_src_points(): cannot re-read presets before merge");
         }
 
         // Пресет писать под локом нельзя: запись на диск держала бы обработку кадров
@@ -667,120 +632,6 @@ namespace calibration {
             return false;
         }
         return true;
-    }
-
-    bool UCalibrator::compose_remap_to_raw(
-        const cv::Mat& warp_x, const cv::Mat& warp_y,
-        const cv::Mat& undist_x, const cv::Mat& undist_y,
-        const cv::Size& raw_size,
-        cv::Mat& out_remap_32fc2,
-        std::string& error
-    ) {
-        if (warp_x.empty() || warp_y.empty() || warp_x.size() != warp_y.size() ||
-            warp_x.type() != CV_32FC1 || warp_y.type() != CV_32FC1)
-        {
-            error = "compose_remap_to_raw(): bad warp maps";
-            return false;
-        }
-
-        if (raw_size.width <= 0 || raw_size.height <= 0) {
-            error = "compose_remap_to_raw(): bad raw size";
-            return false;
-        }
-
-        const cv::Size canvas_size = warp_x.size();
-        const bool has_undistort = !undist_x.empty() && !undist_y.empty() && undist_x.size() == undist_y.size();
-
-        out_remap_32fc2.create(canvas_size, CV_32FC2);
-
-        const float inv_W = 1.0f / static_cast<float>(raw_size.width);
-        const float inv_H = 1.0f / static_cast<float>(raw_size.height);
-
-        if (has_undistort) {
-            // Превращаем undistort-карты в CV_32FC2 единой картой.
-            // - Если на входе уже CV_32FC1 + CV_32FC1, мерджим.
-            // - Если fixed-point (CV_16SC2 + CV_16UC1) — convertMaps с типом CV_32FC2
-            //   сразу даст одну 2-канальную float-карту.
-            cv::Mat undist_xy;
-            if (undist_x.type() == CV_32FC1 && undist_y.type() == CV_32FC1) {
-                std::vector<cv::Mat> ch{ undist_x, undist_y };
-                cv::merge(ch, undist_xy);
-            }
-            else {
-                cv::Mat dummy;
-                cv::convertMaps(undist_x, undist_y, undist_xy, dummy,CV_32FC2, /*nninterpolation=*/false);
-            }
-
-            cv::Mat composed;
-            cv::remap(undist_xy, composed, warp_x, warp_y, cv::INTER_LINEAR, cv::BORDER_REPLICATE);
-
-            for (int y = 0; y < canvas_size.height; ++y) {
-                const cv::Vec2f* in_row = composed.ptr<cv::Vec2f>(y);
-                cv::Vec2f* out_row = out_remap_32fc2.ptr<cv::Vec2f>(y);
-                for (int x = 0; x < canvas_size.width; ++x) {
-                    const float rx = in_row[x][0];
-                    const float ry = in_row[x][1];
-
-                    const float clamped_x = std::min(std::max(rx, 0.0f), static_cast<float>(raw_size.width - 1));
-                    const float clamped_y = std::min(std::max(ry, 0.0f), static_cast<float>(raw_size.height - 1));
-
-                    out_row[x] = cv::Vec2f(clamped_x * inv_W, clamped_y * inv_H);
-                }
-            }
-        }
-        else {
-            m_logger.debug("compose_remap_to_raw(): no undistort maps, sipmple compose!");
-            // Без undistort: warp уже указывает в raw напрямую.
-            for (int y = 0; y < canvas_size.height; ++y) {
-                const float* wx_row = warp_x.ptr<float>(y);
-                const float* wy_row = warp_y.ptr<float>(y);
-                cv::Vec2f* out = out_remap_32fc2.ptr<cv::Vec2f>(y);
-                for (int x = 0; x < canvas_size.width; ++x) {
-                    const float rx = wx_row[x];
-                    const float ry = wy_row[x];
-                    if (rx < 0.0f || ry < 0.0f ||
-                        rx >= raw_size.width || ry >= raw_size.height)
-                    {
-                        out[x] = cv::Vec2f(-1.0f, -1.0f);
-                    }
-                    else {
-                        out[x] = cv::Vec2f(rx * inv_W, ry * inv_H);
-                    }
-                }
-            }
-        }
-
-        m_logger.debug((std::ostringstream() << 
-            "compose_remap_to_raw(): successfully compose maps: " <<  out_remap_32fc2.cols << "x" + out_remap_32fc2.rows).str());
-        return true;
-    }
-
-    /*
-        Прямоугольник места камеры на канвасе.
-
-        Запасное правило то же, что в build_warp_extras(): если canvas_region
-        пуст, зону задают dst_points. Иначе схема назначения на экране линкера
-        осталась бы пустой там, где склейка прекрасно работает.
-    */
-    static cv::Rect region_of(const FProjectionCamera& cam) {
-        const auto& pts = !cam.canvas_region.empty() ? cam.canvas_region : cam.dst_points;
-        if (pts.empty()) return {};
-
-        float min_x = pts[0].x, max_x = pts[0].x;
-        float min_y = pts[0].y, max_y = pts[0].y;
-        for (const auto& p : pts) {
-            min_x = std::min(min_x, p.x);
-            max_x = std::max(max_x, p.x);
-            min_y = std::min(min_y, p.y);
-            max_y = std::max(max_y, p.y);
-        }
-
-        return cv::Rect(
-            cvRound(min_x),
-            cvRound(min_y),
-            cvRound(max_x - min_x),
-            cvRound(max_y - min_y)
-        );
     }
 
     bool UCalibrator::save_stitching_export(
@@ -880,138 +731,67 @@ namespace calibration {
             m_logger.warn("save_stitching_export(): undistort maps are not ready");
         }
 
-        const std::filesystem::path id_dir = export_root / id;
-        if (!std::filesystem::create_directories(id_dir)) {
-            error = "save_stitching_export(): cannot create durectory at " + id_dir.string();
-            return false;
-        }
-
-        // Перебираем камеры пресета и пишем те, для которых есть warp + extras.
-        boost::json::object cameras_json;
-        int exported = 0;
+        // Композиция remap на камеру; веса и запись индекса делает печка
+        birdview::UTopBaker baker(&m_logger);
+        std::vector<birdview::FTopBakeCamera> baked;
 
         for (const auto& [cam_key, cam] : cams_copy) {
-            m_logger.debug("save_stitching_export(): processing camera <" + cam_key + ">");
             auto warp_it = m_warped_mats.find(cam_key);
-            auto extras_it = m_warp_extras.find(cam_key);
-            if (warp_it == m_warped_mats.end() || extras_it == m_warp_extras.end()) {
-                m_logger.warn("save_stitching_export(): skip <" + cam_key + ">, no warp/extras");
+            if (warp_it == m_warped_mats.end()) {
+                m_logger.warn("save_stitching_export(): skip <" + cam_key + ">, no warp");
                 continue;
             }
 
-            // 1) Композиция и нормализация в [0..1] по raw_size.
-            cv::Mat remap_norm;  // CV_32FC2
-            std::string error;
-
-            m_logger.debug("save_stitching_export(): composing remap for <" + cam_key + ">");
-            if (!compose_remap_to_raw(
+            cv::Mat remap_norm;
+            std::string compose_error;
+            if (!baker.compose_remap_to_raw(
                 warp_it->second.first, warp_it->second.second,
                 undist_x, undist_y,
-                raw_size, remap_norm, error)
+                raw_size, remap_norm, compose_error)
             ){
-                m_logger.error("save_stitching_export(): compose failed for <" + cam_key + ">");
+                m_logger.error("save_stitching_export(): compose failed for <" + cam_key
+                    + ">: " + compose_error);
                 continue;
             }
 
-            m_logger.debug( 
-                "save_stitching_export(): remap composed for <" + cam_key +">, size=" +
-                std::to_string(remap_norm.cols) + "x" + std::to_string(remap_norm.rows)
-            );
-
-            // 2) Weight — конвертация float → uint8. Нормализуем по максимуму,
-            //    чтобы динамический диапазон сохранился. Если максимум = 0 — пишем нули.
-            cv::Mat weight_u8;
-            {
-                const cv::Mat& weight_f = extras_it->second.weight;
-                double minv = 0, maxv = 0;
-                cv::minMaxLoc(weight_f, &minv, &maxv);
-
-                m_logger.debug(
-                    "save_stitching_export(): weight range for <" + cam_key +
-                    "> min=" + std::to_string(minv) +", max=" + std::to_string(maxv)
-                );
-
-                if (maxv > 0.0) {
-                    weight_f.convertTo(weight_u8, CV_8UC1, 255.0 / maxv);
-                }
-                else {
-                    weight_u8 = cv::Mat::zeros(weight_f.size(), CV_8UC1);
-                }
-            }
-
-            // 3) Имена файлов (с префиксом-ключом камеры).
-            const std::string remap_name = cam_key + "_remap.bin";
-            const std::string weight_name = cam_key + "_weight.bin";
-
-            const auto remap_path = id_dir / remap_name;
-            const auto weight_path = id_dir / weight_name;
-
-            if (!gl_maps::save_remap(remap_path, remap_norm)) {
-                m_logger.error("save_stitching_export(): cannot write " + remap_path.string());
-                continue;
-            }
-            if (!gl_maps::save_weight(weight_path, weight_u8)) {
-                m_logger.error("save_stitching_export(): cannot write " + weight_path.string());
-                continue;
-            }
-
-            // 4) Запись в JSON — пути относительно export_root.
-            boost::json::object cam_obj;
-            cam_obj["remap"] = (std::filesystem::path(id) / remap_name).generic_string();
-            cam_obj["weight"] = (std::filesystem::path(id) / weight_name).generic_string();
-
+            birdview::FTopBakeCamera item;
+            item.key = cam_key;
             // Имя места из пресета. По нему линкер показывает, какую камеру куда
             // ставить: ключи вроде left_front оператору ничего не говорят
-            cam_obj[constants::PROJ_CAM_NAME] = cam.name;
+            item.name = cam.name;
+            item.camera_id = cam.camera_id;
+            item.remap = std::move(remap_norm);
+            item.region = !cam.canvas_region.empty()
+                ? cam.canvas_region : birdview::UTopBaker::hull_of(cam.dst_points);
+            baked.push_back(std::move(item));
 
-            // Место камеры на канвасе прямоугольником: по нему линкер рисует схему
-            // назначения. Считаем здесь, а не на клиенте, потому что полигоны
-            // за пределы этого файла не выходят.
-            cv::Rect region = region_of(cam);
-            if (region.width > 0 && region.height > 0) {
-                boost::json::array r;
-                r.emplace_back(region.x);
-                r.emplace_back(region.y);
-                r.emplace_back(region.width);
-                r.emplace_back(region.height);
-                cam_obj["region"] = std::move(r);
-            }
-            else {
-                m_logger.warn("save_stitching_export(): no region for <" + cam_key + ">");
-            }
-
-            cameras_json[cam_key] = std::move(cam_obj);
-            ++exported;
-
-            m_logger.info("save_stitching_export(): exported camera <" + cam_key + ">");
+            m_logger.info("save_stitching_export(): composed camera <" + cam_key + ">");
         }
 
-        if (exported == 0) {
-            m_logger.error("save_stitching_export(): nothing exported");
+        // Имя, картинки, габарит и ключ пресета кладутся поверх записи;
+        // ключ нужен пересчёту в линкере, чтобы найти src-точки
+        boost::json::object patch;
+        patch["name"] = display_name;
+        patch["images"] = overlay_images;
+        patch["preset"] = preset_key;
+        if (has_machine) patch["machine"] = machine_block;
+
+        // Карта калибровки из пресета: surround-печка ищет по ней записи камер
+        boost::json::object calib_map;
+        for (const auto& [cam_key, cam] : cams_copy) {
+            if (!cam.camera_id.empty() && !cam.calibration_key.empty()) {
+                calib_map[cam.camera_id] = cam.calibration_key;
+            }
+        }
+
+        if (!baker.save_export(export_root, constants::LINKER_CONFIGURATION_INDEX,
+            id, canvas_size, baked, patch, calib_map, error)) {
+            m_logger.error("save_stitching_export(): " + error);
             return false;
         }
 
-        // 5) Обновляем общий json-индекс.
-        boost::json::object record;
-        record["name"] = display_name;
-        record["width"] = canvas_size.width;
-        record["height"] = canvas_size.height;
-        record["cameras"] = std::move(cameras_json);
-        record["images"] = overlay_images;
-        if (has_machine) record["machine"] = machine_block;
-
-        const auto json_path = export_root / constants::LINKER_CONFIGURATION_INDEX;
-
-        UJsonReaderBase* generic = nullptr;  // не наследник — нужен прямой доступ
-        UJsonStitchingExports index(&m_logger);
-        index.read(json_path);
-        index.add_json_item(id, std::move(record));
-        if (!index.save(json_path)) {
-            m_logger.error("save_stitching_export(): cannot save index json " + json_path.string());
-            return false;
-        }
-
-        m_logger.info("save_stitching_export(): exported " + std::to_string(exported) + " cameras under id <" + id + ">");
+        m_logger.info("save_stitching_export(): exported " + std::to_string(baked.size())
+            + " cameras under id <" + id + ">");
         return true;
     }
 

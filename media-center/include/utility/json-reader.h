@@ -35,13 +35,15 @@ namespace varan {
 
 		virtual ~UJsonReaderBase() = default;
 
-		// Чтение файла. Если файла нет — создаёт пустой.
+		/*
+			Чтение файла. Если файла нет — создаёт пустой.
+
+			Всегда с диска: файл параллельно правят другие писатели
+			(конфигуратор через REST), и одноразовый кеш заставлял
+			save() затирать их правки устаревшей копией из памяти.
+		*/
 		bool read(const std::filesystem::path& file_path) {
 			try {
-				if (m_loaded.load()) {
-					return true;
-				}
-
 				if (!std::filesystem::exists(file_path)) {
 					if (!file_path.parent_path().empty()) {
 						std::filesystem::create_directories(file_path.parent_path());
@@ -55,7 +57,6 @@ namespace varan {
 
 					create_file << boost::json::serialize(m_json);
 					log_warn("read(): json file not found, new created: " + file_path.string());
-					m_loaded.store(true);
 					return true;
 				}
 
@@ -79,7 +80,6 @@ namespace varan {
 
 				m_json = json_parsed.as_object();
 				log_info("read(): successfully read configurations from " + file_path.string());
-				m_loaded.store(true);
 				return true;
 			}
 			catch (const std::exception& error) {
@@ -211,7 +211,6 @@ namespace varan {
 	protected:
 		boost::json::object m_json;
 		ULogger* m_logger;
-		std::atomic<bool> m_loaded{ false };
 	};
 
 } // namespace varan

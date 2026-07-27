@@ -13,6 +13,7 @@ import type {
 } from '../../api/linker';
 import { SurroundPanel } from './SurroundPanel';
 import type { SurroundTab } from './SurroundPanel';
+import { TopPanel } from './TopPanel';
 import SurroundWebRTCPlayer from '../../../../components/SurroundWebRTCPlayer';
 import { wsUrl } from '../../constants';
 import { useToast } from '../common/Toast';
@@ -99,6 +100,12 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
         setFpsDraft(String(params.fps));
     }, [params.fps]);
 
+    // У режимов разные наборы вкладок: чужая закрывается на «Поток»
+    useEffect(() => {
+        if (params.viewMode === 'top' && panelTab === 'cameras') setPanelTab('stream');
+        if (params.viewMode === 'surround' && panelTab === 'images') setPanelTab('stream');
+    }, [params.viewMode, panelTab]);
+
     const commitFps = () => {
         const parsed = Number(fpsDraft);
         if (!Number.isFinite(parsed)) {
@@ -181,7 +188,25 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
                 linkerApi.getStateFor(exp.id),
             ]);
             setDetail(full);
-            setBindings(state.bindings);
+
+            /*
+                Сохранённые привязки главнее целиком: явно снятая камера не
+                должна воскресать. А вот конфигурацию без своей записи в
+                состоянии префиллим привязками из пресета, снятыми при
+                расчёте LUT — только доступными камерами и без дублей.
+            */
+            let bindings = state.bindings;
+            if (Object.keys(bindings).length === 0) {
+                const prefill: LinkerBindings = {};
+                for (const p of full.places) {
+                    if (!p.cameraId) continue;
+                    if (!cameras.some(c => c.id === p.cameraId)) continue;
+                    if (Object.values(prefill).includes(p.cameraId)) continue;
+                    prefill[p.key] = p.cameraId;
+                }
+                bindings = prefill;
+            }
+            setBindings(bindings);
             setParams({
                 fps: state.params.fps ?? DEFAULT_PARAMS.fps,
                 streamId: state.params.streamId ?? DEFAULT_STREAM_ID,
@@ -374,6 +399,48 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
             setStarting(false);
         }
     };
+
+    /**
+     * Разрешение top-кадра тем же паттерном, что у surround: живой вывод —
+     * стоп, запись, старт; остановленный — только запись, рестарт не нужен.
+     */
+    const applyTopResolution = async (res: { width: number; height: number }): Promise<boolean> => {
+        if (!selected) return false;
+        const live = status.running && status.exportId === selected.id;
+        if (!live) {
+            try {
+                await linkerApi.postTop({ resolution: res }, selected.id);
+                showToast('Разрешение сохранено', `${res.width}×${res.height}`, 'ok');
+                return true;
+            } catch (e) {
+                toastError('Разрешение не применено', e);
+                return false;
+            }
+        }
+        setStarting(true);
+        try {
+            await linkerApi.stop();
+            await linkerApi.postTop({ resolution: res }, selected.id);
+            await linkerApi.start();
+            const ready = await waitForStream();
+            if (!ready) throw new Error('Вывод не поднялся после смены разрешения');
+            setStatus(ready);
+            showToast('Разрешение применено', `${res.width}×${res.height} · вывод перезапущен`, 'ok');
+            return true;
+        } catch (e) {
+            toastError('Разрешение не применено', e);
+            linkerApi.getStatus().then(setStatus).catch(() => {});
+            return false;
+        } finally {
+            setStarting(false);
+        }
+    };
+
+    // Пересчёт и смена версии перезапускают живой вывод на сервере —
+    // статус подтягивается сразу, не дожидаясь общего опроса
+    const refreshStatus = useCallback(() => {
+        linkerApi.getStatus().then(setStatus).catch(() => {});
+    }, []);
 
     const geometry = useMemo(() => (detail ? buildGeometry(detail) : null), [detail]);
 
@@ -597,13 +664,22 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
             <aside className="sidebar linker-aside">
                 <div className="col-title">Параметры вывода</div>
 
+                {/* У плоской сшивки поз камер нет — вкладки «Камеры» тоже */}
                 <div className="srd-tabs" role="tablist" aria-label="Разделы параметров">
-                    {([
-                        ['stream', 'Поток'],
-                        ['scene', 'Сцена'],
-                        ['model', 'Модель'],
-                        ['cameras', 'Камеры'],
-                    ] as Array<[SurroundTab, string]>).map(([key, title]) => (
+                    {(params.viewMode === 'surround'
+                        ? ([
+                            ['stream', 'Поток'],
+                            ['scene', 'Сцена'],
+                            ['model', 'Модель'],
+                            ['cameras', 'Камеры'],
+                        ] as Array<[SurroundTab, string]>)
+                        : ([
+                            ['stream', 'Поток'],
+                            ['scene', 'Сцена'],
+                            ['model', 'Модель'],
+                            ['images', 'Рисунки'],
+                        ] as Array<[SurroundTab, string]>)
+                    ).map(([key, title]) => (
                         <button
                             key={key}
                             type="button"
@@ -725,10 +801,19 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
                         onError={toastError}
                         onApplyResolution={applyResolution}
                     />
+                ) : params.viewMode === 'top' && selected ? (
+                    <TopPanel
+                        live={isLive && status.viewMode === 'top'}
+                        exportId={selected.id}
+                        tab={panelTab}
+                        onError={toastError}
+                        onApplyResolution={applyTopResolution}
+                        onOutputRestarted={refreshStatus}
+                    />
                 ) : (
                     panelTab !== 'stream' && (
                         <div className="srd-hint">
-                            Раздел доступен в режиме «Объём» — переключите его на вкладке «Поток»
+                            Выберите конфигурацию в списке слева
                         </div>
                     )
                 )}

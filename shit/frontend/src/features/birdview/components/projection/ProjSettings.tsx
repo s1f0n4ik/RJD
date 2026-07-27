@@ -19,6 +19,9 @@ interface ProjSettingsProps {
     correction: Correction;
     stream: StreamControl;
     wsReady: boolean;
+    /** Список камер грузит экран: он нужен и «Применить все» в футере. */
+    sourceCams: CalibrationCamera[];
+    sourceCamsError: boolean;
 }
 
 export function ProjSettings({
@@ -32,8 +35,23 @@ export function ProjSettings({
     correction,
     stream,
     wsReady,
+    sourceCams,
+    sourceCamsError,
 }: ProjSettingsProps) {
     useProjStore();
+
+    /**
+     * Клик по месту: выбор для разметки, а при сохранённой в пресете привязке —
+     * ещё и переключение физической камеры той же логикой, что селект планки.
+     * Уже активная или недоступная камера переключения не вызывает.
+     */
+    const handlePlaceClick = (key: string) => {
+        onSelectCamera(key);
+        const boundId = projState.camId[key];
+        if (!boundId || boundId === camera?.id) return;
+        const found = sourceCams.find(c => c.id === boundId);
+        if (found) onSelectSourceCamera(found);
+    };
 
     const cams = projState.activePreset?.cameras ?? [];
 
@@ -47,6 +65,8 @@ export function ProjSettings({
                         correction={correction}
                         stream={stream}
                         disabled={!wsReady}
+                        cameras={sourceCams}
+                        camerasError={sourceCamsError}
                     />
 
                     <div className="proj-settings-title">Настройки проекции</div>
@@ -79,17 +99,22 @@ export function ProjSettings({
                                         ? projState.points.length
                                         : projState.pointsByCam[cam.key]?.length ?? 0;
                                     const camId = projState.camId[cam.key];
+                                    const calibKey = projState.calibKey[cam.key];
 
                                     return (
                                         <div
                                             key={cam.key}
                                             className={`proj-cam-item${isActive ? ' active' : ''}`}
-                                            onClick={() => onSelectCamera(cam.key)}
+                                            onClick={() => handlePlaceClick(cam.key)}
                                         >
                                             <div className="proj-cam-radio" />
                                             <span className="proj-cam-name">
                                                 {cam.name || cam.key}
-                                                {camId && <span className="proj-cam-id">[{camId}]</span>}
+                                                {camId && (
+                                                    <span className="proj-cam-id">
+                                                        [{camId}{calibKey ? `, ${calibKey}` : ''}]
+                                                    </span>
+                                                )}
                                             </span>
                                             <span className="proj-cam-count">
                                                 {count}/{cam.max_points ?? 0}
