@@ -117,6 +117,8 @@ services:
     build:
       context: ./shit/frontend
       dockerfile: Dockerfile
+      args:
+        FULL_AUTH: "${FULL_AUTH:-false}"
     container_name: frontend
     network_mode: host
     restart: unless-stopped
