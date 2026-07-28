@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc && vite build",
+    "build:secure": "tsc && vite build --mode secure",
     "preview": "vite preview"
   },
   "dependencies": {

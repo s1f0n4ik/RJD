@@ -7,10 +7,10 @@ import {
     Typography,
     Box,
     Alert,
-    Chip,
 } from '@mui/material';
 import { Fullscreen as FullscreenIcon } from '@mui/icons-material';
 import { RZD_COLORS } from '../theme';
+import { FULL_AUTH } from '../utils/auth';
 
 interface LoginProps {
     onLogin: (token: string, role: string, username: string) => void;
@@ -65,6 +65,8 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                 {/* Обёртка для основной карточки и серой «закладки» */}
                 <Box sx={{ position: 'relative' }}>
                     {/* Серая «закладка» — позади основной карточки, чуть смещённая вправо */}
+                    {/* В защищённой сборке киоск тоже за логином — переход скрыт */}
+                    {!FULL_AUTH && (
                     <Paper
                         elevation={4}
                         onClick={goToBroadcast}
@@ -116,6 +118,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                             </Typography>
                         </Box>
                     </Paper>
+                    )}
 
                     {/* Основная карточка логина — поверх «закладки» */}
                     <Paper
@@ -201,21 +204,8 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                             </Button>
                         </form>
 
-                        <Box mt={4} p={2} bgcolor={RZD_COLORS.grey[100]} borderRadius={2}>
-                            <Typography variant="caption" color="text.secondary" fontWeight={600}>
-                                Тестовые аккаунты:
-                            </Typography>
-                            <Typography variant="body2" sx={{ mt: 1 }}>
-                                <strong>admin</strong> / admin123{' '}
-                                <Chip label="Администратор" size="small" color="primary" sx={{ ml: 1 }} />
-                            </Typography>
-                            <Typography variant="body2">
-                                <strong>user</strong> / user123{' '}
-                                <Chip label="Наблюдатель" size="small" color="default" sx={{ ml: 1 }} />
-                            </Typography>
-                        </Box>
-
                         {/* Дублирующая кнопка для мобильных, где «закладка» скрыта */}
+                        {!FULL_AUTH && (
                         <Button
                             variant="text"
                             fullWidth
@@ -229,6 +219,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                         >
                             Перейти в режим трансляции
                         </Button>
+                        )}
                     </Paper>
                 </Box>
             </Container>

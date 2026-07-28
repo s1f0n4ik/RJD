@@ -23,11 +23,14 @@ import KioskView from './components/KioskView';
 import { wsService } from './services/websocket';
 import type { SystemState } from './types';
 import { RZD_COLORS } from './theme';
+import { FULL_AUTH, readStoredToken } from './utils/auth';
 import Observation from './components/Observation';
 import RecordingsView from './components/RecordingsView';
 import Landing from './components/Landing';
 import OnScreenKeyboard from './components/OnScreenKeyboard';
-const ADMIN_TABS = new Set([1, 3]); // Камеры, Загрузчики
+const ADMIN_TABS = new Set([1]); // Камеры
+// Подроуты /app/*, требующие прав администратора
+const ADMIN_ROUTES = ['neural', 'krsps', 'birdview'];
 
 import { MergeJobsProvider, useMergeJobs } from './contexts/MergeJobsContext';
 import MergeJobPanel from './components/MergeJobPanel';
@@ -73,17 +76,19 @@ const AppContent: React.FC = () => {
     loaders: [],
   });
 
-  const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
-  const [role, setRole] = useState<string | null>(localStorage.getItem('role'));
-  const [username, setUsername] = useState<string | null>(localStorage.getItem('username'));
+  // Протухший токен отбрасывается здесь; во время работы вкладки проверка не повторяется
+  const storedToken = readStoredToken();
+  const [token, setToken] = useState<string | null>(storedToken);
+  const [role, setRole] = useState<string | null>(storedToken && localStorage.getItem('role'));
+  const [username, setUsername] = useState<string | null>(storedToken && localStorage.getItem('username'));
 
-  // Временное повышение прав: храним id вкладки, для которой разрешён доступ
-  const [elevatedTab, setElevatedTab] = useState<number | null>(null);
+  // Временное повышение прав: ключ цели — 'tab:1' или 'route:neural'
+  const [elevated, setElevated] = useState<string | null>(null);
 
   // Диалог ввода пароля админа
-  const [authDialog, setAuthDialog] = useState<{ open: boolean; targetTab: number }>({
+  const [authDialog, setAuthDialog] = useState<{ open: boolean; target: string | null }>({
     open: false,
-    targetTab: 0,
+    target: null,
   });
   const [adminPassword, setAdminPassword] = useState('');
   const [authError, setAuthError] = useState('');
@@ -105,7 +110,13 @@ const AppContent: React.FC = () => {
     setToken(null);
     setRole(null);
     setUsername(null);
-    setElevatedTab(null);
+    setElevated(null);
+  };
+
+  const openAdminDialog = (target: string) => {
+    setAuthDialog({ open: true, target });
+    setAdminPassword('');
+    setAuthError('');
   };
 
   // Перехват смены вкладки: если требуется админ, а роль не админ — просим пароль
@@ -114,16 +125,18 @@ const AppContent: React.FC = () => {
     const isAdmin = role === 'admin';
 
     if (needsAdmin && !isAdmin) {
-      // Открываем диалог ввода пароля
-      setAuthDialog({ open: true, targetTab: newTab });
-      setAdminPassword('');
-      setAuthError('');
+      // В защищённой сборке эскалации нет — переключаем и показываем отказ
+      if (FULL_AUTH) {
+        setCurrentTab(newTab);
+        return;
+      }
+      openAdminDialog(`tab:${newTab}`);
       return;
     }
 
     // При уходе с защищённой вкладки — сбрасываем elevated
-    if (elevatedTab !== null && elevatedTab !== newTab) {
-      setElevatedTab(null);
+    if (elevated !== null && elevated !== `tab:${newTab}`) {
+      setElevated(null);
     }
 
     setCurrentTab(newTab);
@@ -149,10 +162,13 @@ const AppContent: React.FC = () => {
         throw new Error('Недостаточно прав');
       }
 
-      // Пароль верный — временно повышаем доступ для этой вкладки
-      setElevatedTab(authDialog.targetTab);
-      setCurrentTab(authDialog.targetTab);
-      setAuthDialog({ open: false, targetTab: 0 });
+      // Пароль верный — временно повышаем доступ для этой цели
+      const target = authDialog.target;
+      setElevated(target);
+      if (target?.startsWith('tab:')) {
+        setCurrentTab(Number(target.slice(4)));
+      }
+      setAuthDialog({ open: false, target: null });
       setAdminPassword('');
     } catch (err: any) {
       setAuthError(err.message);
@@ -173,6 +189,95 @@ const AppContent: React.FC = () => {
       wsService.disconnect();
     };
   }, [token, isKioskRoute, isLandingRoute, isNeuralRoute, isKrspsRoute, isBirdviewRoute]);
+
+  const hasAccessToTab = (tab: number): boolean => {
+    if (!ADMIN_TABS.has(tab)) return true;
+    if (role === 'admin') return true;
+    return elevated === `tab:${tab}`; // временное повышение
+  };
+
+  // showBack — для подроутов, где нет Header и уйти больше некуда
+  const renderDenied = (target: string, showBack = false) => (
+    <Box textAlign="center" py={8}>
+      <Typography variant="h5" color="text.secondary">
+        Доступ запрещён
+      </Typography>
+      <Typography color="text.secondary">
+        Требуются права администратора
+      </Typography>
+      <Box mt={3} display="flex" gap={2} justifyContent="center">
+        {!FULL_AUTH && (
+          <Button variant="contained" onClick={() => openAdminDialog(target)}>
+            Ввести пароль администратора
+          </Button>
+        )}
+        {showBack && (
+          <Button variant="outlined" onClick={() => { window.location.href = '/app'; }}>
+            Вернуться
+          </Button>
+        )}
+      </Box>
+    </Box>
+  );
+
+  const adminPasswordDialog = (
+    <Dialog
+      open={authDialog.open}
+      onClose={() => setAuthDialog({ open: false, target: null })}
+      maxWidth="xs"
+      fullWidth
+    >
+      <DialogTitle>🔒 Требуется пароль администратора</DialogTitle>
+      <DialogContent>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Для доступа к этому разделу введите пароль администратора.
+          Доступ будет предоставлен только на время просмотра этого раздела.
+        </Typography>
+        <TextField
+          autoFocus
+          fullWidth
+          type="password"
+          label="Пароль администратора"
+          value={adminPassword}
+          onChange={(e) => setAdminPassword(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && adminPassword) handleAdminPasswordSubmit();
+          }}
+          disabled={authLoading}
+        />
+        {authError && (
+          <Alert severity="error" sx={{ mt: 2 }}>
+            {authError}
+          </Alert>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button
+          onClick={() => setAuthDialog({ open: false, target: null })}
+          disabled={authLoading}
+        >
+          Отмена
+        </Button>
+        <Button
+          variant="contained"
+          onClick={handleAdminPasswordSubmit}
+          disabled={authLoading || !adminPassword}
+        >
+          {authLoading ? 'Проверка...' : 'Подтвердить'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+
+  // Защищённая сборка: логин требуется до любого маршрута, включая / и /kiosk
+  if (FULL_AUTH && !token) {
+    return (
+      <>
+        <Login onLogin={handleLogin} />
+        <OnScreenKeyboard />
+      </>
+    );
+  }
 
   if (isLandingRoute) {
     return (
@@ -197,9 +302,19 @@ const AppContent: React.FC = () => {
     </>
   );
   }
+  // Подроуты-настройки: попадают сюда по прямому URL, минуя handleTabChange
+  const adminRoute = ADMIN_ROUTES.find((r) => pathname.startsWith(`/app/${r}`)) ?? null;
+  if (adminRoute && role !== 'admin' && elevated !== `route:${adminRoute}`) {
+    return (
+      <Box sx={{ minHeight: '100vh', bgcolor: RZD_COLORS.grey[100] }}>
+        {renderDenied(`route:${adminRoute}`, true)}
+        {adminPasswordDialog}
+        <OnScreenKeyboard />
+      </Box>
+    );
+  }
+
   if (isNeuralRoute) {
-    // при желании — гейт по admin-праву:
-    // if (role !== 'admin') return renderDenied();
     return (
       <>
         <NeuralConfigApp />
@@ -224,33 +339,14 @@ const AppContent: React.FC = () => {
     );
   }
 
-  const hasAccessToTab = (tab: number): boolean => {
-    if (!ADMIN_TABS.has(tab)) return true;
-    if (role === 'admin') return true;
-    return elevatedTab === tab; // временное повышение
-  };
-
-  const renderDenied = () => (
-    <Box textAlign="center" py={8}>
-      <Typography variant="h5" color="text.secondary">
-        Доступ запрещён
-      </Typography>
-      <Typography color="text.secondary">
-        Требуются права администратора
-      </Typography>
-    </Box>
-  );
-
   const renderContent = () => {
     switch (currentTab) {
       case 0:
         return <Dashboard state={state} onNavigate={handleTabChange} />;
       case 1:
-        return hasAccessToTab(1) ? <CameraSettings /> : renderDenied();
+        return hasAccessToTab(1) ? <CameraSettings /> : renderDenied('tab:1');
       case 2:
         return <Observation />;
-      // case 3:
-      //   return hasAccessToTab(3) ? <LoaderSettings /> : renderDenied();
       case 3:
         return <RecordingsView />;
       // case 4:
@@ -273,52 +369,7 @@ const AppContent: React.FC = () => {
       <Box sx={{ pb: 4 }}>{renderContent()}</Box>
 
       {/* Диалог пароля администратора */}
-      <Dialog
-        open={authDialog.open}
-        onClose={() => setAuthDialog({ open: false, targetTab: 0 })}
-        maxWidth="xs"
-        fullWidth
-      >
-        <DialogTitle>🔒 Требуется пароль администратора</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Для доступа к этой вкладке введите пароль администратора.
-            Доступ будет предоставлен только на время просмотра этой вкладки.
-          </Typography>
-          <TextField
-            autoFocus
-            fullWidth
-            type="password"
-            label="Пароль администратора"
-            value={adminPassword}
-            onChange={(e) => setAdminPassword(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && adminPassword) handleAdminPasswordSubmit();
-            }}
-            disabled={authLoading}
-          />
-          {authError && (
-            <Alert severity="error" sx={{ mt: 2 }}>
-              {authError}
-            </Alert>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button
-            onClick={() => setAuthDialog({ open: false, targetTab: 0 })}
-            disabled={authLoading}
-          >
-            Отмена
-          </Button>
-          <Button
-            variant="contained"
-            onClick={handleAdminPasswordSubmit}
-            disabled={authLoading || !adminPassword}
-          >
-            {authLoading ? 'Проверка...' : 'Подтвердить'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {adminPasswordDialog}
       <OnScreenKeyboard />
         <GlobalMergeJobPanel />
     </Box>

@@ -11,7 +11,10 @@ RUN --mount=type=cache,target=/root/.npm \
     npm ci --legacy-peer-deps
 
 COPY . .
-RUN npm run build
+
+# FULL_AUTH=true — логин на все маршруты, включая / и /kiosk.
+ARG FULL_AUTH=false
+RUN if [ "$FULL_AUTH" = "true" ]; then npm run build:secure; else npm run build; fi
 
 # ── Production stage ──
 FROM nginx:alpine

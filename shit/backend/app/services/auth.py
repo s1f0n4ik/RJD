@@ -16,14 +16,12 @@ security = HTTPBearer()
 USERS_DB = {
     "admin": {
         "username": "admin",
-        "password_hash": "$2b$12$Bhb0VwJZkVVeYC7thL3yGegcTaHr7MIyqBej2Hw55i8KGICp3OA.e",
+        "password_hash": "$2b$12$A3IpNWdpg912GjcOe0kB4.c3Fx7SONXlW0IKe5Zp1amWvbDaV.BY2",
         "role": "admin"
     },
     "user": {
         "username": "user",
-
         "password_hash": "$2b$12$b/4n2FJenBziRNJGQRir7O1lgAogDGTzkVVXnBpmEG8mzhdYKDdH.",
-      # Пароль: user123
         "role": "viewer"
     }
 }
