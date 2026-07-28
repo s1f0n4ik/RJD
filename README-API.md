@@ -227,12 +227,39 @@ storage-service (8001), scanner (8002), message-gateway (9090) и signaling (876
 | Метод | Путь через nginx | Назначение |
 |---|---|---|
 | GET | `/api/scan/cameras` | быстрый ONVIF WS-Discovery, JSON. Параметры: `enrich`, `username`, `password`, `timeout`. Фронтом не используется |
-| GET (SSE) | `/api/scan/stream` | ONVIF + порт-скан подсети батчами. Параметры: `subnet` (пусто — автоопределение), `from`, `to`, `onvif_timeout` |
+| GET | `/api/scan/subnets` | локальные подсети /24: `[{prefix, address, iface}]`. Заполняет селектор «Где искать» |
+| GET (SSE) | `/api/scan/stream` | ONVIF + порт-скан батчами. Параметры: `subnet` (пусто — **все** локальные подсети), `from`, `to`, `onvif_timeout` |
 
 SSE читается через `EventSource` в
-[CameraSettings.tsx:626](shit/frontend/src/components/CameraSettings.tsx#L626).
+[CameraSettings.tsx](shit/frontend/src/components/CameraSettings.tsx).
 Этапы событий: `onvif_start` → `onvif_done` → `ports_start` → `ports_progress`
 (многократно) → `done`. Для этого location в nginx выключена буферизация.
+
+### Выбор подсети на многосетевой машине
+
+Раньше при пустом `subnet` подсеть угадывалась UDP-сокетом на `8.8.8.8`: ОС
+выбирала адрес по **дефолтному маршруту**. На машине с двумя адресами это
+всегда внешняя сеть, а камерная не сканировалась никогда. Функция удалена;
+теперь адреса перечисляются через `psutil.net_if_addrs()`
+([port_scan.py](scanner/app/services/port_scan.py)) — только так видны **все**
+адреса интерфейса, а не первый.
+
+Отбрасываются loopback, link-local и интерфейсы с `isup == False` — иначе в
+список попадают docker-мосты, чьи подсети никуда не ведут. Фильтр по свойствам,
+а не по именам, поэтому переименование интерфейсов его не ломает.
+
+При нескольких подсетях счётчик сквозной: `ports_start` приходит один раз с
+суммарным `total` и списком `subnets`, а каждое `ports_progress` несёт поле
+`subnet` для подписи. Прогресс-бар едет от 0 до 100 ровно один раз.
+
+ONVIF-probe рассылается с **каждого** локального адреса через `IP_MULTICAST_IF`
+([onvif_discovery.py](scanner/app/services/onvif_discovery.py)); без этого ядро
+брало один адрес по дефолтному маршруту и камеры остальных сетей probe не
+получали. Ответы фильтруются по выбранной подсети, чтобы выбор в UI означал одно
+и то же для обоих этапов.
+
+Порт-скан устроен как «префикс + 1..254», то есть **всегда работает как /24**
+независимо от реальной маски: для /16 просканируется только один октет.
 
 ## Message Gateway — КРСПС (порт 9090)
 

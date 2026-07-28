@@ -125,11 +125,15 @@ def _ip_from_xaddr(xaddr: str) -> tuple[str, int]:
     return ip, port
 
 
-def _discover_sync(timeout: float) -> List[DiscoveredCamera]:
+def _discover_sync(timeout: float, local_addrs: Optional[List[str]] = None) -> List[DiscoveredCamera]:
     """
     Синхронная реализация WS-Discovery на блокирующем сокете.
     Вызывается в executor'е — не зависит от реализации event-loop
     (uvloop не поддерживает loop.sock_sendto для датаграмм).
+
+    local_addrs — адреса, с которых рассылать probe. На машине с несколькими
+    подсетями без этого ядро выбирает один адрес по дефолтному маршруту,
+    и камеры из остальных сетей probe не получают. Пусто — поведение ядра.
     """
     import time
 
@@ -138,6 +142,7 @@ def _discover_sync(timeout: float) -> List[DiscoveredCamera]:
     sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
 
     try:
+        # Приём со всех подсетей идёт в этот же сокет
         sock.bind(("", 0))
     except OSError as e:
         logger.error(f"WSD bind failed: {e}")
@@ -145,13 +150,18 @@ def _discover_sync(timeout: float) -> List[DiscoveredCamera]:
         return []
 
     probe = _build_probe()
+    send_from = list(local_addrs) if local_addrs else [None]
 
     # Отправляем probe несколько раз — UDP ненадёжен
     for _ in range(2):
-        try:
-            sock.sendto(probe, (WSD_MULTICAST_ADDR, WSD_PORT))
-        except OSError as e:
-            logger.warning(f"WSD send failed: {e}")
+        for addr in send_from:
+            try:
+                if addr:
+                    # Задаёт и исходящий интерфейс, и адрес источника
+                    sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(addr))
+                sock.sendto(probe, (WSD_MULTICAST_ADDR, WSD_PORT))
+            except OSError as e:
+                logger.warning(f"WSD send from {addr or 'default'} failed: {e}")
         time.sleep(0.1)
 
     found: dict[str, DiscoveredCamera] = {}
@@ -197,13 +207,16 @@ def _discover_sync(timeout: float) -> List[DiscoveredCamera]:
     return list(found.values())
 
 
-async def discover_cameras(timeout: float = WSD_TIMEOUT) -> List[DiscoveredCamera]:
+async def discover_cameras(
+        timeout: float = WSD_TIMEOUT,
+        local_addrs: Optional[List[str]] = None,
+) -> List[DiscoveredCamera]:
     """
     Асинхронная обёртка: синхронный discovery выполняется в executor'е,
     чтобы не блокировать event-loop и не зависеть от uvloop.
     """
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, _discover_sync, timeout)
+    return await loop.run_in_executor(None, _discover_sync, timeout, local_addrs)
 
 
 async def enrich_device_info(camera: DiscoveredCamera, username: str = "", password: str = "") -> DiscoveredCamera:

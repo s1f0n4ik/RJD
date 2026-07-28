@@ -194,6 +194,10 @@ const CameraSettings: React.FC = () => {
     const [onvifCameras, setOnvifCameras] = useState<Array<{ ip: string; port: number; name?: string; model?: string; manufacturer?: string }>>([]);
     const [portCameras, setPortCameras] = useState<Array<{ ip: string; open_ports: number[]; has_rtsp: boolean; vendor?: string }>>([]);
     const scanSourceRef = useRef<EventSource | null>(null);
+    // Подсети машины; пустая строка в scanSubnet означает «все сразу»
+    const [scanSubnets, setScanSubnets] = useState<Array<{ prefix: string; address: string; iface: string }>>([]);
+    const [scanSubnet, setScanSubnet] = useState('');
+    const [scanCurrentSubnet, setScanCurrentSubnet] = useState('');
 
     useEffect(() => {
         loadCameras();
@@ -610,20 +614,44 @@ const CameraSettings: React.FC = () => {
         return () => { scanSourceRef.current?.close(); };
     }, []);
 
-    const handleOpenScan = () => {
+    const handleOpenScan = async () => {
         setScanOpen(true);
-        startScan();
+
+        let subnets: Array<{ prefix: string; address: string; iface: string }> = [];
+        try {
+            const res = await fetch('/api/scan/subnets');
+            if (res.ok) subnets = await res.json();
+        } catch {
+            // Список не обязателен — без него сканируются все подсети
+        }
+        setScanSubnets(subnets);
+
+        // По умолчанию — подсеть уже добавленных камер
+        const cameraPrefixes = new Set(
+            cameras
+                .map((c) => c.ip_adress)
+                .filter((ip): ip is string => typeof ip === 'string' && ip.split('.').length === 4)
+                .map((ip) => ip.split('.').slice(0, 3).join('.') + '.')
+        );
+        const preferred = subnets.find((s) => cameraPrefixes.has(s.prefix));
+        const initial = preferred ? preferred.prefix : '';
+
+        setScanSubnet(initial);
+        startScan(initial);
     };
 
-    const startScan = () => {
+    const startScan = (subnet: string) => {
         scanSourceRef.current?.close();
         setScanStage('onvif');
         setScanProgress({ scanned: 0, total: 0 });
+        setScanCurrentSubnet('');
         setOnvifCameras([]);
         setPortCameras([]);
 
-        // Без параметров — сервер определит подсеть сам и просканирует всю (1–254)
-        const es = new EventSource('/api/scan/stream');
+        // Пустой subnet — сервер просканирует все локальные подсети (1–254)
+        const es = new EventSource(
+            subnet ? `/api/scan/stream?subnet=${encodeURIComponent(subnet)}` : '/api/scan/stream'
+        );
         scanSourceRef.current = es;
 
         es.onmessage = (e) => {
@@ -637,6 +665,7 @@ const CameraSettings: React.FC = () => {
                     break;
                 case 'ports_progress':
                     setScanProgress({ scanned: msg.scanned, total: msg.total });
+                    if (msg.subnet) setScanCurrentSubnet(msg.subnet);
                     if (msg.found?.length) setPortCameras(prev => [...prev, ...msg.found]);
                     break;
                 case 'error':
@@ -1333,7 +1362,7 @@ const CameraSettings: React.FC = () => {
                         <WifiIcon fontSize="small" /> Поиск камер в сети
                     </Box>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        <IconButton size="small" onClick={startScan}
+                        <IconButton size="small" onClick={() => startScan(scanSubnet)}
                                     disabled={scanStage === 'onvif' || scanStage === 'ports'}
                                     sx={{ color: 'white' }}>
                             <RefreshIcon fontSize="small" />
@@ -1366,6 +1395,30 @@ const CameraSettings: React.FC = () => {
                     flexDirection: 'column',
                 }}>
 
+                    {/* Область поиска — список подсетей самой машины */}
+                    {scanSubnets.length > 0 && (
+                        <TextField
+                            select
+                            size="small"
+                            label="Где искать"
+                            value={scanSubnet}
+                            disabled={scanStage === 'onvif' || scanStage === 'ports'}
+                            onChange={(e) => {
+                                const next = e.target.value;
+                                setScanSubnet(next);
+                                startScan(next);
+                            }}
+                            sx={{ mb: 2 }}
+                        >
+                            {scanSubnets.map((s) => (
+                                <MenuItem key={s.prefix} value={s.prefix}>
+                                    {s.prefix}x &nbsp;({s.iface})
+                                </MenuItem>
+                            ))}
+                            <MenuItem value="">Все подсети</MenuItem>
+                        </TextField>
+                    )}
+
                     {/* Прогресс-индикатор этапа */}
                     {scanStage === 'onvif' && onvifCameras.length === 0 && portCameras.length === 0 && (
                         <Box sx={{
@@ -1391,7 +1444,7 @@ const CameraSettings: React.FC = () => {
                                 <Typography variant="body2" color="text.secondary">
                                     {scanStage === 'onvif'
                                         ? 'Поиск ONVIF-камер...'
-                                        : `Сканирование портов: ${scanProgress.scanned}/${scanProgress.total}`}
+                                        : `Сканирование портов${scanCurrentSubnet ? ` ${scanCurrentSubnet}x` : ''}: ${scanProgress.scanned}/${scanProgress.total}`}
                                 </Typography>
                             </Box>
                             {scanStage === 'ports' && scanProgress.total > 0 && (

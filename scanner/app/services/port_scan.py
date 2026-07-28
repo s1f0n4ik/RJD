@@ -26,6 +26,13 @@ CONNECT_TIMEOUT = 0.6  # сек на одно TCP-соединение
 
 
 @dataclass
+class LocalSubnet:
+    prefix: str    # '192.168.1.'
+    address: str   # адрес самой машины в этой подсети
+    iface: str
+
+
+@dataclass
 class PortScanResult:
     ip: str
     open_ports: List[int]
@@ -109,58 +116,89 @@ def _build_ip_list(subnet_prefix: str, start: int, end: int) -> List[str]:
     return [f"{subnet_prefix}{i}" for i in range(start, end + 1)]
 
 
-def detect_local_subnet() -> Optional[str]:
+def enumerate_local_subnets() -> List[LocalSubnet]:
     """
-    Определяет локальную подсеть /24 по основному сетевому интерфейсу.
-    Возвращает префикс вида '192.168.1.' или None.
+    Все локальные IPv4-подсети /24 по адресам поднятых интерфейсов.
 
-    Метод: открываем UDP-сокет «наружу» (без отправки данных) и смотрим,
-    какой локальный IP выбрала ОС — это IP основного интерфейса.
+    Берём именно все адреса каждого интерфейса: на одном интерфейсе их может
+    быть несколько (камерная сеть + внешняя), и вариант с ioctl вернул бы
+    только первый. Погашенные интерфейсы пропускаем — иначе в список лезут
+    docker-мосты, чьи подсети никуда не ведут.
     """
     import socket as _socket
+    import psutil
+
+    subnets: List[LocalSubnet] = []
+    seen: set[str] = set()
+
     try:
-        s = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
-        # 8.8.8.8 — просто чтобы ОС выбрала исходящий интерфейс, пакет не шлётся
-        s.connect(("8.8.8.8", 80))
-        local_ip = s.getsockname()[0]
-        s.close()
-        # 192.168.1.42 → '192.168.1.'
-        parts = local_ip.split(".")
-        if len(parts) == 4:
-            return ".".join(parts[:3]) + "."
-    except OSError as e:
-        logger.warning(f"detect_local_subnet failed: {e}")
-    return None
+        stats = psutil.net_if_stats()
+        for iface, addrs in psutil.net_if_addrs().items():
+            st = stats.get(iface)
+            if st is None or not st.isup:
+                continue
+            for a in addrs:
+                if a.family != _socket.AF_INET or not a.address:
+                    continue
+                if a.address.startswith("127.") or a.address.startswith("169.254."):
+                    continue
+                parts = a.address.split(".")
+                if len(parts) != 4:
+                    continue
+                prefix = ".".join(parts[:3]) + "."
+                if prefix in seen:
+                    continue
+                seen.add(prefix)
+                subnets.append(LocalSubnet(prefix=prefix, address=a.address, iface=iface))
+    except Exception as e:
+        logger.warning(f"enumerate_local_subnets failed: {e}")
+
+    return subnets
 
 
-async def scan_ports_batched(
-        subnet_prefix: str,
+async def scan_subnets_batched(
+        subnet_prefixes: List[str],
         start: int,
         end: int,
         exclude_ips: Optional[set[str]] = None,
 ) -> AsyncGenerator[dict, None]:
     """
-    Сканирует диапазон IP батчами по BATCH_SIZE.
-    Генератор: после каждого батча отдаёт прогресс и найденные камеры.
+    Последовательно сканирует несколько подсетей батчами по BATCH_SIZE.
 
-    Каждый yield — dict:
+    Счётчик сквозной по всем подсетям — прогресс-бар едет от 0 до 100 один раз.
+    Первый yield всегда type='start', дальше type='progress' после каждого батча:
+
+      { "type": "start",    "total": int, "subnets": [str, ...] }
       { "type": "progress", "scanned": int, "total": int,
-        "found": [PortScanResult-dict, ...] }   # found — накопительно за батч
+        "subnet": str, "found": [PortScanResult-dict, ...] }
     """
     exclude_ips = exclude_ips or set()
-    all_ips = [ip for ip in _build_ip_list(subnet_prefix, start, end) if ip not in exclude_ips]
-    total = len(all_ips)
+
+    # Списки строим заранее: total нужен до первого батча, а исключения его меняют
+    planned = [
+        (prefix, [ip for ip in _build_ip_list(prefix, start, end) if ip not in exclude_ips])
+        for prefix in subnet_prefixes
+    ]
+    total = sum(len(ips) for _, ips in planned)
     scanned = 0
 
-    for i in range(0, total, BATCH_SIZE):
-        batch = all_ips[i:i + BATCH_SIZE]
-        results = await asyncio.gather(*[_scan_ip(ip) for ip in batch])
-        found = [asdict(r) for r in results if r is not None]
-        scanned += len(batch)
+    yield {
+        "type": "start",
+        "total": total,
+        "subnets": [prefix for prefix, _ in planned],
+    }
 
-        yield {
-            "type": "progress",
-            "scanned": scanned,
-            "total": total,
-            "found": found,
-        }
+    for prefix, ips in planned:
+        for i in range(0, len(ips), BATCH_SIZE):
+            batch = ips[i:i + BATCH_SIZE]
+            results = await asyncio.gather(*[_scan_ip(ip) for ip in batch])
+            found = [asdict(r) for r in results if r is not None]
+            scanned += len(batch)
+
+            yield {
+                "type": "progress",
+                "scanned": scanned,
+                "total": total,
+                "subnet": prefix,
+                "found": found,
+            }

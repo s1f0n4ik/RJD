@@ -290,7 +290,20 @@ bool UCameraPipeline::probe_video_stream(int timeout_sec) {
     auto sink = gst_element_factory_make("fakesink", nullptr);
 
     if (!pipeline || !src || !decoder || !sink) {
-        if (m_logger) m_logger->error("Failed to create probe pipeline elements.");
+        if (m_logger) {
+            // Без имени фабрики причина неотличима: нет плагина, ABI, чёрный список реестра
+            std::string missing;
+            if (!pipeline) missing += " probe-pipeline";
+            if (!src)      missing += " rtspsrc";
+            if (!decoder)  missing += " mppvideodec";
+            if (!sink)     missing += " fakesink";
+            m_logger->error("Failed to create probe pipeline elements, missing:" + missing);
+        }
+        // Созданные элементы в bin не попали — владение осталось здесь
+        if (sink)     gst_object_unref(sink);
+        if (decoder)  gst_object_unref(decoder);
+        if (src)      gst_object_unref(src);
+        if (pipeline) gst_object_unref(pipeline);
         return false;
     }
 

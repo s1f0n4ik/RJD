@@ -24,7 +24,6 @@ ITEMS=(
     fonts
     proto
     server
-    gstreamer-mpp
 )
 
 # Заливать ли зависимости 3rdparty
