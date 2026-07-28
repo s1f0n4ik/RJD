@@ -2,6 +2,7 @@
 
 #include <string>
 #include <array>
+#include <filesystem>
 
 namespace varan {
 namespace calibration {
@@ -20,22 +21,11 @@ namespace constants {
 
 		Пресеты принадлежат конфигуратору. Калибратор пишет в них src_points
 		как гость и правит запись точечно, не трогая остального.
+
+		Сами пути переехали в varan::paths().surround — см. include/core/paths.h.
+		Здесь остались только имена файлов, не зависящие от корня.
 	*/
-	inline const std::filesystem::path SURROUND_VIEW_ROOT = "/home/orangepi/varan/surround_view";
-
-	inline const std::filesystem::path CALIBRATION_ROOT = SURROUND_VIEW_ROOT / "calibration";
-	inline const std::string CALIBRATION_CONFIGURES_PATH = (CALIBRATION_ROOT / "calibration_settings.json").string();
-	inline const std::string CALIBRATION_MAPS_PATH       = (CALIBRATION_ROOT / "maps").string();
-
-	inline const std::filesystem::path PRESETS_ROOT = SURROUND_VIEW_ROOT / "presets";
-	inline const std::filesystem::path PROJECTION_CONFIGURES_PATH = PRESETS_ROOT / "presets.json";
-	inline const std::filesystem::path PROJECTION_IMAGES_PATH     = PRESETS_ROOT / "images";
-	inline const std::filesystem::path PROJECTION_MODELS_PATH     = PRESETS_ROOT / "models";
-
-	inline const std::filesystem::path LINKER_CONFIGURES_ROOT     = SURROUND_VIEW_ROOT / "projection";
 	inline const std::filesystem::path LINKER_CONFIGURATION_INDEX = "projection.json";
-
-	inline const std::filesystem::path LINKER_STATE_ROOT  = SURROUND_VIEW_ROOT / "linker";
 	inline const std::filesystem::path LINKER_STATE_INDEX = "state.json";
 
 	// Тип подключений

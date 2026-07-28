@@ -3,8 +3,10 @@
 #include <iostream>
 #include <filesystem>
 #include <charconv>
+#include <cstdlib>
 #include <cstring>
 #include <csignal>
+#include <system_error>
 #include <sys/resource.h>
 
 #include <EGL/egl.h>
@@ -13,6 +15,7 @@
 #include <GLES2/gl2ext.h>
 
 #include "console_utility.h"
+#include "core/paths.h"
 #include "main-server/rest_server.h"
 #include "bird-view/linker.h"
 #include "bird-view/egl-context.h"
@@ -29,9 +32,15 @@ using namespace varan;
 std::atomic<bool> RUNNING{ true };
 
 struct AppConfig {
-	uint16_t rest_port;
+	uint16_t rest_port = 0;
 	std::string signaling_ip;
-	uint16_t signaling_port;
+	uint16_t signaling_port = 0;
+
+	// Корень рабочего каталога: nvr, neural и surround_view кладут данные сюда.
+	std::filesystem::path varan_root;
+
+	// Журнал обнаружений живёт на своём томе, отдельно от varan_root.
+	std::filesystem::path journal_dir;
 
 	// Опциональное подключение к message-gateway (ingress кадров).
 	bool gateway_enabled = false;
@@ -49,8 +58,21 @@ int main(int argc, char* argv[])
 	AppConfig config;
 	ULogger main_logger = ULogger("MAIN", ULogger::ELoggerLevel::DEBUG);
 
-	if (!parse_arguments(argc, argv, config)) {
+	// Логгер обязателен: без него неверные аргументы уходили в тишину
+	if (!parse_arguments(argc, argv, config, &main_logger)) {
 		return EXIT_FAILURE;
+	}
+
+	varan::init_paths(config.varan_root, config.journal_dir);
+
+	// Создаём дерево заранее, чтобы отказ по правам был виден при старте,
+	// а не через часы работы при первом сохранении конфигурации.
+	for (const auto& dir : varan::required_directories()) {
+		std::error_code ec;
+		std::filesystem::create_directories(dir, ec);
+		if (ec) {
+			main_logger.warn("cannot create " + dir.string() + ": " + ec.message());
+		}
 	}
 
 	setenv("GST_GL_PLATFORM", "egl", 1);
@@ -108,8 +130,8 @@ int main(int argc, char* argv[])
 		socket_options.ip_adress, socket_options.port,
 		main_context.get(),
 		gl_storage.get(),
-		"/home/orangepi/varan/neural/configurations.json",
-		"/home/orangepi/varan/neural/loader_state.json",
+		varan::paths().neural.config,
+		varan::paths().neural.loader_state,
 		platform_info,
 		gateway_config,
 		ULogger::ELoggerLevel::DEBUG
@@ -213,44 +235,113 @@ void signal_handler(int signal) {
 	RUNNING = false;
 }
 
+static void print_usage(const char* exe, ULogger* logger) {
+	const std::string text =
+		std::string("Usage: ") + exe + " \\\n"
+		"    --rest-port=<port> --signaling-ip=<ip> --signaling-port=<port> \\\n"
+		"    --varan-root=<dir> \\\n"
+		"    [--gateway-ip=<ip> --gateway-port=<port>] \\\n"
+		"    [--journal-dir=<dir>]\n"
+		"\n"
+		"  --varan-root   рабочий каталог: nvr, neural, surround_view\n"
+		"  --journal-dir  журнал обнаружений; иначе MC_JOURNAL_DIR, иначе /storage/journal\n"
+		"  --gateway-*    подключение к message-gateway; задаются вместе или никак\n";
+
+	if (logger) logger->error(text);
+	else std::cerr << text;
+}
+
+// Разбирает --name=value. Возвращает false, если аргумент не такой формы.
+static bool split_flag(const char* arg, std::string& name, std::string& value) {
+	const std::string text = arg;
+	if (text.rfind("--", 0) != 0) return false;
+
+	const auto eq = text.find('=');
+	if (eq == std::string::npos) return false;
+
+	name = text.substr(2, eq - 2);
+	value = text.substr(eq + 1);
+	return !name.empty();
+}
+
 bool parse_arguments(int argc, char* argv[], AppConfig& config, ULogger* logger) {
-	// gateway_ip/gateway_port — опциональны: без них интеграция со шлюзом выключена.
-	if (argc != 4 && argc != 6) {
-		if (logger) logger->error("Usage: " + std::string(argv[0]) +
-			" <rest_server_port> <signaling_ip> <signaling_port> [<gateway_ip> <gateway_port>]\n");
+	std::string gateway_port_raw;
+
+	for (int i = 1; i < argc; ++i) {
+		std::string name, value;
+		if (!split_flag(argv[i], name, value)) {
+			if (logger) logger->error("Unexpected argument: " + std::string(argv[i]));
+			print_usage(argv[0], logger);
+			return false;
+		}
+
+		if (name == "rest-port") {
+			if (!parse_port(value.c_str(), config.rest_port)) {
+				if (logger) logger->error("Invalid --rest-port: " + value);
+				return false;
+			}
+		} else if (name == "signaling-ip") {
+			config.signaling_ip = value;
+		} else if (name == "signaling-port") {
+			if (!parse_port(value.c_str(), config.signaling_port)) {
+				if (logger) logger->error("Invalid --signaling-port: " + value);
+				return false;
+			}
+		} else if (name == "varan-root") {
+			config.varan_root = value;
+		} else if (name == "journal-dir") {
+			config.journal_dir = value;
+		} else if (name == "gateway-ip") {
+			config.gateway_ip = value;
+		} else if (name == "gateway-port") {
+			gateway_port_raw = value;
+		} else {
+			if (logger) logger->error("Unknown flag: --" + name);
+			print_usage(argv[0], logger);
+			return false;
+		}
+	}
+
+	if (config.rest_port == 0 || config.signaling_ip.empty()
+		|| config.signaling_port == 0 || config.varan_root.empty()) {
+		if (logger) logger->error(
+			"Missing required flags: --rest-port, --signaling-ip, --signaling-port, --varan-root");
+		print_usage(argv[0], logger);
 		return false;
 	}
 
-	if (!parse_port(argv[1], config.rest_port)) {
-		if (logger) logger->error("Invalid REST server port\n");
-		return false;
-	}
-
-	config.signaling_ip = argv[2];
 	if (!is_valid_ipv4(config.signaling_ip)) {
-		if (logger) logger->error("Invalid signaling IP address\n");
+		if (logger) logger->error("Invalid --signaling-ip: " + config.signaling_ip);
 		return false;
 	}
 
-	if (!parse_port(argv[3], config.signaling_port)) {
-		if (logger) logger->error("Invalid signaling port\n");
+	// Шлюз опционален, но полурезультат хуже отключённого — требуем оба флага.
+	if (config.gateway_ip.empty() != gateway_port_raw.empty()) {
+		if (logger) logger->error("--gateway-ip and --gateway-port must be given together");
 		return false;
 	}
 
-	if (argc == 6) {
-		config.gateway_ip = argv[4];
+	if (!config.gateway_ip.empty()) {
 		if (!is_valid_ipv4(config.gateway_ip)) {
-			if (logger) logger->error("Invalid gateway IP address\n");
+			if (logger) logger->error("Invalid --gateway-ip: " + config.gateway_ip);
 			return false;
 		}
 
 		uint16_t gateway_port = 0;
-		if (!parse_port(argv[5], gateway_port)) {
-			if (logger) logger->error("Invalid gateway port\n");
+		if (!parse_port(gateway_port_raw.c_str(), gateway_port)) {
+			if (logger) logger->error("Invalid --gateway-port: " + gateway_port_raw);
 			return false;
 		}
 		config.gateway_port = std::to_string(gateway_port);
 		config.gateway_enabled = true;
+	}
+
+	// Журнал: флаг важнее переменной, переменная важнее умолчания.
+	if (config.journal_dir.empty()) {
+		const char* env_dir = std::getenv("MC_JOURNAL_DIR");
+		config.journal_dir = (env_dir && *env_dir)
+			? std::filesystem::path(env_dir)
+			: std::filesystem::path("/storage/journal");
 	}
 
 	return true;

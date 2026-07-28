@@ -8,6 +8,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <system_error>
 #include <vector>
 
 #include "logger.h"
@@ -236,10 +237,11 @@ namespace nvr {
         }
 
     private:
-        bool ensure_parent_directory_exists(const std::filesystem::path& path) const {
-            boost::system::error_code ec;
+        // reason — причина отказа; без неё в логе было «cannot be created» без errno
+        bool ensure_parent_directory_exists(const std::filesystem::path& path, std::string& reason) const {
+            std::error_code ec;
 
-            const auto parent =path.parent_path();
+            const auto parent = path.parent_path();
 
             if (parent.empty()) {
                 return true;
@@ -249,13 +251,21 @@ namespace nvr {
                 return true;
             }
 
-            return std::filesystem::create_directories(parent, ec);
+            if (std::filesystem::create_directories(parent, ec)) {
+                return true;
+            }
+
+            reason = ec ? ec.message() : "unknown error";
+            return false;
         }
 
         bool save_internal() {
             if (m_logger) m_logger->info("Saving new configuration json to " + m_path.string());
-            if (!ensure_parent_directory_exists(m_path)) {
-                if (m_logger) m_logger->error("Path " + m_path.string() + " cannot be created, false to save configuration file!");
+
+            std::string reason;
+            if (!ensure_parent_directory_exists(m_path, reason)) {
+                if (m_logger) m_logger->error("Path " + m_path.string()
+                    + " cannot be created (" + reason + "), false to save configuration file!");
                 return false;
             }
             // Делаем слхранение файла в temp файл

@@ -1,4 +1,5 @@
 #include "media_center.h"
+#include "core/paths.h"
 #include "console_utility.h"
 
 namespace varan {
@@ -10,7 +11,7 @@ namespace neural {
         , m_websocket(socket)
         , m_gl_manager(manager)
         , m_logger("Media Center", ULogger::ELoggerLevel::TRACE)
-        , m_config_manager(constants::CONFIG_PATH, &m_logger)
+        , m_config_manager(varan::paths().nvr.config, &m_logger)
     {}
 
     int UMediaCenter::add_camera(const FCameraData& options, const std::map<std::string, FPipelineConfig>& pipelines, bool to_save) {
@@ -49,7 +50,10 @@ namespace neural {
         camera->start_async();
         m_cameras[options.id] = std::move(camera);
 
-        if (to_save) m_config_manager.add_or_update_camera(m_cameras[options.id]->get_data());
+        // Временные probe-камеры в постоянный конфиг не пишем — как в add_camera
+        if (to_save && !options.id.starts_with("__probe_")) {
+            m_config_manager.add_or_update_camera(m_cameras[options.id]->get_data());
+        }
 
         return true;
     }

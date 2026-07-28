@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include "core/paths.h"
 #include <optional>
 
 #include <opencv2/core.hpp>
@@ -307,7 +308,7 @@ namespace calibration {
 				него, указывают в никуда. Так лечатся все разом, без правки
 				данных на машине.
 			*/
-			info.path = constants::PROJECTION_IMAGES_PATH / info.name;
+			info.path = varan::paths().surround.presets_images / info.name;
 
 			if (auto* p = img_obj.if_contains("path"); p && p->is_string()) {
 				const std::filesystem::path stored{ p->as_string().c_str() };

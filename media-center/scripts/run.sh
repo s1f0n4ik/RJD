@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Запуск собранного media-center на устройстве с окружением GStreamer 1.28.
 #
-# Приложение требует ровно 3 аргумента:
-#   <rest_port> <signaling_ip> <signaling_port>
+# Аргументы приложения именованные, порядок значения не имеет:
+#   --rest-port --signaling-ip --signaling-port --varan-root
+#   [--gateway-ip --gateway-port] [--journal-dir]
 # По умолчанию используются те же, что в systemd-сервисе устройства.
 # Значения можно переопределить аргументами или переменными окружения
-# MC_REST_PORT / MC_SIGNALING_IP / MC_SIGNALING_PORT.
+# MC_REST_PORT / MC_SIGNALING_IP / MC_SIGNALING_PORT / MC_VARAN_ROOT.
 #
 # Mali EGL на устройстве собран под X11, поэтому нужен доступ к активной
 # графической сессии (DISPLAY=:0 + XAUTHORITY). Без этого eglInitialize падает.
@@ -33,10 +34,20 @@ XDG_ENV="${MC_XDG_RUNTIME_DIR:-/run/user/1000}"
 # Либо выдайте права на каталог, либо укажите свой путь через MC_JOURNAL_DIR.
 JOURNAL_DIR_ENV="${MC_JOURNAL_DIR:-/storage/journal}"
 
-log "Запуск media-center на $REMOTE: rest=$REST_PORT signaling=$SIGNALING_IP:$SIGNALING_PORT gateway_gRPC=$GATEWAY_IP:$GATEWAY_PORT (DISPLAY=$DISPLAY_ENV)"
+# Корень рабочего каталога: nvr, neural и surround_view кладут данные сюда.
+# Обязателен для приложения — дефолта в коде нет.
+VARAN_ROOT_ENV="${MC_VARAN_ROOT:-/home/orangepi/varan}"
+
+log "Запуск media-center на $REMOTE: rest=$REST_PORT signaling=$SIGNALING_IP:$SIGNALING_PORT gateway_gRPC=$GATEWAY_IP:$GATEWAY_PORT varan_root=$VARAN_ROOT_ENV (DISPLAY=$DISPLAY_ENV)"
 
 # -t для интерактивного вывода и корректной обработки Ctrl-C
 ssh -t "$REMOTE" "source '$GST_ENV'; \
     export DISPLAY='$DISPLAY_ENV' XAUTHORITY='$XAUTH_ENV' XDG_RUNTIME_DIR='$XDG_ENV'; \
-    export MC_JOURNAL_DIR='$JOURNAL_DIR_ENV'; \
-    cd '$REMOTE_DIR/build' && ./media-center $REST_PORT $SIGNALING_IP $SIGNALING_PORT $GATEWAY_IP $GATEWAY_PORT"
+    cd '$REMOTE_DIR/build' && ./media-center \
+        --rest-port='$REST_PORT' \
+        --signaling-ip='$SIGNALING_IP' \
+        --signaling-port='$SIGNALING_PORT' \
+        --varan-root='$VARAN_ROOT_ENV' \
+        --gateway-ip='$GATEWAY_IP' \
+        --gateway-port='$GATEWAY_PORT' \
+        --journal-dir='$JOURNAL_DIR_ENV'"

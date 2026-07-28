@@ -1,4 +1,5 @@
 #include "calibration/calibrator.h"
+#include "core/paths.h"
 #include "calibration/constants.h"
 
 #include "signaling_definers.h"
@@ -1057,7 +1058,7 @@ namespace calibration {
 		}
 
 		if (method == constants::METHOD_CONFIGURATION_GET_LIST) {
-			if (!m_calibration_config.read(constants::CALIBRATION_CONFIGURES_PATH)) {
+			if (!m_calibration_config.read(varan::paths().surround.calibration_settings)) {
 				if (on_error) on_error(constants::TYPE_CALIBRATION_CONFIGURATION, "Error: cannot read configuration file at server!", &client_id);
 				return;
 			}
@@ -1079,7 +1080,7 @@ namespace calibration {
 				return;
 			}
 
-			if (!m_calibration_config.read(constants::CALIBRATION_CONFIGURES_PATH)) {
+			if (!m_calibration_config.read(varan::paths().surround.calibration_settings)) {
 				if (on_error) on_error(constants::TYPE_CALIBRATION_CONFIGURATION, "Error: cannot read configuration file at server!", &client_id);
 				return;
 			}
@@ -1103,7 +1104,7 @@ namespace calibration {
 				if (on_error) on_error(constants::TYPE_CALIBRATION_CONFIGURATION, "Error: save cinfigurations: no camera_id at server!", &client_id);
 				return;
 			}
-			if (!m_calibration_config.read(constants::CALIBRATION_CONFIGURES_PATH)) {
+			if (!m_calibration_config.read(varan::paths().surround.calibration_settings)) {
 				if (on_error) on_error(constants::TYPE_CALIBRATION_CONFIGURATION, "Error: cannot read configuration file at server!", &client_id);
 				return;
 			}
@@ -1167,16 +1168,16 @@ namespace calibration {
 				obj_t[constants::JSON_NEW_K] = SBinary::make_json_object_mat(m_undistort.custom_camera_matrix);
 				auto filename_map_x = std::filesystem::path(key + "_map_x.bin");
 				auto filename_map_y = std::filesystem::path(key + "_map_y.bin");
-				if (SBinary::save_mat_to_binary(constants::CALIBRATION_MAPS_PATH / filename_map_x, m_undistort.matrix_x, &m_logger)) {
+				if (SBinary::save_mat_to_binary(varan::paths().surround.calibration_maps / filename_map_x, m_undistort.matrix_x, &m_logger)) {
 					obj_t[constants::JSON_UNDISTORTION_MAP_X] = filename_map_x.string();
 				}
-				if (SBinary::save_mat_to_binary(constants::CALIBRATION_MAPS_PATH / filename_map_y, m_undistort.matrix_y, &m_logger)) {
+				if (SBinary::save_mat_to_binary(varan::paths().surround.calibration_maps / filename_map_y, m_undistort.matrix_y, &m_logger)) {
 					obj_t[constants::JSON_UNDISTORTION_MAP_Y] = filename_map_y.string();
 				}
 			}
 
 			m_calibration_config.add_json_item(key, obj_t);
-			m_calibration_config.save(constants::CALIBRATION_CONFIGURES_PATH);
+			m_calibration_config.save(varan::paths().surround.calibration_settings);
 
 			boost::json::object send_meta;
 			send_meta[constants::META_CONFIGURATION_METHOD] = constants::METHOD_CONFIGURATION_SAVE;
@@ -1190,7 +1191,7 @@ namespace calibration {
 				if (on_error) on_error(constants::TYPE_CALIBRATION_CONFIGURATION, "Error: load configuration: no camera_id at server!", &client_id);
 				return;
 			}
-			if (!m_calibration_config.read(constants::CALIBRATION_CONFIGURES_PATH)) {
+			if (!m_calibration_config.read(varan::paths().surround.calibration_settings)) {
 				if (on_error) on_error(constants::TYPE_CALIBRATION_CONFIGURATION, "Error: cannot read configuration file at server!", &client_id);
 				return;
 			}
@@ -1282,8 +1283,8 @@ namespace calibration {
 					const auto filename_map_x = std::string(obj.at(constants::JSON_UNDISTORTION_MAP_X).as_string());
 					const auto filename_map_y = std::string(obj.at(constants::JSON_UNDISTORTION_MAP_Y).as_string());
 
-					const std::filesystem::path path_to_map_x = std::filesystem::path(constants::CALIBRATION_MAPS_PATH) / filename_map_x;
-					const std::filesystem::path path_to_map_y = std::filesystem::path(constants::CALIBRATION_MAPS_PATH) / filename_map_y;
+					const std::filesystem::path path_to_map_x = std::filesystem::path(varan::paths().surround.calibration_maps) / filename_map_x;
+					const std::filesystem::path path_to_map_y = std::filesystem::path(varan::paths().surround.calibration_maps) / filename_map_y;
 
 					if (!SBinary::load_mat_from_binary(path_to_map_x, m_undistort.matrix_x, &m_logger)) {
 						throw std::runtime_error("failed to load map_x from: " + filename_map_x);

@@ -1,4 +1,5 @@
 #include "main-server/neural-controller.h"
+#include "core/paths.h"
 #include "main-server/helpers.h"
 
 #include "neural/constants.h"
@@ -18,7 +19,7 @@ UNeuralController::UNeuralController(std::shared_ptr<varan::neural::UNeuralLoade
 static std::optional<varan::neural::FConfigInfo>
 load_config_info(const std::string& config_id) {
     varan::neural::UJsonNeuralConfiguration configurator;
-    if (!configurator.read(varan::neural::constants::CONFIG_PATH))
+    if (!configurator.read(varan::paths().neural.config))
         return std::nullopt;
     return configurator.load_config(config_id);
 }
@@ -554,7 +555,7 @@ UNeuralController::get_models(const http::request<http::string_body>& req) {
 
     try {
         namespace fs = std::filesystem;
-        const fs::path& model_dir = varan::neural::constants::MODEL_PATH;
+        const fs::path& model_dir = varan::paths().neural.models;
 
         boost::json::array models_arr;
 
@@ -616,10 +617,10 @@ UNeuralController::post_model(const http::request<http::string_body>& req) {
             return json_error(m_logger, req, http::status::bad_request, "filename must not contain path separators", tag);
         }
 
-        const fs::path target_path = varan::neural::constants::MODEL_PATH / requested.filename();
+        const fs::path target_path = varan::paths().neural.models / requested.filename();
 
         // Создаём директорию если нет
-        fs::create_directories(varan::neural::constants::MODEL_PATH);
+        fs::create_directories(varan::paths().neural.models);
 
         // Пишем файл
         const auto& body = req.body();

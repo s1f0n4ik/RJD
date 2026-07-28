@@ -1,4 +1,5 @@
 #include "calibration/calibrator.h"
+#include "core/paths.h"
 #include "calibration/constants.h"
 #include "calibration/utility.h"
 #include "signaling_definers.h"
@@ -25,7 +26,7 @@ namespace calibration {
         }
 
         if (method == constants::METHOD_PROJECTION_GET_LIST) {
-            if (!m_projection_config.read(constants::PROJECTION_CONFIGURES_PATH)) {
+            if (!m_projection_config.read(varan::paths().surround.presets_json)) {
                 if (on_error) on_error(constants::TYPE_PROJECTION_CONFIGURATION,
                     "Error: cannot read projection configuration file at server!",
                     &client_id);
@@ -55,7 +56,7 @@ namespace calibration {
                 return;
             }
 
-            if (!m_projection_config.read(constants::PROJECTION_CONFIGURES_PATH)) {
+            if (!m_projection_config.read(varan::paths().surround.presets_json)) {
                 if (on_error) on_error(constants::TYPE_PROJECTION_CONFIGURATION,
                     "Error: cannot read projection configuration file at server!",
                     &client_id);
@@ -585,7 +586,7 @@ namespace calibration {
 
         // Свежий файл перед мёржем: пресет параллельно правит конфигуратор,
         // и мёрж в старую копию затирал бы его габарит и картинки
-        if (!m_projection_config.read(constants::PROJECTION_CONFIGURES_PATH)) {
+        if (!m_projection_config.read(varan::paths().surround.presets_json)) {
             m_logger.warn("save_src_points(): cannot re-read presets before merge");
         }
 
@@ -594,7 +595,7 @@ namespace calibration {
             return false;
         }
 
-        return m_projection_config.save(constants::PROJECTION_CONFIGURES_PATH);
+        return m_projection_config.save(varan::paths().surround.presets_json);
     }
 
     bool UCalibrator::get_image_to_build(cv::Mat& out, std::string& error) {
@@ -672,7 +673,7 @@ namespace calibration {
         boost::json::value machine_block;
         bool has_machine = false;
         try {
-            std::ifstream pf(constants::PROJECTION_CONFIGURES_PATH);
+            std::ifstream pf(varan::paths().surround.presets_json);
             if (pf) {
                 std::stringstream pss; pss << pf.rdbuf();
                 auto pv = boost::json::parse(pss.str());
@@ -867,7 +868,7 @@ namespace calibration {
 
         // 3) Экспорт.
         std::string error;
-        if (!save_stitching_export(constants::LINKER_CONFIGURES_ROOT, id, display_name, error)) {
+        if (!save_stitching_export(varan::paths().surround.projection_root, id, display_name, error)) {
             if (on_error) on_error(constants::TYPE_PROJECTION_CONFIGURATION,
                 "Error: failed to save stitching export <" + id + ">:" + error,
                 &client_id);

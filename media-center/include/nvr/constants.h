@@ -5,9 +5,9 @@ namespace varan {
 namespace nvr {
 namespace constants {
 
-	const inline std::string CONFIG_PATH = "/home/orangepi/varan/nvr/configurations.json"; // "/home/orangepi/varan/nvr/configurations.json"
-	const inline std::string RECORDS_PATH = "/storage/internal"; // "/storage/internal"
-	const inline std::string RECORDS_PATH_2 = "/home/orangepi/varan/records"; // "/storage/internal"
+	// Пути переехали в varan::paths() — см. include/core/paths.h.
+	// RECORDS_PATH и RECORDS_PATH_2 удалены: не использовались нигде,
+	// реальный путь записи приходит покамерно из API в FPipelineConfig::record_path.
 
 };
 };

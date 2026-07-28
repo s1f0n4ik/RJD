@@ -1,4 +1,5 @@
 #include "bird-view/top-output.h"
+#include "core/paths.h"
 #include "bird-view/top-bake.h"
 #include "bird-view/surround-output.h"
 #include "bird-view/surround-model.h"
@@ -113,7 +114,7 @@ namespace birdview {
 			else {
 				FSurroundModel mesh;
 				std::string model_error;
-				if (load_surround_model(constants::LINKER_MODELS_PATH / source, mesh, model_error)
+				if (load_surround_model(varan::paths().surround.presets_models / source, mesh, model_error)
 					&& m_renderer.set_model_mesh(mesh)) {
 					if (m_logger) m_logger->info("apply_visuals(): model <" + source + "> loaded");
 				}

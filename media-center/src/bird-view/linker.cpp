@@ -1,4 +1,5 @@
 #include "bird-view/linker.h"
+#include "core/paths.h"
 #include "bird-view/output-mode.h"
 #include "bird-view/top-output.h"
 #include "bird-view/top-bake.h"
@@ -32,9 +33,9 @@ namespace birdview {
 		, m_context_manager(manager)
 		, m_logger("Bird ULinker", level)
 		, m_store(
-			calib_consts::LINKER_CONFIGURES_ROOT,
+			varan::paths().surround.projection_root,
 			calib_consts::LINKER_CONFIGURATION_INDEX,
-			calib_consts::LINKER_STATE_ROOT,
+			varan::paths().surround.linker_state_root,
 			calib_consts::LINKER_STATE_INDEX,
 			&m_logger)
 		, m_fps(fps)
@@ -1117,7 +1118,7 @@ namespace birdview {
 		}
 		else {
 			try {
-				std::ifstream f(constants::LINKER_CONFIGURATIONS);
+				std::ifstream f(varan::paths().surround.presets_json);
 				std::stringstream ss;
 				ss << f.rdbuf();
 				auto pv = boost::json::parse(ss.str());
@@ -1230,8 +1231,8 @@ namespace birdview {
 			// Печка пишет индекс напрямую, мёржи ручек ждут под замком
 			auto lock = m_store.lock_exports();
 			if (!baker.recalc_export(m_store.exports_root(), m_store.exports_index_file(),
-				target, constants::LINKER_CONFIGURATIONS,
-				calib_consts::CALIBRATION_CONFIGURES_PATH, bindings, error)) {
+				target, varan::paths().surround.presets_json,
+				varan::paths().surround.calibration_settings, bindings, error)) {
 				m_logger.error("recalc_top(): " + error);
 				return false;
 			}
@@ -1562,7 +1563,7 @@ namespace birdview {
 	}
 
 	std::filesystem::path ULinker::get_configurations_path() {
-		return constants::LINKER_CONFIGURATIONS;
+		return varan::paths().surround.presets_json;
 	}
 
 	std::filesystem::path ULinker::get_exports_index_path() const {
@@ -1570,11 +1571,11 @@ namespace birdview {
 	}
 
 	std::filesystem::path ULinker::get_images_list_path() {
-		return constants::LINKER_IMAGES_PATH;
+		return varan::paths().surround.presets_images;
 	}
 
 	std::filesystem::path ULinker::get_models_list_path() {
-		return constants::LINKER_MODELS_PATH;
+		return varan::paths().surround.presets_models;
 	}
 
 }; // birdview

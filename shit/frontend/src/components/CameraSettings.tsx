@@ -1395,20 +1395,22 @@ const CameraSettings: React.FC = () => {
                     flexDirection: 'column',
                 }}>
 
-                    {/* Область поиска — список подсетей самой машины */}
-                    {scanSubnets.length > 0 && (
+                    {/* Область поиска — список подсетей самой машины.
+                        На этапе ONVIF скрыт: подсеть там ни на что не влияет.
+                        mt — иначе плавающую метку срезает overflow у DialogContent. */}
+                    {scanSubnets.length > 0 && scanStage !== 'onvif' && (
                         <TextField
                             select
                             size="small"
                             label="Где искать"
                             value={scanSubnet}
-                            disabled={scanStage === 'onvif' || scanStage === 'ports'}
+                            disabled={scanStage === 'ports'}
                             onChange={(e) => {
                                 const next = e.target.value;
                                 setScanSubnet(next);
                                 startScan(next);
                             }}
-                            sx={{ mb: 2 }}
+                            sx={{ mt: 1, mb: 2 }}
                         >
                             {scanSubnets.map((s) => (
                                 <MenuItem key={s.prefix} value={s.prefix}>

@@ -1,4 +1,5 @@
 #include "bird-view/top-bake.h"
+#include "core/paths.h"
 #include "bird-view/linker-store.h"
 
 #include "calibration/json-projection.h"
@@ -134,7 +135,7 @@ namespace birdview {
 			const auto* mx = entry->if_contains(calib::constants::JSON_UNDISTORTION_MAP_X);
 			const auto* my = entry->if_contains(calib::constants::JSON_UNDISTORTION_MAP_Y);
 			if (mx && my && mx->is_string() && my->is_string()) {
-				const std::filesystem::path maps_root = calib::constants::CALIBRATION_MAPS_PATH;
+				const std::filesystem::path maps_root = varan::paths().surround.calibration_maps;
 				if (!calib::utility::SBinary::load_mat_from_binary(
 						maps_root / std::string(mx->as_string().c_str()), out.undist_x, logger)
 					|| !calib::utility::SBinary::load_mat_from_binary(

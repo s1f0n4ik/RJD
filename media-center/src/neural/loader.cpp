@@ -1,4 +1,5 @@
 #include "neural/loader.h"
+#include "core/paths.h"
 #include "neural/camera-layout-json.h"
 
 #include <fstream>
@@ -36,24 +37,20 @@ namespace neural {
 
         // Журнал обнаружений: SQLite + JPEG на томе /storage. Общий writer для
         // всех слотов; при ошибке БД остаётся nullptr, слоты пишут без журнала.
-        // Каталог переопределяется переменной MC_JOURNAL_DIR — /storage может
-        // принадлежать root, а media-center работает под обычным пользователем.
+        // Каталог задаётся флагом --journal-dir и разбирается в main.
         {
-            const char* env_dir = std::getenv("MC_JOURNAL_DIR");
-            const std::filesystem::path journal_dir = (env_dir && *env_dir)
-                ? std::filesystem::path(env_dir)
-                : std::filesystem::path("/storage/journal");
+            const std::filesystem::path journal_dir = varan::paths().journal;
 
             auto writer = std::make_unique<journal::UJournalWriter>(
                 journal_dir / "journal.db", journal_dir / "frames", level);
             if (writer->start()) {
                 m_journal = std::move(writer);
-                m_logger.info("journal enabled -> /storage/journal");
+                m_logger.info("journal enabled -> " + journal_dir.string());
             } else {
                 // Журнал не поднялся — это не повод ронять нейронку, но знать об
                 // этом надо: без него обнаружения никуда не запишутся.
-                m_logger.error("journal DISABLED: writer start failed "
-                    "(check /storage/journal permissions and sqlite availability)");
+                m_logger.error("journal DISABLED: writer start failed at "
+                    + journal_dir.string() + " (check permissions and sqlite availability)");
             }
         }
 
