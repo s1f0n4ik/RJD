@@ -1,15 +1,10 @@
-import { confState, HANDLE_SIZE } from '../../state/conf-store';
-import type { ConfZone } from '../../types';
+import { confState, fmtM, HANDLE_SIZE, q, ROTATION_STALK } from '../../state/conf-store';
+import type { ConfCamera, ConfZone } from '../../types';
 import { CANVAS_COLORS } from '../../styles/canvas-colors';
 
-/**
- * Отрисовка холста конфигуратора. Порт canvas.js из no-react без изменения
- * логики рендера.
- *
- * Модуль намеренно императивный: рисование идёт по требованию (confDraw после
- * каждой мутации confState), RAF-цикла нет, React в отрисовке не участвует.
- * Статус-бар сюда больше не пишет — им занимается компонент.
- */
+// Отрисовка холста конфигуратора. Рисование по требованию: confDraw после каждой
+// мутации confState, RAF-цикла нет, React в отрисовке не участвует.
+// Мировые координаты — метры, view.scale — экранных пикселей на метр.
 
 let canvasEl: HTMLCanvasElement | null = null;
 let ctx: CanvasRenderingContext2D | null = null;
@@ -85,14 +80,14 @@ export function canvasToWorld(cx: number, cy: number): { x: number; y: number } 
 
 export function snap(val: number): number {
     const s = confState.field.step;
-    return Math.round(val / s) * s;
+    return q(Math.round(val / s) * s);
 }
 
 export function clampToField(x: number, y: number, w: number, h: number): { x: number; y: number } {
     const f = confState.field;
     return {
-        x: Math.max(0, Math.min(f.w - w, x)),
-        y: Math.max(0, Math.min(f.h - h, y)),
+        x: q(Math.max(0, Math.min(f.w - w, x))),
+        y: q(Math.max(0, Math.min(f.h - h, y))),
     };
 }
 
@@ -113,28 +108,44 @@ export function rotatedHalfExtents(w: number, h: number, rotationDeg: number): {
     };
 }
 
-/** Загоняет зону внутрь её камеры с учётом поворота. */
+// Мат — физический квадрат, померянный рулеткой, и ужимать его нельзя.
+// Вместо этого вызывающий обязан проверить, помещается ли он в камеру.
+// При 45° повёрнутый квадрат требует стороны в √2 раза больше.
+export function zoneFitsCamera(cam: ConfCamera, size: number, rotationDeg: number): boolean {
+    const ext = rotatedHalfExtents(size, size, rotationDeg);
+    return ext.hw * 2 <= cam.w + 1e-9 && ext.hh * 2 <= cam.h + 1e-9;
+}
+
+/** Минимальный размер камеры, при котором её маты ещё помещаются. */
+export function cameraMinSize(cameraId: string): { w: number; h: number } {
+    let w = 0;
+    let h = 0;
+    confState.zones.forEach(zone => {
+        if (zone.cameraId !== cameraId) return;
+        const ext = rotatedHalfExtents(zone.w, zone.h, zone.rotation);
+        w = Math.max(w, ext.hw * 2);
+        h = Math.max(h, ext.hh * 2);
+    });
+    return { w: q(w), h: q(h) };
+}
+
+/** Загоняет зону внутрь её камеры с учётом поворота. Размер не меняет. */
 export function clampZoneToCamera(zone: ConfZone): void {
     const cam = confState.cameras.find(c => c.id === zone.cameraId);
     if (!cam) return;
 
-    let ext = rotatedHalfExtents(zone.w, zone.h, zone.rotation);
+    const ext = rotatedHalfExtents(zone.w, zone.h, zone.rotation);
 
-    // Повёрнутая зона может не влезать в камеру — ужимаем, сохраняя пропорции
-    if (ext.hw > 0 && ext.hh > 0) {
-        const fit = Math.min(cam.w / (ext.hw * 2), cam.h / (ext.hh * 2), 1);
-        if (fit < 1) {
-            zone.w = Math.max(1, Math.round(zone.w * fit));
-            zone.h = Math.max(1, Math.round(zone.h * fit));
-            ext = rotatedHalfExtents(zone.w, zone.h, zone.rotation);
-        }
-    }
+    // Не помещается — центрируем; сюда попадает только импорт чужой геометрии
+    const cx = ext.hw * 2 > cam.w
+        ? cam.x + cam.w / 2
+        : Math.max(cam.x + ext.hw, Math.min(cam.x + cam.w - ext.hw, zone.x + zone.w / 2));
+    const cy = ext.hh * 2 > cam.h
+        ? cam.y + cam.h / 2
+        : Math.max(cam.y + ext.hh, Math.min(cam.y + cam.h - ext.hh, zone.y + zone.h / 2));
 
-    const cx = Math.max(cam.x + ext.hw, Math.min(cam.x + cam.w - ext.hw, zone.x + zone.w / 2));
-    const cy = Math.max(cam.y + ext.hh, Math.min(cam.y + cam.h - ext.hh, zone.y + zone.h / 2));
-
-    zone.x = cx - zone.w / 2;
-    zone.y = cy - zone.h / 2;
+    zone.x = q(cx - zone.w / 2);
+    zone.y = q(cy - zone.h / 2);
 }
 
 export function confDraw(): void {
@@ -179,15 +190,12 @@ function drawGabarit(c: CanvasRenderingContext2D): void {
         c.lineTo(tl.x, br.y);
         c.stroke();
 
-        const m = confState.machine;
-        const dims = m.length > 0 && m.width > 0
-            ? ` ${m.length}×${m.width} м`
-            : '';
+        // Ширина машины вдоль X, длина вдоль Y
         c.fillStyle = color;
         c.font = `bold ${11 * dpr}px monospace`;
         c.textAlign = 'left';
         c.textBaseline = 'top';
-        c.fillText(`Габарит${dims}`, tl.x + 4 * dpr, tl.y + 4 * dpr);
+        c.fillText(`Габарит ${fmtM(g.w)}×${fmtM(g.h)} м`, tl.x + 4 * dpr, tl.y + 4 * dpr);
     });
 }
 
@@ -213,7 +221,7 @@ function drawDraft(c: CanvasRenderingContext2D): void {
     c.font = `${10 * dpr}px monospace`;
     c.textAlign = 'left';
     c.textBaseline = 'bottom';
-    c.fillText(`${Math.round(d.w)}×${Math.round(d.h)}`, tl.x, tl.y - 4 * dpr);
+    c.fillText(`${fmtM(d.w)}×${fmtM(d.h)} м`, tl.x, tl.y - 4 * dpr);
 }
 
 function drawGrid(c: CanvasRenderingContext2D): void {
@@ -386,7 +394,7 @@ function drawSelection(c: CanvasRenderingContext2D): void {
         c.setLineDash([]);
 
         // Ручек размера у разметки нет: сторона квадрата общая,
-        // меняется полем «Размер разметки» в панели
+        // меняется полем «Сторона мата» в панели
 
         // Handle поворота — круг сверху на ножке
         const stalkLen = 24 * dpr;
@@ -419,7 +427,7 @@ function drawSelection(c: CanvasRenderingContext2D): void {
 
         c.restore();
     } else {
-        // Камеры и изображения — без rotation
+        // Камеры, габарит и изображения — без rotation
         c.strokeStyle = CANVAS_COLORS.accent;
         c.lineWidth = 2 * dpr;
         c.setLineDash([6 * dpr, 3 * dpr]);
@@ -441,6 +449,16 @@ function drawSelection(c: CanvasRenderingContext2D): void {
             c.fillRect(px - hs, py - hs, hs * 2, hs * 2);
         }
     }
+
+    // Угол AABB над верхней гранью. У зон поднят выше ручки поворота, иначе
+    // подпись легла бы на её ножку. Не поворачивается: показанная точка — угол
+    // невращаемого прямоугольника
+    const lift = sel.type === 'zone' ? (ROTATION_STALK + 10) * dpr : 6 * dpr;
+    c.fillStyle = CANVAS_COLORS.accent;
+    c.font = `${10 * dpr}px monospace`;
+    c.textAlign = 'left';
+    c.textBaseline = 'bottom';
+    c.fillText(`X: ${fmtM(item.x)} Y: ${fmtM(item.y)}`, tl.x, tl.y - lift);
 }
 
 function hex2rgba(hex: string, alpha: number): string {

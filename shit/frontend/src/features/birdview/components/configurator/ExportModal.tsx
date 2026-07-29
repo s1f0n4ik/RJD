@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { useBackdropClose } from '../../hooks/useBackdropClose';
-import { confState } from '../../state/conf-store';
+import { confState, useConfStore } from '../../state/conf-store';
 import { useToast } from '../common/Toast';
 import { buildExportJson, formatExportJson, saveExport } from './conf-export';
+import { checkCameraKeys } from './conf-validate';
 
-/** Модалка экспорта конфигурации. Порт confExportModal и export.js. */
+// Модалка экспорта конфигурации.
 
 interface ExportModalProps {
     onClose: () => void;
@@ -15,15 +16,18 @@ export function ExportModal({ onClose }: ExportModalProps) {
     // Предзаполнение загруженным пресетом: сохранение перезапишет его
     const [id, setId] = useState(confState.presetId);
     const [name, setName] = useState(confState.presetName);
-    const [scaleInput, setScaleInput] = useState('1');
     const [saving, setSaving] = useState(false);
     const showToast = useToast();
 
-    const scale = Math.max(0.1, +scaleInput || 1);
-    const f = confState.field;
-    const preview = formatExportJson(buildExportJson({ id, name, scale }));
+    useConfStore();
+
+    const keys = checkCameraKeys();
+    const preview = formatExportJson(buildExportJson({ id, name }));
 
     const handleSave = async () => {
+        // Дубль ключа схлопнул бы две камеры в одну запись экспорта
+        if (keys.blocked) return;
+
         if (!id.trim()) {
             showToast('ID не указан', 'Заполните поле ID конфигурации', 'err');
             return;
@@ -31,7 +35,7 @@ export function ExportModal({ onClose }: ExportModalProps) {
 
         setSaving(true);
         try {
-            const result = await saveExport({ id: id.trim(), name: name.trim(), scale });
+            const result = await saveExport({ id: id.trim(), name: name.trim() });
             // Следующее сохранение перезапишет уже эту запись
             confState.presetId = id.trim();
             confState.presetName = name.trim();
@@ -77,25 +81,15 @@ export function ExportModal({ onClose }: ExportModalProps) {
                         </div>
                     </div>
 
-                    <div className="field-row">
-                        <div className="field-group">
-                            <label className="field-label">Масштаб (у.е. → px)</label>
-                            <input
-                                className="field-input"
-                                type="number"
-                                min={0.1}
-                                step={0.1}
-                                value={scaleInput}
-                                onChange={e => setScaleInput(e.target.value)}
-                            />
+                    {keys.problems.length > 0 && (
+                        <div className="conf-problems">
+                            {keys.problems.map((p, i) => (
+                                <span key={i} className={`conf-problem conf-problem--${p.status}`}>
+                                    {p.status === 'error' ? '✕' : '⚠'} {p.text}
+                                </span>
+                            ))}
                         </div>
-                        <div className="field-group">
-                            <label className="field-label">Итоговый canvas</label>
-                            <span className="modal-stat-value" style={{ paddingTop: 4 }}>
-                                {Math.round(f.w * scale)} × {Math.round(f.h * scale)} px
-                            </span>
-                        </div>
-                    </div>
+                    )}
 
                     <div className="conf-export-preview-wrap">
                         <pre className="conf-export-preview">{preview}</pre>
@@ -104,7 +98,11 @@ export function ExportModal({ onClose }: ExportModalProps) {
 
                 <div className="modal-footer">
                     <button className="btn btn-ghost" onClick={onClose}>Отмена</button>
-                    <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+                    <button
+                        className="btn btn-primary"
+                        onClick={handleSave}
+                        disabled={saving || keys.blocked}
+                    >
                         ⊛ {saving ? 'Сохранение...' : 'Сохранить'}
                     </button>
                 </div>

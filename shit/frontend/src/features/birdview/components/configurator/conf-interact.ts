@@ -8,20 +8,19 @@ import {
 } from '../../state/conf-store';
 import type { ConfCamera, ConfImage, ConfItemType, ConfZone } from '../../types';
 import {
+    cameraMinSize,
     canvasToWorld,
     clampToField,
     clampZoneToCamera,
     confDraw,
     snap,
+    zoneFitsCamera,
 } from './conf-canvas';
-import { confCreateCameraFromRect, confCreateZoneFromRect } from './conf-actions';
+import { confCreateCameraFromRect, confPlaceZone } from './conf-actions';
 
-/**
- * Pointer-логика конфигуратора. Порт interact.js из no-react.
- *
- * Мутирует confState напрямую и перерисовывает холст сам. emitConfChange
- * вызывается только в точках фиксации — не на каждое движение мыши.
- */
+// Pointer-логика конфигуратора. Мутирует confState напрямую и перерисовывает
+// холст сам; emitConfChange вызывается только в точках фиксации.
+// Координаты мира — метры.
 
 interface AttachOptions {
     /** Отрисовка позиции курсора. Идёт мимо React: срабатывает на каждый pointermove. */
@@ -44,10 +43,9 @@ interface Rect {
 export function attachConfInteract(canvas: HTMLCanvasElement, opts: AttachOptions): () => void {
     let panStart: { x: number; y: number } | null = null;
 
-    // Растягивание области инструментом «Камера» или «Разметка»
+    // Растягивание области инструментом «Камера»
     let drawStart: { x: number; y: number } | null = null;
     let drawBounds: Rect | null = null;
-    let drawCameraId: string | null = null;
 
     function onDown(e: PointerEvent): void {
         // Pan
@@ -75,8 +73,13 @@ export function attachConfInteract(canvas: HTMLCanvasElement, opts: AttachOption
 
         if (e.button !== 0) return;
 
-        if (tool === 'camera' || tool === 'zone') {
-            startDrawing(tool, e);
+        if (tool === 'camera') {
+            startDrawingCamera(e);
+            return;
+        }
+
+        if (tool === 'zone') {
+            placeMat(e);
             return;
         }
 
@@ -126,50 +129,29 @@ export function attachConfInteract(canvas: HTMLCanvasElement, opts: AttachOption
         emitConfChange();
     }
 
-    /**
-     * Начинает растягивание области. Для камеры границей служит поле, для
-     * разметки — выбранная камера, так что выйти за допустимую область нельзя.
-     */
-    function startDrawing(tool: 'camera' | 'zone', e: PointerEvent): void {
+    /** Начинает растягивание камеры. Границей служит поле. */
+    function startDrawingCamera(e: PointerEvent): void {
         const f = confState.field;
-
-        if (tool === 'camera') {
-            drawBounds = { x: 0, y: 0, w: f.w, h: f.h };
-            drawCameraId = null;
-        } else {
-            const cam = selectedCamera();
-            if (!cam) {
-                opts.onNotice(
-                    'Камера не выбрана',
-                    'Выберите камеру правой кнопкой мыши',
-                    'err',
-                );
-                return;
-            }
-            drawBounds = { x: cam.x, y: cam.y, w: cam.w, h: cam.h };
-            drawCameraId = cam.id;
-        }
+        drawBounds = { x: 0, y: 0, w: f.w, h: f.h };
 
         const p = clampToRect(snapPoint(canvasToWorld(e.clientX, e.clientY)), drawBounds);
-
-        // Разметка всегда фиксированный квадрат — её ставят одним кликом
-        if (tool === 'zone' && drawCameraId) {
-            const s = confState.zoneSize;
-            confCreateZoneFromRect(drawCameraId, {
-                x: p.x - s / 2,
-                y: p.y - s / 2,
-                w: s,
-                h: s,
-            });
-            drawBounds = null;
-            drawCameraId = null;
-            return;
-        }
-
         drawStart = p;
         confState.draft = { x: p.x, y: p.y, w: 0, h: 0 };
         canvas.setPointerCapture(e.pointerId);
         confDraw();
+    }
+
+    // Мат ставится одним кликом: сторона квадрата задана полем «Сторона мата»
+    function placeMat(e: PointerEvent): void {
+        const cam = selectedCamera();
+        if (!cam) {
+            opts.onNotice('Камера не выбрана', 'Выберите камеру правой кнопкой мыши', 'err');
+            return;
+        }
+
+        const p = snapPoint(canvasToWorld(e.clientX, e.clientY));
+        const err = confPlaceZone(cam.id, p.x, p.y);
+        if (err) opts.onNotice('Мат не поставлен', err, 'err');
     }
 
     function onMove(e: PointerEvent): void {
@@ -177,7 +159,7 @@ export function attachConfInteract(canvas: HTMLCanvasElement, opts: AttachOption
 
         opts.onCursor(w.x, w.y);
 
-        // Растягивание области инструментом
+        // Растягивание камеры
         if (drawStart && drawBounds) {
             const p = clampToRect(snapPoint(w), drawBounds);
             confState.draft = {
@@ -212,10 +194,14 @@ export function attachConfInteract(canvas: HTMLCanvasElement, opts: AttachOption
                     angle = Math.round(angle / 90) * 90;
                 }
 
-                item.rotation = ((Math.round(angle) % 360) + 360) % 360;
-                // Повёрнутые углы могли выйти за камеру — пережимаем сразу
-                clampZoneToCamera(item);
-                confDraw();
+                const next = ((Math.round(angle) % 360) + 360) % 360;
+                // Повёрнутый квадрат шире прямого: угол, при котором мат
+                // перестаёт помещаться в камеру, просто не применяется
+                if (rotationFits(item, next)) {
+                    item.rotation = next;
+                    clampZoneToCamera(item);
+                    confDraw();
+                }
             }
             return;
         }
@@ -269,7 +255,7 @@ export function attachConfInteract(canvas: HTMLCanvasElement, opts: AttachOption
     }
 
     function onUp(e: PointerEvent): void {
-        // Завершение растягивания области
+        // Завершение растягивания камеры
         if (drawStart) {
             const draft = confState.draft;
             const minSize = confState.field.step * 2;
@@ -279,15 +265,13 @@ export function attachConfInteract(canvas: HTMLCanvasElement, opts: AttachOption
             canvas.releasePointerCapture(e.pointerId);
 
             if (draft && draft.w >= minSize && draft.h >= minSize) {
-                if (drawCameraId) confCreateZoneFromRect(drawCameraId, draft);
-                else confCreateCameraFromRect(draft);
+                confCreateCameraFromRect(draft);
             } else {
                 // Слишком мелкая область — считаем это промахом, а не созданием
                 confDraw();
             }
 
             drawBounds = null;
-            drawCameraId = null;
             return;
         }
 
@@ -314,7 +298,11 @@ export function attachConfInteract(canvas: HTMLCanvasElement, opts: AttachOption
 
         const prev = v.scale;
         const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
-        v.scale = Math.min(20, Math.max(0.1, prev * factor));
+
+        // scale — экранных пикселей на метр, поэтому пределы зума считаются от
+        // размера поля: от «поле в 10 px» до «поле в 20000 px»
+        const side = Math.max(confState.field.w, confState.field.h);
+        v.scale = Math.min(20000 / side, Math.max(10 / side, prev * factor));
 
         const ratio = v.scale / prev;
         v.ox = mx - (mx - v.ox) * ratio;
@@ -356,9 +344,20 @@ export function attachConfInteract(canvas: HTMLCanvasElement, opts: AttachOption
         if ((e.key === 'r' || e.key === 'к') && confState.selected?.type === 'zone') {
             const zone = confState.zones.find(z => z.id === confState.selected?.id);
             if (zone) {
-                zone.rotation = (zone.rotation + 90) % 360;
-                confDraw();
-                emitConfChange();
+                const next = (zone.rotation + 90) % 360;
+                if (rotationFits(zone, next)) {
+                    zone.rotation = next;
+                    clampZoneToCamera(zone);
+                    confDraw();
+                    emitConfChange();
+                } else {
+                    const cam = confState.cameras.find(c => c.id === zone.cameraId);
+                    opts.onNotice(
+                        'Поворот невозможен',
+                        `Повёрнутый мат не помещается в камеру «${cam?.name ?? '—'}»`,
+                        'err',
+                    );
+                }
             }
         }
 
@@ -398,6 +397,12 @@ export function attachConfInteract(canvas: HTMLCanvasElement, opts: AttachOption
         canvas.removeEventListener('contextmenu', onContextMenu);
         window.removeEventListener('keydown', onKey);
     };
+}
+
+function rotationFits(zone: ConfZone, rotationDeg: number): boolean {
+    const cam = confState.cameras.find(c => c.id === zone.cameraId);
+    if (!cam) return true;
+    return zoneFitsCamera(cam, zone.w, rotationDeg);
 }
 
 function selectedCamera(): ConfCamera | null {
@@ -519,7 +524,14 @@ function applyResize(
     let newW = item.w;
     let newH = item.h;
 
-    const MIN_SIZE = confState.field.step * 2;
+    // Камеру нельзя ужать меньше её матов: мат под неё не подстраивается
+    let minW = confState.field.step * 2;
+    let minH = minW;
+    if (type === 'camera') {
+        const need = cameraMinSize(item.id);
+        minW = Math.max(minW, need.w);
+        minH = Math.max(minH, need.h);
+    }
 
     // Горизонталь
     if (handle === 'tl' || handle === 'ml' || handle === 'bl') {
@@ -538,37 +550,27 @@ function applyResize(
     }
 
     // Минимальный размер
-    if (newW < MIN_SIZE) {
+    if (newW < minW) {
         if (handle === 'tl' || handle === 'ml' || handle === 'bl')
-            newX = item.x + item.w - MIN_SIZE;
-        newW = MIN_SIZE;
+            newX = item.x + item.w - minW;
+        newW = minW;
     }
-    if (newH < MIN_SIZE) {
+    if (newH < minH) {
         if (handle === 'tl' || handle === 'mt' || handle === 'tr')
-            newY = item.y + item.h - MIN_SIZE;
-        newH = MIN_SIZE;
+            newY = item.y + item.h - minH;
+        newH = minH;
     }
 
-    // Ограничения по типу
-    if (type === 'camera' || type === 'image' || type === 'gabarit') {
-        const f = confState.field;
-        if (newX < 0) { newW += newX; newX = 0; }
-        if (newY < 0) { newH += newY; newY = 0; }
-        if (newX + newW > f.w) newW = f.w - newX;
-        if (newY + newH > f.h) newH = f.h - newY;
-    } else if (type === 'zone') {
-        const cam = confState.cameras.find(c => c.id === (item as ConfZone).cameraId);
-        if (cam) {
-            if (newX < cam.x) { newW -= cam.x - newX; newX = cam.x; }
-            if (newY < cam.y) { newH -= cam.y - newY; newY = cam.y; }
-            if (newX + newW > cam.x + cam.w) newW = cam.x + cam.w - newX;
-            if (newY + newH > cam.y + cam.h) newH = cam.y + cam.h - newY;
-        }
-    }
+    // Границы поля
+    const f = confState.field;
+    if (newX < 0) { newW += newX; newX = 0; }
+    if (newY < 0) { newH += newY; newY = 0; }
+    if (newX + newW > f.w) newW = f.w - newX;
+    if (newY + newH > f.h) newH = f.h - newY;
 
     // Финальная проверка минимума после clamp
-    if (newW < MIN_SIZE) newW = MIN_SIZE;
-    if (newH < MIN_SIZE) newH = MIN_SIZE;
+    if (newW < minW) newW = minW;
+    if (newH < minH) newH = minH;
 
     item.x = newX;
     item.y = newY;
@@ -581,7 +583,4 @@ function applyResize(
             if (zone.cameraId === item.id) clampZoneToCamera(zone);
         });
     }
-
-    // Ограничения выше axis-aligned, поворот они не учитывают
-    if (type === 'zone') clampZoneToCamera(item as ConfZone);
 }

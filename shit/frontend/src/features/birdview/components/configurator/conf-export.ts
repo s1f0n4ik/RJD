@@ -1,9 +1,8 @@
 import { confState } from '../../state/conf-store';
 
-/**
- * Сборка и отправка конфигурации birdview. Порт export.js из no-react.
- * Логика построения геометрии не менялась.
- */
+// Сборка и отправка конфигурации birdview.
+// Модель редактора метровая, наружу уходят пиксели канваса: всё умножается на
+// px_per_m и округляется до целого.
 
 export interface ExportCameraEntry {
     name: string;
@@ -16,11 +15,15 @@ export interface ExportCameraEntry {
  * Блок редактора.
  *
  * Геометрия в пресете производная: зоны свалены в общий dst_points и
- * восстанавливаются по четвёркам углов, а имена и шаг сетки из неё не следуют.
- * Сервер этот блок не читает и при записи src_points не трогает — save_preset
- * правит запись точечно, а не пересобирает её.
+ * восстанавливаются по четвёркам углов, а имена, шаг сетки и масштаб из неё не
+ * следуют. Сервер этот блок не читает и при записи src_points не трогает.
  */
 export interface ExportEditorBlock {
+    // 2 — геометрия редактора метровая; отсутствие поля означает пиксельную запись
+    version: number;
+    /** Пикселей канваса на метр: по нему пиксели читаются обратно в метры. */
+    px_per_m: number;
+    /** Шаг привязки в метрах. */
     step: number;
     /** Имена зон по ключу камеры, в том же порядке, что и четвёрки dst_points. */
     zones: Record<string, string[]>;
@@ -52,29 +55,35 @@ export interface ExportResult {
 export interface ExportParams {
     id: string;
     name: string;
-    scale: number;
+}
+
+/** Итоговый размер растра для показа в панели. */
+export function canvasSizePx(): { width: number; height: number } {
+    const f = confState.field;
+    const ppm = confState.pxPerM;
+    return { width: Math.round(f.w * ppm), height: Math.round(f.h * ppm) };
 }
 
 export function buildExportJson(params: ExportParams): ExportResult {
-    const s = Math.max(0.1, params.scale || 1);
+    const ppm = confState.pxPerM;
     const f = confState.field;
-    const cw = Math.round(f.w * s);
-    const ch = Math.round(f.h * s);
+    const size = canvasSizePx();
 
     const cameras: Record<string, ExportCameraEntry> = {};
     const zoneNames: Record<string, string[]> = {};
 
     confState.cameras.forEach(cam => {
+        const key = cam.key.trim();
         const camZones = confState.zones.filter(z => z.cameraId === cam.id);
         if (camZones.length) {
-            zoneNames[cam.key] = camZones.map(z => z.name);
+            zoneNames[key] = camZones.map(z => z.name);
         }
 
         const region = [
-            [Math.round(cam.x * s), Math.round(cam.y * s)],
-            [Math.round((cam.x + cam.w) * s), Math.round(cam.y * s)],
-            [Math.round((cam.x + cam.w) * s), Math.round((cam.y + cam.h) * s)],
-            [Math.round(cam.x * s), Math.round((cam.y + cam.h) * s)],
+            [Math.round(cam.x * ppm), Math.round(cam.y * ppm)],
+            [Math.round((cam.x + cam.w) * ppm), Math.round(cam.y * ppm)],
+            [Math.round((cam.x + cam.w) * ppm), Math.round((cam.y + cam.h) * ppm)],
+            [Math.round(cam.x * ppm), Math.round((cam.y + cam.h) * ppm)],
         ];
 
         const dstPoints: number[][] = [];
@@ -94,7 +103,6 @@ export function buildExportJson(params: ExportParams): ExportResult {
             //
             // Порядок обхода начинается с bl, далее по часовой:
             //   bl → tl → tr → br
-            // После поворота это даёт: «лево-низ от стрелки» → «право-низ» → «право-верх» → «лево-верх»
             const localCorners = [
                 { lx: -zone.w / 2, ly: zone.h / 2 },  // bl — слева от стрелки
                 { lx: -zone.w / 2, ly: -zone.h / 2 }, // tl — слева сверху
@@ -105,11 +113,11 @@ export function buildExportJson(params: ExportParams): ExportResult {
             localCorners.forEach(({ lx, ly }) => {
                 const rx = cx + lx * cos - ly * sin;
                 const ry = cy + lx * sin + ly * cos;
-                dstPoints.push([Math.round(rx * s), Math.round(ry * s)]);
+                dstPoints.push([Math.round(rx * ppm), Math.round(ry * ppm)]);
             });
         });
 
-        cameras[cam.key] = {
+        cameras[key] = {
             name: cam.name,
             src_points: [],
             canvas_region: region,
@@ -120,18 +128,23 @@ export function buildExportJson(params: ExportParams): ExportResult {
     const images = confState.images.map(img => ({
         name: img.name,
         rect: [
-            Math.round(img.x * s),
-            Math.round(img.y * s),
-            Math.round(img.w * s),
-            Math.round(img.h * s),
+            Math.round(img.x * ppm),
+            Math.round(img.y * ppm),
+            Math.round(img.w * ppm),
+            Math.round(img.h * ppm),
         ],
     }));
 
     const result: ExportResult = {
         name: params.name || params.id,
-        canvas: { width: cw, height: ch },
+        canvas: { width: size.width, height: size.height },
         cameras,
-        editor: { step: f.step, zones: zoneNames },
+        editor: {
+            version: 2,
+            px_per_m: ppm,
+            step: f.step,
+            zones: zoneNames,
+        },
     };
 
     if (images.length) result.images = images;
@@ -141,20 +154,20 @@ export function buildExportJson(params: ExportParams): ExportResult {
     const gab = confState.gabarits[0];
     if (gab) {
         machine.rect = [
-            Math.round(gab.x * s),
-            Math.round(gab.y * s),
-            Math.round(gab.w * s),
-            Math.round(gab.h * s),
+            Math.round(gab.x * ppm),
+            Math.round(gab.y * ppm),
+            Math.round(gab.w * ppm),
+            Math.round(gab.h * ppm),
         ];
+        // Стороны прямоугольника и есть размеры машины: ширина по X, длина по Y
+        machine.width = gab.w;
+        machine.length = gab.h;
     }
-    const m = confState.machine;
-    if (m.length > 0) machine.length = m.length;
-    if (m.width > 0) machine.width = m.width;
-    if (m.height > 0) machine.height = m.height;
-    if (m.mat > 0) {
-        machine.mat_m = m.mat;
-        // Мат = квадрат разметки: его сторона на канвасе задаёт масштаб мира
-        machine.mat_px = confState.zoneSize * s;
+    if (confState.machineHeight > 0) machine.height = confState.machineHeight;
+    if (confState.matSize > 0) {
+        machine.mat_m = confState.matSize;
+        // Мат — тот же квадрат в пикселях канваса, масштаб мира берётся из пары
+        machine.mat_px = Math.round(confState.matSize * ppm * 1000) / 1000;
     }
     if (Object.keys(machine).length) result.machine = machine;
 

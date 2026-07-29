@@ -9,43 +9,35 @@ import type {
     ConfZone,
 } from '../types';
 
-/**
- * Состояние конфигуратора. Это обычный мутируемый объект, а не React-стейт:
- * canvas и pointer-логика правят его напрямую десятки раз в секунду во время
- * drag'а, и гонять такое через реактивность нельзя.
- *
- * React-панели читают его через useConfStore и перерисовываются только когда
- * вызван emitConfChange — то есть в точках фиксации, а не на каждое движение
- * мыши. Список точек фиксации задан в emitConfChange ниже.
- */
+// Состояние конфигуратора. Обычный мутируемый объект, а не React-стейт: canvas и
+// pointer-логика правят его напрямую десятки раз в секунду во время drag'а.
+// React-панели читают его через useConfStore и перерисовываются только по
+// emitConfChange, то есть в точках фиксации.
+// Все линейные величины здесь — метры. Пиксели появляются только в conf-export.
 export interface ConfState {
     field: { w: number; h: number; step: number };
+    // Пикселей канваса экспорта на один метр поля
+    pxPerM: number;
     tool: ConfTool;
 
     cameras: ConfCamera[];
     zones: ConfZone[];
     images: ConfImage[];
-    /** Массив ради getList и Delete, но габарит один: кнопка не даст второй. */
+    // Габарит один: w — ширина машины вдоль X, h — длина вдоль Y
     gabarits: ConfGabarit[];
-    /** Реальные размеры мира в метрах; 0 — не задано. */
-    machine: { length: number; width: number; height: number; mat: number };
+    // Высота машины, м; в плоскости поля не участвует
+    machineHeight: number;
+    // Сторона квадрата разметки, м; одна на все зоны
+    matSize: number;
 
     selected: ConfSelection | null;
     dragging: { id: string; type: ConfItemType; offsetX: number; offsetY: number } | null;
     rotating: { id: string; type: ConfItemType } | null;
     resize: { id: string; type: ConfItemType; handle: HandleName } | null;
 
-    /**
-     * Сторона квадрата разметки в пикселях поля, одна на все зоны.
-     * Разметка — физические маты одного размера, поэтому произвольных
-     * прямоугольников нет: из этой стороны и «Мат, м» выводится масштаб мира.
-     */
-    zoneSize: number;
-    exportScale: number;
-
     view: { ox: number; oy: number; scale: number };
 
-    /** Область, которую пользователь растягивает инструментом прямо сейчас. */
+    // Область, которую пользователь растягивает инструментом прямо сейчас
     draft: { x: number; y: number; w: number; h: number } | null;
 
     // Ключ и имя загруженного пресета, предзаполняют экспорт для перезаписи
@@ -55,23 +47,31 @@ export interface ConfState {
 
 export type HandleName = 'tl' | 'mt' | 'tr' | 'ml' | 'mr' | 'bl' | 'mb' | 'br';
 
+// Квант хранения линейных величин, м
+export const QUANTUM = 0.001;
+
+export const DEFAULT_FIELD_W = 10;
+export const DEFAULT_FIELD_H = 10;
+export const DEFAULT_STEP = 0.1;
+export const DEFAULT_PX_PER_M = 100;
+export const DEFAULT_MAT = 1;
+
 export const confState: ConfState = {
-    field: { w: 1000, h: 1000, step: 10 },
+    field: { w: DEFAULT_FIELD_W, h: DEFAULT_FIELD_H, step: DEFAULT_STEP },
+    pxPerM: DEFAULT_PX_PER_M,
     tool: 'select',
 
     cameras: [],
     zones: [],
     images: [],
     gabarits: [],
-    machine: { length: 0, width: 0, height: 0, mat: 0 },
+    machineHeight: 0,
+    matSize: DEFAULT_MAT,
 
     selected: null,
     dragging: null,
     rotating: null,
     resize: null,
-
-    zoneSize: 100,
-    exportScale: 1,
 
     view: { ox: 0, oy: 0, scale: 1 },
 
@@ -80,6 +80,18 @@ export const confState: ConfState = {
     presetId: '',
     presetName: '',
 };
+
+// Округление до миллиметра. Деление на step и обратное умножение копят хвосты
+// двоичной дроби, и String(value) в NumberField показал бы их пользователю.
+export function q(v: number): number {
+    if (!Number.isFinite(v)) return 0;
+    return Math.round(v * 1000) / 1000;
+}
+
+// Метры для показа: три знака, как квант хранения
+export function fmtM(v: number): string {
+    return v.toFixed(3);
+}
 
 export const COLORS: Record<'camera' | 'zone', string[]> = {
     camera: ['#378ADD', '#D85A30', '#1D9E75', '#D4537E', '#BA7517', '#534AB7'],
@@ -104,12 +116,8 @@ export function uid(): string {
     return `el_${Date.now()}_${idCounter++}`;
 }
 
-/**
- * Внешний стор для useSyncExternalStore.
- *
- * version растёт только при emitConfChange. Панели подписаны на него, canvas —
- * нет, он перерисовывается императивно через confDraw.
- */
+// Внешний стор для useSyncExternalStore. version растёт только при
+// emitConfChange; canvas на него не подписан и перерисовывается через confDraw.
 const listeners = new Set<() => void>();
 let version = 0;
 
@@ -124,20 +132,15 @@ function getSnapshot(): number {
     return version;
 }
 
-/**
- * Точки фиксации, в которых UI обязан узнать об изменении:
- * создание и удаление объекта, смена выделения, переименование,
- * завершение drag/resize/rotate (pointerup), правка параметров поля.
- *
- * Во время самого drag'а не вызывается — иначе панели будут перерисовываться
- * на каждый pointermove.
- */
+// Точки фиксации: создание и удаление объекта, смена выделения, переименование,
+// завершение drag/resize/rotate, правка параметров поля. Во время drag'а не
+// вызывается.
 export function emitConfChange(): void {
     version++;
     listeners.forEach(fn => fn());
 }
 
-/** Подписывает компонент на точки фиксации confState. */
+// Подписывает компонент на точки фиксации confState
 export function useConfStore(): number {
     return useSyncExternalStore(subscribe, getSnapshot);
 }

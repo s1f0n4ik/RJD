@@ -4,6 +4,7 @@
 export type ScreenId = 'calibration' | 'projection' | 'linker' | 'configurator';
 
 /** Общий тип для всего, что расставляется на поле конфигуратора. */
+// x, y, w, h — метры поля; в пиксели переводит только conf-export
 export interface ConfItem {
     id: string;
     x: number;

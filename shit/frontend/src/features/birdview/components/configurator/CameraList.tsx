@@ -1,15 +1,19 @@
-import { confState, useConfStore } from '../../state/conf-store';
+import { confState, fmtM, useConfStore } from '../../state/conf-store';
 import { confDelete, confRenameCamera, confSelect } from './conf-actions';
+import { checkCameraKeys } from './conf-validate';
 
-/** Список камер с инлайновой правкой ключа и имени. Порт _renderCamList. */
+// Список камер с инлайновой правкой ключа и имени.
 
 export function CameraList() {
     useConfStore();
+
+    const keys = checkCameraKeys();
 
     return (
         <div className="conf-item-list">
             {confState.cameras.map(cam => {
                 const isSelected = confState.selected?.id === cam.id;
+                const status = keys.status.get(cam.id) ?? 'ok';
                 return (
                     <div key={cam.id} className="conf-item-wrap">
                         <div
@@ -18,7 +22,7 @@ export function CameraList() {
                         >
                             <div className="conf-item-color" style={{ background: cam.color }} />
                             <span className="conf-item-name">{cam.name}</span>
-                            <span className="conf-item-meta">{cam.w}×{cam.h}</span>
+                            <span className="conf-item-meta">{fmtM(cam.w)}×{fmtM(cam.h)} м</span>
                             <button
                                 className="conf-item-delete"
                                 onClick={e => {
@@ -35,8 +39,10 @@ export function CameraList() {
                                 <div className="field-row">
                                     <div className="field-group">
                                         <label className="field-label">Ключ</label>
+                                        {/* Ключ — это place_key: по нему линкер держит привязку,
+                                            а сервер переносит src_points из прежней записи */}
                                         <input
-                                            className="field-input"
+                                            className={`field-input${status === 'ok' ? '' : ` field-input--${status}`}`}
                                             type="text"
                                             value={cam.key}
                                             onChange={e => confRenameCamera(cam.id, { key: e.target.value })}

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { confState, useConfStore } from '../../state/conf-store';
+import { confState, fmtM, getList, useConfStore } from '../../state/conf-store';
 import type { ConfTool } from '../../types';
-import { attachConfCanvas, confDraw } from './conf-canvas';
+import { attachConfCanvas, confDraw, fitFieldToView } from './conf-canvas';
 import { attachConfInteract } from './conf-interact';
 import { confSelectTool } from './conf-actions';
 import { ConfiguratorPanel } from './ConfiguratorPanel';
@@ -16,7 +16,7 @@ import { useToast } from '../common/Toast';
 const TOOLS: Array<{ id: ConfTool; icon: string; title: string }> = [
     { id: 'select', icon: '⊹', title: 'Выделение: перетаскивание, размер, поворот' },
     { id: 'camera', icon: '◱', title: 'Камера (Shift+Q): растяните область в пределах поля' },
-    { id: 'zone', icon: '▦', title: 'Разметка (Shift+W): ПКМ — выбрать камеру, ЛКМ — нарисовать область внутри неё' },
+    { id: 'zone', icon: '▦', title: 'Разметка (Shift+W): ПКМ — выбрать камеру, ЛКМ — поставить мат внутри неё' },
 ];
 
 interface ConfiguratorScreenProps {
@@ -26,6 +26,7 @@ interface ConfiguratorScreenProps {
 export function ConfiguratorScreen({ active }: ConfiguratorScreenProps) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const cursorRef = useRef<HTMLSpanElement>(null);
+    const cornerRef = useRef<HTMLSpanElement>(null);
     const activeRef = useRef(active);
     activeRef.current = active;
 
@@ -38,6 +39,19 @@ export function ConfiguratorScreen({ active }: ConfiguratorScreenProps) {
 
     useConfStore();
 
+    const sel = confState.selected;
+    const selected = sel ? getList(sel.type).find(i => i.id === sel.id) : undefined;
+
+    // Угол выделенного меняется на каждый pointermove при драге и ресайзе,
+    // поэтому пишется в DOM мимо React — как и позиция курсора
+    const writeCorner = () => {
+        const el = cornerRef.current;
+        if (!el) return;
+        const s = confState.selected;
+        const item = s ? getList(s.type).find(i => i.id === s.id) : undefined;
+        el.textContent = item ? `⌈ X ${fmtM(item.x)} Y ${fmtM(item.y)}` : '⌈ X — Y —';
+    };
+
     useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
@@ -48,8 +62,9 @@ export function ConfiguratorScreen({ active }: ConfiguratorScreenProps) {
             // pointermove, через React это был бы ре-рендер на кадр.
             onCursor: (wx, wy) => {
                 if (cursorRef.current) {
-                    cursorRef.current.textContent = `X: ${Math.round(wx)} Y: ${Math.round(wy)}`;
+                    cursorRef.current.textContent = `X: ${wx.toFixed(3)} Y: ${wy.toFixed(3)}`;
                 }
+                writeCorner();
             },
             isActive: () => activeRef.current,
             onNotice: (title, desc, type) => toastRef.current(title, desc, type),
@@ -60,6 +75,9 @@ export function ConfiguratorScreen({ active }: ConfiguratorScreenProps) {
             detachCanvas();
         };
     }, []);
+
+    // Догоняет правки без мыши: ввод чисел в панели, поворот по r, центровку по c
+    useEffect(writeCorner);
 
     // Экран скрыт через display:none, поэтому при возврате на него холст мог
     // остаться отрисованным на нулевом размере.
@@ -98,10 +116,18 @@ export function ConfiguratorScreen({ active }: ConfiguratorScreenProps) {
                 </div>
 
                 <div className="conf-status-bar">
-                    <span className="meta-tag">Поле: {f.w}×{f.h}</span>
-                    <span className="meta-tag">Шаг: {f.step}</span>
+                    <span className="meta-tag">Поле: {fmtM(f.w)}×{fmtM(f.h)} м</span>
+                    <span className="meta-tag">Шаг: {fmtM(f.step)} м</span>
+                    <span className="meta-tag">{confState.pxPerM} px/м</span>
                     <span ref={cursorRef} className="meta-tag">X: — Y: —</span>
                 </div>
+
+                {/* Появляется только при выделении; уезжает влево от открытой панели */}
+                {selected && (
+                    <div className={`conf-corner-bar ${panelOpen ? 'shifted' : ''}`}>
+                        <span ref={cornerRef} className="meta-tag">⌈ X — Y —</span>
+                    </div>
+                )}
             </section>
 
             <button
@@ -137,6 +163,9 @@ export function ConfiguratorScreen({ active }: ConfiguratorScreenProps) {
                             confState.presetName = typeof data?.name === 'string' ? data.name : '';
 
                             setLoadOpen(false);
+                            // Поле пресета в метрах может отличаться от текущего
+                            // в разы, и старый масштаб вида к нему не подходит
+                            fitFieldToView();
                             redraw();
 
                             const parts = [

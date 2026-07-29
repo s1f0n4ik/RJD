@@ -329,6 +329,18 @@
     box-shadow: 0 0 0 2px var(--bv-accent-glow);
 }
 
+/* Ключ камеры: error теряет данные при сохранении, warn только предупреждает */
+.birdview-root .field-input--error,
+.birdview-root .field-input--error:focus {
+    border-color: var(--bv-err);
+    box-shadow: 0 0 0 2px rgba(255,96,118,0.2);
+}
+.birdview-root .field-input--warn,
+.birdview-root .field-input--warn:focus {
+    border-color: var(--bv-warn);
+    box-shadow: 0 0 0 2px rgba(255,215,94,0.2);
+}
+
 /* BUTTONS */
 
 .birdview-root .btn {
@@ -733,6 +745,19 @@
     z-index: 10;
 }
 
+/* Угол выделенного элемента. Панель перекрывает правый край холста, поэтому
+   при её раскрытии плитка уезжает на её ширину */
+.birdview-root .conf-corner-bar {
+    position: absolute;
+    bottom: 8px;
+    right: 12px;
+    z-index: 10;
+    transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.birdview-root .conf-corner-bar.shifted {
+    right: 312px;
+}
+
 .birdview-root .conf-panel-tab {
     position: absolute;
     right: 0;
@@ -989,6 +1014,22 @@
     flex-direction: column;
     gap: 6px;
 }
+
+/* Причины, по которым конфигурацию нельзя сохранить */
+.birdview-root .conf-problems {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.birdview-root .conf-problem {
+    font-family: var(--bv-font-mono);
+    font-size: 11px;
+    line-height: 1.5;
+    padding-left: 10px;
+    border-left: 2px solid currentColor;
+}
+.birdview-root .conf-problem--error { color: var(--bv-err); }
+.birdview-root .conf-problem--warn  { color: var(--bv-warn); }
 
 .birdview-root .conf-export-preview-wrap {
     max-height: 300px;

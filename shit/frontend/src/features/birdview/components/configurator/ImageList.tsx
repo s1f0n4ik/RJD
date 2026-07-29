@@ -1,4 +1,4 @@
-import { confState, useConfStore } from '../../state/conf-store';
+import { confState, fmtM, useConfStore } from '../../state/conf-store';
 import { confDelete, confSelect } from './conf-actions';
 
 /** Список подложек. Порт _renderImgList. */
@@ -15,7 +15,7 @@ export function ImageList() {
                     onClick={() => confSelect({ type: 'image', id: img.id })}
                 >
                     <span className="conf-item-name">{img.name}</span>
-                    <span className="conf-item-meta">{img.w}×{img.h}</span>
+                    <span className="conf-item-meta">{fmtM(img.w)}×{fmtM(img.h)} м</span>
                     <button
                         className="conf-item-delete"
                         onClick={e => {

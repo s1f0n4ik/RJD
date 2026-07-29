@@ -1,15 +1,20 @@
-import { confState, emitConfChange, nextColor } from '../../state/conf-store';
-import type { ConfCamera, ConfImage, ConfZone } from '../../types';
+import {
+    confState,
+    DEFAULT_MAT,
+    DEFAULT_STEP,
+    emitConfChange,
+    nextColor,
+    q,
+    QUANTUM,
+} from '../../state/conf-store';
+import type { ConfCamera, ConfGabarit, ConfImage, ConfZone } from '../../types';
+import { clampZoneToCamera } from './conf-canvas';
 
-/**
- * Разбор пресета обратно в модель редактора.
- *
- * Экспорт хранит производную геометрию: камера — прямоугольником углов
- * canvas_region, а все её зоны свалены в один dst_points четвёрками. Четвёрка
- * идёт в порядке bl → tl → tr → br, и по ней однозначно восстанавливаются
- * центр, размеры и поворот. Имена зон в пресете не хранятся — конфигуратор
- * пишет их с версии, где появился этот разбор, а у прежних записей их нет.
- */
+// Разбор пресета обратно в модель редактора.
+// Экспорт хранит производную геометрию в пикселях канваса: камера —
+// прямоугольником углов canvas_region, а все её зоны свалены в один dst_points
+// четвёрками bl → tl → tr → br. Здесь всё делится на px_per_m и становится
+// метрами.
 
 interface PresetJson {
     name?: string;
@@ -23,9 +28,10 @@ interface PresetJson {
         width?: number;
         height?: number;
         mat_m?: number;
+        mat_px?: number;
     };
     /** Блок редактора: то, чего нет в производной геометрии. */
-    editor?: { step?: number; zones?: Record<string, string[]> };
+    editor?: { version?: number; px_per_m?: number; step?: number; zones?: Record<string, string[]> };
 }
 
 interface PresetCameraJson {
@@ -42,6 +48,33 @@ export interface ImportResult {
     missingImages: string[];
 }
 
+function num(v: unknown): number {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+}
+
+// Пикселей канваса на метр. Порядок повторяет surround-bake: сначала мат, он
+// мерян рулеткой и точнее ректа, потом длина машины по высоте ректа.
+function resolvePxPerM(preset: PresetJson): number {
+    // Квантуется так же, как ручка в панели: деление даёт хвосты вроде
+    // 100 / 0.11 = 909.0909090909091, и они бы уехали прямо в поле ввода
+    const use = (v: number): number => Math.max(QUANTUM, q(v));
+
+    const declared = num(preset.editor?.px_per_m);
+    if (declared > 0) return use(declared);
+
+    const m = preset.machine;
+    const matM = num(m?.mat_m);
+    const matPx = num(m?.mat_px);
+    if (matM > 0 && matPx > 0) return use(matPx / matM);
+
+    const rect = Array.isArray(m?.rect) && m.rect.length >= 4 ? m.rect : null;
+    const length = num(m?.length);
+    if (rect && num(rect[3]) > 0 && length > 0) return use(num(rect[3]) / length);
+
+    throw new Error('в записи нет ни масштаба, ни мата, ни габарита — метры восстановить нечем');
+}
+
 function boundsOf(points: number[][]): { x: number; y: number; w: number; h: number } | null {
     const valid = points.filter(p => Array.isArray(p) && p.length >= 2 && p.every(Number.isFinite));
     if (valid.length === 0) return null;
@@ -54,7 +87,7 @@ function boundsOf(points: number[][]): { x: number; y: number; w: number; h: num
 }
 
 /** Четвёрка углов bl → tl → tr → br обратно в прямоугольник с поворотом. */
-function zoneFromCorners(corners: number[][]): Omit<ConfZone, 'id' | 'key' | 'name' | 'cameraId' | 'color'> | null {
+function zoneFromCorners(corners: number[][]): { x: number; y: number; w: number; h: number; rotation: number } | null {
     if (corners.length < 4) return null;
     if (!corners.every(p => Array.isArray(p) && p.length >= 2 && p.every(Number.isFinite))) return null;
 
@@ -84,10 +117,12 @@ function makeId(prefix: string): string {
  * Загрузка подложки с сервера обратно в редактор.
  *
  * Редактору нужен File: при сохранении картинки уходят в FormData тем же
- * путём, что и добавленные вручную. Поэтому тянем байты и собираем File из
- * них — иначе после правки пресета подложки бы из него пропали.
+ * путём, что и добавленные вручную.
  */
-async function fetchOverlay(name: string, rect: { x: number; y: number; w: number; h: number }): Promise<ConfImage | null> {
+async function fetchOverlay(
+    name: string,
+    rect: { x: number; y: number; w: number; h: number },
+): Promise<ConfImage | null> {
     const res = await fetch(`/linker/image?name=${encodeURIComponent(name)}`);
     if (!res.ok) return null;
 
@@ -123,8 +158,11 @@ async function fetchOverlay(name: string, rect: { x: number; y: number; w: numbe
  * пресетах совпадут, и разобрать потом, что откуда, будет нельзя.
  */
 export async function importPreset(preset: PresetJson): Promise<ImportResult> {
-    const width = Number(preset.canvas?.width) || confState.field.w;
-    const height = Number(preset.canvas?.height) || confState.field.h;
+    const ppm = resolvePxPerM(preset);
+    const toM = (px: number): number => q(px / ppm);
+
+    const width = num(preset.canvas?.width) > 0 ? toM(num(preset.canvas?.width)) : confState.field.w;
+    const height = num(preset.canvas?.height) > 0 ? toM(num(preset.canvas?.height)) : confState.field.h;
 
     const cameras: ConfCamera[] = [];
     const zones: ConfZone[] = [];
@@ -139,7 +177,10 @@ export async function importPreset(preset: PresetJson): Promise<ImportResult> {
             key,
             name: cam?.name || key,
             color: nextColor('camera'),
-            ...region,
+            x: toM(region.x),
+            y: toM(region.y),
+            w: toM(region.w),
+            h: toM(region.h),
         });
 
         const dst = Array.isArray(cam?.dst_points) ? cam.dst_points : [];
@@ -156,14 +197,25 @@ export async function importPreset(preset: PresetJson): Promise<ImportResult> {
                 name: savedNames[index] || `Зона ${index + 1}`,
                 cameraId,
                 color: nextColor('zone'),
-                ...shape,
+                x: toM(shape.x),
+                y: toM(shape.y),
+                w: toM(shape.w),
+                h: toM(shape.h),
+                rotation: shape.rotation,
             });
         }
     }
 
+    confState.pxPerM = ppm;
     confState.field = { ...confState.field, w: width, h: height };
-    if (preset.editor?.step && Number.isFinite(preset.editor.step)) {
-        confState.field.step = Number(preset.editor.step);
+
+    // До версии 2 шаг записан в пикселях канваса, начиная с неё — в метрах
+    const version = num(preset.editor?.version);
+    const rawStep = num(preset.editor?.step);
+    if (rawStep > 0) {
+        confState.field.step = version >= 2 ? q(rawStep) : toM(rawStep);
+    } else {
+        confState.field.step = DEFAULT_STEP;
     }
 
     // Подложки тянем параллельно: их единицы, а последовательно это заметная пауза
@@ -174,10 +226,10 @@ export async function importPreset(preset: PresetJson): Promise<ImportResult> {
             if (!name || !rect || !rect.every(Number.isFinite)) return { name, image: null };
 
             const image = await fetchOverlay(name, {
-                x: rect[0],
-                y: rect[1],
-                w: rect[2],
-                h: rect[3],
+                x: toM(rect[0]),
+                y: toM(rect[1]),
+                w: toM(rect[2]),
+                h: toM(rect[3]),
             }).catch(() => null);
 
             return { name, image };
@@ -189,42 +241,56 @@ export async function importPreset(preset: PresetJson): Promise<ImportResult> {
         .filter((img): img is ConfImage => img !== null);
     const missingImages = overlays.filter(o => o.image === null).map(o => o.name);
 
-    // Габарит и метры: без блока сбрасываются, а не остаются от прошлого пресета
+    // Габарит: размер из точных метров length/width, из ректа только положение
     const mach = preset.machine;
-    const rect = Array.isArray(mach?.rect) && mach.rect.length >= 4
-        && mach.rect.every(Number.isFinite)
+    const rect = Array.isArray(mach?.rect) && mach.rect.length >= 4 && mach.rect.every(Number.isFinite)
         ? mach.rect
         : null;
-    confState.gabarits = rect
-        ? [{ id: makeId('gab'), x: rect[0], y: rect[1], w: rect[2], h: rect[3] }]
-        : [];
-    confState.machine = {
-        length: Number(mach?.length) > 0 ? Number(mach?.length) : 0,
-        width: Number(mach?.width) > 0 ? Number(mach?.width) : 0,
-        height: Number(mach?.height) > 0 ? Number(mach?.height) : 0,
-        mat: Number(mach?.mat_m) > 0 ? Number(mach?.mat_m) : 0,
-    };
+    const machW = num(mach?.width);
+    const machL = num(mach?.length);
+
+    const gabW = machW > 0 ? q(machW) : rect ? toM(rect[2]) : 0;
+    const gabH = machL > 0 ? q(machL) : rect ? toM(rect[3]) : 0;
+
+    const gabarits: ConfGabarit[] = [];
+    if (gabW > 0 && gabH > 0) {
+        gabarits.push({
+            id: makeId('gab'),
+            x: rect ? toM(rect[0]) : q((width - gabW) / 2),
+            y: rect ? toM(rect[1]) : q((height - gabH) / 2),
+            w: gabW,
+            h: gabH,
+        });
+    }
+    confState.gabarits = gabarits;
+    confState.machineHeight = num(mach?.height) > 0 ? q(num(mach?.height)) : 0;
 
     confState.cameras = cameras;
     confState.zones = zones;
     confState.images = images;
 
-    /*
-        Разметка всегда квадратная и одного размера. Пресеты старше этого
-        правила могли нести прямоугольники: общий размер берётся из первой
-        зоны, остальные приводятся к нему вокруг своих центров.
-    */
-    if (zones.length) {
-        confState.zoneSize = Math.max(1, Math.round(zones[0].w));
-        zones.forEach(zone => {
-            const cx = zone.x + zone.w / 2;
-            const cy = zone.y + zone.h / 2;
-            zone.w = confState.zoneSize;
-            zone.h = confState.zoneSize;
-            zone.x = Math.round(cx - confState.zoneSize / 2);
-            zone.y = Math.round(cy - confState.zoneSize / 2);
-        });
+    // Разметка всегда квадратная и одного размера. Сторона берётся из мерянного
+    // mat_m, иначе из первой зоны: прежние записи несли прямоугольники.
+    const matM = num(mach?.mat_m);
+    if (matM > 0) {
+        confState.matSize = q(matM);
+    } else if (zones.length) {
+        confState.matSize = Math.max(q(zones[0].w), 0.001);
+    } else {
+        confState.matSize = DEFAULT_MAT;
     }
+
+    const mat = confState.matSize;
+    zones.forEach(zone => {
+        const cx = zone.x + zone.w / 2;
+        const cy = zone.y + zone.h / 2;
+        zone.w = mat;
+        zone.h = mat;
+        zone.x = q(cx - mat / 2);
+        zone.y = q(cy - mat / 2);
+        clampZoneToCamera(zone);
+    });
+
     confState.selected = null;
     confState.dragging = null;
     confState.rotating = null;

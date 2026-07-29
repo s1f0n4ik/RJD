@@ -7,15 +7,20 @@ import {
     confAddGabarit,
     confAddImageFile,
     confAddZone,
+    confUpdateGabarit,
+    confUpdateMachineHeight,
+    confUpdateMatSize,
     confUpdateField,
-    confUpdateMachine,
-    confUpdateZoneSize,
+    confUpdatePxPerM,
 } from './conf-actions';
+import { canvasSizePx } from './conf-export';
 import { CameraList } from './CameraList';
 import { ZoneList } from './ZoneList';
 import { ImageList } from './ImageList';
 
-/** Выдвижная панель конфигуратора. Порт panel.js и разметки page-4. */
+// Выдвижная панель конфигуратора. Все линейные поля — метры, шаг ввода 1 мм.
+
+const M_STEP = 0.001;
 
 interface ConfiguratorPanelProps {
     open: boolean;
@@ -29,10 +34,22 @@ export function ConfiguratorPanel({ open, onOpenExport }: ConfiguratorPanelProps
     useConfStore();
 
     const f = confState.field;
+    const gab = confState.gabarits[0];
+    const raster = canvasSizePx();
+
+    const applyField = (next: Partial<{ w: number; h: number; step: number }>) => {
+        const err = confUpdateField(next);
+        if (err) showToast('Поле не изменено', err, 'err');
+    };
 
     const handleAddZone = () => {
         const err = confAddZone();
-        if (err) showToast('Нет камер', err, 'err');
+        if (err) showToast('Мат не поставлен', err, 'err');
+    };
+
+    const applyMat = (value: number) => {
+        const err = confUpdateMatSize(value);
+        if (err) showToast('Размер мата не изменён', err, 'err');
     };
 
     return (
@@ -47,24 +64,41 @@ export function ConfiguratorPanel({ open, onOpenExport }: ConfiguratorPanelProps
                     <div className="conf-section-body">
                         <div className="field-row">
                             <NumberField
-                                label="Ширина"
-                                min={1}
+                                label="Ширина, м"
+                                min={M_STEP}
+                                step={M_STEP}
                                 value={f.w}
-                                onCommit={v => confUpdateField({ w: v || 1000 })}
+                                onCommit={v => applyField({ w: v })}
                             />
                             <NumberField
-                                label="Высота"
-                                min={1}
+                                label="Длина, м"
+                                min={M_STEP}
+                                step={M_STEP}
                                 value={f.h}
-                                onCommit={v => confUpdateField({ h: v || 1000 })}
+                                onCommit={v => applyField({ h: v })}
                             />
                         </div>
                         <NumberField
-                            label="Шаг привязки"
-                            min={1}
+                            label="Шаг привязки, м"
+                            min={M_STEP}
+                            step={M_STEP}
                             value={f.step}
-                            onCommit={v => confUpdateField({ step: v || 10 })}
+                            onCommit={v => applyField({ step: v })}
                         />
+                        {/* Геометрию не двигает: задаёт только разрешение растра вида сверху */}
+                        <NumberField
+                            label="Разрешение, px/м"
+                            min={1}
+                            step={1}
+                            value={confState.pxPerM}
+                            onCommit={v => confUpdatePxPerM(v)}
+                        />
+                        <div className="field-group">
+                            <label className="field-label">Итоговый растр</label>
+                            <span className="modal-stat-value">
+                                {raster.width} × {raster.height} px
+                            </span>
+                        </div>
                     </div>
                 </details>
 
@@ -77,7 +111,7 @@ export function ConfiguratorPanel({ open, onOpenExport }: ConfiguratorPanelProps
                         <span className="collapsible-arrow">›</span>
                     </summary>
                     <div className="conf-section-body">
-                        {/* Рект на канвасе — место машины; метры уходят в линкер */}
+                        {/* Стороны прямоугольника и есть размеры машины */}
                         <button
                             className="btn btn-ghost btn-sm"
                             style={{ width: '100%' }}
@@ -88,35 +122,26 @@ export function ConfiguratorPanel({ open, onOpenExport }: ConfiguratorPanelProps
                         <div className="field-row">
                             <NumberField
                                 label="Длина, м"
-                                min={0}
-                                step={0.1}
-                                value={confState.machine.length}
-                                onCommit={v => confUpdateMachine({ length: v })}
+                                min={M_STEP}
+                                step={M_STEP}
+                                value={gab?.h ?? 0}
+                                onCommit={v => confUpdateGabarit({ length: v })}
                             />
                             <NumberField
                                 label="Ширина, м"
-                                min={0}
-                                step={0.1}
-                                value={confState.machine.width}
-                                onCommit={v => confUpdateMachine({ width: v })}
+                                min={M_STEP}
+                                step={M_STEP}
+                                value={gab?.w ?? 0}
+                                onCommit={v => confUpdateGabarit({ width: v })}
                             />
                         </div>
-                        <div className="field-row">
-                            <NumberField
-                                label="Высота, м"
-                                min={0}
-                                step={0.1}
-                                value={confState.machine.height}
-                                onCommit={v => confUpdateMachine({ height: v })}
-                            />
-                            <NumberField
-                                label="Мат, м"
-                                min={0}
-                                step={0.01}
-                                value={confState.machine.mat}
-                                onCommit={v => confUpdateMachine({ mat: v })}
-                            />
-                        </div>
+                        <NumberField
+                            label="Высота, м"
+                            min={0}
+                            step={M_STEP}
+                            value={confState.machineHeight}
+                            onCommit={v => confUpdateMachineHeight(v)}
+                        />
                     </div>
                 </details>
 
@@ -145,13 +170,13 @@ export function ConfiguratorPanel({ open, onOpenExport }: ConfiguratorPanelProps
                         <span className="collapsible-arrow">›</span>
                     </summary>
                     <div className="conf-section-body">
-                        {/* Разметка — квадраты одного размера: физические маты.
-                            Смена стороны применяется ко всем зонам сразу */}
+                        {/* Мат физический: сторона одна на все зоны и под камеру не ужимается */}
                         <NumberField
-                            label="Размер разметки, px"
-                            min={1}
-                            value={confState.zoneSize}
-                            onCommit={v => confUpdateZoneSize(v || 100)}
+                            label="Сторона мата, м"
+                            min={M_STEP}
+                            step={M_STEP}
+                            value={confState.matSize}
+                            onCommit={applyMat}
                         />
 
                         <ZoneList />
