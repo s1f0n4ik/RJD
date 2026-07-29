@@ -6,6 +6,11 @@ import { CANVAS_COLORS } from '../../styles/canvas-colors';
 // мутации confState, RAF-цикла нет, React в отрисовке не участвует.
 // Мировые координаты — метры, view.scale — экранных пикселей на метр.
 
+// Габарит рисуется своим цветом, а не акцентным: он не часть выделения
+const GABARIT_COLOR = '#E8A33D';
+const GABARIT_FILL = 'rgba(232,163,61,0.08)';
+const GABARIT_GUIDE = 'rgba(232,163,61,0.35)';
+
 let canvasEl: HTMLCanvasElement | null = null;
 let ctx: CanvasRenderingContext2D | null = null;
 let dpr = 1;
@@ -129,6 +134,68 @@ export function cameraMinSize(cameraId: string): { w: number; h: number } {
     return { w: q(w), h: q(h) };
 }
 
+/** След повёрнутого мата по осям мира. */
+function zoneSpan(zone: ConfZone): { l: number; r: number; t: number; b: number; cx: number; cy: number } {
+    const ext = rotatedHalfExtents(zone.w, zone.h, zone.rotation);
+    const cx = zone.x + zone.w / 2;
+    const cy = zone.y + zone.h / 2;
+    return { l: cx - ext.hw, r: cx + ext.hw, t: cy - ext.hh, b: cy + ext.hh, cx, cy };
+}
+
+export interface ZoneGaps {
+    x: number;
+    y: number;
+}
+
+interface AxisGap {
+    value: number;
+    /** Грань мата, от которой мерялось. */
+    matEdge: number;
+    /** Грань габарита, до которой мерялось. */
+    gabEdge: number;
+}
+
+// Зазор вдоль одной оси по ближайшей паре граней. Знак задаётся отдельно от
+// величины: минус означает, что проекции налезают друг на друга.
+// Перебираются все четыре пары, а не только встречные: когда мат внутри
+// проекции габарита, встречные грани дают расстояние до дальнего края.
+function axisGap(matLo: number, matHi: number, gabLo: number, gabHi: number): AxisGap {
+    const pairs = [
+        { matEdge: matHi, gabEdge: gabLo },
+        { matEdge: matLo, gabEdge: gabHi },
+        { matEdge: matLo, gabEdge: gabLo },
+        { matEdge: matHi, gabEdge: gabHi },
+    ];
+
+    let best = pairs[0];
+    let dist = Math.abs(best.gabEdge - best.matEdge);
+    for (const p of pairs) {
+        const d = Math.abs(p.gabEdge - p.matEdge);
+        if (d < dist) {
+            dist = d;
+            best = p;
+        }
+    }
+
+    const overlap = matLo < gabHi && gabLo < matHi;
+    return { value: overlap ? -dist : dist, matEdge: best.matEdge, gabEdge: best.gabEdge };
+}
+
+/**
+ * Зазоры между матом и габаритом по осям. null — габарита нет, мерять не к чему.
+ */
+// Габарит без поворота, мат — по реальному следу повёрнутого квадрата
+export function zoneGabaritGaps(zone: ConfZone): ZoneGaps | null {
+    const gab = confState.gabarits[0];
+    if (!gab) return null;
+
+    const m = zoneSpan(zone);
+    return {
+        x: q(axisGap(m.l, m.r, gab.x, gab.x + gab.w).value),
+        y: q(axisGap(m.t, m.b, gab.y, gab.y + gab.h).value),
+    };
+}
+
 /** Загоняет зону внутрь её камеры с учётом поворота. Размер не меняет. */
 export function clampZoneToCamera(zone: ConfZone): void {
     const cam = confState.cameras.find(c => c.id === zone.cameraId);
@@ -165,14 +232,14 @@ export function confDraw(): void {
 
 /** Прямоугольник машины: под камерами, чтобы не мешал разметке. */
 function drawGabarit(c: CanvasRenderingContext2D): void {
-    const color = '#E8A33D';
+    const color = GABARIT_COLOR;
     confState.gabarits.forEach(g => {
         const tl = worldToCanvas(g.x, g.y);
         const br = worldToCanvas(g.x + g.w, g.y + g.h);
         const w = br.x - tl.x;
         const h = br.y - tl.y;
 
-        c.fillStyle = 'rgba(232,163,61,0.08)';
+        c.fillStyle = GABARIT_FILL;
         c.strokeStyle = color;
         c.lineWidth = 2 * dpr;
         c.setLineDash([8 * dpr, 5 * dpr]);
@@ -181,7 +248,7 @@ function drawGabarit(c: CanvasRenderingContext2D): void {
         c.setLineDash([]);
 
         // Диагонали, чтобы не путать с камерой
-        c.strokeStyle = 'rgba(232,163,61,0.35)';
+        c.strokeStyle = GABARIT_GUIDE;
         c.lineWidth = 1 * dpr;
         c.beginPath();
         c.moveTo(tl.x, tl.y);
@@ -397,7 +464,7 @@ function drawSelection(c: CanvasRenderingContext2D): void {
         // меняется полем «Сторона мата» в панели
 
         // Handle поворота — круг сверху на ножке
-        const stalkLen = 24 * dpr;
+        const stalkLen = ROTATION_STALK * dpr;
         const rotHandleY = -h / 2 - stalkLen;
 
         // Ножка
@@ -450,15 +517,123 @@ function drawSelection(c: CanvasRenderingContext2D): void {
         }
     }
 
-    // Угол AABB над верхней гранью. У зон поднят выше ручки поворота, иначе
-    // подпись легла бы на её ножку. Не поворачивается: показанная точка — угол
-    // невращаемого прямоугольника
-    const lift = sel.type === 'zone' ? (ROTATION_STALK + 10) * dpr : 6 * dpr;
+    if (sel.type === 'zone') drawZoneGaps(c, item as ConfZone);
+
+    // Угол AABB над верхней гранью. У зон подпись встаёт в зазор между матом и
+    // кружком поворота и центрируется по нему: мат уже подписи, и левое
+    // выравнивание увело бы её вбок от ножки.
+    // Не поворачивается: показанная точка — угол невращаемого прямоугольника
+    const isZone = sel.type === 'zone';
     c.fillStyle = CANVAS_COLORS.accent;
     c.font = `${10 * dpr}px monospace`;
-    c.textAlign = 'left';
+    c.textAlign = isZone ? 'center' : 'left';
     c.textBaseline = 'bottom';
-    c.fillText(`X: ${fmtM(item.x)} Y: ${fmtM(item.y)}`, tl.x, tl.y - lift);
+    c.fillText(
+        `X: ${fmtM(item.x)} Y: ${fmtM(item.y)}`,
+        isZone ? tl.x + w / 2 : tl.x,
+        tl.y - 6 * dpr,
+    );
+}
+
+// Размерные линии от граней мата до граней габарита.
+function drawZoneGaps(c: CanvasRenderingContext2D, zone: ConfZone): void {
+    const gab = confState.gabarits[0];
+    if (!gab) return;
+
+    const m = zoneSpan(zone);
+    const gx = axisGap(m.l, m.r, gab.x, gab.x + gab.w);
+    const gy = axisGap(m.t, m.b, gab.y, gab.y + gab.h);
+
+    c.lineWidth = 1 * dpr;
+    c.font = `${10 * dpr}px monospace`;
+
+    // Размер по X идёт на высоте центра мата, по Y — через его центр. Если эта
+    // линия проходит мимо машины, грань габарита продлевается ей навстречу,
+    // иначе размер упирался бы в пустоту
+    drawGabaritExtension(c, gx.gabEdge, m.cy, gab.y, gab.y + gab.h, 'x');
+    drawGabaritExtension(c, gy.gabEdge, m.cx, gab.x, gab.x + gab.w, 'y');
+
+    c.strokeStyle = CANVAS_COLORS.accent;
+    c.fillStyle = CANVAS_COLORS.accent;
+    drawGapLine(c, gx.matEdge, m.cy, gx.gabEdge, m.cy, q(gx.value), 'x');
+    drawGapLine(c, m.cx, gy.matEdge, m.cx, gy.gabEdge, q(gy.value), 'y');
+}
+
+/**
+ * Продолжает грань габарита вдоль неё самой до координаты размерной линии.
+ *
+ * axis 'x' — грань вертикальная, edge это её x, тянем по y; 'y' — наоборот.
+ */
+function drawGabaritExtension(
+    c: CanvasRenderingContext2D,
+    edge: number,
+    target: number,
+    spanLo: number,
+    spanHi: number,
+    axis: 'x' | 'y',
+): void {
+    // Линия попадает в саму грань — продлевать нечего
+    if (target >= spanLo && target <= spanHi) return;
+
+    const from = target < spanLo ? spanLo : spanHi;
+    const a = axis === 'x' ? worldToCanvas(edge, from) : worldToCanvas(from, edge);
+    const b = axis === 'x' ? worldToCanvas(edge, target) : worldToCanvas(target, edge);
+
+    c.strokeStyle = GABARIT_GUIDE;
+    c.setLineDash([2 * dpr, 4 * dpr]);
+    c.beginPath();
+    c.moveTo(a.x, a.y);
+    c.lineTo(b.x, b.y);
+    c.stroke();
+    c.setLineDash([]);
+}
+
+function drawGapLine(
+    c: CanvasRenderingContext2D,
+    wx1: number,
+    wy1: number,
+    wx2: number,
+    wy2: number,
+    value: number,
+    axis: 'x' | 'y',
+): void {
+    const a = worldToCanvas(wx1, wy1);
+    const b = worldToCanvas(wx2, wy2);
+
+    c.setLineDash([3 * dpr, 3 * dpr]);
+    c.beginPath();
+    c.moveTo(a.x, a.y);
+    c.lineTo(b.x, b.y);
+    c.stroke();
+    c.setLineDash([]);
+
+    // Засечки на концах: без них линия читается как связь, а не как размер
+    const tick = 3 * dpr;
+    c.beginPath();
+    if (axis === 'x') {
+        c.moveTo(a.x, a.y - tick);
+        c.lineTo(a.x, a.y + tick);
+        c.moveTo(b.x, b.y - tick);
+        c.lineTo(b.x, b.y + tick);
+    } else {
+        c.moveTo(a.x - tick, a.y);
+        c.lineTo(a.x + tick, a.y);
+        c.moveTo(b.x - tick, b.y);
+        c.lineTo(b.x + tick, b.y);
+    }
+    c.stroke();
+
+    const mx = (a.x + b.x) / 2;
+    const my = (a.y + b.y) / 2;
+    if (axis === 'x') {
+        c.textAlign = 'center';
+        c.textBaseline = 'bottom';
+        c.fillText(fmtM(value), mx, my - 4 * dpr);
+    } else {
+        c.textAlign = 'left';
+        c.textBaseline = 'middle';
+        c.fillText(fmtM(value), mx + 5 * dpr, my);
+    }
 }
 
 function hex2rgba(hex: string, alpha: number): string {

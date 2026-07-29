@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { confState, fmtM, getList, useConfStore } from '../../state/conf-store';
-import type { ConfTool } from '../../types';
-import { attachConfCanvas, confDraw, fitFieldToView } from './conf-canvas';
+import type { ConfTool, ConfZone } from '../../types';
+import { attachConfCanvas, confDraw, fitFieldToView, zoneGabaritGaps } from './conf-canvas';
 import { attachConfInteract } from './conf-interact';
 import { confSelectTool } from './conf-actions';
 import { ConfiguratorPanel } from './ConfiguratorPanel';
@@ -27,6 +27,7 @@ export function ConfiguratorScreen({ active }: ConfiguratorScreenProps) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const cursorRef = useRef<HTMLSpanElement>(null);
     const cornerRef = useRef<HTMLSpanElement>(null);
+    const gapsRef = useRef<HTMLSpanElement>(null);
     const activeRef = useRef(active);
     activeRef.current = active;
 
@@ -41,15 +42,27 @@ export function ConfiguratorScreen({ active }: ConfiguratorScreenProps) {
 
     const sel = confState.selected;
     const selected = sel ? getList(sel.type).find(i => i.id === sel.id) : undefined;
+    // Зазоры до габарита считаются только для мата и только когда габарит задан
+    const showGaps = sel?.type === 'zone' && selected !== undefined && confState.gabarits.length > 0;
 
-    // Угол выделенного меняется на каждый pointermove при драге и ресайзе,
-    // поэтому пишется в DOM мимо React — как и позиция курсора
+    // Угол выделенного и зазоры меняются на каждый pointermove при драге и
+    // ресайзе, поэтому пишутся в DOM мимо React — как и позиция курсора
     const writeCorner = () => {
-        const el = cornerRef.current;
-        if (!el) return;
         const s = confState.selected;
         const item = s ? getList(s.type).find(i => i.id === s.id) : undefined;
-        el.textContent = item ? `⌈ X ${fmtM(item.x)} Y ${fmtM(item.y)}` : '⌈ X — Y —';
+
+        if (cornerRef.current) {
+            cornerRef.current.textContent = item
+                ? `⌈ X ${fmtM(item.x)} Y ${fmtM(item.y)}`
+                : '⌈ X — Y —';
+        }
+
+        if (gapsRef.current) {
+            const gaps = item && s?.type === 'zone' ? zoneGabaritGaps(item as ConfZone) : null;
+            gapsRef.current.textContent = gaps
+                ? `Δ X ${fmtM(gaps.x)} Y ${fmtM(gaps.y)}`
+                : 'Δ X — Y —';
+        }
     };
 
     useEffect(() => {
@@ -126,6 +139,7 @@ export function ConfiguratorScreen({ active }: ConfiguratorScreenProps) {
                 {selected && (
                     <div className={`conf-corner-bar ${panelOpen ? 'shifted' : ''}`}>
                         <span ref={cornerRef} className="meta-tag">⌈ X — Y —</span>
+                        {showGaps && <span ref={gapsRef} className="meta-tag">Δ X — Y —</span>}
                     </div>
                 )}
             </section>
