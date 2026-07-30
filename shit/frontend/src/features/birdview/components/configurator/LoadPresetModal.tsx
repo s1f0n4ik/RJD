@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useBackdropClose } from '../../hooks/useBackdropClose';
 import { PresetPreview } from './PresetPreview';
 import type { PresetPreviewData } from './PresetPreview';
+import { linkerPath } from '../../api/linker';
 
 /**
  * Загрузка сохранённого пресета в конфигуратор для правки.
@@ -36,6 +37,43 @@ export function LoadPresetModal({ dirty, onLoad, onClose }: LoadPresetModalProps
     const [preview, setPreview] = useState<PresetPreviewData | null>(null);
     const [previewLoading, setPreviewLoading] = useState(false);
 
+    // Удаление выбранного: первый клик — подтверждение, второй удаляет
+    const [deleteConfirm, setDeleteConfirm] = useState(false);
+    const [deleteBusy, setDeleteBusy] = useState(false);
+    const [deleteError, setDeleteError] = useState<string | null>(null);
+
+    const handleDelete = async () => {
+        if (!selected) return;
+        if (!deleteConfirm) {
+            setDeleteConfirm(true);
+            setDeleteError(null);
+            return;
+        }
+
+        setDeleteBusy(true);
+        try {
+            const res = await fetch(linkerPath(`/linker/preset?key=${encodeURIComponent(selected)}`), {
+                method: 'DELETE',
+            });
+            if (!res.ok) {
+                const text = await res.text().catch(() => '');
+                let reason = text;
+                try {
+                    const parsed = JSON.parse(text);
+                    reason = parsed.error ?? text;
+                } catch { /* ответ не json */ }
+                throw new Error(reason || `HTTP ${res.status}`);
+            }
+            setPresets(prev => (prev ? prev.filter(p => p.key !== selected) : prev));
+            setSelected(null);
+        } catch (e: unknown) {
+            setDeleteError(e instanceof Error ? e.message : String(e));
+        } finally {
+            setDeleteBusy(false);
+            setDeleteConfirm(false);
+        }
+    };
+
     useEffect(() => {
         if (!selected) {
             setPreview(null);
@@ -46,7 +84,7 @@ export function LoadPresetModal({ dirty, onLoad, onClose }: LoadPresetModalProps
         setPreviewLoading(true);
         setPreview(null);
 
-        fetch(`/linker/preset?key=${encodeURIComponent(selected)}`, {
+        fetch(linkerPath(`/linker/preset?key=${encodeURIComponent(selected)}`), {
             headers: { Accept: 'application/json' },
         })
             .then(async res => {
@@ -70,7 +108,7 @@ export function LoadPresetModal({ dirty, onLoad, onClose }: LoadPresetModalProps
 
     useEffect(() => {
         let alive = true;
-        fetch('/linker/presets', { headers: { Accept: 'application/json' } })
+        fetch(linkerPath('/linker/presets'), { headers: { Accept: 'application/json' } })
             .then(async res => {
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 return res.json();
@@ -124,6 +162,7 @@ export function LoadPresetModal({ dirty, onLoad, onClose }: LoadPresetModalProps
                                     onClick={() => {
                                         setSelected(p.key);
                                         setConfirming(false);
+                                        setDeleteConfirm(false);
                                     }}
                                 >
                                     <span className="config-item-name">{p.name || p.key}</span>
@@ -151,11 +190,24 @@ export function LoadPresetModal({ dirty, onLoad, onClose }: LoadPresetModalProps
                                     На поле уже есть камеры и разметка. Загрузка заменит их целиком.
                                 </p>
                             )}
+                            {deleteError && (
+                                <p className="modal-text modal-text--warn">
+                                    Не удалось удалить: {deleteError}
+                                </p>
+                            )}
                         </div>
                     </div>
                 </div>
 
                 <div className="modal-footer">
+                    <button
+                        className={`btn ${deleteConfirm ? 'btn-danger' : 'btn-ghost'}`}
+                        style={{ marginRight: 'auto' }}
+                        disabled={!selected || deleteBusy}
+                        onClick={handleDelete}
+                    >
+                        {deleteConfirm ? 'Точно удалить?' : 'Удалить'}
+                    </button>
                     <button className="btn btn-ghost" onClick={onClose}>Отмена</button>
                     <button
                         className={`btn ${confirming ? 'btn-danger' : 'btn-primary'}`}

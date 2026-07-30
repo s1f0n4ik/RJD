@@ -9,6 +9,7 @@ import {
 } from '../../state/conf-store';
 import type { ConfCamera, ConfGabarit, ConfImage, ConfZone } from '../../types';
 import { clampZoneToField } from './conf-canvas';
+import { linkerPath } from '../../api/linker';
 
 // Разбор пресета обратно в модель редактора.
 // Экспорт хранит производную геометрию в пикселях канваса: камера —
@@ -124,7 +125,7 @@ async function fetchOverlay(
     name: string,
     rect: { x: number; y: number; w: number; h: number },
 ): Promise<ConfImage | null> {
-    const res = await fetch(`/linker/image?name=${encodeURIComponent(name)}`);
+    const res = await fetch(linkerPath(`/linker/image?name=${encodeURIComponent(name)}`));
     if (!res.ok) return null;
 
     const blob = await res.blob();

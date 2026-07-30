@@ -202,8 +202,11 @@ const CameraSettings: React.FC = () => {
     const [scanSubnet, setScanSubnet] = useState('');
     const [scanCurrentSubnet, setScanCurrentSubnet] = useState('');
 
+    // Периодический тихий опрос: статусы камер и устройств без мигания таблицы
     useEffect(() => {
         loadCameras();
+        const timer = window.setInterval(() => loadCameras(true), 10_000);
+        return () => window.clearInterval(timer);
     }, []);
 
     // === cleanup probe на beforeunload ===
@@ -277,8 +280,8 @@ const CameraSettings: React.FC = () => {
         await Promise.allSettled(probes.map((c) => api.deleteCamera(c.id, deviceOf(c))));
     }, []);
 
-    const loadCameras = async () => {
-        setLoading(true);
+    const loadCameras = async (silent = false) => {
+        if (!silent) setLoading(true);
         try {
             // Статусы устройств нужны для блокировки добавления и типов
             await loadDevices().catch(() => {});
@@ -302,7 +305,7 @@ const CameraSettings: React.FC = () => {
         } catch (err) {
             setError(formatError(err));
         } finally {
-            setLoading(false);
+            if (!silent) setLoading(false);
         }
     };
 
@@ -748,7 +751,7 @@ const CameraSettings: React.FC = () => {
                                 Настройки камер
                             </Typography>
                             <Typography variant="body2" color="text.secondary">
-                                Подключено устройств: {cameras.length}
+                                Активных камер: {cameras.filter(c => !c.offline && c.streams?.main?.status === 3).length}/{cameras.length}
                             </Typography>
                         </Box>
                     </Box>

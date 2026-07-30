@@ -20,6 +20,7 @@
 
 	GET    /linker/presets  → список пресетов конфигуратора (key, name, размер поля)
 	GET    /linker/preset   → пресет целиком, для правки в конфигураторе
+	DELETE /linker/preset   → удалить запись пресета; файлы подложек не трогаются
 	GET    /linker/image    → картинка-подложка по имени файла
 	POST   /linker/rotation → поворот вывода: 0, 90, 180, 270 против часовой.
 	                          Живую конфигурацию пересобирает сразу
@@ -95,6 +96,9 @@ public:
 
 	boost::beast::http::response<boost::beast::http::string_body>
 		get_preset(const boost::beast::http::request<boost::beast::http::string_body>& req);
+
+	boost::beast::http::response<boost::beast::http::string_body>
+		delete_preset(const boost::beast::http::request<boost::beast::http::string_body>& req);
 
 	boost::beast::http::response<boost::beast::http::string_body>
 		post_exports(const boost::beast::http::request<boost::beast::http::string_body>& req);

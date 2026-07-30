@@ -12,6 +12,8 @@ export default defineConfig({
     port: 3000,
     strictPort: true,
     proxy: {
+      // ws:true — под /d живут сигналинг и прогресс-сокет склейки
+      '/d':         { target: DEV_BACKEND, changeOrigin: true, ws: true },
       '/neural':    { target: DEV_BACKEND, changeOrigin: true },
       // ws:true — под /api живёт прогресс-сокет склейки
       // /api/recordings/jobs/{id}/progress, без него панель зависает в ожидании.

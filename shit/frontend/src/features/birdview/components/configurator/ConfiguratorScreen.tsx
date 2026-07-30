@@ -10,6 +10,7 @@ import { AddZoneModal } from './AddZoneModal';
 import { ElementModal } from './ElementModal';
 import { LoadPresetModal } from './LoadPresetModal';
 import { importPreset } from './conf-import';
+import { linkerPath } from '../../api/linker';
 import { confDraw as redraw } from './conf-canvas';
 import { useToast } from '../common/Toast';
 
@@ -193,7 +194,7 @@ export function ConfiguratorScreen({ active }: ConfiguratorScreenProps) {
                     onLoad={async key => {
                         try {
                             const res = await fetch(
-                                `/linker/preset?key=${encodeURIComponent(key)}`,
+                                linkerPath(`/linker/preset?key=${encodeURIComponent(key)}`),
                                 { headers: { Accept: 'application/json' } },
                             );
                             if (!res.ok) throw new Error(`HTTP ${res.status}`);

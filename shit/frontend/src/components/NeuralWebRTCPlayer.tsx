@@ -12,6 +12,7 @@ import {
     Warning as WarningIcon,
 } from '@mui/icons-material';
 import WebRTCPlayer, { type Detection, type Track } from './WebRTCPlayer';
+import { modulePath } from '../services/devices';
 
 // ─────────────────────────────────────────────────────────────
 // Types
@@ -70,7 +71,7 @@ const NeuralWebRTCPlayer: React.FC<NeuralWebRTCPlayerProps> = ({
     // ── Проверка наличия камеры в neural loader ──────────────────
     useEffect(() => {
         let cancelled = false;
-        fetch(`/neural/camera?camera_id=${encodeURIComponent(cameraId)}`)
+        fetch(modulePath('neural', `/neural/camera?camera_id=${encodeURIComponent(cameraId)}`))
             .then(r => r.json())
             .then(data => {
                 if (!cancelled && data?.data?.found === false) {

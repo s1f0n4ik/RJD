@@ -60,6 +60,8 @@ URestServer::URestServer(
         [linker_ctrl](const auto& r) { return linker_ctrl->get_presets(r); });
     m_router->add_route(http::verb::get, "/linker/preset",
         [linker_ctrl](const auto& r) { return linker_ctrl->get_preset(r); });
+    m_router->add_route(http::verb::delete_, "/linker/preset",
+        [linker_ctrl](const auto& r) { return linker_ctrl->delete_preset(r); });
     m_router->add_route(http::verb::get, "/linker/state", 
         [linker_ctrl](const auto& r) { return linker_ctrl->get_state(r); });
     m_router->add_route(http::verb::post, "/linker/state", 

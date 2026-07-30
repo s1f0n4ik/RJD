@@ -7,6 +7,9 @@
 
 import { modulePath } from '../../../services/devices';
 
+// Путь ручки линкера на устройстве модуля birdview — для fetch мимо fetchJson
+export const linkerPath = (path: string) => modulePath('birdview', path);
+
 async function fetchJson<T>(
     method: 'GET' | 'POST' | 'DELETE',
     path: string,

@@ -671,6 +671,53 @@ ULinkerController::get_preset(const http::request<http::string_body>& req)
     return json_ok(m_logger, req, body, tag);
 }
 
+// ─── DELETE /linker/preset?key=XXX ──────────────────────────
+http::response<http::string_body>
+ULinkerController::delete_preset(const http::request<http::string_body>& req)
+{
+    const std::string tag = "DELETE /linker/preset?key=xxx";
+    log_request(m_logger, req, tag);
+
+    auto key = get_query_param(std::string(req.target()), "key");
+    if (!key || key->empty()) {
+        return json_error(m_logger, req, http::status::bad_request, "missing key parameter", tag);
+    }
+
+    const auto path = m_linker->get_configurations_path();
+
+    std::string error;
+    auto root = read_presets_root(path, error);
+    if (!root) {
+        return json_error(m_logger, req, http::status::not_found, error, tag);
+    }
+
+    auto it = root->find(*key);
+    if (it == root->end()) {
+        return json_error(m_logger, req, http::status::not_found, "preset <" + *key + "> not found", tag);
+    }
+    root->erase(it);
+
+    // Запись через временный файл: сбой посреди записи не оставит файл пустым
+    const auto tmp = path.string() + ".tmp";
+    {
+        std::ofstream out(tmp, std::ios::trunc);
+        if (!out.is_open()) {
+            return json_error(m_logger, req, http::status::internal_server_error,
+                "cannot write " + tmp, tag);
+        }
+        out << boost::json::serialize(*root);
+    }
+
+    std::error_code ec;
+    std::filesystem::rename(tmp, path, ec);
+    if (ec) {
+        return json_error(m_logger, req, http::status::internal_server_error,
+            "cannot replace presets file: " + ec.message(), tag);
+    }
+
+    return json_ok(m_logger, req, boost::json::object{}, tag);
+}
+
 // ─── GET /linker/status ─────────────────────────────────────
 http::response<http::string_body>
 ULinkerController::get_status(const http::request<http::string_body>& req)
