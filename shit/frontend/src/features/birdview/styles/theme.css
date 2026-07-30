@@ -3650,3 +3650,101 @@
     min-width: 0;
     flex: 1;
 }
+
+/* MAPPING: сопоставление камер и калибровок */
+
+.birdview-root .mapping-layout {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    align-items: start;
+    overflow: auto;
+    padding: 32px 16px;
+}
+
+.birdview-root .mapping-panel {
+    width: 100%;
+    max-width: 640px;
+    gap: 16px;
+}
+
+.birdview-root .mapping-title {
+    margin: 0 0 6px;
+    font-size: 16px;
+    color: var(--bv-text-primary);
+}
+
+.birdview-root .mapping-hint {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--bv-text-secondary);
+}
+
+.birdview-root .mapping-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.birdview-root .mapping-row {
+    display: grid;
+    grid-template-columns: 1fr 260px;
+    gap: 12px;
+    align-items: center;
+    padding: 10px 12px;
+    background: var(--bv-bg-input);
+    border: 1px solid var(--bv-border);
+    border-radius: var(--bv-radius-lg);
+}
+
+.birdview-root .mapping-camera {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.birdview-root .mapping-camera-name {
+    font-size: 13px;
+    color: var(--bv-text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.birdview-root .mapping-camera-id {
+    font-size: 11px;
+    color: var(--bv-text-dim);
+}
+
+.birdview-root .mapping-empty {
+    padding: 24px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--bv-text-dim);
+}
+
+.birdview-root .mapping-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.birdview-root .mapping-row {
+    grid-template-columns: 1fr 220px 96px;
+}
+
+.birdview-root .mapping-fps {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.birdview-root .mapping-fps-label {
+    font-size: 11px;
+    color: var(--bv-text-dim);
+}
+
+.birdview-root .mapping-fps .field-input {
+    width: 100%;
+}

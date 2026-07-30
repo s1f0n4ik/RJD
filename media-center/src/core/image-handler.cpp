@@ -131,7 +131,7 @@ namespace varan {
 
 		// Установка рендера для конвертации
 		auto render = UImageConverter();
-		if (render.init(&m_logger) == false) {
+		if (init_converter(render) == false) {
 			log_and_send_message("processing_loop(): render didn't initialize, abort linking loop!", ULogger::ELoggerLevel::ERROR, send);
 			return;
 		}

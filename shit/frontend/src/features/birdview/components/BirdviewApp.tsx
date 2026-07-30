@@ -3,6 +3,7 @@ import { Navbar } from './Navbar';
 import type { ConnState } from './Navbar';
 import { ToastProvider, useToast } from './common/Toast';
 import { ConfiguratorScreen } from './configurator/ConfiguratorScreen';
+import { MappingScreen } from './mapping/MappingScreen';
 import { LinkerScreen } from './linker/LinkerScreen';
 import { CalibrationScreen } from './calibration/CalibrationScreen';
 import { ProjectionScreen } from './projection/ProjectionScreen';
@@ -232,6 +233,7 @@ function BirdviewContent() {
 
             <LinkerScreen active={screen === 'linker'} />
             <ConfiguratorScreen active={screen === 'configurator'} />
+            <MappingScreen active={screen === 'mapping'} />
         </div>
     );
 }

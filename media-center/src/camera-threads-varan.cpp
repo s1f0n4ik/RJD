@@ -160,6 +160,8 @@ int main(int argc, char* argv[])
 	// Колбэки кадров ставятся только потребляющим модулям
 	if (config.modules.birdview) {
 		center->set_bird_view_callback(std::move(gl_storage->get_callback()));
+		// Поток коррекции birdview-камер читает кадры из того же хранилища
+		center->set_frame_storage(gl_storage.get());
 	}
 	if (config.modules.neural) {
 		center->set_neural_callback(std::move(gl_storage->get_callback()));

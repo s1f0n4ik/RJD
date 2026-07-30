@@ -26,7 +26,8 @@ namespace nvr {
 		MAIN = 1,
 		SUB = 2,
 		NV12_ENCODER = 3,
-		COUNT = 4
+		CORRECTION = 4,
+		COUNT = 5
 	};
 
 	enum class ECameraType {

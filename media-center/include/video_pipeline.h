@@ -156,6 +156,15 @@ public:
 
 	virtual EPilelineType get_type() = 0;
 
+	// Сессии живут на потоке вебсокета камеры, читать оттуда же
+	bool has_webrtc_session(const std::string& client_id) const {
+		return m_webrtc_sessions.count(client_id) > 0;
+	}
+
+	size_t webrtc_session_count() const {
+		return m_webrtc_sessions.size();
+	}
+
 protected:
 	// Пробный запуск для получения основных данных по камере
 	// timeout по секундам

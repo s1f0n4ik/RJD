@@ -153,6 +153,9 @@ const Observation: React.FC = () => {
 
     // ── Layout Management ────────────────────────────────────────
 
+    // Живое состояние коррекции birdview-плееров — попадает в сохраняемое отображение
+    const correctionsRef = useRef<Record<string, boolean>>({});
+
     const handleSaveCurrentLayout = async () => {
         if (!newLayoutName.trim()) return;
         setSaveLoading(true);
@@ -175,6 +178,12 @@ const Observation: React.FC = () => {
             }
         }
 
+        // Коррекция birdview-камер: только включённые и только стоящие в ячейках
+        const corrections: Record<string, boolean> = {};
+        for (const camId of Object.values(activeCells)) {
+            if (camId && correctionsRef.current[camId]) corrections[camId] = true;
+        }
+
         const layout: SavedLayout = {
             name:           newLayoutName.trim(),
             gridSize,
@@ -183,6 +192,7 @@ const Observation: React.FC = () => {
             customGridCols: gridSize === 'custom' ? customGridCols : undefined,
             activeCells:    activeCells as Record<string, string>,
             surround,
+            corrections:    Object.keys(corrections).length ? corrections : undefined,
             timestamp:      Date.now(),
         };
         const ok = await saveLayout(layout);
@@ -443,6 +453,7 @@ const Observation: React.FC = () => {
                         cameraName={getCameraDisplayName(cameraName)}
                         signalingUrl={getSignalingUrl(cameraName)}
                         onError={(e) => console.error(e)}
+                        onBirdviewCorrectionChange={(c) => { correctionsRef.current[cameraName] = c; }}
                     />
                     <CellMenu
                         cellId={cellId}
@@ -520,6 +531,7 @@ const Observation: React.FC = () => {
                                     cameraName={getCameraDisplayName(cameraName)}
                                     signalingUrl={getSignalingUrl(cameraName)}
                                     onError={(e) => console.error(e)}
+                                    onBirdviewCorrectionChange={(c) => { correctionsRef.current[cameraName] = c; }}
                                 />
                                 <CellMenu
                                     cellId={cell.id}

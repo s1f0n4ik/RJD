@@ -102,6 +102,13 @@ URestServer::URestServer(
         [linker_ctrl](const auto& r) { return linker_ctrl->post_view_mode(r); });
     m_router->add_route(http::verb::post, "/linker/rotation",
         [linker_ctrl](const auto& r) { return linker_ctrl->post_rotation(r); });
+
+    // Сопоставление камер birdview и конфигураций калибровки
+    auto calibration_ctrl = std::make_shared<UCalibrationController>(&m_logger);
+    m_router->add_route(http::verb::get, "/calibration/links",
+        [calibration_ctrl](const auto& r) { return calibration_ctrl->get_links(r); });
+    m_router->add_route(http::verb::post, "/calibration/links",
+        [calibration_ctrl](const auto& r) { return calibration_ctrl->post_links(r); });
     }
 
     // Маршруты для Нейронки — только при загруженном модуле neural

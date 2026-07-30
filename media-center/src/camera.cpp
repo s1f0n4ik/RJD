@@ -420,14 +420,12 @@ namespace neural {
 				return;
 			}
 
-			std::string description;
-			UCameraPipeline* web_stream = nullptr;
-			for (const auto& [name, stream] : m_streams) {
-				if (stream->get_type() == EPilelineType::SUB || stream->get_type() == EPilelineType::NV12_ENCODER) {
-					web_stream = stream.get();
-					break;
-				}
+			if (handle_module_message(client_id, type, json_object)) {
+				return;
 			}
+
+			std::string description;
+			UCameraPipeline* web_stream = select_web_stream(client_id, type, json_object);
 			if (!web_stream) {
 				std::string text = "There is no sub pipeline in camera to get webrtc session!";
 				m_logger.debug(text);
@@ -452,6 +450,10 @@ namespace neural {
 					)
 				);
 
+				if (type == "close") {
+					on_session_closed(client_id, web_stream);
+				}
+
 				return;
 			}
 			else {
@@ -474,6 +476,29 @@ namespace neural {
 			);
 		}
 	}
+
+	bool UCamera::handle_module_message(
+		const std::string& client_id,
+		const std::string& type,
+		const boost::json::object& message
+	) {
+		return false;
+	}
+
+	UCameraPipeline* UCamera::select_web_stream(
+		const std::string& client_id,
+		const std::string& type,
+		const boost::json::object& message
+	) {
+		for (const auto& [name, stream] : m_streams) {
+			if (stream->get_type() == EPilelineType::SUB || stream->get_type() == EPilelineType::NV12_ENCODER) {
+				return stream.get();
+			}
+		}
+		return nullptr;
+	}
+
+	void UCamera::on_session_closed(const std::string& client_id, UCameraPipeline* stream) {}
 
 	void UCamera::set_signaling_callback(CSignalingCallback callback) {
 		m_signaling_callback = std::move(callback);

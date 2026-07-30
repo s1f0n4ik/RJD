@@ -1,4 +1,5 @@
 #include "media_center.h"
+#include "birdview-camera.h"
 #include "core/paths.h"
 #include "console_utility.h"
 
@@ -13,6 +14,17 @@ namespace neural {
         , m_logger("Media Center", ULogger::ELoggerLevel::TRACE)
         , m_config_manager(varan::paths().nvr.config, &m_logger)
     {}
+
+    void UMediaCenter::set_frame_storage(FFrameStorage<IFrame>* storage) {
+        m_frame_storage = storage;
+    }
+
+    std::shared_ptr<UCamera> UMediaCenter::make_camera(const FCameraData& options) {
+        if (options.type == ECameraType::BIRDVIEW && m_frame_storage) {
+            return std::make_shared<UBirdviewCamera>(options.id, m_websocket, m_frame_storage);
+        }
+        return std::make_shared<UCamera>(options.id, m_websocket);
+    }
 
     int UMediaCenter::add_camera(const FCameraData& options, const std::map<std::string, FPipelineConfig>& pipelines, bool to_save) {
         std::lock_guard<std::mutex> lk(m_mutex);
@@ -29,7 +41,7 @@ namespace neural {
         }
 
         auto callback = get_frame_callback_by_camera_type(options.type);
-        auto cam = std::make_shared<UCamera>(options.id, m_websocket);
+        auto cam = make_camera(options);
         cam->set_configurations(options, pipelines, std::move(callback), m_gl_manager);
 
         m_cameras[options.id] = std::move(cam);
@@ -58,7 +70,7 @@ namespace neural {
         }
 
         auto callback = get_frame_callback_by_camera_type(options.type);
-        auto camera = std::make_shared<UCamera>(options.id, m_websocket);
+        auto camera = make_camera(options);
         camera->set_configurations(options, pipelines, std::move(callback), m_gl_manager);
 
         camera->start_async();
@@ -101,10 +113,13 @@ namespace neural {
                 return false;
             }
             camera->stop();
+            // Класс объекта зависит от типа — пересоздаём камеру целиком
             auto callback = get_frame_callback_by_camera_type(camera_options.value().type);
-            camera->set_configurations(*camera_options, *pipelines, std::move(callback), m_gl_manager);
-            camera->start_async();
-            if (to_save) m_config_manager.add_or_update_camera(camera->get_data());
+            auto recreated = make_camera(*camera_options);
+            recreated->set_configurations(*camera_options, *pipelines, std::move(callback), m_gl_manager);
+            recreated->start_async();
+            it->second = std::move(recreated);
+            if (to_save) m_config_manager.add_or_update_camera(it->second->get_data());
             m_logger.info("update_camera(): successfully updated camera streams with id=" + id);
             return true;
         }

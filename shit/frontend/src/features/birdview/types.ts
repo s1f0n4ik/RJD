@@ -1,7 +1,7 @@
 /** Типы страницы «Система 360». */
 
 /** Экраны навбара. Порядок соответствует data-step в старой вёрстке. */
-export type ScreenId = 'calibration' | 'projection' | 'linker' | 'configurator';
+export type ScreenId = 'calibration' | 'projection' | 'linker' | 'configurator' | 'mapping';
 
 /** Общий тип для всего, что расставляется на поле конфигуратора. */
 // x, y, w, h — метры поля; в пиксели переводит только conf-export

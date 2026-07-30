@@ -96,6 +96,23 @@ namespace neural {
 
 	protected:
 
+		// true — сообщение обработано наследником, общий разбор не нужен
+		virtual bool handle_module_message(
+			const std::string& client_id,
+			const std::string& type,
+			const boost::json::object& message
+		);
+
+		// Выбор пайплайна для webrtc-сообщений клиента
+		virtual UCameraPipeline* select_web_stream(
+			const std::string& client_id,
+			const std::string& type,
+			const boost::json::object& message
+		);
+
+		// Вызывается после обработки close; stream — пайплайн, закрывший сессию
+		virtual void on_session_closed(const std::string& client_id, UCameraPipeline* stream);
+
 		virtual std::unique_ptr<UCameraPipeline> create_pipeline(
 			const std::string& name,
 			const FPipelineConfig& stream_data,

@@ -21,6 +21,7 @@ import React from 'react';
 import WebRTCPlayer from './WebRTCPlayer';
 import NeuralWebRTCPlayer from './NeuralWebRTCPlayer';
 import SurroundWebRTCPlayer from './SurroundWebRTCPlayer';
+import BirdviewWebRTCPlayer from './BirdviewWebRTCPlayer';
 
 interface PlayerFactoryProps {
   cameraType:   number;
@@ -30,9 +31,15 @@ interface PlayerFactoryProps {
   onError?:     (error: string) => void;
   // Режим орбиты 360 из сохранённого отображения
   surroundInitialManual?: boolean;
+  // Коррекция birdview-камеры из сохранённого отображения
+  birdviewInitialCorrected?: boolean;
+  // Текущее состояние коррекции наружу — для сохранения отображения
+  onBirdviewCorrectionChange?: (corrected: boolean) => void;
 }
 
 const NEURAL_CAMERA_TYPE = 2;
+// ECameraType::BIRDVIEW — камеры с тумблером коррекции дисторсии
+const BIRDVIEW_CAMERA_TYPE = 3;
 // ECameraType::VIRTUAL — вывод линкера 360
 export const SURROUND_PLAYER_TYPE = 4;
 
@@ -43,6 +50,8 @@ export const PlayerFactory: React.FC<PlayerFactoryProps> = ({
   signalingUrl,
   onError,
   surroundInitialManual,
+  birdviewInitialCorrected,
+  onBirdviewCorrectionChange,
 }) => {
   if (cameraType === NEURAL_CAMERA_TYPE) {
     return (
@@ -52,6 +61,20 @@ export const PlayerFactory: React.FC<PlayerFactoryProps> = ({
         cameraName={cameraName}
         signalingUrl={signalingUrl}
         onError={onError}
+      />
+    );
+  }
+
+  if (cameraType === BIRDVIEW_CAMERA_TYPE) {
+    return (
+      <BirdviewWebRTCPlayer
+        key={`birdview-${cameraId}`}
+        cameraId={cameraId}
+        cameraName={cameraName}
+        signalingUrl={signalingUrl}
+        onError={onError}
+        initialCorrected={birdviewInitialCorrected}
+        onCorrectionChange={onBirdviewCorrectionChange}
       />
     );
   }

@@ -53,8 +53,10 @@ interface WebRTCPlayerProps {
     onTracks?:      (tracks: Track[]) => void;
     /** Опционально: наружу отправитель в сигналинг-WS (управление орбитой 360). */
     signalingRef?: React.MutableRefObject<SignalingSender | null>;
-    /** Опционально: сообщения, которые плеер сам не обрабатывает (type=orbit). */
+    /** Опционально: сообщения, которые плеер сам не обрабатывает (type=orbit, correction). */
     onExtraMessage?: (msg: Record<string, unknown>) => void;
+    /** Опционально: свои поля в connection-сообщение (correction: true). */
+    connectionExtras?: Record<string, unknown>;
     /** Опционально: состояние соединения наружу, для своих индикаторов. */
     onStatusChange?: (info: PlayerStatusInfo) => void;
     /** Опционально: реальное разрешение кадра из метаданных видео. */
@@ -80,7 +82,7 @@ const getStreamErrorMessage = (error_code: string): string => {
     return STREAM_ERROR_MESSAGES[error_code] ?? `Ошибка потока: ${error_code}`;
 };
 
-const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signalingUrl, onError, onDetections, onTracks, signalingRef, onExtraMessage, onStatusChange, onVideoResolution, background = 'black' }) => {
+const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signalingUrl, onError, onDetections, onTracks, signalingRef, onExtraMessage, connectionExtras, onStatusChange, onVideoResolution, background = 'black' }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const [status, setStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
     const [errorMsg, setErrorMsg] = useState<string>('');
@@ -88,6 +90,9 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
     // Ref, чтобы инлайн-колбэк родителя не перезапускал основной эффект
     const onExtraMessageRef = useRef(onExtraMessage);
     onExtraMessageRef.current = onExtraMessage;
+
+    const connectionExtrasRef = useRef(connectionExtras);
+    connectionExtrasRef.current = connectionExtras;
 
     // Состояние наружу. Держим в ref, чтобы не перезапускать основной эффект
     // при каждом новом инлайн-колбэке от родителя.
@@ -202,7 +207,8 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
                     client_id: clientIdRef.current,
                     camera: cameraId,
                     description: 'connect_request from client',
-                    ret: 'none'
+                    ret: 'none',
+                    ...(connectionExtrasRef.current ?? {}),
                 };
 
                 wsRef.current.send(JSON.stringify(connectionRequest));
@@ -441,7 +447,7 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
                     }
                 }
 
-                if (msg.type === 'orbit') {
+                if (msg.type === 'orbit' || msg.type === 'correction') {
                     onExtraMessageRef.current?.(msg);
                 }
 

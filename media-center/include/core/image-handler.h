@@ -10,6 +10,7 @@
 #include "utility/frame-storage.h"
 
 #include "bird-view/egl-context.h"
+#include "core/image-converter.h"
 #include "logger.h"
 
 namespace varan {
@@ -51,6 +52,11 @@ namespace varan {
 		);
 
 		virtual void internal_handle_image(cv::Mat rgb_pixels) = 0;
+
+		// Вызывается с текущим GL-контекстом; наследник может включить ремап
+		virtual bool init_converter(UImageConverter& render) {
+			return render.init(&m_logger);
+		}
 
 		// Кадры из слота перестали приходить дольше порога. Замороженная
 		// картинка неотличима от живой, поэтому наверх уходит сигнал.

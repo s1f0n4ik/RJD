@@ -405,6 +405,7 @@ const KioskView: React.FC = () => {
                             signalingUrl={getSignalingUrl(cameraName)}
                             onError={(e) => console.error(e)}
                             surroundInitialManual={layout?.surround?.manual}
+                            birdviewInitialCorrected={layout?.corrections?.[cameraName]}
                         />
                         <CellMenu
                             cellId={cellId}

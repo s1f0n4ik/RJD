@@ -6,6 +6,7 @@
 #include "bird-view/egl-context.h"
 #include "core/modules.h"
 #include "nvr/camera-configurator.h"
+#include "utility/frame-storage.h"
 
 #include "camera.h"
 
@@ -59,14 +60,20 @@ public:
 
 	bool is_type_supported(ECameraType type) const;
 
+	// Хранилище кадров для потока коррекции birdview-камер
+	void set_frame_storage(FFrameStorage<IFrame>* storage);
+
 public:
 	// Методы для серверной части
 	std::vector<FCameraStreamsData> get_cameras();
 
 	std::shared_ptr<UCamera> get_camera(const std::string& id);
 
-private: 
+private:
 	CFrameMover get_frame_callback_by_camera_type(ECameraType type);
+
+	// Класс камеры зависит от типа: BIRDVIEW получает поток коррекции
+	std::shared_ptr<UCamera> make_camera(const FCameraData& options);
 
 private:
 	UCameraConfigirationManager m_config_manager;
@@ -93,6 +100,8 @@ private:
 	// Колбэки для свящи с другими модулями
 	CFrameMover m_bird_view_frame_mover = nullptr;
 	CFrameMover m_neural_frame_mover = nullptr;
+
+	FFrameStorage<IFrame>* m_frame_storage = nullptr;
 
 	// Потоки для удаления камер асинхронно
 	std::mutex m_cleanup_mutex;

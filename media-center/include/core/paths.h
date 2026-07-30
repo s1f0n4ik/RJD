@@ -19,7 +19,7 @@ namespace varan {
 	    nvr/configurations.json
 	    neural/{configurations.json, state.json, loader_state.json, models/}
 	    surround_view/
-	        calibration/{calibration_settings.json, maps/}
+	        calibration/{calibration_settings.json, links.json, maps/}
 	        presets/{presets.json, images/, models/}
 	        projection/
 	        linker/
@@ -42,6 +42,7 @@ struct FPaths {
 		std::filesystem::path root;
 		std::filesystem::path calibration_settings;
 		std::filesystem::path calibration_maps;
+		std::filesystem::path calibration_links;
 		std::filesystem::path presets_json;
 		std::filesystem::path presets_images;
 		std::filesystem::path presets_models;
@@ -85,6 +86,7 @@ inline void init_paths(
 	p.surround.root                 = surround_root;
 	p.surround.calibration_settings = surround_root / "calibration" / "calibration_settings.json";
 	p.surround.calibration_maps     = surround_root / "calibration" / "maps";
+	p.surround.calibration_links    = surround_root / "calibration" / "links.json";
 	p.surround.presets_json         = surround_root / "presets" / "presets.json";
 	p.surround.presets_images       = surround_root / "presets" / "images";
 	p.surround.presets_models       = surround_root / "presets" / "models";

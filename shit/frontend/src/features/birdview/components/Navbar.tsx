@@ -7,6 +7,7 @@ const STEPS: Array<{ id: ScreenId; label: string }> = [
     { id: 'projection', label: 'Сборка' },
     { id: 'linker', label: 'Отображение' },
     { id: 'configurator', label: 'Конфигуратор' },
+    { id: 'mapping', label: 'Сопоставление' },
 ];
 
 export type ConnState = 'connected' | 'connecting' | 'disconnected';

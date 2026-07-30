@@ -21,6 +21,8 @@ export interface SavedLayout {
     activeCells: Record<string, string>;
     // Состояние вывода 360 на момент сохранения; киоск применяет при загрузке
     surround?: { viewMode: 'top' | 'surround'; manual: boolean };
+    // Камеры birdview с включённой коррекцией дисторсии на момент сохранения
+    corrections?: Record<string, boolean>;
     timestamp: number;
 }
 

@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 
 // IP оранжпи с C++ Media Center (dev-режим).
 // В проде прокси не нужен — работает nginx.
-const DEV_BACKEND = 'http://192.168.1.2';
+const DEV_BACKEND = 'http://192.168.1.102';
 
 export default defineConfig({
   plugins: [react()],

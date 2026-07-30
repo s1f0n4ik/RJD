@@ -46,6 +46,8 @@ class Layout(BaseModel):
     activeCells: Dict[str, str]            # { cellId: cameraId }
     # Состояние вывода 360: { viewMode: "top"|"surround", manual: bool }
     surround: Dict[str, Any] | None = None
+    # Камеры birdview с включённой коррекцией дисторсии: { cameraId: true }
+    corrections: Dict[str, bool] | None = None
     timestamp: int
 
 
