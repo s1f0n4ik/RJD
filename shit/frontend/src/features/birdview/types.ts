@@ -20,12 +20,12 @@ export interface ConfCamera extends ConfItem {
     color: string;
 }
 
+// Разметка первична и к камерам не привязана: камера захватывает мат, когда
+// он целиком лежит в её прямоугольнике. Мат — всегда осевой квадрат; его
+// «поворот» (направление стрелки и порядок углов) считается на лету per камера
 export interface ConfZone extends ConfItem {
     key: string;
     name: string;
-    /** Градусы, 0..359. */
-    rotation: number;
-    cameraId: string;
     color: string;
 }
 
@@ -41,7 +41,7 @@ export type ConfGabarit = ConfItem;
 
 export type ConfItemType = 'camera' | 'zone' | 'image' | 'gabarit';
 
-export type ConfTool = 'select' | 'camera' | 'zone';
+export type ConfTool = 'select' | 'camera' | 'zone' | 'gabarit';
 
 export interface ConfSelection {
     type: ConfItemType;

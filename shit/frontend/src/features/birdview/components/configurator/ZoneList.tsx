@@ -1,17 +1,16 @@
 import { confState, useConfStore } from '../../state/conf-store';
+import { zoneCameras } from './conf-canvas';
 import { confDelete, confSelect } from './conf-actions';
 
-/** Список разметочных зон. Порт _renderZoneList. */
+/** Список разметочных зон. Номер глобальный — позиция в списке. */
 
 export function ZoneList() {
     useConfStore();
 
     return (
         <div className="conf-item-list">
-            {confState.zones.map(zone => {
-                const cam = confState.cameras.find(c => c.id === zone.cameraId);
-                const camZones = confState.zones.filter(z => z.cameraId === zone.cameraId);
-                const indexInCam = camZones.indexOf(zone) + 1;
+            {confState.zones.map((zone, index) => {
+                const cams = zoneCameras(zone);
                 const isSelected = confState.selected?.id === zone.id;
 
                 return (
@@ -22,18 +21,23 @@ export function ZoneList() {
                     >
                         <div className="conf-item-color" style={{ background: zone.color }} />
                         <div className="conf-item-name-col">
-                            <span className="conf-item-name">{zone.name}</span>
-                            <span
-                                className="conf-item-cam-tag"
-                                style={{
-                                    borderColor: cam?.color ?? 'var(--bv-border)',
-                                    color: cam?.color ?? 'var(--bv-text-dim)',
-                                }}
-                            >
-                                #{indexInCam} · {cam?.name ?? '—'}
+                            <span className="conf-item-name">#{index + 1} · {zone.name}</span>
+                            <span style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                                {cams.length ? (
+                                    cams.map(cam => (
+                                        <span
+                                            key={cam.id}
+                                            className="conf-item-cam-tag"
+                                            style={{ borderColor: cam.color, color: cam.color }}
+                                        >
+                                            {cam.name}
+                                        </span>
+                                    ))
+                                ) : (
+                                    <span className="conf-item-cam-tag">вне камер</span>
+                                )}
                             </span>
                         </div>
-                        <span className="conf-item-meta">{zone.rotation}°</span>
                         <button
                             className="conf-item-delete"
                             onClick={e => {

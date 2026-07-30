@@ -3,20 +3,18 @@ import {
     emitConfChange,
     getList,
     HANDLE_SIZE,
-    ROTATION_STALK,
     type HandleName,
 } from '../../state/conf-store';
-import type { ConfCamera, ConfImage, ConfItemType, ConfZone } from '../../types';
+import type { ConfCamera, ConfImage, ConfItemType, ConfSelection, ConfZone } from '../../types';
 import {
-    cameraMinSize,
+    cameraIconAt,
     canvasToWorld,
     clampToField,
-    clampZoneToCamera,
+    clampZoneToField,
     confDraw,
     snap,
-    zoneFitsCamera,
 } from './conf-canvas';
-import { confCreateCameraFromRect, confPlaceZone } from './conf-actions';
+import { confCreateCameraFromRect, confDropGabarit, confDropZone, confSetPlacing } from './conf-actions';
 
 // Pointer-логика конфигуратора. Мутирует confState напрямую и перерисовывает
 // холст сам; emitConfChange вызывается только в точках фиксации.
@@ -29,6 +27,8 @@ interface AttachOptions {
     isActive: () => boolean;
     /** Сообщение пользователю (toast). */
     onNotice: (title: string, desc: string, type: 'ok' | 'err' | 'info') => void;
+    /** Правая кнопка по элементу: открыть его окно. */
+    onElementMenu: (sel: ConfSelection) => void;
 }
 
 type AnyItem = ConfCamera | ConfZone | ConfImage;
@@ -55,23 +55,30 @@ export function attachConfInteract(canvas: HTMLCanvasElement, opts: AttachOption
             return;
         }
 
-        const tool = confState.tool;
-
-        // Правая кнопка в режиме разметки выбирает камеру, внутри которой рисуем
-        if (tool === 'zone' && e.button === 2) {
+        // Alt по другому мату переводит на него замер расстояний. Выделение не
+        // меняется, драг не начинается, инструмент значения не имеет.
+        // Alt по габариту или по самому выделенному мату возвращает замер к габариту.
+        // Порядок попадания как в обычном хит-тесте: маты выше габарита.
+        if (e.altKey && e.button === 0 && confState.selected?.type === 'zone') {
+            const from = confState.selected.id;
             const p = canvasToWorld(e.clientX, e.clientY);
-            const cam = hitCamera(p.x, p.y);
-            if (cam) {
-                confState.selected = { type: 'camera', id: cam.id };
+            const hit = hitZone(p.x, p.y);
+
+            if (hit) {
+                confState.measureRef = hit.id === from ? null : { fromId: from, toId: hit.id };
                 confDraw();
                 emitConfChange();
-            } else {
-                opts.onNotice('Камера не выбрана', 'Нажмите правой кнопкой по камере', 'err');
+            } else if (hitGabarit(p.x, p.y)) {
+                confState.measureRef = null;
+                confDraw();
+                emitConfChange();
             }
             return;
         }
 
         if (e.button !== 0) return;
+
+        const tool = confState.tool;
 
         if (tool === 'camera') {
             startDrawingCamera(e);
@@ -83,6 +90,13 @@ export function attachConfInteract(canvas: HTMLCanvasElement, opts: AttachOption
             return;
         }
 
+        // Габарит ставится центром в точку клика
+        if (tool === 'gabarit') {
+            const p = canvasToWorld(e.clientX, e.clientY);
+            confDropGabarit(p.x, p.y);
+            return;
+        }
+
         const w = canvasToWorld(e.clientX, e.clientY);
 
         // 1. Handle у текущего выделенного
@@ -91,12 +105,6 @@ export function attachConfInteract(canvas: HTMLCanvasElement, opts: AttachOption
             const selItem = getList(sel.type).find(i => i.id === sel.id) as AnyItem | undefined;
             if (selItem) {
                 const handle = hitHandle(selItem, sel.type, w.x, w.y);
-                if (handle === 'rotate') {
-                    confState.rotating = { id: sel.id, type: sel.type };
-                    canvas.setPointerCapture(e.pointerId);
-                    confDraw();
-                    return;
-                }
                 if (handle) {
                     confState.resize = { id: sel.id, type: sel.type, handle };
                     canvas.setPointerCapture(e.pointerId);
@@ -106,8 +114,27 @@ export function attachConfInteract(canvas: HTMLCanvasElement, opts: AttachOption
             }
         }
 
-        // 2. Hit test элементов
+        // 2. Значок камеры на габарите: маленький, поэтому раньше общего
+        // хит-теста. Только выделяет — драг за значок не начинается
+        const iconCam = cameraIconAt(w.x, w.y);
+        if (iconCam) {
+            const same = confState.selected?.type === 'camera'
+                && confState.selected.id === iconCam.id;
+            if (!same) confState.measureRef = null;
+            confState.selected = { type: 'camera', id: iconCam.id };
+            confDraw();
+            emitConfChange();
+            return;
+        }
+
+        // 3. Hit test элементов
         const hit = hitTest(w.x, w.y);
+
+        // Замер сбрасывается только когда выделение действительно сменилось:
+        // клик по уже выделенному мату — это начало драга, ориентир при нём живёт
+        const sel = confState.selected;
+        const sameItem = hit !== null && sel !== null && hit.id === sel.id && hit.type === sel.type;
+        if (!sameItem) confState.measureRef = null;
 
         if (hit) {
             confState.selected = hit;
@@ -141,23 +168,26 @@ export function attachConfInteract(canvas: HTMLCanvasElement, opts: AttachOption
         confDraw();
     }
 
-    // Мат ставится одним кликом: сторона квадрата задана полем «Сторона мата»
+    // Мат ставится одним кликом в любую точку поля: сторона квадрата задана
+    // полем «Сторона мата», камеры наводятся на разметку потом
     function placeMat(e: PointerEvent): void {
-        const cam = selectedCamera();
-        if (!cam) {
-            opts.onNotice('Камера не выбрана', 'Выберите камеру правой кнопкой мыши', 'err');
-            return;
-        }
-
-        const p = snapPoint(canvasToWorld(e.clientX, e.clientY));
-        const err = confPlaceZone(cam.id, p.x, p.y);
+        const p = canvasToWorld(e.clientX, e.clientY);
+        const err = confDropZone(p.x, p.y);
         if (err) opts.onNotice('Мат не поставлен', err, 'err');
     }
 
     function onMove(e: PointerEvent): void {
         const w = canvasToWorld(e.clientX, e.clientY);
 
+        // Позиция для перекрестия; ветки ниже перерисуют его вместе со сценой
+        confState.cursor = w;
+
         opts.onCursor(w.x, w.y);
+
+        // Инструменты разметки и габарита ведут превью под курсором
+        if ((confState.tool === 'zone' || confState.tool === 'gabarit') && !panStart) {
+            confSetPlacing(confState.tool, w);
+        }
 
         // Растягивание камеры
         if (drawStart && drawBounds) {
@@ -180,32 +210,6 @@ export function attachConfInteract(canvas: HTMLCanvasElement, opts: AttachOption
             return;
         }
 
-        // Поворот
-        if (confState.rotating) {
-            const r = confState.rotating;
-            const item = getList(r.type).find(i => i.id === r.id) as ConfZone | undefined;
-            if (item) {
-                const cx = item.x + item.w / 2;
-                const cy = item.y + item.h / 2;
-                let angle = (Math.atan2(w.x - cx, -(w.y - cy)) * 180) / Math.PI;
-
-                // Shift — шаг 90°
-                if (e.shiftKey) {
-                    angle = Math.round(angle / 90) * 90;
-                }
-
-                const next = ((Math.round(angle) % 360) + 360) % 360;
-                // Повёрнутый квадрат шире прямого: угол, при котором мат
-                // перестаёт помещаться в камеру, просто не применяется
-                if (rotationFits(item, next)) {
-                    item.rotation = next;
-                    clampZoneToCamera(item);
-                    confDraw();
-                }
-            }
-            return;
-        }
-
         if (confState.resize) {
             const r = confState.resize;
             const item = getList(r.type).find(i => i.id === r.id) as AnyItem | undefined;
@@ -218,7 +222,12 @@ export function attachConfInteract(canvas: HTMLCanvasElement, opts: AttachOption
 
         // Drag
         const d = confState.dragging;
-        if (!d) return;
+        if (!d) {
+            // Холст без взаимодействий не перерисовывается — перекрестие
+            // дорисовываем сами; у инструментов с превью это сделал confSetPlacing
+            if (confState.showCrosshair && confState.tool !== 'zone' && confState.tool !== 'gabarit') confDraw();
+            return;
+        }
 
         const item = getList(d.type).find(i => i.id === d.id) as AnyItem | undefined;
         if (!item) return;
@@ -226,25 +235,11 @@ export function attachConfInteract(canvas: HTMLCanvasElement, opts: AttachOption
         const nx = snap(w.x - d.offsetX);
         const ny = snap(w.y - d.offsetY);
 
-        if (d.type === 'camera') {
-            const oldX = item.x;
-            const oldY = item.y;
-            const clamped = clampToField(nx, ny, item.w, item.h);
-            item.x = clamped.x;
-            item.y = clamped.y;
-
-            const dx = item.x - oldX;
-            const dy = item.y - oldY;
-            confState.zones.forEach(zone => {
-                if (zone.cameraId !== item.id) return;
-                zone.x += dx;
-                zone.y += dy;
-                clampZoneToCamera(zone);
-            });
-        } else if (d.type === 'zone') {
+        // Камера ездит свободно и маты за собой не тянет: разметка первична
+        if (d.type === 'zone') {
             item.x = nx;
             item.y = ny;
-            clampZoneToCamera(item as ConfZone);
+            clampZoneToField(item as ConfZone);
         } else {
             const clamped = clampToField(nx, ny, item.w, item.h);
             item.x = clamped.x;
@@ -275,14 +270,11 @@ export function attachConfInteract(canvas: HTMLCanvasElement, opts: AttachOption
             return;
         }
 
-        const wasInteracting = Boolean(
-            panStart || confState.dragging || confState.resize || confState.rotating,
-        );
+        const wasInteracting = Boolean(panStart || confState.dragging || confState.resize);
 
         panStart = null;
         confState.dragging = null;
         confState.resize = null;
-        confState.rotating = null;
         canvas.releasePointerCapture(e.pointerId);
 
         // Точка фиксации: размеры и угол в панели должны догнать холст.
@@ -333,32 +325,9 @@ export function attachConfInteract(canvas: HTMLCanvasElement, opts: AttachOption
             const list = getList(type);
             const idx = list.findIndex(i => i.id === id);
             if (idx !== -1) list.splice(idx, 1);
-            if (type === 'camera') {
-                confState.zones = confState.zones.filter(z => z.cameraId !== id);
-            }
             confState.selected = null;
             confDraw();
             emitConfChange();
-        }
-
-        if ((e.key === 'r' || e.key === 'к') && confState.selected?.type === 'zone') {
-            const zone = confState.zones.find(z => z.id === confState.selected?.id);
-            if (zone) {
-                const next = (zone.rotation + 90) % 360;
-                if (rotationFits(zone, next)) {
-                    zone.rotation = next;
-                    clampZoneToCamera(zone);
-                    confDraw();
-                    emitConfChange();
-                } else {
-                    const cam = confState.cameras.find(c => c.id === zone.cameraId);
-                    opts.onNotice(
-                        'Поворот невозможен',
-                        `Повёрнутый мат не помещается в камеру «${cam?.name ?? '—'}»`,
-                        'err',
-                    );
-                }
-            }
         }
 
         if ((e.key === 'c' || e.key === 'с') && confState.selected?.type === 'image') {
@@ -377,14 +346,38 @@ export function attachConfInteract(canvas: HTMLCanvasElement, opts: AttachOption
         }
     }
 
-    // Правая кнопка занята выбором камеры — системное меню тут мешает
+    /**
+     * Правая кнопка открывает окно элемента и заодно выделяет его, чтобы окно
+     * правило то же, что подсвечено на холсте. Габарит окна не имеет.
+     */
+    // Обработка живёт здесь, а не в pointerdown: contextmenu приходит после
+    // mousedown, и открой мы окно раньше — событие досталось бы backdrop'у
+    // модалки, слушатель холста не сработал бы и браузер показал своё меню
     function onContextMenu(e: MouseEvent): void {
         e.preventDefault();
+
+        const p = canvasToWorld(e.clientX, e.clientY);
+        const hit = hitTest(p.x, p.y);
+        if (!hit || hit.type === 'gabarit') return;
+
+        confState.selected = hit;
+        confState.measureRef = null;
+        confDraw();
+        emitConfChange();
+        opts.onElementMenu(hit);
+    }
+
+    // Указатель ушёл с холста — превью и перекрестие за ним не тянутся
+    function onLeave(): void {
+        confState.cursor = null;
+        if (confState.placing) confSetPlacing('zone', null);
+        else if (confState.showCrosshair) confDraw();
     }
 
     canvas.addEventListener('pointerdown', onDown);
     canvas.addEventListener('pointermove', onMove);
     canvas.addEventListener('pointerup', onUp);
+    canvas.addEventListener('pointerleave', onLeave);
     canvas.addEventListener('wheel', onWheel, { passive: false });
     canvas.addEventListener('contextmenu', onContextMenu);
     window.addEventListener('keydown', onKey);
@@ -393,30 +386,25 @@ export function attachConfInteract(canvas: HTMLCanvasElement, opts: AttachOption
         canvas.removeEventListener('pointerdown', onDown);
         canvas.removeEventListener('pointermove', onMove);
         canvas.removeEventListener('pointerup', onUp);
+        canvas.removeEventListener('pointerleave', onLeave);
         canvas.removeEventListener('wheel', onWheel);
         canvas.removeEventListener('contextmenu', onContextMenu);
         window.removeEventListener('keydown', onKey);
     };
 }
 
-function rotationFits(zone: ConfZone, rotationDeg: number): boolean {
-    const cam = confState.cameras.find(c => c.id === zone.cameraId);
-    if (!cam) return true;
-    return zoneFitsCamera(cam, zone.w, rotationDeg);
-}
-
-function selectedCamera(): ConfCamera | null {
-    const sel = confState.selected;
-    if (sel?.type !== 'camera') return null;
-    return confState.cameras.find(c => c.id === sel.id) ?? null;
-}
-
-function hitCamera(wx: number, wy: number): ConfCamera | null {
-    for (let i = confState.cameras.length - 1; i >= 0; i--) {
-        const c = confState.cameras[i];
-        if (wx >= c.x && wx <= c.x + c.w && wy >= c.y && wy <= c.y + c.h) return c;
+function hitZone(wx: number, wy: number): ConfZone | null {
+    for (let i = confState.zones.length - 1; i >= 0; i--) {
+        const z = confState.zones[i];
+        if (wx >= z.x && wx <= z.x + z.w && wy >= z.y && wy <= z.y + z.h) return z;
     }
     return null;
+}
+
+function hitGabarit(wx: number, wy: number): boolean {
+    return confState.gabarits.some(
+        g => wx >= g.x && wx <= g.x + g.w && wy >= g.y && wy <= g.y + g.h,
+    );
 }
 
 function snapPoint(p: { x: number; y: number }): { x: number; y: number } {
@@ -460,34 +448,14 @@ function hitHandle(
     type: ConfItemType,
     wx: number,
     wy: number,
-): HandleName | 'rotate' | null {
+): HandleName | null {
+    // Ручек у разметки нет вовсе: сторона квадрата общая и меняется полем
+    // в панели, поворот считается на лету по камере
+    if (type === 'zone') return null;
+
     const hitR = (HANDLE_SIZE + 2) / confState.view.scale;
-
-    // Для зон координаты нужно повернуть обратно
-    let lx = wx;
-    let ly = wy;
-    const rotation = type === 'zone' ? (item as ConfZone).rotation : 0;
-    if (rotation) {
-        const cx = item.x + item.w / 2;
-        const cy = item.y + item.h / 2;
-        const rad = (-rotation * Math.PI) / 180;
-        const dx = wx - cx;
-        const dy = wy - cy;
-        lx = cx + dx * Math.cos(rad) - dy * Math.sin(rad);
-        ly = cy + dx * Math.sin(rad) + dy * Math.cos(rad);
-    }
-
-    // Handle поворота — только у зон; ручек размера у них нет вовсе:
-    // сторона квадрата общая и меняется полем в панели
-    if (type === 'zone') {
-        const stalkWorld = ROTATION_STALK / confState.view.scale;
-        const rotHx = item.x + item.w / 2;
-        const rotHy = item.y - stalkWorld;
-        if (Math.abs(lx - rotHx) <= hitR * 1.5 && Math.abs(ly - rotHy) <= hitR * 1.5) {
-            return 'rotate';
-        }
-        return null;
-    }
+    const lx = wx;
+    const ly = wy;
 
     const handles: Array<{ name: HandleName; hx: number; hy: number }> = [
         { name: 'tl', hx: item.x, hy: item.y },
@@ -524,14 +492,9 @@ function applyResize(
     let newW = item.w;
     let newH = item.h;
 
-    // Камеру нельзя ужать меньше её матов: мат под неё не подстраивается
-    let minW = confState.field.step * 2;
-    let minH = minW;
-    if (type === 'camera') {
-        const need = cameraMinSize(item.id);
-        minW = Math.max(minW, need.w);
-        minH = Math.max(minH, need.h);
-    }
+    // Камера свободна от матов: стала меньше — просто перестала их захватывать
+    const minW = confState.field.step * 2;
+    const minH = minW;
 
     // Горизонталь
     if (handle === 'tl' || handle === 'ml' || handle === 'bl') {
@@ -576,11 +539,4 @@ function applyResize(
     item.y = newY;
     item.w = newW;
     item.h = newH;
-
-    // После ресайза камеры — пережать зоны
-    if (type === 'camera') {
-        confState.zones.forEach(zone => {
-            if (zone.cameraId === item.id) clampZoneToCamera(zone);
-        });
-    }
 }

@@ -8,13 +8,15 @@ import {
     QUANTUM,
 } from '../../state/conf-store';
 import type { ConfCamera, ConfGabarit, ConfImage, ConfZone } from '../../types';
-import { clampZoneToCamera } from './conf-canvas';
+import { clampZoneToField } from './conf-canvas';
 
 // Разбор пресета обратно в модель редактора.
 // Экспорт хранит производную геометрию в пикселях канваса: камера —
 // прямоугольником углов canvas_region, а все её зоны свалены в один dst_points
 // четвёрками bl → tl → tr → br. Здесь всё делится на px_per_m и становится
 // метрами.
+// Общий мат записан в dst_points каждой захватившей камеры: одинаковые
+// четвёрки склеиваются обратно в один мат.
 
 interface PresetJson {
     name?: string;
@@ -86,8 +88,11 @@ function boundsOf(points: number[][]): { x: number; y: number; w: number; h: num
     return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
 }
 
-/** Четвёрка углов bl → tl → tr → br обратно в прямоугольник с поворотом. */
-function zoneFromCorners(corners: number[][]): { x: number; y: number; w: number; h: number; rotation: number } | null {
+/** Четвёрка углов bl → tl → tr → br обратно в осевой прямоугольник. */
+// Поворот не восстанавливается: мат осевой, а направление стрелки — свойство
+// пары камера-мат и считается на лету. Старые повёрнутые записи становятся
+// осевыми квадратами с тем же центром
+function zoneFromCorners(corners: number[][]): { x: number; y: number; w: number; h: number } | null {
     if (corners.length < 4) return null;
     if (!corners.every(p => Array.isArray(p) && p.length >= 2 && p.every(Number.isFinite))) return null;
 
@@ -100,11 +105,7 @@ function zoneFromCorners(corners: number[][]): { x: number; y: number; w: number
     const cx = corners.reduce((s, p) => s + p[0], 0) / 4;
     const cy = corners.reduce((s, p) => s + p[1], 0) / 4;
 
-    // Вектор tl → tr — это направление ширины, то есть локальная ось x
-    const deg = (Math.atan2(tr[1] - tl[1], tr[0] - tl[0]) * 180) / Math.PI;
-    const rotation = ((Math.round(deg) % 360) + 360) % 360;
-
-    return { x: cx - w / 2, y: cy - h / 2, w, h, rotation };
+    return { x: cx - w / 2, y: cy - h / 2, w, h };
 }
 
 let seq = 0;
@@ -166,6 +167,8 @@ export async function importPreset(preset: PresetJson): Promise<ImportResult> {
 
     const cameras: ConfCamera[] = [];
     const zones: ConfZone[] = [];
+    // Ключ — четвёрка углов в пикселях: у общего мата она в каждой камере одна
+    const seenQuads = new Set<string>();
 
     for (const [key, cam] of Object.entries(preset.cameras ?? {})) {
         const region = Array.isArray(cam?.canvas_region) ? boundsOf(cam.canvas_region) : null;
@@ -187,21 +190,25 @@ export async function importPreset(preset: PresetJson): Promise<ImportResult> {
         const savedNames = preset.editor?.zones?.[key] ?? [];
 
         for (let i = 0; i + 3 < dst.length; i += 4) {
-            const shape = zoneFromCorners(dst.slice(i, i + 4));
+            const quad = dst.slice(i, i + 4);
+            const shape = zoneFromCorners(quad);
             if (!shape) continue;
 
+            const quadKey = quad.map(p => `${Math.round(p[0])}:${Math.round(p[1])}`).join(';');
+            if (seenQuads.has(quadKey)) continue;
+            seenQuads.add(quadKey);
+
             const index = i / 4;
+            const n = zones.length + 1;
             zones.push({
                 id: makeId('zone'),
-                key: `${key}_${index + 1}`,
-                name: savedNames[index] || `Зона ${index + 1}`,
-                cameraId,
+                key: `zone_${n}`,
+                name: savedNames[index] || `Зона ${n}`,
                 color: nextColor('zone'),
                 x: toM(shape.x),
                 y: toM(shape.y),
                 w: toM(shape.w),
                 h: toM(shape.h),
-                rotation: shape.rotation,
             });
         }
     }
@@ -288,14 +295,15 @@ export async function importPreset(preset: PresetJson): Promise<ImportResult> {
         zone.h = mat;
         zone.x = q(cx - mat / 2);
         zone.y = q(cy - mat / 2);
-        clampZoneToCamera(zone);
+        clampZoneToField(zone);
     });
 
     confState.selected = null;
+    confState.measureRef = null;
     confState.dragging = null;
-    confState.rotating = null;
     confState.resize = null;
     confState.draft = null;
+    confState.placing = null;
     confState.tool = 'select';
 
     emitConfChange();

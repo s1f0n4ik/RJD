@@ -1,4 +1,5 @@
 import {
+    CAMERA_FRACTION,
     confState,
     emitConfChange,
     fmtM,
@@ -9,12 +10,11 @@ import {
 } from '../../state/conf-store';
 import type { ConfItemType, ConfSelection, ConfTool, ConfZone } from '../../types';
 import {
-    cameraMinSize,
     clampToField,
-    clampZoneToCamera,
+    clampZoneToField,
     confDraw,
     snap,
-    zoneFitsCamera,
+    zoneFitsField,
 } from './conf-canvas';
 
 // Операции над confState, вызываемые из панели. Каждая мутирует состояние,
@@ -35,11 +35,10 @@ export function confUpdateField(next: Partial<{ w: number; h: number; step: numb
     const w = Math.max(minSize, q(next.w ?? confState.field.w));
     const h = Math.max(minSize, q(next.h ?? confState.field.h));
 
-    // Поле ужимает камеры, а камера не может стать меньше своей разметки
-    for (const cam of confState.cameras) {
-        const min = cameraMinSize(cam.id);
-        if (min.w > w || min.h > h) {
-            return `Камера «${cam.name}» держит разметку ${fmtM(min.w)}×${fmtM(min.h)} м — поле меньше не станет`;
+    // Мат физический и не ужимается — поле не может стать меньше него
+    for (const zone of confState.zones) {
+        if (zone.w > w || zone.h > h) {
+            return `Мат ${fmtM(zone.w)} м не поместится — поле меньше не станет`;
         }
     }
 
@@ -55,7 +54,7 @@ export function confUpdateField(next: Partial<{ w: number; h: number; step: numb
         cam.y = c.y;
     });
 
-    confState.zones.forEach(zone => clampZoneToCamera(zone));
+    confState.zones.forEach(zone => clampZoneToField(zone));
 
     confState.images.forEach(img => {
         if (img.w > w) img.w = w;
@@ -139,21 +138,82 @@ export function confUpdateGabarit(next: Partial<{ length: number; width: number 
     emitConfChange();
 }
 
+/** Ставит габарит центром в точку. Второй не создаёт — переносит существующий. */
+export function confDropGabarit(wx: number, wy: number): void {
+    const f = confState.field;
+    let g = confState.gabarits[0];
+    if (!g) {
+        g = { id: uid(), x: 0, y: 0, w: snap(f.w * 0.25), h: snap(f.h * 0.5) };
+        confState.gabarits.push(g);
+    }
+
+    const c = clampToField(q(snap(wx) - g.w / 2), q(snap(wy) - g.h / 2), g.w, g.h);
+    g.x = c.x;
+    g.y = c.y;
+
+    confState.selected = { type: 'gabarit', id: g.id };
+    // Инструмент одноразовый: поставил — вернулись к выделению
+    confState.tool = 'select';
+    confState.placing = null;
+    confDraw();
+    emitConfChange();
+}
+
+/** Центр габарита в метрах поля. Без габарита создаёт его, как правка размеров. */
+export function confUpdateGabaritPos(next: Partial<{ cx: number; cy: number }>): void {
+    if (!confState.gabarits.length) confUpdateGabarit({});
+    const g = confState.gabarits[0];
+
+    const cx = q(next.cx ?? g.x + g.w / 2);
+    const cy = q(next.cy ?? g.y + g.h / 2);
+    const c = clampToField(q(cx - g.w / 2), q(cy - g.h / 2), g.w, g.h);
+    g.x = c.x;
+    g.y = c.y;
+
+    confDraw();
+    emitConfChange();
+}
+
+/** Ставит габарит центром в центр поля; без габарита создаёт его. */
+export function confCenterGabarit(): void {
+    if (!confState.gabarits.length) confUpdateGabarit({});
+    const g = confState.gabarits[0];
+    const f = confState.field;
+
+    const c = clampToField(q((f.w - g.w) / 2), q((f.h - g.h) / 2), g.w, g.h);
+    g.x = c.x;
+    g.y = c.y;
+
+    confState.selected = { type: 'gabarit', id: g.id };
+    confDraw();
+    emitConfChange();
+}
+
 /** Высота машины: вне плоскости поля, на геометрию не влияет. */
 export function confUpdateMachineHeight(value: number): void {
     confState.machineHeight = Math.max(0, q(value));
     emitConfChange();
 }
 
+export function confToggleCrosshair(on: boolean): void {
+    confState.showCrosshair = on;
+    confDraw();
+    emitConfChange();
+}
+
 export function confSelectTool(tool: ConfTool): void {
     confState.tool = tool;
     confState.draft = null;
+    // Превью по наведению живёт у инструментов разметки и габарита
+    if (tool !== 'zone' && tool !== 'gabarit') confState.placing = null;
     confDraw();
     emitConfChange();
 }
 
 export function confSelect(sel: ConfSelection | null): void {
     confState.selected = sel;
+    // Выбор из списков панели тоже снимает замер до другого мата
+    confState.measureRef = null;
     confDraw();
     emitConfChange();
 }
@@ -172,8 +232,8 @@ function nextCameraIndex(): number {
 
 export function confAddCamera(): void {
     const f = confState.field;
-    const w = q(f.w * 0.3);
-    const h = q(f.h * 0.3);
+    const w = q(f.w * CAMERA_FRACTION);
+    const h = q(f.h * CAMERA_FRACTION);
     const n = nextCameraIndex();
 
     confState.cameras.push({
@@ -210,67 +270,78 @@ export function confCreateCameraFromRect(rect: Rect): void {
     // Инструмент одноразовый: нарисовал — вернулись к выделению
     confState.tool = 'select';
     confState.draft = null;
+    confState.placing = null;
     confDraw();
     emitConfChange();
 }
 
-/** Ставит мат центром в точку внутри камеры. Возвращает причину отказа. */
-export function confPlaceZone(cameraId: string, cx: number, cy: number): string | null {
-    const cam = confState.cameras.find(c => c.id === cameraId);
-    if (!cam) return 'Камера не найдена';
-
+/** Ставит мат верхним левым углом в точку поля. Возвращает причину отказа. */
+// Угол, а не центр: он же показывается в подписи выделения и ложится на шаг
+// сетки, тогда как центр минус половина мата съезжал бы с неё
+export function confPlaceZone(x: number, y: number): string | null {
+    const f = confState.field;
     const s = confState.matSize;
-    if (!zoneFitsCamera(cam, s, 0)) {
-        return `Мат ${fmtM(s)} м не помещается в камеру «${cam.name}» ${fmtM(cam.w)}×${fmtM(cam.h)} м`;
+    if (!zoneFitsField(s)) {
+        return `Мат ${fmtM(s)} м не помещается в поле ${fmtM(f.w)}×${fmtM(f.h)} м`;
     }
 
     const zone: ConfZone = {
         id: uid(),
         key: `zone_${confState.zones.length + 1}`,
         name: `Зона ${confState.zones.length + 1}`,
-        x: q(cx - s / 2),
-        y: q(cy - s / 2),
+        x: q(x),
+        y: q(y),
         w: s,
         h: s,
-        rotation: 0,
-        cameraId,
         color: nextColor('zone'),
     };
 
-    clampZoneToCamera(zone);
+    clampZoneToField(zone);
     confState.zones.push(zone);
     confState.selected = { type: 'zone', id: zone.id };
     // Инструмент одноразовый: поставил — вернулись к выделению
     confState.tool = 'select';
     confState.draft = null;
+    // Иначе превью пережило бы установку и осталось висеть рядом с матом
+    confState.placing = null;
     confDraw();
     emitConfChange();
     return null;
 }
 
-/** Возвращает текст ошибки, если мат добавить некуда. */
-export function confAddZone(): string | null {
-    if (!confState.cameras.length) return 'Сначала добавьте камеру';
+// Точка курсора, вокруг которой строится превью создаваемого объекта. Точкой
+// фиксации не является: меняется на каждый pointermove, панелям знать незачем
+export function confSetPlacing(kind: 'zone' | 'camera' | 'gabarit', p: { x: number; y: number } | null): void {
+    confState.placing = p ? { kind, x: snap(p.x), y: snap(p.y) } : null;
+    confDraw();
+}
 
-    const cam =
-        confState.selected?.type === 'camera'
-            ? confState.cameras.find(c => c.id === confState.selected?.id) ?? confState.cameras[0]
-            : confState.cameras[0];
+/** Кладёт мат центром в точку поля. Возвращает причину отказа. */
+// Мышью целятся центром, а хранится угол — отсюда перевод. Числами угол
+// задаётся напрямую, там перевода нет
+export function confDropZone(wx: number, wy: number): string | null {
+    const s = confState.matSize;
+    return confPlaceZone(q(snap(wx) - s / 2), q(snap(wy) - s / 2));
+}
 
-    return confPlaceZone(cam.id, cam.x + cam.w / 2, cam.y + cam.h / 2);
+/** Создаёт камеру стандартного размера центром в точку. */
+export function confDropCamera(wx: number, wy: number): void {
+    const f = confState.field;
+    const w = q(f.w * CAMERA_FRACTION);
+    const h = q(f.h * CAMERA_FRACTION);
+    const c = clampToField(q(snap(wx) - w / 2), q(snap(wy) - h / 2), w, h);
+    confCreateCameraFromRect({ x: c.x, y: c.y, w, h });
 }
 
 /** Сторона мата в метрах, общая на все зоны. Возвращает причину отказа. */
-// Мат мерян рулеткой, поэтому не ужимается под камеру: вместо этого
+// Мат мерян рулеткой, поэтому не ужимается под поле: вместо этого
 // отклоняется само изменение.
 export function confUpdateMatSize(size: number): string | null {
     const s = Math.max(QUANTUM, q(size));
+    const f = confState.field;
 
-    for (const zone of confState.zones) {
-        const cam = confState.cameras.find(c => c.id === zone.cameraId);
-        if (cam && !zoneFitsCamera(cam, s, zone.rotation)) {
-            return `Мат ${fmtM(s)} м не помещается в камеру «${cam.name}» ${fmtM(cam.w)}×${fmtM(cam.h)} м`;
-        }
+    if (confState.zones.length && !zoneFitsField(s)) {
+        return `Мат ${fmtM(s)} м не помещается в поле ${fmtM(f.w)}×${fmtM(f.h)} м`;
     }
 
     confState.matSize = s;
@@ -282,7 +353,7 @@ export function confUpdateMatSize(size: number): string | null {
         zone.h = s;
         zone.x = q(cx - s / 2);
         zone.y = q(cy - s / 2);
-        clampZoneToCamera(zone);
+        clampZoneToField(zone);
     });
 
     confDraw();
@@ -324,7 +395,6 @@ export function confAddImageFile(file: File): void {
 export function confDelete(type: ConfItemType, id: string): void {
     if (type === 'camera') {
         confState.cameras = confState.cameras.filter(c => c.id !== id);
-        confState.zones = confState.zones.filter(z => z.cameraId !== id);
     } else if (type === 'zone') {
         confState.zones = confState.zones.filter(z => z.id !== id);
     } else if (type === 'gabarit') {

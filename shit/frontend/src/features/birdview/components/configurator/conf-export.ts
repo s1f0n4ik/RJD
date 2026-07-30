@@ -1,4 +1,5 @@
 import { confState } from '../../state/conf-store';
+import { zoneCaptured, zoneRotationFor } from './conf-canvas';
 
 // Сборка и отправка конфигурации birdview.
 // Модель редактора метровая, наружу уходят пиксели канваса: всё умножается на
@@ -74,7 +75,9 @@ export function buildExportJson(params: ExportParams): ExportResult {
 
     confState.cameras.forEach(cam => {
         const key = cam.key.trim();
-        const camZones = confState.zones.filter(z => z.cameraId === cam.id);
+        // Захват на лету: общий мат уходит в dst_points каждой накрывшей камеры.
+        // Порядок четвёрок — глобальный порядок списка зон
+        const camZones = confState.zones.filter(z => zoneCaptured(cam, z));
         if (camZones.length) {
             zoneNames[key] = camZones.map(z => z.name);
         }
@@ -90,7 +93,10 @@ export function buildExportJson(params: ExportParams): ExportResult {
         camZones.forEach(zone => {
             const cx = zone.x + zone.w / 2;
             const cy = zone.y + zone.h / 2;
-            const rad = (zone.rotation * Math.PI) / 180;
+            // Направление мата — своё для каждой камеры, считается на лету
+            // от взгляда её значка; мат осевой, поворот кратен 90° и лишь
+            // задаёт порядок обхода тех же четырёх углов
+            const rad = (zoneRotationFor(cam, zone) * Math.PI) / 180;
             const cos = Math.cos(rad);
             const sin = Math.sin(rad);
 

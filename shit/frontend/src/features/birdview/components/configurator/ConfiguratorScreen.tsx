@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { confState, fmtM, getList, useConfStore } from '../../state/conf-store';
-import type { ConfTool, ConfZone } from '../../types';
-import { attachConfCanvas, confDraw, fitFieldToView, zoneGabaritGaps } from './conf-canvas';
+import type { ConfSelection, ConfTool, ConfZone } from '../../types';
+import { attachConfCanvas, confDraw, fitFieldToView, zoneGaps } from './conf-canvas';
 import { attachConfInteract } from './conf-interact';
-import { confSelectTool } from './conf-actions';
+import { confSelectTool, confToggleCrosshair } from './conf-actions';
 import { ConfiguratorPanel } from './ConfiguratorPanel';
 import { ExportModal } from './ExportModal';
+import { AddZoneModal } from './AddZoneModal';
+import { ElementModal } from './ElementModal';
 import { LoadPresetModal } from './LoadPresetModal';
 import { importPreset } from './conf-import';
 import { confDraw as redraw } from './conf-canvas';
@@ -14,9 +16,10 @@ import { useToast } from '../common/Toast';
 /** Экран «Конфигуратор». Порт page-4 из birdview.html. */
 
 const TOOLS: Array<{ id: ConfTool; icon: string; title: string }> = [
-    { id: 'select', icon: '⊹', title: 'Выделение: перетаскивание, размер, поворот' },
+    { id: 'select', icon: '⊹', title: 'Выделение: перетаскивание и размер' },
     { id: 'camera', icon: '◱', title: 'Камера (Shift+Q): растяните область в пределах поля' },
-    { id: 'zone', icon: '▦', title: 'Разметка (Shift+W): ПКМ — выбрать камеру, ЛКМ — поставить мат внутри неё' },
+    { id: 'zone', icon: '▦', title: 'Разметка (Shift+W): клик ставит мат в точку поля' },
+    { id: 'gabarit', icon: '▭', title: 'Габарит: клик ставит его центром в точку' },
 ];
 
 interface ConfiguratorScreenProps {
@@ -34,6 +37,10 @@ export function ConfiguratorScreen({ active }: ConfiguratorScreenProps) {
     const [panelOpen, setPanelOpen] = useState(false);
     const [exportOpen, setExportOpen] = useState(false);
     const [loadOpen, setLoadOpen] = useState(false);
+    const [addZoneOpen, setAddZoneOpen] = useState(false);
+    const [elementMenu, setElementMenu] = useState<ConfSelection | null>(null);
+    const menuRef = useRef(setElementMenu);
+    menuRef.current = setElementMenu;
     const showToast = useToast();
     const toastRef = useRef(showToast);
     toastRef.current = showToast;
@@ -42,8 +49,9 @@ export function ConfiguratorScreen({ active }: ConfiguratorScreenProps) {
 
     const sel = confState.selected;
     const selected = sel ? getList(sel.type).find(i => i.id === sel.id) : undefined;
-    // Зазоры до габарита считаются только для мата и только когда габарит задан
-    const showGaps = sel?.type === 'zone' && selected !== undefined && confState.gabarits.length > 0;
+    // Расчёт сам решает, есть ли до чего мерить: габарит или мат-ориентир
+    const showGaps =
+        sel?.type === 'zone' && selected !== undefined && zoneGaps(selected as ConfZone) !== null;
 
     // Угол выделенного и зазоры меняются на каждый pointermove при драге и
     // ресайзе, поэтому пишутся в DOM мимо React — как и позиция курсора
@@ -58,7 +66,7 @@ export function ConfiguratorScreen({ active }: ConfiguratorScreenProps) {
         }
 
         if (gapsRef.current) {
-            const gaps = item && s?.type === 'zone' ? zoneGabaritGaps(item as ConfZone) : null;
+            const gaps = item && s?.type === 'zone' ? zoneGaps(item as ConfZone) : null;
             gapsRef.current.textContent = gaps
                 ? `Δ X ${fmtM(gaps.x)} Y ${fmtM(gaps.y)}`
                 : 'Δ X — Y —';
@@ -81,6 +89,7 @@ export function ConfiguratorScreen({ active }: ConfiguratorScreenProps) {
             },
             isActive: () => activeRef.current,
             onNotice: (title, desc, type) => toastRef.current(title, desc, type),
+            onElementMenu: sel => menuRef.current(sel),
         });
 
         return () => {
@@ -117,7 +126,7 @@ export function ConfiguratorScreen({ active }: ConfiguratorScreenProps) {
                         </button>
                     ))}
 
-                    {/* Загрузка не инструмент рисования, поэтому отделена чертой */}
+                    {/* Загрузка и перекрестие не инструменты рисования, поэтому отделены чертой */}
                     <span className="conf-tool-sep" />
                     <button
                         className="conf-tool-btn"
@@ -125,6 +134,13 @@ export function ConfiguratorScreen({ active }: ConfiguratorScreenProps) {
                         title="Загрузить сохранённую конфигурацию для правки"
                     >
                         ⭳
+                    </button>
+                    <button
+                        className={`conf-tool-btn ${confState.showCrosshair ? 'active' : ''}`}
+                        onClick={() => confToggleCrosshair(!confState.showCrosshair)}
+                        title="Перекрестие курсора по узлам шага привязки"
+                    >
+                        ⌖
                     </button>
                 </div>
 
@@ -152,9 +168,23 @@ export function ConfiguratorScreen({ active }: ConfiguratorScreenProps) {
                 <span className="conf-panel-tab-label">Инструменты</span>
             </button>
 
-            <ConfiguratorPanel open={panelOpen} onOpenExport={() => setExportOpen(true)} />
+            <ConfiguratorPanel
+                open={panelOpen}
+                onOpenExport={() => setExportOpen(true)}
+                onOpenAddZone={() => setAddZoneOpen(true)}
+            />
 
             {exportOpen && <ExportModal onClose={() => setExportOpen(false)} />}
+
+            {addZoneOpen && <AddZoneModal onClose={() => setAddZoneOpen(false)} />}
+
+            {elementMenu && (
+                <ElementModal
+                    type={elementMenu.type}
+                    id={elementMenu.id}
+                    onClose={() => setElementMenu(null)}
+                />
+            )}
 
             {loadOpen && (
                 <LoadPresetModal

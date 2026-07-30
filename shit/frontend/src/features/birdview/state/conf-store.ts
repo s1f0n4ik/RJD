@@ -31,14 +31,25 @@ export interface ConfState {
     matSize: number;
 
     selected: ConfSelection | null;
+    // Мат, до которого мерятся расстояния вместо габарита. fromId — мат, от
+    // которого замер начали: пока выделен не он, ссылка недействительна
+    measureRef: { fromId: string; toId: string } | null;
     dragging: { id: string; type: ConfItemType; offsetX: number; offsetY: number } | null;
-    rotating: { id: string; type: ConfItemType } | null;
     resize: { id: string; type: ConfItemType; handle: HandleName } | null;
 
     view: { ox: number; oy: number; scale: number };
 
     // Область, которую пользователь растягивает инструментом прямо сейчас
     draft: { x: number; y: number; w: number; h: number } | null;
+
+    // Точка, куда ляжет создаваемый объект: по ней ведётся превью. Ставится
+    // перетаскиванием из панели и наведением инструментов разметки и габарита
+    placing: { kind: 'zone' | 'camera' | 'gabarit'; x: number; y: number } | null;
+
+    // Перекрестие через весь холст в точке курсора, по узлам шага привязки
+    showCrosshair: boolean;
+    // Курсор в метрах поля; null — указатель вне холста
+    cursor: { x: number; y: number } | null;
 
     // Ключ и имя загруженного пресета, предзаполняют экспорт для перезаписи
     presetId: string;
@@ -56,6 +67,9 @@ export const DEFAULT_STEP = 0.1;
 export const DEFAULT_PX_PER_M = 100;
 export const DEFAULT_MAT = 1;
 
+// Доля поля, которую занимает новая камера
+export const CAMERA_FRACTION = 0.3;
+
 export const confState: ConfState = {
     field: { w: DEFAULT_FIELD_W, h: DEFAULT_FIELD_H, step: DEFAULT_STEP },
     pxPerM: DEFAULT_PX_PER_M,
@@ -69,13 +83,17 @@ export const confState: ConfState = {
     matSize: DEFAULT_MAT,
 
     selected: null,
+    measureRef: null,
     dragging: null,
-    rotating: null,
     resize: null,
 
     view: { ox: 0, oy: 0, scale: 1 },
 
     draft: null,
+    placing: null,
+
+    showCrosshair: false,
+    cursor: null,
 
     presetId: '',
     presetName: '',
@@ -99,7 +117,6 @@ export const COLORS: Record<'camera' | 'zone', string[]> = {
 };
 
 export const HANDLE_SIZE = 5;
-export const ROTATION_STALK = 24;
 
 const colorIdx: Record<'camera' | 'zone', number> = { camera: 0, zone: 0 };
 

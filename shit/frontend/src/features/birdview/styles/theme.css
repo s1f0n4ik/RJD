@@ -822,6 +822,20 @@
     width: 300px;
 }
 
+/* Во время броска мата панель не должна закрывать поле: указатель захвачен
+   кнопкой, так что бросок проходит и сквозь неё */
+.birdview-root .conf-panel.dragging {
+    opacity: 0.2;
+}
+
+.birdview-root .conf-place-btn {
+    cursor: grab;
+    touch-action: none;
+}
+.birdview-root .conf-place-btn:active {
+    cursor: grabbing;
+}
+
 .birdview-root .conf-panel-inner {
     width: 300px;
     padding: 14px;

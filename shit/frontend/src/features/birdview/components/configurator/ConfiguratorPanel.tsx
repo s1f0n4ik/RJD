@@ -1,18 +1,23 @@
-import { useRef } from 'react';
-import { confState, useConfStore } from '../../state/conf-store';
+import { useRef, useState } from 'react';
+import { confState, q, useConfStore } from '../../state/conf-store';
 import { useToast } from '../common/Toast';
 import { NumberField } from '../common/NumberField';
 import {
     confAddCamera,
     confAddGabarit,
     confAddImageFile,
-    confAddZone,
+    confCenterGabarit,
+    confDropCamera,
+    confDropZone,
+    confSetPlacing,
     confUpdateGabarit,
+    confUpdateGabaritPos,
     confUpdateMachineHeight,
     confUpdateMatSize,
     confUpdateField,
     confUpdatePxPerM,
 } from './conf-actions';
+import { canvasToWorld } from './conf-canvas';
 import { canvasSizePx } from './conf-export';
 import { CameraList } from './CameraList';
 import { ZoneList } from './ZoneList';
@@ -22,13 +27,19 @@ import { ImageList } from './ImageList';
 
 const M_STEP = 0.001;
 
+// Смещение, после которого нажатие считается перетаскиванием
+const DRAG_THRESHOLD = 4;
+
 interface ConfiguratorPanelProps {
     open: boolean;
     onOpenExport: () => void;
+    onOpenAddZone: () => void;
 }
 
-export function ConfiguratorPanel({ open, onOpenExport }: ConfiguratorPanelProps) {
+export function ConfiguratorPanel({ open, onOpenExport, onOpenAddZone }: ConfiguratorPanelProps) {
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const dragRef = useRef<{ x: number; y: number; moved: boolean } | null>(null);
+    const [dragging, setDragging] = useState(false);
     const showToast = useToast();
 
     useConfStore();
@@ -42,18 +53,69 @@ export function ConfiguratorPanel({ open, onOpenExport }: ConfiguratorPanelProps
         if (err) showToast('Поле не изменено', err, 'err');
     };
 
-    const handleAddZone = () => {
-        const err = confAddZone();
-        if (err) showToast('Мат не поставлен', err, 'err');
-    };
-
     const applyMat = (value: number) => {
         const err = confUpdateMatSize(value);
         if (err) showToast('Размер мата не изменён', err, 'err');
     };
 
+    // Кнопки создания работают на два жеста: потянули — объект встаёт углом в
+    // точку отпускания, просто нажали — срабатывает onTap.
+    // Указатель захватывается кнопкой, поэтому превью ведётся и над панелью
+    const placeHandlers = (
+        kind: 'zone' | 'camera',
+        onTap: () => void,
+        onDrop: (x: number, y: number) => void,
+    ) => ({
+        onPointerDown: (e: React.PointerEvent<HTMLButtonElement>) => {
+            if (e.button !== 0) return;
+            e.currentTarget.setPointerCapture(e.pointerId);
+            dragRef.current = { x: e.clientX, y: e.clientY, moved: false };
+        },
+
+        onPointerMove: (e: React.PointerEvent<HTMLButtonElement>) => {
+            const d = dragRef.current;
+            if (!d) return;
+
+            if (!d.moved) {
+                const far = Math.abs(e.clientX - d.x) > DRAG_THRESHOLD
+                    || Math.abs(e.clientY - d.y) > DRAG_THRESHOLD;
+                if (!far) return;
+                d.moved = true;
+                setDragging(true);
+            }
+
+            confSetPlacing(kind, canvasToWorld(e.clientX, e.clientY));
+        },
+
+        onPointerUp: (e: React.PointerEvent<HTMLButtonElement>) => {
+            const d = dragRef.current;
+            dragRef.current = null;
+            e.currentTarget.releasePointerCapture(e.pointerId);
+            if (!d) return;
+
+            setDragging(false);
+            confSetPlacing(kind, null);
+
+            if (!d.moved) {
+                onTap();
+                return;
+            }
+
+            const p = canvasToWorld(e.clientX, e.clientY);
+            onDrop(p.x, p.y);
+        },
+    });
+
+    const zoneDrag = placeHandlers('zone', onOpenAddZone, (x, y) => {
+        const err = confDropZone(x, y);
+        if (err) showToast('Мат не поставлен', err, 'err');
+    });
+
+    // Нажатие на кнопку камеры создаёт её по центру поля, как и раньше
+    const cameraDrag = placeHandlers('camera', confAddCamera, confDropCamera);
+
     return (
-        <div className={`conf-panel ${open ? 'open' : ''}`}>
+        <div className={`conf-panel ${open ? 'open' : ''} ${dragging ? 'dragging' : ''}`}>
             <div className="conf-panel-inner">
 
                 <details className="conf-section" open>
@@ -142,6 +204,30 @@ export function ConfiguratorPanel({ open, onOpenExport }: ConfiguratorPanelProps
                             value={confState.machineHeight}
                             onCommit={v => confUpdateMachineHeight(v)}
                         />
+                        {/* Позиция задаётся центром: им же габарит ставится инструментом */}
+                        <div className="field-row">
+                            <NumberField
+                                label="Центр X, м"
+                                min={0}
+                                step={M_STEP}
+                                value={gab ? q(gab.x + gab.w / 2) : 0}
+                                onCommit={v => confUpdateGabaritPos({ cx: v })}
+                            />
+                            <NumberField
+                                label="Центр Y, м"
+                                min={0}
+                                step={M_STEP}
+                                value={gab ? q(gab.y + gab.h / 2) : 0}
+                                onCommit={v => confUpdateGabaritPos({ cy: v })}
+                            />
+                        </div>
+                        <button
+                            className="btn btn-ghost btn-sm"
+                            style={{ width: '100%' }}
+                            onClick={confCenterGabarit}
+                        >
+                            Оцентровать
+                        </button>
                     </div>
                 </details>
 
@@ -154,9 +240,10 @@ export function ConfiguratorPanel({ open, onOpenExport }: ConfiguratorPanelProps
                     <div className="conf-section-body">
                         <CameraList />
                         <button
-                            className="btn btn-ghost btn-sm"
+                            className="btn btn-ghost btn-sm conf-place-btn"
                             style={{ width: '100%' }}
-                            onClick={confAddCamera}
+                            title="Потяните на холст или нажмите, чтобы создать по центру поля"
+                            {...cameraDrag}
                         >
                             + Добавить камеру
                         </button>
@@ -181,11 +268,12 @@ export function ConfiguratorPanel({ open, onOpenExport }: ConfiguratorPanelProps
 
                         <ZoneList />
                         <button
-                            className="btn btn-ghost btn-sm"
+                            className="btn btn-ghost btn-sm conf-place-btn"
                             style={{ width: '100%' }}
-                            onClick={handleAddZone}
+                            title="Потяните на холст или нажмите, чтобы задать угол числами"
+                            {...zoneDrag}
                         >
-                            + Добавить область
+                            + Добавить разметку
                         </button>
                     </div>
                 </details>

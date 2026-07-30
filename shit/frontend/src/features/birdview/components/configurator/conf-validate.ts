@@ -1,8 +1,9 @@
 import { confState } from '../../state/conf-store';
+import { zoneCameras } from './conf-canvas';
 
-// Проверка ключей камер. Ключ камеры — это place_key: под ним линкер хранит
-// привязку камеры в своём state.json, а post_exports переносит по нему
-// src_points, camera_id и calibration из прежней записи пресета.
+// Проверка ключей камер и покрытия разметки. Ключ камеры — это place_key: под
+// ним линкер хранит привязку камеры в своём state.json, а post_exports
+// переносит по нему src_points, camera_id и calibration из прежней записи.
 
 const KEY_RE = /^[A-Za-z0-9_-]+$/;
 
@@ -60,6 +61,15 @@ export function checkCameraKeys(): KeyReport {
         if (status.get(cam.id) === 'ok') status.set(cam.id, 'warn');
         problems.push({
             text: `Камера «${cam.name}» — в ключе ${key} есть символы вне латиницы, цифр, _ и -`,
+            status: 'warn',
+        });
+    });
+
+    // Мат вне всех камер в экспорт не попадает — конфигурация неполная
+    confState.zones.forEach((zone, i) => {
+        if (zoneCameras(zone).length) return;
+        problems.push({
+            text: `Мат #${i + 1} «${zone.name}» не попадает целиком ни в одну камеру`,
             status: 'warn',
         });
     });
