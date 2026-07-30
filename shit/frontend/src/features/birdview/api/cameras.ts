@@ -7,7 +7,7 @@ import type { CalibrationCamera } from './ws-types';
  * поток type === 1, из которого приходят разрешение и fps.
  */
 export async function fetchCalibrationCameras(): Promise<CalibrationCamera[]> {
-    const res = await fetch('/api/camera');
+    const res = await fetch('/api/cameras');
     const json = await res.json();
     if (json.error) throw new Error(json.error);
 
@@ -33,7 +33,7 @@ export async function fetchCalibrationCameras(): Promise<CalibrationCamera[]> {
 /** Отображаемые имена камер по id — нужны в модалке конфигураций. */
 export async function fetchCameraNames(): Promise<Record<string, string>> {
     try {
-        const res = await fetch('/api/camera');
+        const res = await fetch('/api/cameras');
         const cameras = (await res.json())?.data?.cameras ?? {};
         const map: Record<string, string> = {};
         for (const [id, cam] of Object.entries<any>(cameras)) {

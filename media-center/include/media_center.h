@@ -4,6 +4,7 @@
 #include <mutex>
 #include <optional>
 #include "bird-view/egl-context.h"
+#include "core/modules.h"
 #include "nvr/camera-configurator.h"
 
 #include "camera.h"
@@ -53,6 +54,11 @@ public:
 
 	void set_neural_callback(CFrameMover callback);
 
+	// Набор модулей сборки: камеры чужих типов не обслуживаются
+	void set_modules(const FModuleSet& modules);
+
+	bool is_type_supported(ECameraType type) const;
+
 public:
 	// Методы для серверной части
 	std::vector<FCameraStreamsData> get_cameras();
@@ -67,6 +73,7 @@ private:
 
 	FWebSocketOptions m_websocket;
 	birdview::UEGLContextManager* m_gl_manager = nullptr;
+	FModuleSet m_modules;
 
 	std::mutex m_mutex;
 	std::mutex m_mutex_buffers;

@@ -1,7 +1,9 @@
 import { API_HOST } from './client';
+import { moduleDeviceId, storagePath } from '../../../services/devices';
 import type { JournalDetection, JournalFilters, JournalListResponse, Verdict } from './journal-types';
 
-const url = (path: string) => `${API_HOST}${path}`;
+// Журнал пишет нейронка — он живёт на storage-service её устройства
+const url = (path: string) => `${API_HOST}${storagePath(moduleDeviceId('neural'), path)}`;
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {

@@ -39,6 +39,8 @@ const RecordingsView: React.FC = () => {
     const { activeJob, startJob } = useMergeJobs();
 
     const [recordings, setRecordings] = useState<Record<string, Recording[]>>({});
+    // Камера → устройство, чей storage-service хранит её записи
+    const [deviceMap, setDeviceMap] = useState<Record<string, string>>({});
     const [cameras, setCameras] = useState<Map<string, CPPCamera>>(new Map());
     const [selectedCamera, setSelectedCamera] = useState<string>('');
     const [selectedDate, setSelectedDate] = useState<Date>(new Date());
@@ -104,6 +106,7 @@ const RecordingsView: React.FC = () => {
                 }
             }
             setRecordings(filtered);
+            setDeviceMap(recordingsRes.device_map || {});
 
             // Мап id → camera для O(1) лукапа имени
             const camerasMap = new Map<string, CPPCamera>();
@@ -211,7 +214,7 @@ const RecordingsView: React.FC = () => {
         if (!selectedRange || !selectedCamera) return;
         const dateStr = toLocalDateKey(selectedDate);
         try {
-            await startJob('/api/recordings/merge', {
+            await startJob(deviceMap[selectedCamera], '/api/recordings/merge', {
                 camera: selectedCamera,
                 date: dateStr,
                 start_minutes: selectedRange.start,
@@ -228,7 +231,7 @@ const RecordingsView: React.FC = () => {
         if (!selectedRange || !selectedCamera) return;
         const dateStr = toLocalDateKey(selectedDate);
         try {
-            await startJob('/api/recordings/archive', {
+            await startJob(deviceMap[selectedCamera], '/api/recordings/archive', {
                 camera: selectedCamera,
                 date: dateStr,
                 mode: 'range',
@@ -246,7 +249,7 @@ const RecordingsView: React.FC = () => {
         if (!selectedCamera) return;
         const dateStr = toLocalDateKey(selectedDate);
         try {
-            await startJob('/api/recordings/archive', {
+            await startJob(deviceMap[selectedCamera], '/api/recordings/archive', {
                 camera: selectedCamera,
                 date: dateStr,
                 mode: 'day',
@@ -404,6 +407,7 @@ const RecordingsView: React.FC = () => {
                             {currentFile && selectedCamera && !selectionMode ? (
                                 <RecordingsPlayer
                                     camera={selectedCamera}
+                                    deviceId={deviceMap[selectedCamera] ?? ''}
                                     displayName={currentCameraDisplay.displayName}
                                     file={currentFile}
                                     onEnded={handleVideoEnded}
@@ -445,6 +449,7 @@ const RecordingsView: React.FC = () => {
                         <Paper sx={{ p: 2 }}>
                             <RecordingsTimeline
                                 camera={selectedCamera}
+                                deviceId={deviceMap[selectedCamera] ?? ''}
                                 date={selectedDate}
                                 files={recordings[selectedCamera] ?? []}
                                 currentFileName={currentFile?.filename}

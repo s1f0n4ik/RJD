@@ -5,11 +5,17 @@
  * отдаёт полезную нагрузку и в корне — поэтому везде разбор через `?? `.
  */
 
+import { modulePath } from '../../../services/devices';
+
 async function fetchJson<T>(
     method: 'GET' | 'POST' | 'DELETE',
     path: string,
     body?: unknown,
 ): Promise<T> {
+    // Ручки /linker/* живут на устройстве, назначенном модулю birdview
+    if (path.startsWith('/linker/')) {
+        path = modulePath('birdview', path);
+    }
     const opts: RequestInit = {
         method,
         headers: { Accept: 'application/json' },
@@ -321,7 +327,7 @@ export const linkerApi = {
 
     /** Только камеры type === 3 — остальные для birdview не годятся. */
     async getCameras(): Promise<LinkerCamera[]> {
-        const json = await fetchJson<any>('GET', '/api/camera');
+        const json = await fetchJson<any>('GET', '/api/cameras');
         const all = json.data?.cameras ?? {};
         return Object.entries<any>(all)
             .filter(([, c]) => c.type === 3)

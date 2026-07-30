@@ -158,6 +158,9 @@ UController::post_camera(const http::request<http::string_body>& req)
         if (camera_type == std::nullopt) {
             throw std::runtime_error("Camera type doesn't supported!");
         }
+        if (!m_media_center->is_type_supported(camera_type.value())) {
+            throw std::runtime_error("Camera type is not supported by loaded modules of this media-center!");
+        }
 
         FCameraData camera_data = {id, display_name, description, ip_adress, port, user, password, camera_type.value(), prod.value()};
 
@@ -366,6 +369,9 @@ UController::patch_camera(const http::request<http::string_body>& req)
             auto camera_type = int_to_count_enum<ECameraType>(get_json_value<int64_t>(crit[fields::TYPE], fields::TYPE));
             if (camera_type == std::nullopt) {
                 throw std::runtime_error("Camera type doesn't supported!");
+            }
+            if (!m_media_center->is_type_supported(camera_type.value())) {
+                throw std::runtime_error("Camera type is not supported by loaded modules of this media-center!");
             }
 
             FCameraData camera_data = { 

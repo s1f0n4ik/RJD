@@ -22,6 +22,7 @@ import {
     streamToSource,
 } from './streams/stream-sources';
 import { wsUrl } from '../utils/constants';
+import { signalingWsUrl } from '../services/devices';
 import CellMenu from './CellMenu';
 import { useTouchDevice } from '../utils/useTouchDevice';
 import { useLayouts, type SavedLayout } from '../hooks/Layouts';
@@ -61,6 +62,13 @@ const KioskView: React.FC = () => {
         return stream.producer === 'birdview' ? SURROUND_PLAYER_TYPE : SOURCE_PLAYER_TYPE;
     };
     const effectiveActiveCells = activeCellsOverride ?? layout?.activeCells ?? {};
+
+    // Сигналинг устройства-владельца; без device_id — старый путь мастера
+    const getSignalingUrl = (id: string) => {
+        const owner = cameras.find(c => c.id === id)?.device_id
+            ?? virtual.find(s => s.id === id)?.device_id;
+        return owner ? signalingWsUrl(owner, `/client/${id}`) : wsUrl(`/signaling/client/${id}`);
+    };
 
     const getLayoutNameFromUrl = (): string | null => {
         const match = window.location.pathname.match(/^\/kiosk\/?(.*)$/);
@@ -299,7 +307,7 @@ const KioskView: React.FC = () => {
                             cameraType={getCameraType(cameraName)}
                             cameraId={cameraName}
                             cameraName={getCameraDisplayName(cameraName)}
-                            signalingUrl={wsUrl(`/signaling/client/${cameraName}`)}
+                            signalingUrl={getSignalingUrl(cameraName)}
                             onError={(e) => console.error(e)}
                         />
                         <CellMenu

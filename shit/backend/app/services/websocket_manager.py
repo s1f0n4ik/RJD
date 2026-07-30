@@ -3,8 +3,6 @@ from typing import Any, Dict, List
 import asyncio
 import logging
 
-import httpx
-
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -12,26 +10,32 @@ logger = logging.getLogger(__name__)
 
 async def fetch_cameras() -> Dict[str, Any]:
     """
-    Прямой запрос к C++ Media Center за списком камер.
+    Камеры со всех устройств реестра; offline-устройства — из кэша поллера.
 
     Возвращает пустой dict при любой ошибке — broadcast не должен падать
-    из-за временной недоступности C++ сервиса.
+    из-за временной недоступности устройств.
     """
-    try:
-        async with httpx.AsyncClient(timeout=settings.MEDIA_CENTER_TIMEOUT) as client:
-            response = await client.get(f"{settings.MEDIA_CENTER_URL}/camera")
+    from app.services.devices import registry
+
+    cameras: Dict[str, Any] = {}
+    for device in registry.snapshot():
+        data: Dict[str, Any] = {}
+        try:
+            url = f"http://{device['ip']}:{settings.DEVICE_MC_PORT}/camera"
+            response = await registry.client.get(url)
             response.raise_for_status()
-            payload = response.json()
+            data = response.json().get("data") or {}
+        except Exception:
+            data = registry.cached_camera_data(device["id"])
 
-            if payload.get("error"):
-                logger.error("Media Center error: %s", payload["error"])
-                return {}
+        for camera_id, camera in (data.get("cameras") or {}).items():
+            cameras[camera_id] = {
+                **camera,
+                "device_id": device["id"],
+                "device_name": device["name"],
+            }
 
-            return payload.get("data", {}).get("cameras", {})
-
-    except Exception as e:
-        logger.error("❌ Error fetching cameras: %s", e)
-        return {}
+    return cameras
 
 
 def _build_state_payload(cameras: Dict[str, Any], message_type: str) -> Dict[str, Any]:

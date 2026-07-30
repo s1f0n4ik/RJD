@@ -7,15 +7,21 @@
 #include "main-server/linker-controller.h"
 #include "main-server/neural-controller.h"
 #include "main-server/streams-controller.h"
+#include "main-server/system-controller.h"
 #include "main-server/listener.h"
+#include "core/modules.h"
+#include "core/platform.h"
 
 class URestServer {
 public:
+    // linker и loader могут быть nullptr — их маршруты тогда не регистрируются
     URestServer(
-        uint16_t port, 
-        std::shared_ptr<varan::neural::UMediaCenter> media_center, 
+        uint16_t port,
+        std::shared_ptr<varan::neural::UMediaCenter> media_center,
         std::shared_ptr<varan::birdview::ULinker> linker,
         std::shared_ptr<varan::neural::UNeuralLoader> loader,
+        const varan::FModuleSet& modules,
+        const varan::FPlatformInfo& platform,
         ULogger::ELoggerLevel level = ULogger::ELoggerLevel::DEBUG
     );
 

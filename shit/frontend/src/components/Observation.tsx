@@ -39,6 +39,7 @@ import {
 import { PlayerFactory, makeCameraTypeGetter, SURROUND_PLAYER_TYPE } from './WebRTCPlayerFactory';
 import { api } from '../services/api';
 import { wsUrl } from '../utils/constants';
+import { signalingWsUrl } from '../services/devices';
 import type { CPPCamera, VirtualStream } from '../types';
 import { isProbeCamera } from '../utils/probeFilter';
 import {
@@ -366,6 +367,13 @@ const Observation: React.FC = () => {
     const isCameraUsedInGrid  = (cameraName: string) => Object.values(activeCells).includes(cameraName);
     const getCameraGridCell   = (cameraName: string) => Object.entries(activeCells).find(([_, n]) => n === cameraName)?.[0] ?? null;
 
+    // Сигналинг устройства-владельца; без device_id — старый путь мастера
+    const getSignalingUrl = (id: string) => {
+        const owner = cameras.find(c => c.id === id)?.device_id
+            ?? virtual.find(s => s.id === id)?.device_id;
+        return owner ? signalingWsUrl(owner, `/client/${id}`) : wsUrl(`/signaling/client/${id}`);
+    };
+
     // ── Render helpers ───────────────────────────────────────────
 
     const renderCell = (cellId: number, cameraName: string | undefined) => (
@@ -399,7 +407,7 @@ const Observation: React.FC = () => {
                         cameraType={getCameraType(cameraName)}
                         cameraId={cameraName}
                         cameraName={getCameraDisplayName(cameraName)}
-                        signalingUrl={wsUrl(`/signaling/client/${cameraName}`)}
+                        signalingUrl={getSignalingUrl(cameraName)}
                         onError={(e) => console.error(e)}
                     />
                     <CellMenu
@@ -476,7 +484,7 @@ const Observation: React.FC = () => {
                                     cameraType={getCameraType(cameraName)}
                                     cameraId={cameraName}
                                     cameraName={getCameraDisplayName(cameraName)}
-                                    signalingUrl={wsUrl(`/signaling/client/${cameraName}`)}
+                                    signalingUrl={getSignalingUrl(cameraName)}
                                     onError={(e) => console.error(e)}
                                 />
                                 <CellMenu

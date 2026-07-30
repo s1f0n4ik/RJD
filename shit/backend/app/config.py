@@ -13,6 +13,15 @@ class Settings(BaseSettings):
     MEDIA_CENTER_URL: str = "http://192.168.1.2:7777"
     MEDIA_CENTER_TIMEOUT: int = 10
 
+    # Устройства (media-center'ы): реестр на томе, порты сервисов, опрос
+    DEVICES_FILE: str = "/data/devices.json"
+    DEVICE_MC_PORT: int = 7777
+    DEVICE_SIGNALING_PORT: int = 8765
+    DEVICE_STORAGE_PORT: int = 8001
+    DEVICE_POLL_INTERVAL: float = 5.0
+    # Переопределение подсетей скана через запятую; пусто — /24 своих IP
+    DEVICE_SCAN_SUBNETS: str = ""
+
     # Flask integration
     FLASK_BASE_URL: str = "http://localhost:5000"
     FLASK_TIMEOUT: int = 30

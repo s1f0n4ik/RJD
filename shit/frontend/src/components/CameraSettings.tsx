@@ -54,6 +54,7 @@ import {RZD_COLORS} from '../theme';
 import {wsUrl} from '../utils/constants';
 import {type CPPCamera, type VirtualStream} from '../types'
 import {api, type CameraPatchBody, MediaCenterError} from '../services/api';
+import {deviceForCameraType, mcPath, signalingWsUrl} from '../services/devices';
 import WebRTCPlayer from './WebRTCPlayer';
 import {VirtualStreamsTable} from './streams/VirtualStreamsTable';
 
@@ -184,6 +185,8 @@ const CameraSettings: React.FC = () => {
     const [probeError, setProbeError] = useState('');
     const [probeName, setProbeName] = useState<string | null>(null);
     const probeNameRef = useRef<string | null>(null);
+    // Устройство, где создана probe-камера — удаление идёт туда же
+    const probeDeviceRef = useRef<string | null>(null);
     const editOriginalRef = useRef<Camera | null>(null);
 
     // Сканер камер
@@ -208,8 +211,8 @@ const CameraSettings: React.FC = () => {
     // которого нет в нашей обёртке. И тут ошибки нас не интересуют.
     useEffect(() => {
         const handler = () => {
-            if (probeNameRef.current) {
-                fetch(`/api/camera/${encodeURIComponent(probeNameRef.current)}`, {
+            if (probeNameRef.current && probeDeviceRef.current) {
+                fetch(mcPath(probeDeviceRef.current, `/camera?id=${encodeURIComponent(probeNameRef.current)}`), {
                     method: 'DELETE',
                     keepalive: true,
                 }).catch(() => {});
@@ -246,10 +249,14 @@ const CameraSettings: React.FC = () => {
 
     const isFormValid = nameValidation.valid && ipValidation.valid && portValidation.valid;
 
+    // Устройство-владелец камеры; для новых — по таблице «тип → устройство»
+    const deviceOf = (camera?: Camera | null): string =>
+        camera?.device_id ?? deviceForCameraType(Number(camera?.type ?? 1));
+
     const cleanupAllProbeCameras = useCallback(async (probes: Camera[]) => {
         if (probes.length === 0) return;
         console.log(`[CameraSettings] 🧹 Cleaning ${probes.length} stale probes`);
-        await Promise.allSettled(probes.map((c) => api.deleteCamera(c.id)));
+        await Promise.allSettled(probes.map((c) => api.deleteCamera(c.id, deviceOf(c))));
     }, []);
 
     const loadCameras = async () => {
@@ -319,11 +326,13 @@ const CameraSettings: React.FC = () => {
     // === PROBE ===
     const cleanupProbe = useCallback(async () => {
         const name = probeNameRef.current;
+        const device = probeDeviceRef.current;
         if (!name) return;
         probeNameRef.current = null;
+        probeDeviceRef.current = null;
         setProbeName(null);
         try {
-            await api.deleteCamera(name);
+            await api.deleteCamera(name, device ?? deviceForCameraType(1));
         } catch {
             /* тихо */
         }
@@ -379,6 +388,7 @@ const CameraSettings: React.FC = () => {
         try {
             await api.createCamera(probePayload);
             probeNameRef.current = tempName;
+            probeDeviceRef.current = deviceForCameraType(Number(probePayload.type ?? 1));
             setProbeName(tempName);
             setTimeout(() => setProbeStatus('streaming'), 1500);
         } catch (err) {
@@ -470,7 +480,7 @@ const CameraSettings: React.FC = () => {
                     body.critical = critical;
                 }
 
-                const result = await api.updateCamera(cameraId, body);
+                const result = await api.updateCamera(cameraId, body, deviceOf(original));
                 if ((result as any)?.noop) {
                     setSuccess('Изменений нет');
                 } else {
@@ -536,7 +546,7 @@ const CameraSettings: React.FC = () => {
         if (!window.confirm(`Удалить камеру ${id}?`)) return;
         setLoading(true);
         try {
-            await api.deleteCamera(id);
+            await api.deleteCamera(id, deviceOf(cameras.find(c => c.id === id)));
             setSuccess(`Камера ${id} удалена`);
             loadCameras();
         } catch (err) {
@@ -1238,7 +1248,7 @@ const CameraSettings: React.FC = () => {
                                             {probeStatus === 'streaming' && probeName ? (
                                                 <WebRTCPlayer
                                                     cameraId={probeName}
-                                                    signalingUrl={wsUrl(`/signaling/client/${probeName}`)}
+                                                    signalingUrl={signalingWsUrl(probeDeviceRef.current ?? deviceForCameraType(1), `/client/${probeName}`)}
                                                     onError={(err) => { setProbeError(err); setProbeStatus('error'); }}
                                                 />
                                             ) : probeStatus === 'creating' ? (

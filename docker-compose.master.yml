@@ -1,0 +1,99 @@
+# Мастер — веб-стек без media-center: frontend, FastAPI, сканер камер, шлюз.
+# Media-center'ы (свои и удалённые) подключаются как устройства-миньоны
+# через discovery по порту 7777; их состав описан в docker-compose.minion.yml.
+#
+# Обе роли на одной машине:
+#   docker compose -f docker-compose.master.yml up -d
+#   docker compose -f docker-compose.minion.yml up -d
+#
+# Корень рабочего каталога настраивается: VARAN_ROOT в .env
+# (по умолчанию /home/orangepi/varan; на новых устройствах — /var/lib/varan и т.п.)
+
+version: '3.8'
+
+services:
+  # ========== FastAPI (auth, devices, прокси устройств) ==========
+  fastapi:
+    build:
+      context: ./shit/backend
+      dockerfile: Dockerfile
+    container_name: fastapi
+    network_mode: host
+    environment:
+      # Реестр устройств и таблица маршрутизации, переживает пересборку
+      - DEVICES_FILE=/data/devices.json
+    volumes:
+      - ${VARAN_ROOT:-/home/orangepi/varan}/settings:/data
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ========== Camera Scanner (ONVIF WS-Discovery) ==========
+  camera-scanner:
+    build:
+      context: ./scanner
+      dockerfile: Dockerfile
+    container_name: camera-scanner
+    network_mode: host  # обязательно для multicast WS-Discovery
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ========== Message Gateway (CAN/WebSocket/Modbus шлюз) ==========
+  # CAN-шина физически подключена к машине мастера (базовая конфигурация);
+  # media-center нейронки ходит к шлюзу по сети через --gateway-ip.
+  message-gateway:
+    build:
+      context: ./message-gateway
+      dockerfile: Dockerfile
+    container_name: message-gateway
+    # host — это ещё и доступ к CAN-интерфейсам хоста (can0): сетевые namespace
+    # общие, поэтому SocketCAN работает без дополнительных прав.
+    network_mode: host  # REST 9090 и gRPC 50051 + сеть КАУС
+    command: [
+      "--rest-port", "9090", "--grpc-port", "50051", "--heartbeat", "5",
+      # Шина: интерфейс поднимается на хосте заранее,
+      # ip link set can0 up type can bitrate 250000
+      "--can-mode", "socketcan", "--can-iface", "can0",
+      "--can-src", "0x71",   # адрес технического зрения
+      "--can-peer", "0x61",  # адрес источника времени и GPS
+      # Файл настроек на томе: таблица соответствий, настройки сообщений и
+      # подключений сохраняются здесь и переживают пересоздание контейнера.
+      # Флаги выше берутся только при первом запуске, дальше побеждает файл.
+      "--state-file", "/data/gateway-state.json",
+    ]
+    # privileged + монтаж /dev целиком: сервис обязан стартовать на машине без
+    # железа и подхватывать адаптер по факту появления.
+    privileged: true
+    volumes:
+      - /dev:/dev
+      - message-gateway-data:/data
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ========== React Frontend ==========
+  frontend:
+    build:
+      context: ./shit/frontend
+      dockerfile: Dockerfile
+      args:
+        FULL_AUTH: "${FULL_AUTH:-false}"
+    container_name: frontend
+    network_mode: host
+    restart: unless-stopped
+
+volumes:
+  # Настройки message-gateway (таблица соответствий, сообщения, подключения).
+  message-gateway-data:

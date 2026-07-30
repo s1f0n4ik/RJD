@@ -10,7 +10,11 @@ import type {
   VirtualStream,
 } from '../types';
 
-const cameraUrl = (id: string) => `/api/camera/${encodeURIComponent(id)}`;
+import { mcPath, modulePath, deviceForCameraType } from './devices';
+
+// REST media-center устройства-владельца: /camera?id=... (как раньше делал nginx)
+const cameraUrl = (deviceId: string, id: string) =>
+    mcPath(deviceId, `/camera?id=${encodeURIComponent(id)}`);
 
 export interface CameraPatchBody {
     meta?: CameraMetaPatch;
@@ -106,29 +110,31 @@ class ApiClient {
         return (res ?? []).map(raw => this.normalizeStream(raw));
     }
 
-    async getCamera(id: string): Promise<CPPCamera | null> {
-        const res = await this.fetch<{ cameras: Record<string, any> }>(cameraUrl(id));
+    async getCamera(id: string, deviceId: string): Promise<CPPCamera | null> {
+        const res = await this.fetch<{ cameras: Record<string, any> }>(cameraUrl(deviceId, id));
         const raw = res.cameras?.[id];
         return raw ? this.normalize({ id: raw.id ?? id, ...raw }) : null;
     }
 
-    async createCamera(camera: CPPCamera) {
-        return this.fetch('/api/camera', {
+    // Устройство-владелец: явное или по таблице «тип камеры → устройство»
+    async createCamera(camera: CPPCamera, deviceId?: string) {
+        const target = deviceId ?? deviceForCameraType(Number(camera.type ?? 1));
+        return this.fetch(mcPath(target, '/camera'), {
             method: 'POST',
             body: JSON.stringify(camera),
         });
     }
 
-    async updateCamera(id: string, updates: CameraPatchBody) {
+    async updateCamera(id: string, updates: CameraPatchBody, deviceId: string) {
         if (!updates.meta && !updates.critical) return { ok: true, noop: true };
-        return this.fetch(cameraUrl(id), {
+        return this.fetch(cameraUrl(deviceId, id), {
             method: 'PATCH',
             body: JSON.stringify(updates),
         });
     }
 
-    async deleteCamera(id: string): Promise<void> {
-        await this.fetch(cameraUrl(id), { method: 'DELETE' });
+    async deleteCamera(id: string, deviceId: string): Promise<void> {
+        await this.fetch(cameraUrl(deviceId, id), { method: 'DELETE' });
     }
 
     // ── helpers ──
@@ -197,12 +203,18 @@ class ApiClient {
             width: Number(raw?.width) || 0,
             height: Number(raw?.height) || 0,
             running: Boolean(raw?.running),
+            device_id: raw?.device_id ? String(raw.device_id) : undefined,
+            device_name: raw?.device_name ? String(raw.device_name) : undefined,
         };
     }
 
         // ---------- Neural API (raw JSON, не CppResponse) ----------
 
     private async fetchRaw<T = unknown>(url: string, init: RequestInit = {}): Promise<T> {
+        // Ручки нейронки живут на устройстве, назначенном модулю neural
+        if (url.startsWith('/neural/')) {
+            url = modulePath('neural', url);
+        }
         const hasBody = init.body !== undefined;
         const r = await window.fetch(url, {
             ...init,

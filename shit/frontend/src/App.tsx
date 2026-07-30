@@ -26,9 +26,10 @@ import { RZD_COLORS } from './theme';
 import { FULL_AUTH, readStoredToken } from './utils/auth';
 import Observation from './components/Observation';
 import RecordingsView from './components/RecordingsView';
+import DeviceSettings from './components/DeviceSettings';
 import Landing from './components/Landing';
 import OnScreenKeyboard from './components/OnScreenKeyboard';
-const ADMIN_TABS = new Set([1]); // Камеры
+const ADMIN_TABS = new Set([1, 4]); // Камеры, Устройства
 // Подроуты /app/*, требующие прав администратора
 const ADMIN_ROUTES = ['neural', 'krsps', 'birdview'];
 
@@ -349,8 +350,8 @@ const AppContent: React.FC = () => {
         return <Observation />;
       case 3:
         return <RecordingsView />;
-      // case 4:
-      //   return <NeuralConfigApp />;
+      case 4:
+        return hasAccessToTab(4) ? <DeviceSettings /> : renderDenied('tab:4');
       default:
         return <Dashboard state={state} onNavigate={handleTabChange} />;
     }

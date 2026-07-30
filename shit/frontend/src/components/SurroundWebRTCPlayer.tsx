@@ -6,6 +6,7 @@ import {
     ViewInAr as ViewInArIcon,
 } from '@mui/icons-material';
 import WebRTCPlayer, { type SignalingSender } from './WebRTCPlayer';
+import { modulePath } from '../services/devices';
 
 /**
  * Плеер потока 360: жестовый канвас поверх видеоконтента.
@@ -48,7 +49,7 @@ async function fetchLinkerStatus(): Promise<{
     height: number;
 } | null> {
     try {
-        const res = await fetch('/linker/status');
+        const res = await fetch(modulePath('birdview', '/linker/status'));
         const json = await res.json();
         const d = json?.data ?? json;
         return {
@@ -212,7 +213,7 @@ const SurroundWebRTCPlayer: React.FC<SurroundWebRTCPlayerProps> = ({
     useEffect(() => {
         if (!controls) return;
         let cancelled = false;
-        fetch('/linker/surround')
+        fetch(modulePath('birdview', '/linker/surround'))
             .then(r => r.json())
             .then(json => {
                 const d = json?.data ?? json;
@@ -269,7 +270,7 @@ const SurroundWebRTCPlayer: React.FC<SurroundWebRTCPlayerProps> = ({
         const next: SurroundViewMode = viewMode === 'surround' ? 'top' : 'surround';
         setSwitching(true);
         try {
-            const res = await fetch('/linker/view-mode', {
+            const res = await fetch(modulePath('birdview', '/linker/view-mode'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ view_mode: next }),

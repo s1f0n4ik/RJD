@@ -3,10 +3,10 @@
 #
 # Аргументы приложения именованные, порядок значения не имеет:
 #   --rest-port --signaling-ip --signaling-port --varan-root
-#   [--gateway-ip --gateway-port] [--journal-dir]
+#   [--modules] [--gateway-ip --gateway-port] [--journal-dir]
 # По умолчанию используются те же, что в systemd-сервисе устройства.
 # Значения можно переопределить аргументами или переменными окружения
-# MC_REST_PORT / MC_SIGNALING_IP / MC_SIGNALING_PORT / MC_VARAN_ROOT.
+# MC_REST_PORT / MC_SIGNALING_IP / MC_SIGNALING_PORT / MC_VARAN_ROOT / MC_MODULES.
 #
 # Mali EGL на устройстве собран под X11, поэтому нужен доступ к активной
 # графической сессии (DISPLAY=:0 + XAUTHORITY). Без этого eglInitialize падает.
@@ -15,6 +15,8 @@
 # Использование:
 #   run.sh                                  запуск с параметрами по умолчанию
 #   run.sh 7777 127.0.0.1 8765              запуск со своими параметрами
+#   run.sh 7777 127.0.0.1 8765 127.0.0.1 50051 birdview,neural
+#   MC_MODULES= run.sh                      чистый NVR без 360 и нейронки
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
@@ -23,6 +25,9 @@ SIGNALING_IP="${2:-${MC_SIGNALING_IP:-127.0.0.1}}"
 SIGNALING_PORT="${3:-${MC_SIGNALING_PORT:-8765}}"
 GATEWAY_IP="${4:-${MC_GATEWAY_IP:-127.0.0.1}}"
 GATEWAY_PORT="${5:-${MC_GATEWAY_PORT:-50051}}"
+
+# Опциональные модули сборки; пустое значение — чистый NVR
+MODULES="${6:-${MC_MODULES-birdview,neural}}"
 
 # Окружение графической сессии для Mali EGL (X11)
 DISPLAY_ENV="${MC_DISPLAY:-:0}"
@@ -38,7 +43,7 @@ JOURNAL_DIR_ENV="${MC_JOURNAL_DIR:-/storage/journal}"
 # Обязателен для приложения — дефолта в коде нет.
 VARAN_ROOT_ENV="${MC_VARAN_ROOT:-/home/orangepi/varan}"
 
-log "Запуск media-center на $REMOTE: rest=$REST_PORT signaling=$SIGNALING_IP:$SIGNALING_PORT gateway_gRPC=$GATEWAY_IP:$GATEWAY_PORT varan_root=$VARAN_ROOT_ENV (DISPLAY=$DISPLAY_ENV)"
+log "Запуск media-center на $REMOTE: rest=$REST_PORT signaling=$SIGNALING_IP:$SIGNALING_PORT gateway_gRPC=$GATEWAY_IP:$GATEWAY_PORT varan_root=$VARAN_ROOT_ENV modules=${MODULES:-none} (DISPLAY=$DISPLAY_ENV)"
 
 # -t для интерактивного вывода и корректной обработки Ctrl-C
 ssh -t "$REMOTE" "source '$GST_ENV'; \
@@ -48,6 +53,7 @@ ssh -t "$REMOTE" "source '$GST_ENV'; \
         --signaling-ip='$SIGNALING_IP' \
         --signaling-port='$SIGNALING_PORT' \
         --varan-root='$VARAN_ROOT_ENV' \
+        --modules='$MODULES' \
         --gateway-ip='$GATEWAY_IP' \
         --gateway-port='$GATEWAY_PORT' \
         --journal-dir='$JOURNAL_DIR_ENV'"

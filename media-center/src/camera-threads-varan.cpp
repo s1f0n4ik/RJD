@@ -15,6 +15,7 @@
 #include <GLES2/gl2ext.h>
 
 #include "console_utility.h"
+#include "core/modules.h"
 #include "core/paths.h"
 #include "main-server/rest_server.h"
 #include "bird-view/linker.h"
@@ -41,6 +42,9 @@ struct AppConfig {
 
 	// Журнал обнаружений живёт на своём томе, отдельно от varan_root.
 	std::filesystem::path journal_dir;
+
+	// Опциональные модули сборки; ядро камер включено всегда.
+	varan::FModuleSet modules;
 
 	// Опциональное подключение к message-gateway (ingress кадров).
 	bool gateway_enabled = false;
@@ -96,6 +100,12 @@ int main(int argc, char* argv[])
 	main_logger.info((std::ostringstream() << "Signaling: " << config.signaling_ip << ":" << config.signaling_port).str());
 	main_logger.info((std::ostringstream() << "Gateway: "
 		<< (config.gateway_enabled ? config.gateway_ip + ":" + config.gateway_port : std::string("disabled"))).str());
+	main_logger.info("Modules: " + config.modules.to_string());
+
+	// Шлюз потребляет только нейронка — без неё флаги не имеют эффекта
+	if (config.gateway_enabled && !config.modules.neural) {
+		main_logger.warn("Gateway options are ignored: neural module is not loaded");
+	}
 
 	// Определяем площадку в самом начале и логируем — дальше передаём в нейронку.
 	const auto platform_info = varan::detect_platform();
@@ -112,66 +122,82 @@ int main(int argc, char* argv[])
 	auto main_context = std::make_shared<varan::birdview::UEGLContextManager>();
 	main_context->init(true, &main_logger);
 
-	// Создание модуля 360
-	auto linker_360 = std::make_shared<varan::birdview::ULinker>(socket_options, main_context.get(), gl_storage.get(), 25, ULogger::ELoggerLevel::TRACE);
+	// Модуль 360 с калибратором — только при birdview
+	std::shared_ptr<varan::birdview::ULinker> linker_360;
+	std::shared_ptr<varan::calibration::UCalibrator> calibrator;
+	if (config.modules.birdview) {
+		linker_360 = std::make_shared<varan::birdview::ULinker>(socket_options, main_context.get(), gl_storage.get(), 25, ULogger::ELoggerLevel::TRACE);
 
-	// Создание калибратора
-	auto calibrator = std::make_shared<varan::calibration::UCalibrator>(socket_options.ip_adress, socket_options.port, main_context.get(), gl_storage.get());
-	calibrator->start_websocket_connection();
+		calibrator = std::make_shared<varan::calibration::UCalibrator>(socket_options.ip_adress, socket_options.port, main_context.get(), gl_storage.get());
+		calibrator->start_websocket_connection();
+	}
 
-	// Параметры подключения к message-gateway (передаём в загрузчик).
-	varan::gateway::FGatewayConfig gateway_config;
-	gateway_config.enabled = config.gateway_enabled;
-	gateway_config.host = config.gateway_ip;
-	gateway_config.port = config.gateway_port;
+	// Нейронный загрузчик — только при neural
+	std::shared_ptr<varan::neural::UNeuralLoader> loader;
+	if (config.modules.neural) {
+		// Параметры подключения к message-gateway (передаём в загрузчик).
+		varan::gateway::FGatewayConfig gateway_config;
+		gateway_config.enabled = config.gateway_enabled;
+		gateway_config.host = config.gateway_ip;
+		gateway_config.port = config.gateway_port;
 
-	// Создание нейронного загрузчика
-	auto loader = std::make_shared<varan::neural::UNeuralLoader>(
-		socket_options.ip_adress, socket_options.port,
-		main_context.get(),
-		gl_storage.get(),
-		varan::paths().neural.config,
-		varan::paths().neural.loader_state,
-		platform_info,
-		gateway_config,
-		ULogger::ELoggerLevel::DEBUG
-	);
+		loader = std::make_shared<varan::neural::UNeuralLoader>(
+			socket_options.ip_adress, socket_options.port,
+			main_context.get(),
+			gl_storage.get(),
+			varan::paths().neural.config,
+			varan::paths().neural.loader_state,
+			platform_info,
+			gateway_config,
+			ULogger::ELoggerLevel::DEBUG
+		);
+	}
 
 	// Создание центра видеонаблюдения
-	//auto center = std::make_shared<varan::neural::UMediaCenter>(socket_options);
 	auto center = std::make_shared<varan::neural::UMediaCenter>(socket_options, main_context.get());
-	center->set_bird_view_callback(std::move(gl_storage->get_callback()));
-	center->set_neural_callback(std::move(gl_storage->get_callback()));
+	center->set_modules(config.modules);
 
-	// Привязываем к нейронке возмодность получать callback для камер
-	std::weak_ptr<varan::neural::UMediaCenter> weak_center = center;
-	loader->set_sender_provider(
-		[weak_center](const std::string& camera_id) -> varan::neural::FCameraMessageSender {
-			auto c = weak_center.lock();
-			if (!c) return {};
+	// Колбэки кадров ставятся только потребляющим модулям
+	if (config.modules.birdview) {
+		center->set_bird_view_callback(std::move(gl_storage->get_callback()));
+	}
+	if (config.modules.neural) {
+		center->set_neural_callback(std::move(gl_storage->get_callback()));
+	}
 
-			auto cam = c->get_camera(camera_id);
-			if (!cam) return {};
+	if (loader) {
+		// Привязываем к нейронке возмодность получать callback для камер
+		std::weak_ptr<varan::neural::UMediaCenter> weak_center = center;
+		loader->set_sender_provider(
+			[weak_center](const std::string& camera_id) -> varan::neural::FCameraMessageSender {
+				auto c = weak_center.lock();
+				if (!c) return {};
 
-			// weak_ptr на камеру — если камеру удалят пока слот жив,
-			// send станет no-op без UB
-			std::weak_ptr<varan::neural::UCamera> weak_cam = cam;
-			return [weak_cam](const std::string& msg) {
-				if (auto cam = weak_cam.lock()) {
-					cam->send_message(msg);
-				}
-			};
-		}
-	);
+				auto cam = c->get_camera(camera_id);
+				if (!cam) return {};
 
-	// Запуск neural
-	loader->async_run();
+				// weak_ptr на камеру — если камеру удалят пока слот жив,
+				// send станет no-op без UB
+				std::weak_ptr<varan::neural::UCamera> weak_cam = cam;
+				return [weak_cam](const std::string& msg) {
+					if (auto cam = weak_cam.lock()) {
+						cam->send_message(msg);
+					}
+				};
+			}
+		);
 
-	auto rest_server = URestServer{ config.rest_port, center, linker_360, loader };
+		// Запуск neural
+		loader->async_run();
+	}
+
+	auto rest_server = URestServer{ config.rest_port, center, linker_360, loader, config.modules, platform_info };
 	rest_server.async_start();
 
 	// Запуск Линкера
-	linker_360->async_start();
+	if (linker_360) {
+		linker_360->async_start();
+	}
 
 	center->start_cameras_from_config();
 
@@ -240,10 +266,12 @@ static void print_usage(const char* exe, ULogger* logger) {
 		std::string("Usage: ") + exe + " \\\n"
 		"    --rest-port=<port> --signaling-ip=<ip> --signaling-port=<port> \\\n"
 		"    --varan-root=<dir> \\\n"
+		"    [--modules=birdview,neural] \\\n"
 		"    [--gateway-ip=<ip> --gateway-port=<port>] \\\n"
 		"    [--journal-dir=<dir>]\n"
 		"\n"
 		"  --varan-root   рабочий каталог: nvr, neural, surround_view\n"
+		"  --modules      опциональные модули сборки; без флага — чистый NVR\n"
 		"  --journal-dir  журнал обнаружений; иначе MC_JOURNAL_DIR, иначе /storage/journal\n"
 		"  --gateway-*    подключение к message-gateway; задаются вместе или никак\n";
 
@@ -289,6 +317,13 @@ bool parse_arguments(int argc, char* argv[], AppConfig& config, ULogger* logger)
 			}
 		} else if (name == "varan-root") {
 			config.varan_root = value;
+		} else if (name == "modules") {
+			auto modules = varan::FModuleSet::parse(value);
+			if (!modules) {
+				if (logger) logger->error("Invalid --modules: " + value + " (known: birdview, neural)");
+				return false;
+			}
+			config.modules = *modules;
 		} else if (name == "journal-dir") {
 			config.journal_dir = value;
 		} else if (name == "gateway-ip") {

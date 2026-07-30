@@ -45,6 +45,11 @@ export interface CPPCamera {
     main: CameraStream;
     sub: CameraStream;
   };
+  // Устройство-владелец из агрегированного списка
+  device_id?: string;
+  device_name?: string;
+  // Устройство не ответило, данные из кэша мастера
+  offline?: boolean;
 }
 
 // Кто собрал поток
@@ -66,6 +71,9 @@ export interface VirtualStream {
     width: number;
     height: number;
     running: boolean;
+    // Устройство-владелец из агрегированного списка
+    device_id?: string;
+    device_name?: string;
 }
 
 // Общий минимум камеры и потока, всё, что нужно сетке и киоску

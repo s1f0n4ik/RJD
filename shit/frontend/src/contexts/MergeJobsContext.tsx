@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
 import type { MergeJobInfo } from '../components/MergeJobPanel';
+import { getDevices, storagePath } from '../services/devices';
 
 interface MergeJobsContextValue {
     activeJob: MergeJobInfo | null;
@@ -7,8 +8,8 @@ interface MergeJobsContextValue {
     downloading: boolean;
     downloadProgress: number;
 
-    // Запуск новой джобы
-    startJob: (endpoint: string, body: any) => Promise<void>;
+    // Запуск новой джобы на storage-service устройства камеры
+    startJob: (deviceId: string, endpoint: string, body: any) => Promise<void>;
     cancelJob: () => Promise<void>;
     saveAs: () => Promise<void>;
 
@@ -32,14 +33,17 @@ export const MergeJobsProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     const wsRef = useRef<WebSocket | null>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
+    // Устройство активной джобы — все её ручки живут на его storage-service
+    const jobDeviceRef = useRef<string | null>(null);
 
-    const attachToJob = useCallback((jobId: string) => {
+    const attachToJob = useCallback((deviceId: string, jobId: string) => {
         if (wsRef.current) {
             try { wsRef.current.close(); } catch {}
         }
+        jobDeviceRef.current = deviceId;
         const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
         const ws = new WebSocket(
-            `${wsProto}//${location.host}/api/recordings/jobs/${jobId}/progress`
+            `${wsProto}//${location.host}${storagePath(deviceId, `/api/recordings/jobs/${jobId}/progress`)}`
         );
         wsRef.current = ws;
 
@@ -61,28 +65,32 @@ export const MergeJobsProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         ws.onclose = () => { wsRef.current = null; };
     }, []);
 
-    // Восстановление активной задачи при загрузке приложения
+    // Восстановление активной задачи при загрузке приложения: джоба могла
+    // остаться на storage-service любого устройства
     useEffect(() => {
         const restore = async () => {
-            try {
-                const res = await fetch('/api/recordings/jobs');
-                if (!res.ok) return;
-                const data = await res.json();
-                const active = data.jobs?.[0];
-                if (active) {
-                    setActiveJob({
-                        id: active.id,
-                        status: active.status,
-                        progress: active.progress,
-                        message: active.message,
-                        files_total: active.files_total ?? 0,
-                        files_processed: active.files_processed ?? 0,
-                        bytes_total: active.bytes_total ?? 0,
-                        duration_seconds: 0,
-                    });
-                    attachToJob(active.id);
-                }
-            } catch {}
+            for (const device of getDevices()) {
+                try {
+                    const res = await fetch(storagePath(device.id, '/api/recordings/jobs'));
+                    if (!res.ok) continue;
+                    const data = await res.json();
+                    const active = data.jobs?.[0];
+                    if (active) {
+                        setActiveJob({
+                            id: active.id,
+                            status: active.status,
+                            progress: active.progress,
+                            message: active.message,
+                            files_total: active.files_total ?? 0,
+                            files_processed: active.files_processed ?? 0,
+                            bytes_total: active.bytes_total ?? 0,
+                            duration_seconds: 0,
+                        });
+                        attachToJob(device.id, active.id);
+                        return;
+                    }
+                } catch {}
+            }
         };
         restore();
         return () => {
@@ -90,8 +98,8 @@ export const MergeJobsProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         };
     }, [attachToJob]);
 
-    const startJob = useCallback(async (endpoint: string, body: any) => {
-        const res = await fetch(endpoint, {
+    const startJob = useCallback(async (deviceId: string, endpoint: string, body: any) => {
+        const res = await fetch(storagePath(deviceId, endpoint), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
@@ -104,13 +112,16 @@ export const MergeJobsProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             files_total: 0, files_processed: 0, bytes_total: 0, duration_seconds: 0,
         });
         setMinimized(false);
-        attachToJob(job_id);
+        attachToJob(deviceId, job_id);
     }, [attachToJob]);
+
+    const jobPath = (jobId: string, suffix = '') =>
+        storagePath(jobDeviceRef.current ?? '', `/api/recordings/jobs/${jobId}${suffix}`);
 
     const cancelJob = useCallback(async () => {
         if (!activeJob) return;
         try {
-            await fetch(`/api/recordings/jobs/${activeJob.id}`, { method: 'DELETE' });
+            await fetch(jobPath(activeJob.id), { method: 'DELETE' });
         } catch {}
         if (wsRef.current) wsRef.current.close();
         setActiveJob(null);
@@ -131,7 +142,7 @@ export const MergeJobsProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             const filename = activeJob.result_filename || `result_${activeJob.id.slice(0, 8)}`;
             const mime = activeJob.result_media_type || 'application/octet-stream';
             await downloadWithProgress(
-                `/api/recordings/jobs/${activeJob.id}/download`,
+                jobPath(activeJob.id, '/download'),
                 filename,
                 mime,
                 (p) => setDownloadProgress(p),
@@ -142,7 +153,7 @@ export const MergeJobsProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             if (err.name === 'AbortError' || err.message === 'Загрузка отменена') {
                 // Тихое отмена пользователем — удаляем job на сервере
                 try {
-                    await fetch(`/api/recordings/jobs/${activeJob.id}`, { method: 'DELETE' });
+                    await fetch(jobPath(activeJob.id), { method: 'DELETE' });
                 } catch {}
                 setActiveJob(null);
             } else {

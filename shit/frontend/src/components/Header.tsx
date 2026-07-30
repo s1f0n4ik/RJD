@@ -119,6 +119,7 @@ const Header: React.FC<HeaderProps> = ({
           <Tab label="Отображение" />
           {/*<Tab label="Машинное зрение" />*/}
           <Tab label="Архив" />
+          <Tab label="Устройства" />
         </Tabs>
 
         <Box display="flex" alignItems="center" gap={1} sx={{ flexShrink: 0 }}>

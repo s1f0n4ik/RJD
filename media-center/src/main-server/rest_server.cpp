@@ -12,8 +12,10 @@ namespace http = boost::beast::http;
 URestServer::URestServer(
     uint16_t port,
     std::shared_ptr<UMediaCenter> media_center,
-    std::shared_ptr<varan::birdview::ULinker> linker, 
+    std::shared_ptr<varan::birdview::ULinker> linker,
     std::shared_ptr<varan::neural::UNeuralLoader> loader,
+    const varan::FModuleSet& modules,
+    const varan::FPlatformInfo& platform,
     ULogger::ELoggerLevel level
 )
     : m_port(port)
@@ -22,6 +24,11 @@ URestServer::URestServer(
 {
     // Сначала маршруты для камер
     m_router = std::make_shared<URouter>();
+
+    // Паспорт устройства: по этой ручке мастер находит и опрашивает устройство
+    auto system_ctrl = std::make_shared<USystemController>(modules, platform, &m_logger);
+    m_router->add_route(http::verb::get, "/system/info",
+        [system_ctrl](const auto& r) { return system_ctrl->get_info(r); });
 
     auto controller = std::make_shared<UController>(media_center, &m_logger);
 
@@ -39,10 +46,11 @@ URestServer::URestServer(
     m_router->add_route(http::verb::delete_, "/camera",
         [controller](const auto& req) { return controller->delete_camera(req); });
 
-    // Маршруты для Линкер
+    // Маршруты для Линкер — только при загруженном модуле birdview
+    if (linker) {
     auto linker_ctrl = std::make_shared<ULinkerController>(linker, &m_logger);
 
-    m_router->add_route(http::verb::get, "/linker/exports", 
+    m_router->add_route(http::verb::get, "/linker/exports",
         [linker_ctrl](const auto& r) { return linker_ctrl->get_exports(r); });
     m_router->add_route(http::verb::get, "/linker/export",
         [linker_ctrl](const auto& r) { return linker_ctrl->get_export(r); });
@@ -92,11 +100,13 @@ URestServer::URestServer(
         [linker_ctrl](const auto& r) { return linker_ctrl->post_view_mode(r); });
     m_router->add_route(http::verb::post, "/linker/rotation",
         [linker_ctrl](const auto& r) { return linker_ctrl->post_rotation(r); });
+    }
 
-    // Маршруты для Нейронки
+    // Маршруты для Нейронки — только при загруженном модуле neural
+    if (loader) {
     auto neural_ctrl = std::make_shared<UNeuralController>(loader, &m_logger);
 
-    m_router->add_route(http::verb::get, "/neural/configurations", 
+    m_router->add_route(http::verb::get, "/neural/configurations",
         [neural_ctrl](const auto& r) { return neural_ctrl->get_configurations(r); });
     m_router->add_route(http::verb::post, "/neural/configurations", 
         [neural_ctrl](const auto& r) { return neural_ctrl->post_configurations(r); });
@@ -128,6 +138,7 @@ URestServer::URestServer(
         [neural_ctrl](const auto& r) {return neural_ctrl->get_models(r); });
     m_router->add_route(http::verb::get, "/neural/camera",
         [neural_ctrl](const auto& r) {return neural_ctrl->get_camera_config(r); });
+    }
 
     m_router->add_route(http::verb::get, "/streams",
         [streams_ctrl](const auto& r) { return streams_ctrl->get_streams(r); });

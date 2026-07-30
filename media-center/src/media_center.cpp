@@ -21,6 +21,13 @@ namespace neural {
             return -1;
         }
 
+        if (!is_type_supported(options.type)) {
+            m_logger.error("add_camera(): camera id=" + options.id
+                + ", type=" + std::to_string(static_cast<int>(options.type))
+                + " is not supported by loaded modules (" + m_modules.to_string() + ")");
+            return -1;
+        }
+
         auto callback = get_frame_callback_by_camera_type(options.type);
         auto cam = std::make_shared<UCamera>(options.id, m_websocket);
         cam->set_configurations(options, pipelines, std::move(callback), m_gl_manager);
@@ -40,6 +47,13 @@ namespace neural {
         std::lock_guard<std::mutex> lk(m_mutex);
 
         if (m_cameras.count(options.id)) {
+            return false;
+        }
+
+        if (!is_type_supported(options.type)) {
+            m_logger.error("add_camera_async(): camera id=" + options.id
+                + ", type=" + std::to_string(static_cast<int>(options.type))
+                + " is not supported by loaded modules (" + m_modules.to_string() + ")");
             return false;
         }
 
@@ -80,6 +94,12 @@ namespace neural {
             return true;
         }
         else if (camera_options && pipelines) {
+            if (!is_type_supported(camera_options.value().type)) {
+                m_logger.error("update_camera(): camera id=" + id
+                    + ", type=" + std::to_string(static_cast<int>(camera_options.value().type))
+                    + " is not supported by loaded modules (" + m_modules.to_string() + ")");
+                return false;
+            }
             camera->stop();
             auto callback = get_frame_callback_by_camera_type(camera_options.value().type);
             camera->set_configurations(*camera_options, *pipelines, std::move(callback), m_gl_manager);
@@ -174,8 +194,17 @@ namespace neural {
 
         auto cameras = m_config_manager.get_all_configs();
 
+        // Камеры чужих модулей пропускаются молча для фронта: только лог
+        size_t skipped = 0;
         {
             for (const auto& camera : cameras) {
+                if (!is_type_supported(camera.camera.type)) {
+                    m_logger.warn("start_cameras_from_config(): skip camera id=" + camera.camera.id
+                        + ", type=" + std::to_string(static_cast<int>(camera.camera.type))
+                        + " is not supported by loaded modules (" + m_modules.to_string() + ")");
+                    ++skipped;
+                    continue;
+                }
                 add_camera(camera.camera, camera.streams);
             }
         }
@@ -192,7 +221,8 @@ namespace neural {
 
         m_camera_initialization = true;
         m_logger.info("start_cameras_from_config(): started "
-            + std::to_string(started) + " cameras");
+            + std::to_string(started) + " cameras"
+            + (skipped ? ", skipped " + std::to_string(skipped) + " (module not loaded)" : ""));
     }
 
     void UMediaCenter::initialize_cameras() {
@@ -278,6 +308,14 @@ namespace neural {
         default:
             return nullptr;
         }
+    }
+
+    void UMediaCenter::set_modules(const FModuleSet& modules) {
+        m_modules = modules;
+    }
+
+    bool UMediaCenter::is_type_supported(ECameraType type) const {
+        return m_modules.supports(type);
     }
 
     void UMediaCenter::set_bird_view_callback(CFrameMover callback) {

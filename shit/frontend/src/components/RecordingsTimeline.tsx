@@ -3,6 +3,7 @@ import { Box, Slider, Typography, ToggleButtonGroup, ToggleButton, IconButton, T
 import { MyLocation } from '@mui/icons-material';
 import { RZD_COLORS } from '../theme';
 import { currentTimeBus } from '../utils/currentTimeBus';
+import { storagePath } from '../services/devices';
 
 interface Recording {
     filename: string;
@@ -13,6 +14,8 @@ interface Recording {
 
 interface RecordingsTimelineProps {
     camera: string;
+    // Устройство, чей storage-service хранит записи камеры
+    deviceId: string;
     date: Date;
     // Все файлы камеры (не только за выбранный день) — чтобы листать соседние дни.
     files: Recording[];
@@ -76,6 +79,7 @@ const roundRect = (
 
 const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
                                                                    camera,
+                                                                   deviceId,
                                                                    date,
                                                                    files,
                                                                    currentFileName,
@@ -473,7 +477,7 @@ const RecordingsTimeline: React.FC<RecordingsTimelineProps> = ({
                     >
                         <video
                             key={previewFile!.filename}
-                            src={`/api/recordings/stream/${camera}/${previewFile!.filename}`}
+                            src={storagePath(deviceId, `/api/recordings/stream/${camera}/${previewFile!.filename}`)}
                             muted
                             autoPlay
                             loop

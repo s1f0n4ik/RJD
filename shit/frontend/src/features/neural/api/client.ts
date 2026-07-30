@@ -24,7 +24,11 @@ import type {
 // export const API_HOST = 'http://192.168.1.2';
 export const API_HOST = ''; // ← раскомментировать для prod-сборки
 
-const url = (path: string) => `${API_HOST}${path}`;
+import { modulePath } from '../../../services/devices';
+
+// Ручки /neural/* переезжают на устройство, назначенное модулю neural
+const url = (path: string) =>
+    path.startsWith('/neural/') ? `${API_HOST}${modulePath('neural', path)}` : `${API_HOST}${path}`;
 
 /** Снимает обёртку { data: ... } и кидает осмысленную ошибку на не-2xx. */
 async function unwrap<T>(res: Response): Promise<T> {
@@ -139,6 +143,6 @@ export const neuralApi = {
 
   // ── Список камер (GET /camera, controller.cpp) ─────────────
   listCameras(): Promise<{ cameras: Record<string, CameraInfo> | null }> {
-    return fetch(url('/api/camera')).then(unwrap<{ cameras: Record<string, CameraInfo> | null }>);
+    return fetch(url('/api/cameras')).then(unwrap<{ cameras: Record<string, CameraInfo> | null }>);
   },
 };

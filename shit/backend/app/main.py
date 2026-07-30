@@ -5,8 +5,9 @@ from contextlib import asynccontextmanager
 import logging
 
 from app.config import settings
-from app.routers import loaders, status, streams, auth, layouts
+from app.routers import loaders, status, streams, auth, layouts, devices, device_proxy
 from app.services.websocket_manager import manager, websocket_endpoint
+from app.services.devices import registry
 
 # Настройка логирования
 logging.basicConfig(
@@ -19,7 +20,9 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Lifecycle events"""
     logger.info(f"🚀 Starting {settings.APP_NAME}")
+    registry.start_polling()
     yield
+    await registry.close()
     logger.info("👋 Application shutdown complete")
 
 # Создание FastAPI приложения
@@ -43,6 +46,8 @@ app.add_middleware(
 app.include_router(layouts.router, prefix="/api", tags=["Layouts"])
 app.include_router(loaders.router, prefix="/api", tags=["Loaders"])
 app.include_router(status.router, prefix="/api", tags=["Status"])
+app.include_router(devices.router, prefix="/api", tags=["Devices"])
+app.include_router(device_proxy.router, tags=["DeviceProxy"])
 app.include_router(auth.router, prefix="/auth", tags=["Auth"])
 app.include_router(streams.router, tags=["Streams"])
 #app.include_router(recordings.router, prefix="/api", tags=["Recordings"])

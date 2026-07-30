@@ -2,9 +2,12 @@ import React, { useRef, useEffect } from 'react';
 import { Box, LinearProgress, Typography } from '@mui/material';
 import { currentTimeBus } from '../utils/currentTimeBus';
 import { throttle } from '../utils/throttle';
+import { storagePath } from '../services/devices';
 
 interface RecordingsPlayerProps {
     camera: string;
+    // Устройство, чей storage-service хранит записи камеры
+    deviceId: string;
     displayName?: string;
     file: { filename: string; created: string };
     onEnded?: () => void;
@@ -12,6 +15,7 @@ interface RecordingsPlayerProps {
 
 const RecordingsPlayer: React.FC<RecordingsPlayerProps> = ({
                                                                camera,
+                                                               deviceId,
                                                                displayName,
                                                                file,
                                                                onEnded,
@@ -118,7 +122,7 @@ const RecordingsPlayer: React.FC<RecordingsPlayerProps> = ({
                     width: '100%', height: '100%', objectFit: 'contain',
                     display: loading ? 'none' : 'block',
                 }}
-                src={`/api/recordings/stream/${camera}/${file.filename}`}
+                src={storagePath(deviceId, `/api/recordings/stream/${camera}/${file.filename}`)}
                 onCanPlay={handleCanPlay}
                 onError={handleError}
                 onEnded={onEnded}

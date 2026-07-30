@@ -17,9 +17,15 @@ export const PROJ_POSITION_LABELS: Record<string, string> = {
     left_front: 'Спереди левая',
 };
 
+import { birdviewSignalingUrl } from '../../services/devices';
+
 /** Строит ws:// или wss:// адрес от текущего хоста. */
 export function wsUrl(path: string): string {
-    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const cleanPath = path.startsWith('/') ? path : `/${path}`;
+    // Сигналинг фичи живёт на устройстве модуля birdview
+    if (cleanPath.startsWith('/signaling/')) {
+        return birdviewSignalingUrl(cleanPath.slice('/signaling'.length));
+    }
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     return `${proto}//${window.location.host}${cleanPath}`;
 }
