@@ -31,5 +31,9 @@ private:
     // machine-id стабилен между перезагрузками, читается один раз
     std::string m_device_id;
 
+    // Прошлый снимок /proc/stat: загрузка CPU считается по дельте между вызовами
+    uint64_t m_prev_cpu_total = 0;
+    uint64_t m_prev_cpu_idle = 0;
+
     ULogger* m_logger;
 };

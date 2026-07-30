@@ -54,7 +54,7 @@ import {RZD_COLORS} from '../theme';
 import {wsUrl} from '../utils/constants';
 import {type CPPCamera, type VirtualStream} from '../types'
 import {api, type CameraPatchBody, MediaCenterError} from '../services/api';
-import {deviceForCameraType, mcPath, signalingWsUrl} from '../services/devices';
+import {deviceForCameraType, getDevices, loadDevices, mcPath, signalingWsUrl} from '../services/devices';
 import WebRTCPlayer from './WebRTCPlayer';
 import {VirtualStreamsTable} from './streams/VirtualStreamsTable';
 
@@ -253,6 +253,24 @@ const CameraSettings: React.FC = () => {
     const deviceOf = (camera?: Camera | null): string =>
         camera?.device_id ?? deviceForCameraType(Number(camera?.type ?? 1));
 
+    // Доступность типов камер по модулям подключённых устройств
+    const knownDevices = getDevices();
+    const hasModule = (m: string) => knownDevices.some(d => d.modules.includes(m));
+    const typeAvailability: Record<number, { ok: boolean; reason: string }> = {
+        1: { ok: knownDevices.length > 0, reason: 'В системе нет устройств' },
+        2: {
+            ok: knownDevices.length > 0 && hasModule('neural'),
+            reason: knownDevices.length > 0 ? 'В системе отсутствует модуль технического зрения' : 'В системе нет устройств',
+        },
+        3: {
+            ok: knownDevices.length > 0 && hasModule('birdview'),
+            reason: knownDevices.length > 0 ? 'В системе отсутствует модуль 360' : 'В системе нет устройств',
+        },
+    };
+
+    // Добавление камеры возможно только при живом устройстве
+    const anyDeviceOnline = knownDevices.some(d => d.status === 'online');
+
     const cleanupAllProbeCameras = useCallback(async (probes: Camera[]) => {
         if (probes.length === 0) return;
         console.log(`[CameraSettings] 🧹 Cleaning ${probes.length} stale probes`);
@@ -262,6 +280,8 @@ const CameraSettings: React.FC = () => {
     const loadCameras = async () => {
         setLoading(true);
         try {
+            // Статусы устройств нужны для блокировки добавления и типов
+            await loadDevices().catch(() => {});
             const { cameras: all, virtual } = await api.getSources();
             setVirtualStreams(virtual);
 
@@ -566,9 +586,10 @@ const CameraSettings: React.FC = () => {
         }
     };
 
+    // Статус 1 (READY) — пайплайн не запущен, для пользователя это оффлайн
     const getStatusText = (status?: number) => {
         const map: Record<number, string> = {
-            0: 'Отсутствует', 1: 'Готов', 2: 'Остановлен',
+            0: 'Отсутствует', 1: 'Оффлайн', 2: 'Остановлен',
             3: 'В работе', 4: 'Перезапуск', 5: 'Инициализирован',
         };
         return map[status ?? 0] || 'Неизвестно';
@@ -731,14 +752,23 @@ const CameraSettings: React.FC = () => {
                             </Typography>
                         </Box>
                     </Box>
-                    <Button
-                        variant="contained"
-                        startIcon={<AddIcon />}
-                        onClick={handleOpenAddDialog}
-                        sx={{ bgcolor: RZD_COLORS.primary, borderRadius: 1 }}
+                    <Tooltip
+                        title={anyDeviceOnline ? '' : 'Нет устройств в сети — добавление камер недоступно'}
+                        arrow
                     >
-                        Добавить камеру
-                    </Button>
+                        {/* span нужен: у disabled-кнопки не всплывает тултип */}
+                        <span>
+                            <Button
+                                variant="contained"
+                                startIcon={<AddIcon />}
+                                onClick={handleOpenAddDialog}
+                                disabled={!anyDeviceOnline}
+                                sx={{ bgcolor: RZD_COLORS.primary, borderRadius: 1 }}
+                            >
+                                Добавить камеру
+                            </Button>
+                        </span>
+                    </Tooltip>
                 </Box>
             </Paper>
 
@@ -820,30 +850,48 @@ const CameraSettings: React.FC = () => {
                                             )}
                                         </TableCell>
                                         <TableCell>
-                                            <Chip
-                                                label={getStatusText(camera.streams?.main?.status)}
-                                                color={getStatusColor(camera.streams?.main?.status)}
-                                                size="small"
-                                                sx={{ borderRadius: 1 }}
-                                            />
+                                            {camera.offline ? (
+                                                // Кэшированный статус устарел — устройство не отвечает
+                                                <Chip
+                                                    label="Устройство не в сети"
+                                                    color="error"
+                                                    size="small"
+                                                    sx={{ borderRadius: 1 }}
+                                                />
+                                            ) : (
+                                                <Chip
+                                                    label={getStatusText(camera.streams?.main?.status)}
+                                                    color={getStatusColor(camera.streams?.main?.status)}
+                                                    size="small"
+                                                    sx={{ borderRadius: 1 }}
+                                                />
+                                            )}
                                         </TableCell>
                                         <TableCell align="center">
-                                            <IconButton
-                                                color="primary"
-                                                onClick={() => handleOpenEditDialog(camera)}
-                                                disabled={loading}
-                                            >
-                                                <EditIcon />
-                                            </IconButton>
+                                            <Tooltip title={camera.offline ? 'Устройство камеры не в сети — изменение недоступно' : ''} arrow>
+                                                <span>
+                                                    <IconButton
+                                                        color="primary"
+                                                        onClick={() => handleOpenEditDialog(camera)}
+                                                        disabled={loading || camera.offline}
+                                                    >
+                                                        <EditIcon />
+                                                    </IconButton>
+                                                </span>
+                                            </Tooltip>
                                         </TableCell>
                                         <TableCell align="center">
-                                            <IconButton
-                                                color="error"
-                                                onClick={() => handleDeleteCamera(camera.id)}
-                                                disabled={loading}
-                                            >
-                                                <DeleteIcon />
-                                            </IconButton>
+                                            <Tooltip title={camera.offline ? 'Устройство камеры не в сети — удаление недоступно' : ''} arrow>
+                                                <span>
+                                                    <IconButton
+                                                        color="error"
+                                                        onClick={() => handleDeleteCamera(camera.id)}
+                                                        disabled={loading || camera.offline}
+                                                    >
+                                                        <DeleteIcon />
+                                                    </IconButton>
+                                                </span>
+                                            </Tooltip>
                                         </TableCell>
                                     </TableRow>
                                 );
@@ -1035,14 +1083,43 @@ const CameraSettings: React.FC = () => {
                                             <InputLabel>Тип камеры</InputLabel>
                                             <Select
                                                 value={formData.type}
-                                                onChange={(e) => handleInputChange('type', e.target.value)}
+                                                onChange={(e) => {
+                                                    // Типы без модуля в системе выбрать нельзя
+                                                    if (!typeAvailability[Number(e.target.value)]?.ok) return;
+                                                    handleInputChange('type', e.target.value);
+                                                }}
                                                 label="Тип камеры"
                                             >
-                                                <MenuItem value={1}>Основная</MenuItem>
-                                                <MenuItem value={2}>AI</MenuItem>
-                                                <MenuItem value={3}>360°</MenuItem>
+                                                {[
+                                                    { value: 1, label: 'Основная' },
+                                                    { value: 2, label: 'Техническое зрение' },
+                                                    { value: 3, label: '360°' },
+                                                ].map(({ value, label }) => {
+                                                    const avail = typeAvailability[value];
+                                                    return (
+                                                        <MenuItem
+                                                            key={value}
+                                                            value={value}
+                                                            sx={avail.ok ? {} : { color: 'text.disabled', cursor: 'not-allowed' }}
+                                                        >
+                                                            <Box display="flex" alignItems="center" justifyContent="space-between" width="100%">
+                                                                {label}
+                                                                {!avail.ok && (
+                                                                    <Tooltip title={avail.reason} placement="right" arrow>
+                                                                        <ErrorIcon sx={{ fontSize: 18, color: RZD_COLORS.error }} />
+                                                                    </Tooltip>
+                                                                )}
+                                                            </Box>
+                                                        </MenuItem>
+                                                    );
+                                                })}
                                             </Select>
                                         </FormControl>
+                                        {knownDevices.length === 0 && (
+                                            <Alert severity="warning" sx={{ mt: 1 }}>
+                                                В системе нет устройств — добавьте устройство во вкладке «Устройства»
+                                            </Alert>
+                                        )}
                                     </Grid>
                                 </Grid>
                             </Box>
@@ -1350,7 +1427,7 @@ const CameraSettings: React.FC = () => {
                             <Button
                                 variant="contained"
                                 onClick={handleSaveCamera}
-                                disabled={loading || !isFormValid}
+                                disabled={loading || !isFormValid || !typeAvailability[Number(formData.type)]?.ok}
                                 startIcon={loading ? <CircularProgress size={18} color="inherit" /> : <SaveIcon />}
                                 sx={{ bgcolor: RZD_COLORS.primary }}
                             >

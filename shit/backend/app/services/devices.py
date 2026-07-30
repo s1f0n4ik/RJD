@@ -20,11 +20,11 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Соответствие ECameraType (C++) → слот таблицы маршрутизации
+# Соответствие ECameraType (C++) → слот таблицы маршрутизации.
+# VIRTUAL (4) не маршрутизируется: виртуальные потоки создают сами модули.
 CAMERA_TYPE_GENERAL = 1
 CAMERA_TYPE_NEURAL = 2
 CAMERA_TYPE_BIRDVIEW = 3
-CAMERA_TYPE_VIRTUAL = 4
 
 EMPTY_ROUTING: dict[str, Any] = {
     "birdview": None,
@@ -153,10 +153,9 @@ class DeviceRegistry:
             if not self._routing.get("neural"):
                 self._routing["neural"] = device["id"]
             types.setdefault(str(CAMERA_TYPE_NEURAL), device["id"])
-        # Обычные и виртуальные камеры — на устройство без тяжёлых модулей
+        # Обычные камеры — на устройство без тяжёлых модулей
         if not modules:
             types.setdefault(str(CAMERA_TYPE_GENERAL), device["id"])
-            types.setdefault(str(CAMERA_TYPE_VIRTUAL), device["id"])
 
     def device_for_module(self, module: str) -> Optional[dict]:
         device_id = self._routing.get(module)
@@ -173,6 +172,9 @@ class DeviceRegistry:
                 "status": state.get("status", "unknown"),
                 "last_seen": state.get("last_seen"),
                 "telemetry": state.get("telemetry"),
+                "ping_ms": state.get("ping_ms"),
+                "net_rx_bps": state.get("net_rx_bps"),
+                "net_tx_bps": state.get("net_tx_bps"),
             })
         return result
 
@@ -200,6 +202,7 @@ class DeviceRegistry:
         state = self._state.setdefault(device["id"], {})
         base = f"http://{device['ip']}:{settings.DEVICE_MC_PORT}"
         try:
+            started = time.monotonic()
             response = await self.client.get(f"{base}/system/info")
             response.raise_for_status()
             info = response.json().get("data", {})
@@ -207,6 +210,9 @@ class DeviceRegistry:
             state["status"] = "online"
             state["last_seen"] = time.time()
             state["telemetry"] = info
+            # Пинг — RTT опроса ручки: отражает доступность именно сервиса
+            state["ping_ms"] = round((time.monotonic() - started) * 1000, 1)
+            self._update_net_rates(state, info)
 
             # Набор модулей мог смениться при перезапуске media-center
             modules = info.get("modules")
@@ -217,6 +223,22 @@ class DeviceRegistry:
             await self._refresh_cameras(device, base)
         except Exception:
             state["status"] = "offline"
+
+    @staticmethod
+    def _update_net_rates(state: dict, info: dict) -> None:
+        """Скорость сети по дельте кумулятивных счётчиков между опросами."""
+        rx = sum(i.get("rx_bytes", 0) for i in info.get("network", []))
+        tx = sum(i.get("tx_bytes", 0) for i in info.get("network", []))
+        now = time.monotonic()
+
+        prev = state.get("_net_prev")
+        if prev:
+            dt = now - prev["t"]
+            # Счётчики сбрасываются при ребуте устройства — отрицательные дельты глушим
+            if dt > 0 and rx >= prev["rx"] and tx >= prev["tx"]:
+                state["net_rx_bps"] = round((rx - prev["rx"]) / dt)
+                state["net_tx_bps"] = round((tx - prev["tx"]) / dt)
+        state["_net_prev"] = {"t": now, "rx": rx, "tx": tx}
 
     async def _refresh_cameras(self, device: dict, base: str) -> None:
         """Кэш камер: отдаётся для offline-устройств и как fallback агрегации."""

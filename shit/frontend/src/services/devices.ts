@@ -14,7 +14,7 @@ export interface DeviceTelemetry {
     version?: string;
     uptime_sec?: number;
     platform?: { platform: string; label: string; mode: string; npu_cores: number; max_streams: number };
-    cpu?: { cores: number; load_1: number; load_5: number; load_15: number };
+    cpu?: { cores: number; load_1: number; load_5: number; load_15: number; percent?: number };
     memory?: { total_bytes?: number; available_bytes?: number };
     temperature?: Array<{ zone: string; celsius: number }>;
     network?: Array<{ iface: string; rx_bytes: number; tx_bytes: number }>;
@@ -29,6 +29,11 @@ export interface Device {
     status: 'online' | 'offline' | 'unknown';
     last_seen: number | null;
     telemetry: DeviceTelemetry | null;
+    // RTT опроса /system/info, считает backend
+    ping_ms: number | null;
+    // Скорость сети по дельтам счётчиков, считает backend
+    net_rx_bps: number | null;
+    net_tx_bps: number | null;
 }
 
 export interface RoutingTable {

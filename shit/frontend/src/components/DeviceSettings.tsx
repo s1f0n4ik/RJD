@@ -33,6 +33,7 @@ import {
     DeviceHub as DeviceHubIcon,
     Edit as EditIcon,
     Memory as MemoryIcon,
+    NetworkPing as NetworkPingIcon,
     Radar as RadarIcon,
     Save as SaveIcon,
     Thermostat as ThermostatIcon,
@@ -50,17 +51,17 @@ import {
 
 const POLL_INTERVAL_MS = 5_000;
 
-// ECameraType из C++: какие типы камер назначаются на устройства
+// ECameraType из C++: какие типы камер назначаются на устройства.
+// Виртуальные (4) не маршрутизируются — их создают сами модули.
 const CAMERA_TYPE_LABELS: Record<string, string> = {
     '1': 'Обычные камеры',
-    '2': 'Камеры нейронки',
+    '2': 'Камеры технического зрения',
     '3': 'Камеры 360',
-    '4': 'Виртуальные',
 };
 
 const MODULE_LABELS: Record<string, string> = {
     birdview: 'Система 360',
-    neural: 'Нейронка',
+    neural: 'Техническое зрение',
 };
 
 const formatUptime = (sec?: number): string => {
@@ -78,6 +79,14 @@ const formatBytes = (bytes?: number): string => {
     const gb = bytes / 1024 ** 3;
     if (gb >= 1024) return `${(gb / 1024).toFixed(2)} ТБ`;
     return `${gb.toFixed(1)} ГБ`;
+};
+
+const formatBitrate = (bps?: number | null): string => {
+    if (bps == null) return '—';
+    const mbit = (bps * 8) / 1_000_000;
+    if (mbit >= 1000) return `${(mbit / 1000).toFixed(2)} Гбит/с`;
+    if (mbit >= 1) return `${mbit.toFixed(1)} Мбит/с`;
+    return `${Math.round(mbit * 1000)} Кбит/с`;
 };
 
 const maxTemp = (device: Device): number | null => {
@@ -297,8 +306,8 @@ const DeviceSettings: React.FC = () => {
                                 </Typography>
                                 <Typography variant="caption" color="text.secondary" display="block" mb={1}>
                                     {device.telemetry?.platform?.label ?? '—'}
-                                    {device.telemetry?.version ? ` · v${device.telemetry.version}` : ''}
-                                    {` · аптайм ${formatUptime(device.telemetry?.uptime_sec)}`}
+                                    {device.telemetry?.version ? ` · версия ${device.telemetry.version}` : ''}
+                                    {` · в работе ${formatUptime(device.telemetry?.uptime_sec)}`}
                                 </Typography>
 
                                 <Box display="flex" gap={0.5} flexWrap="wrap" mb={1.5}>
@@ -316,30 +325,47 @@ const DeviceSettings: React.FC = () => {
                                 <Divider sx={{ mb: 1.5 }} />
 
                                 <Grid container spacing={1}>
-                                    <Grid item xs={6}>
-                                        <Box display="flex" alignItems="center" gap={0.5}>
-                                            <ThermostatIcon sx={{ fontSize: 16, color: RZD_COLORS.grey[600] }} />
-                                            <Typography variant="body2">
-                                                {temp != null ? `${temp.toFixed(0)}°C` : '—'}
-                                            </Typography>
-                                        </Box>
+                                    <Grid item xs={4}>
+                                        <Tooltip title="Температура (максимум по датчикам)" arrow>
+                                            <Box display="flex" alignItems="center" gap={0.5}>
+                                                <ThermostatIcon sx={{ fontSize: 16, color: RZD_COLORS.grey[600] }} />
+                                                <Typography variant="body2">
+                                                    {temp != null ? `${temp.toFixed(0)}°C` : '—'}
+                                                </Typography>
+                                            </Box>
+                                        </Tooltip>
+                                    </Grid>
+                                    <Grid item xs={4}>
+                                        <Tooltip title={`Загрузка процессора, ядер: ${cpu?.cores ?? '—'}`} arrow>
+                                            <Box display="flex" alignItems="center" gap={0.5}>
+                                                <MemoryIcon sx={{ fontSize: 16, color: RZD_COLORS.grey[600] }} />
+                                                <Typography variant="body2">
+                                                    {cpu?.percent != null ? `${cpu.percent.toFixed(0)}%` : '—'}
+                                                </Typography>
+                                            </Box>
+                                        </Tooltip>
+                                    </Grid>
+                                    <Grid item xs={4}>
+                                        <Tooltip title="Отклик устройства (время ответа опроса)" arrow>
+                                            <Box display="flex" alignItems="center" gap={0.5}>
+                                                <NetworkPingIcon sx={{ fontSize: 16, color: RZD_COLORS.grey[600] }} />
+                                                <Typography variant="body2">
+                                                    {online && device.ping_ms != null ? `${device.ping_ms} мс` : '—'}
+                                                </Typography>
+                                            </Box>
+                                        </Tooltip>
                                     </Grid>
                                     <Grid item xs={6}>
-                                        <Box display="flex" alignItems="center" gap={0.5}>
-                                            <MemoryIcon sx={{ fontSize: 16, color: RZD_COLORS.grey[600] }} />
-                                            <Tooltip title={`load average за 1 мин, ядер: ${cpu?.cores ?? '—'}`}>
-                                                <Typography variant="body2">
-                                                    {cpu ? cpu.load_1.toFixed(2) : '—'}
-                                                </Typography>
-                                            </Tooltip>
-                                        </Box>
+                                        <Typography variant="caption" color="text.secondary">
+                                            Сеть: ↓ {online ? formatBitrate(device.net_rx_bps) : '—'} · ↑ {online ? formatBitrate(device.net_tx_bps) : '—'}
+                                        </Typography>
                                     </Grid>
                                     <Grid item xs={6}>
                                         <Typography variant="caption" color="text.secondary">
                                             ОЗУ свободно: {formatBytes(memory?.available_bytes)}
                                         </Typography>
                                     </Grid>
-                                    <Grid item xs={6}>
+                                    <Grid item xs={12}>
                                         <Typography variant="caption" color="text.secondary">
                                             Диск свободно: {formatBytes(storageDisk?.free_bytes)}
                                         </Typography>
@@ -392,7 +418,7 @@ const DeviceSettings: React.FC = () => {
                                             <TableCell>{deviceSelect(routing.birdview, id => setModuleRoute('birdview', id))}</TableCell>
                                         </TableRow>
                                         <TableRow>
-                                            <TableCell>Нейронка (детекция, журнал)</TableCell>
+                                            <TableCell>Техническое зрение (детекция, журнал)</TableCell>
                                             <TableCell>{deviceSelect(routing.neural, id => setModuleRoute('neural', id))}</TableCell>
                                         </TableRow>
                                     </TableBody>
@@ -459,7 +485,7 @@ const DeviceSettings: React.FC = () => {
                                                         ? result.modules.map(m => (
                                                             <Chip key={m} label={MODULE_LABELS[m] ?? m} size="small" />
                                                         ))
-                                                        : <Chip label="NVR" size="small" variant="outlined" />}
+                                                        : <Chip label="Видеорегистратор" size="small" variant="outlined" />}
                                                 </Box>
                                             </TableCell>
                                             <TableCell align="right">

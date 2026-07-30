@@ -154,6 +154,30 @@ json::object USystemController::collect() {
         cpu["load_1"] = load_1;
         cpu["load_5"] = load_5;
         cpu["load_15"] = load_15;
+
+        // Проценты по дельте /proc/stat; первый вызов после старта отдаёт 0
+        std::istringstream stat(read_first_line("/proc/stat"));
+        std::string label;
+        uint64_t value = 0, total = 0, idle = 0;
+        int field = 0;
+        stat >> label;
+        while (stat >> value) {
+            total += value;
+            // idle + iowait — 4-е и 5-е поля
+            if (field == 3 || field == 4) idle += value;
+            ++field;
+        }
+
+        double percent = 0.0;
+        if (m_prev_cpu_total > 0 && total > m_prev_cpu_total) {
+            const auto d_total = total - m_prev_cpu_total;
+            const auto d_idle = idle - m_prev_cpu_idle;
+            percent = 100.0 * (1.0 - static_cast<double>(d_idle) / static_cast<double>(d_total));
+        }
+        m_prev_cpu_total = total;
+        m_prev_cpu_idle = idle;
+        cpu["percent"] = percent;
+
         info["cpu"] = std::move(cpu);
     }
 
