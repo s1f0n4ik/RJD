@@ -1,5 +1,5 @@
 import { confState } from '../../state/conf-store';
-import { zoneCaptured, zoneRotationFor } from './conf-canvas';
+import { cameraZonesOrdered, zoneRotationFor } from './conf-canvas';
 
 // Сборка и отправка конфигурации birdview.
 // Модель редактора метровая, наружу уходят пиксели канваса: всё умножается на
@@ -76,8 +76,8 @@ export function buildExportJson(params: ExportParams): ExportResult {
     confState.cameras.forEach(cam => {
         const key = cam.key.trim();
         // Захват на лету: общий мат уходит в dst_points каждой накрывшей камеры.
-        // Порядок четвёрок — глобальный порядок списка зон
-        const camZones = confState.zones.filter(z => zoneCaptured(cam, z));
+        // Порядок четвёрок — кольцевой порядок расчёта cameraZonesOrdered
+        const camZones = cameraZonesOrdered(cam);
         if (camZones.length) {
             zoneNames[key] = camZones.map(z => z.name);
         }

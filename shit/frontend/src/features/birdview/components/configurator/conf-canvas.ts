@@ -212,6 +212,35 @@ export function zoneCameras(zone: ConfZone): ConfCamera[] {
 }
 
 /**
+ * Маты камеры в порядке расчёта. Глобальный список — кольцо: последовательность
+ * начинается с мата после самого большого разрыва, поэтому захват «хвост +
+ * голова» идёт как …N, 1…, а не 1…N. Без замыкания порядок остаётся глобальным.
+ */
+export function cameraZonesOrdered(cam: ConfCamera): ConfZone[] {
+    const idx: number[] = [];
+    confState.zones.forEach((zone, i) => {
+        if (zoneCaptured(cam, zone)) idx.push(i);
+    });
+    if (idx.length < 2) return idx.map(i => confState.zones[i]);
+
+    const n = confState.zones.length;
+    // Разрыв перед каждым захваченным матом — расстояние по кольцу от
+    // предыдущего. При равенстве побеждает разрыв перед первым: порядок
+    // остаётся глобальным
+    let start = 0;
+    let maxGap = idx[0] + n - idx[idx.length - 1];
+    for (let k = 1; k < idx.length; k++) {
+        const gap = idx[k] - idx[k - 1];
+        if (gap > maxGap) {
+            maxGap = gap;
+            start = k;
+        }
+    }
+
+    return idx.slice(start).concat(idx.slice(0, start)).map(i => confState.zones[i]);
+}
+
+/**
  * «Поворот» мата для камеры: 0 — стрелка вниз, 90 — влево, 180 — вверх,
  * 270 — вправо. Стрелка противоположна взгляду значка камеры.
  *
@@ -488,17 +517,15 @@ function drawZones(c: CanvasRenderingContext2D): void {
     });
 }
 
-// Направления матов выделенной камеры: стрелка и метка якорного угла (первая
-// точка четвёрки dst_points) в цвете камеры
+// Направления и порядок матов выделенной камеры: стрелка, метка якорного угла
+// (первая точка четвёрки dst_points) и порядковый номер расчёта в цвете камеры
 function drawCameraArrows(c: CanvasRenderingContext2D): void {
     const sel = confState.selected;
     if (!sel || sel.type !== 'camera') return;
     const cam = confState.cameras.find(i => i.id === sel.id);
     if (!cam) return;
 
-    confState.zones.forEach(zone => {
-        if (!zoneCaptured(cam, zone)) return;
-
+    cameraZonesOrdered(cam).forEach((zone, order) => {
         const tl = worldToCanvas(zone.x, zone.y);
         const br = worldToCanvas(zone.x + zone.w, zone.y + zone.h);
         const w = br.x - tl.x;
@@ -533,6 +560,13 @@ function drawCameraArrows(c: CanvasRenderingContext2D): void {
         c.fill();
 
         c.restore();
+
+        // Порядковый номер расчёта — правый верхний угол, экраном вверх
+        c.fillStyle = cam.color;
+        c.font = `bold ${12 * dpr}px monospace`;
+        c.textAlign = 'right';
+        c.textBaseline = 'top';
+        c.fillText(String(order + 1), tl.x + w - 3 * dpr, tl.y + 3 * dpr);
     });
 }
 
@@ -729,7 +763,7 @@ function drawMeasureRef(c: CanvasRenderingContext2D, zone: ConfZone): void {
     c.strokeRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y);
 }
 
-// Экранный размер значка камеры, px: корпус и длина клина-объектива
+// Экранный размер значка камеры, px: радиус хит-теста и длина лучей обзора
 const CAM_ICON_R = 9;
 const CAM_ICON_WEDGE = 22;
 
@@ -795,50 +829,69 @@ function drawCameraIcons(c: CanvasRenderingContext2D): void {
     const g = confState.gabarits[0];
     if (!g) return;
 
+    // Инженерный значок: прямоугольный корпус вдоль взгляда, тёмный объектив,
+    // тонкие лучи обзора. Локальная ось +x — направление взгляда
+    const bodyL = 13 * dpr;
+    const bodyH = 11 * dpr;
+    const lensL = 4 * dpr;
+    const lensH = 6 * dpr;
+    const fov = CAM_ICON_WEDGE * dpr;
+    const spread = Math.PI / 7;
+
     confState.cameras.forEach(cam => {
         const icon = cameraIconPos(cam);
         if (!icon) return;
 
         const p = worldToCanvas(icon.x, icon.y);
-        const a = icon.angle;
-        const wedge = CAM_ICON_WEDGE * dpr;
-        const spread = Math.PI / 7;
+        const isSelected = confState.selected?.type === 'camera' && confState.selected.id === cam.id;
 
-        // Клин-объектив в сторону центра квадрата камеры
+        c.save();
+        c.translate(p.x, p.y);
+        c.rotate(icon.angle);
+
+        // Лучи обзора от объектива
+        c.strokeStyle = hex2rgba(cam.color, 0.6);
+        c.lineWidth = 1 * dpr;
         c.beginPath();
-        c.moveTo(p.x, p.y);
-        c.lineTo(p.x + Math.cos(a - spread) * wedge, p.y + Math.sin(a - spread) * wedge);
-        c.lineTo(p.x + Math.cos(a + spread) * wedge, p.y + Math.sin(a + spread) * wedge);
-        c.closePath();
-        c.fillStyle = hex2rgba(cam.color, 0.35);
-        c.fill();
+        c.moveTo(lensL, 0);
+        c.lineTo(lensL + Math.cos(spread) * fov, -Math.sin(spread) * fov);
+        c.moveTo(lensL, 0);
+        c.lineTo(lensL + Math.cos(spread) * fov, Math.sin(spread) * fov);
+        c.stroke();
 
         // Корпус: тёмная обводка отделяет значок от заливки габарита
-        c.beginPath();
-        c.arc(p.x, p.y, CAM_ICON_R * dpr, 0, Math.PI * 2);
         c.fillStyle = cam.color;
         c.strokeStyle = CANVAS_COLORS.base;
         c.lineWidth = 1.5 * dpr;
-        c.fill();
-        c.stroke();
+        c.fillRect(-bodyL, -bodyH / 2, bodyL, bodyH);
+        c.strokeRect(-bodyL, -bodyH / 2, bodyL, bodyH);
 
-        // Зрачок
-        c.beginPath();
-        c.arc(p.x + Math.cos(a) * 3.5 * dpr, p.y + Math.sin(a) * 3.5 * dpr, 2.5 * dpr, 0, Math.PI * 2);
+        // Объектив — тёмный прямоугольник на передней грани
         c.fillStyle = CANVAS_COLORS.base;
-        c.fill();
+        c.strokeStyle = cam.color;
+        c.lineWidth = 1 * dpr;
+        c.fillRect(0, -lensH / 2, lensL, lensH);
+        c.strokeRect(0, -lensH / 2, lensL, lensH);
 
-        const isSelected = confState.selected?.type === 'camera' && confState.selected.id === cam.id;
+        if (isSelected) {
+            c.strokeStyle = CANVAS_COLORS.accent;
+            c.lineWidth = 1.5 * dpr;
+            c.setLineDash([4 * dpr, 3 * dpr]);
+            c.strokeRect(
+                -bodyL - 3 * dpr,
+                -bodyH / 2 - 3 * dpr,
+                bodyL + lensL + 6 * dpr,
+                bodyH + 6 * dpr,
+            );
+            c.setLineDash([]);
+        }
+
+        c.restore();
+
         if (!isSelected) return;
 
-        c.beginPath();
-        c.arc(p.x, p.y, (CAM_ICON_R + 3) * dpr, 0, Math.PI * 2);
-        c.strokeStyle = CANVAS_COLORS.accent;
-        c.lineWidth = 1.5 * dpr;
-        c.stroke();
-
         // Координаты точки монтажа — от левого верхнего угла габарита.
-        // Подпись над значком, выше кольца выделения
+        // Подпись над значком, выше рамки выделения при любом развороте
         c.fillStyle = cam.color;
         c.font = `${10 * dpr}px monospace`;
         c.textAlign = 'center';
@@ -846,7 +899,7 @@ function drawCameraIcons(c: CanvasRenderingContext2D): void {
         c.fillText(
             `X: ${fmtM(q(icon.x - g.x))} Y: ${fmtM(q(icon.y - g.y))}`,
             p.x,
-            p.y - (CAM_ICON_R + 7) * dpr,
+            p.y - bodyL - 6 * dpr,
         );
     });
 }
