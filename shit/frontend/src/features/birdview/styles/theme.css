@@ -1665,6 +1665,20 @@
 }
 .birdview-root .plan-place.assigned .plan-place-cam { fill: var(--bv-text-primary); }
 
+/* Значок камеры на периметре машины: декорация, событий не ловит */
+.birdview-root .plan-cam-icon { pointer-events: none; }
+.birdview-root .plan-cam-body {
+    fill: var(--bv-accent);
+    stroke: var(--bv-bg-base);
+}
+.birdview-root .plan-cam-lens {
+    fill: var(--bv-bg-base);
+    stroke: var(--bv-accent);
+}
+.birdview-root .plan-cam-ray {
+    stroke: rgba(var(--bv-accent-rgb), 0.55);
+}
+
 /* Подложка: габарит с именем файла, чтобы было ясно, что это за прямоугольник */
 .birdview-root .plan-overlay-kind,
 .birdview-root .plan-overlay-name {

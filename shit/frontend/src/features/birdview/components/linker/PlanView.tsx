@@ -172,8 +172,10 @@ export function PlanView({ geometry, bindings, cameras, locked, onAssign }: Plan
                 {geometry.tiles.map(t => {
                     const rect = t.rect;
                     const camera = bindings[t.key];
-                    const cx = rect.x + rect.w / 2;
-                    const cy = rect.y + rect.h / 2;
+                    // Подпись в центре тяжести трапеции: центр ректа после
+                    // срезов по швам может уехать к соседу
+                    const cx = t.center.x;
+                    const cy = t.center.y;
 
                     const camText = camera ? nameOf(camera) : 'не назначена';
                     // Оба ярлыка живут в одной рамке, поэтому кегль берём
@@ -204,13 +206,9 @@ export function PlanView({ geometry, bindings, cameras, locked, onAssign }: Plan
                                 }
                             }}
                         >
-                            <rect
+                            <polygon
                                 className="plan-place-shape"
-                                x={rect.x}
-                                y={rect.y}
-                                width={rect.w}
-                                height={rect.h}
-                                rx={8}
+                                points={t.poly.map(p => `${p.x},${p.y}`).join(' ')}
                             />
                             <text
                                 className="plan-place-title"
@@ -230,6 +228,58 @@ export function PlanView({ geometry, bindings, cameras, locked, onAssign }: Plan
                             >
                                 {camText}
                             </text>
+                        </g>
+                    );
+                })}
+
+                {/* Значки камер как в конфигураторе: декорация, клик проходит сквозь */}
+                {geometry.icons.map(ic => {
+                    const s = Math.max(geometry.view.width, geometry.view.height);
+                    const bodyL = s * 0.02;
+                    const bodyH = s * 0.017;
+                    const lensL = s * 0.006;
+                    const lensH = s * 0.011;
+                    const fov = s * 0.034;
+
+                    return (
+                        <g
+                            key={`ico-${ic.key}`}
+                            className="plan-cam-icon"
+                            transform={`translate(${ic.x} ${ic.y}) rotate(${ic.angleDeg})`}
+                            pointerEvents="none"
+                        >
+                            <line
+                                className="plan-cam-ray"
+                                strokeWidth={s * 0.0012}
+                                x1={lensL}
+                                y1={0}
+                                x2={lensL + 0.906 * fov}
+                                y2={-0.423 * fov}
+                            />
+                            <line
+                                className="plan-cam-ray"
+                                strokeWidth={s * 0.0012}
+                                x1={lensL}
+                                y1={0}
+                                x2={lensL + 0.906 * fov}
+                                y2={0.423 * fov}
+                            />
+                            <rect
+                                className="plan-cam-body"
+                                strokeWidth={s * 0.0015}
+                                x={-bodyL}
+                                y={-bodyH / 2}
+                                width={bodyL}
+                                height={bodyH}
+                            />
+                            <rect
+                                className="plan-cam-lens"
+                                strokeWidth={s * 0.001}
+                                x={0}
+                                y={-lensH / 2}
+                                width={lensL}
+                                height={lensH}
+                            />
                         </g>
                     );
                 })}
