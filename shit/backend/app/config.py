@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     DEBUG: bool = True
 
     # Media Center (C++)
-    MEDIA_CENTER_URL: str = "http://192.168.1.2:7777"
+    MEDIA_CENTER_URL: str = "http://192.168.1.102:7777"
     MEDIA_CENTER_TIMEOUT: int = 10
 
     # Устройства (media-center'ы): реестр на томе, порты сервисов, опрос
@@ -44,8 +44,8 @@ class Settings(BaseSettings):
     CORS_ORIGINS: list = [
         "http://localhost:3000",
         "http://localhost",
-        "http://192.168.1.2:3000",
-        "http://192.168.1.2",
+        "http://192.168.1.102:3000",
+        "http://192.168.1.102",
     ]
 
     class Config:
