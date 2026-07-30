@@ -49,7 +49,8 @@ export function streamToSource(
     return {
         id: stream.id,
         name: stream.name || stream.id,
-        active: stream.running,
+        // Кэшированный статус offline-устройства устарел — не показываем «в работе»
+        active: !stream.offline && stream.running,
         detail: describe(stream, nameOf),
     };
 }

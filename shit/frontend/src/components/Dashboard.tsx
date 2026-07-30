@@ -1,12 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import {
   Container,
-  Box,
   Card,
   CardContent,
   Grid,
   Typography,
-  Paper,
 } from '@mui/material';
 import {
   Videocam as VideocamIcon,
@@ -17,11 +15,9 @@ import {
   Hub as HubIcon,
   DeviceHub as DeviceHubIcon,
 } from '@mui/icons-material';
-import type { SystemState } from '../types';
 import { AddToQueue } from "@mui/icons-material";
 import { getDevices, loadDevices } from '../services/devices';
 interface DashboardProps {
-  state: SystemState;
   onNavigate: (tabIndex: number) => void;
 }
 
@@ -113,21 +109,21 @@ const modules: Module[] = [
   },
 ];
 
-const Dashboard: React.FC<DashboardProps> = ({ state, onNavigate }) => {
-  const cameras = Array.isArray(state.cameras) ? state.cameras : [];
-  const loaders = Array.isArray(state.loaders) ? state.loaders : [];
-
-  const runningCameras = cameras.filter(c => c.streams?.main?.status === 3).length;
-  const runningLoaders = loaders.filter(l => l.status === 'running').length;
-
+const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   // Свежий реестр устройств: от него зависит доступность модульных плиток
   const [, setDevicesTick] = useState(0);
   useEffect(() => {
-    loadDevices().then(() => setDevicesTick(t => t + 1)).catch(() => {});
+    const refresh = () =>
+      loadDevices().then(() => setDevicesTick(t => t + 1)).catch(() => {});
+    refresh();
+    const timer = window.setInterval(refresh, 10_000);
+    return () => window.clearInterval(timer);
   }, []);
 
+  // Модуль доступен, только когда устройство с ним живо прямо сейчас
   const moduleAvailable = (module: Module) =>
-    !module.requiresModule || getDevices().some(d => d.modules.includes(module.requiresModule!));
+    !module.requiresModule
+    || getDevices().some(d => d.status === 'online' && d.modules.includes(module.requiresModule!));
 
   const handleModuleClick = (module: Module) => {
     // Повторная проверка на клике: реестр мог измениться после рендера
@@ -152,45 +148,6 @@ const Dashboard: React.FC<DashboardProps> = ({ state, onNavigate }) => {
 
   return (
     <Container maxWidth="xl">
-      {/* Статистика вверху (можно убрать, если не нужна) */}
-      <Box sx={{ mb: 4, display: 'flex', gap: 3, justifyContent: 'center' }}>
-        <Paper
-          elevation={2}
-          sx={{
-            px: 4,
-            py: 2,
-            textAlign: 'center',
-            minWidth: 200,
-            borderRadius: 2,
-          }}
-        >
-          <Typography variant="h3" fontWeight="bold" color="primary">
-            {runningCameras}/{cameras.length}
-          </Typography>
-          <Typography variant="body2" color="text.secondary" fontWeight={500}>
-            Активных камер
-          </Typography>
-        </Paper>
-
-        <Paper
-          elevation={2}
-          sx={{
-            px: 4,
-            py: 2,
-            textAlign: 'center',
-            minWidth: 200,
-            borderRadius: 2,
-          }}
-        >
-          <Typography variant="h3" fontWeight="bold" color="secondary">
-            {runningLoaders}/{loaders.length}
-          </Typography>
-          <Typography variant="body2" color="text.secondary" fontWeight={500}>
-            Активных загрузчиков
-          </Typography>
-        </Paper>
-      </Box>
-
       {/* Модульная сетка 3x2 */}
       <Grid container spacing={3}>
         {modules.map((module) => {
@@ -257,25 +214,6 @@ const Dashboard: React.FC<DashboardProps> = ({ state, onNavigate }) => {
         })}
       </Grid>
 
-      {/* Empty State (показываем только если нет камер И загрузчиков) */}
-      {cameras.length === 0 && loaders.length === 0 && (
-        <Paper
-          sx={{
-            p: 8,
-            textAlign: 'center',
-            mt: 4,
-            borderRadius: 2,
-            bgcolor: 'background.default'
-          }}
-        >
-          <Typography variant="h5" color="text.secondary" gutterBottom fontWeight={600}>
-            Нет активных устройств
-          </Typography>
-          <Typography variant="body1" color="text.secondary">
-            Система не содержит камер или загрузчиков. Используйте модуль <strong>Настройки</strong> для добавления камер.
-          </Typography>
-        </Paper>
-      )}
     </Container>
   );
 };

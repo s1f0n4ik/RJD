@@ -205,6 +205,7 @@ class ApiClient {
             running: Boolean(raw?.running),
             device_id: raw?.device_id ? String(raw.device_id) : undefined,
             device_name: raw?.device_name ? String(raw.device_name) : undefined,
+            offline: raw?.offline === true ? true : undefined,
         };
     }
 

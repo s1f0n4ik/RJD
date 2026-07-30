@@ -318,8 +318,9 @@ const AppContent: React.FC = () => {
     );
   }
 
-  // Модульные страницы доступны только при устройстве с нужным модулем
-  const hasModule = (m: string) => getDevices().some((d) => d.modules.includes(m));
+  // Модульные страницы доступны только при живом устройстве с нужным модулем
+  const hasModule = (m: string) =>
+    getDevices().some((d) => d.status === 'online' && d.modules.includes(m));
 
   if (isNeuralRoute) {
     if (!hasModule('neural')) return <NeuralUnavailable />;
@@ -351,7 +352,7 @@ const AppContent: React.FC = () => {
   const renderContent = () => {
     switch (currentTab) {
       case 0:
-        return <Dashboard state={state} onNavigate={handleTabChange} />;
+        return <Dashboard onNavigate={handleTabChange} />;
       case 1:
         return hasAccessToTab(1) ? <CameraSettings /> : renderDenied('tab:1');
       case 2:
@@ -361,7 +362,7 @@ const AppContent: React.FC = () => {
       case 4:
         return hasAccessToTab(4) ? <DeviceSettings /> : renderDenied('tab:4');
       default:
-        return <Dashboard state={state} onNavigate={handleTabChange} />;
+        return <Dashboard onNavigate={handleTabChange} />;
     }
   };
 

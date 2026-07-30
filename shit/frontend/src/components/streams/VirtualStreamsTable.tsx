@@ -128,12 +128,22 @@ export const VirtualStreamsTable: React.FC<VirtualStreamsTableProps> = ({ stream
                                     </TableCell>
 
                                     <TableCell>
-                                        <Chip
-                                            label={stream.running ? 'В работе' : 'Остановлен'}
-                                            color={stream.running ? 'success' : 'default'}
-                                            size="small"
-                                            sx={{ borderRadius: 1 }}
-                                        />
+                                        {stream.offline ? (
+                                            // Кэшированный статус устарел — устройство модуля не отвечает
+                                            <Chip
+                                                label="Не в сети"
+                                                color="error"
+                                                size="small"
+                                                sx={{ borderRadius: 1 }}
+                                            />
+                                        ) : (
+                                            <Chip
+                                                label={stream.running ? 'В работе' : 'Остановлен'}
+                                                color={stream.running ? 'success' : 'default'}
+                                                size="small"
+                                                sx={{ borderRadius: 1 }}
+                                            />
+                                        )}
                                     </TableCell>
                                 </TableRow>
                             ))
