@@ -109,8 +109,11 @@ const Observation: React.FC = () => {
     const [_, setDraggedCamera] = useState<string | null>(null);
     const isTouch = useTouchDevice();
 
+    // Периодический опрос: статусы камер и пропажа устройств видны без перезагрузки
     useEffect(() => {
         loadCameras();
+        const timer = window.setInterval(loadCameras, 10_000);
+        return () => window.clearInterval(timer);
     }, []);
 
     useEffect(() => {

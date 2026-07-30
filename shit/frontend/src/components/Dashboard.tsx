@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Container,
   Box,
@@ -15,9 +15,11 @@ import {
   ThreeSixty as ThreeSixtyIcon,
   Settings as SettingsIcon,
   Hub as HubIcon,
+  DeviceHub as DeviceHubIcon,
 } from '@mui/icons-material';
 import type { SystemState } from '../types';
 import { AddToQueue } from "@mui/icons-material";
+import { getDevices, loadDevices } from '../services/devices';
 interface DashboardProps {
   state: SystemState;
   onNavigate: (tabIndex: number) => void;
@@ -34,6 +36,8 @@ interface Module {
   kiosk?: boolean;
 
   externalUrl?: string;
+  // Модуль media-center, без которого плитка недоступна
+  requiresModule?: string;
 }
 
 const modules: Module[] = [
@@ -78,7 +82,7 @@ const modules: Module[] = [
       gradient: 'linear-gradient(135deg, #9c27b0 0%, #6a1b9a 100%)',
       tabIndex: -1,               // ← больше не вкладка
       externalUrl: '/app/neural', // ← переход на отдельную страницу
-      disabled: false,
+      requiresModule: 'neural',
     },
   {
     id: 'birdview',
@@ -87,7 +91,16 @@ const modules: Module[] = [
     icon: ThreeSixtyIcon,
     gradient: 'linear-gradient(135deg, #00bcd4 0%, #0097a7 100%)',
     tabIndex: -1,
-      externalUrl: '/app/birdview'
+      externalUrl: '/app/birdview',
+      requiresModule: 'birdview',
+  },
+  {
+    id: 'devices',
+    title: 'Устройства',
+    description: 'Одноплатники системы: состояние и маршрутизация',
+    icon: DeviceHubIcon,
+    gradient: 'linear-gradient(135deg, #3f51b5 0%, #283593 100%)',
+    tabIndex: 4, // DeviceSettings
   },
   {
     id: 'krsps',
@@ -107,8 +120,18 @@ const Dashboard: React.FC<DashboardProps> = ({ state, onNavigate }) => {
   const runningCameras = cameras.filter(c => c.streams?.main?.status === 3).length;
   const runningLoaders = loaders.filter(l => l.status === 'running').length;
 
+  // Свежий реестр устройств: от него зависит доступность модульных плиток
+  const [, setDevicesTick] = useState(0);
+  useEffect(() => {
+    loadDevices().then(() => setDevicesTick(t => t + 1)).catch(() => {});
+  }, []);
+
+  const moduleAvailable = (module: Module) =>
+    !module.requiresModule || getDevices().some(d => d.modules.includes(module.requiresModule!));
+
   const handleModuleClick = (module: Module) => {
-    if (module.disabled) return;
+    // Повторная проверка на клике: реестр мог измениться после рендера
+    if (module.disabled || !moduleAvailable(module)) return;
 
     if (module.kiosk) {
       window.location.href = '/kiosk';
@@ -126,10 +149,6 @@ const Dashboard: React.FC<DashboardProps> = ({ state, onNavigate }) => {
       alert(`${module.title} будет доступен в следующей версии`);
     }
   };
-
-  modules.forEach((m) => {
-    console.log(m.id, typeof m.icon, m.icon);
-  });
 
   return (
     <Container maxWidth="xl">
@@ -176,6 +195,8 @@ const Dashboard: React.FC<DashboardProps> = ({ state, onNavigate }) => {
       <Grid container spacing={3}>
         {modules.map((module) => {
           const Icon = module.icon;
+          const unavailable = !moduleAvailable(module);
+          const disabled = module.disabled || unavailable;
           return (
             <Grid item xs={12} sm={6} md={4} key={module.id}>
               <Card
@@ -188,17 +209,17 @@ const Dashboard: React.FC<DashboardProps> = ({ state, onNavigate }) => {
                   flexDirection: 'column',
                   justifyContent: 'center',
                   alignItems: 'center',
-                  cursor: module.disabled ? 'not-allowed' : 'pointer',
-                  opacity: module.disabled ? 0.45 : 1,
-                  filter: module.disabled ? 'grayscale(0.7)' : 'none',
+                  cursor: disabled ? 'not-allowed' : 'pointer',
+                  opacity: disabled ? 0.45 : 1,
+                  filter: disabled ? 'grayscale(0.7)' : 'none',
                   '&:hover': {
-                    transform: module.disabled ? 'none' : 'translateY(-8px)',
-                    boxShadow: module.disabled
+                    transform: disabled ? 'none' : 'translateY(-8px)',
+                    boxShadow: disabled
                       ? '0 4px 20px rgba(0,0,0,0.15)'
                       : '0 12px 40px rgba(0,0,0,0.3)',
                   },
                   '&:active': {
-                    transform: module.disabled ? 'none' : 'translateY(-4px)',
+                    transform: disabled ? 'none' : 'translateY(-4px)',
                   },
                   transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                   borderRadius: 2,
@@ -225,7 +246,9 @@ const Dashboard: React.FC<DashboardProps> = ({ state, onNavigate }) => {
                       fontSize: '0.95rem'
                     }}
                   >
-                    {module.description}
+                    {unavailable
+                      ? 'Модуль не запущен ни на одном устройстве'
+                      : module.description}
                   </Typography>
                 </CardContent>
               </Card>

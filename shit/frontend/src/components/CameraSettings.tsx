@@ -853,7 +853,7 @@ const CameraSettings: React.FC = () => {
                                             {camera.offline ? (
                                                 // Кэшированный статус устарел — устройство не отвечает
                                                 <Chip
-                                                    label="Устройство не в сети"
+                                                    label="Не в сети"
                                                     color="error"
                                                     size="small"
                                                     sx={{ borderRadius: 1 }}

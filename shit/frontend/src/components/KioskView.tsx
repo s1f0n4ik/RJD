@@ -112,13 +112,17 @@ const KioskView: React.FC = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [layoutsLoading, serverLayouts]);
 
+    // Периодический опрос: статусы камер и пропажа устройств видны без перезагрузки
     useEffect(() => {
-        api.getSources()
+        const load = () => api.getSources()
             .then(({ cameras: data, virtual: streams }) => {
                 if (Array.isArray(data)) setCameras(data);
                 setVirtual(streams);
             })
             .catch(err => console.error('Kiosk: failed to load cameras', err));
+        load();
+        const timer = window.setInterval(load, 10_000);
+        return () => window.clearInterval(timer);
     }, []);
 
     useEffect(() => {

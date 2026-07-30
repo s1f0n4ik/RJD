@@ -27,6 +27,9 @@ import { FULL_AUTH, readStoredToken } from './utils/auth';
 import Observation from './components/Observation';
 import RecordingsView from './components/RecordingsView';
 import DeviceSettings from './components/DeviceSettings';
+import { getDevices } from './services/devices';
+import { BirdviewUnavailable } from './features/birdview/components/ModuleUnavailable';
+import { NeuralUnavailable } from './features/neural/components/ModuleUnavailable';
 import Landing from './components/Landing';
 import OnScreenKeyboard from './components/OnScreenKeyboard';
 const ADMIN_TABS = new Set([1, 4]); // Камеры, Устройства
@@ -315,7 +318,11 @@ const AppContent: React.FC = () => {
     );
   }
 
+  // Модульные страницы доступны только при устройстве с нужным модулем
+  const hasModule = (m: string) => getDevices().some((d) => d.modules.includes(m));
+
   if (isNeuralRoute) {
+    if (!hasModule('neural')) return <NeuralUnavailable />;
     return (
       <>
         <NeuralConfigApp />
@@ -332,6 +339,7 @@ const AppContent: React.FC = () => {
     );
   }
   if (isBirdviewRoute) {
+    if (!hasModule('birdview')) return <BirdviewUnavailable />;
     return (
       <>
         <BirdviewApp />
