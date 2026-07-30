@@ -38,6 +38,8 @@ interface SurroundWebRTCPlayerProps {
     background?: string;
     /** Кнопки оверлея. Жесты живут и без них — на странице линкера. */
     controls?: boolean;
+    /** Режим орбиты из сохранённого отображения: применяется один раз после подключения. */
+    initialManual?: boolean;
 }
 
 /** Статус линкера: ровно те поля, что нужны плееру. */
@@ -45,6 +47,7 @@ async function fetchLinkerStatus(): Promise<{
     running: boolean;
     streamId: string;
     viewMode: SurroundViewMode;
+    orbitManual: boolean;
     width: number;
     height: number;
 } | null> {
@@ -56,6 +59,7 @@ async function fetchLinkerStatus(): Promise<{
             running: Boolean(d?.running),
             streamId: String(d?.stream_id ?? ''),
             viewMode: d?.view_mode === 'surround' ? 'surround' : 'top',
+            orbitManual: Boolean(d?.orbit_manual),
             width: Number(d?.width) || 0,
             height: Number(d?.height) || 0,
         };
@@ -65,6 +69,9 @@ async function fetchLinkerStatus(): Promise<{
 }
 
 const STATUS_WATCH_MS = 5_000;
+// Статус говорит «вывод работает», а локальное соединение столько тиков подряд
+// не connected — сессия признаётся мёртвой и плеер пересоздаётся
+const DEAD_TICKS_REMOUNT = 2;
 
 /** Прямоугольник видеоконтента внутри <video> c object-fit: contain. */
 function getVideoContentRect(video: HTMLVideoElement): DOMRect | null {
@@ -102,6 +109,7 @@ const SurroundWebRTCPlayer: React.FC<SurroundWebRTCPlayerProps> = ({
     onError,
     background,
     controls = false,
+    initialManual,
 }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -126,20 +134,36 @@ const SurroundWebRTCPlayer: React.FC<SurroundWebRTCPlayerProps> = ({
     const [switching, setSwitching] = useState(false);
     const [reconnectNonce, setReconnectNonce] = useState(0);
 
+    // Кнопки оверлея активны только после первого показанного кадра:
+    // до него переключение запустит вторую пересборку поверх поднимающейся
+    const [videoReady, setVideoReady] = useState(false);
+    const videoReadyRef = useRef(false);
+
+    // Живость собственной сессии: статус внутреннего плеера + счётчик мёртвых тиков
+    const localStatusRef = useRef<'connecting' | 'connected' | 'error'>('connecting');
+    const deadTicksRef = useRef(0);
+    // Поток из конфигурации переименовали — сообщаем об этом один раз
+    const missingReportedRef = useRef(false);
+
     // ── <video> изнутри WebRTCPlayer через DOM-поиск, как у Neural ──
+    // Перезапускается на каждый ремоунт внутреннего плеера: иначе videoRef
+    // остаётся на старом отсоединённом элементе, RAF-синк получает нулевой
+    // rect и канвас жестов навсегда замирает (или остаётся 0×0)
     useEffect(() => {
-        let found = false;
+        videoRef.current = null;
+        prevVideoRect.current = null;
+        videoReadyRef.current = false;
+        setVideoReady(false);
         const poll = setInterval(() => {
             if (!containerRef.current) return;
             const vid = containerRef.current.querySelector<HTMLVideoElement>('video');
-            if (vid && !found) {
-                found = true;
+            if (vid) {
                 videoRef.current = vid;
                 clearInterval(poll);
             }
         }, 100);
         return () => clearInterval(poll);
-    }, []);
+    }, [reconnectNonce]);
 
     // ── Канвас строго по прямоугольнику видеоконтента ──
     useEffect(() => {
@@ -149,6 +173,16 @@ const SurroundWebRTCPlayer: React.FC<SurroundWebRTCPlayerProps> = ({
             const canvas = canvasRef.current;
             const video = videoRef.current;
             if (!canvas || !video) return;
+
+            // Первый реально показанный кадр включает кнопки оверлея
+            if (
+                !videoReadyRef.current
+                && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+                && video.videoWidth
+            ) {
+                videoReadyRef.current = true;
+                setVideoReady(true);
+            }
 
             const rect = getVideoContentRect(video);
             if (!rect) return;
@@ -209,34 +243,35 @@ const SurroundWebRTCPlayer: React.FC<SurroundWebRTCPlayerProps> = ({
         return () => canvas.removeEventListener('wheel', onWheel);
     }, []);
 
-    // ── Стартовое положение тумблера — дефолт конфигурации вывода ──
-    useEffect(() => {
-        if (!controls) return;
-        let cancelled = false;
-        fetch(modulePath('birdview', '/linker/surround'))
-            .then(r => r.json())
-            .then(json => {
-                const d = json?.data ?? json;
-                if (!cancelled && typeof d?.orbit?.interactive === 'boolean') {
-                    setManual(d.orbit.interactive);
-                    lastConfirmedRef.current = d.orbit.interactive;
-                }
-            })
-            .catch(() => {
-                // Ручка молчит - тумблер остаётся в авто
-            });
-        return () => { cancelled = true; };
-    }, [controls]);
-
-    // ── Режим вывода для кнопок ──
+    // ── Стартовые состояния кнопок — живой статус вывода, не дефолт конфига ──
     useEffect(() => {
         if (!controls) return;
         let cancelled = false;
         void fetchLinkerStatus().then(st => {
-            if (!cancelled && st) setViewMode(st.viewMode);
+            if (cancelled || !st) return;
+            setViewMode(st.viewMode);
+            setManual(st.orbitManual);
+            lastConfirmedRef.current = st.orbitManual;
         });
         return () => { cancelled = true; };
     }, [controls]);
+
+    // ── Режим из сохранённого отображения: применяется один раз, когда
+    //    сигналинг готов; подтверждение придёт ответом orbit ──
+    const initialAppliedRef = useRef(false);
+    useEffect(() => {
+        if (initialManual === undefined || initialAppliedRef.current) return;
+        const id = window.setInterval(() => {
+            const sender = signalingRef.current;
+            if (!sender) return;
+            if (sender.send({ type: 'orbit', mode: initialManual ? 'manual' : 'auto' })) {
+                initialAppliedRef.current = true;
+                setManual(initialManual);
+                window.clearInterval(id);
+            }
+        }, 500);
+        return () => window.clearInterval(id);
+    }, [initialManual]);
 
     // ── Сторож пересборки вывода ──
     // Смена разрешения или режима на сервере пересоздаёт пайплайн, а старая
@@ -246,8 +281,44 @@ const SurroundWebRTCPlayer: React.FC<SurroundWebRTCPlayerProps> = ({
     useEffect(() => {
         const id = window.setInterval(() => {
             void fetchLinkerStatus().then(st => {
-                if (!st || !st.running || st.streamId !== cameraId) return;
+                if (!st || !st.running) return;
+
+                // Поток вывода переименовали: ремоунт не поможет, ячейке нужен
+                // новый id — честно сообщаем вместо тихого зависания
+                if (st.streamId && st.streamId !== cameraId) {
+                    if (!missingReportedRef.current) {
+                        missingReportedRef.current = true;
+                        onError?.(`Поток «${cameraId}» не найден в выводе 360 (активен «${st.streamId}»)`);
+                    }
+                    return;
+                }
+                missingReportedRef.current = false;
+
+                // Живость сессии: вывод работает, а соединение не поднимается —
+                // ловит пересборку с той же формой и гонку первого наблюдения
+                if (!switching) {
+                    if (localStatusRef.current !== 'connected') {
+                        deadTicksRef.current += 1;
+                        if (deadTicksRef.current >= DEAD_TICKS_REMOUNT) {
+                            deadTicksRef.current = 0;
+                            setReconnectNonce(n => n + 1);
+                            return;
+                        }
+                    } else {
+                        deadTicksRef.current = 0;
+                    }
+                }
+
                 if (!st.width || !st.height) return;
+
+                // Кнопки следуют статусу каждый тик: чужие переключения и
+                // пересборка вывода больше не оставляют их врать.
+                // Во время собственного переключения серверу верим после него.
+                if (controls && !switching) {
+                    setViewMode(st.viewMode);
+                    setManual(st.orbitManual);
+                    lastConfirmedRef.current = st.orbitManual;
+                }
 
                 const shape = `${st.viewMode}-${st.width}x${st.height}`;
                 if (lastShapeRef.current === null) {
@@ -262,7 +333,7 @@ const SurroundWebRTCPlayer: React.FC<SurroundWebRTCPlayerProps> = ({
             });
         }, STATUS_WATCH_MS);
         return () => window.clearInterval(id);
-    }, [cameraId]);
+    }, [cameraId, controls, switching]);
 
     // Переключение режима: REST по активной конфигурации, ожидание пересборки
     const switchMode = async () => {
@@ -376,6 +447,7 @@ const SurroundWebRTCPlayer: React.FC<SurroundWebRTCPlayerProps> = ({
                 onError={onError}
                 signalingRef={signalingRef}
                 onExtraMessage={handleOrbitReply}
+                onStatusChange={(info) => { localStatusRef.current = info.status; }}
                 background={background}
             />
 
@@ -420,7 +492,7 @@ const SurroundWebRTCPlayer: React.FC<SurroundWebRTCPlayerProps> = ({
                             <IconButton
                                 size="small"
                                 onClick={toggleManual}
-                                disabled={switching}
+                                disabled={switching || !videoReady}
                                 sx={{
                                     bgcolor: 'rgba(0,0,0,0.55)',
                                     color: manual ? 'success.light' : 'grey.500',
@@ -443,10 +515,10 @@ const SurroundWebRTCPlayer: React.FC<SurroundWebRTCPlayerProps> = ({
                             <IconButton
                                 size="small"
                                 onClick={() => void switchMode()}
-                                disabled={switching}
+                                disabled={switching || !videoReady}
                                 sx={{
                                     bgcolor: 'rgba(0,0,0,0.55)',
-                                    color: switching ? 'grey.600' : 'grey.300',
+                                    color: switching || !videoReady ? 'grey.600' : 'grey.300',
                                     width: 32,
                                     height: 32,
                                     '&:hover': { bgcolor: 'rgba(0,0,0,0.8)' },

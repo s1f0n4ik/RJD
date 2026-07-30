@@ -27,10 +27,10 @@ import { FULL_AUTH, readStoredToken } from './utils/auth';
 import Observation from './components/Observation';
 import RecordingsView from './components/RecordingsView';
 import DeviceSettings from './components/DeviceSettings';
+// Landing (развилка киоск/админка) умер: «/» решается редиректом ниже
 import { getDevices } from './services/devices';
 import { BirdviewUnavailable } from './features/birdview/components/ModuleUnavailable';
 import { NeuralUnavailable } from './features/neural/components/ModuleUnavailable';
-import Landing from './components/Landing';
 import OnScreenKeyboard from './components/OnScreenKeyboard';
 const ADMIN_TABS = new Set([1, 4]); // Камеры, Устройства
 // Подроуты /app/*, требующие прав администратора
@@ -284,12 +284,10 @@ const AppContent: React.FC = () => {
   }
 
   if (isLandingRoute) {
-    return (
-    <>
-      <Landing />
-      <OnScreenKeyboard />
-    </>
-  );
+    // Без FULL_AUTH «/» — это киоск; с FULL_AUTH сюда доходят уже с токеном
+    // (проверка выше) и попадают на главную
+    window.location.replace(FULL_AUTH ? '/app' : '/kiosk');
+    return null;
   }
 
   // === РЕНДЕР КИОСК-РЕЖИМА ===

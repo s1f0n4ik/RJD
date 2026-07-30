@@ -19,6 +19,8 @@ export interface SavedLayout {
     customGridRows?: number;
     customGridCols?: number;
     activeCells: Record<string, string>;
+    // Состояние вывода 360 на момент сохранения; киоск применяет при загрузке
+    surround?: { viewMode: 'top' | 'surround'; manual: boolean };
     timestamp: number;
 }
 

@@ -92,6 +92,9 @@ namespace birdview {
 
 		bool is_running() const { return m_running.load(); }
 
+		// Живой режим орбиты surround-вывода; в top всегда false
+		bool is_orbit_manual() const { return m_orbit_manual.load(); }
+
 		std::string get_active_export_id() const;
 
 		FStreamParams get_stream_params() const;
@@ -236,6 +239,8 @@ namespace birdview {
 		std::atomic<unsigned> m_top_dirty{ 0 };
 		// Запрос смены режима орбиты от ручки: -1 нет, 0 авто, 1 ручной
 		std::atomic<int> m_surround_mode_request{ -1 };
+		// Живой режим орбиты рендера — для /linker/status
+		std::atomic<bool> m_orbit_manual{ false };
 		// Позы последней печки, отдаются ручкой GET /linker/surround
 		std::vector<FSurroundBakedCamera> m_surround_cameras;
 	};

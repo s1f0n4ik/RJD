@@ -39,7 +39,7 @@ import {
 import { PlayerFactory, makeCameraTypeGetter, SURROUND_PLAYER_TYPE } from './WebRTCPlayerFactory';
 import { api } from '../services/api';
 import { wsUrl } from '../utils/constants';
-import { signalingWsUrl } from '../services/devices';
+import { modulePath, signalingWsUrl } from '../services/devices';
 import type { CPPCamera, VirtualStream } from '../types';
 import { isProbeCamera } from '../utils/probeFilter';
 import {
@@ -70,6 +70,9 @@ const Observation: React.FC = () => {
     };
 
     const [cameras, setCameras]               = useState<CPPCamera[]>([]);
+    // Плееры монтируются только после первого списка источников: иначе URL
+    // сигналинга меняется с fallback на device-путь и соединение поднимается дважды
+    const [sourcesLoaded, setSourcesLoaded]   = useState(false);
     const [virtual, setVirtual]               = useState<VirtualStream[]>([]);
     const [selectedCamera, setSelectedCamera] = useState<string | null>(null);
     const [activeCells, setActiveCells]       = useState<Record<number | string, string>>({});
@@ -139,6 +142,7 @@ const Observation: React.FC = () => {
             const visible = data.filter((c) => !isProbeCamera(c.id));
             setCameras(visible);
             setVirtual(streams);
+            setSourcesLoaded(true);
             setLoadError('');
         } catch (error) {
             setLoadError(error instanceof Error ? error.message : 'Ошибка загрузки камер');
@@ -152,6 +156,25 @@ const Observation: React.FC = () => {
     const handleSaveCurrentLayout = async () => {
         if (!newLayoutName.trim()) return;
         setSaveLoading(true);
+
+        // Если в ячейках стоит поток 360 — сохраняем текущее состояние вывода
+        let surround: SavedLayout['surround'];
+        const hasSurround = Object.values(activeCells).some(
+            id => virtual.find(s => s.id === id)?.producer === 'birdview'
+        );
+        if (hasSurround) {
+            try {
+                const res = await fetch(modulePath('birdview', '/linker/status'));
+                const d = (await res.json())?.data ?? {};
+                surround = {
+                    viewMode: d?.view_mode === 'surround' ? 'surround' : 'top',
+                    manual: Boolean(d?.orbit_manual),
+                };
+            } catch {
+                // Устройства с birdview нет — блок не сохраняем
+            }
+        }
+
         const layout: SavedLayout = {
             name:           newLayoutName.trim(),
             gridSize,
@@ -159,6 +182,7 @@ const Observation: React.FC = () => {
             customGridRows: gridSize === 'custom' ? customGridRows : undefined,
             customGridCols: gridSize === 'custom' ? customGridCols : undefined,
             activeCells:    activeCells as Record<string, string>,
+            surround,
             timestamp:      Date.now(),
         };
         const ok = await saveLayout(layout);
@@ -306,9 +330,16 @@ const Observation: React.FC = () => {
     };
 
     const handleFullscreenCell = (cellId: number | string) => {
-        const videoElement = document.getElementById(`video-cell-${cellId}`)?.querySelector('video');
-        if (videoElement?.requestFullscreen) {
-            videoElement.requestFullscreen().catch(err => console.error('Fullscreen failed:', err));
+        // Кнопка ячейки работает переключателем: в fullscreen внешние панели не видны
+        if (document.fullscreenElement) {
+            document.exitFullscreen().catch(() => {});
+            return;
+        }
+        // В полный экран уходит контейнер ячейки: канвас детекций и кнопки 360
+        // остаются на экране вместе с видео
+        const cell = document.getElementById(`video-cell-${cellId}`);
+        if (cell?.requestFullscreen) {
+            cell.requestFullscreen().catch(err => console.error('Fullscreen failed:', err));
         }
     };
 
@@ -404,7 +435,7 @@ const Observation: React.FC = () => {
                 },
             }}
         >
-            {cameraName ? (
+            {cameraName && sourcesLoaded ? (
                 <>
                     <PlayerFactory
                         cameraType={getCameraType(cameraName)}
@@ -481,7 +512,7 @@ const Observation: React.FC = () => {
                             '&:hover': { borderColor: cameraName ? RZD_COLORS.primaryDark : RZD_COLORS.primary },
                         }}
                     >
-                        {cameraName ? (
+                        {cameraName && sourcesLoaded ? (
                             <>
                                 <PlayerFactory
                                     cameraType={getCameraType(cameraName)}

@@ -1426,7 +1426,7 @@ namespace birdview {
 		if (resolve_view_mode() == "surround") {
 			mode = std::make_unique<USurroundOutput>(
 				m_context_manager, &m_store, export_id_copy, std::move(bindings),
-				&m_surround_dirty, &m_surround_mode_request,
+				&m_surround_dirty, &m_surround_mode_request, &m_orbit_manual,
 				[this](std::vector<FSurroundBakedCamera> cams) {
 					std::lock_guard<std::mutex> lk(m_mutex);
 					m_surround_cameras = std::move(cams);
@@ -1434,6 +1434,8 @@ namespace birdview {
 				&m_logger);
 		}
 		else {
+			// В top орбиты нет — статус не должен показывать ручной режим
+			m_orbit_manual.store(false);
 			mode = std::make_unique<UTopOutput>(
 				m_context_manager, &m_store, export_id_copy,
 				resolve_rotation(), &m_top_dirty, &m_logger);

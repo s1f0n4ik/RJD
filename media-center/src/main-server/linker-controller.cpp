@@ -731,6 +731,8 @@ ULinkerController::get_status(const http::request<http::string_body>& req)
 
         data["running"] = m_linker->is_running();
         data["export_id"] = m_linker->get_active_export_id();
+        // Живой режим орбиты — кнопки плееров синхронизируются по нему
+        data["orbit_manual"] = m_linker->is_orbit_manual();
         // Пока поток не поднят, get_stream_id() пуст — отдаём то, с чем он стартует
         data["stream_id"] = m_linker->is_running() ? m_linker->get_stream_id() : params.stream_id;
         data["stream_name"] = params.stream_name;

@@ -28,6 +28,8 @@ interface PlayerFactoryProps {
   cameraName?:  string;
   signalingUrl: string;
   onError?:     (error: string) => void;
+  // Режим орбиты 360 из сохранённого отображения
+  surroundInitialManual?: boolean;
 }
 
 const NEURAL_CAMERA_TYPE = 2;
@@ -40,6 +42,7 @@ export const PlayerFactory: React.FC<PlayerFactoryProps> = ({
   cameraName,
   signalingUrl,
   onError,
+  surroundInitialManual,
 }) => {
   if (cameraType === NEURAL_CAMERA_TYPE) {
     return (
@@ -63,6 +66,7 @@ export const PlayerFactory: React.FC<PlayerFactoryProps> = ({
         signalingUrl={signalingUrl}
         onError={onError}
         controls
+        initialManual={surroundInitialManual}
       />
     );
   }

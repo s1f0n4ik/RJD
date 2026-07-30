@@ -18,12 +18,13 @@ from typing import Any, Dict, List
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 
+from app.config import settings
+
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# Путь к файлу на диске — рядом с другими конфигами приложения.
-# Можно вынести в settings.py если нужно.
-LAYOUTS_FILE = Path("/home/orangepi/varan/front/layouts.json")
+# Том настроек мастера: переживает пересборку контейнеров
+LAYOUTS_FILE = Path(settings.LAYOUTS_FILE)
 
 
 # ── Pydantic-модели ────────────────────────────────────────────
@@ -43,6 +44,8 @@ class Layout(BaseModel):
     customGridRows: int | None = None
     customGridCols: int | None = None
     activeCells: Dict[str, str]            # { cellId: cameraId }
+    # Состояние вывода 360: { viewMode: "top"|"surround", manual: bool }
+    surround: Dict[str, Any] | None = None
     timestamp: int
 
 

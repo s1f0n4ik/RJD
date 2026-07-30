@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     # Переопределение подсетей скана через запятую; пусто — /24 своих IP
     DEVICE_SCAN_SUBNETS: str = ""
 
+    # Видеосетки фронта — на том же томе настроек, что devices.json
+    LAYOUTS_FILE: str = "/data/layouts.json"
+
     # Flask integration
     FLASK_BASE_URL: str = "http://localhost:5000"
     FLASK_TIMEOUT: int = 30

@@ -48,6 +48,7 @@ namespace birdview {
 			NCamerasPurpose bindings,
 			std::atomic<unsigned>* dirty,
 			std::atomic<int>* orbit_mode_request,
+			std::atomic<bool>* orbit_state,
 			CPosesPublish publish_poses,
 			ULogger* logger);
 
@@ -58,6 +59,9 @@ namespace birdview {
 		void render_frame(std::vector<NPFrame>& frames, float dt, EGLDisplay display) override;
 
 	private:
+		// Единая точка смены режима орбиты: рендер + публикация наружу для статуса
+		void set_orbit(bool manual);
+
 		// Лёгкие параметры сцены: и на старте, и на живом изменении ручкой
 		void apply_visuals(const boost::json::object& cfg);
 
@@ -76,6 +80,7 @@ namespace birdview {
 
 		std::atomic<unsigned>* m_dirty;
 		std::atomic<int>* m_orbit_mode_request;
+		std::atomic<bool>* m_orbit_state;
 		CPosesPublish m_publish_poses;
 
 		int m_out_w = 0;

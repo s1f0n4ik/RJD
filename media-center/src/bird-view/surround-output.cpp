@@ -18,6 +18,7 @@ namespace birdview {
 		NCamerasPurpose bindings,
 		std::atomic<unsigned>* dirty,
 		std::atomic<int>* orbit_mode_request,
+		std::atomic<bool>* orbit_state,
 		CPosesPublish publish_poses,
 		ULogger* logger)
 		: m_context(context)
@@ -26,9 +27,15 @@ namespace birdview {
 		, m_bindings(std::move(bindings))
 		, m_dirty(dirty)
 		, m_orbit_mode_request(orbit_mode_request)
+		, m_orbit_state(orbit_state)
 		, m_publish_poses(std::move(publish_poses))
 		, m_logger(logger)
 	{
+	}
+
+	void USurroundOutput::set_orbit(bool manual) {
+		m_renderer.set_orbit_mode(manual);
+		if (m_orbit_state) m_orbit_state->store(manual);
 	}
 
 	void USurroundOutput::apply_visuals(const boost::json::object& cfg) {
@@ -163,7 +170,7 @@ namespace birdview {
 			if (m_logger) m_logger->info("USurroundOutput::prepare(): "
 				"no surround block in export, grid only");
 		}
-		m_renderer.set_orbit_mode(interactive);
+		set_orbit(interactive);
 		if (m_dirty) m_dirty->store(0);
 		if (m_orbit_mode_request) m_orbit_mode_request->store(-1);
 
@@ -191,7 +198,7 @@ namespace birdview {
 
 		if (m_orbit_mode_request) {
 			if (const int req = m_orbit_mode_request->exchange(-1); req >= 0) {
-				m_renderer.set_orbit_mode(req == 1);
+				set_orbit(req == 1);
 			}
 		}
 		return keys_changed;
@@ -200,7 +207,7 @@ namespace birdview {
 	void USurroundOutput::bind_camera(USurroundCamera& camera) {
 		// Режим переживает стример: общий цикл гасит камеру раньше рендерера
 		camera.set_orbit_callbacks(
-			[this](bool manual) { m_renderer.set_orbit_mode(manual); },
+			[this](bool manual) { set_orbit(manual); },
 			[this](float dx, float dy, float dzoom) {
 				m_renderer.apply_orbit_input(dx, dy, dzoom);
 			});

@@ -195,6 +195,15 @@ const NeuralWebRTCPlayer: React.FC<NeuralWebRTCPlayerProps> = ({
 
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+            // Рамки рисуются только поверх реально показанного видео:
+            // до первого кадра (подключение, чёрный экран) канвас пуст
+            const video = videoRef.current;
+            if (
+                !video
+                || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA
+                || !video.videoWidth
+            ) return;
+
             if (!showDetections) return;
             const dets   = detectionsRef.current;
             const tracks = tracksRef.current;
