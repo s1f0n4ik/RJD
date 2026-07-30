@@ -1,4 +1,5 @@
 import logging
+import re
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -9,6 +10,9 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".avi", ".ts"}
+
+# Таймштамп в имени фрагмента: <camera>_YYYY-MM-DD_HH-MM-SS.mp4
+FILENAME_TS = re.compile(r"(\d{4}-\d{2}-\d{2})_(\d{2})-(\d{2})-(\d{2})")
 
 
 class StorageService:
@@ -120,6 +124,16 @@ class StorageService:
 
     # ── helpers ──
 
+    @staticmethod
+    def _created_iso(f: Path, ctime: float) -> str:
+        """Начало фрагмента из имени файла: его пишет media-center по времени
+        шлюза (уже в настроенном поясе). ctime файла — часы контейнера, они
+        врут на пояс; остаются фоллбэком для файлов без таймштампа в имени."""
+        m = FILENAME_TS.search(f.stem)
+        if m:
+            return f"{m.group(1)}T{m.group(2)}:{m.group(3)}:{m.group(4)}"
+        return datetime.fromtimestamp(ctime).isoformat()
+
     def _collect_files(self, camera_dir: Path) -> list:
         out = []
         for f in camera_dir.iterdir():
@@ -130,7 +144,7 @@ class StorageService:
                 out.append({
                     "filename": f.name,
                     "size": stat.st_size,
-                    "created": datetime.fromtimestamp(stat.st_ctime).isoformat(),
+                    "created": self._created_iso(f, stat.st_ctime),
                     "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
                 })
             except OSError as e:

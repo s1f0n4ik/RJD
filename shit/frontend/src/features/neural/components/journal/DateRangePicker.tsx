@@ -14,6 +14,9 @@ interface Props {
   to?: number;
   onApply: (from?: number, to?: number) => void;
   onClose: () => void;
+  /** Одна дата вместо диапазона: второй клик переставляет выбор, время одно,
+   *  onApply приходит только с from. Используется очисткой «старше даты». */
+  single?: boolean;
 }
 
 /** Порядковый номер дня — для сравнений без учёта времени. */
@@ -55,7 +58,7 @@ function fmtTimeInput(ms?: number, fallback = ''): string {
   return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
 }
 
-export function DateRangePicker({ from, to, onApply, onClose }: Props) {
+export function DateRangePicker({ from, to, onApply, onClose, single = false }: Props) {
   const initStart = from != null ? wallToDate(from) : null;
   const initEnd = to != null ? wallToDate(to) : null;
 
@@ -76,6 +79,11 @@ export function DateRangePicker({ from, to, onApply, onClose }: Props) {
 
   // Первый клик задаёт начало, второй — конец. Клик раньше начала переставляет их.
   const pick = (d: Date) => {
+    if (single) {
+      setStart(d);
+      setEnd(null);
+      return;
+    }
     if (!start || (start && end)) {
       setStart(d);
       setEnd(null);
@@ -111,6 +119,12 @@ export function DateRangePicker({ from, to, onApply, onClose }: Props) {
     const fromMs = Date.UTC(
       start.getFullYear(), start.getMonth(), start.getDate(), sh, sm, 0, 0,
     );
+
+    if (single) {
+      onApply(fromMs, undefined);
+      onClose();
+      return;
+    }
 
     // Конец не выбран — считаем диапазоном один день.
     const endDate = end ?? start;
@@ -162,7 +176,7 @@ export function DateRangePicker({ from, to, onApply, onClose }: Props) {
 
       <div className="jr-cal-times">
         <label className="jr-cal-t">
-          <span className="jr-cal-tk">с</span>
+          <span className="jr-cal-tk">{single ? 'время' : 'с'}</span>
           <input
             value={startTime}
             onChange={(e) => setStartTime(e.target.value)}
@@ -171,16 +185,18 @@ export function DateRangePicker({ from, to, onApply, onClose }: Props) {
             maxLength={5}
           />
         </label>
-        <label className="jr-cal-t">
-          <span className="jr-cal-tk">по</span>
-          <input
-            value={endTime}
-            onChange={(e) => setEndTime(e.target.value)}
-            placeholder="23:59"
-            inputMode="numeric"
-            maxLength={5}
-          />
-        </label>
+        {!single && (
+          <label className="jr-cal-t">
+            <span className="jr-cal-tk">по</span>
+            <input
+              value={endTime}
+              onChange={(e) => setEndTime(e.target.value)}
+              placeholder="23:59"
+              inputMode="numeric"
+              maxLength={5}
+            />
+          </label>
+        )}
       </div>
 
       <div className="jr-cal-foot">

@@ -93,7 +93,8 @@ def list_detections(
     cids: Optional[str] = Query(None, description="id классов через запятую"),
     bbox: Optional[str] = Query(None, description="min_lon,min_lat,max_lon,max_lat"),
     order: str = Query("desc", pattern="^(asc|desc)$"),
-    limit: int = Query(100, ge=1, le=500),
+    # Потолок под ползунок карты: точки тянут тысячами, записи без картинок лёгкие
+    limit: int = Query(100, ge=1, le=10_000),
     offset: int = Query(0, ge=0),
 ):
     return journal.list_detections(

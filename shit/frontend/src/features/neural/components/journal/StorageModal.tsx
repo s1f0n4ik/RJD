@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { journalApi } from '../../api/journal';
 import type { JournalStorageState } from '../../api/journal';
+import { DateRangePicker } from './DateRangePicker';
+import { fmtDateTime } from './format';
 
 interface Props {
   onClose: () => void;
@@ -31,7 +33,9 @@ export function StorageModal({ onClose, onPurged }: Props) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  const [purgeDate, setPurgeDate] = useState('');
+  // Граница «старше даты» — настенное время шлюза, закодированное как UTC
+  const [purgeBefore, setPurgeBefore] = useState<number | undefined>();
+  const [calOpen, setCalOpen] = useState(false);
   const [confirm, setConfirm] = useState<'date' | 'all' | null>(null);
   const [purging, setPurging] = useState(false);
   const [purgeInfo, setPurgeInfo] = useState<string | null>(null);
@@ -112,9 +116,6 @@ export function StorageModal({ onClose, onPurged }: Props) {
       setPurging(false);
     }
   };
-
-  // ts журнала — настенное время шлюза, закодированное как UTC
-  const purgeDateTs = purgeDate ? new Date(`${purgeDate}T00:00:00Z`).getTime() : null;
 
   const usageRow = (label: string, used: number, limitGb: number | null) => {
     const limit = limitGb != null && limitGb > 0 ? limitGb * GB : 0;
@@ -200,24 +201,38 @@ export function StorageModal({ onClose, onPurged }: Props) {
             <div className="jr-storage-block">
               <span className="jr-sect-lbl">Очистка</span>
               <div className="jr-storage-purge-row">
-                <input
-                  type="date"
-                  className="field-input"
-                  value={purgeDate}
-                  onChange={(e) => { setPurgeDate(e.target.value); setConfirm(null); }}
-                />
+                <div className="jr-class-wrap">
+                  <button
+                    className="btn btn-ghost"
+                    disabled={purging}
+                    onClick={() => { setCalOpen((v) => !v); setConfirm(null); }}
+                  >
+                    {purgeBefore != null ? `до ${fmtDateTime(purgeBefore)}` : 'Выбрать дату'}
+                  </button>
+                  {calOpen && (
+                    <>
+                      <div className="jr-class-backdrop" onClick={() => setCalOpen(false)} />
+                      <DateRangePicker
+                        single
+                        from={purgeBefore}
+                        onApply={(from) => setPurgeBefore(from)}
+                        onClose={() => setCalOpen(false)}
+                      />
+                    </>
+                  )}
+                </div>
                 {confirm === 'date' ? (
                   <button
                     className="btn btn-danger"
                     disabled={purging}
-                    onClick={() => void handlePurge(purgeDateTs ?? undefined)}
+                    onClick={() => void handlePurge(purgeBefore)}
                   >
                     Точно удалить?
                   </button>
                 ) : (
                   <button
                     className="btn btn-ghost"
-                    disabled={purging || purgeDateTs == null}
+                    disabled={purging || purgeBefore == null}
                     onClick={() => armConfirm('date')}
                   >
                     Удалить старше даты

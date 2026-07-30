@@ -357,9 +357,10 @@ export function JournalSection() {
                 <input
                   type="range"
                   min={PAGE_LIMIT}
-                  max={Math.max(PAGE_LIMIT, total)}
+                  // Потолок ручки списка на сервере — 10 000
+                  max={Math.max(PAGE_LIMIT, Math.min(total, 10_000))}
                   step={1}
-                  value={Math.min(mapLimitDraft, Math.max(PAGE_LIMIT, total))}
+                  value={Math.min(mapLimitDraft, Math.max(PAGE_LIMIT, Math.min(total, 10_000)))}
                   onChange={(e) => setMapLimitDraft(Number(e.target.value))}
                   onPointerUp={() => setMapLimit(mapLimitDraft)}
                   onKeyUp={(e) => {
