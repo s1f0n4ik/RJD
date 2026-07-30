@@ -60,7 +60,7 @@ export function bytesShort(n: number): string {
 
 interface RecordRowProps {
   r: GwMessageRecord;
-  // Что означает успешная отправка для этого транспорта: КАУС принял кадр либо
+  // Что означает успешная отправка для этого транспорта: БИУС принял кадр либо
   // нагрузка ушла на шину.
   sentNote: string;
   // Версию протокола показываем только там, где она есть (WebSocket).

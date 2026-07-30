@@ -73,6 +73,7 @@ namespace varan {
             URouter::FResponse handle_ws_status(const URouter::FRequest& req);
             URouter::FResponse handle_versions(const URouter::FRequest& req);
             URouter::FResponse handle_time(const URouter::FRequest& req);
+            URouter::FResponse handle_put_time_config(const URouter::FRequest& req);
             URouter::FResponse handle_get_taxonomy(const URouter::FRequest& req);
             URouter::FResponse handle_put_taxonomy(const URouter::FRequest& req);
             URouter::FResponse handle_devices(const URouter::FRequest& req);

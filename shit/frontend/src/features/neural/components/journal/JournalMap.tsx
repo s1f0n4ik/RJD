@@ -1,22 +1,37 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { journalApi } from '../../api/journal';
 import type { JournalDetection } from '../../api/journal-types';
 import type { ClassMeaning } from './useClassResolver';
-import { fmtTime } from './format';
+import { FrameWithBoxes } from './FrameWithBoxes';
+import { fmtDateTime, pluralRecords } from './format';
 
 interface Props {
   detections: JournalDetection[];
   selectedId: number | null;
   mode: 'single' | 'full';
   resolve: (configId: string | null, cid: number) => ClassMeaning;
+  cameraName: (id: string) => string;
   onSelect: (id: number) => void;
+  onOpenViewer: (id: number) => void;
 }
 
 // Стартовый вид, пока нет ни одной точки с координатами.
 const DEFAULT_CENTER: [number, number] = [37.618, 55.751];
 const SRC = 'journal-detections';
+const FALLBACK = '#4d8bff';
+const PIE = 'jr-pie:';
+
+// Попап на карте: одна запись либо список записей кластера.
+interface PopupState {
+  lngLat: [number, number];
+  ids: number[];
+  view: 'list' | 'record';
+  recordId: number | null;
+}
 
 // В источнике лежат только точки, поэтому координаты достаём напрямую —
 // разбирать полный union Geometry здесь незачем.
@@ -24,19 +39,61 @@ function coordsOf(geometry: unknown): [number, number] {
   return (geometry as { coordinates: [number, number] }).coordinates;
 }
 
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) =>
-    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string),
-  );
+// Классы записи со счётчиком объектов — как в строке журнала.
+function aggClasses(det: JournalDetection, resolve: Props['resolve']) {
+  const agg = new Map<number, ClassMeaning & { count: number }>();
+  for (const o of det.objects) {
+    const prev = agg.get(o.cid);
+    if (prev) prev.count += 1;
+    else agg.set(o.cid, { ...resolve(det.config_id, o.cid), count: 1 });
+  }
+  return [...agg.values()].sort((a, b) => b.count - a.count);
 }
 
-// Цвет точки — по суперклассу самого «уверенного» объекта кадра.
-function markerColor(det: JournalDetection, resolve: Props['resolve']): string {
-  let best = det.objects[0];
-  for (const o of det.objects) if (!best || o.cf > best.cf) best = o;
-  if (!best) return '#4d8bff';
-  const m = resolve(det.config_id, best.cid);
-  return m.superColor || m.color || '#4d8bff';
+function classColor(c: ClassMeaning): string {
+  return c.color || c.superColor || FALLBACK;
+}
+
+// Уникальные цвета классов записи — сектора пай-иконки, максимум 6.
+function pieColors(det: JournalDetection, resolve: Props['resolve']): string[] {
+  const out: string[] = [];
+  for (const c of aggClasses(det, resolve)) {
+    const col = classColor(c);
+    if (!out.includes(col)) out.push(col);
+    if (out.length === 6) break;
+  }
+  return out.length ? out : [FALLBACK];
+}
+
+// Иконка точки: круг из равных секторов по цветам классов, обводка под фон.
+function makePieIcon(colors: string[]): { data: ImageData; pixelRatio: number } {
+  const ratio = Math.min(Math.ceil(window.devicePixelRatio || 1), 3);
+  const size = 20 * ratio;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const c = size / 2;
+  const r = c - 1.5 * ratio;
+  colors.forEach((color, i) => {
+    ctx.beginPath();
+    ctx.moveTo(c, c);
+    ctx.arc(
+      c,
+      c,
+      r,
+      -Math.PI / 2 + (i / colors.length) * 2 * Math.PI,
+      -Math.PI / 2 + ((i + 1) / colors.length) * 2 * Math.PI,
+    );
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+  });
+  ctx.beginPath();
+  ctx.arc(c, c, r, 0, 2 * Math.PI);
+  ctx.lineWidth = 2 * ratio;
+  ctx.strokeStyle = '#0a0c11';
+  ctx.stroke();
+  return { data: ctx.getImageData(0, 0, size, size), pixelRatio: ratio };
 }
 
 function toGeoJson(dets: JournalDetection[], resolve: Props['resolve']) {
@@ -50,20 +107,37 @@ function toGeoJson(dets: JournalDetection[], resolve: Props['resolve']) {
         geometry: { type: 'Point' as const, coordinates: [d.gps!.lon, d.gps!.lat] },
         properties: {
           id: d.id,
-          color: markerColor(d, resolve),
           ts: d.ts,
-          camera: d.camera_id,
-          names: [...new Set(d.objects.map((o) => resolve(d.config_id, o.cid).name || '—'))].join(', '),
+          icon: PIE + pieColors(d, resolve).join('|'),
         },
       })),
   };
 }
 
-export function JournalMap({ detections, selectedId, mode, resolve, onSelect }: Props) {
+export function JournalMap({
+  detections,
+  selectedId,
+  mode,
+  resolve,
+  cameraName,
+  onSelect,
+  onOpenViewer,
+}: Props) {
   const boxRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const readyRef = useRef(false);
-  const popupRef = useRef<maplibregl.Popup | null>(null);
+  // Набор точек, под который камера уже подстраивалась.
+  const fitKeyRef = useRef('');
+
+  const [popup, setPopup] = useState<PopupState | null>(null);
+  const popupObjRef = useRef<maplibregl.Popup | null>(null);
+  // Контейнер живёт дольше попапа: в него порталом рендерится содержимое.
+  const popupBoxRef = useRef<HTMLDivElement | null>(null);
+  if (!popupBoxRef.current) popupBoxRef.current = document.createElement('div');
+
+  // Обработчики карты живут весь срок карты — колбэки читаем через ref.
+  const onSelectRef = useRef(onSelect);
+  onSelectRef.current = onSelect;
 
   // Инициализация карты один раз. Стиль отдаётся со своего origin вместе с
   // глифами — карта полностью офлайн.
@@ -76,10 +150,20 @@ export function JournalMap({ detections, selectedId, mode, resolve, onSelect }: 
       center: DEFAULT_CENTER,
       zoom: 4,
       attributionControl: false,
+      // Пути в style.json относительные — переписываем на storage-service устройства
+      transformRequest: (url) =>
+        url.startsWith('/api/journal/') ? { url: journalApi.resourceUrl(url) } : undefined,
     });
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
     // Атрибуция OpenStreetMap обязательна по условиям лицензии ODbL.
     map.addControl(new maplibregl.AttributionControl({ customAttribution: '© OpenStreetMap' }));
+
+    // Пай-иконки создаются по требованию: имя кодирует цвета секторов.
+    map.on('styleimagemissing', (e) => {
+      if (!e.id.startsWith(PIE)) return;
+      const { data, pixelRatio } = makePieIcon(e.id.slice(PIE.length).split('|'));
+      map.addImage(e.id, data, { pixelRatio });
+    });
 
     map.on('load', () => {
       map.addSource(SRC, {
@@ -97,7 +181,7 @@ export function JournalMap({ detections, selectedId, mode, resolve, onSelect }: 
         source: SRC,
         filter: ['has', 'point_count'],
         paint: {
-          'circle-color': '#4d8bff',
+          'circle-color': FALLBACK,
           'circle-opacity': 0.9,
           'circle-radius': ['step', ['get', 'point_count'], 15, 10, 20, 50, 26],
           'circle-stroke-width': 2,
@@ -117,30 +201,29 @@ export function JournalMap({ detections, selectedId, mode, resolve, onSelect }: 
         paint: { 'text-color': '#0a0c11' },
       });
 
-      // Одиночные точки — цветом класса обнаружения.
-      map.addLayer({
-        id: 'points',
-        type: 'circle',
-        source: SRC,
-        filter: ['!', ['has', 'point_count']],
-        paint: {
-          'circle-color': ['get', 'color'],
-          'circle-radius': 7,
-          'circle-stroke-width': 2,
-          'circle-stroke-color': '#0a0c11',
-        },
-      });
-      // Подсветка выбранной записи.
+      // Ореол выбранной записи — под пай-иконкой точки.
       map.addLayer({
         id: 'points-selected',
         type: 'circle',
         source: SRC,
         filter: ['==', ['get', 'id'], -1],
         paint: {
-          'circle-color': ['get', 'color'],
-          'circle-radius': 11,
-          'circle-stroke-width': 3,
-          'circle-stroke-color': '#4d8bff',
+          'circle-color': 'rgba(77,139,255,0.25)',
+          'circle-radius': 13,
+          'circle-stroke-width': 2,
+          'circle-stroke-color': FALLBACK,
+        },
+      });
+      // Одиночные точки — пай-иконка по цветам классов записи.
+      map.addLayer({
+        id: 'points',
+        type: 'symbol',
+        source: SRC,
+        filter: ['!', ['has', 'point_count']],
+        layout: {
+          'icon-image': ['get', 'icon'],
+          'icon-allow-overlap': true,
+          'icon-ignore-placement': true,
         },
       });
 
@@ -148,30 +231,31 @@ export function JournalMap({ detections, selectedId, mode, resolve, onSelect }: 
         const f = e.features?.[0];
         if (!f) return;
         const id = Number(f.properties?.id);
-        onSelect(id);
-        const coords = coordsOf(f.geometry);
-        popupRef.current?.remove();
-        popupRef.current = new maplibregl.Popup({ closeButton: false, maxWidth: '280px' })
-          .setLngLat(coords)
-          .setHTML(
-            `<div class="jr-pop">` +
-              `<img class="jr-pop-img" src="${journalApi.frameUrl(id)}" alt=""/>` +
-              `<div class="jr-pop-meta">` +
-              `<span class="jr-pop-t">${escapeHtml(fmtTime(Number(f.properties?.ts)))} · ${escapeHtml(String(f.properties?.camera ?? ''))}</span>` +
-              `<span class="jr-pop-o">${escapeHtml(String(f.properties?.names ?? ''))}</span>` +
-              `</div></div>`,
-          )
-          .addTo(map);
+        onSelectRef.current(id);
+        setPopup({ lngLat: coordsOf(f.geometry), ids: [id], view: 'record', recordId: id });
       });
 
-      // Клик по кластеру — раскрываем его приближением.
+      // Клик по кластеру — список его записей, новые сверху.
       map.on('click', 'clusters', (e) => {
         const f = e.features?.[0];
         if (!f) return;
         const src = map.getSource(SRC) as maplibregl.GeoJSONSource;
-        src.getClusterExpansionZoom(Number(f.properties?.cluster_id)).then((zoom) => {
-          map.easeTo({ center: coordsOf(f.geometry), zoom });
+        const lngLat = coordsOf(f.geometry);
+        src.getClusterLeaves(Number(f.properties?.cluster_id), 10000, 0).then((leaves) => {
+          const ids = leaves
+            .map((l) => ({ id: Number(l.properties?.id), ts: Number(l.properties?.ts) }))
+            .sort((a, b) => b.ts - a.ts)
+            .map((l) => l.id);
+          setPopup({ lngLat, ids, view: 'list', recordId: null });
         });
+      });
+
+      // Клик мимо точек и кластеров закрывает попап; closeOnClick выключен,
+      // иначе клик по соседней точке закрыл бы только что открытый попап.
+      map.on('click', (e) => {
+        if (!map.getLayer('points')) return;
+        const hits = map.queryRenderedFeatures(e.point, { layers: ['points', 'clusters'] });
+        if (!hits.length) setPopup(null);
       });
 
       for (const layer of ['points', 'clusters']) {
@@ -185,12 +269,32 @@ export function JournalMap({ detections, selectedId, mode, resolve, onSelect }: 
 
     mapRef.current = map;
     return () => {
-      popupRef.current?.remove();
+      popupObjRef.current?.remove();
+      popupObjRef.current = null;
       map.remove();
       mapRef.current = null;
       readyRef.current = false;
     };
-  }, [onSelect]);
+  }, []);
+
+  // Позиция и видимость maplibre-попапа следуют за состоянием.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (!popup) {
+      popupObjRef.current?.remove();
+      return;
+    }
+    if (!popupObjRef.current) {
+      popupObjRef.current = new maplibregl.Popup({
+        closeButton: false,
+        closeOnClick: false,
+        maxWidth: 'none',
+      }).setDOMContent(popupBoxRef.current!);
+    }
+    popupObjRef.current.setLngLat(popup.lngLat);
+    if (!popupObjRef.current.isOpen()) popupObjRef.current.addTo(map);
+  }, [popup]);
 
   // Обновление данных и позиционирования.
   useEffect(() => {
@@ -209,6 +313,12 @@ export function JournalMap({ detections, selectedId, mode, resolve, onSelect }: 
       }
 
       if (!data.features.length) return;
+
+      // Смена одного лишь выбора (клик по точке, запись из попапа кластера)
+      // камеру не трогает — перецентровка только при изменении набора точек.
+      const key = data.features.map((f) => f.properties.id).join(',');
+      if (key === fitKeyRef.current) return;
+      fitKeyRef.current = key;
 
       if (mode === 'single') {
         const sel =
@@ -233,5 +343,102 @@ export function JournalMap({ detections, selectedId, mode, resolve, onSelect }: 
     return () => clearTimeout(t);
   }, [mode]);
 
-  return <div className="jr-map" ref={boxRef} />;
+  const byId = (id: number) => detections.find((d) => d.id === id);
+
+  const openRecord = (id: number) => {
+    onSelect(id);
+    setPopup((p) => (p ? { ...p, view: 'record', recordId: id } : p));
+  };
+
+  let content: ReactNode = null;
+  if (popup?.view === 'record') {
+    const det = popup.recordId != null ? byId(popup.recordId) : undefined;
+    content = (
+      <div className="jr-mpop jr-mpop-rec">
+        <div className="jr-mpop-head">
+          {popup.ids.length > 1 && (
+            <button
+              className="jr-mini"
+              title="К списку кластера"
+              onClick={() => setPopup({ ...popup, view: 'list', recordId: null })}
+            >
+              ←
+            </button>
+          )}
+          {det && <span className="jr-time">{fmtDateTime(det.ts)}</span>}
+          {det && <span className="jr-mpop-cam">{cameraName(det.camera_id)}</span>}
+          <button className="jr-mini jr-mpop-close" title="Закрыть" onClick={() => setPopup(null)}>
+            ✕
+          </button>
+        </div>
+        {det ? (
+          <>
+            <div className="jr-chips">
+              {aggClasses(det, resolve).map((c, i) => (
+                <span className="jr-chip" key={i}>
+                  <span className="jr-cd" style={{ background: classColor(c) }} />
+                  {c.name || '—'}
+                  <span className="jr-chip-n">×{c.count}</span>
+                </span>
+              ))}
+            </div>
+            <button className="jr-thumb-btn" title="Открыть кадр" onClick={() => onOpenViewer(det.id)}>
+              <FrameWithBoxes det={det} resolve={resolve} className="jr-mpop-frame" />
+            </button>
+          </>
+        ) : (
+          <span className="jr-mpop-gone">Запись больше не в загруженном списке</span>
+        )}
+      </div>
+    );
+  } else if (popup?.view === 'list') {
+    const dets = popup.ids.map(byId).filter((d): d is JournalDetection => !!d);
+    content = (
+      <div className="jr-mpop jr-mpop-list">
+        <div className="jr-mpop-head">
+          <span className="jr-sect-lbl">{pluralRecords(dets.length)}</span>
+          <button className="jr-mini jr-mpop-close" title="Закрыть" onClick={() => setPopup(null)}>
+            ✕
+          </button>
+        </div>
+        <div className="jr-mpop-scroll">
+          {dets.map((d) => (
+            <button key={d.id} className="jr-mpop-row" onClick={() => openRecord(d.id)}>
+              <span
+                className="jr-mpop-mini-btn"
+                title="Открыть кадр"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenViewer(d.id);
+                }}
+              >
+                <FrameWithBoxes det={d} resolve={resolve} compact className="jr-mpop-mini" />
+              </span>
+              <span className="jr-mpop-row-info">
+                <span className="jr-time">{fmtDateTime(d.ts)}</span>
+                <span className="jr-mpop-cam">{cameraName(d.camera_id)}</span>
+                <span className="jr-chips">
+                  {aggClasses(d, resolve)
+                    .slice(0, 3)
+                    .map((c, i) => (
+                      <span className="jr-chip" key={i}>
+                        <span className="jr-cd" style={{ background: classColor(c) }} />
+                        {c.name || '—'}
+                      </span>
+                    ))}
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="jr-map" ref={boxRef} />
+      {createPortal(content, popupBoxRef.current)}
+    </>
+  );
 }

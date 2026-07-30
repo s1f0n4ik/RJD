@@ -122,6 +122,40 @@ def set_verdict(det_id: int, req: VerdictRequest):
     return {"ok": True, "id": det_id, "verdict": req.verdict}
 
 
+class StorageSettingsRequest(BaseModel):
+    images_limit_gb: float
+    db_limit_gb: float
+
+
+class PurgeRequest(BaseModel):
+    # unix ms; None — удалить всё
+    before_ts: Optional[int] = None
+
+
+@router.get("/journal/settings")
+def get_storage_settings():
+    """Лимиты хранилища журнала и фактическая занятость."""
+    return journal.storage_state()
+
+
+@router.post("/journal/settings")
+def set_storage_settings(req: StorageSettingsRequest):
+    if req.images_limit_gb < 0 or req.db_limit_gb < 0:
+        raise HTTPException(status_code=400, detail="limits must be >= 0")
+    if not journal.write_limits(req.images_limit_gb, req.db_limit_gb):
+        raise HTTPException(status_code=503, detail="Journal database is not available")
+    return journal.storage_state()
+
+
+@router.post("/journal/purge")
+def purge(req: PurgeRequest):
+    """Очистка журнала: записи вместе с изображениями, всё или старше даты."""
+    if not journal.available():
+        raise HTTPException(status_code=503, detail="Journal database is not available")
+    result = journal.purge(req.before_ts)
+    return {**result, **journal.storage_state()}
+
+
 @router.get("/journal/frame/{det_id}.jpg")
 def get_frame(det_id: int):
     path = journal.resolve_frame(det_id)

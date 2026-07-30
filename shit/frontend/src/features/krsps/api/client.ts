@@ -122,4 +122,15 @@ export const krspsApi = {
   async getTime(): Promise<GwTime> {
     return unwrap<GwTime>(await fetch(url('/time')));
   },
+
+  // Часовой пояс выдачи времени; шлюз сохраняет его и отвечает свежим снимком.
+  async setTimeZone(tzOffsetMin: number): Promise<GwTime> {
+    return unwrap<GwTime>(
+      await fetch(url('/config/time'), {
+        method: 'PUT',
+        headers: jsonHeaders,
+        body: JSON.stringify({ tz_offset_min: tzOffsetMin }),
+      }),
+    );
+  },
 };

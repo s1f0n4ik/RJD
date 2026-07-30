@@ -9,6 +9,7 @@ import { Filters, presetRange, DEFAULT_PRESET } from './Filters';
 import type { PresetKey } from './Filters';
 import { JournalMap } from './JournalMap';
 import { FrameViewer } from './FrameViewer';
+import { StorageModal } from './StorageModal';
 import './journal.css';
 
 // Ширина, с которой карта встаёт рядом со списком. Уже — одна колонка:
@@ -46,6 +47,14 @@ export function JournalSection() {
   const [fullscreen, setFullscreen] = useState(false);
   const [viewerId, setViewerId] = useState<number | null>(null);
   const [newCount, setNewCount] = useState(0);
+  const [storageOpen, setStorageOpen] = useState(false);
+
+  // Ползунок полноэкранной карты: сколько записей грузить для точек.
+  // draft двигается вместе с ручкой, запрос уходит по отпусканию.
+  const [mapLimit, setMapLimit] = useState(PAGE_LIMIT);
+  const [mapLimitDraft, setMapLimitDraft] = useState(PAGE_LIMIT);
+  const [mapDets, setMapDets] = useState<JournalDetection[] | null>(null);
+  const [mapLoading, setMapLoading] = useState(false);
 
   const [wide, setWide] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -118,16 +127,48 @@ export function JournalSection() {
     return () => ro.disconnect();
   }, []);
 
-  const selectedDet = useMemo(() => dets.find((d) => d.id === selectedId) ?? null, [dets, selectedId]);
-  const withGps = useMemo(() => dets.filter((d) => d.gps), [dets]);
+  // Расширенная выборка для карты — снимок; в пределах базового лимита карта
+  // живёт от общего списка и обновляется поллингом.
+  useEffect(() => {
+    if (!fullscreen || mapLimit <= PAGE_LIMIT) {
+      setMapDets(null);
+      return;
+    }
+    let alive = true;
+    setMapLoading(true);
+    journalApi
+      .list(filters, { limit: mapLimit, order: 'desc' })
+      .then((res) => {
+        if (alive) setMapDets(res.detections);
+      })
+      .catch(() => {
+        /* карта останется на основной выборке */
+      })
+      .finally(() => {
+        if (alive) setMapLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [fullscreen, mapLimit, filters]);
 
+  const selectedDet = useMemo(() => dets.find((d) => d.id === selectedId) ?? null, [dets, selectedId]);
+  const withGps = useMemo(() => (mapDets ?? dets).filter((d) => d.gps), [mapDets, dets]);
+
+  // Запись из расширенной выборки карты может отсутствовать в основном
+  // списке — просмотр листает тот массив, где запись нашлась.
+  const viewerList = useMemo(
+    () => (viewerId != null && !dets.some((d) => d.id === viewerId) ? mapDets ?? dets : dets),
+    [dets, mapDets, viewerId],
+  );
   const viewerIndex = useMemo(
-    () => (viewerId == null ? -1 : dets.findIndex((d) => d.id === viewerId)),
-    [dets, viewerId],
+    () => (viewerId == null ? -1 : viewerList.findIndex((d) => d.id === viewerId)),
+    [viewerList, viewerId],
   );
 
   const patchDet = useCallback((updated: JournalDetection) => {
     setDets((list) => list.map((d) => (d.id === updated.id ? updated : d)));
+    setMapDets((list) => (list ? list.map((d) => (d.id === updated.id ? updated : d)) : list));
   }, []);
 
   const applyPreset = useCallback((key: PresetKey) => {
@@ -147,6 +188,14 @@ export function JournalSection() {
     <div className="jr-panel jr-filters-panel">
       <div className="jr-panel-head">
         <span className="jr-sect-lbl">Фильтры</span>
+        <button
+          className="jr-icon-btn"
+          onClick={() => setStorageOpen(true)}
+          title="Хранилище журнала: лимиты и очистка"
+          aria-label="Хранилище журнала"
+        >
+          ⚙
+        </button>
       </div>
       <Filters
         preset={preset}
@@ -245,7 +294,9 @@ export function JournalSection() {
           selectedId={selectedId}
           mode="single"
           resolve={resolve}
+          cameraName={cameraName}
           onSelect={setSelectedId}
+          onOpenViewer={setViewerId}
         />
         {!selectedDet?.gps && (
           <div className="jr-map-empty">
@@ -280,7 +331,9 @@ export function JournalSection() {
             selectedId={selectedId}
             mode="full"
             resolve={resolve}
+            cameraName={cameraName}
             onSelect={setSelectedId}
+            onOpenViewer={setViewerId}
           />
           <div className="jr-fs-filters">
             <div className="jr-sect-lbl">Фильтры</div>
@@ -299,6 +352,26 @@ export function JournalSection() {
             <div className="jr-fs-count">
               {withGps.length} из {total} с координатами
             </div>
+            {total > PAGE_LIMIT && (
+              <div className="jr-fs-slider" title="Сколько последних записей показывать точками">
+                <input
+                  type="range"
+                  min={PAGE_LIMIT}
+                  max={Math.max(PAGE_LIMIT, total)}
+                  step={1}
+                  value={Math.min(mapLimitDraft, Math.max(PAGE_LIMIT, total))}
+                  onChange={(e) => setMapLimitDraft(Number(e.target.value))}
+                  onPointerUp={() => setMapLimit(mapLimitDraft)}
+                  onKeyUp={(e) => {
+                    if (e.key.startsWith('Arrow')) setMapLimit(mapLimitDraft);
+                  }}
+                />
+                <span className="jr-fs-slider-val">
+                  {mapLimitDraft}
+                  {mapLoading ? ' ⋯' : ''}
+                </span>
+              </div>
+            )}
           </div>
           <button
             className="jr-fs-close"
@@ -314,15 +387,19 @@ export function JournalSection() {
         </div>
       )}
 
+      {storageOpen && (
+        <StorageModal onClose={() => setStorageOpen(false)} onPurged={() => load(true)} />
+      )}
+
       {viewerIndex >= 0 && (
         <FrameViewer
-          det={dets[viewerIndex]}
+          det={viewerList[viewerIndex]}
           resolve={resolve}
           cameraName={cameraName}
           hasPrev={viewerIndex > 0}
-          hasNext={viewerIndex < dets.length - 1}
-          onPrev={() => setViewerId(dets[viewerIndex - 1]?.id ?? null)}
-          onNext={() => setViewerId(dets[viewerIndex + 1]?.id ?? null)}
+          hasNext={viewerIndex < viewerList.length - 1}
+          onPrev={() => setViewerId(viewerList[viewerIndex - 1]?.id ?? null)}
+          onNext={() => setViewerId(viewerList[viewerIndex + 1]?.id ?? null)}
           onClose={() => setViewerId(null)}
           onChange={patchDet}
         />

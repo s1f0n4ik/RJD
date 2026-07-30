@@ -267,7 +267,8 @@
 .pal-add:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-glow); }
 
 /* ── Cores layout ──────────────────────────────────────────── */
-.cores-section { display: flex; flex-direction: column; /*height: calc(100vh - var(--nav-h) - 56px);*/ }
+/* Запас снизу под фиксированный футер состояния */
+.cores-section { display: flex; flex-direction: column; padding-bottom: 76px; /*height: calc(100vh - var(--nav-h) - 56px);*/ }
 .cores-layout { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 2fr 1fr; gap: 18px; align-items: stretch; }
 
 /* Левая колонка — прокручиваемый список ядер без видимого ползунка */
@@ -728,10 +729,13 @@
 .ev-chip.ro { cursor: default; }
 
 /* ── Подвал раздела — закреплён внизу страницы, над контентом ── */
-.strm-footer { position: sticky; bottom: 0; z-index: 40; display: flex; align-items: center; gap: 12px;
-    flex-wrap: wrap; margin: 18px -24px 0; padding: 14px 24px;
-    /*border-top: 1px solid var(--border-bright);*/
-    /*background: color-mix(in srgb, var(--bg-base) 92%, transparent); */
+/* Оверлей на низ страницы: при пустом списке потоков sticky оставался бы
+   в потоке прямо под настройками. Боковые отступы центрируют содержимое
+   под .page-inner (1080px). */
+.strm-footer { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; display: flex; align-items: center; gap: 12px;
+    flex-wrap: wrap; padding: 14px max(24px, calc((100% - 1080px) / 2));
+    border-top: 1px solid var(--border);
+    background: color-mix(in srgb, var(--bg-base) 85%, transparent);
     backdrop-filter: blur(10px);
     box-shadow: 0 -8px 24px rgba(0,0,0,0.35); }
 .strm-footer-actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }

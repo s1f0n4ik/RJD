@@ -280,7 +280,9 @@ function DetectionRowInner({
             selectedId={det.id}
             mode="single"
             resolve={resolve}
+            cameraName={cameraName}
             onSelect={onSelect}
+            onOpenViewer={onOpenViewer}
           />
         </div>
       )}

@@ -17,6 +17,8 @@
 #include "console_utility.h"
 #include "core/modules.h"
 #include "core/paths.h"
+#include "core/time-sync.h"
+#include "gateway/client.h"
 #include "main-server/rest_server.h"
 #include "bird-view/linker.h"
 #include "bird-view/egl-context.h"
@@ -102,9 +104,20 @@ int main(int argc, char* argv[])
 		<< (config.gateway_enabled ? config.gateway_ip + ":" + config.gateway_port : std::string("disabled"))).str());
 	main_logger.info("Modules: " + config.modules.to_string());
 
-	// Шлюз потребляет только нейронка — без неё флаги не имеют эффекта
-	if (config.gateway_enabled && !config.modules.neural) {
-		main_logger.warn("Gateway options are ignored: neural module is not loaded");
+	// Клиент шлюза общий на процесс: время нужно всем сборкам (имена фрагментов
+	// записи), кадры через него шлёт только нейронка
+	std::shared_ptr<varan::gateway::UGatewayClient> gateway_client;
+	if (config.gateway_enabled && !config.gateway_ip.empty() && !config.gateway_port.empty()) {
+		varan::gateway::FGatewayConfig gateway_config;
+		gateway_config.enabled = true;
+		gateway_config.host = config.gateway_ip;
+		gateway_config.port = config.gateway_port;
+
+		gateway_client = std::make_shared<varan::gateway::UGatewayClient>(gateway_config);
+		gateway_client->set_time_callback([](const varan::gateway::FGatewayTimeGps& t) {
+			varan::time_sync::update(t);
+		});
+		gateway_client->start();
 	}
 
 	// Определяем площадку в самом начале и логируем — дальше передаём в нейронку.
@@ -135,12 +148,6 @@ int main(int argc, char* argv[])
 	// Нейронный загрузчик — только при neural
 	std::shared_ptr<varan::neural::UNeuralLoader> loader;
 	if (config.modules.neural) {
-		// Параметры подключения к message-gateway (передаём в загрузчик).
-		varan::gateway::FGatewayConfig gateway_config;
-		gateway_config.enabled = config.gateway_enabled;
-		gateway_config.host = config.gateway_ip;
-		gateway_config.port = config.gateway_port;
-
 		loader = std::make_shared<varan::neural::UNeuralLoader>(
 			socket_options.ip_adress, socket_options.port,
 			main_context.get(),
@@ -148,7 +155,7 @@ int main(int argc, char* argv[])
 			varan::paths().neural.config,
 			varan::paths().neural.loader_state,
 			platform_info,
-			gateway_config,
+			gateway_client,
 			ULogger::ELoggerLevel::DEBUG
 		);
 	}
@@ -209,6 +216,10 @@ int main(int argc, char* argv[])
 
 	rest_server.stop();
 	center->run_eos();
+
+	if (gateway_client) {
+		gateway_client->stop();
+	}
 
 	return 0;
 }

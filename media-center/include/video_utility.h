@@ -2,6 +2,13 @@
 #include <gst/video/video.h>
 #include <drm/drm_fourcc.h>
 
+#include <chrono>
+#include <ctime>
+#include <iomanip>
+#include <sstream>
+
+#include "core/time-sync.h"
+
 inline GstVideoFormat drm_to_gst_video_format(uint32_t fourcc)
 {
     switch (fourcc)
@@ -82,11 +89,20 @@ inline GstVideoFormat drm_to_gst_video_format(uint32_t fourcc)
 
 // Вовзращаем формат %Y-%m-%d_%H-%M-%S
 static std::string make_start_timestamp() {
-    auto now = std::chrono::system_clock::now();
-    std::time_t t = std::chrono::system_clock::to_time_t(now);
-
     std::tm tm{};
-    localtime_r(&t, &tm);
+
+    // Время шлюза приходит уже сдвинутым на настроенный пояс — форматируем
+    // gmtime, чтобы пояс контейнера не наложился вторым слоем. Без
+    // синхронизации остаются системные часы в локальном поясе, как раньше
+    if (varan::time_sync::synced()) {
+        const std::time_t t = static_cast<std::time_t>(varan::time_sync::now_ms() / 1000);
+        gmtime_r(&t, &tm);
+    }
+    else {
+        auto now = std::chrono::system_clock::now();
+        std::time_t t = std::chrono::system_clock::to_time_t(now);
+        localtime_r(&t, &tm);
+    }
 
     std::ostringstream oss;
     oss << std::put_time(&tm, "%Y-%m-%d_%H-%M-%S");

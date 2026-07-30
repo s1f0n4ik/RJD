@@ -19,6 +19,19 @@ async function json<T>(res: Response): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+export interface JournalStorageState {
+  /** Лимиты в ГБ; 0 = ограничение выключено. */
+  images_limit_gb: number;
+  db_limit_gb: number;
+  frames_bytes: number;
+  db_bytes: number;
+}
+
+export interface JournalPurgeResult extends JournalStorageState {
+  deleted: number;
+  files_deleted: number;
+}
+
 interface ListOpts {
   limit?: number;
   offset?: number;
@@ -74,8 +87,35 @@ export const journalApi = {
     return url(`/api/journal/frame/${id}.jpg`);
   },
 
+  /** Лимиты хранилища журнала и фактическая занятость. */
+  storageState(): Promise<JournalStorageState> {
+    return fetch(url('/api/journal/settings')).then(json<JournalStorageState>);
+  },
+
+  saveStorageSettings(imagesLimitGb: number, dbLimitGb: number): Promise<JournalStorageState> {
+    return fetch(url('/api/journal/settings'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ images_limit_gb: imagesLimitGb, db_limit_gb: dbLimitGb }),
+    }).then(json<JournalStorageState>);
+  },
+
+  /** Очистка: записи вместе с изображениями; beforeTs (unix ms) — только старше. */
+  purge(beforeTs?: number): Promise<JournalPurgeResult> {
+    return fetch(url('/api/journal/purge'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ before_ts: beforeTs ?? null }),
+    }).then(json<JournalPurgeResult>);
+  },
+
   /** Стиль MapLibre — раздаётся со своего origin вместе с глифами (offline). */
   styleUrl(): string {
     return url('/api/journal/map/style.json');
+  },
+
+  /** Абсолютный URL ресурса журнала — воркер MapLibre не умеет относительные пути. */
+  resourceUrl(path: string): string {
+    return new URL(url(path), window.location.origin).href;
   },
 };

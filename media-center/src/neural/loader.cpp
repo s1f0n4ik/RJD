@@ -1,5 +1,6 @@
 #include "neural/loader.h"
 #include "core/paths.h"
+#include "core/time-sync.h"
 #include "neural/camera-layout-json.h"
 
 #include <fstream>
@@ -19,20 +20,19 @@ namespace neural {
         std::filesystem::path config_path,
         std::filesystem::path state_path,
         FPlatformInfo platform,
-        gateway::FGatewayConfig gateway_config,
+        std::shared_ptr<gateway::UGatewayClient> gateway,
         ULogger::ELoggerLevel level)
         : m_ip(ip_address), m_port(port)
         , m_context(context), m_storage(storage), m_level(level)
         , m_config_path(std::move(config_path))
         , m_state_path(std::move(state_path))
         , m_platform(std::move(platform))
+        , m_gateway(std::move(gateway))
         , m_logger("NeuralLoader", level)
         , m_json_configurator(&m_logger)
     {
-        if (gateway_config.enabled && !gateway_config.host.empty() && !gateway_config.port.empty()) {
-            m_gateway = std::make_shared<gateway::UGatewayClient>(gateway_config, level);
-            m_gateway->set_time_callback([this](const gateway::FGatewayTimeGps& t) { on_gateway_time(t); });
-            m_logger.info("gateway ingress -> " + gateway_config.host + ":" + gateway_config.port);
+        if (m_gateway) {
+            m_logger.info("gateway ingress: using shared client");
         }
 
         // Журнал обнаружений: SQLite + JPEG на томе /storage. Общий writer для
@@ -59,23 +59,11 @@ namespace neural {
 
     UNeuralLoader::~UNeuralLoader() { stop_async_run(); }
 
-    void UNeuralLoader::on_gateway_time(const gateway::FGatewayTimeGps& t) {
-        std::lock_guard<std::mutex> lk(m_time_mutex);
-        m_time_base = t;
-        m_time_base_at = std::chrono::steady_clock::now();
-        m_time_synced = true;
-    }
-
     gateway::FGatewayTimeGps UNeuralLoader::current_synced_time() const {
-        std::lock_guard<std::mutex> lk(m_time_mutex);
-        if (!m_time_synced) {
+        if (!time_sync::synced()) {
             return {};
         }
-        gateway::FGatewayTimeGps t = m_time_base;
-        const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - m_time_base_at).count();
-        t.unix_ms += elapsed_ms;
-        return t;
+        return time_sync::now();
     }
 
     // Хелпер для парсинга матрицы камер
@@ -457,7 +445,7 @@ namespace neural {
     // Фкнкции управления
     bool UNeuralLoader::async_run() {
         if (m_supervisor_running.exchange(true)) return false;
-        if (m_gateway) m_gateway->start();
+        // Клиент шлюза общий на процесс — его жизненным циклом владеет main
         m_supervisor = std::thread(&UNeuralLoader::supervisor_loop, this);
         return true;
     }
@@ -468,7 +456,6 @@ namespace neural {
         { std::lock_guard<std::mutex> lk(m_loader_mutex); for (auto& s : m_slots) if (s) s->stop(); }
         if (m_supervisor.joinable()) m_supervisor.join();
         cleanup_after_failure();
-        if (m_gateway) m_gateway->stop();
     }
 
     bool UNeuralLoader::is_running() const { return m_supervisor_running.load(); }

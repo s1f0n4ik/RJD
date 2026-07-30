@@ -1,6 +1,7 @@
 #pragma once
 
 #include <ctime>
+#include <cstdio>
 #include <string>
 #include <mutex>
 #include <cstdint>
@@ -24,6 +25,10 @@ namespace varan {
         // монотонным часам и при выдаче добавляем то, что натикало с тех пор:
         // время остаётся временем Садко, но идёт непрерывно.
         //
+        // По шине время идёт в UTC; наружу снимок отдаётся уже сдвинутым на
+        // настроенный пользователем пояс — потребители (media-center, панель)
+        // используют его как есть и о поясах не думают.
+        //
         // snapshot_struct() — единый источник данных; snapshot() (REST) и gRPC
         // GetTime форматируют один и тот же снимок под свой транспорт.
         class UTimeSource {
@@ -32,6 +37,16 @@ namespace varan {
             // Садко шлёт их раз в 0,5 с, так что двухсекундная тишина — это уже
             // потеря связи, а не пауза.
             static constexpr std::int64_t GPS_STALE_MS = 2000;
+
+            void set_tz_offset_min(int minutes) {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                m_tz_offset_min = minutes;
+            }
+
+            int tz_offset_min() const {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                return m_tz_offset_min;
+            }
 
             void update_time(std::int64_t unix_ms) {
                 std::lock_guard<std::mutex> lock(m_mutex);
@@ -53,9 +68,11 @@ namespace varan {
                 std::lock_guard<std::mutex> lock(m_mutex);
 
                 FTimeGpsSnapshot s;
-                s.unix_ms = m_has_can_time
+                const std::int64_t utc_ms = m_has_can_time
                     ? m_can_unix_ms + (mono_ms() - m_can_time_mono)
                     : now_ms();
+                s.unix_ms = utc_ms + static_cast<std::int64_t>(m_tz_offset_min) * 60000;
+                s.tz_offset_min = m_tz_offset_min;
 
                 if (m_has_can_gps) {
                     s.lat = m_lat;
@@ -111,14 +128,16 @@ namespace varan {
                 boost::json::object o;
                 o["unix_ms"] = s.unix_ms;
                 o["unix_s"] = s.unix_ms / 1000;
-                o["iso"] = iso_utc(s.unix_ms);
+                o["tz_offset_min"] = s.tz_offset_min;
+                o["iso"] = iso_with_offset(s.unix_ms, s.tz_offset_min);
                 o["gps"] = std::move(gps);
                 o["source"] = std::move(source);
                 return o;
             }
 
         private:
-            static std::string iso_utc(std::int64_t ms) {
+            // ms уже сдвинуты на пояс — форматируем gmtime и дописываем офсет
+            static std::string iso_with_offset(std::int64_t ms, int tz_offset_min) {
                 const std::time_t t = static_cast<std::time_t>(ms / 1000);
                 std::tm tm{};
 #if defined(_WIN32)
@@ -127,12 +146,20 @@ namespace varan {
                 gmtime_r(&t, &tm);
 #endif
                 char buf[32];
-                std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm);
-                return std::string(buf);
+                std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S", &tm);
+
+                const int abs_min = tz_offset_min < 0 ? -tz_offset_min : tz_offset_min;
+                char suffix[8];
+                std::snprintf(suffix, sizeof(suffix), "%c%02d:%02d",
+                    tz_offset_min < 0 ? '-' : '+', abs_min / 60, abs_min % 60);
+                return std::string(buf) + suffix;
             }
 
         private:
             mutable std::mutex m_mutex;
+
+            // Пояс выдачи, минуты от UTC. Дефолт — МСК; правится по REST
+            int m_tz_offset_min = 180;
 
             bool m_has_can_time = false;
             std::int64_t m_can_unix_ms = 0;   // время из последнего сообщения Садко

@@ -12,3 +12,7 @@ prototypes/
 # IntelliSense: генерируется gen-intellisense.sh, содержит абсолютные пути машины
 .vscode/c_cpp_properties.json
 .vscode/settings.json
+
+# Офлайн-карта: тайлы и глифы генерируются, в репозиторий не попадают
+storage-service/map-assets/tiles/
+storage-service/map-assets/glyphs/

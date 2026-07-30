@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { journalApi } from '../../api/journal';
 import type { JournalDetection } from '../../api/journal-types';
 import type { ClassMeaning } from './useClassResolver';
@@ -28,6 +29,10 @@ export function FrameWithBoxes({
   const h = det.height || 0;
   const canDraw = w > 0 && h > 0;
 
+  // Кадр мог быть удалён чистильщиком лимита изображений — запись остаётся
+  const [missing, setMissing] = useState(false);
+  useEffect(() => setMissing(false), [det.id]);
+
   // Пропорции контейнера задаём по реальному кадру: иначе изображение обрежется
   // под фиксированное соотношение, а боксы считаются в процентах от контейнера —
   // и разъедутся относительно объектов.
@@ -36,12 +41,24 @@ export function FrameWithBoxes({
       className={`jr-frame${compact ? ' compact' : ''}${className ? ' ' + className : ''}`}
       style={canDraw ? { aspectRatio: `${w} / ${h}` } : undefined}
     >
-      {showImage ? (
-        <img className="jr-frame-img" src={journalApi.frameUrl(det.id)} alt="" loading="lazy" />
+      {showImage && missing ? (
+        <span className="jr-frame-missing">
+          <span className="ico">▣</span>
+          {!compact && 'Изображение не найдено или было удалено'}
+        </span>
+      ) : showImage ? (
+        <img
+          className="jr-frame-img"
+          src={journalApi.frameUrl(det.id)}
+          alt=""
+          loading="lazy"
+          onError={() => setMissing(true)}
+        />
       ) : (
         <span className="jr-frame-stub" />
       )}
       {showImage &&
+        !missing &&
         canDraw &&
         det.objects.map((o, i) => {
           const m = resolve(det.config_id, o.cid);

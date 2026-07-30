@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from app.config import settings
 from app.routers import recordings, journal
 from app.services.cleaner import cleaner
+from app.services.journal_cleaner import journal_cleaner
 
 logging.basicConfig(
     level=logging.DEBUG if settings.DEBUG else logging.INFO,
@@ -18,9 +19,11 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     logger.info("Starting %s", settings.APP_NAME)
     await cleaner.start()
+    await journal_cleaner.start()
     yield
-    logger.info("Stopping cleaner")
+    logger.info("Stopping cleaners")
     await cleaner.stop()
+    await journal_cleaner.stop()
 
 
 app = FastAPI(

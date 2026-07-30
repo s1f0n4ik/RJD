@@ -8,9 +8,9 @@ interface NavbarProps {
 }
 
 const CONN_LABEL: Record<ConnState, string> = {
-  connected: 'CONNECTED',
-  connecting: 'CONNECTING',
-  disconnected: 'OFFLINE',
+  connected: 'В СЕТИ',
+  connecting: 'ПОДКЛЮЧЕНИЕ',
+  disconnected: 'НЕ В СЕТИ',
 };
 
 export function Navbar({ active, onChange, conn }: NavbarProps) {

@@ -41,15 +41,23 @@ function parseTime(v: string, fallbackH: number, fallbackM: number): [number, nu
   return [h, min];
 }
 
+// ts журнала — настенное время шлюза, закодированное как UTC. Календарь внутри
+// работает на локальных Date с теми же настенными компонентами; конверсия
+// туда-обратно идёт через UTC-геттеры и Date.UTC, чтобы пояс браузера не влиял.
+function wallToDate(ms: number): Date {
+  const d = new Date(ms);
+  return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), d.getUTCHours(), d.getUTCMinutes());
+}
+
 function fmtTimeInput(ms?: number, fallback = ''): string {
   if (ms == null) return fallback;
   const d = new Date(ms);
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
 }
 
 export function DateRangePicker({ from, to, onApply, onClose }: Props) {
-  const initStart = from != null ? new Date(from) : null;
-  const initEnd = to != null ? new Date(to) : null;
+  const initStart = from != null ? wallToDate(from) : null;
+  const initEnd = to != null ? wallToDate(to) : null;
 
   const [start, setStart] = useState<Date | null>(initStart);
   const [end, setEnd] = useState<Date | null>(initEnd);
@@ -100,16 +108,16 @@ export function DateRangePicker({ from, to, onApply, onClose }: Props) {
       return;
     }
     const [sh, sm] = parseTime(startTime, 0, 0);
-    const fromMs = new Date(
+    const fromMs = Date.UTC(
       start.getFullYear(), start.getMonth(), start.getDate(), sh, sm, 0, 0,
-    ).getTime();
+    );
 
     // Конец не выбран — считаем диапазоном один день.
     const endDate = end ?? start;
     const [eh, em] = parseTime(endTime, 23, 59);
-    const toMs = new Date(
+    const toMs = Date.UTC(
       endDate.getFullYear(), endDate.getMonth(), endDate.getDate(), eh, em, 59, 999,
-    ).getTime();
+    );
 
     onApply(fromMs, toMs);
     onClose();

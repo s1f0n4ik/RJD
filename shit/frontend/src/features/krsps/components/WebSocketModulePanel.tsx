@@ -66,7 +66,7 @@ const WebSocketModulePanel: React.FC<Props> = ({ module, busy, onSave, onConnect
   return (
     <div>
       {/*<div className="krsps-module__head">
-        <div className="krsps-module__title">WebSocket → КАУС</div>
+        <div className="krsps-module__title">WebSocket → БИУС</div>
         <Pill state={connState(module)} />
         <div className="krsps-module__meta">
           протокол {module.protocol_versions.map((v) => `v${v}`).join(', ') || '—'}
@@ -94,7 +94,7 @@ const WebSocketModulePanel: React.FC<Props> = ({ module, busy, onSave, onConnect
           <div className="krsps-formgrid">
             <div className="krsps-field krsps-formgrid__wide">
               <label className="krsps-field__label" htmlFor="krsps-ws-url">
-                Адрес WebSocket (КАУС)
+                Адрес WebSocket (БИУС)
               </label>
               <input
                 id="krsps-ws-url"
@@ -191,7 +191,7 @@ const WebSocketModulePanel: React.FC<Props> = ({ module, busy, onSave, onConnect
           {stats.recent.length > 0 ? (
             <div className="krsps-feed">
               {stats.recent.map((r) => (
-                <RecordRow key={r.seq} r={r} sentNote="КАУС принял" />
+                <RecordRow key={r.seq} r={r} sentNote="БИУС принял" />
               ))}
             </div>
           ) : (

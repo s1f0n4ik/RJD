@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { Verdict } from '../../api/journal-types';
 import type { ClassOption } from './useClassResolver';
 import { DateRangePicker } from './DateRangePicker';
-import { fmtDate, fmtTime } from './format';
+import { fmtDate, fmtTime, wallNow } from './format';
 
 // Журнал почти всегда смотрят «за последнее время», поэтому основной способ —
 // пресеты в один клик. Точный диапазон нужен реже и живёт за кнопкой «Период».
@@ -23,14 +23,14 @@ export const DEFAULT_PRESET: PresetKey = 'today';
 
 const HOUR = 3600_000;
 
-/** Диапазон по пресету. Пустые значения — фильтр по времени не применяется. */
+/** Диапазон по пресету. Пустые значения — фильтр по времени не применяется.
+ *  Границы считаются в настенном времени (ts журнала — время шлюза). */
 export function presetRange(key: PresetKey): { from?: number; to?: number } {
-  const now = Date.now();
+  const now = wallNow();
   switch (key) {
     case 'today': {
       const d = new Date();
-      d.setHours(0, 0, 0, 0);
-      return { from: d.getTime() };
+      return { from: Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) };
     }
     case 'h24': return { from: now - 24 * HOUR };
     case 'd7': return { from: now - 7 * 24 * HOUR };

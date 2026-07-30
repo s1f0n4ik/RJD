@@ -19,9 +19,12 @@ export interface GwGpsFix {
 }
 
 export interface GwTime {
+  // Уже сдвинуто на настроенный пояс — используем как есть
   unix_ms: number;
   unix_s: number;
   iso: string;
+  /** Пояс выдачи, минуты от UTC. */
+  tz_offset_min?: number;
   gps: GwGpsFix;
   source: { time: string; gps: string };
 }

@@ -39,7 +39,9 @@ namespace varan {
         // Точный снимок времени + GPS шлюза. Единый источник для REST (/time,
         // /gps) и gRPC (GetTime) — оба транспорта форматируют один и тот же снимок.
         struct FTimeGpsSnapshot {
+            // Уже сдвинуто на настроенный пояс: потребители используют как есть
             std::int64_t unix_ms = 0;
+            int tz_offset_min = 0;
             double lat = 0.0;
             double lon = 0.0;
             double alt = 0.0;

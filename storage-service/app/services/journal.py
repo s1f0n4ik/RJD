@@ -2,7 +2,7 @@ import json
 import logging
 import sqlite3
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterator, Optional
 
 from app.config import settings
 
@@ -10,6 +10,11 @@ logger = logging.getLogger(__name__)
 
 # Разрешённые значения вердикта — совпадают с дефолтом схемы (media-center).
 VERDICTS = {"unverified", "true", "false"}
+
+GB = 1024 ** 3
+
+# Дефолты лимитов хранилища журнала; 0 = ограничение выключено.
+DEFAULT_LIMITS = {"images_limit_gb": 10.0, "db_limit_gb": 1.0}
 
 
 class JournalService:
@@ -212,6 +217,235 @@ class JournalService:
             logger.warning("tile(%s/%s/%s) failed: %s", z, x, y, e)
             return None
         return row[0] if row else None
+
+    # ── Хранилище: лимиты, занятость, удаление старого ──
+
+    def _ensure_settings(self, conn: sqlite3.Connection) -> None:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS journal_settings("
+            "  key TEXT PRIMARY KEY,"
+            "  value REAL NOT NULL"
+            ")"
+        )
+        conn.executemany(
+            "INSERT OR IGNORE INTO journal_settings(key, value) VALUES (?, ?)",
+            list(DEFAULT_LIMITS.items()),
+        )
+        conn.commit()
+
+    def read_limits(self) -> dict:
+        """Лимиты в ГБ из таблицы настроек; 0 = ограничение выключено."""
+        limits = dict(DEFAULT_LIMITS)
+        if not self.available():
+            return limits
+        with self._connect() as conn:
+            self._ensure_settings(conn)
+            for row in conn.execute("SELECT key, value FROM journal_settings"):
+                if row["key"] in limits:
+                    limits[row["key"]] = max(0.0, float(row["value"]))
+        return limits
+
+    def write_limits(self, images_limit_gb: float, db_limit_gb: float) -> bool:
+        if not self.available():
+            return False
+        with self._connect() as conn:
+            self._ensure_settings(conn)
+            conn.executemany(
+                "INSERT INTO journal_settings(key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                [
+                    ("images_limit_gb", max(0.0, images_limit_gb)),
+                    ("db_limit_gb", max(0.0, db_limit_gb)),
+                ],
+            )
+            conn.commit()
+        return True
+
+    def frames_size_bytes(self) -> int:
+        total = 0
+        if not self.frames_dir.is_dir():
+            return 0
+        for path in self.frames_dir.rglob("*"):
+            try:
+                if path.is_file():
+                    total += path.stat().st_size
+            except OSError:
+                continue
+        return total
+
+    def db_size_bytes(self) -> int:
+        total = 0
+        for suffix in ("", "-wal"):
+            p = Path(str(self.db_path) + suffix)
+            try:
+                if p.is_file():
+                    total += p.stat().st_size
+            except OSError:
+                continue
+        return total
+
+    def storage_state(self) -> dict:
+        return {
+            **self.read_limits(),
+            "frames_bytes": self.frames_size_bytes(),
+            "db_bytes": self.db_size_bytes(),
+        }
+
+    def _frames_oldest_first(self) -> Iterator[Path]:
+        """JPEG от старых к новым: дневные каталоги YYYY-MM-DD сортируются
+        именем, внутри дня — по mtime."""
+        if not self.frames_dir.is_dir():
+            return
+        day_dirs = sorted(d for d in self.frames_dir.iterdir() if d.is_dir())
+        for day in day_dirs:
+            try:
+                files = sorted(
+                    (f for f in day.iterdir() if f.is_file()),
+                    key=lambda f: f.stat().st_mtime,
+                )
+            except OSError:
+                continue
+            yield from files
+
+    def _remove_empty_day_dirs(self) -> None:
+        if not self.frames_dir.is_dir():
+            return
+        for day in self.frames_dir.iterdir():
+            if day.is_dir():
+                try:
+                    day.rmdir()
+                except OSError:
+                    pass
+
+    def delete_oldest_frames(self, bytes_to_free: int) -> tuple[int, int]:
+        """Удаляет старейшие кадры, записи в базе не трогает — журнал покажет
+        заглушку вместо изображения. Возвращает (файлов, байт)."""
+        deleted = 0
+        freed = 0
+        for path in self._frames_oldest_first():
+            if freed >= bytes_to_free:
+                break
+            try:
+                size = path.stat().st_size
+                path.unlink()
+                freed += size
+                deleted += 1
+            except OSError as e:
+                logger.warning("delete_oldest_frames: %s: %s", path, e)
+        self._remove_empty_day_dirs()
+        return deleted, freed
+
+    def _unlink_frames(self, image_paths: list[str]) -> int:
+        deleted = 0
+        for rel in image_paths:
+            if not rel:
+                continue
+            candidate = self.frames_dir / rel
+            try:
+                candidate.resolve().relative_to(self.frames_dir.resolve())
+            except (ValueError, OSError):
+                continue
+            try:
+                candidate.unlink(missing_ok=True)
+                deleted += 1
+            except OSError as e:
+                logger.warning("_unlink_frames: %s: %s", rel, e)
+        return deleted
+
+    def ensure_incremental_vacuum(self) -> None:
+        """Включает auto_vacuum=INCREMENTAL: без него удаление строк не
+        уменьшает файл. Смена режима требует полного VACUUM — при активном
+        писателе может не пройти, тогда повтор в следующем цикле."""
+        if not self.available():
+            return
+        conn = sqlite3.connect(self.db_path, timeout=10.0)
+        try:
+            mode = conn.execute("PRAGMA auto_vacuum").fetchone()[0]
+            if mode == 2:
+                return
+            conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
+            conn.execute("VACUUM")
+            logger.info("journal.db: auto_vacuum switched to INCREMENTAL")
+        except sqlite3.Error as e:
+            logger.warning("ensure_incremental_vacuum failed (retry later): %s", e)
+        finally:
+            conn.close()
+
+    def compact(self) -> None:
+        """Возврат освобождённых страниц диску + усечение WAL."""
+        if not self.available():
+            return
+        try:
+            conn = sqlite3.connect(self.db_path, timeout=10.0)
+            try:
+                conn.execute("PRAGMA busy_timeout=3000")
+                conn.execute("PRAGMA incremental_vacuum")
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            finally:
+                conn.close()
+        except sqlite3.Error as e:
+            logger.warning("compact failed: %s", e)
+
+    def delete_oldest_detections(self, batch: int = 500) -> tuple[int, int]:
+        """Старейшие записи вместе с их изображениями. Возвращает (записей, файлов)."""
+        if not self.available():
+            return 0, 0
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id, image_path FROM detections ORDER BY ts ASC LIMIT ?",
+                [batch],
+            ).fetchall()
+            if not rows:
+                return 0, 0
+            ids = [r["id"] for r in rows]
+            placeholders = ",".join("?" for _ in ids)
+            conn.execute(f"DELETE FROM detection_objects WHERE det_id IN ({placeholders})", ids)
+            conn.execute(f"DELETE FROM detections WHERE id IN ({placeholders})", ids)
+            conn.commit()
+
+        files = self._unlink_frames([r["image_path"] for r in rows])
+        self._remove_empty_day_dirs()
+        return len(rows), files
+
+    def purge(self, before_ts: Optional[int] = None) -> dict:
+        """Очистка журнала: всё или записи старше before_ts (unix ms),
+        вместе с изображениями. Завершается вакуумом."""
+        if not self.available():
+            return {"deleted": 0, "files_deleted": 0}
+
+        deleted = 0
+        files_deleted = 0
+        while True:
+            with self._connect() as conn:
+                if before_ts is None:
+                    rows = conn.execute(
+                        "SELECT id, image_path FROM detections ORDER BY ts ASC LIMIT 1000"
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        "SELECT id, image_path FROM detections WHERE ts < ? "
+                        "ORDER BY ts ASC LIMIT 1000",
+                        [before_ts],
+                    ).fetchall()
+                if not rows:
+                    break
+                ids = [r["id"] for r in rows]
+                placeholders = ",".join("?" for _ in ids)
+                conn.execute(
+                    f"DELETE FROM detection_objects WHERE det_id IN ({placeholders})", ids
+                )
+                conn.execute(f"DELETE FROM detections WHERE id IN ({placeholders})", ids)
+                conn.commit()
+
+            deleted += len(rows)
+            files_deleted += self._unlink_frames([r["image_path"] for r in rows])
+
+        self._remove_empty_day_dirs()
+        self.ensure_incremental_vacuum()
+        self.compact()
+
+        logger.info("purge: %d detections, %d frames deleted", deleted, files_deleted)
+        return {"deleted": deleted, "files_deleted": files_deleted}
 
     # ── helpers ──
 

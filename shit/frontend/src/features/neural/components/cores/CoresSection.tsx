@@ -396,7 +396,7 @@ export function CoresSection() {
                     <button className="btn btn-ghost" disabled={busy || !dirty} onClick={reset}>Сбросить</button>
                     <button className="btn btn-primary" disabled={busy || !dirty} onClick={apply}>Применить</button>
                     {!supervisorRunning ? (
-                        <button className="btn btn-accent" disabled={busy} onClick={() => control('start')}>Start</button>
+                        <button className="btn btn-accent" disabled={busy} onClick={() => control('start')}>Запустить</button>
                     ) : (
                         <>
                             <button className="btn btn-ghost" disabled={busy} onClick={() => control('restart')}>Перезапуск</button>

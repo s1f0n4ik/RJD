@@ -208,7 +208,16 @@ const KrspsApp: React.FC = () => {
             <div style={{ minWidth: 0 }}>
               <PanelBoundary resetKey={selected}>
               {selected === TIME_SECTION ? (
-                <TimeGpsPanel time={time} offsetMs={offsetMs} synced={synced} />
+                <TimeGpsPanel
+                  time={time}
+                  offsetMs={offsetMs}
+                  synced={synced}
+                  onTimeUpdate={(t) => {
+                    setTime(t);
+                    setOffsetMs(t.unix_ms - Date.now());
+                    setSynced(true);
+                  }}
+                />
               ) : selected === TAXONOMY_SECTION ? (
                 <TaxonomyPanel taxonomy={taxonomy} busy={busy} onSave={handleSaveTaxonomy} />
               ) : selectedModule?.transport === 'can' ? (

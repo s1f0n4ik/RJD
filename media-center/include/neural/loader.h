@@ -49,7 +49,7 @@ namespace neural {
 			std::filesystem::path config_path,
 			std::filesystem::path state_path,
 			FPlatformInfo platform,
-			gateway::FGatewayConfig gateway_config = {},
+			std::shared_ptr<gateway::UGatewayClient> gateway = nullptr,
 			ULogger::ELoggerLevel level = ULogger::ELoggerLevel::DEBUG
 		);
 
@@ -100,9 +100,8 @@ namespace neural {
 		void supervisor_loop();
 		bool load_state();
 
-		// Приём снимка времени/GPS от UGatewayClient (раз в 10с) и синхронизированное
-		// текущее время для слотов (последний снимок + локальный тикающий таймер).
-		void on_gateway_time(const gateway::FGatewayTimeGps& t);
+		// Синхронизированное время для слотов из общего сервиса varan::time_sync;
+		// пустой снимок, пока шлюз ни разу не ответил.
 		gateway::FGatewayTimeGps current_synced_time() const;
 
 		static FCameraMatrix parse_camera_matrix(const boost::json::value& v);
@@ -134,19 +133,14 @@ namespace neural {
 
 		FCameraSenderProvider m_sender_provider;
 
-		// Клиент message-gateway: жив, пока жив загрузчик; общий для всех слотов.
+		// Общий клиент message-gateway процесса: создаётся и живёт в main,
+		// загрузчик только шлёт через него кадры.
 		std::shared_ptr<gateway::UGatewayClient> m_gateway;
 
 		// Writer журнала обнаружений: один на загрузчик, общий для всех слотов.
 		// nullptr — журнал не поднялся (ошибка БД), слоты работают без записи.
 		std::unique_ptr<journal::UJournalWriter> m_journal;
 
-		// Последний снимок времени/GPS от шлюза + момент его получения по
-		// монотонным часам — от него слоты считают синхронизированное "сейчас".
-		mutable std::mutex m_time_mutex;
-		gateway::FGatewayTimeGps m_time_base;
-		std::chrono::steady_clock::time_point m_time_base_at;
-		bool m_time_synced = false;
 	};
 
 } // namespace neural

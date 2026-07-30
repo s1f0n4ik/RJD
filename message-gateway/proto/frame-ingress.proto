@@ -64,6 +64,8 @@ message TimeRequest {
 }
 
 message TimeReply {
+    // Уже сдвинуто на настроенный в шлюзе пояс — использовать как есть
     int64 unix_ms = 1;
     GpsData gps = 2;
+    int32 tz_offset_min = 3;
 }

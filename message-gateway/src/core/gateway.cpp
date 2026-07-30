@@ -61,6 +61,14 @@ namespace varan {
                 return;
             }
             const json::object root = m_store.load();
+
+            // Пояс — общешлюзовая настройка, живёт отдельным узлом
+            if (const auto* t = root.if_contains("time"); t && t->is_object()) {
+                if (const auto* tz = t->as_object().if_contains("tz_offset_min"); tz && tz->is_number()) {
+                    m_time.set_tz_offset_min(tz->to_number<int>());
+                }
+            }
+
             const auto* integrations = root.if_contains("integrations");
             if (!integrations || !integrations->is_object()) {
                 return;
@@ -142,6 +150,7 @@ namespace varan {
 
             root["active"] = active() ? active()->id() : "";
             root["integrations"] = std::move(integrations);
+            root["time"] = json::object{ {"tz_offset_min", m_time.tz_offset_min()} };
             m_store.save(root);
         }
 
@@ -195,6 +204,10 @@ namespace varan {
                 [this](const auto& r) { return handle_time(r); });
             m_router->add_route(http::verb::get, "/gps",
                 [this](const auto& r) { return handle_time(r); });
+
+            // Часовой пояс выдачи времени: { "tz_offset_min": 180 }
+            m_router->add_route(http::verb::put, "/config/time",
+                [this](const auto& r) { return handle_put_time_config(r); });
         }
 
         void UGateway::run() {
@@ -482,6 +495,27 @@ namespace varan {
         }
 
         URouter::FResponse UGateway::handle_time(const URouter::FRequest& req) {
+            return make_json(req, http::status::ok, m_time.snapshot());
+        }
+
+        URouter::FResponse UGateway::handle_put_time_config(const URouter::FRequest& req) {
+            boost::system::error_code ec;
+            auto parsed = json::parse(req.body(), ec);
+            if (ec || !parsed.is_object()) {
+                return make_error(req, http::status::bad_request, "invalid json body");
+            }
+            auto* v = parsed.as_object().if_contains("tz_offset_min");
+            if (!v || !v->is_number()) {
+                return make_error(req, http::status::bad_request, "missing 'tz_offset_min'");
+            }
+            const int minutes = v->to_number<int>();
+            if (minutes < -720 || minutes > 840) {
+                return make_error(req, http::status::bad_request, "tz_offset_min must be -720..840");
+            }
+
+            m_time.set_tz_offset_min(minutes);
+            persist_state();
+            ULog::info(TAG, "Time zone offset -> " + std::to_string(minutes) + " min");
             return make_json(req, http::status::ok, m_time.snapshot());
         }
 

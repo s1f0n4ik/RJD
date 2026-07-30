@@ -46,6 +46,7 @@ namespace varan {
             rpc::TimeReply to_time_reply(const FTimeGpsSnapshot& s) {
                 rpc::TimeReply reply;
                 reply.set_unix_ms(s.unix_ms);
+                reply.set_tz_offset_min(s.tz_offset_min);
                 auto* gps = reply.mutable_gps();
                 gps->set_lat(s.lat);
                 gps->set_lon(s.lon);

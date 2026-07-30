@@ -34,6 +34,10 @@ export function FrameViewer({
   const [objectsOpen, setObjectsOpen] = useState(true);
   const [busy, setBusy] = useState(false);
 
+  // Кадр мог быть удалён чистильщиком лимита изображений; листание сбрасывает
+  const [missing, setMissing] = useState(false);
+  useEffect(() => setMissing(false), [det.id]);
+
   // Esc закрывает, стрелки листают — просмотр рассчитан на разбор с клавиатуры.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -90,9 +94,21 @@ export function FrameViewer({
 
       <div className="jr-viewer-stage">
         <div className="jr-viewer-frame">
-          <img src={journalApi.frameUrl(det.id)} alt="Кадр обнаружения" />
+          {missing ? (
+            <div className="jr-viewer-missing">
+              <span className="ico">▣</span>
+              Изображение не найдено или было удалено
+            </div>
+          ) : (
+            <img
+              src={journalApi.frameUrl(det.id)}
+              alt="Кадр обнаружения"
+              onError={() => setMissing(true)}
+            />
+          )}
 
-          {canDraw &&
+          {!missing &&
+            canDraw &&
             det.objects.map((o, i) => {
               const m = resolve(det.config_id, o.cid);
               const color = m.color || m.superColor || '#4d8bff';

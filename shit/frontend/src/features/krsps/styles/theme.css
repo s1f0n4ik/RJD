@@ -1526,3 +1526,24 @@ select.krsps-input--inherit { color: var(--k-mute); }
   .krsps-kpis { grid-template-columns: repeat(2, 1fr); }
   .krsps-actions { margin-left: 0; }
 }
+
+/* Часовой пояс на панели времени */
+.krsps-clock__tz {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 0 2px;
+  border-top: 1px solid var(--k-border);
+}
+.krsps-clock__tz-lbl {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--k-mute);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.krsps-clock__tz-note {
+  font-size: 12px;
+  color: var(--k-mute);
+}
