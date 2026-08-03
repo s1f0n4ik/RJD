@@ -442,6 +442,74 @@ const CameraSettings: React.FC = () => {
                 const original = editOriginalRef.current;
                 if (!original) throw new Error('Нет исходных данных камеры для PATCH');
 
+                /*
+                    Смена типа может уводить камеру на другое устройство: модуль
+                    нового типа живёт там, а PATCH владельцу вернул бы «тип не
+                    поддерживается». Тогда это миграция: создать на целевом
+                    устройстве, после успеха удалить у прежнего владельца.
+                */
+                const ownerDevice = deviceOf(original);
+                let migrationTarget: string | null = null;
+                if (Number(formData.type) !== Number(original.type)) {
+                    try {
+                        const routed = deviceForCameraType(Number(formData.type));
+                        if (routed !== ownerDevice) migrationTarget = routed;
+                    } catch {
+                        // Маршрута для типа нет — оставляем PATCH владельцу,
+                        // осмысленная ошибка придёт от него
+                    }
+                }
+
+                if (migrationTarget) {
+                    const payload: any = {
+                        id: cameraId,
+                        display_name: formData.display_name || cameraId,
+                        description: formData.description,
+                        ip_adress: formData.ip_adress,
+                        port: formData.port,
+                        user: formData.user,
+                        password: formData.password || original.password,
+                        production: formData.production,
+                        type: formData.type,
+                        streams: {
+                            main: {
+                                type: 1,
+                                sub: formData.main_sub,
+                                latency: formData.main_latency,
+                                use_udp: formData.main_use_udp,
+                                reconnect: formData.main_reconnect,
+                                record_path: recordPath,
+                                segment: formData.main_segment,
+                                to_record: formData.to_record,
+                            },
+                            sub: {
+                                type: 2,
+                                sub: formData.sub_sub,
+                                latency: formData.sub_latency,
+                                use_udp: formData.sub_use_udp,
+                                reconnect: formData.sub_reconnect,
+                                record_path: '',
+                                segment: 0,
+                                to_record: false,
+                            },
+                        },
+                    };
+
+                    await api.createCamera(payload, migrationTarget);
+                    try {
+                        await api.deleteCamera(cameraId, ownerDevice);
+                        setSuccess(`Камера ${cameraId} перенесена на устройство модуля нового типа`);
+                    } catch {
+                        setError(`Камера создана на новом устройстве, но не удалена на прежнем — удалите ${cameraId} на старом устройстве вручную`);
+                    }
+
+                    await cleanupProbe();
+                    setProbeStatus('idle');
+                    setOpenDialog(false);
+                    loadCameras();
+                    return;
+                }
+
                 const body: CameraPatchBody = {};
 
                 if (formData.display_name !== original.display_name) {
