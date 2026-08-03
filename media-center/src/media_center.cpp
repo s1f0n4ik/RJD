@@ -48,7 +48,10 @@ namespace neural {
 
         if (to_save) {
             if (!options.id.starts_with("__probe_")) {
-                m_config_manager.add_or_update_camera(m_cameras[options.id]->get_data());
+                if (!m_config_manager.add_or_update_camera(m_cameras[options.id]->get_data())) {
+                    m_logger.error("add_camera(): camera id=" + options.id
+                        + " is running but was NOT saved to configurations file!");
+                }
             }
         }
 
@@ -78,7 +81,10 @@ namespace neural {
 
         // Временные probe-камеры в постоянный конфиг не пишем — как в add_camera
         if (to_save && !options.id.starts_with("__probe_")) {
-            m_config_manager.add_or_update_camera(m_cameras[options.id]->get_data());
+            if (!m_config_manager.add_or_update_camera(m_cameras[options.id]->get_data())) {
+                m_logger.error("add_camera_async(): camera id=" + options.id
+                    + " is running but was NOT saved to configurations file!");
+            }
         }
 
         return true;
@@ -101,7 +107,10 @@ namespace neural {
         // Обновление метаданных
         if (camera_options && !pipelines) {
             camera->update_metadata(camera_options.value().display_name, camera_options.value().description);
-            if (to_save) m_config_manager.add_or_update_camera(camera->get_data());
+            if (to_save && !m_config_manager.add_or_update_camera(camera->get_data())) {
+                m_logger.error("update_camera(): camera id=" + id
+                    + " metadata updated but NOT saved to configurations file!");
+            }
             m_logger.info("update_camera(): successfully updated camera metadata with id=" + id);
             return true;
         }
@@ -119,7 +128,10 @@ namespace neural {
             recreated->set_configurations(*camera_options, *pipelines, std::move(callback), m_gl_manager);
             recreated->start_async();
             it->second = std::move(recreated);
-            if (to_save) m_config_manager.add_or_update_camera(it->second->get_data());
+            if (to_save && !m_config_manager.add_or_update_camera(it->second->get_data())) {
+                m_logger.error("update_camera(): camera id=" + id
+                    + " streams updated but NOT saved to configurations file!");
+            }
             m_logger.info("update_camera(): successfully updated camera streams with id=" + id);
             return true;
         }

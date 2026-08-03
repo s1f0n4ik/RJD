@@ -1,6 +1,8 @@
 #pragma once
 #include <boost/json.hpp>
 
+#include <cerrno>
+#include <cstring>
 #include <iostream>
 #include <filesystem>
 #include <fstream>
@@ -10,6 +12,9 @@
 #include <string>
 #include <system_error>
 #include <vector>
+
+#include <fcntl.h>
+#include <unistd.h>
 
 #include "logger.h"
 #include "utility/data-structs.h"
@@ -37,6 +42,11 @@ namespace nvr {
             std::lock_guard<std::mutex> lock(m_mutex);
 
             if (!std::filesystem::exists(m_path)) {
+                // Громко: отсюда начинается «пустой конфиг», и если это не первый
+                // запуск устройства — значит, смотрим не в тот varan-root
+                if (m_logger) m_logger->warn("load(): " + m_path.string()
+                    + " does not exist, creating EMPTY configuration from scratch");
+
                 m_root = {
                     {"cameras", json::array()}
                 };
@@ -51,13 +61,33 @@ namespace nvr {
             }
 
             std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+            file.close();
 
             boost::system::error_code ec;
 
             auto parsed = json::parse(content, ec);
 
             if (ec || !parsed.is_object()) {
-                return false;
+                /*
+                    Битый файл откладывается в сторону, а не блокирует менеджер:
+                    раньше m_root оставался пустым и каждый последующий
+                    add_or_update_camera молча падал исключением — камеры
+                    работали, но не сохранялись до ручного удаления файла.
+                */
+                const std::filesystem::path corrupt = m_path.string() + ".corrupt";
+                std::error_code fs_ec;
+                std::filesystem::rename(m_path, corrupt, fs_ec);
+
+                if (m_logger) m_logger->error("load(): cannot parse " + m_path.string()
+                    + (ec ? " (" + ec.message() + ")" : "")
+                    + ", broken file moved to " + corrupt.string()
+                    + ", starting with EMPTY configuration");
+
+                m_root = {
+                    {"cameras", json::array()}
+                };
+
+                return save_internal();
             }
 
             m_root = parsed.as_object();
@@ -271,20 +301,61 @@ namespace nvr {
             // Делаем слхранение файла в temp файл
             std::filesystem::path temp_path = m_path.string() + ".tmp";
 
-            std::ofstream file(temp_path);
-            if (!file.is_open()) {
-                if (m_logger) m_logger->error("Error open file at " + temp_path.string() + "!");
+            std::ostringstream oss;
+            pretty_print(oss, m_root);
+            const std::string payload = oss.str();
+
+            /*
+                Запись через open/write/fsync: без fsync при обесточивании rename
+                переживает перезагрузку, а данные — нет, и файл откатывается к
+                прежнему содержимому. Ровно так «обнулялись» камеры при
+                выключении борта вскоре после сохранения.
+            */
+            const int fd = ::open(temp_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            if (fd < 0) {
+                if (m_logger) m_logger->error("Error open file at " + temp_path.string()
+                    + ": " + std::strerror(errno));
                 return false;
             }
 
-            // Безопасная запись
-            std::ostringstream oss;
-            pretty_print(oss, m_root);
-            file << oss.str();
-            file.close();
+            std::size_t written = 0;
+            while (written < payload.size()) {
+                const ssize_t n = ::write(fd, payload.data() + written, payload.size() - written);
+                if (n < 0) {
+                    if (errno == EINTR) continue;
+                    if (m_logger) m_logger->error("Error writing " + temp_path.string()
+                        + ": " + std::strerror(errno));
+                    ::close(fd);
+                    return false;
+                }
+                written += static_cast<std::size_t>(n);
+            }
+
+            if (::fsync(fd) != 0) {
+                if (m_logger) m_logger->error("fsync failed for " + temp_path.string()
+                    + ": " + std::strerror(errno));
+                ::close(fd);
+                return false;
+            }
+            ::close(fd);
 
             // Переименовываем
-            std::filesystem::rename(temp_path,m_path);
+            std::error_code ec;
+            std::filesystem::rename(temp_path, m_path, ec);
+            if (ec) {
+                if (m_logger) m_logger->error("Error renaming " + temp_path.string()
+                    + " -> " + m_path.string() + ": " + ec.message());
+                return false;
+            }
+
+            // fsync каталога фиксирует сам rename на диске
+            const auto parent = m_path.parent_path();
+            const int dir_fd = ::open(parent.empty() ? "." : parent.c_str(), O_RDONLY | O_DIRECTORY);
+            if (dir_fd >= 0) {
+                ::fsync(dir_fd);
+                ::close(dir_fd);
+            }
+
             if (m_logger) m_logger->info("Successfully saved new configurations to file!");
             return true;
         }
