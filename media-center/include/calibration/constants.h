@@ -76,6 +76,7 @@ namespace constants {
 	inline const std::string META_USE_PANORAMA_REMAP = "use_panorama_remap";   // use_panorama_remap
 	inline const std::string META_SHOW_CHESSBOARD = "show_chessboard";         // show_chessboard
 	inline const std::string META_SHOW_UNDISTORTION = "show_undistortion";     // show_undistortion
+	inline const std::string META_LOADED_CONFIG_KEY = "loaded_config_key";     // loaded_config_key
 
 	inline const std::string META_ADDED_ID = "added_id"; // added_id
 	inline const std::string META_COUNT = "count"; // count

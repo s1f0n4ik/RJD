@@ -36,6 +36,8 @@ interface ConfigModalProps {
     /** null — деталь ещё грузится. */
     detail: Record<string, any> | null;
     selectedId: string | null;
+    /** Конфигурация, загруженная на сервере сейчас. */
+    loadedKey: string | null;
     onSelect: (configKey: string) => void;
     onLoad: () => void;
     onClose: () => void;
@@ -45,6 +47,7 @@ export function ConfigModal({
     configs,
     detail,
     selectedId,
+    loadedKey,
     onSelect,
     onLoad,
     onClose,
@@ -80,11 +83,14 @@ export function ConfigModal({
                                 return (
                                     <div
                                         key={key}
-                                        className={`config-list-item${selectedId === key ? ' selected' : ''}`}
+                                        className={`config-list-item${selectedId === key ? ' selected' : ''}${loadedKey === key ? ' loaded' : ''}`}
                                         onClick={() => onSelect(key)}
                                     >
                                         <span className="config-item-name">
                                             {cfg.name || names[cfg.id] || cfg.id}
+                                            {loadedKey === key && (
+                                                <span className="config-item-loaded">Загружена</span>
+                                            )}
                                         </span>
                                         <span className="config-item-sub">
                                             {key} · {names[cfg.id] ?? cfg.id} · {cfg.width ?? '—'}×{cfg.height ?? '—'}

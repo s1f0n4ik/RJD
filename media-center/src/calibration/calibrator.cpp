@@ -1471,6 +1471,8 @@ namespace calibration {
 
 		result[constants::META_SHOW_CHESSBOARD] = m_to_show_chessboard;
 		result[constants::META_SHOW_UNDISTORTION] = m_apply_undistort;
+		// Пустая строка — коррекция не из сохранённой конфигурации
+		result[constants::META_LOADED_CONFIG_KEY] = m_loaded_calibration_key;
 		return result;
 	}
 

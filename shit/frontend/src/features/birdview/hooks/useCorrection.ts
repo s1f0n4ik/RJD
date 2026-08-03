@@ -12,10 +12,11 @@ import type { ConfigSummary } from '../components/calibration/ConfigModal';
  * На живом стриме load уходит прямо из select; до подъёма выбор запоминается
  * как намерение, и load отправляет applyPending после успешного connection.
  *
- * Готовность и показ коррекции — состояние сервера из сообщений status
- * (is_undistortion / show_undistortion): их он шлёт и после load, и по
- * запросу. Так лампа и тумблер честны, кем бы коррекция ни была загружена —
- * модалкой калибровки, планкой проекции или пересчётом на самом сервере.
+ * Готовность, показ и ключ загруженной конфигурации — состояние сервера из
+ * сообщений status (is_undistortion / show_undistortion / loaded_config_key):
+ * их он шлёт и после load, и по запросу. Так лампа, тумблер и селект честны,
+ * кем бы коррекция ни была загружена. Ручной пересчёт карт инвалидирует ключ
+ * на сервере — успешный undistort_compute снимает его и здесь.
  */
 
 export interface Correction {
@@ -206,13 +207,33 @@ export function useCorrection({ ws, log, onToast, getCamera, isStreamLive }: Opt
         setEnabledState(Boolean(msg.meta?.show));
     }, []);
 
-    // Правда о готовности и показе — status: сервер шлёт его после load
+    // Правда о готовности, показе и ключе — status: сервер шлёт его после load
     // и по запросу, кем бы коррекция ни была загружена
-    const handleStatus = useCallback((msg: WsMessage) => {
-        if (!msg.ret) return;
-        const meta = msg.meta ?? {};
-        if (meta.is_undistortion !== undefined) setReady(Boolean(meta.is_undistortion));
-        if (meta.show_undistortion !== undefined) setEnabledState(Boolean(meta.show_undistortion));
+    const handleStatus = useCallback(
+        (msg: WsMessage) => {
+            if (!msg.ret) return;
+            const meta = msg.meta ?? {};
+            if (meta.is_undistortion !== undefined) setReady(Boolean(meta.is_undistortion));
+            if (meta.show_undistortion !== undefined) setEnabledState(Boolean(meta.show_undistortion));
+
+            if (typeof meta.loaded_config_key === 'string') {
+                const key = meta.loaded_config_key || null;
+                setLoadedKey(key);
+                // Незавершённое намерение оператора статус не затирает
+                const pending =
+                    selectedKeyRef.current !== null && selectedKeyRef.current !== loadedKeyRef.current;
+                if (!pending) setSelectedKey(key);
+                if (key && !findConfig(key)) requestList();
+            }
+        },
+        [findConfig, requestList],
+    );
+
+    // Сервер чистит ключ при ручном пересчёте карт — зеркалим
+    const handleUndistortCompute = useCallback((msg: WsMessage) => {
+        if (!msg.ret || !msg.meta) return;
+        setLoadedKey(null);
+        setSelectedKey(null);
     }, []);
 
     useEffect(() => {
@@ -220,9 +241,10 @@ export function useCorrection({ ws, log, onToast, getCamera, isStreamLive }: Opt
             ws.subscribe('calibration_configuration', handleConfiguration),
             ws.subscribe('view_undistort', handleViewUndistort),
             ws.subscribe('status', handleStatus),
+            ws.subscribe('undistort_compute', handleUndistortCompute),
         ];
         return () => unsubs.forEach(u => u());
-    }, [ws, handleConfiguration, handleViewUndistort, handleStatus]);
+    }, [ws, handleConfiguration, handleViewUndistort, handleStatus, handleUndistortCompute]);
 
     return {
         configs,

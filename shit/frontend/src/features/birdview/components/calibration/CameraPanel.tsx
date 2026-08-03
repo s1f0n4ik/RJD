@@ -8,6 +8,8 @@ import type { CalibrationCamera } from '../../api/ws-types';
 interface CameraPanelProps {
     camera: CalibrationCamera | null;
     onSelectCamera: (cam: CalibrationCamera) => void;
+    /** Имя загруженной конфигурации коррекции, null — не загружена. */
+    loadedConfigName: string | null;
     streaming: boolean;
     canStream: boolean;
     onToggleStream: () => void;
@@ -17,6 +19,7 @@ interface CameraPanelProps {
 export function CameraPanel({
     camera,
     onSelectCamera,
+    loadedConfigName,
     streaming,
     canStream,
     onToggleStream,
@@ -72,6 +75,13 @@ export function CameraPanel({
                     </div>
                 </div>
             </div>
+
+            {loadedConfigName && (
+                <div className="camera-loaded-config" title={loadedConfigName}>
+                    <span className="camera-loaded-dot" />
+                    <span className="camera-loaded-name">Коррекция: {loadedConfigName}</span>
+                </div>
+            )}
 
             <button
                 className={`btn btn-accent--load${streaming ? '' : ' collapsed'}`}

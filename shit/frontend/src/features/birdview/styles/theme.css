@@ -2147,6 +2147,32 @@
     display: none;
 }
 
+.birdview-root .camera-loaded-config {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    padding: 6px 10px;
+    border-radius: var(--bv-radius);
+    border: 1px solid rgba(64, 255, 144, 0.3);
+    background: rgba(64, 255, 144, 0.06);
+}
+.birdview-root .camera-loaded-dot {
+    flex: none;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--bv-ok);
+}
+.birdview-root .camera-loaded-name {
+    font-family: var(--bv-font-mono);
+    font-size: 13px;
+    color: var(--bv-ok);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .birdview-root .btn-stream.streaming { border-color: var(--bv-err); color: var(--bv-err); }
 .birdview-root .btn-stream.streaming:hover { background: rgba(255, 64, 96, 0.1); }
 
@@ -2739,6 +2765,21 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+.birdview-root .config-list-item.loaded {
+    border-color: rgba(64, 255, 144, 0.35);
+}
+.birdview-root .config-item-loaded {
+    margin-left: 8px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    border: 1px solid rgba(64, 255, 144, 0.4);
+    font-size: 9px;
+    font-weight: 400;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--bv-ok);
+    vertical-align: middle;
 }
 .birdview-root .config-detail {
     flex: 1;

@@ -296,21 +296,14 @@ export function CalibrationScreen({
                     break;
 
                 case 'load':
-                    // Загрузку с панели камеры и коррекции разбирает useCorrection
-                    if (configs === null) return;
-                    if (!msg.ret) {
-                        toast('Ошибка', msg.meta.description ?? '', 'err');
-                    } else {
-                        toast('Загружено', selectedConfigId ?? '', 'ok');
-                        setConfigs(null);
-                    }
+                    // Все загрузки идут через useCorrection — ответы разбирает он
                     break;
 
                 default:
                     log.log(`Неизвестный метод: ${msg.meta.method}`, 'warn');
             }
         },
-        [toast, log, selectedConfigId, configs],
+        [toast, log],
     );
 
     // Регистрация обработчиков — аналог switch по msg.type в no-react
@@ -354,6 +347,14 @@ export function CalibrationScreen({
         distortion.handlePanoramaToggle,
     ]);
 
+    // Своё имя конфигурации, если задано; иначе ключ
+    const loadedCfg = correction.configs.find(
+        c => (c.config_key ?? c.id) === correction.loadedKey,
+    );
+    const loadedConfigName = correction.loadedKey
+        ? loadedCfg?.name || correction.loadedKey
+        : null;
+
     const toggleStream = () => {
         if (stream.streamId) {
             stream.close();
@@ -377,6 +378,7 @@ export function CalibrationScreen({
                 <CameraPanel
                     camera={camera}
                     onSelectCamera={onSelectCamera}
+                    loadedConfigName={loadedConfigName}
                     streaming={streaming}
                     canStream={ws.status === 'connected' && !stream.pending}
                     onToggleStream={toggleStream}
@@ -462,6 +464,7 @@ export function CalibrationScreen({
                     configs={configs}
                     detail={configDetail}
                     selectedId={selectedConfigId}
+                    loadedKey={correction.loadedKey}
                     onSelect={key => {
                         setSelectedConfigId(key);
                         setConfigDetail(null);
@@ -472,10 +475,9 @@ export function CalibrationScreen({
                     }}
                     onLoad={() => {
                         if (!selectedConfigId) return;
-                        ws.sendMessage('calibration_configuration', {
-                            method: 'load',
-                            config_key: selectedConfigId,
-                        });
+                        // Общий путь загрузки: селект Сборки, fits() и авто-показ
+                        correction.select(selectedConfigId);
+                        setConfigs(null);
                     }}
                     onClose={() => setConfigs(null)}
                 />
