@@ -244,7 +244,7 @@ const DeviceSettings: React.FC = () => {
                                 Устройства
                             </Typography>
                             <Typography variant="caption" color="text.secondary">
-                                Одноплатники с media-center: обнаружение, состояние, маршрутизация
+                                Вычислительные устройства: обнаружение, состояние, маршрутизация
                             </Typography>
                         </Box>
                     </Box>
@@ -266,7 +266,7 @@ const DeviceSettings: React.FC = () => {
                                 Устройства не добавлены
                             </Typography>
                             <Typography color="text.secondary">
-                                Нажмите «Сканировать сеть», чтобы найти media-center'ы по порту 7777
+                                Нажмите «Сканировать сеть», чтобы найти вычислительные устройства по порту 7777
                             </Typography>
                         </Paper>
                     </Grid>
@@ -459,7 +459,7 @@ const DeviceSettings: React.FC = () => {
                         </Box>
                     ) : scanResults.length === 0 ? (
                         <Typography color="text.secondary" py={2}>
-                            Устройства не найдены. Проверьте, что media-center запущен и доступен по сети.
+                            Устройства не найдены. Проверьте, что вычислительное устройство включено и доступно по сети.
                         </Typography>
                     ) : (
                         <TableContainer>

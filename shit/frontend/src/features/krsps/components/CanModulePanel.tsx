@@ -535,7 +535,7 @@ const CanModulePanel: React.FC<Props> = ({ module, devices, busy, onSave, onConn
             {txError && <div className="krsps-field__hint krsps-field__hint--error">{txError}</div>}
             {/*<div className="krsps-note" style={{ marginTop: 10 }}>
               {tx?.continuous
-                ? 'Кадр уходит по таймеру независимо от нейросети — данные от media-center только обновляют нагрузку. Камера, замолчавшая дольше «жизни нагрузки», гасит свой бит.'
+                ? 'Кадр уходит по таймеру независимо от нейросети — данные от вычислительного устройства только обновляют нагрузку. Камера, замолчавшая дольше «жизни нагрузки», гасит свой бит.'
                 : 'Кадр уходит только при новых обнаружениях. Период и жизнь нагрузки при этом не действуют.'}
             </div>*/}
           </MessageBlock>

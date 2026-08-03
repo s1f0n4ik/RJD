@@ -3,10 +3,12 @@
 #include "core/paths.h"
 #include "version.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <thread>
+#include <vector>
 
 #include <sys/statvfs.h>
 #include <unistd.h>
@@ -26,6 +28,44 @@ static std::string read_first_line(const std::filesystem::path& path) {
     return line;
 }
 
+/*
+    MAC адрес для замены machine_id, фикс совпадений по machine id
+*/
+static std::string first_physical_mac() {
+    namespace fs = std::filesystem;
+    const fs::path net_root = "/sys/class/net";
+
+    std::vector<std::string> names;
+    std::error_code ec;
+    for (const auto& entry : fs::directory_iterator(net_root, ec)) {
+        names.push_back(entry.path().filename().string());
+    }
+    std::sort(names.begin(), names.end());
+
+    auto mac_of = [&](const std::string& name) -> std::string {
+        std::string mac = read_first_line(net_root / name / "address");
+        mac.erase(std::remove(mac.begin(), mac.end(), ':'), mac.end());
+        if (mac.empty() || mac == std::string(mac.size(), '0')) return {};
+        return mac;
+    };
+
+    for (const auto& name : names) {
+        if (name == "lo") continue;
+        if (!fs::exists(net_root / name / "device", ec)) continue;
+        auto mac = mac_of(name);
+        if (!mac.empty()) return mac;
+    }
+
+    // Физических не нашлось (нестандартный sysfs) — берём любой не-loopback
+    for (const auto& name : names) {
+        if (name == "lo") continue;
+        auto mac = mac_of(name);
+        if (!mac.empty()) return mac;
+    }
+
+    return {};
+}
+
 USystemController::USystemController(
     const varan::FModuleSet& modules,
     const varan::FPlatformInfo& platform,
@@ -39,9 +79,19 @@ USystemController::USystemController(
     if (m_device_id.empty()) {
         m_device_id = read_first_line("/var/lib/dbus/machine-id");
     }
-    if (m_device_id.empty()) {
+
+    // machine-id клонированных образов одинаковый — примешиваем MAC платы
+    const std::string mac = first_physical_mac();
+    if (!m_device_id.empty() && !mac.empty()) {
+        m_device_id += "-" + mac;
+    }
+    else if (m_device_id.empty() && !mac.empty()) {
+        m_device_id = mac;
+        if (m_logger) m_logger->warn("USystemController: machine-id is not available, using MAC");
+    }
+    else if (m_device_id.empty()) {
         m_device_id = "unknown";
-        if (m_logger) m_logger->warn("USystemController: machine-id is not available");
+        if (m_logger) m_logger->warn("USystemController: machine-id and MAC are not available");
     }
 }
 
