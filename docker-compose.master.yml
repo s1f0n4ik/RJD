@@ -7,13 +7,14 @@
 #   docker compose -f docker-compose.minion.yml up -d
 #
 # Корень рабочего каталога настраивается: VARAN_ROOT в .env
-# (по умолчанию /home/orangepi/varan; на новых устройствах — /var/lib/varan и т.п.)
+# (по умолчанию /home/orangepi/varan; на новых устройствах — /var/lib/varan)
 
 version: '3.8'
 
 services:
   # ========== FastAPI (auth, devices, прокси устройств) ==========
   fastapi:
+    image: varan/fastapi:${TAG:-latest}
     build:
       context: ./shit/backend
       dockerfile: Dockerfile
@@ -23,8 +24,15 @@ services:
       # Реестр устройств и таблица маршрутизации, переживает пересборку
       - DEVICES_FILE=/data/devices.json
     volumes:
-      - ${VARAN_ROOT:-/home/orangepi/varan}/settings:/data
+      - ${VARAN_ROOT:-/var/lib/varan}/settings:/data
     restart: unless-stopped
+    # curl в образе нет, проба идёт штатным urllib
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     logging:
       driver: "json-file"
       options:
@@ -33,6 +41,7 @@ services:
 
   # ========== Camera Scanner (ONVIF WS-Discovery) ==========
   camera-scanner:
+    image: varan/camera-scanner:${TAG:-latest}
     build:
       context: ./scanner
       dockerfile: Dockerfile
@@ -41,6 +50,12 @@ services:
     restart: unless-stopped
     environment:
       - PYTHONUNBUFFERED=1
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     logging:
       driver: "json-file"
       options:
@@ -51,23 +66,19 @@ services:
   # CAN-шина физически подключена к машине мастера (базовая конфигурация);
   # media-center нейронки ходит к шлюзу по сети через --gateway-ip.
   message-gateway:
+    image: varan/message-gateway:${TAG:-latest}
     build:
       context: ./message-gateway
       dockerfile: Dockerfile
     container_name: message-gateway
-    # host — это ещё и доступ к CAN-интерфейсам хоста (can0): сетевые namespace
-    # общие, поэтому SocketCAN работает без дополнительных прав.
-    network_mode: host  # REST 9090 и gRPC 50051 + сеть КАУС
+    network_mode: host
     command: [
       "--rest-port", "9090", "--grpc-port", "50051", "--heartbeat", "5",
-      # Шина: интерфейс поднимается на хосте заранее,
-      # ip link set can0 up type can bitrate 250000
+      # Шина: интерфейс поднимается на хосте заранее
       "--can-mode", "socketcan", "--can-iface", "can0",
       "--can-src", "0x71",   # адрес технического зрения
       "--can-peer", "0x61",  # адрес источника времени и GPS
-      # Файл настроек на томе: таблица соответствий, настройки сообщений и
-      # подключений сохраняются здесь и переживают пересоздание контейнера.
-      # Флаги выше берутся только при первом запуске, дальше побеждает файл.
+      # Файл настроек на томе
       "--state-file", "/data/gateway-state.json",
     ]
     # privileged + монтаж /dev целиком: сервис обязан стартовать на машине без
@@ -77,6 +88,14 @@ services:
       - /dev:/dev
       - message-gateway-data:/data
     restart: unless-stopped
+    # Отсутствие CAN-адаптера здоровьем не считается: шлюз обязан подниматься
+    # без железа, проба смотрит только на REST.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9090/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     logging:
       driver: "json-file"
       options:
@@ -85,6 +104,8 @@ services:
 
   # ========== React Frontend ==========
   frontend:
+    # FULL_AUTH запекается в образ на сборке, на устройстве не переключается.
+    image: varan/frontend:${TAG:-latest}
     build:
       context: ./shit/frontend
       dockerfile: Dockerfile
@@ -93,6 +114,12 @@ services:
     container_name: frontend
     network_mode: host
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
 volumes:
   # Настройки message-gateway (таблица соответствий, сообщения, подключения).

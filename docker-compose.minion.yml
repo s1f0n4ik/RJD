@@ -11,12 +11,20 @@ version: '3.8'
 services:
   # ========== Signaling Server (WebSocket для WebRTC) ==========
   signaling-server:
+    image: varan/signaling-server:${TAG:-latest}
     build:
       context: ./media-center/server
       dockerfile: Dockerfile
     container_name: signaling-server
     network_mode: host
     restart: unless-stopped
+    # HTTP-эндпоинта у брокера нет, проверяется приём TCP на порту WebSocket.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8765), 3).close()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     logging:
       driver: "json-file"
       options:
@@ -25,6 +33,7 @@ services:
 
   # ========== Работа с диском и записями ==========
   storage-service:
+    image: varan/storage-service:${TAG:-latest}
     build:
       context: ./storage-service
       dockerfile: Dockerfile
@@ -41,6 +50,12 @@ services:
     volumes:
       - /storage:/storage
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     logging:
       driver: "json-file"
       options:
