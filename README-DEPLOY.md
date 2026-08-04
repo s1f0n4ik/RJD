@@ -154,7 +154,7 @@ VARAN_ROOT [/var/lib/varan]:
 
    | Файл | Что внутри |
    |---|---|
-   | `images.tar` | образы старых контейнеров, `docker load -i images.tar` |
+   | `images.tar` | образы старых контейнеров под именами `varan-backup/<контейнер>:<дата-время>`, `docker load -i images.tar` |
    | `containers.json` | `docker inspect`: команды запуска, тома, переменные, порты |
    | `volume-<имя>.tar.gz` | содержимое именованных томов |
    | `README.txt` | краткая памятка по восстановлению |

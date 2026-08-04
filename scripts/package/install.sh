@@ -134,15 +134,18 @@ done
 if [[ ${#LEGACY[@]} -gt 0 ]]; then
 	echo "==> Найден старый стек: ${#LEGACY[@]} шт."
 
-	BACKUP_DIR="${VARAN_BACKUP_DIR:-/opt/varan-backup}/$(date +%Y-%m-%d-%H%M%S)"
+	BACKUP_STAMP="$(date +%Y-%m-%d-%H%M%S)"
+	BACKUP_DIR="${VARAN_BACKUP_DIR:-/opt/varan-backup}/$BACKUP_STAMP"
 
-	mapfile -t LEGACY_IMAGES < <(docker inspect -f '{{.Config.Image}}' "${LEGACY[@]}" | sort -u)
+	# Имя образа из контейнера может уже никуда не указывать: пересборка с тем же
+	# тегом оставляет старый образ безымянным, а контейнер работает с него по id.
+	mapfile -t LEGACY_IMAGE_IDS < <(docker inspect -f '{{.Image}}' "${LEGACY[@]}" | sort -u)
 	mapfile -t LEGACY_VOLUMES < <(docker inspect -f '{{range .Mounts}}{{if eq .Type "volume"}}{{println .Name}}{{end}}{{end}}' "${LEGACY[@]}" | sed '/^$/d' | sort -u)
 
 	# Место под копию считается заранее: старые образы шлюза тянут на гигабайты.
 	NEED=0
-	for img in "${LEGACY_IMAGES[@]}"; do
-		NEED=$(( NEED + $(docker image inspect -f '{{.Size}}' "$img" 2>/dev/null || echo 0) ))
+	for iid in "${LEGACY_IMAGE_IDS[@]}"; do
+		NEED=$(( NEED + $(docker image inspect -f '{{.Size}}' "$iid" 2>/dev/null || echo 0) ))
 	done
 	for vol in ${LEGACY_VOLUMES[@]+"${LEGACY_VOLUMES[@]}"}; do
 		mnt="$(docker volume inspect -f '{{.Mountpoint}}' "$vol")"
@@ -155,6 +158,16 @@ if [[ ${#LEGACY[@]} -gt 0 ]]; then
 		rmdir "$BACKUP_DIR" 2>/dev/null || true
 		die "под копию старого стека нужно ~$(( NEED / 1024 / 1024 )) МБ, свободно $(( AVAIL / 1024 / 1024 )) МБ; освободите место или укажите другой раздел через VARAN_BACKUP_DIR"
 	fi
+
+	# Собственный тег на время копии: без имени образ после docker load
+	# восстановится как <none> и понять, чей он, будет нечем.
+	LEGACY_IMAGES=()
+	for cid in "${LEGACY[@]}"; do
+		cname="$(docker inspect -f '{{.Name}}' "$cid" | sed 's|^/||')"
+		ref="varan-backup/$cname:$BACKUP_STAMP"
+		docker tag "$(docker inspect -f '{{.Image}}' "$cid")" "$ref"
+		LEGACY_IMAGES+=("$ref")
+	done
 
 	echo "==> Копия старого стека: $BACKUP_DIR"
 	docker inspect "${LEGACY[@]}" > "$BACKUP_DIR/containers.json"
