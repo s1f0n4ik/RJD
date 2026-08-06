@@ -5,8 +5,55 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>frontend</title>
+    <style>
+      /* Сплэш живёт вне #root и снимается из Bootstrap при монтировании React */
+      #boot {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 18px;
+        background: #f5f5f5;
+        font-family: system-ui, 'Segoe UI', Arial, sans-serif;
+      }
+      #boot[data-theme='dark']     { background: #0a0c11; }
+      #boot[data-theme='birdview'] { background: #121216; }
+      #boot[data-theme='krsps']    { background: #f6f4f2; }
+      #boot .boot-ring {
+        width: 42px;
+        height: 42px;
+        border-radius: 50%;
+        border: 3px solid rgba(128, 128, 128, 0.28);
+        border-top-color: #e21a1a;
+        animation: boot-spin 0.8s linear infinite;
+      }
+      #boot .boot-label {
+        font-size: 13px;
+        letter-spacing: 0.04em;
+        color: #9e9e9e;
+      }
+      @keyframes boot-spin { to { transform: rotate(360deg); } }
+    </style>
   </head>
-  <body>
+  <body style="margin: 0">
+    <div id="boot">
+      <div class="boot-ring"></div>
+      <div class="boot-label">Загрузка…</div>
+    </div>
+    <script>
+      // Фон сплэша по маршруту: «/» без FULL_AUTH уходит в киоск, он тёмный
+      (function () {
+        var p = window.location.pathname;
+        var theme = 'light';
+        if (p.indexOf('/app/birdview') === 0) theme = 'birdview';
+        else if (p.indexOf('/app/krsps') === 0) theme = 'krsps';
+        else if (p.indexOf('/app/neural') === 0 || p.indexOf('/kiosk') === 0 || p === '/') theme = 'dark';
+        document.getElementById('boot').setAttribute('data-theme', theme);
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

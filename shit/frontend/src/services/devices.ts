@@ -69,8 +69,8 @@ async function json<T>(res: Response): Promise<T> {
     return res.json() as Promise<T>;
 }
 
-export async function loadDevices(): Promise<{ devices: Device[]; routing: RoutingTable }> {
-    const data = await fetch('/api/devices').then(json<{ devices: Device[]; routing: RoutingTable }>);
+export async function loadDevices(signal?: AbortSignal): Promise<{ devices: Device[]; routing: RoutingTable }> {
+    const data = await fetch('/api/devices', { signal }).then(json<{ devices: Device[]; routing: RoutingTable }>);
     devicesCache = data.devices ?? [];
     routingCache = { birdview: null, neural: null, camera_types: {}, ...data.routing };
     return { devices: devicesCache, routing: routingCache };

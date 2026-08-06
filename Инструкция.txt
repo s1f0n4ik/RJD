@@ -1,0 +1,184 @@
+Для установки необходимо сначала закачать образ orangepi5pro_rsm.img на диск ssd, так же нужна SD карта любого размера, чтобы записать загрузчик для SSD rkspi_loader.img
+
+После того, как все закачка прошла, нужно расширить файловую систему на самом SSD до максимума. Для этого нужно зайти по ssh на устройство. IP адпес выдается по DHCP, необходимо смотреть в роутере, логин и пароль: orangepi orangepi
+Далее выполняем последовательно эти команды:
+sudo parted /dev/nvme0n1
+
+В строке пишем:
+resizepart 2 100% # увеличение раздела до максимума, соглашаемся на все, если будет писать
+quit
+
+sudo partrobe /dev/nvme0n1 # Если команда не найдена - пропустить
+sudo resize2fs /dev/nvme0n1p2
+
+Готово, фаайловая система расширена.
+
+Следующий этап будет описан с нуля, если установлен был образ, то переходи сразу на шаг №№
+
+Шаг №1. Установка GStreamer 1.28
+Установка cmake:
+sudo apt get install cmake
+
+Сперва нужны новые версии meson и ninja, устанавливаем через python
+sudo apt remove meson -y
+
+python3 -m pip install --user --upgrade pip
+python3 -m pip install --user meson ninja
+sudo python3 -m pip install --upgrade meson ninja
+
+Проверка:
+meson --version
+ninja --version
+
+Далее устанавливаем зависмости для GStreamer
+sudo apt install -y \
+    git \
+    build-essential \
+    python3-pip \
+    flex \
+    bison \
+    pkg-config \
+    libglib2.0-dev \
+    liborc-0.4-dev
+
+Клонирование репозитория git (лучше делать в /home/orangepi/Downloads)
+git clone --branch 1.28 https://gitlab.freedesktop.org/gstreamer/gstreamer.git
+cd gstreamer
+
+meson setup build \
+    --buildtype=release \
+    --prefix=/opt/gstreamer-1.28
+
+meson compile -C build
+
+sudo meson install -C build
+
+После необходимо скопировать файл env.sh в папку /opt/gstreamer-1.28
+
+Также копирование файла для rockchip обработки:
+sudo cp /usr/lib/aarch64-linux-gnu/gstreamer-1.0/libgstrockchipmpp.so /opt/gstreamer-1.28/lib/aarch64-linux-gnu/gstreamer-1.0/
+
+После проверить:
+source /opt/gstreamer-1.28/env.sh
+gst-inspect-1.0 | grep mpp
+
+Должен быть вот такой вывод:
+rockchipmpp:  mpph264enc: Rockchip Mpp H264 Encoder
+rockchipmpp:  mpph265enc: Rockchip Mpp H265 Encoder
+rockchipmpp:  mppjpegdec: Rockchip's MPP JPEG image decoder
+rockchipmpp:  mppjpegenc: Rockchip Mpp JPEG Encoder
+rockchipmpp:  mppvideodec: Rockchip's MPP video decoder
+rockchipmpp:  mppvp8enc: Rockchip Mpp VP8 Encoder
+typefindfunctions: audio/x-musepack: mpc, mpp, mp+
+
+Шаг 2 установка дополнительных зависимостей
+sudo apt install libsqlite3-dev
+sudo apt install protobuf-compiler libprotobuf-dev libgrpc++-dev protobuf-compiler-grpc
+
+Шаг 3 установка wstunnel для удаленного доступа
+cd ~/Downloads
+wget https://github.com/erebe/wstunnel/releases/download/v10.6.1/wstunnel_10.6.1_linux_arm64.tar.gz
+tar -xzf wstunnel_10.6.1_linux_arm64.tar.gz
+chmod +x wstunnel
+sudo mv wstunnel /usr/local/bin/
+
+Сикрет для подключения положить в /etc/wstunnel/server.env:
+WSTUNNEL_SECRET_PATH=c304152ba1ca467e7992308189551e1e
+
+Само подключение:
+wstunnel client -L tcp://2222:127.0.0.1:22 \
+  --http-upgrade-path-prefix c304152ba1ca467e7992308189551e1e \
+  wss://<адрес-платы>:1668
+
+ssh -p 2222 orangepi@127.0.0.1
+
+Проверка
+wstunnel --version
+
+Создание сервиса для автозапуска в режиме сервера, чтобы к нему можно было коннектиться на порту 1668: скопировать файл wstunnel.service в /etc/systemd/system/wstunnel.service
+
+После создания сервиса выполнить команды по его активации:
+sudo systemctl daemon-reload
+sudo systemctl enable wstunnel.service
+sudo systemctl start wstunnel.service
+
+Проверка запуска сервиса: должно быть running при вызове команды sudo systemctl status wstunnel.service
+
+
+Шаг 4 установка репы
+cd /opt
+git clone https://github.com/s1f0n4ik/RJD.git
+cd RJD
+sudo git checkout feature/rsm-1000
+
+Шаг 5. Разворачивание контейнеров приложения
+Основные docker-compose лежат в папке с репозиторием (/home/orangepi/varan/RJD либо /opt/RJD)
+Делятся на 2 вида:
+docker-compose.master.yml - мастер-докер, отвечающий за фронт, передачу по can и websocket, а также за маршрутизацию устройств в приложении.
+docker-compose.miniom.yml - докер, который отвечает за связь c развернутым media-center, для каждого устройства должен быть свой миньон.
+
+Если на одном устройстве крутится и media-center, и фронт необходимо разворачиваить сразу 2 вида. Если только media-center - нужен только миньон. Мастер в целой сети должен быть только один.
+Для этого варианта сборки необходим доступ в сеть:
+
+Каманда для разворачивания мастера (необходимо находиться в пути репозитория):
+(sudo) docker compose -f docker-compose.master.yml up --build -d
+
+Для разворачивания миньона:
+(sudo) docker compose -f docker-compose.minion.yml up --build -d
+
+Шаг 5.1. Разворачивание в оффлайн:
+
+!!! Рискованный шаг: удаление всех контейнеров и образов на устройстве:
+sido docker stop $(docker ps -aq)
+sudo docker rm $(docker ps -aq)
+sudo docker rmi -f $(docker images -q)
+sudo docker system prune -a --volumes -f
+
+Использование minion и master образов для развертывания (лежат в "образы docker"):
+Скопировать образы в любое место на устройстве, распоковать их
+
+sudo tar -xzf varan-master-2026-08-04-de316348.tar.gz
+cd varan-master-2026-08-04-de316348
+sudo bash install.sh
+
+Для minion - аналогично, если его необходимо ставить
+
+Шаг 5.2. Взять из папки "билд" media-center.tar.gz, распоковать его в удобном месте и перейти на Шаг 6, используя текущий путь распакованного media-center
+
+5.3
+Дополнительно:
+скопировать либу rknn (Доп пакеты\Либа для нейронки) в /usr/lib/librknnrt.so
+
+Шаг 6. билд media-center (на старом устройстве использовать путь /home/orangepi/{varan}/media-center)
+sudo mkdir /opt/media-center
+sudo mkdir /opt/media-center/0.0.1
+cmake -S /opt/RJD/media-center -B /opt/media-center/0.0.1
+cmake --build /opt/media-center/0.0.1 -j
+
+Шаг 7. установка media-center.service
+
+вызвать команду sudo nano /etc/systemd/system/media-center.service, в нее вставить содержимое файла "media-center.service"
+
+Описание части файла сервиса:
+StateDirectory=varan
+WorkingDirectory=/opt/media-center/0.0.1
+ExecStart=/bin/bash -lc 'source /opt/gstreamer-1.28/env.sh && exec /opt/media-center/0.0.1/media-center \
+    --rest-port=7777 --signaling-ip=127.0.0.1 --signaling-port=8765 \
+    --modules=birdview,neural \
+    --varan-root=/var/lib/varan \
+    --gateway-ip=127.0.0.1 --gateway-port=50051'
+
+
+Что здесь важно: 
+--modules отвечает за то, какие модули будут доступны на этом устройстве. На 192.168.1.2 - neural, на 192.168.1.4 - birdview, в случае если необходимо запускать все на одной машине, пишется сразу оба модуля
+--gateway-ip - ip адрес устрйоства, на котором запущен мастер docker, именно там находится шлюх для отправки сообщений
+--varan-root - основная папка, где хранятся конфигурации настроек, калибровки, нейронные модели. На всех новых машинах путь уже стоит в /var/lib/varan, на старых пусть по /home/orangepi/varan (при этом там же и RJD и media-center)
+Порты необходимо оставлять как есть, дополнительной настройки не требуется. Чтобы сигналинг работал необходимо запускать docker-compose.minion везде, где запущен media-center
+
+Шаг 8. Перенос необходимых настроек на устройства. Все необходимые файлы находятся в папке доп пакеты.
+
+- Перенос тайлов карты на устройство по пути /storage/journal - взять из journal. Перенести папки, как есть 
+- Перенос настроек калибровки: по пути варана (/var/lib/varan либо /home/orangepi/varan) перенести surround_view, здесь можно выбрать, что необходимо - пресеты калиборовки (calibration/calibration_settings.json вместе c папкой calibration/maps/), модели (presets/models/), neural - с конфигурацией модели и самой моделью.
+- Все, что лежит в varan - зеркало файлов, сохраняет используемые пути
+
+Так же можно сохраняить отдельные параметры со старого устройства, чтобы использовать их в новой версии.
