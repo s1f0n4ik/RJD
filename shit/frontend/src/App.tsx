@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { Suspense, lazy, useState, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -15,9 +15,10 @@ import Dashboard from './components/Dashboard';
 import CameraSettings from './components/CameraSettings';
 // import LoaderSettings from './components/LoaderSettings';
 // import NeuralSettings from './components/NeuralSettings';
-import NeuralConfigApp from './features/neural/components/NeuralConfigApp';
-import KrspsApp from './features/krsps/components/KrspsApp';
-import { BirdviewApp } from './features/birdview/components/BirdviewApp';
+const NeuralConfigApp = lazy(() => import('./features/neural/components/NeuralConfigApp'));
+const KrspsApp = lazy(() => import('./features/krsps/components/KrspsApp'));
+const BirdviewApp = lazy(() =>
+    import('./features/birdview/components/BirdviewApp').then(m => ({ default: m.BirdviewApp })));
 import Login from './components/Login';
 import KioskView from './components/KioskView';
 import { wsService } from './services/websocket';
@@ -29,9 +30,14 @@ import RecordingsView from './components/RecordingsView';
 import DeviceSettings from './components/DeviceSettings';
 // Landing (развилка киоск/админка) умер: «/» решается редиректом ниже
 import { getDevices } from './services/devices';
-import { BirdviewUnavailable } from './features/birdview/components/ModuleUnavailable';
-import { NeuralUnavailable } from './features/neural/components/ModuleUnavailable';
+const BirdviewUnavailable = lazy(() =>
+    import('./features/birdview/components/ModuleUnavailable').then(m => ({ default: m.BirdviewUnavailable })));
+const NeuralUnavailable = lazy(() =>
+    import('./features/neural/components/ModuleUnavailable').then(m => ({ default: m.NeuralUnavailable })));
 import OnScreenKeyboard from './components/OnScreenKeyboard';
+// Переписываемая оболочка живёт на /new: грузится лениво, чтобы её стили
+// не попадали в документ на старых экранах
+const NewApp = lazy(() => import('./app/NewApp'));
 const ADMIN_TABS = new Set([1, 4]); // Камеры, Устройства
 // Подроуты /app/*, требующие прав администратора
 const ADMIN_ROUTES = ['neural', 'krsps', 'birdview'];
@@ -64,11 +70,12 @@ const GlobalMergeJobPanel: React.FC = () => {
 
 const AppContent: React.FC = () => {
   const pathname = window.location.pathname;
+  const isNewUiRoute = pathname.startsWith('/new');
   // === KIOSK ROUTING ===
   // Если URL начинается с /kiosk — рендерим KioskView без Header/авторизации
   const isKioskRoute = window.location.pathname.startsWith('/kiosk');
   const isAdminRoute = pathname.startsWith('/app'); // 🆕
-  const isLandingRoute = !isKioskRoute && !isAdminRoute; // 🆕
+  const isLandingRoute = !isKioskRoute && !isAdminRoute && !isNewUiRoute; // 🆕
   const isNeuralRoute = pathname.startsWith('/app/neural');
   const isKrspsRoute = pathname.startsWith('/app/krsps');
   const isBirdviewRoute = pathname.startsWith('/app/birdview');
@@ -182,7 +189,7 @@ const AppContent: React.FC = () => {
   };
 
   useEffect(() => {
-    if (isKioskRoute || isLandingRoute || isNeuralRoute || isKrspsRoute || isBirdviewRoute) return; // В киоск-режиме WS не нужен
+    if (isNewUiRoute || isKioskRoute || isLandingRoute || isNeuralRoute || isKrspsRoute || isBirdviewRoute) return; // В киоск-режиме WS не нужен
     if (token) {
       wsService.connect(
         (newState) => setState(newState),
@@ -192,7 +199,7 @@ const AppContent: React.FC = () => {
     return () => {
       wsService.disconnect();
     };
-  }, [token, isKioskRoute, isLandingRoute, isNeuralRoute, isKrspsRoute, isBirdviewRoute]);
+  }, [token, isNewUiRoute, isKioskRoute, isLandingRoute, isNeuralRoute, isKrspsRoute, isBirdviewRoute]);
 
   const hasAccessToTab = (tab: number): boolean => {
     if (!ADMIN_TABS.has(tab)) return true;
@@ -273,6 +280,14 @@ const AppContent: React.FC = () => {
     </Dialog>
   );
 
+  if (isNewUiRoute) {
+    return (
+      <Suspense fallback={null}>
+        <NewApp />
+      </Suspense>
+    );
+  }
+
   // Защищённая сборка: логин требуется до любого маршрута, включая / и /kiosk
   if (FULL_AUTH && !token) {
     return (
@@ -321,29 +336,35 @@ const AppContent: React.FC = () => {
     getDevices().some((d) => d.status === 'online' && d.modules.includes(m));
 
   if (isNeuralRoute) {
-    if (!hasModule('neural')) return <NeuralUnavailable />;
     return (
-      <>
-        <NeuralConfigApp />
-        <OnScreenKeyboard />
-      </>
+      <Suspense fallback={null}>
+        {!hasModule('neural') ? <NeuralUnavailable /> : (
+          <>
+            <NeuralConfigApp />
+            <OnScreenKeyboard />
+          </>
+        )}
+      </Suspense>
     );
   }
   if (isKrspsRoute) {
     return (
-      <>
+      <Suspense fallback={null}>
         <KrspsApp />
         <OnScreenKeyboard />
-      </>
+      </Suspense>
     );
   }
   if (isBirdviewRoute) {
-    if (!hasModule('birdview')) return <BirdviewUnavailable />;
     return (
-      <>
-        <BirdviewApp />
-        <OnScreenKeyboard />
-      </>
+      <Suspense fallback={null}>
+        {!hasModule('birdview') ? <BirdviewUnavailable /> : (
+          <>
+            <BirdviewApp />
+            <OnScreenKeyboard />
+          </>
+        )}
+      </Suspense>
     );
   }
 

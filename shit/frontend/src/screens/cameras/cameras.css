@@ -1,0 +1,133 @@
+/* Камеры: список-грид, подтаблица потоков и шторка настроек снизу */
+
+.cams-body{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.cams-scroll{flex:1;min-height:0;overflow:auto;scrollbar-gutter:stable}
+
+/* Список камер — грид, не таблица: один шаблон колонок у шапки и строк,
+   выравнивание держится геометрией и не зависит от содержимого ячеек */
+.cam-grid{--cam-cols:minmax(220px,2fr) 112px 150px 140px 104px minmax(180px,1.2fr);min-width:980px}
+.cam-head,.cam-row{display:grid;grid-template-columns:var(--cam-cols);align-items:center}
+.cam-head{position:sticky;top:0;z-index:2;background:var(--surface);border-bottom:1px solid var(--line)}
+.cam-head span{padding:9px 12px;font-size:10px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--fg-3);white-space:nowrap}
+.cam-row{min-height:46px;border-bottom:1px solid var(--line);cursor:pointer;transition:.12s}
+.cam-row:hover{background:var(--surface)}
+.cam-row.is-open{background:rgba(var(--acc-rgb),.12);border-bottom-color:transparent}
+.cam-row > span{padding:0 12px;font-size:12.5px;color:var(--fg-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cam-row .nm{color:var(--fg);font-weight:600}
+.cam-row .mono{font-family:var(--mono);font-size:11.5px;color:var(--fg-3)}
+.cam-name{display:inline-flex;align-items:center;gap:9px;max-width:100%;overflow:hidden}
+.cam-name i{overflow:hidden;text-overflow:ellipsis;font-style:normal}
+.cam-name .chev{color:var(--fg-3);flex:0 0 12px;transition:transform .15s ease}
+.cam-row.is-open .cam-name .chev{color:var(--acc);transform:rotate(90deg)}
+
+/* Тона состояния камеры и потока */
+.st-acc{color:var(--acc)}
+/* Счётчики фильтров: тон должен перебить базовый цвет .fld .v */
+.fld .v.st-acc{color:var(--acc)}
+.fld .v.st-ok{color:var(--ok)}
+.fld .v.st-warn{color:var(--warn)}
+.fld .v.st-err{color:var(--err)}
+.st-ok{color:var(--ok)}
+.st-warn{color:var(--warn)}
+.st-err{color:var(--err)}
+.st-info{color:var(--info)}
+.st-dim{color:var(--fg-3)}
+.st{display:inline-flex;align-items:center;gap:7px;font-size:12px}
+
+/* Разворачивание потоков: грид-обёртка анимирует высоту 0fr - 1fr */
+.streams-wrap{display:grid;animation:streams-in .2s ease}
+.streams-wrap > .streams{min-height:0;overflow:hidden}
+.streams-wrap.is-closing{animation:streams-out .18s ease-in forwards}
+@keyframes streams-in{from{grid-template-rows:0fr;opacity:.4}to{grid-template-rows:1fr;opacity:1}}
+@keyframes streams-out{from{grid-template-rows:1fr;opacity:1}to{grid-template-rows:0fr;opacity:.3}}
+
+/* Подтаблица потоков: тише основной, чтобы читалась как вложенная */
+.streams{background:rgba(var(--acc-rgb),.05);box-shadow:inset 3px 0 0 var(--acc);border-bottom:1px solid var(--line);padding:8px 14px 10px 40px}
+.stab{width:100%;table-layout:fixed;border-collapse:collapse}
+.stab th{text-align:left;background:transparent;border-bottom:1px solid rgba(51,59,74,.7);padding:0 10px 6px;font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;font-weight:700;color:#5f6b7d;white-space:nowrap}
+.stab td{height:38px;padding:0 10px;border-bottom:1px solid rgba(51,59,74,.45);font-size:12px;color:var(--fg-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stab tr:last-child td{border-bottom:none}
+.stab tbody tr{cursor:pointer}
+.stab tbody tr.is-on td{background:rgba(var(--acc-rgb),.13);color:var(--fg)}
+.stab tbody tr.is-on td:first-child{box-shadow:inset 2px 0 0 var(--acc);border-radius:4px 0 0 4px}
+.stab .rtsp{font-family:var(--mono);font-size:11px;color:var(--fg-3)}
+.chnum{display:inline-flex;align-items:center;justify-content:center;min-width:24px;height:22px;padding:0 6px;border-radius:6px;border:1px solid var(--line);font-family:var(--mono);font-size:11.5px;color:var(--fg-2)}
+.stab tbody tr.is-on .chnum{border-color:rgba(var(--acc-rgb),.5);color:var(--acc);background:rgba(var(--acc-rgb),.12)}
+
+/* Шторка настроек выбранной камеры */
+.drawer{background:var(--surface);border-top:1px solid var(--line-hi);box-shadow:0 -8px 24px rgba(0,0,0,.35);display:flex;flex-direction:column;animation:drawer-in .22s cubic-bezier(.3,.9,.3,1)}
+.drawer.is-closing{animation:drawer-out .18s ease-in forwards}
+@keyframes drawer-in{from{transform:translateY(100%)}to{transform:translateY(0)}}
+@keyframes drawer-out{to{transform:translateY(100%)}}
+.drawer-h{display:flex;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.drawer-h h2{font-size:14px;font-weight:600}
+.drawer-b{flex:1;display:flex;gap:22px;padding:16px 18px;min-height:0;overflow-y:auto;scrollbar-gutter:stable}
+.drawer-col{display:flex;flex-direction:column;min-width:0}
+
+/* Поля: подпись над контролом; парные ряды — грид, чтобы края совпадали */
+.fields{display:flex;flex-direction:column;gap:11px}
+.frow{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.frow--3{grid-template-columns:1fr 1fr 1fr}
+.fcell{min-width:0;display:flex;flex-direction:column;gap:5px}
+.fcap{font-size:11px;color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fcell .inp{width:100%;flex:none;text-align:left}
+.fcell .inp--num{text-align:right}
+.fcell select.sel{display:block;width:100%;height:32px;padding:0 28px 0 10px}
+/* Подпись и контрол в одну строку — для селекта канала */
+.finline{display:flex;align-items:center;gap:10px}
+.finline .fcap{flex:0 0 auto;font-size:12.5px;color:var(--fg-3)}
+.finline .uisel{flex:1}
+.fsw{display:flex;align-items:center;gap:9px;min-height:32px}
+
+/* Пароль: глазик поверх поля, поле оставляет ему место */
+.pwd{position:relative}
+.pwd .inp{width:100%;padding-right:32px}
+.pwd .eye{position:absolute;right:5px;top:50%;transform:translateY(-50%);width:22px;height:22px;display:grid;place-items:center;border-radius:5px;border:none;color:var(--fg-3)}
+.pwd .eye:hover{color:var(--fg-2);background:var(--panel-2)}
+
+/* Превью: компактная плитка 16:9, видео на всю плитку по центру */
+.cam-preview{position:relative;flex:0 0 248px;align-self:flex-start;aspect-ratio:16/9;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:#000;display:flex;align-items:center;justify-content:center}
+.cam-preview video{display:block;width:100%;height:100%;object-fit:contain;background:#000}
+.cam-preview .state{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;color:var(--fg-3);font-size:12px;text-align:center;padding:12px}
+.cam-preview .cap{position:absolute;left:10px;bottom:8px;font-family:var(--mono);font-size:11px;color:var(--fg-2);text-shadow:0 1px 3px rgba(0,0,0,.85)}
+
+/* Скан сети (вариант С-2): фиксированное окно, слева ход, справа находки */
+.scan-modal{--modal-w:880px;height:min(560px,84vh);gap: 0; padding: 0;}
+.scan-body{flex:1;min-height:0;display:flex}
+.scan-side{flex:0 0 224px;border-right:1px solid var(--line);background:var(--input);padding:14px;display:flex;flex-direction:column;gap:14px}
+.scan-side .cap{font-size:11px;color:var(--fg-3);margin-bottom:5px}
+.scan-bar{height:6px;background:#0f1218;border-radius:3px;overflow:hidden;margin-bottom:6px}
+.scan-bar i{display:block;height:100%;background:var(--acc);border-radius:3px;transition:width .3s ease}
+.scan-kv{display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid rgba(51,59,74,.5);font-size:12px;color:var(--fg-2)}
+.scan-kv:last-child{border-bottom:none}
+.scan-kv b{font-family:var(--mono);font-weight:500;color:var(--fg)}
+.scan-list{flex:1;min-width:0;overflow-y:auto;scrollbar-gutter:stable}
+.scan-row{display:flex;align-items:center;gap:12px;min-height:52px;padding:6px 14px;border-bottom:1px solid rgba(51,59,74,.5)}
+.scan-row:last-child{border-bottom:none}
+.scan-row:hover{background:#1f2530}
+.scan-row .who{flex:1;min-width:0}
+.scan-row .top{display:flex;align-items:center;gap:8px;margin-bottom:3px}
+.scan-row .top b{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.scan-row .top b.anon{color:var(--fg-3);font-weight:500}
+.scan-row .sub{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.scan-row .addr{font-family:var(--mono);font-size:11.5px;color:var(--fg)}
+.vend{display:inline-flex;align-items:center;padding:2px 8px;border-radius:5px;background:rgba(var(--acc-rgb),.12);border:1px solid rgba(var(--acc-rgb),.35);color:var(--acc);font-size:11px;font-weight:600;white-space:nowrap}
+.vend--warn{background:rgba(240,189,87,.1);border-color:rgba(240,189,87,.35);color:var(--warn)}
+.vend--dim{background:none;border-color:var(--line);color:var(--fg-2)}
+.scan-chip{display:inline-flex;align-items:center;gap:5px;padding:2px 7px;border-radius:5px;border:1px solid var(--line);font-size:10.5px;color:var(--fg-2);white-space:nowrap}
+.scan-chip.ok{border-color:rgba(87,214,154,.4);color:var(--ok)}
+
+/* Мастер добавления (Д-3): слева живая проверка, справа поля.
+   Строки подключения тянутся на всю ширину, числа каналов — по ёмкости значения */
+.add-modal{--modal-w:900px;height:min(560px,86vh)}
+.add-body{flex:1;min-height:0;display:flex}
+.add-side{flex:0 0 336px;border-right:1px solid var(--line);background:var(--input);padding:14px;display:flex;flex-direction:column;gap:10px}
+.add-check{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--fg-2);padding:3px 0}
+.add-main{flex:1;min-width:0;padding:14px 16px;overflow-y:auto;scrollbar-gutter:stable}
+.add-row{display:grid;gap:10px;margin-bottom:10px}
+.add-row--conn{grid-template-columns:1.5fr .7fr 1fr 1.2fr}
+.add-row--meta{grid-template-columns:1fr 1.4fr 1fr 1fr}
+.add-chan{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:10px}
+.add-chan .fcell .inp{width:64px}
+.add-sect{margin-bottom:16px}
+.add-sect > .eyebrow{display:flex;align-items:center;gap:10px;margin-bottom:10px}

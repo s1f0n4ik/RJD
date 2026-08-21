@@ -1,0 +1,146 @@
+/* Оболочка: рельса, верхняя планка, сцена экранов */
+
+/* ── Оболочка ───────────────────────────────────────────── */
+.shell{display:flex;height:100vh;overflow:hidden}
+
+/* ── Левая рельса ───────────────────────────────────────── */
+.rail{
+  width:var(--rail);flex:0 0 var(--rail);
+  background:var(--surface);
+  border-right:1px solid var(--line);
+  display:flex;flex-direction:column;
+  transition:width .2s cubic-bezier(.4,0,.2,1),flex-basis .2s cubic-bezier(.4,0,.2,1);
+}
+
+.shell.is-narrow .rail{width:64px;flex-basis:64px}
+
+.rail-head{height:var(--top);flex:0 0 var(--top);display:flex;align-items:center;gap:9px;padding:0 12px;border-bottom:1px solid var(--line)}
+
+.rail-burger{width:40px;height:40px;flex:0 0 40px;display:grid;place-items:center;border-radius:var(--r);color:var(--fg-2);transition:.15s}
+
+.rail-burger:hover{background:var(--panel-2);color:var(--fg)}
+
+.rail-wordmark{display:flex;flex-direction:column;line-height:1.15;white-space:nowrap}
+
+.rail-wordmark b{font-size:13px;font-weight:700;letter-spacing:-.01em}
+
+.rail-wordmark span{font-family:var(--mono);font-size:9.5px;color:var(--fg-3);letter-spacing:.02em}
+
+.shell.is-narrow .rail-wordmark{display:none}
+
+.rail-nav{flex:1;overflow-y:auto;padding:12px 10px;display:flex;flex-direction:column;gap:3px}
+
+.rail-group{padding:18px 8px 8px;font-size:10.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-3);white-space:nowrap}
+
+.shell.is-narrow .rail-group{padding:14px 0 8px;font-size:0}
+
+.shell.is-narrow .rail-group::after{content:'';display:block;height:1px;background:var(--line);margin:0 10px}
+
+.rail-item{
+  display:flex;align-items:center;gap:11px;
+  min-height:44px;padding:0 12px;border-radius:10px;
+  color:var(--fg-2);text-align:left;width:100%;
+  border:1px solid transparent;transition:.15s;position:relative;
+}
+
+.rail-item:hover{background:var(--panel);color:var(--fg)}
+
+.rail-item .ico{flex:0 0 19px;width:19px;height:19px}
+
+.rail-item .lbl{white-space:nowrap;overflow:hidden;font-size:13.5px;font-weight:500}
+
+.rail-item .badge{margin-left:auto;font-family:var(--mono);font-size:10px;padding:2px 6px;border-radius:5px;background:var(--panel-2);color:var(--fg-3)}
+
+.rail-item .badge.is-err{background:rgba(255,107,128,.16);color:var(--err)}
+
+.shell.is-narrow .rail-item{justify-content:center;padding:0}
+
+.shell.is-narrow .rail-item .lbl,.shell.is-narrow .rail-item .badge{display:none}
+
+.rail-item.is-active{background:var(--panel);color:var(--fg)}
+
+.rail-item.is-active::before{content:'';position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:0 2px 2px 0;background:var(--acc);box-shadow:0 0 12px rgba(var(--acc-rgb),.55)}
+
+.rail-item.is-active .ico{color:var(--acc)}
+
+.rail-item.is-active .lbl{font-weight:600}
+
+/* Модуль не поднят ни на одном устройстве */
+.rail-item.is-off{opacity:.45}
+
+.rail-item.is-off .lbl{text-decoration:line-through;text-decoration-color:var(--fg-3)}
+
+.rail-foot{border-top:1px solid var(--line);padding:10px;display:flex;align-items:center;gap:10px;min-height:60px}
+
+.avatar{
+  width:34px;height:34px;flex:0 0 34px;border-radius:10px;
+  background:linear-gradient(140deg,var(--acc-dim),#7b4de0);
+  display:grid;place-items:center;font-weight:700;font-size:12px;color:#fff;
+}
+
+.who{overflow:hidden;line-height:1.25;min-width:0}
+
+.who b{display:block;font-size:12.5px;font-weight:600;white-space:nowrap}
+
+.who span{font-size:10.5px;color:var(--fg-3);white-space:nowrap}
+
+.rail-exit{margin-left:auto;width:30px;height:30px;flex:0 0 30px;display:grid;place-items:center;border-radius:7px;color:var(--fg-3);transition:.15s}
+
+.rail-exit:hover{background:var(--panel-2);color:var(--err)}
+
+.shell.is-narrow .who,.shell.is-narrow .rail-exit{display:none}
+
+/* ── Верхняя планка ─────────────────────────────────────── */
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+
+.topbar{
+  height:var(--top);flex:0 0 var(--top);
+  display:flex;align-items:center;gap:18px;padding:0 18px;
+  background:color-mix(in srgb,var(--surface) 88%,transparent);
+  backdrop-filter:blur(8px);
+  border-bottom:1px solid var(--line);
+  position:relative;z-index:20;
+}
+
+.crumbs{display:flex;align-items:center;gap:8px;font-size:13.5px;white-space:nowrap;flex:0 0 auto}
+
+.crumbs .up{color:var(--fg-3)}
+
+.crumbs .cur{font-weight:600}
+
+.crumbs .ico{width:12px;height:12px;color:var(--fg-3)}
+
+.subnav{display:flex;gap:2px;padding:4px;background:var(--input);border:1px solid var(--line);border-radius:10px}
+
+.sub{
+  min-height:34px;padding:0 14px;border-radius:var(--r);
+  display:flex;align-items:center;gap:8px;
+  font-size:13px;font-weight:500;color:var(--fg-2);white-space:nowrap;transition:.15s;position:relative;
+}
+
+.sub:hover{color:var(--fg)}
+
+.sub.is-on{background:var(--panel-2);color:var(--fg);font-weight:600}
+
+.sub.is-on::after{content:'';position:absolute;left:11px;right:11px;bottom:3px;height:2px;border-radius:2px;background:var(--acc);box-shadow:0 0 10px rgba(var(--acc-rgb),.55)}
+
+/* Нумерация оправдана: это реальная последовательность настройки */
+.sub .n{font-family:var(--mono);font-size:10.5px;color:var(--fg-3);font-weight:500}
+
+.sub.is-on .n{color:var(--acc)}
+
+.top-right{margin-left:auto;display:flex;align-items:center;gap:7px;flex:0 0 auto}
+
+/* ── Сцена ──────────────────────────────────────────────── */
+.stage{flex:1;min-height:0;position:relative}
+
+.screen{position:absolute;inset:0;display:flex;flex-direction:column;overflow:hidden}
+
+.scroll{overflow-y:auto;padding:24px;flex:1}
+
+.glow{background:radial-gradient(1100px 560px at 50% -240px,var(--acc-glow),transparent 70%),var(--bg)}
+
+/* Непереписанный раздел: виден, приглушён, ничего не открывает */
+.rail-item.is-pending{opacity:.45;cursor:default}
+.rail-item.is-pending:hover{background:none;color:var(--fg-2)}
+.rail-item.is-pending .badge{background:none;border:1px solid var(--line);color:var(--fg-3);font-family:var(--ui);font-size:10.5px}

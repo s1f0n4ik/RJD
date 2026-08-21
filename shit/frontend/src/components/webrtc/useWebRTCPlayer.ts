@@ -18,8 +18,10 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { WebSocketManager, WSStatus } from './WebSocketManager';
-import { WebRTCManager, RTCStatus } from './WebRTCManager';
+import { WebSocketManager } from './WebSocketManager';
+import type { WSStatus } from './WebSocketManager';
+import { WebRTCManager } from './WebRTCManager';
+import type { RTCStatus } from './WebRTCManager';
 
 export type PlayerStatus =
     | 'connecting'   // WS подключается
