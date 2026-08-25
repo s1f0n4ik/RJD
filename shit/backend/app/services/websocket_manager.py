@@ -46,9 +46,14 @@ def _build_state_payload(cameras: Dict[str, Any], message_type: str) -> Dict[str
             "cameras": cameras,
             "summary": {
                 "cameras_total": len(cameras),
+                # Камера в работе, если работает хотя бы один её поток:
+                # зашитого потока main больше нет, у камеры их произвольное число
                 "cameras_running": sum(
                     1 for cam in cameras.values()
-                    if cam.get("streams", {}).get("main", {}).get("status") == 3
+                    if any(
+                        stream.get("status") == 3
+                        for stream in (cam.get("streams") or {}).values()
+                    )
                 ),
             },
         },

@@ -1,55 +1,79 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '../../app/Icons';
-import { Modal } from '../../app/Modal';
+import { Modal, isModalOpen } from '../../app/Modal';
 import { api } from '../../services/api';
 import { getDevices, loadDevices, signalingWsUrl } from '../../services/devices';
+import type { StreamPurpose } from '../../types';
 import { AddCameraWizard } from './AddCameraWizard';
-import { ConnectionFields, RecordFields, StreamFields } from './CameraFields';
+import { AddStreamModal } from './AddStreamModal';
+import { ConnectionFields, StreamFields, useDeviceModules } from './CameraFields';
 import { LivePreview } from './LivePreview';
 import { ScanModal } from './ScanModal';
-import { StreamsTable } from './StreamsTable';
+import { PurposeChips, StreamsTable } from './StreamsTable';
 import { saveCamera } from './save';
 import {
     RESERVED_PREFIXES,
-    TYPE_NAMES,
     VENDOR_TO_PRODUCTION,
     cameraStatus,
     deviceOf,
     formFromCamera,
     formatError,
     ipToNumber,
+    makeStream,
+    nextStreamKey,
+    streamNumber,
     streamsOf,
     validateCameraName,
     validateIp,
     validatePort,
+    validateStreams,
+    viewableStream,
     type Camera,
     type CameraFormData,
-    type StreamKey,
+    type StreamForm,
 } from './model';
 import './cameras.css';
 
 const POLL_MS = 10_000;
-type TypeFilter = 0 | 1 | 2 | 3;
+
+type PurposeFilter = 'all' | StreamPurpose;
+
+const FILTERS: Array<[PurposeFilter, string]> = [
+    ['all', 'Все'],
+    ['record', 'С записью'],
+    ['neural', 'Тех. зрение'],
+    ['birdview', '360'],
+];
 
 interface ToastState {
     tone: 'ok' | 'err';
     text: string;
 }
 
+/** Все назначения камеры без повторов — для колонки списка. */
+const cameraPurposes = (camera: Camera): StreamPurpose[] => {
+    const all = new Set<StreamPurpose>();
+    for (const stream of streamsOf(camera)) {
+        for (const purpose of stream.purposes) all.add(purpose);
+    }
+    return [...all];
+};
+
 export function CamerasScreen() {
     const [cameras, setCameras] = useState<Camera[]>([]);
     const [loaded, setLoaded] = useState(false);
-    const [typeFilter, setTypeFilter] = useState<TypeFilter>(0);
+    const [purposeFilter, setPurposeFilter] = useState<PurposeFilter>('all');
 
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [closing, setClosing] = useState(false);
-    const [stream, setStream] = useState<StreamKey>('main');
+    const [streamKey, setStreamKey] = useState<string>('');
     const [form, setForm] = useState<CameraFormData | null>(null);
     const [saving, setSaving] = useState(false);
 
     const [wizardOpen, setWizardOpen] = useState(false);
     const [wizardInitial, setWizardInitial] = useState<Partial<CameraFormData> | undefined>(undefined);
     const [scanOpen, setScanOpen] = useState(false);
+    const [addStreamOpen, setAddStreamOpen] = useState(false);
     const [confirmDelete, setConfirmDelete] = useState<Camera | null>(null);
 
     const [toast, setToast] = useState<ToastState | null>(null);
@@ -85,7 +109,10 @@ export function CamerasScreen() {
         () => [...cameras].sort((a, b) => ipToNumber(a.ip_adress) - ipToNumber(b.ip_adress)),
         [cameras],
     );
-    const visible = typeFilter === 0 ? sorted : sorted.filter(c => Number(c.type) === typeFilter);
+
+    const visible = purposeFilter === 'all'
+        ? sorted
+        : sorted.filter(c => cameraPurposes(c).includes(purposeFilter));
 
     const liveCount = cameras.filter(c => cameraStatus(c).tone === 'ok').length;
     const troubled = cameras.length - liveCount;
@@ -104,6 +131,28 @@ export function CamerasScreen() {
         setClosing(false);
     };
 
+    // Esc закрывает шторку, но уступает модалкам: пока открыто подтверждение,
+    // скан или мастер, клавиша принадлежит верхнему окну
+    useEffect(() => {
+        if (!selectedId) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape' && !isModalOpen()) setClosing(true);
+        };
+        document.addEventListener('keydown', onKey);
+        return () => document.removeEventListener('keydown', onKey);
+    }, [selectedId]);
+
+    /*
+        Камера пропала из ответа API — её удалили, держать шторку не на чем.
+        Фильтр списка сюда не относится: cameras остаётся полным набором,
+        сужается только visible.
+    */
+    useEffect(() => {
+        if (!loaded || !selectedId) return;
+        if (!cameras.some(c => c.id === selectedId)) finishClose();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [cameras, loaded, selectedId]);
+
     // Форма заполняется при выборе камеры и не перетирается фоновым опросом
     const toggleCamera = (camera: Camera) => {
         if (camera.id === selectedId) {
@@ -113,7 +162,8 @@ export function CamerasScreen() {
         setClosing(false);
         setSelectedId(camera.id);
         setForm(formFromCamera(camera));
-        setStream('main');
+        // Открываем на смотрибельном потоке: рядом живое превью
+        setStreamKey(viewableStream(camera)?.key ?? streamsOf(camera)[0]?.key ?? '');
     };
 
     const existingNames = useMemo(() => cameras.map(c => c.id), [cameras]);
@@ -123,7 +173,14 @@ export function CamerasScreen() {
     );
     const ipCheck = useMemo(() => validateIp(form?.ip_adress ?? ''), [form?.ip_adress]);
     const portCheck = useMemo(() => validatePort(form?.port ?? ''), [form?.port]);
-    const formValid = nameCheck.valid && ipCheck.valid && portCheck.valid;
+
+    const modules = useDeviceModules(form?.device_id ?? '');
+    const streamsCheck = useMemo(
+        () => validateStreams(form?.streams ?? [], modules),
+        [form?.streams, modules],
+    );
+
+    const formValid = nameCheck.valid && ipCheck.valid && portCheck.valid && streamsCheck.valid;
 
     const dirty = useMemo(() => {
         if (!form || !selected) return false;
@@ -132,11 +189,50 @@ export function CamerasScreen() {
 
     const anyDeviceOnline = getDevices().some(d => d.status === 'online');
 
-    // Подписи каналов в селекте те же, что в подтаблице
-    const streamOptions = selectedStreams.map(s => ({
-        key: s.key,
-        label: s.width > 0 ? `${s.channel} · ${s.width}×${s.height}` : `${s.channel}`,
-    }));
+    // Подписи потоков в селекте: разрешение показываем, когда поток живой
+    const streamLabels = useMemo(() => {
+        const labels: Record<string, string> = {};
+        for (const stream of selectedStreams) {
+            labels[stream.key] = stream.width > 0
+                ? `Поток ${stream.number} · ${stream.width}×${stream.height}`
+                : `Поток ${stream.number} · субпоток ${stream.substream}`;
+        }
+        for (const stream of form?.streams ?? []) {
+            if (!labels[stream.key]) {
+                labels[stream.key] = `Поток ${streamNumber(stream.key)} · субпоток ${stream.substream}`;
+            }
+        }
+        return labels;
+    }, [selectedStreams, form?.streams]);
+
+    const patchForm = (patch: Partial<CameraFormData>) =>
+        setForm(prev => (prev ? { ...prev, ...patch } : prev));
+
+    const patchStream = (key: string, patch: Partial<StreamForm>) =>
+        setForm(prev => prev
+            ? { ...prev, streams: prev.streams.map(s => (s.key === key ? { ...s, ...patch } : s)) }
+            : prev);
+
+    // Номер субпотока приходит из опроса камеры, а не назначается по порядку
+    const pickStream = (substream: number) => {
+        setAddStreamOpen(false);
+        setForm(prev => {
+            if (!prev) return prev;
+            const key = nextStreamKey(prev.streams);
+            // Новый поток заводится смотрибельным: это единственное назначение,
+            // доступное на любом устройстве
+            const stream = makeStream(key, substream, ['view']);
+            setStreamKey(key);
+            return { ...prev, streams: [...prev.streams, stream] };
+        });
+    };
+
+    const removeStream = (key: string) => setForm(prev => {
+        if (!prev || prev.streams.length <= 1) return prev;
+        const streams = prev.streams.filter(s => s.key !== key);
+        setStreamKey(streams[0].key);
+        return { ...prev, streams };
+    });
 
     const apply = async () => {
         if (!form || !selected || !formValid) return;
@@ -178,8 +274,10 @@ export function CamerasScreen() {
         setWizardOpen(true);
     };
 
-    const patchForm = (patch: Partial<CameraFormData>) =>
-        setForm(prev => (prev ? { ...prev, ...patch } : prev));
+    const previewStream = selectedStreams.find(s => s.key === streamKey);
+    const previewKey = previewStream?.purposes.includes('view')
+        ? previewStream.key
+        : viewableStream(selected ?? ({} as Camera))?.key;
 
     return (
         <section className="screen">
@@ -195,11 +293,11 @@ export function CamerasScreen() {
                 </span>
 
                 <div className="seg">
-                    {([[0, 'Все'], [1, 'Обычные'], [2, 'Тех. зрение'], [3, '360']] as const).map(([value, label]) => (
+                    {FILTERS.map(([value, label]) => (
                         <button
                             key={value}
-                            className={typeFilter === value ? 'is-on' : ''}
-                            onClick={() => setTypeFilter(value)}
+                            className={purposeFilter === value ? 'is-on' : ''}
+                            onClick={() => setPurposeFilter(value)}
                         >
                             {label}
                         </button>
@@ -244,15 +342,16 @@ export function CamerasScreen() {
                         <div className="cam-grid">
                             <div className="cam-head">
                                 <span>Название</span>
-                                <span>Тип</span>
+                                <span>Назначения</span>
                                 <span>IP-адрес</span>
                                 <span>Устройство</span>
-                                <span>Задержка</span>
+                                <span>Потоков</span>
                                 <span>Состояние</span>
                             </div>
                             {visible.map(camera => {
                                 const status = cameraStatus(camera);
                                 const open = camera.id === selectedId;
+                                const streams = streamsOf(camera);
                                 return (
                                     <div key={camera.id}>
                                         <div
@@ -265,12 +364,12 @@ export function CamerasScreen() {
                                                     <i>{camera.display_name || camera.id}</i>
                                                 </span>
                                             </span>
-                                            <span>{TYPE_NAMES[camera.type] ?? '—'}</span>
+                                            <span className="cell-purp"><PurposeChips purposes={cameraPurposes(camera)} /></span>
                                             <span className="mono">{camera.ip_adress}</span>
                                             <span className={camera.offline ? 'st-err' : ''}>
                                                 {camera.device_name ?? '—'}
                                             </span>
-                                            <span className="mono">{camera.streams?.main?.latency ?? 0} мс</span>
+                                            <span className="mono">{streams.length}</span>
                                             <span>
                                                 <span className={`st st-${status.tone}`}>
                                                     <span className={`dot ${status.tone === 'info' ? 'acc' : status.tone === 'dim' ? '' : status.tone}`} />
@@ -283,8 +382,8 @@ export function CamerasScreen() {
                                                 <StreamsTable
                                                     camera={camera}
                                                     streams={selectedStreams}
-                                                    selected={stream}
-                                                    onSelect={setStream}
+                                                    selected={streamKey}
+                                                    onSelect={setStreamKey}
                                                 />
                                             </div>
                                         )}
@@ -303,34 +402,15 @@ export function CamerasScreen() {
                         }}
                     >
                         <div className="drawer-h">
-                            <h2>{selected.display_name || selected.id}</h2>
+                            <div className="drawer-who">
+                                <h2>{selected.display_name || selected.id}</h2>
+                                <span className="sub">{selected.id} · {selected.device_name ?? '—'}</span>
+                            </div>
+                            <span className="spacer" />
                             <span className={`st st-${cameraStatus(selected).tone}`}>
                                 <span className={`dot ${cameraStatus(selected).tone === 'ok' ? 'ok' : 'err'}`} />
                                 {cameraStatus(selected).label}
                             </span>
-                            <span className="num muted" style={{ fontSize: 11.5 }}>
-                                {selected.id} · {selected.device_name ?? '—'}
-                            </span>
-                            <span className="spacer" />
-                            {dirty && (
-                                <button className="btn btn--sm btn--ghost" onClick={() => setForm(formFromCamera(selected))}>
-                                    Сбросить
-                                </button>
-                            )}
-                            <button
-                                className="btn btn--sm btn--acc"
-                                disabled={saving || !dirty || !formValid || selectedOffline}
-                                onClick={() => void apply()}
-                            >
-                                {saving ? 'Сохраняем…' : 'Применить'}
-                            </button>
-                            <button
-                                className="btn btn--sm btn--err"
-                                disabled={selectedOffline}
-                                onClick={() => setConfirmDelete(selected)}
-                            >
-                                Удалить
-                            </button>
                             <button
                                 className="icon-btn"
                                 style={{ border: 'none' }}
@@ -343,22 +423,45 @@ export function CamerasScreen() {
 
                         <div className="drawer-b">
                             {selectedOffline ? (
-                                <div className="cam-preview" style={{ flex: '0 0 340px' }}>
+                                <div className="cam-preview">
                                     <div className="state">
                                         Устройство «{selected.device_name}» не отвечает — показаны данные из кэша.
                                     </div>
                                 </div>
-                            ) : (
+                            ) : previewKey ? (
                                 <LivePreview
-                                    key={selected.id}
+                                    key={`${selected.id}:${previewKey}`}
                                     cameraId={selected.id}
+                                    stream={previewKey}
                                     signalingUrl={signalingWsUrl(deviceOf(selected), `/client/${selected.id}`)}
-                                    caption={`канал ${stream === 'main' ? form.main_sub : form.sub_sub}`}
-                                    style={{ flex: '0 0 340px' }}
+                                    caption={streamLabels[previewKey] ?? previewKey}
                                 />
+                            ) : (
+                                <div className="cam-preview">
+                                    <div className="state">
+                                        Ни одному потоку не назначен просмотр — смотреть нечего.
+                                    </div>
+                                </div>
                             )}
 
-                            <div className="drawer-col" style={{ flex: '1 1 300px', maxWidth: 340 }}>
+                            <div className="drawer-col">
+                                <span className="eyebrow" style={{ display: 'block', marginBottom: 12 }}>Потоки</span>
+                                <StreamFields
+                                    streams={form.streams}
+                                    selected={streamKey}
+                                    modules={modules}
+                                    onSelect={setStreamKey}
+                                    onPatch={patchStream}
+                                    onAdd={() => setAddStreamOpen(true)}
+                                    onRemove={removeStream}
+                                    labels={streamLabels}
+                                />
+                                {!streamsCheck.valid && (
+                                    <p className="hint is-err" style={{ marginTop: 10 }}>{streamsCheck.error}</p>
+                                )}
+                            </div>
+
+                            <div className="drawer-col">
                                 <span className="eyebrow" style={{ display: 'block', marginBottom: 12 }}>Подключение</span>
                                 <ConnectionFields
                                     form={form}
@@ -370,24 +473,30 @@ export function CamerasScreen() {
                                     portCheck={portCheck}
                                 />
                             </div>
+                        </div>
 
-                            <div className="drawer-col" style={{ flex: '1 1 240px', maxWidth: 240 }}>
-                                <span className="eyebrow" style={{ display: 'block', marginBottom: 12 }}>Поток</span>
-                                <StreamFields
-                                    form={form}
-                                    onChange={patchForm}
-                                    stream={stream}
-                                    onStreamChange={setStream}
-                                    options={streamOptions}
-                                />
-                            </div>
-
-                            <div className="drawer-col" style={{ flex: '1 1 240px', maxWidth: 300 }}>
-                                <span className="eyebrow" style={{ display: 'block', marginBottom: 12 }}>
-                                    Запись выбранного канала
-                                </span>
-                                <RecordFields form={form} onChange={patchForm} stream={stream} />
-                            </div>
+                        <div className="drawer-f">
+                            <button
+                                className="btn btn--sm btn--err"
+                                disabled={selectedOffline}
+                                onClick={() => setConfirmDelete(selected)}
+                            >
+                                Удалить
+                            </button>
+                            <span className="spacer" />
+                            {dirty && (
+                                <button className="btn btn--sm btn--ghost" onClick={() => setForm(formFromCamera(selected))}>
+                                    Сбросить
+                                </button>
+                            )}
+                            <button
+                                className="btn btn--sm btn--acc"
+                                disabled={saving || !dirty || !formValid || selectedOffline}
+                                title={formValid ? undefined : streamsCheck.error}
+                                onClick={() => void apply()}
+                            >
+                                {saving ? 'Сохраняем…' : 'Применить'}
+                            </button>
                         </div>
                     </div>
                 )}
@@ -403,6 +512,22 @@ export function CamerasScreen() {
                         showToast('ok', message);
                         void load(true);
                     }}
+                />
+            )}
+
+            {addStreamOpen && form && (
+                <AddStreamModal
+                    deviceId={form.device_id || deviceOf(selected)}
+                    connection={{
+                        ip_adress: form.ip_adress,
+                        port: form.port,
+                        user: form.user,
+                        password: form.password,
+                        production: form.production,
+                    }}
+                    used={form.streams.map(s => s.substream)}
+                    onPick={pickStream}
+                    onClose={() => setAddStreamOpen(false)}
                 />
             )}
 

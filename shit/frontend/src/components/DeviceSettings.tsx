@@ -51,14 +51,6 @@ import {
 
 const POLL_INTERVAL_MS = 5_000;
 
-// ECameraType из C++: какие типы камер назначаются на устройства.
-// Виртуальные (4) не маршрутизируются — их создают сами модули.
-const CAMERA_TYPE_LABELS: Record<string, string> = {
-    '1': 'Обычные камеры',
-    '2': 'Камеры технического зрения',
-    '3': 'Камеры 360',
-};
-
 const MODULE_LABELS: Record<string, string> = {
     birdview: 'Система 360',
     neural: 'Техническое зрение',
@@ -193,14 +185,6 @@ const DeviceSettings: React.FC = () => {
 
     const setModuleRoute = (module: 'birdview' | 'neural', deviceId: string) => {
         setRouting(prev => ({ ...prev, [module]: deviceId || null }));
-        setRoutingDirty(true);
-    };
-
-    const setTypeRoute = (type: string, deviceId: string) => {
-        setRouting(prev => ({
-            ...prev,
-            camera_types: { ...prev.camera_types, [type]: deviceId || null },
-        }));
         setRoutingDirty(true);
     };
 
@@ -421,25 +405,6 @@ const DeviceSettings: React.FC = () => {
                                             <TableCell>Техническое зрение (детекция, журнал)</TableCell>
                                             <TableCell>{deviceSelect(routing.neural, id => setModuleRoute('neural', id))}</TableCell>
                                         </TableRow>
-                                    </TableBody>
-                                </Table>
-                            </TableContainer>
-                        </Grid>
-                        <Grid item xs={12} md={6}>
-                            <Typography variant="subtitle2" fontWeight="bold" mb={1}>
-                                Создание камер по типу
-                            </Typography>
-                            <TableContainer>
-                                <Table size="small">
-                                    <TableBody>
-                                        {Object.entries(CAMERA_TYPE_LABELS).map(([type, label]) => (
-                                            <TableRow key={type}>
-                                                <TableCell sx={{ width: '50%' }}>{label}</TableCell>
-                                                <TableCell>
-                                                    {deviceSelect(routing.camera_types?.[type] ?? null, id => setTypeRoute(type, id))}
-                                                </TableCell>
-                                            </TableRow>
-                                        ))}
                                     </TableBody>
                                 </Table>
                             </TableContainer>

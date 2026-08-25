@@ -225,7 +225,7 @@ void UNV12EncodingPipeline::push_frame(cv::Mat frame) {
 	}
 
 	if (frame.empty() && m_cached_frame.empty()) {
-		if (m_logger) m_logger->trace("push_frame(): Бля, ебаный долбаеб, тебе даже здесь сука не повезло. Ни кеша, ни кадра. Иди нахуй, сука!");
+		if (m_logger) m_logger->trace("push_frame(): neither cached frame nor incoming frame, nothing to push");
 		return;
 	}
 	auto& ref_frame = frame.empty() ? m_cached_frame : frame;
@@ -236,7 +236,7 @@ void UNV12EncodingPipeline::push_frame(cv::Mat frame) {
 		&& ref_frame.cols <= m_width && ref_frame.rows <= m_height;
 
 	if (!exact && !paddable) {
-		if (m_logger) m_logger->trace("push_frame(): Убейся ебанат, ты кидаешь фрейм, который не соответствует размеру потока!");
+		if (m_logger) m_logger->trace("push_frame(): frame size doesn't match the stream size");
 		return;
 	}
 
@@ -331,11 +331,12 @@ FPipelineData UNV12EncodingPipeline::get_pipeline_data() {
 	data.reconnect_time = m_parameters.reconnect_delay;
 	data.latency = m_parameters.latency;
 
-	data.to_record = false;
 	data.record_path = "";
 	data.segment_length = -1;
 
-	data.sub = m_parameters.stream;
+	// Труба собирается из кадров, а не из потока камеры
+	data.channel = 0;
+	data.substream = 0;
 
 	return data;
 }

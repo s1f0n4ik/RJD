@@ -39,8 +39,6 @@ export interface Device {
 export interface RoutingTable {
     birdview: string | null;
     neural: string | null;
-    /** ECameraType (число строкой) → deviceId */
-    camera_types: Record<string, string | null>;
 }
 
 export interface ScanResult {
@@ -55,7 +53,7 @@ export interface ScanResult {
 // ── Кэш ──
 
 let devicesCache: Device[] = [];
-let routingCache: RoutingTable = { birdview: null, neural: null, camera_types: {} };
+let routingCache: RoutingTable = { birdview: null, neural: null };
 
 async function json<T>(res: Response): Promise<T> {
     if (!res.ok) {
@@ -72,7 +70,7 @@ async function json<T>(res: Response): Promise<T> {
 export async function loadDevices(signal?: AbortSignal): Promise<{ devices: Device[]; routing: RoutingTable }> {
     const data = await fetch('/api/devices', { signal }).then(json<{ devices: Device[]; routing: RoutingTable }>);
     devicesCache = data.devices ?? [];
-    routingCache = { birdview: null, neural: null, camera_types: {}, ...data.routing };
+    routingCache = { birdview: null, neural: null, ...data.routing };
     return { devices: devicesCache, routing: routingCache };
 }
 
@@ -112,15 +110,6 @@ export const modulePath = (module: 'birdview' | 'neural', path: string) =>
 /** Сигналинг устройства модуля birdview: потоки линкера, калибратор. */
 export const birdviewSignalingUrl = (path: string) =>
     signalingWsUrl(moduleDeviceId('birdview'), path);
-
-/** Устройство для создания камеры данного типа (ECameraType). */
-export function deviceForCameraType(type: number): string {
-    const deviceId = routingCache.camera_types?.[String(type)];
-    if (!deviceId) {
-        throw new Error(`Тип камеры ${type} не назначен ни одному устройству — настройте маршрутизацию`);
-    }
-    return deviceId;
-}
 
 // ── API страницы настроек ──
 

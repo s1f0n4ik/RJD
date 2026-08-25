@@ -7,7 +7,7 @@ from typing import Literal
 
 
 from fastapi import (
-    APIRouter, BackgroundTasks, HTTPException, Request, Response,
+    APIRouter, BackgroundTasks, HTTPException, Query, Request, Response,
     WebSocket, WebSocketDisconnect,
 )
 from fastapi.responses import FileResponse, StreamingResponse
@@ -27,11 +27,14 @@ class MergeRequest(BaseModel):
     date: str
     start_minutes: float
     end_minutes: float
+    # Не указан — берётся поток с самой свежей записью
+    stream: str | None = None
 
 class ArchiveRequest(BaseModel):
     camera: str
     date: str
     mode: Literal["day", "range"] = "day"
+    stream: str | None = None
     # Для mode="range" обязательны:
     start_minutes: float | None = None
     end_minutes: float | None = None
@@ -110,6 +113,7 @@ async def merge_start(req: MergeRequest):
     asyncio.create_task(run_merge_job(
         job,
         camera=req.camera,
+        stream=req.stream,
         date=req.date,
         start_minutes=req.start_minutes,
         end_minutes=req.end_minutes,
@@ -129,6 +133,7 @@ async def archive_start(req: ArchiveRequest):
     asyncio.create_task(run_archive_job(
         job,
         camera=req.camera,
+        stream=req.stream,
         date=req.date,
         mode=req.mode,
         start_minutes=req.start_minutes,
@@ -214,8 +219,8 @@ async def merge_progress(ws: WebSocket, job_id: str):
             pass
 
 @router.get("/recordings/download/{camera_name}/{filename}")
-async def download(camera_name: str, filename: str):
-    file_path = storage.resolve_file(camera_name, filename)
+async def download(camera_name: str, filename: str, stream: str | None = None):
+    file_path = storage.resolve_file(camera_name, filename, stream)
     if file_path is None:
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(
@@ -226,8 +231,13 @@ async def download(camera_name: str, filename: str):
 
 
 @router.get("/recordings/stream/{camera_name}/{filename}")
-async def stream(camera_name: str, filename: str, request: Request):
-    file_path = storage.resolve_file(camera_name, filename)
+async def stream(
+    camera_name: str,
+    filename: str,
+    request: Request,
+    stream_key: str | None = Query(None, alias="stream"),
+):
+    file_path = storage.resolve_file(camera_name, filename, stream_key)
     if file_path is None:
         raise HTTPException(status_code=404, detail="File not found")
 
@@ -281,11 +291,13 @@ async def stream(camera_name: str, filename: str, request: Request):
 
 
 @router.get("/recordings/{camera_name}")
-async def list_camera(camera_name: str):
-    files = storage.list_camera(camera_name)
+async def list_camera(camera_name: str, stream: str | None = None):
+    # Без stream отдаётся всё: у каждой записи есть поле stream, старый
+    # интерфейс его просто не читает
+    files = storage.list_camera(camera_name, stream)
     if files is None:
         raise HTTPException(status_code=404, detail=f"Camera {camera_name} not found")
-    return {"files": files}
+    return {"files": files, "streams": storage.list_streams(camera_name)}
 
 
 class MergeRequest(BaseModel):

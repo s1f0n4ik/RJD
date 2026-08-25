@@ -63,6 +63,8 @@ export interface CloseMsg {
 export interface ConnectionRequestPayload {
     client_id: string;
     camera: string;
+    /** Ключ потока камеры; пусто — сервер берёт первый смотрибельный */
+    stream?: string;
 }
 
 export interface IceCandidatePayload {

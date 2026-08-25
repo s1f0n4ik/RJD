@@ -3,6 +3,7 @@
 #include <unordered_map>
 #include <functional>
 #include <iostream>
+#include <sstream>
 #include <string>
 
 namespace varan {
@@ -30,36 +31,45 @@ namespace nvr {
 		}
 	};
 
-	using CRtspUrlMaker = std::string(*)(const std::string&, const std::string&, const std::string&, const std::string&, int);
+	using CRtspUrlMaker = std::string(*)(const std::string&, const std::string&, const std::string&, const std::string&, int, int);
 
-	// Обязательно в stream передаем id начиная с 1
+	/*
+		channel — физический вход камеры, substream — качество той же картинки.
+		Оба приходят начиная с 1; вендорские шаблоны, где нумерация с нуля,
+		вычитают единицу сами. Раньше число было одно и подставлялось как
+		качество, а канал стоял константой — до второго входа многоматричной
+		камеры было не дотянуться.
+	*/
 	inline const std::unordered_map<ERtspType, CRtspUrlMaker> rtsp_maker = {
-		{ERtspType::NO_PRODUCER, 
-		[](const std::string& ip, const std::string& port, const std::string& admin, const std::string& password, int stream) {
+		{ERtspType::NO_PRODUCER,
+		[](const std::string& ip, const std::string& port, const std::string& admin, const std::string& password, int channel, int substream) {
 			std::stringstream ss;
 			ss << "rtsp://" << ip << ":" << port << "/user=" << admin << "_password="
-			   << password << "_channel=0_stream=" << stream - 1 << "&onvif=0.sdp?real_stream";
+			   << password << "_channel=" << channel - 1 << "_stream=" << substream - 1 << "&onvif=0.sdp?real_stream";
 			return ss.str();
 		}},
 		{ERtspType::DAHUA,
-		[](const std::string& ip, const std::string& port, const std::string& admin, const std::string& password, int stream) {
+		[](const std::string& ip, const std::string& port, const std::string& admin, const std::string& password, int channel, int substream) {
 			std::stringstream ss;
-			ss << "rtsp://" << admin << ":" << password << "@" << ip << ":" << port << "/cam/realmonitor?channel=1&subtype=" << stream - 1;
+			ss << "rtsp://" << admin << ":" << password << "@" << ip << ":" << port
+			   << "/cam/realmonitor?channel=" << channel << "&subtype=" << substream - 1;
 			return ss.str();
 		}},
 		{ERtspType::HIKVISION,
-		[](const std::string& ip, const std::string& port, const std::string& admin, const std::string& password, int stream) {
+		[](const std::string& ip, const std::string& port, const std::string& admin, const std::string& password, int channel, int substream) {
+			// В ISAPI идентификатор потока — это канал×100 + субпоток
 			std::stringstream ss;
-			ss << "rtsp://" << admin << ":" << password << "@" << ip << ":" << port << "/ISAPI/Streaming/Channels/10" << stream;
+			ss << "rtsp://" << admin << ":" << password << "@" << ip << ":" << port
+			   << "/ISAPI/Streaming/Channels/" << channel * 100 + substream;
 			return ss.str();
 		}},
 		{ERtspType::ACE,
-		[](const std::string& ip, const std::string& port, const std::string& admin, const std::string& password, int stream) {
+		[](const std::string& ip, const std::string& port, const std::string& admin, const std::string& password, int channel, int substream) {
 			std::stringstream ss;
 			ss << "rtsp://" << ip << ":" << port << "/user=" << admin << "_password="
-			   << password << "_channel=0_stream=" << stream - 1 << "&onvif=0.sdp?real_stream";
+			   << password << "_channel=" << channel - 1 << "_stream=" << substream - 1 << "&onvif=0.sdp?real_stream";
 			return ss.str();
 		}},
 	};
-} // namespace varan rtsp://admin:VniiTest@192.168.1.16:554/ISAPI/Streaming/Channels/101
-} // namespace nvr  
+} // namespace nvr
+} // namespace varan

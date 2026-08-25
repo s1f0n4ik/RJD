@@ -14,6 +14,9 @@ VIDEO_EXTENSIONS = {".mp4", ".mkv", ".avi", ".ts"}
 # Таймштамп в имени фрагмента: <camera>_YYYY-MM-DD_HH-MM-SS.mp4
 FILENAME_TS = re.compile(r"(\d{4}-\d{2}-\d{2})_(\d{2})-(\d{2})-(\d{2})")
 
+# Записи, сделанные до появления потоков: лежат прямо в папке камеры
+LEGACY_STREAM = "legacy"
+
 
 class StorageService:
     """Инкапсулирует всё, что связано с корневым каталогом записей."""
@@ -37,6 +40,66 @@ class StorageService:
 
     # ── Чтение ──
 
+    def stream_dirs(self, camera_dir: Path) -> list:
+        """
+        Потоки камеры: каждая подпапка плюс сама папка камеры, если в ней
+        лежат файлы. Записи одной камеры теперь могут вести несколько потоков,
+        а всё, что писалось до этого, лежит в корне её папки.
+        """
+        if not camera_dir.is_dir():
+            return []
+
+        found = []
+        has_flat = False
+
+        for entry in sorted(camera_dir.iterdir()):
+            if entry.is_dir():
+                found.append((entry.name, entry))
+            elif entry.is_file() and entry.suffix.lower() in VIDEO_EXTENSIONS:
+                has_flat = True
+
+        if has_flat:
+            found.append((LEGACY_STREAM, camera_dir))
+
+        return found
+
+    def default_stream(self, camera_name: str) -> Optional[str]:
+        """
+        Поток с самой свежей записью. Нужен там, где поток не указан явно:
+        склеивать записи разных потоков в одну ленту нельзя, а выбрать
+        какой-то один надо.
+        """
+        newest_key = None
+        newest_created = None
+
+        for key, path in self.stream_dirs(self.root / camera_name):
+            for item in self._collect_files(path):
+                if newest_created is None or item["created"] > newest_created:
+                    newest_created = item["created"]
+                    newest_key = key
+
+        return newest_key
+
+    def stream_path(self, camera_name: str, stream: Optional[str]) -> Optional[Path]:
+        """Каталог потока; для legacy и пустого значения — папка камеры."""
+        camera_dir = self.root / camera_name
+        if not camera_dir.is_dir():
+            return None
+
+        if not stream or stream == LEGACY_STREAM:
+            return camera_dir
+
+        if ".." in stream or "/" in stream or "\\" in stream:
+            return None
+
+        path = camera_dir / stream
+        return path if path.is_dir() else None
+
+    def list_streams(self, camera_name: str) -> list:
+        """Ключи потоков камеры, у которых есть хотя бы один файл."""
+        camera_dir = self.root / camera_name
+        return [key for key, path in self.stream_dirs(camera_dir) if self._collect_files(path)]
+
     def list_all(self) -> dict:
         """Все записи, сгруппированные по камерам."""
         if not self.root.exists():
@@ -47,32 +110,48 @@ class StorageService:
         for camera_dir in self.root.iterdir():
             if not camera_dir.is_dir():
                 continue
-            files = self._collect_files(camera_dir)
+            files = self._collect_camera(camera_dir)
             files.sort(key=lambda x: x["created"], reverse=True)
             result[camera_dir.name] = files
         return result
 
-    def list_camera(self, camera_name: str) -> Optional[list]:
+    def list_camera(self, camera_name: str, stream: Optional[str] = None) -> Optional[list]:
         camera_dir = self.root / camera_name
         if not camera_dir.is_dir():
             return None
-        files = self._collect_files(camera_dir)
+        files = self._collect_camera(camera_dir, stream)
         files.sort(key=lambda x: x["created"], reverse=True)
         return files
 
-    def resolve_file(self, camera_name: str, filename: str) -> Optional[Path]:
+    def resolve_file(self, camera_name: str, filename: str, stream: Optional[str] = None) -> Optional[Path]:
         """Безопасное разрешение пути с защитой от path traversal."""
         if ".." in filename or "/" in filename or "\\" in filename:
             return None
-        candidate = self.root / camera_name / filename
-        try:
-            # Проверяем, что итоговый путь всё ещё под root
-            candidate.resolve().relative_to(self.root.resolve())
-        except (ValueError, OSError):
+        if stream and (".." in stream or "/" in stream or "\\" in stream):
             return None
-        if not candidate.is_file():
-            return None
-        return candidate
+
+        camera_dir = self.root / camera_name
+
+        if stream:
+            candidates = [
+                camera_dir / filename if stream == LEGACY_STREAM else camera_dir / stream / filename
+            ]
+        else:
+            # Поток не указан — ищем по всем, начиная со старых записей:
+            # так ссылки, выданные до появления потоков, продолжают работать
+            candidates = [camera_dir / filename]
+            candidates += [path / filename for key, path in self.stream_dirs(camera_dir)
+                           if key != LEGACY_STREAM]
+
+        for candidate in candidates:
+            try:
+                candidate.resolve().relative_to(self.root.resolve())
+            except (ValueError, OSError):
+                continue
+            if candidate.is_file():
+                return candidate
+
+        return None
 
     # ── Очистка ──
 
@@ -108,18 +187,36 @@ class StorageService:
             yield path
 
     def remove_empty_subdirs(self) -> int:
-        """Удалить пустые подкаталоги в root. Возвращает количество удалённых."""
+        """
+        Удалить пустые каталоги камер и их потоков. Возвращает количество
+        удалённых. Потоки убираются первыми, иначе папка камеры никогда не
+        окажется пустой.
+        """
         if not self.root.exists():
             return 0
+
         removed = 0
-        for subdir in self.root.iterdir():
-            if subdir.is_dir() and not any(subdir.iterdir()):
+        for camera_dir in self.root.iterdir():
+            if not camera_dir.is_dir():
+                continue
+
+            for stream_dir in camera_dir.iterdir():
+                if stream_dir.is_dir() and not any(stream_dir.iterdir()):
+                    try:
+                        stream_dir.rmdir()
+                        removed += 1
+                        logger.info("Removed empty dir: %s", stream_dir)
+                    except OSError as e:
+                        logger.warning("Failed to remove %s: %s", stream_dir, e)
+
+            if not any(camera_dir.iterdir()):
                 try:
-                    subdir.rmdir()
+                    camera_dir.rmdir()
                     removed += 1
-                    logger.info("Removed empty dir: %s", subdir)
+                    logger.info("Removed empty dir: %s", camera_dir)
                 except OSError as e:
-                    logger.warning("Failed to remove %s: %s", subdir, e)
+                    logger.warning("Failed to remove %s: %s", camera_dir, e)
+
         return removed
 
     # ── helpers ──
@@ -133,6 +230,19 @@ class StorageService:
         if m:
             return f"{m.group(1)}T{m.group(2)}:{m.group(3)}:{m.group(4)}"
         return datetime.fromtimestamp(ctime).isoformat()
+
+    def _collect_camera(self, camera_dir: Path, stream: Optional[str] = None) -> list:
+        """Записи камеры с пометкой потока; stream сужает выборку до одного."""
+        files = []
+
+        for key, path in self.stream_dirs(camera_dir):
+            if stream and key != stream:
+                continue
+            for item in self._collect_files(path):
+                item["stream"] = key
+                files.append(item)
+
+        return files
 
     def _collect_files(self, camera_dir: Path) -> list:
         out = []

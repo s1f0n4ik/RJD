@@ -1,28 +1,29 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Icon } from '../../app/Icons';
-import { Modal, Switch } from '../../app/Modal';
+import { Modal } from '../../app/Modal';
 import { Select } from '../../app/Select';
 import { api } from '../../services/api';
-import { deviceForCameraType, getDevices, mcPath, signalingWsUrl } from '../../services/devices';
-import { useTypeAvailability } from './CameraFields';
-import { LivePreview } from './LivePreview';
+import { getDevices } from '../../services/devices';
+import { AddStreamModal } from './AddStreamModal';
+import { StreamFields, useDeviceModules } from './CameraFields';
 import { ScanModal } from './ScanModal';
 import {
     DEFAULT_FORM,
     PRODUCTION_NAMES,
-    TYPE_NAMES,
     VENDOR_TO_PRODUCTION,
     findNextFreeCameraId,
     formToPayload,
     formatError,
+    makeStream,
+    nextStreamKey,
     validateCameraName,
     validateIp,
     validatePort,
+    validateStreams,
     type Camera,
     type CameraFormData,
+    type StreamForm,
 } from './model';
-
-type ProbeStatus = 'idle' | 'creating' | 'streaming' | 'error';
 
 interface AddCameraWizardProps {
     cameras: Camera[];
@@ -42,104 +43,57 @@ function F({ cap, children }: { cap: string; children: React.ReactNode }) {
 }
 
 export function AddCameraWizard({ cameras, initial, onClose, onSaved }: AddCameraWizardProps) {
-    const [form, setForm] = useState<CameraFormData>({ ...DEFAULT_FORM, ...initial });
+    const devices = getDevices();
+    const firstOnline = devices.find(d => d.status === 'online')?.id ?? '';
+
+    const [form, setForm] = useState<CameraFormData>({
+        ...DEFAULT_FORM,
+        device_id: firstOnline,
+        ...initial,
+    });
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
     const [scanOpen, setScanOpen] = useState(false);
+    const [addStreamOpen, setAddStreamOpen] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
-
-    const [probeStatus, setProbeStatus] = useState<ProbeStatus>('idle');
-    const [probeError, setProbeError] = useState('');
-    const [probeName, setProbeName] = useState<string | null>(null);
-    const probeNameRef = useRef<string | null>(null);
-    const probeDeviceRef = useRef<string | null>(null);
+    const [streamKey, setStreamKey] = useState('');
 
     const onChange = (patch: Partial<CameraFormData>) => setForm(prev => ({ ...prev, ...patch }));
 
-    const types = useTypeAvailability();
     const autoName = useMemo(() => findNextFreeCameraId(cameras), [cameras]);
     const existingNames = useMemo(() => cameras.map(c => c.id), [cameras]);
     const nameCheck = useMemo(() => validateCameraName(form.id, existingNames, false), [form.id, existingNames]);
     const ipCheck = useMemo(() => validateIp(form.ip_adress), [form.ip_adress]);
     const portCheck = useMemo(() => validatePort(form.port), [form.port]);
-    const isValid = nameCheck.valid && ipCheck.valid && portCheck.valid;
 
-    const targetDevice = useMemo(() => {
-        try {
-            const id = deviceForCameraType(Number(form.type));
-            return getDevices().find(d => d.id === id)?.name ?? null;
-        } catch {
-            return null;
-        }
-    }, [form.type]);
+    const modules = useDeviceModules(form.device_id);
+    const streamsCheck = useMemo(() => validateStreams(form.streams, modules), [form.streams, modules]);
 
-    // === PROBE: временная камера ради живой проверки в левой панели ===
-    const cleanupProbe = useCallback(async () => {
-        const name = probeNameRef.current;
-        const device = probeDeviceRef.current;
-        if (!name) return;
-        probeNameRef.current = null;
-        probeDeviceRef.current = null;
-        setProbeName(null);
-        try {
-            await api.deleteCamera(name, device ?? deviceForCameraType(1));
-        } catch {
-            /* тихо: probe и так временный */
-        }
-    }, []);
+    // Опрашивать нечего, пока не известно куда идти и с какого устройства
+    const canProbe = ipCheck.valid && portCheck.valid && !!form.device_id;
+    const isValid = nameCheck.valid && ipCheck.valid && portCheck.valid && streamsCheck.valid && !!form.device_id;
 
-    const startProbe = useCallback(async (current: CameraFormData) => {
-        await cleanupProbe();
-        setProbeError('');
-        setProbeStatus('creating');
+    const patchStream = (key: string, patch: Partial<StreamForm>) =>
+        setForm(prev => ({
+            ...prev,
+            streams: prev.streams.map(s => (s.key === key ? { ...s, ...patch } : s)),
+        }));
 
-        const tempName = `__probe_${Date.now()}`;
-        const payload = formToPayload({ ...current, to_record: false, main_segment: 0 }, tempName);
-        payload.display_name = `Probe ${current.ip_adress}`;
-        payload.description = 'Temporary probe';
-
-        try {
-            await api.createCamera(payload);
-            probeNameRef.current = tempName;
-            probeDeviceRef.current = deviceForCameraType(Number(current.type ?? 1));
-            setProbeName(tempName);
-            window.setTimeout(() => setProbeStatus(s => (s === 'creating' ? 'streaming' : s)), 1500);
-        } catch (err) {
-            setProbeError(formatError(err));
-            setProbeStatus('error');
-        }
-    }, [cleanupProbe]);
-
-    // Проверка стартует сама: подключение валидно и не менялось 900 мс.
-    // Дебаунс обязателен — каждый пуск создаёт настоящую камеру на устройстве.
-    const probeKey = [form.ip_adress, form.port, form.user, form.password, form.production, form.type].join('|');
-    useEffect(() => {
-        if (!ipCheck.valid || !portCheck.valid) return;
-        const timer = window.setTimeout(() => void startProbe(form), 900);
-        return () => window.clearTimeout(timer);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [probeKey, ipCheck.valid, portCheck.valid]);
-
-    // Уборка probe при закрытии вкладки: keepalive переживает unload
-    useEffect(() => {
-        const handler = () => {
-            if (probeNameRef.current && probeDeviceRef.current) {
-                fetch(mcPath(probeDeviceRef.current, `/camera?id=${encodeURIComponent(probeNameRef.current)}`), {
-                    method: 'DELETE',
-                    keepalive: true,
-                }).catch(() => {});
-            }
-        };
-        window.addEventListener('beforeunload', handler);
-        return () => window.removeEventListener('beforeunload', handler);
-    }, []);
-
-    useEffect(() => () => { void cleanupProbe(); }, [cleanupProbe]);
-
-    const close = async () => {
-        await cleanupProbe();
-        onClose();
+    // Номер субпотока приходит из опроса камеры, а не назначается по порядку
+    const pickStream = (substream: number) => {
+        setAddStreamOpen(false);
+        setForm(prev => {
+            const key = nextStreamKey(prev.streams);
+            setStreamKey(key);
+            return { ...prev, streams: [...prev.streams, makeStream(key, substream, ['view'])] };
+        });
     };
+
+    const removeStream = (key: string) => setForm(prev => {
+        const streams = prev.streams.filter(s => s.key !== key);
+        setStreamKey(streams[0]?.key ?? '');
+        return { ...prev, streams };
+    });
 
     const save = async () => {
         if (!isValid) return;
@@ -147,8 +101,7 @@ export function AddCameraWizard({ cameras, initial, onClose, onSaved }: AddCamer
         setError('');
         const cameraId = form.id || autoName;
         try {
-            await cleanupProbe();
-            await api.createCamera(formToPayload(form, cameraId));
+            await api.createCamera(formToPayload(form, cameraId), form.device_id);
             onSaved(`Камера ${cameraId} добавлена`);
         } catch (err) {
             setError(formatError(err));
@@ -164,69 +117,49 @@ export function AddCameraWizard({ cameras, initial, onClose, onSaved }: AddCamer
         setScanOpen(false);
     };
 
-    const previewStyle = { flex: '0 0 178px', alignSelf: 'stretch', aspectRatio: 'auto', width: 'auto' } as const;
+    const streamLabels = useMemo(() => {
+        const labels: Record<string, string> = {};
+        for (const stream of form.streams) {
+            labels[stream.key] = `Субпоток ${stream.substream}`;
+        }
+        return labels;
+    }, [form.streams]);
+
+    const deviceName = devices.find(d => d.id === form.device_id)?.name;
 
     return (
         <>
             <Modal
                 title="Добавить камеру"
                 className="add-modal"
-                onClose={() => { void close(); }}
-                head={targetDevice
-                    ? <span className="num muted" style={{ fontSize: 11 }}>будет создана на {targetDevice}</span>
+                onClose={onClose}
+                head={deviceName
+                    ? <span className="num muted" style={{ fontSize: 11 }}>будет создана на {deviceName}</span>
                     : undefined}
             >
                 <div className="add-body">
                     <aside className="add-side">
-                        <span className="eyebrow">Живая проверка</span>
-
-                        {probeStatus === 'error' ? (
-                            <div className="cam-preview" style={previewStyle}>
-                                <div className="state">{probeError || 'Поток не открылся'}</div>
-                            </div>
-                        ) : probeName && probeDeviceRef.current ? (
-                            <LivePreview
-                                key={probeName}
-                                cameraId={probeName}
-                                signalingUrl={signalingWsUrl(probeDeviceRef.current, `/client/${probeName}`)}
-                                caption={`канал ${form.main_sub}`}
-                                style={previewStyle}
-                            />
-                        ) : (
-                            <div className="cam-preview" style={previewStyle}>
-                                <div className="state">
-                                    {probeStatus === 'creating'
-                                        ? <><span className="spin" />создаём пробный поток…</>
-                                        : 'Превью появится, когда адрес и порт будут валидны'}
-                                </div>
-                            </div>
-                        )}
+                        <span className="eyebrow">Готовность</span>
 
                         <div className="add-check">
                             <span className={`dot ${ipCheck.valid && portCheck.valid ? 'ok' : ''}`} />
                             {ipCheck.valid && portCheck.valid ? 'адрес и порт валидны' : 'введите адрес и порт'}
                         </div>
                         <div className="add-check">
-                            <span className={`dot ${probeStatus === 'streaming' ? 'ok' : probeStatus === 'error' ? 'err' : ''}`} />
-                            {probeStatus === 'streaming'
-                                ? `канал ${form.main_sub} · поток идёт`
-                                : probeStatus === 'error'
-                                    ? `канал ${form.main_sub} · не отвечает`
-                                    : `канал ${form.main_sub} · ждём проверку`}
+                            <span className={`dot ${form.device_id ? 'ok' : ''}`} />
+                            {form.device_id ? 'устройство выбрано' : 'выберите устройство'}
                         </div>
                         <div className="add-check">
-                            <span className="dot" />
-                            канал {form.sub_sub} · проверится при добавлении
+                            <span className={`dot ${form.streams.length > 0 ? 'ok' : ''}`} />
+                            {form.streams.length > 0
+                                ? `потоков добавлено: ${form.streams.length}`
+                                : 'потоки не добавлены'}
                         </div>
 
-                        {probeStatus === 'error' && (
-                            <button className="btn btn--sm" onClick={() => void startProbe(form)}>
-                                Проверить ещё раз
-                            </button>
-                        )}
-
                         <p className="hint" style={{ marginTop: 'auto' }}>
-                            Проверка создаёт временную камеру и удаляет её при закрытии окна.
+                            Потоки добавляются опросом камеры: media-center подключается к ней,
+                            читает параметры и показывает субпотоки, с которых реально идёт видео.
+                            Камера при этом не создаётся.
                         </p>
                     </aside>
 
@@ -313,15 +246,15 @@ export function AddCameraWizard({ cameras, initial, onClose, onSaved }: AddCamer
                                         options={Object.entries(PRODUCTION_NAMES).map(([value, label]) => ({ value, label }))}
                                     />
                                 </F>
-                                <F cap="Тип камеры">
+                                <F cap="Устройство">
                                     <Select
-                                        value={String(form.type)}
-                                        onChange={v => onChange({ type: Number(v) })}
-                                        options={Object.entries(TYPE_NAMES).map(([value, label]) => ({
-                                            value,
-                                            label,
-                                            disabled: !types[Number(value)].ok,
-                                            hint: types[Number(value)].ok ? undefined : types[Number(value)].reason,
+                                        value={form.device_id}
+                                        onChange={v => onChange({ device_id: v })}
+                                        options={devices.map(d => ({
+                                            value: d.id,
+                                            label: d.name || d.id,
+                                            disabled: d.status !== 'online',
+                                            hint: d.status === 'online' ? d.modules.join(', ') || 'без модулей' : 'не в сети',
                                         }))}
                                     />
                                 </F>
@@ -333,91 +266,30 @@ export function AddCameraWizard({ cameras, initial, onClose, onSaved }: AddCamer
                             {!portCheck.valid && <p className="hint is-err" style={{ margin: 0 }}>{portCheck.error}</p>}
                         </div>
 
-                        <div className="add-sect">
-                            <span className="eyebrow">Каналы</span>
-                            <div className="add-chan">
-                                <F cap="Канал 1">
-                                    <input
-                                        className="inp inp--num"
-                                        type="number"
-                                        value={form.main_sub}
-                                        onChange={e => onChange({ main_sub: parseInt(e.target.value, 10) || 0 })}
-                                    />
-                                </F>
-                                <F cap="Задержка, мс">
-                                    <input
-                                        className="inp inp--num"
-                                        type="number"
-                                        value={form.main_latency}
-                                        onChange={e => onChange({ main_latency: parseInt(e.target.value, 10) || 0 })}
-                                    />
-                                </F>
-                                <F cap="Реконнект, с">
-                                    <input
-                                        className="inp inp--num"
-                                        type="number"
-                                        value={form.main_reconnect}
-                                        onChange={e => onChange({ main_reconnect: parseInt(e.target.value, 10) || 0 })}
-                                    />
-                                </F>
-                                <div className="fcell">
-                                    <span className="fcap">UDP</span>
-                                    <Switch on={form.main_use_udp} onToggle={v => onChange({ main_use_udp: v })}>{''}</Switch>
-                                </div>
-                            </div>
-                            <div className="add-chan" style={{ marginBottom: 0 }}>
-                                <F cap="Канал 2">
-                                    <input
-                                        className="inp inp--num"
-                                        type="number"
-                                        value={form.sub_sub}
-                                        onChange={e => onChange({ sub_sub: parseInt(e.target.value, 10) || 0 })}
-                                    />
-                                </F>
-                                <F cap="Задержка, мс">
-                                    <input
-                                        className="inp inp--num"
-                                        type="number"
-                                        value={form.sub_latency}
-                                        onChange={e => onChange({ sub_latency: parseInt(e.target.value, 10) || 0 })}
-                                    />
-                                </F>
-                                <F cap="Реконнект, с">
-                                    <input
-                                        className="inp inp--num"
-                                        type="number"
-                                        value={form.sub_reconnect}
-                                        onChange={e => onChange({ sub_reconnect: parseInt(e.target.value, 10) || 0 })}
-                                    />
-                                </F>
-                                <div className="fcell">
-                                    <span className="fcap">UDP</span>
-                                    <Switch on={form.sub_use_udp} onToggle={v => onChange({ sub_use_udp: v })}>{''}</Switch>
-                                </div>
-                            </div>
-                        </div>
-
                         <div className="add-sect" style={{ marginBottom: 0 }}>
-                            <span className="eyebrow">Запись</span>
-                            <div className="add-chan" style={{ marginBottom: 0 }}>
-                                <div className="fcell">
-                                    <span className="fcap">Писать в архив</span>
-                                    <Switch on={form.to_record} onToggle={v => onChange({ to_record: v })}>{''}</Switch>
-                                </div>
-                                {form.to_record && (
-                                    <F cap="Сегмент, с">
-                                        <input
-                                            className="inp inp--num"
-                                            type="number"
-                                            value={form.main_segment}
-                                            onChange={e => onChange({ main_segment: parseInt(e.target.value, 10) || 0 })}
-                                        />
-                                    </F>
-                                )}
-                                <span className="hint" style={{ margin: 0, alignSelf: 'center' }}>
-                                    пишется канал 1 — на накопитель устройства-владельца
-                                </span>
-                            </div>
+                            <span className="eyebrow">Потоки</span>
+                            {canProbe ? (
+                                <>
+                                    <StreamFields
+                                        streams={form.streams}
+                                        selected={streamKey}
+                                        modules={modules}
+                                        onSelect={setStreamKey}
+                                        onPatch={patchStream}
+                                        onAdd={() => setAddStreamOpen(true)}
+                                        onRemove={removeStream}
+                                        labels={streamLabels}
+                                    />
+                                    {form.streams.length > 0 && !streamsCheck.valid && (
+                                        <p className="hint is-err" style={{ marginTop: 10 }}>{streamsCheck.error}</p>
+                                    )}
+                                </>
+                            ) : (
+                                <p className="hint" style={{ margin: 0 }}>
+                                    Заполните адрес, порт и устройство — тогда камеру можно будет опросить
+                                    и выбрать субпотоки.
+                                </p>
+                            )}
                         </div>
 
                         {error && (
@@ -430,13 +302,34 @@ export function AddCameraWizard({ cameras, initial, onClose, onSaved }: AddCamer
                 </div>
 
                 <div className="modal-f">
-                    <button className="btn btn--ghost" onClick={() => { void close(); }}>Отмена</button>
+                    <button className="btn btn--ghost" onClick={onClose}>Отмена</button>
                     <span className="spacer" />
-                    <button className="btn btn--acc" disabled={saving || !isValid} onClick={() => void save()}>
+                    <button
+                        className="btn btn--acc"
+                        disabled={saving || !isValid}
+                        title={isValid ? undefined : streamsCheck.error}
+                        onClick={() => void save()}
+                    >
                         {saving ? 'Добавляем…' : 'Добавить камеру'}
                     </button>
                 </div>
             </Modal>
+
+            {addStreamOpen && (
+                <AddStreamModal
+                    deviceId={form.device_id}
+                    connection={{
+                        ip_adress: form.ip_adress,
+                        port: form.port,
+                        user: form.user,
+                        password: form.password,
+                        production: form.production,
+                    }}
+                    used={form.streams.map(s => s.substream)}
+                    onPick={pickStream}
+                    onClose={() => setAddStreamOpen(false)}
+                />
+            )}
 
             {scanOpen && (
                 <ScanModal

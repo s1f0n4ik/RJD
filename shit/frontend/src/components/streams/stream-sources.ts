@@ -18,8 +18,10 @@ export function cameraToSource(camera: CPPCamera): StreamSource {
     return {
         id: camera.id,
         name: camera.display_name || camera.id,
-        // Кэшированный статус offline-устройства устарел — не показываем «в работе»
-        active: !camera.offline && camera.streams?.main?.status === CAMERA_STATUS.RUNNING,
+        // Кэшированный статус offline-устройства устарел — не показываем «в работе».
+        // Камера активна, если работает хотя бы один её поток
+        active: !camera.offline && Object.values(camera.streams ?? {})
+            .some(stream => stream.status === CAMERA_STATUS.RUNNING),
     };
 }
 

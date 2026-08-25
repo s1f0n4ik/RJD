@@ -1,6 +1,7 @@
 #pragma once
 #include <boost/json.hpp>
 
+#include <atomic>
 #include <cerrno>
 #include <cstring>
 #include <iostream>
@@ -99,6 +100,11 @@ namespace nvr {
             return true;
         }
 
+        // Конфиг прочитан в старом формате и должен быть переписан до старта камер
+        bool needs_rewrite() const { return m_legacy_seen.load(); }
+
+        void mark_rewritten() { m_legacy_seen = false; }
+
         bool save(const std::vector<FCameraStreamsData>& data) {
             std::lock_guard<std::mutex> lock(m_mutex);
 
@@ -141,7 +147,14 @@ namespace nvr {
                 }
 
                 try {
-                    result.push_back(parse_camera_config(item.as_object()));
+                    bool legacy_seen = false;
+                    result.push_back(parse_camera_config(item.as_object(), legacy_seen));
+
+                    if (legacy_seen) {
+                        m_legacy_seen = true;
+                        if (m_logger) m_logger->warn("get_all_configs(): camera "
+                            + result.back().camera.id + " read from the old format, configuration must be rewritten");
+                    }
                 }
                 catch (const std::exception& error) {
                     if (m_logger) m_logger->error("Fail to get configurations: " + std::string(error.what()));
@@ -164,7 +177,10 @@ namespace nvr {
                     const auto& camera_obj = obj.at("camera").as_object();
 
                     if (json::value_to<std::string>(camera_obj.at("id")) == camera_id) {
-                        return parse_camera_config(obj);
+                        bool legacy_seen = false;
+                        auto config = parse_camera_config(obj, legacy_seen);
+                        if (legacy_seen) m_legacy_seen = true;
+                        return config;
                     }
                 }
             }
@@ -371,7 +387,6 @@ namespace nvr {
                 {"port", camera.port},
                 {"user", camera.user},
                 {"password", camera.password},
-                {"type", static_cast<int>(camera.type)},
                 {"production", static_cast<int>(camera.production)}
             };
         }
@@ -386,46 +401,119 @@ namespace nvr {
             camera.port = json::value_to<std::string>(obj.at("port"));
             camera.user = json::value_to<std::string>(obj.at("user"));
             camera.password = json::value_to<std::string>(obj.at("password"));
-            camera.type = static_cast<ECameraType>(json::value_to<int>(obj.at("type")));
             camera.production = static_cast<ERtspType>(json::value_to<int>(obj.at("production")));
 
             return camera;
         }
 
-        static json::object serialize_pipeline(const FPipelineData& pipeline, int reconnect_delay = 10) {
+        // Тип камеры из старого конфига: 2 — тех. зрение, 3 — камера 360.
+        // Нужен только чтобы разложить его в назначения потоков при миграции.
+        static int legacy_camera_type(const json::object& obj) {
+            const auto* type = obj.if_contains("type");
+            return (type && type->is_int64()) ? json::value_to<int>(*type) : 0;
+        }
+
+        // Ключи потоков стали порядковыми; main и sub — из старого конфига
+        static std::string migrate_stream_key(const std::string& key) {
+            if (key == "main") return "stream_1";
+            if (key == "sub")  return "stream_2";
+            return key;
+        }
+
+        static json::object serialize_pipeline(const FPipelineData& pipeline) {
+            json::array purposes;
+            for (const auto& name : pipeline.purposes.names()) {
+                purposes.push_back(json::string(name));
+            }
+
             return {
                 {"name", pipeline.name},
-                {"camera_name", ""},
-                {"rtsp_url", ""},
-                {"stream", pipeline.sub},
-                {"type", static_cast<int>(pipeline.type)},
+                {"channel", pipeline.channel},
+                {"substream", pipeline.substream},
+                {"purposes", std::move(purposes)},
                 {"latency", pipeline.latency},
                 {"use_udp", pipeline.use_udp},
-                {"reconnect_delay", reconnect_delay},
-                {"to_record", pipeline.to_record},
+                {"reconnect_delay", pipeline.reconnect_time},
                 {"record_path", pipeline.record_path},
                 {"segment_length", pipeline.segment_length}
             };
         }
 
-        static FPipelineConfig parse_pipeline(const json::object& obj) {
+        /*
+            Назначения потока из старого конфига: main отдавал кадры потребителю
+            по типу камеры и писал при to_record, sub существовал ради просмотра.
+        */
+        static FStreamPurposes migrate_purposes(const json::object& obj, int camera_type) {
+            FStreamPurposes purposes;
+
+            const auto* type = obj.if_contains("type");
+            const int stream_type = (type && type->is_int64()) ? json::value_to<int>(*type) : 1;
+
+            if (stream_type == 2) {
+                purposes.add(EStreamPurpose::VIEW);
+                return purposes;
+            }
+
+            const auto* to_record = obj.if_contains("to_record");
+            if (to_record && to_record->is_bool() && to_record->as_bool()) {
+                purposes.add(EStreamPurpose::RECORD);
+            }
+
+            if (camera_type == 2) purposes.add(EStreamPurpose::NEURAL);
+            if (camera_type == 3) purposes.add(EStreamPurpose::BIRDVIEW);
+
+            // Поток обычной камеры без записи не делал ничего видимого,
+            // но потока без единого назначения не бывает — оставляем просмотр
+            if (purposes.empty()) purposes.add(EStreamPurpose::VIEW);
+
+            return purposes;
+        }
+
+        static FPipelineConfig parse_pipeline(
+            const json::object& obj,
+            const std::string& name,
+            int camera_type,
+            bool& legacy_seen
+        ) {
             FPipelineConfig pipeline;
 
-            pipeline.name =json::value_to<std::string>(obj.at("name"));
-            pipeline.camera_name = json::value_to<std::string>(obj.at("camera_name"));
-            pipeline.rtsp_url =json::value_to<std::string>(obj.at("rtsp_url"));
-            pipeline.stream =json::value_to<int>(obj.at("stream"));
-            pipeline.type =static_cast<EPilelineType>(json::value_to<int>(obj.at("type")));
+            pipeline.name = name;
             pipeline.latency = json::value_to<int>(obj.at("latency"));
             pipeline.use_udp = json::value_to<bool>(obj.at("use_udp"));
             pipeline.reconnect_delay = json::value_to<int>(obj.at("reconnect_delay"));
-            if (obj.contains("to_record")) {
-                pipeline.to_record = json::value_to<bool>(obj.at("to_record"));
-            } else {
-                pipeline.to_record = false;
-            }
             pipeline.record_path = json::value_to<std::string>(obj.at("record_path"));
             pipeline.segment_length = json::value_to<int>(obj.at("segment_length"));
+
+            // Канал появился вместе с субпотоком, в старом конфиге число было одно
+            pipeline.channel = obj.contains("channel") ? json::value_to<int>(obj.at("channel")) : 1;
+
+            if (obj.contains("substream")) {
+                pipeline.substream = json::value_to<int>(obj.at("substream"));
+            }
+            else if (obj.contains("stream")) {
+                pipeline.substream = json::value_to<int>(obj.at("stream"));
+                legacy_seen = true;
+            }
+
+            const auto* purposes = obj.if_contains("purposes");
+            if (purposes && purposes->is_array()) {
+                for (const auto& item : purposes->as_array()) {
+                    if (!item.is_string()) continue;
+                    if (auto purpose = purpose_from_string(json::value_to<std::string>(item))) {
+                        pipeline.purposes.add(*purpose);
+                    }
+                }
+            }
+            else {
+                pipeline.purposes = migrate_purposes(obj, camera_type);
+                legacy_seen = true;
+            }
+
+            // Путь и длина сегмента без записи не значат ничего
+            if (!pipeline.purposes.record) {
+                pipeline.record_path.clear();
+                pipeline.segment_length = 0;
+            }
 
             return pipeline;
         }
@@ -443,14 +531,23 @@ namespace nvr {
             };
         }
 
-        static FCameraConfiguration parse_camera_config(const json::object& obj) {
+        static FCameraConfiguration parse_camera_config(const json::object& obj, bool& legacy_seen) {
             FCameraConfiguration config;
 
-            config.camera = parse_camera(obj.at("camera").as_object());
+            const auto& camera_obj = obj.at("camera").as_object();
+
+            config.camera = parse_camera(camera_obj);
+
+            const int camera_type = legacy_camera_type(camera_obj);
+            if (camera_type != 0) legacy_seen = true;
+
             const auto& streams = obj.at("streams").as_object();
 
             for (const auto& [key, value]: streams) {
-                config.streams.emplace(key, parse_pipeline(value.as_object()));
+                const std::string name = migrate_stream_key(std::string(key));
+                if (name != key) legacy_seen = true;
+
+                config.streams.emplace(name, parse_pipeline(value.as_object(), name, camera_type, legacy_seen));
             }
 
             return config;
@@ -464,6 +561,8 @@ namespace nvr {
         ULogger* m_logger;
 
         mutable std::mutex m_mutex;
+
+        mutable std::atomic<bool> m_legacy_seen{ false };
     };
 
 } // namespace nvr

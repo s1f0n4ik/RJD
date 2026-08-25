@@ -3,6 +3,8 @@ import { useWebRTCPlayer } from '../../components/webrtc/useWebRTCPlayer';
 
 interface LivePreviewProps {
     cameraId: string;
+    /** Ключ потока камеры; пусто — сервер сам возьмёт первый смотрибельный */
+    stream?: string;
     signalingUrl: string;
     /** Подпись поверх кадра — например номер канала */
     caption?: ReactNode;
@@ -10,8 +12,8 @@ interface LivePreviewProps {
 }
 
 /** Предпросмотр потока: видео на всю плитку, без панелей и наложений. */
-export function LivePreview({ cameraId, signalingUrl, caption, style }: LivePreviewProps) {
-    const { status, errorMsg, videoRef } = useWebRTCPlayer({ cameraId, signalingUrl });
+export function LivePreview({ cameraId, stream, signalingUrl, caption, style }: LivePreviewProps) {
+    const { status, errorMsg, videoRef } = useWebRTCPlayer({ cameraId, stream, signalingUrl });
 
     return (
         <div className="cam-preview" style={style}>

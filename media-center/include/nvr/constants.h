@@ -5,9 +5,14 @@ namespace varan {
 namespace nvr {
 namespace constants {
 
-	// Пути переехали в varan::paths() — см. include/core/paths.h.
-	// RECORDS_PATH и RECORDS_PATH_2 удалены: не использовались нигде,
-	// реальный путь записи приходит покамерно из API в FPipelineConfig::record_path.
+	
+	// Физических входов у многоматричных камер бывает до шести
+	inline constexpr int MIN_CHANNEL = 1;
+	inline constexpr int MAX_CHANNEL = 6;
+
+	// Параллельных кодировщиков одной картинки вендоры дают не больше шести
+	inline constexpr int MIN_SUBSTREAM = 1;
+	inline constexpr int MAX_SUBSTREAM = 6;
 
 };
 };

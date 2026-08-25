@@ -30,11 +30,15 @@
 #include "webrtc_session.h"
 
 #include "video_pipeline.h"
+#include "camera-extension.h"
 
 using namespace varan::nvr;
 
 namespace varan {
 namespace neural {
+
+	// Приёмник кадров у каждого потока свой: кому они идут, решают назначения
+	using CFrameMoverResolver = std::function<CFrameMover(const FStreamPurposes&)>;
 
 	class UCamera : public ISignaling {
 	public:
@@ -53,9 +57,12 @@ namespace neural {
 		virtual void set_configurations(
 			const FCameraData& options,
 			const std::map<std::string, FPipelineConfig>& streams_config,
-			CFrameMover dmabuf_callback,
+			const CFrameMoverResolver& frame_resolver,
 			birdview::UEGLContextManager* m_gl_manager
 		);
+
+		// Надстройка модуля над камерой; вешается до старта потоков
+		void add_extension(std::unique_ptr<ICameraExtension> extension);
 
 		bool initialize();
 
@@ -94,24 +101,32 @@ namespace neural {
 
 		FCameraStreamsData get_data();
 
+		// Сообщение сигналинга от имени этой камеры; нужен надстройкам для ответов
+		boost::json::object make_json_message(
+			const std::string& client,
+			bool successed,
+			const std::string& type,
+			const std::string& description
+		);
+
 	protected:
 
-		// true — сообщение обработано наследником, общий разбор не нужен
-		virtual bool handle_module_message(
+		// true — сообщение разобрала надстройка, общий разбор не нужен
+		bool handle_module_message(
 			const std::string& client_id,
 			const std::string& type,
 			const boost::json::object& message
 		);
 
-		// Выбор пайплайна для webrtc-сообщений клиента
-		virtual UCameraPipeline* select_web_stream(
+		// Функция хелпер для выбора на какой webrtc поток отправляются сообщения
+		UCameraPipeline* select_web_stream(
 			const std::string& client_id,
 			const std::string& type,
 			const boost::json::object& message
 		);
 
 		// Вызывается после обработки close; stream — пайплайн, закрывший сессию
-		virtual void on_session_closed(const std::string& client_id, UCameraPipeline* stream);
+		void on_session_closed(const std::string& client_id, UCameraPipeline* stream);
 
 		virtual std::unique_ptr<UCameraPipeline> create_pipeline(
 			const std::string& name,
@@ -164,6 +179,9 @@ namespace neural {
 		// Поля Gstream для считывания кадров
 		std::map<std::string, std::unique_ptr<UCameraPipeline>> m_streams;
 
+		// Надстройки модулей: коррекция 360 и все, что придет следом
+		std::vector<std::unique_ptr<ICameraExtension>> m_extensions;
+
 		// Ожидающая очередь для хранения пакетов
 		//using UniquePacket = std::unique_ptr<AVPacket, std::function<void(AVPacket*)>>;
 		//USafeQueue<UniquePacket> m_packets_buffer;
@@ -179,16 +197,6 @@ namespace neural {
 
 		ULogger m_logger;
 
-		// ==================================================================
-		// json сообщений
-		// ==================================================================
-
-		boost::json::object make_json_message(
-			const std::string& client,
-			bool successed,
-			const std::string& type,
-			const std::string& description
-		);
 		// Прочее
 		//static std::string make_start_timestamp();
 	};
@@ -204,7 +212,7 @@ namespace neural {
 			virtual void set_configurations(
 				const FCameraData& options,
 				const std::map<std::string, FPipelineConfig>& streams_config,
-				CFrameMover dmabuf_callback,
+				const CFrameMoverResolver& frame_resolver,
 				birdview::UEGLContextManager* m_gl_manager
 			) override;
 

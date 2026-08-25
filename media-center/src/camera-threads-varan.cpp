@@ -283,10 +283,10 @@ static void print_usage(const char* exe, ULogger* logger) {
 		"    [--gateway-ip=<ip> --gateway-port=<port>] \\\n"
 		"    [--journal-dir=<dir>]\n"
 		"\n"
-		"  --varan-root   рабочий каталог: nvr, neural, surround_view\n"
-		"  --modules      опциональные модули сборки; без флага — чистый NVR\n"
-		"  --journal-dir  журнал обнаружений; иначе MC_JOURNAL_DIR, иначе /storage/journal\n"
-		"  --gateway-*    подключение к message-gateway; задаются вместе или никак\n";
+		"  --varan-root   working directory: nvr, neural, surround_view\n"
+		"  --modules      optional build modules; without the flag it is a pure NVR\n"
+		"  --journal-dir  detection journal; otherwise MC_JOURNAL_DIR, otherwise /storage/journal\n"
+		"  --gateway-*    connection to message-gateway; set both or none\n";
 
 	if (logger) logger->error(text);
 	else std::cerr << text;

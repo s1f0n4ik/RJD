@@ -49,7 +49,7 @@ namespace neural {
 	void UCamera::set_configurations(
 		const FCameraData& options,
 		const std::map<std::string, FPipelineConfig>& streams_config,
-		CFrameMover dmabuf_callback,
+		const CFrameMoverResolver& frame_resolver,
 		birdview::UEGLContextManager* m_gl_manager
 	) {
 		// Удаление текущий стримов
@@ -68,18 +68,25 @@ namespace neural {
 			// Создание ссылки
 			const auto it_maker = rtsp_maker.find(options.production);
 			const auto& maker = (it_maker != rtsp_maker.end()) ? it_maker->second : rtsp_maker.at(ERtspType::ACE);
-			std::string rtsp_url = maker(options.ip_adress, options.port, options.user, options.password, stream_data.stream);
+			std::string rtsp_url = maker(
+				options.ip_adress, options.port, options.user, options.password,
+				stream_data.channel, stream_data.substream
+			);
 
 			// Копирование конфига
 			FPipelineConfig pipeline_setting = stream_data;
 			pipeline_setting.camera_name = options.id;
 			pipeline_setting.name = name;
 			pipeline_setting.rtsp_url = rtsp_url;
-			pipeline_setting.stream = stream_data.stream;
-			pipeline_setting.to_record = stream_data.to_record;
 
 			auto pipe_logger = std::make_unique<ULogger>(m_options.id + ": " + name, m_logger.get_level());
 			auto send_callback = [this](std::string msg) {this->send_message(std::move(msg)); };
+
+			// Свой приёмник на каждый поток: раньше коллбэк был один на камеру
+			// и вдобавок перемещался в цикле, доставаясь первому пайплайну
+			CFrameMover frame_callback = frame_resolver
+				? frame_resolver(pipeline_setting.purposes)
+				: nullptr;
 
 			try {
 				m_streams[name] = create_pipeline(
@@ -88,7 +95,7 @@ namespace neural {
 					rtsp_url,
 					std::move(pipe_logger),
 					send_callback,
-					std::move(dmabuf_callback),
+					std::move(frame_callback),
 					m_gl_manager
 				);
 			}
@@ -108,24 +115,15 @@ namespace neural {
 		CFrameMover frame_callback,
 		birdview::UEGLContextManager* gl_manager
 	) {
-		switch (stream_data.type) {
-		case EPilelineType::SUB:
-			return std::make_unique<UCameraSubPipeline>(
-				stream_data,
-				std::move(logger),
-				std::move(send_callback)
-			);
-
-		case EPilelineType::MAIN:
-		default:
-			return std::make_unique<UCameraMainPipeline>(
-				stream_data,
-				std::move(logger),
-				std::move(send_callback),
-				gl_manager,
-				std::move(frame_callback)
-			);
-		}
+		// Класс трубы один на любой поток камеры: что она делает,
+		// решают назначения, а не отдельный тип
+		return std::make_unique<UCameraStreamPipeline>(
+			stream_data,
+			std::move(logger),
+			std::move(send_callback),
+			gl_manager,
+			std::move(frame_callback)
+		);
 	}
 
 	UCamera::~UCamera() { 
@@ -477,11 +475,24 @@ namespace neural {
 		}
 	}
 
+	void UCamera::add_extension(std::unique_ptr<ICameraExtension> extension) {
+		if (!extension) return;
+
+		m_logger.info("add_extension(): stream key " + extension->stream_key());
+		m_extensions.push_back(std::move(extension));
+	}
+
 	bool UCamera::handle_module_message(
 		const std::string& client_id,
 		const std::string& type,
 		const boost::json::object& message
 	) {
+		for (const auto& extension : m_extensions) {
+			if (extension->handle_message(client_id, type, message)) {
+				return true;
+			}
+		}
+
 		return false;
 	}
 
@@ -490,15 +501,59 @@ namespace neural {
 		const std::string& type,
 		const boost::json::object& message
 	) {
+		// Надстройки первыми: заявка с пустым потоком значит «поток мой,
+		// но его нет» — тогда клиент получит ошибку, а не чужой поток
+		for (const auto& extension : m_extensions) {
+			const auto claim = extension->select_stream(client_id, type, message);
+			if (claim.claimed) {
+				if (!claim.stream) {
+					m_logger.error("select_web_stream(): extension " + extension->stream_key()
+						+ " has no stream at camera " + m_options.id);
+				}
+				return claim.stream;
+			}
+		}
+
+		// Клиент может попросить конкретный поток; пусто — первый смотрибельный
+		std::string requested;
+		if (const auto* value = message.if_contains(rest::fields::STREAM); value && value->is_string()) {
+			requested = value->as_string().c_str();
+		}
+
+		if (!requested.empty()) {
+			const auto it = m_streams.find(requested);
+
+			if (it == m_streams.end()) {
+				m_logger.error("select_web_stream(): stream " + requested
+					+ " doesn't exist at camera " + m_options.id);
+				return nullptr;
+			}
+
+			// Подменять непросматриваемый поток другим нельзя: клиент увидит
+			// не то, что просил, и не узнает об этом
+			if (!it->second->get_purposes().view) {
+				m_logger.error("select_web_stream(): stream " + requested
+					+ " at camera " + m_options.id + " has no view purpose");
+				return nullptr;
+			}
+
+			return it->second.get();
+		}
+
 		for (const auto& [name, stream] : m_streams) {
-			if (stream->get_type() == EPilelineType::SUB || stream->get_type() == EPilelineType::NV12_ENCODER) {
+			if (stream->get_purposes().view) {
 				return stream.get();
 			}
 		}
+
 		return nullptr;
 	}
 
-	void UCamera::on_session_closed(const std::string& client_id, UCameraPipeline* stream) {}
+	void UCamera::on_session_closed(const std::string& client_id, UCameraPipeline* stream) {
+		for (const auto& extension : m_extensions) {
+			extension->on_session_closed(client_id, stream);
+		}
+	}
 
 	void UCamera::set_signaling_callback(CSignalingCallback callback) {
 		m_signaling_callback = std::move(callback);

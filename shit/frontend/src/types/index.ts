@@ -1,33 +1,22 @@
+// Назначение потока: имена совпадают с именами модулей устройства
+export type StreamPurpose = 'view' | 'record' | 'neural' | 'birdview';
+
 export interface CameraStream {
   codec: string;
-  sub: number;
+  // Физический вход камеры и качество той же картинки
+  channel: number;
+  substream: number;
+  purposes: StreamPurpose[];
   fps: number;
   height: number;
   width: number;
   latency: number;
   reconnect: number;
-  to_record: boolean;
   record_path: string;
   segment: number;
   rtsp: string;
   status: number;  // 0-нет, 1-готов, 2-остановлен, 3-запущен, 5-инициализирован
-  type: number;    // 1-main, 2-sub
   use_udp: boolean;
-}
-
-export interface RealCamera {
-  id: string;                 // 👈 NEW (бэк теперь возвращает id вместо name)
-  display_name: string;       // 👈 NEW
-  description: string;
-  ip_adress: string;
-  port: string;
-  user: string;
-  production?: number;        // 👈 заодно добавь, он же используется в UI
-  type?: number;
-  streams: {
-    main: CameraStream;
-    sub: CameraStream;
-  };
 }
 
 // ✅ ПРЕОБРАЗОВАННЫЙ формат (после Object.values + добавления name)
@@ -40,16 +29,37 @@ export interface CPPCamera {
   user: string;
   password: string;
   production: number;
-  type: number;
-  streams: {
-    main: CameraStream;
-    sub: CameraStream;
-  };
+  // Ключи — stream_1…stream_N, порядковые и неизменяемые
+  streams: Record<string, CameraStream>;
   // Устройство-владелец из агрегированного списка
   device_id?: string;
   device_name?: string;
   // Устройство не ответило, данные из кэша мастера
   offline?: boolean;
+}
+
+// Проба потока: media-center подключается к камере, но её не создаёт
+export interface ProbeRequest {
+  ip_adress: string;
+  port: string;
+  user: string;
+  password: string;
+  production: number;
+  channel?: number;
+  substream?: number;
+  timeout?: number;
+}
+
+export type ProbeReason = 'auth' | 'unreachable' | 'no_stream' | 'timeout' | 'decoder';
+
+export interface ProbeResult {
+  result: 'success' | 'error';
+  codec?: string;
+  width?: number;
+  height?: number;
+  fps?: number;
+  reason?: ProbeReason;
+  details?: string;
 }
 
 // Кто собрал поток

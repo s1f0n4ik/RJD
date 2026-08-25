@@ -45,6 +45,8 @@ URestServer::URestServer(
         [controller](const auto& req) { return controller->patch_camera(req); });
     m_router->add_route(http::verb::delete_, "/camera",
         [controller](const auto& req) { return controller->delete_camera(req); });
+    m_router->add_route(http::verb::post, "/probe",
+        [controller](const auto& req) { return controller->post_probe(req); });
 
     // Маршруты для Линкер — только при загруженном модуле birdview
     if (linker) {

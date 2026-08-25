@@ -1,10 +1,46 @@
 #include "media_center.h"
-#include "birdview-camera.h"
+
+#include <algorithm>
+
+#include "correction-extension.h"
 #include "core/paths.h"
 #include "console_utility.h"
 
 namespace varan {
 namespace neural {
+
+    // Конфиг -> данные для записи: до старта камер живых данных ещё нет
+    static FCameraStreamsData config_to_streams_data(const FCameraConfiguration& config) {
+        FCameraStreamsData data;
+        data.camera = config.camera;
+
+        for (const auto& [name, pipeline] : config.streams) {
+            FPipelineData stream{};
+
+            stream.name = name;
+            stream.status = EPipelineStatus::NONE;
+            stream.type = EPilelineType::CAMERA;
+            stream.purposes = pipeline.purposes;
+
+            stream.width = 0;
+            stream.height = 0;
+            stream.fps = 0;
+
+            stream.use_udp = pipeline.use_udp;
+            stream.latency = pipeline.latency;
+            stream.reconnect_time = pipeline.reconnect_delay;
+
+            stream.record_path = pipeline.record_path.string();
+            stream.segment_length = pipeline.segment_length;
+
+            stream.channel = pipeline.channel;
+            stream.substream = pipeline.substream;
+
+            data.pipelines.emplace(name, std::move(stream));
+        }
+
+        return data;
+    }
 
     UMediaCenter::UMediaCenter(const FWebSocketOptions& socket, birdview::UEGLContextManager* manager)
         : m_threads_count(4)
@@ -19,11 +55,37 @@ namespace neural {
         m_frame_storage = storage;
     }
 
-    std::shared_ptr<UCamera> UMediaCenter::make_camera(const FCameraData& options) {
-        if (options.type == ECameraType::BIRDVIEW && m_frame_storage) {
-            return std::make_shared<UBirdviewCamera>(options.id, m_websocket, m_frame_storage);
+    std::shared_ptr<UCamera> UMediaCenter::make_camera(
+        const FCameraData& options,
+        const std::map<std::string, FPipelineConfig>& pipelines
+    ) {
+        auto camera = std::make_shared<UCamera>(options.id, m_websocket);
+
+        const bool has_birdview = std::any_of(pipelines.begin(), pipelines.end(),
+            [](const auto& item) { return item.second.purposes.birdview; });
+
+        // Коррекция дисторсии — надстройка модуля 360, а не свойство камеры
+        if (has_birdview && m_frame_storage) {
+            auto* raw = camera.get();
+
+            auto reply = [raw](const std::string& client_id, bool ok, const std::string& type, const std::string& description) {
+                raw->send_message(boost::json::serialize(raw->make_json_message(client_id, ok, type, description)));
+            };
+
+            auto send = [raw](std::string message) {
+                raw->send_message(std::move(message));
+            };
+
+            camera->add_extension(std::make_unique<UCorrectionExtension>(
+                options.id,
+                m_frame_storage,
+                m_gl_manager,
+                std::move(reply),
+                std::move(send)
+            ));
         }
-        return std::make_shared<UCamera>(options.id, m_websocket);
+
+        return camera;
     }
 
     int UMediaCenter::add_camera(const FCameraData& options, const std::map<std::string, FPipelineConfig>& pipelines, bool to_save) {
@@ -33,16 +95,14 @@ namespace neural {
             return -1;
         }
 
-        if (!is_type_supported(options.type)) {
-            m_logger.error("add_camera(): camera id=" + options.id
-                + ", type=" + std::to_string(static_cast<int>(options.type))
-                + " is not supported by loaded modules (" + m_modules.to_string() + ")");
+        if (const auto error = validate_streams(pipelines)) {
+            m_logger.error("add_camera(): camera id=" + options.id + ": " + *error
+                + " (loaded modules: " + m_modules.to_string() + ")");
             return -1;
         }
 
-        auto callback = get_frame_callback_by_camera_type(options.type);
-        auto cam = make_camera(options);
-        cam->set_configurations(options, pipelines, std::move(callback), m_gl_manager);
+        auto cam = make_camera(options, pipelines);
+        cam->set_configurations(options, pipelines, make_frame_resolver(), m_gl_manager);
 
         m_cameras[options.id] = std::move(cam);
 
@@ -65,16 +125,14 @@ namespace neural {
             return false;
         }
 
-        if (!is_type_supported(options.type)) {
-            m_logger.error("add_camera_async(): camera id=" + options.id
-                + ", type=" + std::to_string(static_cast<int>(options.type))
-                + " is not supported by loaded modules (" + m_modules.to_string() + ")");
+        if (const auto error = validate_streams(pipelines)) {
+            m_logger.error("add_camera_async(): camera id=" + options.id + ": " + *error
+                + " (loaded modules: " + m_modules.to_string() + ")");
             return false;
         }
 
-        auto callback = get_frame_callback_by_camera_type(options.type);
-        auto camera = make_camera(options);
-        camera->set_configurations(options, pipelines, std::move(callback), m_gl_manager);
+        auto camera = make_camera(options, pipelines);
+        camera->set_configurations(options, pipelines, make_frame_resolver(), m_gl_manager);
 
         camera->start_async();
         m_cameras[options.id] = std::move(camera);
@@ -115,17 +173,15 @@ namespace neural {
             return true;
         }
         else if (camera_options && pipelines) {
-            if (!is_type_supported(camera_options.value().type)) {
-                m_logger.error("update_camera(): camera id=" + id
-                    + ", type=" + std::to_string(static_cast<int>(camera_options.value().type))
-                    + " is not supported by loaded modules (" + m_modules.to_string() + ")");
+            if (const auto error = validate_streams(*pipelines)) {
+                m_logger.error("update_camera(): camera id=" + id + ": " + *error
+                    + " (loaded modules: " + m_modules.to_string() + ")");
                 return false;
             }
             camera->stop();
-            // Класс объекта зависит от типа — пересоздаём камеру целиком
-            auto callback = get_frame_callback_by_camera_type(camera_options.value().type);
-            auto recreated = make_camera(*camera_options);
-            recreated->set_configurations(*camera_options, *pipelines, std::move(callback), m_gl_manager);
+            // Набор надстроек зависит от назначений — пересоздаём камеру целиком
+            auto recreated = make_camera(*camera_options, *pipelines);
+            recreated->set_configurations(*camera_options, *pipelines, make_frame_resolver(), m_gl_manager);
             recreated->start_async();
             it->second = std::move(recreated);
             if (to_save && !m_config_manager.add_or_update_camera(it->second->get_data())) {
@@ -221,14 +277,34 @@ namespace neural {
 
         auto cameras = m_config_manager.get_all_configs();
 
-        // Камеры чужих модулей пропускаются молча для фронта: только лог
+        /*
+            Старый формат переписывается до старта камер: иначе устройство,
+            обесточенное на полпути, поднимется наполовину в прежней схеме.
+        */
+        if (m_config_manager.needs_rewrite()) {
+            std::vector<FCameraStreamsData> migrated;
+            migrated.reserve(cameras.size());
+
+            for (const auto& camera : cameras) {
+                migrated.push_back(config_to_streams_data(camera));
+            }
+
+            if (m_config_manager.save(migrated)) {
+                m_config_manager.mark_rewritten();
+                m_logger.info("start_cameras_from_config(): configuration migrated to the stream purposes format");
+            }
+            else {
+                m_logger.error("start_cameras_from_config(): cannot rewrite migrated configuration");
+            }
+        }
+
+        // Камеры с чужими назначениями пропускаются молча для фронта: только лог
         size_t skipped = 0;
         {
             for (const auto& camera : cameras) {
-                if (!is_type_supported(camera.camera.type)) {
+                if (const auto error = validate_streams(camera.streams)) {
                     m_logger.warn("start_cameras_from_config(): skip camera id=" + camera.camera.id
-                        + ", type=" + std::to_string(static_cast<int>(camera.camera.type))
-                        + " is not supported by loaded modules (" + m_modules.to_string() + ")");
+                        + ": " + *error + " (loaded modules: " + m_modules.to_string() + ")");
                     ++skipped;
                     continue;
                 }
@@ -323,26 +399,70 @@ namespace neural {
         return data;
     }
 
-    CFrameMover UMediaCenter::get_frame_callback_by_camera_type(ECameraType type) {
-        switch (type) {
-        case ECameraType::BIRDVIEW:
-            return m_bird_view_frame_mover;
-        case ECameraType::NEURAL:
-            return m_neural_frame_mover;
-        case ECameraType::GENERAL:
-        case ECameraType::NONE:
-        case ECameraType::COUNT:
-        default:
+    CFrameMoverResolver UMediaCenter::make_frame_resolver() {
+        return [this](const FStreamPurposes& purposes) -> CFrameMover {
+            if (purposes.birdview) return m_bird_view_frame_mover;
+            if (purposes.neural)   return m_neural_frame_mover;
             return nullptr;
-        }
+        };
     }
 
     void UMediaCenter::set_modules(const FModuleSet& modules) {
         m_modules = modules;
     }
 
-    bool UMediaCenter::is_type_supported(ECameraType type) const {
-        return m_modules.supports(type);
+    std::optional<std::string> UMediaCenter::validate_streams(
+        const std::map<std::string, FPipelineConfig>& pipelines
+    ) const {
+        if (pipelines.empty()) {
+            return "Camera has no one pipeline!";
+        }
+
+        std::string neural_owner;
+        std::string birdview_owner;
+
+        for (const auto& [name, pipeline] : pipelines) {
+            const auto& purposes = pipeline.purposes;
+
+            if (purposes.empty()) {
+                return "Pipeline " + name + ": doesn't set any purpose!";
+            }
+
+            if (const auto missing = m_modules.unsupported(purposes)) {
+                const auto module_name = purpose_to_string(*missing);
+                return "Pipeline " + name + ": purpose " + module_name
+                    + " doesn't available — at this device has no module " + module_name;
+            }
+
+            // Ветка декода отдаёт кадры одним приёмником, двоих ей не обслужить
+            if (purposes.neural && purposes.birdview) {
+                return "Pipeline " + name + ": illegal to set both neural and birdview modules on the same pipeline";
+            }
+
+            // Потребители адресуют источник по камере, а не по потоку:
+            // второй такой же поток смешал бы кадры под одним идентификатором
+            if (purposes.neural) {
+                if (!neural_owner.empty()) {
+                    return "Pipelines " + neural_owner + " and " + name
+                        + ": purpose neural can set only one pipeline at the same camera!";
+                }
+                neural_owner = name;
+            }
+
+            if (purposes.birdview) {
+                if (!birdview_owner.empty()) {
+                    return "Pipeline " + birdview_owner + " and " + name
+                        + ": purpose birdview can set only one pipeline at the same camera!";
+                }
+                birdview_owner = name;
+            }
+
+            if (purposes.record && (pipeline.record_path.empty() || pipeline.segment_length <= 0)) {
+                return "Pipeline " + name + ": recording enabled, but didn't set record path or segment length";
+            }
+        }
+
+        return std::nullopt;
     }
 
     void UMediaCenter::set_bird_view_callback(CFrameMover callback) {

@@ -55,12 +55,19 @@ public:
 
 	void set_neural_callback(CFrameMover callback);
 
-	// Набор модулей сборки: камеры чужих типов не обслуживаются
+	// Набор модулей сборки: назначения чужих модулей не обслуживаются
 	void set_modules(const FModuleSet& modules);
 
-	bool is_type_supported(ECameraType type) const;
+	/*
+		Проверка потоков перед созданием камеры. Возвращает описание первой
+		причины отказа: назначение без модуля, два потребителя на одном потоке
+		или второй поток того же потребителя.
+	*/
+	std::optional<std::string> validate_streams(
+		const std::map<std::string, FPipelineConfig>& pipelines
+	) const;
 
-	// Хранилище кадров для потока коррекции birdview-камер
+	// Хранилище кадров для потока коррекции камер с назначением 360
 	void set_frame_storage(FFrameStorage<IFrame>* storage);
 
 public:
@@ -70,10 +77,14 @@ public:
 	std::shared_ptr<UCamera> get_camera(const std::string& id);
 
 private:
-	CFrameMover get_frame_callback_by_camera_type(ECameraType type);
+	// Кому идут кадры потока, решают его назначения
+	CFrameMoverResolver make_frame_resolver();
 
-	// Класс камеры зависит от типа: BIRDVIEW получает поток коррекции
-	std::shared_ptr<UCamera> make_camera(const FCameraData& options);
+	// Камера одна на все случаи; модульные надстройки вешаются по назначениям
+	std::shared_ptr<UCamera> make_camera(
+		const FCameraData& options,
+		const std::map<std::string, FPipelineConfig>& pipelines
+	);
 
 private:
 	UCameraConfigirationManager m_config_manager;

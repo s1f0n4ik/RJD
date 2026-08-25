@@ -7,9 +7,10 @@ import { useDisks, useLastDetections } from './useHomeData';
 import type { Device } from '../../services/devices';
 import './home.css';
 
-// Статус 3 — пайплайн запущен; всё остальное для оператора означает «потока нет»
-const isLive = (camera: { offline?: boolean; streams?: { main?: { status?: number } } }) =>
-    !camera.offline && camera.streams?.main?.status === 3;
+// Статус 3 — пайплайн запущен; всё остальное для оператора означает «потока нет».
+// Камера в работе, если работает хотя бы один её поток: их произвольное число
+const isLive = (camera: { offline?: boolean; streams?: Record<string, { status?: number }> }) =>
+    !camera.offline && Object.values(camera.streams ?? {}).some(s => s.status === 3);
 
 const formatGb = (gb: number) =>
     gb >= 1024 ? `${(gb / 1024).toFixed(2)} ТБ` : gb >= 10 ? `${Math.round(gb)} ГБ` : `${gb.toFixed(1)} ГБ`;

@@ -296,21 +296,21 @@ UNeuralController::post_state(const http::request<http::string_body>& req) {
         if (plat.mode == "single") {
             if (active.size() > 1)
                 return json_error(m_logger, req, http::status::bad_request,
-                    plat.label + ": разрешён только один поток", tag);
+                    plat.label + ": only one stream is allowed", tag);
         }
         else if (plat.mode == "cores") {
             if (static_cast<int>(active.size()) > plat.npu_cores)
                 return json_error(m_logger, req, http::status::bad_request,
-                    plat.label + ": потоков больше, чем ядер (" + std::to_string(plat.npu_cores) + ")", tag);
+                    plat.label + ": more streams than cores (" + std::to_string(plat.npu_cores) + ")", tag);
             std::set<int> used;
             for (const auto& d : active) {
                 for (int c : d.npu_cores) {
                     if (c < 0 || c >= plat.npu_cores)
                         return json_error(m_logger, req, http::status::bad_request,
-                            plat.label + ": ядро " + std::to_string(c) + " вне диапазона", tag);
+                            plat.label + ": core " + std::to_string(c) + " is out of range", tag);
                     if (!used.insert(c).second)
                         return json_error(m_logger, req, http::status::bad_request,
-                            plat.label + ": ядро " + std::to_string(c) + " занято несколькими потоками", tag);
+                            plat.label + ": core " + std::to_string(c) + " is taken by several streams", tag);
                 }
             }
         }

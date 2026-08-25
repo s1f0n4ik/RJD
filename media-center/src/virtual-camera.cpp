@@ -11,10 +11,18 @@ namespace neural {
         : UCamera(id, socket_options, level_)
     {
         std::string pipeline_name = "nv12_encoder";
-        auto config = FPipelineConfig{ pipeline_name, id, "", 0, EPilelineType::NV12_ENCODER, 0, false, 10, false, "", 10};
+
+        FPipelineConfig config;
+        config.name = pipeline_name;
+        config.camera_name = id;
+        config.type = EPilelineType::NV12_ENCODER;
+        config.latency = 0;
+        config.reconnect_delay = 10;
+        config.segment_length = 10;
+        // Собранный поток существует ради просмотра — по этому назначению его и находят
+        config.purposes.add(EStreamPurpose::VIEW);
 
         m_options.id = id;
-        m_options.type = ECameraType::VIRTUAL;
 
         auto pipe_logger = std::make_unique<ULogger>(id + ": " + pipeline_name, m_logger.get_level());
         auto send_callback = [this](std::string msg) {this->send_message(std::move(msg)); };
@@ -49,7 +57,7 @@ namespace neural {
     void UVirtualCamera::set_configurations(
         const FCameraData& options,
         const std::map<std::string, FPipelineConfig>& streams_config,
-        CFrameMover dmabuf_callback,
+        const CFrameMoverResolver& frame_resolver,
         birdview::UEGLContextManager* m_gl_manager
     ) {
         m_logger.warn("set_configurations doesn't available at virtual camera");

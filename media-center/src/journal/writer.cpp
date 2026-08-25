@@ -82,7 +82,7 @@ namespace {
 
         if (!std::filesystem::exists(db_dir)) {
             m_logger.error("journal directory does not exist and cannot be created: " + db_dir.string()
-                + " — создайте его и отдайте пользователю, под которым работает media-center:"
+                + " — create it and give it to the user media-center runs as:"
                 " sudo mkdir -p " + db_dir.string() + " && sudo chown -R $USER " + db_dir.string());
             return false;
         }
@@ -93,8 +93,8 @@ namespace {
             std::ofstream f(probe, std::ios::binary);
             if (!f) {
                 m_logger.error("journal directory is not writable: " + db_dir.string()
-                    + " — media-center работает не под тем пользователем, которому принадлежит каталог."
-                    " Исправить: sudo chown -R $USER " + db_dir.string());
+                    + " — media-center runs as a user that doesn't own the directory."
+                    " Fix: sudo chown -R $USER " + db_dir.string());
                 return false;
             }
             f.close();

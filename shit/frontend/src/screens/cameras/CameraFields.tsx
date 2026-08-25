@@ -3,11 +3,17 @@ import { Icon } from '../../app/Icons';
 import { Select } from '../../app/Select';
 import { Switch } from '../../app/Modal';
 import { getDevices } from '../../services/devices';
+import type { StreamPurpose } from '../../types';
 import {
     PRODUCTION_NAMES,
-    TYPE_NAMES,
+    PURPOSE_MODULE,
+    PURPOSE_NAMES,
+    PURPOSE_ORDER,
+    RECORD_PATH,
+    purposeAvailable,
+    streamNumber,
     type CameraFormData,
-    type StreamKey,
+    type StreamForm,
     type Validation,
 } from './model';
 
@@ -16,25 +22,15 @@ export interface FieldsProps {
     onChange: (patch: Partial<CameraFormData>) => void;
 }
 
-/** Доступность типов камер по модулям подключённых устройств. */
-export function useTypeAvailability(): Record<number, { ok: boolean; reason: string }> {
+/** Модули устройства-владельца: они решают, какие назначения доступны. */
+export function useDeviceModules(deviceId: string): string[] {
     const devices = getDevices();
     const key = devices.map(d => d.id + d.modules.join()).join();
-    return useMemo(() => {
-        const hasModule = (m: string) => devices.some(d => d.modules.includes(m));
-        return {
-            1: { ok: devices.length > 0, reason: 'В системе нет устройств' },
-            2: {
-                ok: devices.length > 0 && hasModule('neural'),
-                reason: devices.length > 0 ? 'Нет модуля технического зрения' : 'В системе нет устройств',
-            },
-            3: {
-                ok: devices.length > 0 && hasModule('birdview'),
-                reason: devices.length > 0 ? 'Нет модуля 360' : 'В системе нет устройств',
-            },
-        };
+    return useMemo(
+        () => devices.find(d => d.id === deviceId)?.modules ?? [],
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [key]);
+        [key, deviceId],
+    );
 }
 
 /** Поле с подписью сверху: подпись объясняет, за что отвечает контрол. */
@@ -107,7 +103,7 @@ interface ConnectionFieldsProps extends FieldsProps {
 export function ConnectionFields({
     form, onChange, editMode, autoName, nameCheck, ipCheck, portCheck, withName = false,
 }: ConnectionFieldsProps) {
-    const types = useTypeAvailability();
+    const devices = getDevices();
 
     return (
         <div className="fields">
@@ -182,114 +178,171 @@ export function ConnectionFields({
                         options={Object.entries(PRODUCTION_NAMES).map(([value, name]) => ({ value, label: name }))}
                     />
                 </Cell>
-                <Cell cap="Тип камеры">
+                <Cell cap="Устройство">
                     <Select
-                        value={String(form.type)}
-                        onChange={v => onChange({ type: Number(v) })}
-                        options={Object.entries(TYPE_NAMES).map(([value, name]) => ({
-                            value,
-                            label: name,
-                            disabled: !types[Number(value)].ok,
-                            hint: types[Number(value)].ok ? undefined : types[Number(value)].reason,
+                        value={form.device_id}
+                        onChange={v => onChange({ device_id: v })}
+                        options={devices.map(d => ({
+                            value: d.id,
+                            label: d.name || d.id,
+                            disabled: d.status !== 'online',
+                            hint: d.status === 'online' ? d.modules.join(', ') || 'без модулей' : 'не в сети',
                         }))}
                     />
                 </Cell>
             </div>
+            {devices.length === 0 && (
+                <p className="hint is-err" style={{ margin: 0 }}>
+                    В системе нет устройств — добавьте устройство, прежде чем заводить камеры
+                </p>
+            )}
         </div>
     );
 }
 
-interface StreamFieldsProps extends FieldsProps {
-    /** Выбранный слот потока — общий с подтаблицей камеры */
-    stream: StreamKey;
-    onStreamChange: (key: StreamKey) => void;
-    /** Подписи каналов в селекте: «1 · 1280×960» */
-    options: Array<{ key: StreamKey; label: string }>;
+interface PurposePickerProps {
+    purposes: StreamPurpose[];
+    modules: string[];
+    onToggle: (purpose: StreamPurpose) => void;
 }
 
-export function StreamFields({ form, onChange, stream, onStreamChange, options }: StreamFieldsProps) {
-    const isMain = stream === 'main';
-    const channel = isMain ? form.main_sub : form.sub_sub;
-    const latency = isMain ? form.main_latency : form.sub_latency;
-    const reconnect = isMain ? form.main_reconnect : form.sub_reconnect;
-    const udp = isMain ? form.main_use_udp : form.sub_use_udp;
-
+/** Назначения потока: недоступные видны, но выключены — с причиной в подсказке. */
+export function PurposePicker({ purposes, modules, onToggle }: PurposePickerProps) {
     return (
-        <div className="fields">
-            <div className="finline">
-                <span className="fcap">Канал</span>
-                <Select
-                    value={stream}
-                    onChange={v => onStreamChange(v as StreamKey)}
-                    options={options.map(o => ({ value: o.key, label: o.label }))}
-                />
-            </div>
-
-            <div className="frow frow--3">
-                <NumCell
-                    cap="Номер канала"
-                    value={channel}
-                    onValue={n => onChange(isMain ? { main_sub: n } : { sub_sub: n })}
-                />
-                <NumCell
-                    cap="Задержка, мс"
-                    value={latency}
-                    onValue={n => onChange(isMain ? { main_latency: n } : { sub_latency: n })}
-                />
-                <NumCell
-                    cap="Реконнект, с"
-                    value={reconnect}
-                    onValue={n => onChange(isMain ? { main_reconnect: n } : { sub_reconnect: n })}
-                />
-            </div>
-
-            <label className="fsw">
-                <Switch
-                    on={udp}
-                    onToggle={v => onChange(isMain ? { main_use_udp: v } : { sub_use_udp: v })}
-                >
-                    Передавать по UDP
-                </Switch>
-            </label>
+        <div className="purp-pick">
+            {PURPOSE_ORDER.map(purpose => {
+                const available = purposeAvailable(purpose, modules);
+                const on = purposes.includes(purpose);
+                return (
+                    <button
+                        key={purpose}
+                        type="button"
+                        className={`purp-btn purp--${purpose}${on ? ' is-on' : ''}`}
+                        disabled={!available}
+                        title={available ? undefined : `На устройстве нет модуля ${PURPOSE_MODULE[purpose]}`}
+                        onClick={() => onToggle(purpose)}
+                    >
+                        <span className="dot" />
+                        {PURPOSE_NAMES[purpose]}
+                    </button>
+                );
+            })}
         </div>
     );
 }
 
-interface RecordFieldsProps extends FieldsProps {
-    stream: StreamKey;
+interface StreamFieldsProps {
+    streams: StreamForm[];
+    selected: string;
+    modules: string[];
+    onSelect: (key: string) => void;
+    onPatch: (key: string, patch: Partial<StreamForm>) => void;
+    onAdd: () => void;
+    onRemove: (key: string) => void;
+    /** Подписи в селекте: «Поток 1 · 1920×1080» */
+    labels: Record<string, string>;
 }
 
-export function RecordFields({ form, onChange, stream }: RecordFieldsProps) {
-    // Пишется только первый слот: у второго media-center всегда держит to_record = false
-    if (stream !== 'main') {
+export function StreamFields({
+    streams, selected, modules, onSelect, onPatch, onAdd, onRemove, labels,
+}: StreamFieldsProps) {
+    const stream = streams.find(s => s.key === selected) ?? streams[0];
+    if (!stream) {
         return (
-            <p className="hint" style={{ margin: 0 }}>
-                В архив пишется только первый канал камеры. Выберите его в списке слева,
-                чтобы изменить настройки записи.
-            </p>
+            <div className="fields">
+                <p className="hint" style={{ margin: 0 }}>У камеры нет потоков.</p>
+                <button type="button" className="btn" onClick={onAdd}>Добавить поток</button>
+            </div>
         );
     }
 
+    const togglePurpose = (purpose: StreamPurpose) => {
+        const has = stream.purposes.includes(purpose);
+        const next = has
+            ? stream.purposes.filter(p => p !== purpose)
+            : [...stream.purposes, purpose];
+
+        // Запись без пути и сегмента не поднимется — подставляем рабочие значения
+        const patch: Partial<StreamForm> = { purposes: next };
+        if (!has && purpose === 'record') {
+            if (!stream.record_path) patch.record_path = RECORD_PATH;
+            if (stream.segment <= 0) patch.segment = 10;
+        }
+
+        onPatch(stream.key, patch);
+    };
+
     return (
         <div className="fields">
-            <label className="fsw">
-                <Switch on={form.to_record} onToggle={v => onChange({ to_record: v })}>
-                    Писать в архив
-                </Switch>
-            </label>
-            {form.to_record && (
-                <div className="frow">
-                    <NumCell
-                        cap="Длина сегмента, с"
-                        value={form.main_segment}
-                        onValue={n => onChange({ main_segment: n })}
+            <div className="stream-bar">
+                <div className="fcell grow">
+                    <span className="fcap">Поток</span>
+                    <Select
+                        value={stream.key}
+                        onChange={onSelect}
+                        options={streams.map(s => ({
+                            value: s.key,
+                            label: labels[s.key] ?? `Поток ${streamNumber(s.key)}`,
+                        }))}
                     />
                 </div>
+                <button type="button" className="btn" onClick={onAdd}>Добавить</button>
+                {/* Удалить можно и последний: без потоков камера просто не
+                    сохранится, об этом скажет проверка формы */}
+                <button
+                    type="button"
+                    className="btn btn--danger"
+                    onClick={() => onRemove(stream.key)}
+                >
+                    Удалить
+                </button>
+            </div>
+
+            <div className="fcell">
+                <span className="fcap">Назначения</span>
+                <PurposePicker purposes={stream.purposes} modules={modules} onToggle={togglePurpose} />
+            </div>
+
+            <div className="frow frow--3">
+                {/* Номер только показываем: он выбран из опроса камеры, и правка
+                    руками позволила бы указать занятый или несуществующий */}
+                <div className="fcell">
+                    <span className="fcap">Субпоток</span>
+                    <span className="fstatic">{stream.substream}</span>
+                </div>
+                <NumCell
+                    cap="Задержка, мс"
+                    value={stream.latency}
+                    onValue={n => onPatch(stream.key, { latency: n })}
+                />
+                <NumCell
+                    cap="Реконнект, с"
+                    value={stream.reconnect}
+                    onValue={n => onPatch(stream.key, { reconnect: n })}
+                />
+            </div>
+
+            <label className="fsw">
+                <Switch on={stream.use_udp} onToggle={v => onPatch(stream.key, { use_udp: v })}>
+                    Передавать по UDP
+                </Switch>
+            </label>
+
+            {stream.purposes.includes('record') && (
+                <>
+                    <div className="frow">
+                        <NumCell
+                            cap="Длина сегмента, с"
+                            value={stream.segment}
+                            onValue={n => onPatch(stream.key, { segment: n })}
+                        />
+                    </div>
+                    <p className="hint" style={{ margin: 0 }}>
+                        Записи складываются на накопитель устройства-владельца, в свою папку каждого
+                        потока. Старые сегменты удаляются автоматически при заполнении диска.
+                    </p>
+                </>
             )}
-            <p className="hint" style={{ margin: 0 }}>
-                Записи складываются на накопитель устройства-владельца камеры. Старые сегменты
-                удаляются автоматически при заполнении диска.
-            </p>
         </div>
     );
 }

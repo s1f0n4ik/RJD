@@ -52,7 +52,8 @@ const modules: Module[] = [
         description: 'Настройки камер',
         icon: SettingsIcon,
         gradient: 'linear-gradient(135deg, #ff9800 0%, #e65100 100%)',
-        tabIndex: 1, // CameraSettings
+        tabIndex: -1,
+        externalUrl: '/new/cameras', // раздел переехал в новый интерфейс
     },
   {
     id: 'search',

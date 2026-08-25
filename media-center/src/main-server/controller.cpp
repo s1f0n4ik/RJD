@@ -1,8 +1,12 @@
 #include "main-server/controller.h"
 #include <boost/json.hpp>
+#include <algorithm>
+#include <regex>
 #include <sstream>
 #include <unordered_set>
 
+#include "nvr/constants.h"
+#include "nvr/stream-probe.h"
 #include "utility/rtsp-url.h"
 #include "utility/json-utils.h"
 
@@ -14,6 +18,84 @@ namespace json = boost::json;
 using namespace varan::neural;
 using namespace varan::nvr;
 using namespace varan::rest;
+
+namespace {
+
+    /*
+        Ключ потока уходит наружу — в путь записи и в адрес webrtc-сессии,
+        поэтому форма у него жёсткая, а переименования нет.
+    */
+    const std::regex STREAM_KEY_REGEX("^stream_[1-9][0-9]*$");
+
+    // Разбор одного потока. Общий для POST и PATCH: раньше он был скопирован
+    // в обе ручки, и проверки в них успевали разойтись
+    FPipelineConfig parse_stream_config(const std::string& name, const json::object& obj) {
+        if (!std::regex_match(name, STREAM_KEY_REGEX)) {
+            throw std::runtime_error("Stream key \"" + name + "\" must look like stream_N");
+        }
+
+        FPipelineConfig config;
+
+        config.name = name;
+        config.type = EPilelineType::CAMERA;
+
+        config.channel = obj.contains(fields::CHANNEL)
+            ? static_cast<int>(get_json_value<int64_t>(obj.at(fields::CHANNEL), fields::CHANNEL))
+            : varan::nvr::constants::MIN_CHANNEL;
+
+        config.substream = static_cast<int>(get_json_value<int64_t>(obj.at(fields::SUBSTREAM), fields::SUBSTREAM));
+
+        if (config.channel < varan::nvr::constants::MIN_CHANNEL || config.channel > varan::nvr::constants::MAX_CHANNEL) {
+            throw std::runtime_error("Stream " + name + ": channel is out of range "
+                + std::to_string(varan::nvr::constants::MIN_CHANNEL) + "..." + std::to_string(varan::nvr::constants::MAX_CHANNEL));
+        }
+
+        if (config.substream < varan::nvr::constants::MIN_SUBSTREAM || config.substream > varan::nvr::constants::MAX_SUBSTREAM) {
+            throw std::runtime_error("Stream " + name + ": substream is out of range "
+                + std::to_string(varan::nvr::constants::MIN_SUBSTREAM) + "..." + std::to_string(varan::nvr::constants::MAX_SUBSTREAM));
+        }
+
+        const auto& purposes = obj.at(fields::PURPOSES);
+        if (!purposes.is_array() || purposes.as_array().empty()) {
+            throw std::runtime_error("Stream " + name + ": purposes must be a non-empty array of strings");
+        }
+
+        for (const auto& item : purposes.as_array()) {
+            if (!item.is_string()) {
+                throw std::runtime_error("Stream " + name + ": purpose must be a string");
+            }
+
+            const std::string value = item.as_string().c_str();
+            const auto purpose = purpose_from_string(value);
+
+            if (!purpose) {
+                throw std::runtime_error("Stream " + name + ": unknown purpose \"" + value + "\"");
+            }
+            if (config.purposes.has(*purpose)) {
+                throw std::runtime_error("Stream " + name + ": purpose \"" + value + "\" is listed twice");
+            }
+
+            config.purposes.add(*purpose);
+        }
+
+        config.latency = static_cast<int>(get_json_value<int64_t>(obj.at(fields::LATENCY), fields::LATENCY));
+        config.use_udp = get_json_value<bool>(obj.at(fields::USE_UDP), fields::USE_UDP);
+        config.reconnect_delay = static_cast<int>(get_json_value<int64_t>(obj.at(fields::RECONNECT), fields::RECONNECT));
+
+        // Путь и длина сегмента без записи не значат ничего
+        if (config.purposes.record) {
+            config.record_path = get_json_value<std::string>(obj.at(fields::RECORD_PATH), fields::RECORD_PATH);
+            config.segment_length = static_cast<int>(get_json_value<int64_t>(obj.at(fields::SEGMENT_LENGTH), fields::SEGMENT_LENGTH));
+        }
+        else {
+            config.record_path.clear();
+            config.segment_length = 0;
+        }
+
+        return config;
+    }
+
+} // namespace
 
 UController::UController(std::shared_ptr<UMediaCenter> media_center, ULogger* logger)
     : m_media_center(media_center)
@@ -152,60 +234,37 @@ UController::post_camera(const http::request<http::string_body>& req)
         std::string port = get_json_value<std::string>(obj[fields::PORT], fields::PORT);
         std::string user = get_json_value<std::string>(obj[fields::USER], fields::USER);
         std::string password = get_json_value<std::string>(obj[fields::PASSWORD], fields::PASSWORD);
-        // Тип камеры
-        std::cout << json::serialize(obj) << std::endl;
-        auto camera_type = int_to_count_enum<ECameraType>(get_json_value<int64_t>(obj[fields::TYPE], fields::TYPE));
-        if (camera_type == std::nullopt) {
-            throw std::runtime_error("Camera type doesn't supported!");
-        }
-        if (!m_media_center->is_type_supported(camera_type.value())) {
-            throw std::runtime_error("Camera type is not supported by loaded modules of this media-center!");
+        // Тип камеры больше не принимается: что делает поток, решают его назначения
+        if (obj.contains(fields::CAMERA_TYPE) && m_logger) {
+            m_logger->send(tag + ": field <type> is obsolete and ignored, purposes are taken from streams");
         }
 
-        FCameraData camera_data = {id, display_name, description, ip_adress, port, user, password, camera_type.value(), prod.value()};
+        FCameraData camera_data = {id, display_name, description, ip_adress, port, user, password, prod.value()};
 
         std::map<std::string, FPipelineConfig> pipelines;
-        std::unordered_set<std::string> stream_names;
         // Парсинг объекта pipeline
         for (auto const& [name_stream, stream] : obj_streams) {
             if (!stream.is_object()) {
                 throw std::runtime_error("Stream \"" + std::string(name_stream) + "\" is not json object!");
             }
-            std::cout << name_stream << ": " << json::serialize(stream) << std::endl;
-            auto stream_obj = stream.as_object();
+
+            const auto& stream_obj = stream.as_object();
             // Проверка полей стримов
             for (const auto& field : m_post_stream_fields) {
                 if (!stream_obj.contains(field)) {
                     throw std::runtime_error("Stream \"" + std::string(name_stream) + "\" does not contain the required field <" + field + ">");
                 }
             }
-            // Проверка
-            if (stream_names.contains(name_stream)) {
-                throw std::runtime_error("This stream <" + std::string(name_stream) + "> name is already taken");
-            } else {
-                stream_names.insert(name_stream);
-            }
-            auto type_stream = int_to_count_enum<EPilelineType>(get_json_value<int64_t>(stream_obj[fields::TYPE], fields::TYPE));
-            if (type_stream == std::nullopt) {
-                throw std::runtime_error("Not supported stream type in \"" + std::string(name_stream) + "\"");
-            }
-            // Ссылка rtsp
-            int sub = get_json_value<int64_t>(stream_obj[fields::SUB_STREAM], fields::SUB_STREAM);
-            // Заполнение структуры pipeline
-            FPipelineConfig pipeline_config;
-            pipeline_config.name = name_stream;
-            pipeline_config.type = type_stream.value();
-            pipeline_config.stream = sub;
-            pipeline_config.latency = get_json_value<int64_t>(stream_obj[fields::LATENCY], fields::LATENCY);
-            pipeline_config.use_udp = get_json_value<bool>(stream_obj[fields::USE_UDP], fields::USE_UDP);
-            pipeline_config.reconnect_delay = get_json_value<int64_t>(stream_obj[fields::RECONNECT], fields::RECONNECT);
-            pipeline_config.to_record = get_json_value<bool>(stream_obj[fields::TO_RECORD], fields::TO_RECORD);
-            pipeline_config.record_path = get_json_value<std::string>(stream_obj[fields::RECORD_PATH], fields::RECORD_PATH);
-            pipeline_config.segment_length = get_json_value<int64_t>(stream_obj[fields::SEGMENT_LENGTH], fields::SEGMENT_LENGTH);
 
-            // Добавление структуры в камеру
-            pipelines[name_stream] = std::move(pipeline_config);
+            const std::string name(name_stream);
+            // Ключи внутри json уникальны сами по себе, отдельная проверка не нужна
+            pipelines[name] = parse_stream_config(name, stream_obj);
         }
+
+        if (const auto error = m_media_center->validate_streams(pipelines)) {
+            throw std::runtime_error(*error);
+        }
+
         if (m_media_center->add_camera_async(camera_data, pipelines, true)) {
             body[fields::RESULT] = "success";
             body[fields::ERROR_DETAILS] = "Camera \"" + id + "\" successfully added to nvr!";
@@ -365,65 +424,40 @@ UController::patch_camera(const http::request<http::string_body>& req)
             std::string user = get_json_value<std::string>(crit[fields::USER], fields::USER);
             std::string password = crit.contains(fields::PASSWORD) ? get_json_value<std::string>(crit[fields::PASSWORD], fields::PASSWORD) 
                                                                    : current_camera_options.password;
-            // Тип камеры
-            auto camera_type = int_to_count_enum<ECameraType>(get_json_value<int64_t>(crit[fields::TYPE], fields::TYPE));
-            if (camera_type == std::nullopt) {
-                throw std::runtime_error("Camera type doesn't supported!");
-            }
-            if (!m_media_center->is_type_supported(camera_type.value())) {
-                throw std::runtime_error("Camera type is not supported by loaded modules of this media-center!");
+            // Тип камеры больше не принимается: назначения живут на потоках
+            if (crit.contains(fields::CAMERA_TYPE) && m_logger) {
+                m_logger->send(tag + ": field <type> is obsolete and ignored, purposes are taken from streams");
             }
 
-            FCameraData camera_data = { 
+            FCameraData camera_data = {
                 *camera_id, 
                 patch_camera_options ? patch_camera_options.value().display_name : current_camera_options.display_name,
                 patch_camera_options ? patch_camera_options.value().description : current_camera_options.description,
-                ip_adress, port, user, password, camera_type.value(), prod.value() 
+                ip_adress, port, user, password, prod.value()
             };
 
             std::map<std::string, FPipelineConfig> pipelines;
-            std::unordered_set<std::string> stream_names;
             // Парсинг объекта pipeline
             for (auto const& [name_stream, stream] : obj_streams) {
                 if (!stream.is_object()) {
                     throw std::runtime_error("Stream \"" + std::string(name_stream) + "\" is not json object!");
                 }
-                std::cout << name_stream << ": " << json::serialize(stream) << std::endl;
-                auto stream_obj = stream.as_object();
+                const auto& stream_obj = stream.as_object();
                 // Проверка полей стримов
                 for (const auto& field : m_post_stream_fields) {
                     if (!stream_obj.contains(field)) {
                         throw std::runtime_error("Stream \"" + std::string(name_stream) + "\" does not contain the required field <" + field + ">");
                     }
                 }
-                // Проверка
-                if (stream_names.contains(name_stream)) {
-                    throw std::runtime_error("This stream <" + std::string(name_stream) + "> name is already taken");
-                }
-                else {
-                    stream_names.insert(name_stream);
-                }
-                auto type_stream = int_to_count_enum<EPilelineType>(get_json_value<int64_t>(stream_obj[fields::TYPE], fields::TYPE));
-                if (type_stream == std::nullopt) {
-                    throw std::runtime_error("Not supported stream type in \"" + std::string(name_stream) + "\"");
-                }
-                // Ссылка rtsp
-                int sub = get_json_value<int64_t>(stream_obj[fields::SUB_STREAM], fields::SUB_STREAM);
-                // Заполнение структуры pipeline
-                FPipelineConfig pipeline_config;
-                pipeline_config.name = name_stream;
-                pipeline_config.type = type_stream.value();
-                pipeline_config.stream = sub;
-                pipeline_config.latency = get_json_value<int64_t>(stream_obj[fields::LATENCY], fields::LATENCY);
-                pipeline_config.use_udp = get_json_value<bool>(stream_obj[fields::USE_UDP], fields::USE_UDP);
-                pipeline_config.reconnect_delay = get_json_value<int64_t>(stream_obj[fields::RECONNECT], fields::RECONNECT);
-                pipeline_config.to_record = get_json_value<bool>(stream_obj[fields::TO_RECORD], fields::TO_RECORD);
-                pipeline_config.segment_length = get_json_value<int64_t>(stream_obj[fields::SEGMENT_LENGTH], fields::SEGMENT_LENGTH);
-                pipeline_config.record_path = get_json_value<std::string>(stream_obj[fields::RECORD_PATH], fields::RECORD_PATH);
 
-                // Добавление структуры в камеру
-                pipelines[name_stream] = std::move(pipeline_config);
+                const std::string name(name_stream);
+                pipelines[name] = parse_stream_config(name, stream_obj);
             }
+
+            if (const auto error = m_media_center->validate_streams(pipelines)) {
+                throw std::runtime_error(*error);
+            }
+
             patch_camera_options = camera_data;
             patch_streams_data = pipelines;
         }
@@ -441,6 +475,106 @@ UController::patch_camera(const http::request<http::string_body>& req)
         else {
             throw std::runtime_error("cannot update camera");
         }
+    }
+    catch (const std::exception& e) {
+        log_error(m_logger, tag, e.what());
+
+        res.result(http::status::bad_request);
+        json::object error;
+        error[fields::ERROR_CODE] = 402;
+        error[fields::ERROR_MESSAGE] = "Bad Request";
+        error[fields::ERROR_DETAILS] = e.what();
+
+        res.body() = json::serialize(create_answer_message(std::nullopt, std::nullopt, error));
+    }
+
+    res.prepare_payload();
+    return res;
+}
+
+// POST /probe { ip_adress, port, user, password, production, channel, substream, timeout }
+http::response<http::string_body>
+UController::post_probe(const http::request<http::string_body>& req) {
+    const std::string tag = "POST /probe";
+    log_request(m_logger, req, tag);
+
+    http::response<http::string_body> res{ http::status::ok, req.version() };
+    res.set(http::field::content_type, "application/json");
+    res.keep_alive(req.keep_alive());
+
+    try {
+        auto parsed = json::parse(req.body());
+        if (!parsed.is_object()) {
+            throw std::runtime_error("Request body isn't json object");
+        }
+
+        const auto& obj = parsed.as_object();
+
+        for (const auto& field : { fields::IP_ADRESS, fields::PORT, fields::USER, fields::PRODUCTION }) {
+            if (!obj.contains(field)) {
+                throw std::runtime_error("Missing required field <" + field + ">");
+            }
+        }
+
+        const auto production = int_to_count_enum<ERtspType>(
+            get_json_value<int64_t>(obj.at(fields::PRODUCTION), fields::PRODUCTION));
+
+        if (production == std::nullopt) {
+            throw std::runtime_error("Unknow camera production");
+        }
+
+        const std::string ip_adress = get_json_value<std::string>(obj.at(fields::IP_ADRESS), fields::IP_ADRESS);
+        const std::string port = get_json_value<std::string>(obj.at(fields::PORT), fields::PORT);
+        const std::string user = get_json_value<std::string>(obj.at(fields::USER), fields::USER);
+        const std::string password = obj.contains(fields::PASSWORD)
+            ? get_json_value<std::string>(obj.at(fields::PASSWORD), fields::PASSWORD)
+            : "";
+
+        const int channel = obj.contains(fields::CHANNEL)
+            ? static_cast<int>(get_json_value<int64_t>(obj.at(fields::CHANNEL), fields::CHANNEL))
+            : varan::nvr::constants::MIN_CHANNEL;
+
+        const int substream = obj.contains(fields::SUBSTREAM)
+            ? static_cast<int>(get_json_value<int64_t>(obj.at(fields::SUBSTREAM), fields::SUBSTREAM))
+            : varan::nvr::constants::MIN_SUBSTREAM;
+
+        if (channel < varan::nvr::constants::MIN_CHANNEL || channel > varan::nvr::constants::MAX_CHANNEL) {
+            throw std::runtime_error("The channel is out of the acceptable range");
+        }
+        if (substream < varan::nvr::constants::MIN_SUBSTREAM || substream > varan::nvr::constants::MAX_SUBSTREAM) {
+            throw std::runtime_error("The stream is out of the acceptable range");
+        }
+
+        int timeout = obj.contains(fields::TIMEOUT)
+            ? static_cast<int>(get_json_value<int64_t>(obj.at(fields::TIMEOUT), fields::TIMEOUT))
+            : 3;
+        timeout = std::clamp(timeout, 1, 10);
+
+        // Ссылка строится тем же шаблоном, что и у камеры: проба должна
+        // проверять ровно то, что потом пойдёт в поток
+        const auto it_maker = rtsp_maker.find(*production);
+        const auto& maker = (it_maker != rtsp_maker.end()) ? it_maker->second : rtsp_maker.at(ERtspType::ACE);
+        const std::string rtsp_url = maker(ip_adress, port, user, password, channel, substream);
+
+        const auto probe = probe_stream(rtsp_url, timeout, m_logger);
+
+        json::object body;
+        if (probe.ok) {
+            body[fields::RESULT] = "success";
+            body[fields::CODEC] = probe.codec;
+            body[fields::WIDTH] = probe.width;
+            body[fields::HEIGHT] = probe.height;
+            body[fields::FPS] = probe.fps;
+        }
+        else {
+            body[fields::RESULT] = "error";
+            body[fields::REASON] = probe_reason_to_string(probe.reason);
+            body[fields::ERROR_DETAILS] = probe.details;
+        }
+
+        const std::string body_str = json::serialize(create_answer_message(body, std::nullopt, std::nullopt));
+        if (m_logger) m_logger->send(tag + " → " + body_str);
+        res.body() = body_str;
     }
     catch (const std::exception& e) {
         log_error(m_logger, tag, e.what());
@@ -537,7 +671,11 @@ std::optional<FCameraStreamsData> UController::match_data_with_selectors(
                     auto& counter = stream_counts[name];
 
                     if (key_stream == fields::NAME) counter += value == stream.name;
-                    else if (key_stream == fields::TYPE) counter += std::stoi(value) == static_cast<int>(stream.type);
+                    // Фильтр по одному назначению: streams.purposes=neural
+                    else if (key_stream == fields::PURPOSES) {
+                        const auto purpose = purpose_from_string(value);
+                        counter += purpose && stream.purposes.has(*purpose);
+                    }
                     else if (key_stream == fields::STATUS) counter += std::stoi(value) == static_cast<int>(stream.status);
 
                     else if (key_stream == fields::RTSP_URL) counter += value == stream.rtsp_url;
@@ -546,7 +684,6 @@ std::optional<FCameraStreamsData> UController::match_data_with_selectors(
                     else if (key_stream == fields::LATENCY) counter += std::stoi(value) == static_cast<int>(stream.latency);
                     else if (key_stream == fields::CODEC) counter += value == stream.codec;
 
-                    else if (key_stream == fields::TO_RECORD) counter += (value == "true" && stream.to_record) || (value == "false" && !stream.to_record);
                     else if (key_stream == fields::RECORD_PATH) counter += value == stream.record_path;
                     else if (key_stream == fields::SEGMENT_LENGTH) counter += std::stoi(value) == static_cast<int>(stream.segment_length);
                     else if (key_stream == fields::RECONNECT) counter += std::stoi(value) == static_cast<int>(stream.reconnect_time);
@@ -562,7 +699,6 @@ std::optional<FCameraStreamsData> UController::match_data_with_selectors(
             else if (field == fields::DISPLAY_NAME) camera_counts += value == data.camera.display_name;
             else if (field == fields::DESCRIPTION) camera_counts += value == data.camera.description;
             else if (field == fields::PRODUCTION) camera_counts += std::stoi(value) == static_cast<int>(data.camera.production);
-            else if (field == fields::CAMERA_TYPE) camera_counts += std::stoi(value) == static_cast<int>(data.camera.type);
             else if (field == fields::IP_ADRESS) camera_counts += value == data.camera.ip_adress;
             else if (field == fields::PORT) camera_counts += value == data.camera.port;
             else if (field == fields::USER) camera_counts += value == data.camera.user;

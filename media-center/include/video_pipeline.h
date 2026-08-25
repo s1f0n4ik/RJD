@@ -156,6 +156,8 @@ public:
 
 	virtual EPilelineType get_type() = 0;
 
+	const varan::nvr::FStreamPurposes& get_purposes() const { return m_parameters.purposes; }
+
 	// Сессии живут на потоке вебсокета камеры, читать оттуда же
 	bool has_webrtc_session(const std::string& client_id) const {
 		return m_webrtc_sessions.count(client_id) > 0;
@@ -247,7 +249,7 @@ struct FGstGLContext {
 	bool is_initialized{false};
 };
 
-class UCameraMainPipeline : public UCameraPipeline {
+class UCameraStreamPipeline : public UCameraPipeline {
 
 	enum class EBranchType { DECODER, RECORD };
 
@@ -277,7 +279,7 @@ class UCameraMainPipeline : public UCameraPipeline {
 	};
 
 public:
-	UCameraMainPipeline(
+	UCameraStreamPipeline(
 		const FPipelineConfig& parameters,
 		std::unique_ptr<ULogger> logger,
 		std::function<void(std::string)> send_callback,
@@ -285,7 +287,7 @@ public:
 		CFrameMover dma_callback = nullptr
 	);
 
-	~UCameraMainPipeline() override;
+	~UCameraStreamPipeline() override;
 
 	virtual bool initialize() override;
 
@@ -335,26 +337,6 @@ private:
 	CFrameMover m_dma_sender;
 
 	std::mutex m_branch_mutex;
-};
-
-class UCameraSubPipeline : public UCameraPipeline {
-public:
-	using UCameraPipeline::UCameraPipeline;
-
-	~UCameraSubPipeline() override;
-
-	virtual bool initialize() override;
-
-	virtual bool create_webrtc_session(const std::string& client_id, std::string& description) override;
-
-	virtual FPipelineData get_pipeline_data() override;
-
-	virtual EPilelineType get_type() override;
-
-protected:
-
-	virtual void on_bus_error(const std::string& error_code, const std::string& description, bool probe_handler = false);
-	virtual void on_bus_message(GstMessage* msg);
 };
 
 class UNV12EncodingPipeline : public UCameraPipeline {

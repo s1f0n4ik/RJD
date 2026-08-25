@@ -32,6 +32,8 @@ export type PlayerStatus =
 
 interface UseWebRTCPlayerOptions {
     cameraId: string;
+    /** Ключ потока камеры; пусто — сервер берёт первый смотрибельный */
+    stream?: string;
     signalingUrl: string;
     clientId?: string;
 }
@@ -48,6 +50,7 @@ function makeClientId(): string {
 
 export function useWebRTCPlayer({
                                     cameraId,
+                                    stream,
                                     signalingUrl,
                                     clientId: externalClientId,
                                 }: UseWebRTCPlayerOptions): UseWebRTCPlayerResult {
@@ -98,8 +101,8 @@ export function useWebRTCPlayer({
         if (!ws) return;
         console.log(`[Player:${cameraId}] → connection request`);
         setStatus('signaling');
-        ws.sendConnectionRequest({ client_id: clientIdRef.current, camera: cameraId });
-    }, [cameraId]);
+        ws.sendConnectionRequest({ client_id: clientIdRef.current, camera: cameraId, stream });
+    }, [cameraId, stream]);
 
     // ─── Создать RTCManager ─────────────────────────────────────────────────
 
@@ -260,7 +263,7 @@ export function useWebRTCPlayer({
         };
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [cameraId, signalingUrl]);
+    }, [cameraId, stream, signalingUrl]);
 
     return { status, errorMsg, videoRef };
 }

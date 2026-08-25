@@ -14,6 +14,25 @@ from app.services.storage import storage
 logger = logging.getLogger(__name__)
 
 
+def _resolve_stream_path(camera: str, stream: str | None) -> Path:
+    """
+    Каталог, из которого берутся фрагменты. Поток не указан — берём тот,
+    где лежит самая свежая запись: склеивать фрагменты разных потоков нельзя,
+    у них разное разрешение.
+    """
+    if not (storage.root / camera).is_dir():
+        raise RuntimeError(f"Camera '{camera}' not found")
+
+    key = stream or storage.default_stream(camera)
+    path = storage.stream_path(camera, key)
+
+    if path is None:
+        raise RuntimeError(f"Stream '{key}' of camera '{camera}' not found")
+
+    logger.info("Camera %s: using stream %s", camera, key)
+    return path
+
+
 async def run_merge_job(
         job: Job,
         *,
@@ -21,6 +40,7 @@ async def run_merge_job(
         date: str,
         start_minutes: float,
         end_minutes: float,
+        stream: str | None = None,
 ):
     """
     Полный жизненный цикл задачи склейки. Сама обновляет прогресс job через jobs.update().
@@ -31,9 +51,7 @@ async def run_merge_job(
         # ── Фаза 1: парсинг ──
         await jobs.update(job, status=JobStatus.PARSING, message="Подбираем фрагменты...")
 
-        camera_path = storage.root / camera
-        if not camera_path.is_dir():
-            raise RuntimeError(f"Camera '{camera}' not found")
+        camera_path = _resolve_stream_path(camera, stream)
 
         try:
             date_obj = datetime.strptime(date, "%Y-%m-%d")
@@ -142,13 +160,12 @@ async def run_archive_job(
         mode: str,
         start_minutes: float | None,
         end_minutes: float | None,
+        stream: str | None = None,
 ):
     try:
         await jobs.update(job, status=JobStatus.PARSING, message="Подбираем файлы...")
 
-        camera_path = storage.root / camera
-        if not camera_path.is_dir():
-            raise RuntimeError(f"Camera '{camera}' not found")
+        camera_path = _resolve_stream_path(camera, stream)
 
         try:
             date_obj = datetime.strptime(date, "%Y-%m-%d")

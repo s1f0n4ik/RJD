@@ -49,18 +49,27 @@ namespace varan {
 			return result.empty() ? "none" : result;
 		}
 
-		// Камеры чужих модулей сборка не обслуживает.
-		bool supports(nvr::ECameraType type) const {
-			switch (type) {
-			case nvr::ECameraType::BIRDVIEW:
+		// Назначения чужих модулей сборка не обслуживает.
+		// Просмотр и запись — ядро камер, они есть всегда.
+		bool supports(nvr::EStreamPurpose purpose) const {
+			switch (purpose) {
+			case nvr::EStreamPurpose::BIRDVIEW:
 				return birdview;
-			case nvr::ECameraType::NEURAL:
+			case nvr::EStreamPurpose::NEURAL:
 				return neural;
-			case nvr::ECameraType::COUNT:
-				return false;
-			default:
+			case nvr::EStreamPurpose::VIEW:
+			case nvr::EStreamPurpose::RECORD:
 				return true;
+			default:
+				return false;
 			}
+		}
+
+		// Первое назначение, которого сборка не тянет — для текста ошибки
+		std::optional<nvr::EStreamPurpose> unsupported(const nvr::FStreamPurposes& purposes) const {
+			if (purposes.neural && !neural)     return nvr::EStreamPurpose::NEURAL;
+			if (purposes.birdview && !birdview) return nvr::EStreamPurpose::BIRDVIEW;
+			return std::nullopt;
 		}
 	};
 

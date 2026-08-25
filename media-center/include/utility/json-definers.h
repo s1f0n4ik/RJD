@@ -36,7 +36,17 @@ namespace fields {
 	inline const std::string RECORD_PATH = "record_path";    // "record_path"
 	inline const std::string SEGMENT_LENGTH = "segment";     // "segment"
 	inline const std::string RECONNECT = "reconnect";        // "reconnect"
+	inline const std::string PURPOSES = "purposes";          // "purposes"
+	inline const std::string CHANNEL = "channel";            // "channel"
+	inline const std::string SUBSTREAM = "substream";        // "substream"
+	// Легаси: одно число вместо канала и субпотока, читается только при миграции
 	inline const std::string SUB = "sub";                    // "sub"
+
+	// Поля пробы потока
+	inline const std::string TIMEOUT = "timeout";            // "timeout"
+	inline const std::string REASON = "reason";              // "reason"
+	// Ключ потока в сообщении подключения сигналинга
+	inline const std::string STREAM = "stream";              // "stream"
 
 	inline const std::string IP_ADRESS = "ip_adress";        // "ip_adress"
 	inline const std::string PORT = "port";                  // "port"

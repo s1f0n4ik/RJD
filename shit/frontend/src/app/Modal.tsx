@@ -4,6 +4,10 @@ import { Icon } from './Icons';
 // Стек открытых модалок: Esc закрывает только верхнюю, а не все сразу
 const modalStack: symbol[] = [];
 
+// Открыта ли хоть одна модалка. Нужно тем, кто тоже слушает Esc, но должен
+// уступать окну: шторка не закрывается «сквозь» открытое подтверждение
+export const isModalOpen = (): boolean => modalStack.length > 0;
+
 interface ModalProps {
     title: string;
     onClose: () => void;

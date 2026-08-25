@@ -12,7 +12,6 @@ import {
 } from '@mui/material';
 import Header from './components/Header';
 import Dashboard from './components/Dashboard';
-import CameraSettings from './components/CameraSettings';
 // import LoaderSettings from './components/LoaderSettings';
 // import NeuralSettings from './components/NeuralSettings';
 const NeuralConfigApp = lazy(() => import('./features/neural/components/NeuralConfigApp'));
@@ -208,6 +207,24 @@ const AppContent: React.FC = () => {
   };
 
   // showBack — для подроутов, где нет Header и уйти больше некуда
+  // Экран камер переписан в новом интерфейсе; старый удалён вместе со схемой,
+  // на которой он держался: типа камеры и потоков main/sub больше нет
+  const renderCamerasMoved = () => (
+    <Box textAlign="center" py={8}>
+      <Typography variant="h5" color="text.secondary">
+        Раздел переехал
+      </Typography>
+      <Typography color="text.secondary">
+        Камеры настраиваются в новом интерфейсе
+      </Typography>
+      <Box mt={3} display="flex" justifyContent="center">
+        <Button variant="contained" onClick={() => { window.location.href = '/new/cameras'; }}>
+          Открыть камеры
+        </Button>
+      </Box>
+    </Box>
+  );
+
   const renderDenied = (target: string, showBack = false) => (
     <Box textAlign="center" py={8}>
       <Typography variant="h5" color="text.secondary">
@@ -373,7 +390,7 @@ const AppContent: React.FC = () => {
       case 0:
         return <Dashboard onNavigate={handleTabChange} />;
       case 1:
-        return hasAccessToTab(1) ? <CameraSettings /> : renderDenied('tab:1');
+        return renderCamerasMoved();
       case 2:
         return <Observation />;
       case 3:

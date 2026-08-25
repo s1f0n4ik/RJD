@@ -159,7 +159,10 @@ const NeuralSettings: React.FC = () => {
       setConfigs(cfgList);
       setStateSlots(st);
       setStatusItems(stt);
-      setCameras(cams.filter((c) => c.type === 2));
+      // Камера годится нейронке, если у неё есть поток с таким назначением
+      setCameras(cams.filter((c) =>
+        Object.values(c.streams ?? {}).some((s) => s.purposes?.includes('neural'))
+      ));
 
       const targetId = selectedConfigId || cfgList[0]?.id || '';
       if (targetId) {

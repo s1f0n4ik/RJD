@@ -6,11 +6,14 @@ import type {
   NeuralConfigurationListItem,
   NeuralRuntimeStatusItem,
   NeuralStateItem,
+  ProbeRequest,
+  ProbeResult,
   StreamProducer,
+  StreamPurpose,
   VirtualStream,
 } from '../types';
 
-import { mcPath, modulePath, deviceForCameraType } from './devices';
+import { mcPath, modulePath } from './devices';
 
 // REST media-center устройства-владельца: /camera?id=... (как раньше делал nginx)
 const cameraUrl = (deviceId: string, id: string) =>
@@ -26,33 +29,25 @@ export interface CameraMetaPatch {
     description?: string;
 }
 
+export interface CameraStreamPatch {
+    channel: number;
+    substream: number;
+    purposes: StreamPurpose[];
+    latency: number;
+    use_udp: boolean;
+    reconnect: number;
+    record_path: string;
+    segment: number;
+}
+
 export interface CameraCriticalPatch {
     ip_adress?: string;
     port?: string;
     user?: string;
     password?: string; // ⚠️ включать в объект только при реальной смене
     production?: number;
-    type?: number;
-    streams?: {
-        main: {
-            sub: number;
-            type: number;
-            latency: number;
-            use_udp: boolean;
-            reconnect: number;
-            record_path: string;
-            segment: number;
-        };
-        sub: {
-            sub: number;
-            type: number;
-            latency: number;
-            use_udp: boolean;
-            reconnect: number;
-            record_path: string;
-            segment: number;
-        };
-    };
+    // Ключи — stream_1…stream_N; PATCH задаёт набор потоков целиком
+    streams?: Record<string, CameraStreamPatch>;
 }
 
 // ── Контракт Media Center ──
@@ -116,10 +111,9 @@ class ApiClient {
         return raw ? this.normalize({ id: raw.id ?? id, ...raw }) : null;
     }
 
-    // Устройство-владелец: явное или по таблице «тип камеры → устройство»
-    async createCamera(camera: CPPCamera, deviceId?: string) {
-        const target = deviceId ?? deviceForCameraType(Number(camera.type ?? 1));
-        return this.fetch(mcPath(target, '/camera'), {
+    // Устройство-владелец выбирает оператор: выводить его больше не из чего
+    async createCamera(camera: CPPCamera, deviceId: string) {
+        return this.fetch(mcPath(deviceId, '/camera'), {
             method: 'POST',
             body: JSON.stringify(camera),
         });
@@ -135,6 +129,17 @@ class ApiClient {
 
     async deleteCamera(id: string, deviceId: string): Promise<void> {
         await this.fetch(cameraUrl(deviceId, id), { method: 'DELETE' });
+    }
+
+    /**
+     * Проверка одного потока камеры. Камера не создаётся и в конфиг не
+     * попадает; отказ приходит как result:"error" с причиной, а не исключением.
+     */
+    async probeStream(deviceId: string, body: ProbeRequest): Promise<ProbeResult> {
+        return this.fetch<ProbeResult>(mcPath(deviceId, '/probe'), {
+            method: 'POST',
+            body: JSON.stringify(body),
+        });
     }
 
     // ── helpers ──

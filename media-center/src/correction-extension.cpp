@@ -1,4 +1,4 @@
-#include "birdview-camera.h"
+#include "correction-extension.h"
 
 #include <algorithm>
 #include <fstream>
@@ -8,6 +8,7 @@
 #include "core/paths.h"
 #include "calibration/constants.h"
 #include "calibration/utility.h"
+#include "utility/json-definers.h"
 
 namespace varan {
 namespace neural {
@@ -16,35 +17,30 @@ namespace neural {
 	static constexpr int MIN_CORRECTION_FPS = 1;
 	static constexpr int MAX_CORRECTION_FPS = 60;
 
-	UBirdviewCamera::UBirdviewCamera(
-		const std::string& name,
-		const FWebSocketOptions& socket_options,
+	UCorrectionExtension::UCorrectionExtension(
+		std::string camera_id,
 		FFrameStorage<IFrame>* storage,
-		ULogger::ELoggerLevel level_
+		birdview::UEGLContextManager* gl_manager,
+		CModuleReply reply,
+		std::function<void(std::string)> send_callback,
+		ULogger::ELoggerLevel level
 	)
-		: UCamera(name, socket_options, level_)
+		: m_camera_id(std::move(camera_id))
 		, m_storage(storage)
+		, m_gl_manager(gl_manager)
+		, m_reply(std::move(reply))
+		, m_send_callback(std::move(send_callback))
+		, m_logger(m_camera_id + ": correction", level)
 	{}
 
-	UBirdviewCamera::~UBirdviewCamera() {
+	UCorrectionExtension::~UCorrectionExtension() {
 		if (m_correction_thread.joinable()) {
 			m_correction_thread.join();
 		}
 		destroy_correction(true);
 	}
 
-	void UBirdviewCamera::set_configurations(
-		const FCameraData& options,
-		const std::map<std::string, FPipelineConfig>& streams_config,
-		CFrameMover dmabuf_callback,
-		birdview::UEGLContextManager* gl_manager
-	) {
-		m_gl_manager = gl_manager;
-		destroy_correction(false);
-		UCamera::set_configurations(options, streams_config, std::move(dmabuf_callback), gl_manager);
-	}
-
-	bool UBirdviewCamera::handle_module_message(
+	bool UCorrectionExtension::handle_message(
 		const std::string& client_id,
 		const std::string& type,
 		const boost::json::object& message
@@ -62,11 +58,12 @@ namespace neural {
 
 		auto reply = [this, client_id, type](bool ok, const std::string& description) {
 			ok ? m_logger.info(description) : m_logger.error(description);
-			send_message(boost::json::serialize(make_json_message(client_id, ok, type, description)));
+			m_reply(client_id, ok, type, description);
 		};
 
 		if (!enable) {
-			// Выключение — клиент переподключится на SUB, пайплайн умрёт с его сессией
+			// Выключение — клиент переподключится на обычный поток,
+			// пайплайн умрёт с его сессией
 			reply(true, "Correction disabled");
 			return true;
 		}
@@ -80,7 +77,7 @@ namespace neural {
 		}
 
 		if (m_correction_building.exchange(true)) {
-			reply(false, "Поток коррекции уже создаётся");
+			reply(false, "Correction pipeline is already being created");
 			return true;
 		}
 
@@ -99,7 +96,7 @@ namespace neural {
 		return true;
 	}
 
-	UCameraPipeline* UBirdviewCamera::select_web_stream(
+	FStreamClaim UCorrectionExtension::select_stream(
 		const std::string& client_id,
 		const std::string& type,
 		const boost::json::object& message
@@ -107,20 +104,35 @@ namespace neural {
 		std::lock_guard<std::mutex> lock(m_correction_mutex);
 
 		if (type == SIG_TYPE_CONNECT) {
-			if (auto* v = message.if_contains("correction"); v && v->is_bool() && v->as_bool()) {
-				// Просили коррекцию, а пайплайна нет — честная ошибка вместо подмены потока
-				return m_correction.get();
+			bool wanted = false;
+
+			if (auto* v = message.if_contains(rest::fields::STREAM); v && v->is_string()) {
+				wanted = (v->as_string().c_str() == STREAM_KEY);
 			}
-		}
-		else if (m_correction && m_correction->has_webrtc_session(client_id)) {
-			return m_correction.get();
+			// Легаси-флаг старого плеера 360, живёт до шага уборки
+			if (auto* v = message.if_contains("correction"); v && v->is_bool() && v->as_bool()) {
+				wanted = true;
+			}
+
+			// Просили коррекцию, а пайплайна нет — заявка с пустым потоком,
+			// камера ответит ошибкой вместо подмены
+			if (wanted) {
+				return { true, m_correction.get() };
+			}
+
+			return {};
 		}
 
-		return UCamera::select_web_stream(client_id, type, message);
+		// Продолжение уже установленной сессии
+		if (m_correction && m_correction->has_webrtc_session(client_id)) {
+			return { true, m_correction.get() };
+		}
+
+		return {};
 	}
 
-	void UBirdviewCamera::on_session_closed(const std::string& client_id, UCameraPipeline* stream) {
-		// Чужие close (клиент сидел на SUB) не должны убивать свежесозданный
+	void UCorrectionExtension::on_session_closed(const std::string& client_id, UCameraPipeline* stream) {
+		// Чужие close (клиент сидел на обычном потоке) не должны убивать свежесозданный
 		// пайплайн, который ещё ждёт своего первого подключения
 		bool destroy = false;
 		{
@@ -134,11 +146,11 @@ namespace neural {
 		}
 	}
 
-	bool UBirdviewCamera::build_correction_pipeline(std::string& error) {
+	bool UCorrectionExtension::build_correction_pipeline(std::string& error) {
 		namespace calib = varan::calibration;
 
 		if (!m_storage || !m_gl_manager) {
-			error = "Поток коррекции недоступен: нет хранилища кадров или GL-контекста";
+			error = "Correction pipeline is unavailable: no frame storage or GL context";
 			return false;
 		}
 
@@ -153,7 +165,7 @@ namespace neural {
 					std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
 					auto parsed = boost::json::parse(content);
 					if (parsed.is_object()) {
-						if (auto* v = parsed.as_object().if_contains(m_options.id)) {
+						if (auto* v = parsed.as_object().if_contains(m_camera_id)) {
 							if (v->is_string()) {
 								config_key = v->as_string().c_str();
 							}
@@ -176,7 +188,7 @@ namespace neural {
 			}
 		}
 		if (config_key.empty()) {
-			error = "Для камеры не настроено сопоставление с калибровкой";
+			error = "Camera is not linked to any calibration configuration";
 			return false;
 		}
 
@@ -188,7 +200,7 @@ namespace neural {
 		{
 			std::ifstream file(varan::paths().surround.calibration_settings);
 			if (!file.is_open()) {
-				error = "Файл конфигураций калибровки не найден";
+				error = "Calibration configurations file not found";
 				return false;
 			}
 			try {
@@ -196,7 +208,7 @@ namespace neural {
 				auto root = boost::json::parse(content).as_object();
 				auto* entry = root.if_contains(config_key);
 				if (!entry || !entry->is_object()) {
-					error = "Конфигурация калибровки <" + config_key + "> не найдена";
+					error = "Calibration configuration <" + config_key + "> not found";
 					return false;
 				}
 				const auto& obj = entry->as_object();
@@ -206,14 +218,14 @@ namespace neural {
 				auto* mx = obj.if_contains(calib::constants::JSON_UNDISTORTION_MAP_X);
 				auto* my = obj.if_contains(calib::constants::JSON_UNDISTORTION_MAP_Y);
 				if (!mx || !my || !mx->is_string() || !my->is_string()) {
-					error = "Калибровка <" + config_key + "> не содержит карт коррекции";
+					error = "Calibration <" + config_key + "> has no correction maps";
 					return false;
 				}
 				map_x_name = mx->as_string().c_str();
 				map_y_name = my->as_string().c_str();
 			}
 			catch (const std::exception& e) {
-				error = "Не удалось прочитать конфигурацию калибровки: " + std::string(e.what());
+				error = "Cannot read calibration configuration: " + std::string(e.what());
 				return false;
 			}
 		}
@@ -224,7 +236,7 @@ namespace neural {
 		const auto maps_dir = varan::paths().surround.calibration_maps;
 		if (!calib::utility::SBinary::load_mat_from_binary(maps_dir / map_x_name, map_x, &m_logger)
 			|| !calib::utility::SBinary::load_mat_from_binary(maps_dir / map_y_name, map_y, &m_logger)) {
-			error = "Файлы карт коррекции не найдены или повреждены";
+			error = "Correction map files not found or broken";
 			return false;
 		}
 
@@ -236,7 +248,7 @@ namespace neural {
 				cv::convertMaps(map_x, map_y, float_x, float_y, CV_32FC1);
 			}
 			catch (const cv::Exception& e) {
-				error = "Карты коррекции неподдерживаемого формата";
+				error = "Correction maps have an unsupported format";
 				m_logger.error("build_correction_pipeline(): convertMaps: " + std::string(e.what()));
 				return false;
 			}
@@ -245,31 +257,31 @@ namespace neural {
 		}
 
 		// 4. Живой кадр и совпадение разрешений
-		auto frame = m_storage->extract(m_options.id);
+		auto frame = m_storage->extract(m_camera_id);
 		if (!frame) {
-			error = "Нет живого кадра с камеры — основной поток не работает";
+			error = "No live frame from the camera: the stream with birdview purpose is not running";
 			return false;
 		}
 		if (static_cast<int>(frame->width) != width || static_cast<int>(frame->height) != height) {
-			error = "Калибровка не соответствует разрешению потока: калибровка "
+			error = "Calibration doesn't match the stream resolution: calibration "
 				+ std::to_string(width) + "x" + std::to_string(height)
-				+ ", поток " + std::to_string(frame->width) + "x" + std::to_string(frame->height);
+				+ ", stream " + std::to_string(frame->width) + "x" + std::to_string(frame->height);
 			return false;
 		}
 
 		// 5. Сборка и запуск
 		FPipelineConfig config;
-		config.name = "correction";
-		config.camera_name = m_options.id;
+		config.name = STREAM_KEY;
+		config.camera_name = m_camera_id;
 		config.type = EPilelineType::CORRECTION;
+		config.purposes.add(EStreamPurpose::VIEW);
 
-		auto pipe_logger = std::make_unique<ULogger>(m_options.id + ": correction", m_logger.get_level());
-		auto send_callback = [this](std::string msg) { this->send_message(std::move(msg)); };
+		auto pipe_logger = std::make_unique<ULogger>(m_camera_id + ": correction", m_logger.get_level());
 
 		auto pipeline = std::make_unique<UCorrectionPipeline>(
 			config,
 			std::move(pipe_logger),
-			send_callback,
+			m_send_callback,
 			m_gl_manager,
 			m_storage
 		);
@@ -278,11 +290,11 @@ namespace neural {
 			return false;
 		}
 		if (!pipeline->initialize()) {
-			error = "Не удалось инициализировать поток коррекции";
+			error = "Cannot initialize the correction pipeline";
 			return false;
 		}
 		if (!pipeline->start()) {
-			error = "Не удалось запустить поток коррекции";
+			error = "Cannot start the correction pipeline";
 			return false;
 		}
 
@@ -291,7 +303,7 @@ namespace neural {
 		return true;
 	}
 
-	void UBirdviewCamera::destroy_correction(bool wait) {
+	void UCorrectionExtension::destroy_correction(bool wait) {
 		std::unique_ptr<UCorrectionPipeline> victim;
 		{
 			std::lock_guard<std::mutex> lock(m_correction_mutex);
@@ -327,5 +339,5 @@ namespace neural {
 		}
 	}
 
-} // neural
-} // varan
+} // namespace neural
+} // namespace varan

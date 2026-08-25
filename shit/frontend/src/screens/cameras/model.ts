@@ -1,8 +1,20 @@
-import type { CPPCamera } from '../../types';
-import { deviceForCameraType } from '../../services/devices';
+import type { CPPCamera, StreamPurpose } from '../../types';
 import { MediaCenterError } from '../../services/api';
 
 export type Camera = CPPCamera;
+
+/** Поток в форме: ключ неизменяем, остальное правит оператор. */
+export interface StreamForm {
+    key: string;
+    channel: number;
+    substream: number;
+    purposes: StreamPurpose[];
+    latency: number;
+    use_udp: boolean;
+    reconnect: number;
+    record_path: string;
+    segment: number;
+}
 
 /** Плоская форма камеры: то, что редактируют панель и мастер добавления. */
 export interface CameraFormData {
@@ -14,66 +26,106 @@ export interface CameraFormData {
     user: string;
     password: string;
     production: number;
-    type: number;
-    main_sub: number;
-    main_latency: number;
-    main_use_udp: boolean;
-    main_reconnect: number;
-    main_segment: number;
-    sub_sub: number;
-    sub_latency: number;
-    sub_use_udp: boolean;
-    sub_reconnect: number;
-    to_record: boolean;
+    // Устройство-владелец: оно же решает, какие назначения доступны
+    device_id: string;
+    streams: StreamForm[];
 }
 
 export const RESERVED_PREFIXES = ['__probe_'];
 const NAME_REGEX = /^[a-zA-Z_][a-zA-Z0-9_-]{1,31}$/;
 const IP_REGEX = /^((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/;
+const STREAM_KEY_REGEX = /^stream_([1-9][0-9]*)$/;
 
 export const RECORD_PATH = '/storage/internal';
+
+export const MIN_CHANNEL = 1;
+export const MAX_CHANNEL = 6;
+export const MIN_SUBSTREAM = 1;
+export const MAX_SUBSTREAM = 6;
+
+export const PRODUCTION_NAMES: Record<number, string> = { 1: 'Dahua', 2: 'Hikvision', 3: 'ACE' };
+export const VENDOR_TO_PRODUCTION: Record<string, number> = { Dahua: 1, Hikvision: 2, ACE: 3 };
+
+export const PURPOSE_ORDER: StreamPurpose[] = ['view', 'record', 'neural', 'birdview'];
+
+export const PURPOSE_NAMES: Record<StreamPurpose, string> = {
+    view: 'Просмотр',
+    record: 'Запись',
+    neural: 'Тех. зрение',
+    birdview: '360',
+};
+
+/** Назначения, которым нужен модуль на устройстве; остальные есть всегда. */
+export const PURPOSE_MODULE: Partial<Record<StreamPurpose, string>> = {
+    neural: 'neural',
+    birdview: 'birdview',
+};
+
+/** Кадры отдаются одним приёмником, поэтому потребитель у потока один. */
+export const CONSUMER_PURPOSES: StreamPurpose[] = ['neural', 'birdview'];
+
+export const purposeAvailable = (purpose: StreamPurpose, modules: string[]): boolean => {
+    const required = PURPOSE_MODULE[purpose];
+    return !required || modules.includes(required);
+};
+
+export const makeStream = (key: string, substream: number, purposes: StreamPurpose[]): StreamForm => ({
+    key,
+    channel: MIN_CHANNEL,
+    substream,
+    purposes,
+    latency: 0,
+    use_udp: false,
+    reconnect: 10,
+    record_path: purposes.includes('record') ? RECORD_PATH : '',
+    segment: purposes.includes('record') ? 10 : 0,
+});
+
+/** Следующий свободный ключ: номера не переиспользуются в рамках сессии правки. */
+export const nextStreamKey = (streams: StreamForm[]): string => {
+    const used = new Set<number>();
+    for (const stream of streams) {
+        const match = stream.key.match(STREAM_KEY_REGEX);
+        if (match) used.add(parseInt(match[1], 10));
+    }
+    let n = 1;
+    while (used.has(n)) n++;
+    return `stream_${n}`;
+};
+
+export const streamNumber = (key: string): number => {
+    const match = key.match(STREAM_KEY_REGEX);
+    return match ? parseInt(match[1], 10) : 0;
+};
 
 export const DEFAULT_FORM: CameraFormData = {
     id: '',
     display_name: '',
-    description: 'Test Camera',
+    description: '',
     ip_adress: '',
     port: '554',
     user: 'admin',
-    password: 'VniiTest',
+    password: '',
     production: 2,
-    type: 1,
-    main_sub: 1,
-    main_latency: 0,
-    main_use_udp: false,
-    main_reconnect: 10,
-    main_segment: 10,
-    sub_sub: 2,
-    sub_latency: 0,
-    sub_use_udp: false,
-    sub_reconnect: 10,
-    to_record: true,
+    device_id: '',
+    // Пусто намеренно: какие субпотоки есть у камеры, выясняет опрос
+    streams: [],
 };
-
-export const PRODUCTION_NAMES: Record<number, string> = { 1: 'Dahua', 2: 'Hikvision', 3: 'ACE' };
-export const VENDOR_TO_PRODUCTION: Record<string, number> = { Dahua: 1, Hikvision: 2, ACE: 3 };
-export const TYPE_NAMES: Record<number, string> = { 1: 'Обычная', 2: 'Тех. зрение', 3: 'Камера 360' };
 
 export type StatusTone = 'ok' | 'warn' | 'err' | 'info' | 'dim';
 
-/** Слоты потоков камеры: имена внутренние, оператору видны номера каналов. */
-export type StreamKey = 'main' | 'sub';
-
 export interface StreamInfo {
-    key: StreamKey;
+    key: string;
+    number: number;
     channel: number;
+    substream: number;
+    purposes: StreamPurpose[];
     width: number;
     height: number;
     fps: number;
     codec: string;
     latency: number;
     useUdp: boolean;
-    toRecord: boolean;
     status: number;
     rtsp: string;
     live: boolean;
@@ -94,26 +146,28 @@ export const hideCredentials = (rtsp: string): string =>
     rtsp ? rtsp.replace(/^(rtsp:\/\/)[^@/]*@/i, '$1') : '';
 
 export const streamsOf = (camera: Camera): StreamInfo[] =>
-    (['main', 'sub'] as StreamKey[])
-        .map(key => {
-            const s = camera.streams?.[key];
-            if (!s) return null;
-            return {
-                key,
-                channel: s.sub,
-                width: s.width,
-                height: s.height,
-                fps: s.fps,
-                codec: s.codec,
-                latency: s.latency,
-                useUdp: s.use_udp,
-                toRecord: s.to_record,
-                status: s.status,
-                rtsp: hideCredentials(s.rtsp),
-                live: !camera.offline && s.status === 3,
-            };
-        })
-        .filter((s): s is StreamInfo => s !== null);
+    Object.entries(camera.streams ?? {})
+        .map(([key, stream]) => ({
+            key,
+            number: streamNumber(key),
+            channel: stream.channel,
+            substream: stream.substream,
+            purposes: stream.purposes ?? [],
+            width: stream.width,
+            height: stream.height,
+            fps: stream.fps,
+            codec: stream.codec,
+            latency: stream.latency,
+            useUdp: stream.use_udp,
+            status: stream.status,
+            rtsp: hideCredentials(stream.rtsp),
+            live: !camera.offline && stream.status === 3,
+        }))
+        .sort((a, b) => a.number - b.number);
+
+/** Первый поток, который можно смотреть: его и открывает превью по умолчанию. */
+export const viewableStream = (camera: Camera): StreamInfo | null =>
+    streamsOf(camera).find(stream => stream.purposes.includes('view')) ?? null;
 
 export const streamStatus = (stream: StreamInfo, offline: boolean): { label: string; tone: StatusTone } => {
     if (offline) return { label: 'нет данных', tone: 'dim' };
@@ -121,7 +175,7 @@ export const streamStatus = (stream: StreamInfo, offline: boolean): { label: str
     return STATUS_MAP[stream.status] ?? { label: 'неизвестно', tone: 'dim' };
 };
 
-/** Состояние камеры складывается из её потоков — молчащий канал виден в строке. */
+/** Состояние камеры складывается из её потоков — молчащий виден в строке. */
 export const cameraStatus = (camera: Camera): { label: string; tone: StatusTone } => {
     if (camera.offline) return { label: 'устройство молчит', tone: 'err' };
     const streams = streamsOf(camera);
@@ -130,7 +184,7 @@ export const cameraStatus = (camera: Camera): { label: string; tone: StatusTone 
     const dead = streams.filter(s => !s.live);
     if (dead.length === 0) return { label: 'в работе', tone: 'ok' };
     if (dead.length === streams.length) return { label: 'нет потоков', tone: 'err' };
-    return { label: `частично · канал ${dead.map(s => s.channel).join(', ')} молчит`, tone: 'warn' };
+    return { label: `частично · поток ${dead.map(s => s.number).join(', ')} молчит`, tone: 'warn' };
 };
 
 export interface Validation {
@@ -165,6 +219,69 @@ export const validatePort = (port: string): Validation => {
     return { valid: true };
 };
 
+/**
+ * Проверки потоков повторяют серверные. Дублирование намеренное: без него
+ * отказ приходит уже после отправки, когда часть камеры создана.
+ */
+export const validateStreams = (streams: StreamForm[], modules: string[]): Validation => {
+    if (streams.length === 0) {
+        return { valid: false, error: 'Добавьте хотя бы один поток' };
+    }
+
+    const owners: Partial<Record<StreamPurpose, string>> = {};
+
+    for (const stream of streams) {
+        const label = `Поток ${streamNumber(stream.key)}`;
+
+        if (stream.purposes.length === 0) {
+            return { valid: false, error: `${label}: выберите хотя бы одно назначение` };
+        }
+
+        if (stream.substream < MIN_SUBSTREAM || stream.substream > MAX_SUBSTREAM) {
+            return { valid: false, error: `${label}: субпоток вне диапазона ${MIN_SUBSTREAM}…${MAX_SUBSTREAM}` };
+        }
+
+        for (const purpose of stream.purposes) {
+            if (!purposeAvailable(purpose, modules)) {
+                return {
+                    valid: false,
+                    error: `${label}: «${PURPOSE_NAMES[purpose]}» недоступно — на устройстве нет модуля ${PURPOSE_MODULE[purpose]}`,
+                };
+            }
+        }
+
+        const consumers = stream.purposes.filter(p => CONSUMER_PURPOSES.includes(p));
+        if (consumers.length > 1) {
+            return {
+                valid: false,
+                error: `${label}: кадры отдаются одному потребителю — оставьте либо «Тех. зрение», либо «360»`,
+            };
+        }
+
+        for (const purpose of consumers) {
+            const owner = owners[purpose];
+            if (owner) {
+                return {
+                    valid: false,
+                    error: `«${PURPOSE_NAMES[purpose]}» уже назначено потоку ${streamNumber(owner)} — на камеру можно только одно`,
+                };
+            }
+            owners[purpose] = stream.key;
+        }
+
+        if (stream.purposes.includes('record')) {
+            if (!stream.record_path) {
+                return { valid: false, error: `${label}: не задан путь записи` };
+            }
+            if (stream.segment <= 0) {
+                return { valid: false, error: `${label}: длина сегмента должна быть больше нуля` };
+            }
+        }
+    }
+
+    return { valid: true };
+};
+
 export const findNextFreeCameraId = (cameras: Camera[]): string => {
     const used = new Set<number>();
     for (const c of cameras) {
@@ -182,9 +299,7 @@ export const ipToNumber = (ip: string): number => {
     return ((parts[0] << 24) >>> 0) + (parts[1] << 16) + (parts[2] << 8) + parts[3];
 };
 
-// Устройство-владелец камеры; для новых — по таблице «тип → устройство»
-export const deviceOf = (camera?: Camera | null): string =>
-    camera?.device_id ?? deviceForCameraType(Number(camera?.type ?? 1));
+export const deviceOf = (camera?: Camera | null): string => camera?.device_id ?? '';
 
 export const formFromCamera = (camera: Camera): CameraFormData => ({
     id: camera.id,
@@ -195,17 +310,34 @@ export const formFromCamera = (camera: Camera): CameraFormData => ({
     user: camera.user,
     password: camera.password || '',
     production: camera.production,
-    type: camera.type,
-    main_sub: camera.streams.main.sub,
-    main_latency: camera.streams.main.latency,
-    main_use_udp: camera.streams.main.use_udp,
-    main_reconnect: camera.streams.main.reconnect,
-    main_segment: camera.streams.main.segment,
-    sub_sub: camera.streams.sub.sub,
-    sub_latency: camera.streams.sub.latency,
-    sub_use_udp: camera.streams.sub.use_udp,
-    sub_reconnect: camera.streams.sub.reconnect,
-    to_record: camera.streams.main.to_record ?? false,
+    device_id: camera.device_id ?? '',
+    streams: streamsOf(camera).map(stream => {
+        const raw = camera.streams[stream.key];
+        return {
+            key: stream.key,
+            channel: raw.channel,
+            substream: raw.substream,
+            purposes: [...(raw.purposes ?? [])],
+            latency: raw.latency,
+            use_udp: raw.use_udp,
+            reconnect: raw.reconnect,
+            record_path: raw.record_path,
+            segment: raw.segment,
+        };
+    }),
+});
+
+/** Один поток в виде, который принимает media-center. */
+export const streamToPayload = (stream: StreamForm) => ({
+    channel: stream.channel,
+    substream: stream.substream,
+    purposes: [...stream.purposes],
+    latency: stream.latency,
+    use_udp: stream.use_udp,
+    reconnect: stream.reconnect,
+    // Путь и сегмент имеют смысл только при записи
+    record_path: stream.purposes.includes('record') ? stream.record_path : '',
+    segment: stream.purposes.includes('record') ? stream.segment : 0,
 });
 
 /** Полный payload создания камеры — общий для мастера и миграции. */
@@ -218,29 +350,7 @@ export const formToPayload = (form: CameraFormData, id: string): any => ({
     user: form.user,
     password: form.password,
     production: form.production,
-    type: form.type,
-    streams: {
-        main: {
-            type: 1,
-            sub: form.main_sub,
-            latency: form.main_latency,
-            use_udp: form.main_use_udp,
-            reconnect: form.main_reconnect,
-            record_path: RECORD_PATH,
-            segment: form.main_segment,
-            to_record: form.to_record,
-        },
-        sub: {
-            type: 2,
-            sub: form.sub_sub,
-            latency: form.sub_latency,
-            use_udp: form.sub_use_udp,
-            reconnect: form.sub_reconnect,
-            record_path: '',
-            segment: 0,
-            to_record: false,
-        },
-    },
+    streams: Object.fromEntries(form.streams.map(stream => [stream.key, streamToPayload(stream)])),
 });
 
 /** Единое место форматирования ошибок для UI. */
