@@ -82,8 +82,7 @@ namespace neural {
 			auto pipe_logger = std::make_unique<ULogger>(m_options.id + ": " + name, m_logger.get_level());
 			auto send_callback = [this](std::string msg) {this->send_message(std::move(msg)); };
 
-			// Свой приёмник на каждый поток: раньше коллбэк был один на камеру
-			// и вдобавок перемещался в цикле, доставаясь первому пайплайну
+			// Свой приёмник кадров на каждый поток
 			CFrameMover frame_callback = frame_resolver
 				? frame_resolver(pipeline_setting.purposes)
 				: nullptr;
@@ -115,8 +114,7 @@ namespace neural {
 		CFrameMover frame_callback,
 		birdview::UEGLContextManager* gl_manager
 	) {
-		// Класс трубы один на любой поток камеры: что она делает,
-		// решают назначения, а не отдельный тип
+		// Класс трубы один на любой поток камеры
 		return std::make_unique<UCameraStreamPipeline>(
 			stream_data,
 			std::move(logger),
@@ -501,8 +499,7 @@ namespace neural {
 		const std::string& type,
 		const boost::json::object& message
 	) {
-		// Надстройки первыми: заявка с пустым потоком значит «поток мой,
-		// но его нет» — тогда клиент получит ошибку, а не чужой поток
+		// Надстройки спрашиваются первыми
 		for (const auto& extension : m_extensions) {
 			const auto claim = extension->select_stream(client_id, type, message);
 			if (claim.claimed) {
@@ -529,8 +526,7 @@ namespace neural {
 				return nullptr;
 			}
 
-			// Подменять непросматриваемый поток другим нельзя: клиент увидит
-			// не то, что просил, и не узнает об этом
+			// Поток без назначения view не отдаём
 			if (!it->second->get_purposes().view) {
 				m_logger.error("select_web_stream(): stream " + requested
 					+ " at camera " + m_options.id + " has no view purpose");

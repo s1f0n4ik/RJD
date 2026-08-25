@@ -22,7 +22,7 @@ export interface FieldsProps {
     onChange: (patch: Partial<CameraFormData>) => void;
 }
 
-/** Модули устройства-владельца: они решают, какие назначения доступны. */
+/** Модули устройства-владельца. */
 export function useDeviceModules(deviceId: string): string[] {
     const devices = getDevices();
     const key = devices.map(d => d.id + d.modules.join()).join();
@@ -33,7 +33,7 @@ export function useDeviceModules(deviceId: string): string[] {
     );
 }
 
-/** Поле с подписью сверху: подпись объясняет, за что отвечает контрол. */
+/** Поле с подписью сверху. */
 function Cell({ cap, children }: { cap: string; children: React.ReactNode }) {
     return (
         <label className="fcell">
@@ -208,7 +208,7 @@ interface PurposePickerProps {
     onToggle: (purpose: StreamPurpose) => void;
 }
 
-/** Назначения потока: недоступные видны, но выключены — с причиной в подсказке. */
+/** Назначения потока; недоступные выключены. */
 export function PurposePicker({ purposes, modules, compact, onToggle }: PurposePickerProps) {
     return (
         <div className="purp-pick">
@@ -273,8 +273,7 @@ export function StreamFields({
                     />
                 </div>
                 <button type="button" className="btn" onClick={onAdd}>Добавить</button>
-                {/* Удалить можно и последний: без потоков камера просто не
-                    сохранится, об этом скажет проверка формы */}
+                {/* Удалить можно и последний: не сохранится проверка формы */}
                 <button
                     type="button"
                     className="btn btn--danger"
@@ -294,8 +293,7 @@ export function StreamFields({
             </div>
 
             <div className="frow frow--3">
-                {/* Номер только показываем: он выбран из опроса камеры, и правка
-                    руками позволила бы указать занятый или несуществующий */}
+                {/* Номер выбран из опроса камеры, руками не правится */}
                 <div className="fcell">
                     <span className="fcap">Субпоток</span>
                     <span className="fstatic">{stream.substream}</span>

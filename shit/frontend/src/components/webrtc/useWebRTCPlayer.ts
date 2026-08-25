@@ -44,17 +44,10 @@ interface UseWebRTCPlayerResult {
     videoRef: React.RefObject<HTMLVideoElement>;
 }
 
-/*
-    Потолок отказов сигналинга. Без него плеер стучится вечно: камеры на
-    устройстве может уже не быть, а отказ ничем не отличается от временного.
-*/
+// Потолок отказов сигналинга
 const MAX_REJECTS = 5;
 
-/*
-    Сколько ждать ответа на запрос соединения. Сигналинг молча выбрасывает
-    сообщение, если камера ещё не подключилась к нему, — соединение при этом
-    не рвётся, и без повтора запрос уходит в пустоту навсегда.
-*/
+// Сколько ждать ответа на запрос соединения
 const ANSWER_TIMEOUT_MS = 3000;
 
 function makeClientId(): string {
@@ -133,8 +126,7 @@ export function useWebRTCPlayer({
         setStatus('signaling');
         ws.sendConnectionRequest({ client_id: clientIdRef.current, camera: cameraId, stream });
 
-        // Ответа может не быть вовсе: сигналинг выбрасывает сообщение, если
-        // камера ещё не подключилась. Тогда повторяем сами
+        // Ответа может не быть вовсе — повторяем сами
         clearAnswerTimer();
         answerTimerRef.current = window.setTimeout(() => {
             answerTimerRef.current = null;

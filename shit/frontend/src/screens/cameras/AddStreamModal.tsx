@@ -33,7 +33,7 @@ export interface FoundStream {
 
 const PROBE_TIMEOUT = 3;
 
-// Отказ, после которого продолжать бессмысленно: дальше будет то же самое
+// Отказы, после которых опрос прекращается
 const FATAL_REASONS: ProbeReason[] = ['auth', 'unreachable'];
 
 const FATAL_TEXT: Partial<Record<ProbeReason, string>> = {
@@ -41,23 +41,14 @@ const FATAL_TEXT: Partial<Record<ProbeReason, string>> = {
     unreachable: 'Камера не отвечает по этому адресу и порту — опрос остановлен',
 };
 
-/**
- * Опрос камеры и выбор субпотока. Идём последовательно по всем свободным
- * номерам без раннего выхода: у многоматричных камер живые субпотоки могут
- * начинаться не с первого, и остановка на первом молчащем их скрыла бы.
- * Ненайденные не показываем — оператору важно, что есть, а не чего нет.
- */
+/** Опрос камеры и выбор субпотока: последовательно по всем свободным номерам. */
 export function AddStreamModal({ deviceId, connection, used, onPick, onClose }: AddStreamModalProps) {
     const [found, setFound] = useState<FoundStream[]>([]);
     const [current, setCurrent] = useState<number | null>(null);
     const [error, setError] = useState('');
     const [done, setDone] = useState(false);
 
-    /*
-        Номер серии опроса. Именно номер, а не флаг: StrictMode в разработке
-        прогоняет эффект дважды, и булев флаг второй запуск возвращал в true —
-        старая серия оживала и дописывала свои находки второй раз.
-    */
+    // Номер серии опроса; по нему чужая серия себя опознаёт
     const runRef = useRef(0);
 
     const targets: number[] = [];
@@ -89,7 +80,7 @@ export function AddStreamModal({ deviceId, connection, used, onPick, onClose }: 
                     if (!alive()) return;
 
                     if (result.result === 'success') {
-                        // Защита от повторной записи: номер в списке только один
+                        // Номер попадает в список только один раз
                         setFound(prev => prev.some(f => f.substream === substream)
                             ? prev
                             : [...prev, {
@@ -104,7 +95,7 @@ export function AddStreamModal({ deviceId, connection, used, onPick, onClose }: 
                         setError(FATAL_TEXT[result.reason] ?? result.details ?? 'Опрос остановлен');
                         break;
                     }
-                    // Молчащий субпоток — это просто его отсутствие, не показываем
+                    // Молчащий субпоток не показываем
                 }
                 catch (err) {
                     if (!alive()) return;
@@ -121,7 +112,7 @@ export function AddStreamModal({ deviceId, connection, used, onPick, onClose }: 
 
         void sweep();
 
-        // Смена номера отменяет серию: старая себя опознает и выйдет
+        // Смена номера отменяет серию
         return () => { runRef.current++; };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [deviceId, targetsKey]);

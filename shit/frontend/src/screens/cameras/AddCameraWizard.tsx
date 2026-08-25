@@ -38,11 +38,7 @@ interface AddCameraWizardProps {
 /** Единственный поток временной камеры предпросмотра. */
 const PREVIEW_STREAM = 'stream_1';
 
-/*
-    Между ответом на POST и появлением камеры в сигналинге проходит проба
-    RTSP — секунда-полторы. Клиент, подключившийся в эту дыру, получает отказ,
-    поэтому плеер ждёт, пока поток действительно пойдёт.
-*/
+// Ожидание готовности потока перед показом плеера
 const READY_POLL_MS = 700;
 const READY_TIMEOUT_MS = 20_000;
 const STATUS_PLAYING = 3;
@@ -96,11 +92,7 @@ export function AddCameraWizard({ cameras, initial, onClose, onSaved }: AddCamer
         setHasMore(el.scrollHeight - el.scrollTop - el.clientHeight > 1);
     }, []);
 
-    /*
-        Следим и за областью, и за её блоками: ResizeObserver на самом
-        контейнере не сработает, когда меняется только высота содержимого —
-        а она меняется при каждом добавленном потоке.
-    */
+    // Следим за областью и её блоками: содержимое растёт с каждым потоком
     useEffect(() => {
         const el = mainRef.current;
         if (!el) return;
@@ -132,11 +124,7 @@ export function AddCameraWizard({ cameras, initial, onClose, onSaved }: AddCamer
     const viewStream = form.streams.find(s => s.purposes.includes('view')) ?? null;
 
     // ── Предпросмотр ──────────────────────────────────────────────────────
-    /*
-        Сессия WebRTC адресуется по камере, а её в мастере ещё нет — поэтому
-        на время просмотра поднимается временная. Префикс __probe_ media-center
-        в конфигурацию не пишет, так что переживёт её только процесс.
-    */
+    // Просмотр идёт через временную камеру с префиксом __probe_
     const stopPreview = useCallback(async (reason: string) => {
         previewRunRef.current++;
 
@@ -153,7 +141,7 @@ export function AddCameraWizard({ cameras, initial, onClose, onSaved }: AddCamer
         try {
             await api.deleteCamera(current.name, current.device);
         } catch {
-            /* временная камера, молча */
+            // временная камера, молча
         }
     }, []);
 
@@ -168,7 +156,7 @@ export function AddCameraWizard({ cameras, initial, onClose, onSaved }: AddCamer
                 const camera = await api.getCamera(name, device);
                 if (camera?.streams?.[PREVIEW_STREAM]?.status === STATUS_PLAYING) return true;
             } catch {
-                /* камера ещё поднимается, пробуем снова */
+                // камера ещё поднимается, пробуем снова
             }
 
             await new Promise(resolve => window.setTimeout(resolve, READY_POLL_MS));
@@ -195,8 +183,7 @@ export function AddCameraWizard({ cameras, initial, onClose, onSaved }: AddCamer
         try {
             await api.createCamera(payload, device);
 
-            // Пока шёл запрос, могли нажать «Остановить» или сменить подключение —
-            // тогда камера уже никому не нужна, и её надо убрать за собой
+            // За время запроса просмотр могли отменить
             if (previewRunRef.current !== run) {
                 await api.deleteCamera(name, device).catch(() => {});
                 return;
@@ -229,9 +216,7 @@ export function AddCameraWizard({ cameras, initial, onClose, onSaved }: AddCamer
     ].join('|');
 
     useEffect(() => {
-        // Гасим только при настоящей смене того, из чего собрана ссылка.
-        // Раньше условие смотрело на сам факт наличия сессии, и любой лишний
-        // прогон эффекта убивал только что созданную камеру
+        // Гасим только при смене того, из чего собрана ссылка
         if (previewRef.current && previewKeyRef.current && previewKeyRef.current !== previewKey) {
             void stopPreview('изменились параметры подключения');
         }

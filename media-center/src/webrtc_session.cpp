@@ -1,5 +1,6 @@
 #include "webrtc_session.h"
 
+#include <chrono>
 #include <future>
 #include <thread>
 
@@ -399,6 +400,32 @@ void UWebRTCSession::teardown() {
 		m_tee_pad_src = nullptr;
 	}
 
+	// Закрытие ICE с ожиданием завершения
+	{
+		GstWebRTCICE* ice_agent = nullptr;
+		g_object_get(m_webrtcbin, "ice-agent", &ice_agent, nullptr);
+
+		if (ice_agent) {
+			GstPromise* promise = gst_promise_new();
+
+			// close забирает владение переданной ссылкой
+			gst_promise_ref(promise);
+			gst_webrtc_ice_close(ice_agent, promise);
+
+			const auto started = std::chrono::steady_clock::now();
+			gst_promise_wait(promise);
+			const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+				std::chrono::steady_clock::now() - started).count();
+
+			if (ms > 500) {
+				m_logger->warn("teardown(): ice close took " + std::to_string(ms) + " ms");
+			}
+
+			gst_promise_unref(promise);
+			gst_object_unref(ice_agent);
+		}
+	}
+
 	// Удаление трансиверов
 	GArray* transceivers = nullptr;
 	g_signal_emit_by_name(m_webrtcbin, "get-transceivers", &transceivers);
@@ -414,15 +441,13 @@ void UWebRTCSession::teardown() {
 		g_array_unref(transceivers);
 	}
 
-	// выключение wbrtcbin через NULL, должен удалить все висячие дексрипторы
+	// Остановка элементов ветки
 	if (m_webrtcbin) {
 		gst_element_set_state(m_webrtcbin, GST_STATE_NULL);
 
-		// Ждём дольше секунды: именно здесь освобождаются сокеты ICE,
-		// а незавершённый переход означает утечк
 		const auto ret = gst_element_get_state(m_webrtcbin, nullptr, nullptr, 5 * GST_SECOND);
 		if (ret != GST_STATE_CHANGE_SUCCESS) {
-			m_logger->warn("teardown(): webrtcbin didn't reach NULL state, ICE sockets may leak");
+			m_logger->warn("teardown(): webrtcbin didn't reach NULL state");
 		}
 	}
 

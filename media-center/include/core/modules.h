@@ -49,8 +49,7 @@ namespace varan {
 			return result.empty() ? "none" : result;
 		}
 
-		// Назначения чужих модулей сборка не обслуживает.
-		// Просмотр и запись — ядро камер, они есть всегда.
+		// Назначения чужих модулей сборка не обслуживает
 		bool supports(nvr::EStreamPurpose purpose) const {
 			switch (purpose) {
 			case nvr::EStreamPurpose::BIRDVIEW:
@@ -65,7 +64,7 @@ namespace varan {
 			}
 		}
 
-		// Первое назначение, которого сборка не тянет — для текста ошибки
+		// Первое назначение, которого сборка не тянет
 		std::optional<nvr::EStreamPurpose> unsupported(const nvr::FStreamPurposes& purposes) const {
 			if (purposes.neural && !neural)     return nvr::EStreamPurpose::NEURAL;
 			if (purposes.birdview && !birdview) return nvr::EStreamPurpose::BIRDVIEW;

@@ -406,14 +406,13 @@ namespace nvr {
             return camera;
         }
 
-        // Тип камеры из старого конфига: 2 — тех. зрение, 3 — камера 360.
-        // Нужен только чтобы разложить его в назначения потоков при миграции.
+        // Тип камеры из старого конфига: 2 — тех. зрение, 3 — камера 360
         static int legacy_camera_type(const json::object& obj) {
             const auto* type = obj.if_contains("type");
             return (type && type->is_int64()) ? json::value_to<int>(*type) : 0;
         }
 
-        // Ключи потоков стали порядковыми; main и sub — из старого конфига
+        // main и sub — ключи из старого конфига
         static std::string migrate_stream_key(const std::string& key) {
             if (key == "main") return "stream_1";
             if (key == "sub")  return "stream_2";
@@ -439,10 +438,7 @@ namespace nvr {
             };
         }
 
-        /*
-            Назначения потока из старого конфига: main отдавал кадры потребителю
-            по типу камеры и писал при to_record, sub существовал ради просмотра.
-        */
+        // Назначения потока из старого конфига
         static FStreamPurposes migrate_purposes(const json::object& obj, int camera_type) {
             FStreamPurposes purposes;
 
@@ -462,8 +458,7 @@ namespace nvr {
             if (camera_type == 2) purposes.add(EStreamPurpose::NEURAL);
             if (camera_type == 3) purposes.add(EStreamPurpose::BIRDVIEW);
 
-            // Поток обычной камеры без записи не делал ничего видимого,
-            // но потока без единого назначения не бывает — оставляем просмотр
+            // Поток без назначений недопустим
             if (purposes.empty()) purposes.add(EStreamPurpose::VIEW);
 
             return purposes;
@@ -484,7 +479,7 @@ namespace nvr {
             pipeline.record_path = json::value_to<std::string>(obj.at("record_path"));
             pipeline.segment_length = json::value_to<int>(obj.at("segment_length"));
 
-            // Канал появился вместе с субпотоком, в старом конфиге число было одно
+            // В старом конфиге число было одно
             pipeline.channel = obj.contains("channel") ? json::value_to<int>(obj.at("channel")) : 1;
 
             if (obj.contains("substream")) {

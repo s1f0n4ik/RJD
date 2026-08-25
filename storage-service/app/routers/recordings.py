@@ -292,8 +292,7 @@ async def stream(
 
 @router.get("/recordings/{camera_name}")
 async def list_camera(camera_name: str, stream: str | None = None):
-    # Без stream отдаётся всё: у каждой записи есть поле stream, старый
-    # интерфейс его просто не читает
+    # Без stream отдаётся всё; у каждой записи есть поле stream
     files = storage.list_camera(camera_name, stream)
     if files is None:
         raise HTTPException(status_code=404, detail=f"Camera {camera_name} not found")

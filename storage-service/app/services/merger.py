@@ -15,11 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 def _resolve_stream_path(camera: str, stream: str | None) -> Path:
-    """
-    Каталог, из которого берутся фрагменты. Поток не указан — берём тот,
-    где лежит самая свежая запись: склеивать фрагменты разных потоков нельзя,
-    у них разное разрешение.
-    """
+    """Каталог фрагментов; без потока берётся тот, где запись свежее."""
     if not (storage.root / camera).is_dir():
         raise RuntimeError(f"Camera '{camera}' not found")
 

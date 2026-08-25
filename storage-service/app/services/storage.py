@@ -14,7 +14,7 @@ VIDEO_EXTENSIONS = {".mp4", ".mkv", ".avi", ".ts"}
 # Таймштамп в имени фрагмента: <camera>_YYYY-MM-DD_HH-MM-SS.mp4
 FILENAME_TS = re.compile(r"(\d{4}-\d{2}-\d{2})_(\d{2})-(\d{2})-(\d{2})")
 
-# Записи, сделанные до появления потоков: лежат прямо в папке камеры
+# Записи до появления потоков: лежат прямо в папке камеры
 LEGACY_STREAM = "legacy"
 
 
@@ -41,11 +41,7 @@ class StorageService:
     # ── Чтение ──
 
     def stream_dirs(self, camera_dir: Path) -> list:
-        """
-        Потоки камеры: каждая подпапка плюс сама папка камеры, если в ней
-        лежат файлы. Записи одной камеры теперь могут вести несколько потоков,
-        а всё, что писалось до этого, лежит в корне её папки.
-        """
+        """Потоки камеры: подпапки плюс сама папка, если в ней лежат файлы."""
         if not camera_dir.is_dir():
             return []
 
@@ -64,11 +60,7 @@ class StorageService:
         return found
 
     def default_stream(self, camera_name: str) -> Optional[str]:
-        """
-        Поток с самой свежей записью. Нужен там, где поток не указан явно:
-        склеивать записи разных потоков в одну ленту нельзя, а выбрать
-        какой-то один надо.
-        """
+        """Поток с самой свежей записью."""
         newest_key = None
         newest_created = None
 
@@ -137,8 +129,7 @@ class StorageService:
                 camera_dir / filename if stream == LEGACY_STREAM else camera_dir / stream / filename
             ]
         else:
-            # Поток не указан — ищем по всем, начиная со старых записей:
-            # так ссылки, выданные до появления потоков, продолжают работать
+            # Поток не указан — ищем по всем, начиная со старых записей
             candidates = [camera_dir / filename]
             candidates += [path / filename for key, path in self.stream_dirs(camera_dir)
                            if key != LEGACY_STREAM]
@@ -187,11 +178,7 @@ class StorageService:
             yield path
 
     def remove_empty_subdirs(self) -> int:
-        """
-        Удалить пустые каталоги камер и их потоков. Возвращает количество
-        удалённых. Потоки убираются первыми, иначе папка камеры никогда не
-        окажется пустой.
-        """
+        """Удалить пустые каталоги камер и их потоков; потоки первыми."""
         if not self.root.exists():
             return 0
 

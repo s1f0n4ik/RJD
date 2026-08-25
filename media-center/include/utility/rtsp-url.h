@@ -33,13 +33,7 @@ namespace nvr {
 
 	using CRtspUrlMaker = std::string(*)(const std::string&, const std::string&, const std::string&, const std::string&, int, int);
 
-	/*
-		channel — физический вход камеры, substream — качество той же картинки.
-		Оба приходят начиная с 1; вендорские шаблоны, где нумерация с нуля,
-		вычитают единицу сами. Раньше число было одно и подставлялось как
-		качество, а канал стоял константой — до второго входа многоматричной
-		камеры было не дотянуться.
-	*/
+	// channel — физический вход камеры, substream — качество; оба с единицы
 	inline const std::unordered_map<ERtspType, CRtspUrlMaker> rtsp_maker = {
 		{ERtspType::NO_PRODUCER,
 		[](const std::string& ip, const std::string& port, const std::string& admin, const std::string& password, int channel, int substream) {

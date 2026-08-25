@@ -33,14 +33,10 @@ export interface CameraFormData {
 
 export const RESERVED_PREFIXES = ['__probe_'];
 
-/*
-    Возраст, после которого пробная камера считается брошенной. Координировать
-    уборку с активным превью нельзя — оно живёт в мастере, а список в экране,
-    — поэтому ориентир по времени: в имени лежит метка `__probe_<Date.now()>`.
-*/
+// Возраст, после которого пробная камера считается брошенной
 const PROBE_STALE_MS = 2 * 60 * 1000;
 
-/** Брошенные пробные камеры: держат сессию к камере и не видны в списке. */
+/** Брошенные пробные камеры. */
 export const staleProbes = (cameras: Camera[]): Camera[] => {
     const now = Date.now();
 
@@ -73,13 +69,13 @@ export const PURPOSE_NAMES: Record<StreamPurpose, string> = {
     birdview: '360',
 };
 
-/** Назначения, которым нужен модуль на устройстве; остальные есть всегда. */
+/** Назначения, которым нужен модуль на устройстве. */
 export const PURPOSE_MODULE: Partial<Record<StreamPurpose, string>> = {
     neural: 'neural',
     birdview: 'birdview',
 };
 
-/** Кадры отдаются одним приёмником, поэтому потребитель у потока один. */
+/** Назначения-потребители кадров. */
 export const CONSUMER_PURPOSES: StreamPurpose[] = ['neural', 'birdview'];
 
 export const purposeAvailable = (purpose: StreamPurpose, modules: string[]): boolean => {
@@ -99,10 +95,7 @@ export const makeStream = (key: string, substream: number, purposes: StreamPurpo
     segment: purposes.includes('record') ? 10 : 0,
 });
 
-/**
- * Включение и выключение назначения. Вынесено в модель, потому что
- * применяется из двух мест — карточки потока в мастере и полей в шторке.
- */
+/** Включение и выключение назначения потока. */
 export const togglePurpose = (stream: StreamForm, purpose: StreamPurpose): Partial<StreamForm> => {
     const has = stream.purposes.includes(purpose);
     const patch: Partial<StreamForm> = {
@@ -111,7 +104,7 @@ export const togglePurpose = (stream: StreamForm, purpose: StreamPurpose): Parti
             : [...stream.purposes, purpose],
     };
 
-    // Запись без пути и сегмента не поднимется — подставляем рабочие значения
+    // Запись без пути и сегмента не поднимется
     if (!has && purpose === 'record') {
         if (!stream.record_path) patch.record_path = RECORD_PATH;
         if (stream.segment <= 0) patch.segment = 10;
@@ -120,7 +113,7 @@ export const togglePurpose = (stream: StreamForm, purpose: StreamPurpose): Parti
     return patch;
 };
 
-/** Следующий свободный ключ: номера не переиспользуются в рамках сессии правки. */
+/** Следующий свободный ключ потока. */
 export const nextStreamKey = (streams: StreamForm[]): string => {
     const used = new Set<number>();
     for (const stream of streams) {
@@ -147,7 +140,7 @@ export const DEFAULT_FORM: CameraFormData = {
     password: '',
     production: 2,
     device_id: '',
-    // Пусто намеренно: какие субпотоки есть у камеры, выясняет опрос
+    // Заполняется опросом камеры
     streams: [],
 };
 
@@ -204,7 +197,7 @@ export const streamsOf = (camera: Camera): StreamInfo[] =>
         }))
         .sort((a, b) => a.number - b.number);
 
-/** Первый поток, который можно смотреть: его и открывает превью по умолчанию. */
+/** Первый поток с назначением view. */
 export const viewableStream = (camera: Camera): StreamInfo | null =>
     streamsOf(camera).find(stream => stream.purposes.includes('view')) ?? null;
 
@@ -214,7 +207,7 @@ export const streamStatus = (stream: StreamInfo, offline: boolean): { label: str
     return STATUS_MAP[stream.status] ?? { label: 'неизвестно', tone: 'dim' };
 };
 
-/** Состояние камеры складывается из её потоков — молчащий виден в строке. */
+/** Состояние камеры из состояний её потоков. */
 export const cameraStatus = (camera: Camera): { label: string; tone: StatusTone } => {
     if (camera.offline) return { label: 'устройство молчит', tone: 'err' };
     const streams = streamsOf(camera);
@@ -258,10 +251,7 @@ export const validatePort = (port: string): Validation => {
     return { valid: true };
 };
 
-/**
- * Проверки потоков повторяют серверные. Дублирование намеренное: без него
- * отказ приходит уже после отправки, когда часть камеры создана.
- */
+/** Проверки потоков, те же что на сервере. */
 export const validateStreams = (streams: StreamForm[], modules: string[]): Validation => {
     if (streams.length === 0) {
         return { valid: false, error: 'Добавьте хотя бы один поток' };

@@ -1,14 +1,12 @@
 /* Камеры: список-грид, подтаблица потоков и шторка настроек справа */
 
-/* Список и шторка стоят рядом: шторка раздвигает список, а не накрывает его */
+/* Список и шторка стоят рядом */
 .cams-body{flex:1;min-height:0;display:flex;overflow:hidden}
-/* Без scrollbar-gutter: список занимает всю ширину, а зарезервированная
-   полоса читалась как лишний отступ справа */
+/* Без scrollbar-gutter: список занимает всю ширину */
 .cams-scroll{flex:1;min-width:0;min-height:0;overflow:auto}
 
 /* Список камер — грид, не таблица: один шаблон колонок у шапки и строк,
-   выравнивание держится геометрией и не зависит от содержимого ячеек.
-   Имя ужато до 1fr: имена короткие, а запас ширины нужен назначениям */
+   выравнивание держится геометрией и не зависит от содержимого ячеек */
 .cam-grid{--cam-cols:minmax(150px,1fr) minmax(190px,1.4fr) 130px 120px 76px minmax(160px,1fr);min-width:840px}
 .cam-head,.cam-row{display:grid;grid-template-columns:var(--cam-cols);align-items:center}
 .cam-head{position:sticky;top:0;z-index:2;background:var(--surface);border-bottom:1px solid var(--line)}
@@ -17,8 +15,7 @@
 .cam-row:hover{background:var(--surface)}
 .cam-row.is-open{background:rgba(var(--acc-rgb),.12);border-bottom-color:transparent}
 .cam-row > span{padding:0 12px;font-size:12.5px;color:var(--fg-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-/* Единственная ячейка, которой разрешено переносить содержимое: строка
-   вырастает под неё, но только когда плашки не влезли в одну линию */
+/* Единственная ячейка с переносом содержимого */
 .cam-row > span.cell-purp{white-space:normal;overflow:visible;padding-top:7px;padding-bottom:7px}
 .cam-row .nm{color:var(--fg);font-weight:600}
 .cam-row .mono{font-family:var(--mono);font-size:11.5px;color:var(--fg-3)}
@@ -61,8 +58,7 @@
 .chnum{display:inline-flex;align-items:center;justify-content:center;min-width:24px;height:22px;padding:0 6px;border-radius:6px;border:1px solid var(--line);font-family:var(--mono);font-size:11.5px;color:var(--fg-2)}
 .stab tbody tr.is-on .chnum{border-color:rgba(var(--acc-rgb),.5);color:var(--acc);background:rgba(var(--acc-rgb),.12)}
 
-/* Шторка настроек выбранной камеры: колонка справа фиксированной ширины.
-   Имена кадров менять нельзя — на drawer-out завязано размонтирование */
+/* Шторка настроек: колонка справа. Имя drawer-out используется в коде */
 .drawer{flex:0 0 420px;min-height:0;background:var(--surface);border-left:1px solid var(--line-hi);box-shadow:-8px 0 24px rgba(0,0,0,.35);display:flex;flex-direction:column;animation:drawer-in .22s cubic-bezier(.3,.9,.3,1)}
 .drawer.is-closing{animation:drawer-out .18s ease-in forwards}
 @keyframes drawer-in{from{transform:translateX(100%)}to{transform:translateX(0)}}
@@ -74,9 +70,9 @@
 /* Блоки идут сверху вниз: превью, потоки, подключение */
 .drawer-b{flex:1;display:flex;flex-direction:column;gap:18px;padding:14px;min-height:0;overflow-y:auto;scrollbar-gutter:stable}
 .drawer-col{display:flex;flex-direction:column;min-width:0;width:100%}
-/* Подвал прижат: «Применить» видна из любой точки прокрутки */
+/* Прижатый подвал шторки */
 .drawer-f{display:flex;align-items:center;gap:8px;padding:10px 14px;border-top:1px solid var(--line);background:var(--surface)}
-/* В колонке базис флекса задаёт высоту — превью растягиваем по ширине */
+/* Превью на всю ширину колонки */
 .drawer-b .cam-preview{flex:none;width:100%;align-self:stretch}
 
 /* Поля: подпись над контролом; парные ряды — грид, чтобы края совпадали */
@@ -138,12 +134,10 @@
 .add-body{flex:1;min-height:0;display:flex}
 .add-side{flex:0 0 336px;border-right:1px solid var(--line);background:var(--input);padding:14px;display:flex;flex-direction:column;gap:10px}
 .add-check{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--fg-2);padding:3px 0}
-/* Блоки идут встык и без своих рамок: вложенные карточки съедали ширину
-   и множили границы там, где хватает одной полосы заголовка */
-/* Обёртка нужна ради указателя прокрутки: он висит над областью,
-   а не едет вместе с её содержимым */
+/* Блоки идут встык, без рамок и своих отступов */
+/* Обёртка для указателя прокрутки */
 .add-pane{position:relative;flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}
-/* Полоса прокрутки скрыта: вместо неё стрелка у нижнего края */
+/* Полоса прокрутки скрыта, вместо неё стрелка */
 .add-main{flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;overflow-y:auto;scrollbar-width:none}
 .add-main::-webkit-scrollbar{width:0;height:0}
 .add-more{
@@ -156,7 +150,7 @@
 @keyframes add-more-in{from{opacity:0;translate:-50% 4px}to{opacity:1;translate:-50% 0}}
 .add-more .ico{rotate:90deg}
 .add-block{display:flex;flex-direction:column;min-width:0}
-/* Высота одна на все разделы — по самому высокому, где кнопка и счётчик */
+/* Высота одна на все разделы */
 .add-block-h{display:flex;align-items:center;gap:10px;height:48px;padding:0 16px;background:var(--input);border-bottom:1px solid var(--line);flex:none}
 .add-block + .add-block .add-block-h{border-top:1px solid var(--line)}
 .add-block-h .t{font-size:10px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--fg-3)}
@@ -170,8 +164,7 @@
 .add-sect{margin-bottom:16px}
 .add-sect > .eyebrow{display:flex;align-items:center;gap:10px;margin-bottom:10px}
 
-/* Назначения потока: цвет закреплён за назначением и совпадает с договором.
-   В списке камер плашки переносятся на вторую строку, в подтаблице — нет */
+/* Назначения потока: в списке камер плашки переносятся, в подтаблице нет */
 .purps{display:flex;align-items:center;gap:5px;flex-wrap:wrap;row-gap:4px}
 .stab .purps{flex-wrap:nowrap;overflow:hidden}
 .purp{display:inline-flex;align-items:center;height:19px;padding:0 7px;border-radius:999px;border:1px solid;font-size:10.5px;font-weight:600;letter-spacing:.01em;white-space:nowrap}
@@ -207,10 +200,10 @@
 .probe-row .who .sub{font-family:var(--mono);font-size:11.5px;color:var(--fg-3)}
 /* Кнопка внутри строки — оформление, клик ловит сама строка */
 .probe-row .btn{pointer-events:none}
-/* Значение без ввода: держит ту же высоту, что и поле рядом */
+/* Значение без ввода */
 .fstatic{display:flex;align-items:center;height:32px;padding:0 10px;border:1px solid var(--line);border-radius:var(--r);background:var(--input);font-family:var(--mono);font-size:12.5px;color:var(--fg-2)}
 
-/* Карточка добавленного потока: номер субпотока, что по нему идёт, назначения */
+/* Карточка добавленного потока */
 .scards{display:flex;flex-direction:column;gap:8px}
 .scard{display:flex;align-items:center;gap:11px;padding:9px 11px;border:1px solid var(--line);border-radius:var(--r);background:var(--input)}
 .scard .plate{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;width:34px;height:34px;border-radius:7px;border:1px solid rgba(var(--acc-rgb),.45);background:rgba(var(--acc-rgb),.12);flex:none}
@@ -220,14 +213,14 @@
 .scard .who .n{font-size:12.5px;color:var(--fg);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .scard .del{width:26px;height:26px;display:grid;place-items:center;border-radius:6px;border:1px solid var(--line);color:var(--fg-3);flex:none;transition:.12s}
 .scard .del:hover{border-color:rgba(255,107,128,.5);color:var(--err)}
-/* Переключатели назначений в карточке — те же, но компактнее */
+/* Компактные переключатели назначений */
 .purp-btn--sm{height:22px;padding:0 8px;font-size:10.5px;gap:5px}
 .purp-btn--sm .dot{width:5px;height:5px}
 
-/* Пусто, но с подсказкой что делать дальше */
+/* Пустой блок потоков */
 .add-empty{display:flex;flex-direction:column;align-items:center;gap:7px;padding:22px 16px;text-align:center;border:1px dashed var(--line-hi);border-radius:var(--r);color:var(--fg-3);font-size:12.5px;line-height:1.5}
 .add-empty b{color:var(--fg-2);font-weight:600}
 
-/* Транспорт потока в карточке: оба состояния подписаны, в отличие от флажка */
+/* Транспорт потока в карточке */
 .seg--xs{padding:2px;border-radius:6px;flex:none}
 .seg--xs button{min-height:22px;padding:0 9px;font-size:11px;font-weight:600;border-radius:4px}

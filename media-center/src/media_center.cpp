@@ -205,8 +205,7 @@ namespace neural {
             std::string camera_id = it->second->get_name();
             it->second->stop();
             m_cameras.erase(it);
-            // Пробные камеры в конфигурацию не писались, удалять оттуда нечего:
-            // иначе конфигуратор пишет в лог ошибку о несуществующей камере
+            // Пробные камеры в конфигурацию не писались
             if (to_save && !camera_id.starts_with("__probe_")) {
                 m_config_manager.remove_camera(camera_id);
             }
@@ -228,7 +227,7 @@ namespace neural {
             camera_to_remove = std::move(it->second);
             m_cameras.erase(it);
 
-            // Пробные камеры в конфигурацию не писались, удалять оттуда нечего
+            // Пробные камеры в конфигурацию не писались
             if (to_save && !camera_id.starts_with("__probe_")) {
                 m_config_manager.remove_camera(camera_id);
             }
@@ -284,10 +283,7 @@ namespace neural {
 
         auto cameras = m_config_manager.get_all_configs();
 
-        /*
-            Старый формат переписывается до старта камер: иначе устройство,
-            обесточенное на полпути, поднимется наполовину в прежней схеме.
-        */
+        // Старый формат переписывается до старта камер
         if (m_config_manager.needs_rewrite()) {
             std::vector<FCameraStreamsData> migrated;
             migrated.reserve(cameras.size());
@@ -441,13 +437,12 @@ namespace neural {
                     + " doesn't available — at this device has no module " + module_name;
             }
 
-            // Ветка декода отдаёт кадры одним приёмником, двоих ей не обслужить
+            // Ветка декода отдаёт кадры одному приёмнику
             if (purposes.neural && purposes.birdview) {
                 return "Pipeline " + name + ": illegal to set both neural and birdview modules on the same pipeline";
             }
 
-            // Потребители адресуют источник по камере, а не по потоку:
-            // второй такой же поток смешал бы кадры под одним идентификатором
+            // Потребители адресуют источник по камере, а не по потоку
             if (purposes.neural) {
                 if (!neural_owner.empty()) {
                     return "Pipelines " + neural_owner + " and " + name

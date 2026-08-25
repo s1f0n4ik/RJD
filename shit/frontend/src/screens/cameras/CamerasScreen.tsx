@@ -86,18 +86,14 @@ export function CamerasScreen() {
         toastTimer.current = window.setTimeout(() => setToast(null), 4500);
     }, []);
 
-    // Список камер: агрегированный /api/cameras несёт владельца и флаг offline,
-    // WS такого не отдаёт — поэтому здесь опрос, как в старом экране
+    // Список камер: /api/cameras несёт владельца и флаг offline
     const load = useCallback(async (silent = false) => {
         try {
             await loadDevices().catch(() => {});
             const { cameras: all } = await api.getSources();
             setCameras(all.filter(c => !RESERVED_PREFIXES.some(p => c.id.startsWith(p))));
 
-            /*
-                Брошенные пробные камеры прятать мало: они держат сессию к камере
-                и остаются невидимыми. Убираем фоном, отрисовку не задерживаем.
-            */
+            // Брошенные пробные камеры убираем фоном
             const stale = staleProbes(all);
             if (stale.length > 0) {
                 console.warn(`[Камеры] убираем брошенные пробные камеры: ${stale.length}`);
@@ -142,8 +138,7 @@ export function CamerasScreen() {
         setClosing(false);
     };
 
-    // Esc закрывает шторку, но уступает модалкам: пока открыто подтверждение,
-    // скан или мастер, клавиша принадлежит верхнему окну
+    // Esc закрывает шторку, уступая модалкам
     useEffect(() => {
         if (!selectedId) return;
         const onKey = (e: KeyboardEvent) => {
@@ -153,11 +148,7 @@ export function CamerasScreen() {
         return () => document.removeEventListener('keydown', onKey);
     }, [selectedId]);
 
-    /*
-        Камера пропала из ответа API — её удалили, держать шторку не на чем.
-        Фильтр списка сюда не относится: cameras остаётся полным набором,
-        сужается только visible.
-    */
+    // Камера пропала из ответа API — шторку держать не на чем
     useEffect(() => {
         if (!loaded || !selectedId) return;
         if (!cameras.some(c => c.id === selectedId)) finishClose();
@@ -231,8 +222,7 @@ export function CamerasScreen() {
         setForm(prev => {
             if (!prev) return prev;
             const key = nextStreamKey(prev.streams);
-            // Новый поток заводится смотрибельным: это единственное назначение,
-            // доступное на любом устройстве
+            // Новый поток заводится смотрибельным
             const stream = makeStream(key, substream, ['view']);
             setStreamKey(key);
             return { ...prev, streams: [...prev.streams, stream] };

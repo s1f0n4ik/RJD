@@ -21,14 +21,10 @@ using namespace varan::rest;
 
 namespace {
 
-    /*
-        Ключ потока уходит наружу — в путь записи и в адрес webrtc-сессии,
-        поэтому форма у него жёсткая, а переименования нет.
-    */
+    // Форма ключа потока
     const std::regex STREAM_KEY_REGEX("^stream_[1-9][0-9]*$");
 
-    // Разбор одного потока. Общий для POST и PATCH: раньше он был скопирован
-    // в обе ручки, и проверки в них успевали разойтись
+    // Разбор одного потока, общий для POST и PATCH
     FPipelineConfig parse_stream_config(const std::string& name, const json::object& obj) {
         if (!std::regex_match(name, STREAM_KEY_REGEX)) {
             throw std::runtime_error("Stream key \"" + name + "\" must look like stream_N");
@@ -550,8 +546,7 @@ UController::post_probe(const http::request<http::string_body>& req) {
             : 3;
         timeout = std::clamp(timeout, 1, 10);
 
-        // Ссылка строится тем же шаблоном, что и у камеры: проба должна
-        // проверять ровно то, что потом пойдёт в поток
+        // Ссылка строится тем же шаблоном, что и у камеры
         const auto it_maker = rtsp_maker.find(*production);
         const auto& maker = (it_maker != rtsp_maker.end()) ? it_maker->second : rtsp_maker.at(ERtspType::ACE);
         const std::string rtsp_url = maker(ip_adress, port, user, password, channel, substream);

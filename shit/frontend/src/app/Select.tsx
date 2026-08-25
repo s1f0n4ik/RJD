@@ -19,15 +19,14 @@ interface SelectProps {
 
 interface PopupPos {
     left: number;
-    /* Не «ровно как кнопка», а «не уже кнопки»: в узкой колонке точная
-       ширина душила название опции до многоточия */
+    // Не уже кнопки, но может вырасти
     minWidth: number;
     maxWidth: number;
     top?: number;
     bottom?: number;
 }
 
-// Потолок ширины попапа: дальше он перекрывает соседние поля
+// Потолок ширины попапа
 const POPUP_MAX = 320;
 
 /**
@@ -50,7 +49,7 @@ export function Select({ value, options, onChange, disabled, placeholder }: Sele
         if (!rect) return;
         const spaceBelow = window.innerHeight - rect.bottom;
         const openUp = spaceBelow < 220 && rect.top > spaceBelow;
-        // Правый край окна ограничивает рост, иначе попап уедет за экран
+        // Запас до правого края окна
         const room = window.innerWidth - rect.left - 8;
 
         setPos({

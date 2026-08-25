@@ -240,11 +240,7 @@ namespace nvr {
 
 		gst_element_set_state(pipeline, GST_STATE_PLAYING);
 
-		/*
-			Шину читаем сами: наблюдатель на GMainLoop здесь не нужен и был бы
-			лишней связью с камерой — проба живёт на потоке запроса и умирает
-			вместе с ним.
-		*/
+		// Шину читаем сами, без наблюдателя на GMainLoop
 		GstBus* bus = gst_element_get_bus(pipeline);
 		const gint64 deadline = g_get_monotonic_time() + static_cast<gint64>(timeout_sec) * G_TIME_SPAN_SECOND;
 
