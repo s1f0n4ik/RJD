@@ -138,7 +138,30 @@
 .add-body{flex:1;min-height:0;display:flex}
 .add-side{flex:0 0 336px;border-right:1px solid var(--line);background:var(--input);padding:14px;display:flex;flex-direction:column;gap:10px}
 .add-check{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--fg-2);padding:3px 0}
-.add-main{flex:1;min-width:0;padding:14px 16px;overflow-y:auto;scrollbar-gutter:stable}
+/* Блоки идут встык и без своих рамок: вложенные карточки съедали ширину
+   и множили границы там, где хватает одной полосы заголовка */
+/* Обёртка нужна ради указателя прокрутки: он висит над областью,
+   а не едет вместе с её содержимым */
+.add-pane{position:relative;flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}
+/* Полоса прокрутки скрыта: вместо неё стрелка у нижнего края */
+.add-main{flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;overflow-y:auto;scrollbar-width:none}
+.add-main::-webkit-scrollbar{width:0;height:0}
+.add-more{
+  position:absolute;left:50%;bottom:8px;translate:-50% 0;
+  width:28px;height:28px;display:grid;place-items:center;border-radius:999px;
+  background:var(--panel-2);border:1px solid var(--line-hi);color:var(--fg-2);
+  box-shadow:0 4px 14px rgba(0,0,0,.45);pointer-events:none;
+  animation:add-more-in .16s ease;
+}
+@keyframes add-more-in{from{opacity:0;translate:-50% 4px}to{opacity:1;translate:-50% 0}}
+.add-more .ico{rotate:90deg}
+.add-block{display:flex;flex-direction:column;min-width:0}
+/* Высота одна на все разделы — по самому высокому, где кнопка и счётчик */
+.add-block-h{display:flex;align-items:center;gap:10px;height:48px;padding:0 16px;background:var(--input);border-bottom:1px solid var(--line);flex:none}
+.add-block + .add-block .add-block-h{border-top:1px solid var(--line)}
+.add-block-h .t{font-size:10px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--fg-3)}
+.add-block-h .count{font-family:var(--mono);font-size:11px;color:var(--fg-2);background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:1px 9px}
+.add-block-b{padding:14px 16px}
 .add-row{display:grid;gap:10px;margin-bottom:10px}
 .add-row--conn{grid-template-columns:1.5fr .7fr 1fr 1.2fr}
 .add-row--meta{grid-template-columns:1fr 1.4fr 1fr 1fr}
@@ -186,3 +209,25 @@
 .probe-row .btn{pointer-events:none}
 /* Значение без ввода: держит ту же высоту, что и поле рядом */
 .fstatic{display:flex;align-items:center;height:32px;padding:0 10px;border:1px solid var(--line);border-radius:var(--r);background:var(--input);font-family:var(--mono);font-size:12.5px;color:var(--fg-2)}
+
+/* Карточка добавленного потока: номер субпотока, что по нему идёт, назначения */
+.scards{display:flex;flex-direction:column;gap:8px}
+.scard{display:flex;align-items:center;gap:11px;padding:9px 11px;border:1px solid var(--line);border-radius:var(--r);background:var(--input)}
+.scard .plate{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;width:34px;height:34px;border-radius:7px;border:1px solid rgba(var(--acc-rgb),.45);background:rgba(var(--acc-rgb),.12);flex:none}
+.scard .plate b{font-family:var(--mono);font-size:13px;line-height:1;color:var(--acc)}
+.scard .plate i{font-style:normal;font-size:8px;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3);margin-top:1px}
+.scard .who{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.scard .who .n{font-size:12.5px;color:var(--fg);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.scard .del{width:26px;height:26px;display:grid;place-items:center;border-radius:6px;border:1px solid var(--line);color:var(--fg-3);flex:none;transition:.12s}
+.scard .del:hover{border-color:rgba(255,107,128,.5);color:var(--err)}
+/* Переключатели назначений в карточке — те же, но компактнее */
+.purp-btn--sm{height:22px;padding:0 8px;font-size:10.5px;gap:5px}
+.purp-btn--sm .dot{width:5px;height:5px}
+
+/* Пусто, но с подсказкой что делать дальше */
+.add-empty{display:flex;flex-direction:column;align-items:center;gap:7px;padding:22px 16px;text-align:center;border:1px dashed var(--line-hi);border-radius:var(--r);color:var(--fg-3);font-size:12.5px;line-height:1.5}
+.add-empty b{color:var(--fg-2);font-weight:600}
+
+/* Транспорт потока в карточке: оба состояния подписаны, в отличие от флажка */
+.seg--xs{padding:2px;border-radius:6px;flex:none}
+.seg--xs button{min-height:22px;padding:0 9px;font-size:11px;font-weight:600;border-radius:4px}

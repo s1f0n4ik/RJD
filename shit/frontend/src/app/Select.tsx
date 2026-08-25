@@ -19,10 +19,16 @@ interface SelectProps {
 
 interface PopupPos {
     left: number;
-    width: number;
+    /* Не «ровно как кнопка», а «не уже кнопки»: в узкой колонке точная
+       ширина душила название опции до многоточия */
+    minWidth: number;
+    maxWidth: number;
     top?: number;
     bottom?: number;
 }
+
+// Потолок ширины попапа: дальше он перекрывает соседние поля
+const POPUP_MAX = 320;
 
 /**
  * Селект приложения: нативный выпадающий список браузера стилизации не
@@ -44,9 +50,13 @@ export function Select({ value, options, onChange, disabled, placeholder }: Sele
         if (!rect) return;
         const spaceBelow = window.innerHeight - rect.bottom;
         const openUp = spaceBelow < 220 && rect.top > spaceBelow;
+        // Правый край окна ограничивает рост, иначе попап уедет за экран
+        const room = window.innerWidth - rect.left - 8;
+
         setPos({
             left: rect.left,
-            width: rect.width,
+            minWidth: rect.width,
+            maxWidth: Math.max(rect.width, Math.min(POPUP_MAX, room)),
             ...(openUp
                 ? { bottom: window.innerHeight - rect.top + 5 }
                 : { top: rect.bottom + 5 }),
@@ -133,7 +143,13 @@ export function Select({ value, options, onChange, disabled, placeholder }: Sele
                 <div
                     className={`uisel-pop${pos.bottom !== undefined ? ' is-up' : ''}`}
                     role="listbox"
-                    style={{ left: pos.left, width: pos.width, top: pos.top, bottom: pos.bottom }}
+                    style={{
+                        left: pos.left,
+                        minWidth: pos.minWidth,
+                        maxWidth: pos.maxWidth,
+                        top: pos.top,
+                        bottom: pos.bottom,
+                    }}
                 >
                     {options.map((option, index) => (
                         <div

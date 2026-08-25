@@ -44,6 +44,19 @@ interface UseWebRTCPlayerResult {
     videoRef: React.RefObject<HTMLVideoElement>;
 }
 
+/*
+    Потолок отказов сигналинга. Без него плеер стучится вечно: камеры на
+    устройстве может уже не быть, а отказ ничем не отличается от временного.
+*/
+const MAX_REJECTS = 5;
+
+/*
+    Сколько ждать ответа на запрос соединения. Сигналинг молча выбрасывает
+    сообщение, если камера ещё не подключилась к нему, — соединение при этом
+    не рвётся, и без повтора запрос уходит в пустоту навсегда.
+*/
+const ANSWER_TIMEOUT_MS = 3000;
+
 function makeClientId(): string {
     return `client_${Math.random().toString(36).substring(2, 11)}`;
 }
@@ -65,6 +78,20 @@ export function useWebRTCPlayer({
     // Ссылки на менеджеры — создаются один раз в useEffect
     const wsRef = useRef<WebSocketManager | null>(null);
     const rtcRef = useRef<WebRTCManager | null>(null);
+
+    // Подряд идущие отказы и молчания сигналинга; сбрасывается при успехе
+    const rejectsRef = useRef(0);
+    // Ожидание ответа на запрос соединения
+    const answerTimerRef = useRef<number | null>(null);
+    // Ссылка на саму отправку: нужна, чтобы повтор вызывал свежую версию
+    const sendRef = useRef<() => void>(() => {});
+
+    const clearAnswerTimer = useCallback(() => {
+        if (answerTimerRef.current !== null) {
+            window.clearTimeout(answerTimerRef.current);
+            answerTimerRef.current = null;
+        }
+    }, []);
 
     // ─── Вспомогательные функции ────────────────────────────────────────────
 
@@ -99,10 +126,36 @@ export function useWebRTCPlayer({
     const sendConnectionRequest = useCallback(() => {
         const ws = wsRef.current;
         if (!ws) return;
+        // Исчерпали попытки — молчим, иначе реконнект WS запустит цикл заново
+        if (rejectsRef.current >= MAX_REJECTS) return;
+
         console.log(`[Player:${cameraId}] → connection request`);
         setStatus('signaling');
         ws.sendConnectionRequest({ client_id: clientIdRef.current, camera: cameraId, stream });
-    }, [cameraId, stream]);
+
+        // Ответа может не быть вовсе: сигналинг выбрасывает сообщение, если
+        // камера ещё не подключилась. Тогда повторяем сами
+        clearAnswerTimer();
+        answerTimerRef.current = window.setTimeout(() => {
+            answerTimerRef.current = null;
+            rejectsRef.current += 1;
+
+            if (rejectsRef.current >= MAX_REJECTS) {
+                setStatus('error');
+                setErrorMsg('Камера не отвечает на запрос соединения — возможно, её уже нет на устройстве');
+                return;
+            }
+
+            console.warn(`[Player:${cameraId}] no answer, resending (${rejectsRef.current}/${MAX_REJECTS})`);
+            sendRef.current();
+        }, ANSWER_TIMEOUT_MS);
+    }, [cameraId, stream, clearAnswerTimer]);
+
+    useEffect(() => {
+        sendRef.current = sendConnectionRequest;
+    }, [sendConnectionRequest]);
+
+    useEffect(() => clearAnswerTimer, [clearAnswerTimer]);
 
     // ─── Создать RTCManager ─────────────────────────────────────────────────
 
@@ -183,12 +236,23 @@ export function useWebRTCPlayer({
                 const rtc = rtcRef.current;
 
                 if (msg.type === 'connection') {
+                    clearAnswerTimer();
+
                     if (msg.ret === 'success') {
+                        rejectsRef.current = 0;
                         console.log(`[Player:${cameraId}] Camera accepted connection`);
                         // Создаём PeerConnection
                         createRTC();
                     } else {
-                        console.warn(`[Player:${cameraId}] Camera rejected: ret=${msg.ret}`);
+                        rejectsRef.current += 1;
+                        console.warn(`[Player:${cameraId}] Camera rejected: ret=${msg.ret} (${rejectsRef.current}/${MAX_REJECTS})`);
+
+                        if (rejectsRef.current >= MAX_REJECTS) {
+                            setStatus('error');
+                            setErrorMsg('Камера не отвечает на запрос соединения — возможно, её уже нет на устройстве');
+                            return;
+                        }
+
                         setStatus('reconnecting');
                         setErrorMsg(`Камера отклонила соединение (ret=${msg.ret})`);
                         // Повторим connection-request через паузу (простая задержка)

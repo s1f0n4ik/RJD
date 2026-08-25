@@ -426,9 +426,11 @@
 .uisel-pop.is-up{animation-name:uisel-in-up}
 @keyframes uisel-in-up{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
 
-.uisel-opt{display:flex;align-items:center;gap:8px;min-height:32px;padding:0 10px;border-radius:6px;font-size:12.5px;color:var(--fg-2);cursor:pointer;white-space:nowrap}
-.uisel-opt .lbl{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
-.uisel-opt .hint-t{font-size:10.5px;color:var(--fg-3)}
+/* Подсказка под названием, а не рядом: в узком селекте она не сжималась
+   и выдавливала имя в многоточие */
+.uisel-opt{display:flex;flex-direction:column;gap:1px;justify-content:center;min-height:32px;padding:5px 10px;border-radius:6px;font-size:12.5px;color:var(--fg-2);cursor:pointer}
+.uisel-opt .lbl{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.uisel-opt .hint-t{font-family:var(--mono);font-size:10.5px;color:var(--fg-3);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .uisel-opt.is-active{background:rgba(var(--acc-rgb),.14);color:var(--fg)}
 .uisel-opt.is-selected{color:var(--acc);font-weight:600}
 .uisel-opt.is-selected.is-active{color:var(--acc)}

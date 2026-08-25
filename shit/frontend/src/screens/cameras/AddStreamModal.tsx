@@ -18,11 +18,12 @@ interface AddStreamModalProps {
     connection: ProbeConnection;
     /** Уже заведённые субпотоки: их не опрашиваем и не предлагаем */
     used: number[];
-    onPick: (substream: number) => void;
+    onPick: (found: FoundStream) => void;
     onClose: () => void;
 }
 
-interface Found {
+/** Что опрос узнал о субпотоке; уходит вызывающему вместе с выбором. */
+export interface FoundStream {
     substream: number;
     width: number;
     height: number;
@@ -47,13 +48,17 @@ const FATAL_TEXT: Partial<Record<ProbeReason, string>> = {
  * Ненайденные не показываем — оператору важно, что есть, а не чего нет.
  */
 export function AddStreamModal({ deviceId, connection, used, onPick, onClose }: AddStreamModalProps) {
-    const [found, setFound] = useState<Found[]>([]);
+    const [found, setFound] = useState<FoundStream[]>([]);
     const [current, setCurrent] = useState<number | null>(null);
     const [error, setError] = useState('');
     const [done, setDone] = useState(false);
 
-    // Живёт между рендерами: по нему прерывается уже запущенная серия
-    const runningRef = useRef(true);
+    /*
+        Номер серии опроса. Именно номер, а не флаг: StrictMode в разработке
+        прогоняет эффект дважды, и булев флаг второй запуск возвращал в true —
+        старая серия оживала и дописывала свои находки второй раз.
+    */
+    const runRef = useRef(0);
 
     const targets: number[] = [];
     for (let n = MIN_SUBSTREAM; n <= MAX_SUBSTREAM; n++) {
@@ -62,11 +67,16 @@ export function AddStreamModal({ deviceId, connection, used, onPick, onClose }: 
     const targetsKey = targets.join(',');
 
     useEffect(() => {
-        runningRef.current = true;
+        const run = ++runRef.current;
+        const alive = () => runRef.current === run;
+
+        setFound([]);
+        setError('');
+        setDone(false);
 
         const sweep = async () => {
             for (const substream of targets) {
-                if (!runningRef.current) return;
+                if (!alive()) return;
                 setCurrent(substream);
 
                 try {
@@ -76,16 +86,19 @@ export function AddStreamModal({ deviceId, connection, used, onPick, onClose }: 
                         timeout: PROBE_TIMEOUT,
                     });
 
-                    if (!runningRef.current) return;
+                    if (!alive()) return;
 
                     if (result.result === 'success') {
-                        setFound(prev => [...prev, {
-                            substream,
-                            width: result.width ?? 0,
-                            height: result.height ?? 0,
-                            codec: result.codec ?? '',
-                            fps: result.fps ?? 0,
-                        }]);
+                        // Защита от повторной записи: номер в списке только один
+                        setFound(prev => prev.some(f => f.substream === substream)
+                            ? prev
+                            : [...prev, {
+                                substream,
+                                width: result.width ?? 0,
+                                height: result.height ?? 0,
+                                codec: result.codec ?? '',
+                                fps: result.fps ?? 0,
+                            }]);
                     }
                     else if (result.reason && FATAL_REASONS.includes(result.reason)) {
                         setError(FATAL_TEXT[result.reason] ?? result.details ?? 'Опрос остановлен');
@@ -94,13 +107,13 @@ export function AddStreamModal({ deviceId, connection, used, onPick, onClose }: 
                     // Молчащий субпоток — это просто его отсутствие, не показываем
                 }
                 catch (err) {
-                    if (!runningRef.current) return;
+                    if (!alive()) return;
                     setError(formatError(err));
                     break;
                 }
             }
 
-            if (runningRef.current) {
+            if (alive()) {
                 setCurrent(null);
                 setDone(true);
             }
@@ -108,12 +121,13 @@ export function AddStreamModal({ deviceId, connection, used, onPick, onClose }: 
 
         void sweep();
 
-        return () => { runningRef.current = false; };
+        // Смена номера отменяет серию: старая себя опознает и выйдет
+        return () => { runRef.current++; };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [deviceId, targetsKey]);
 
     const stop = () => {
-        runningRef.current = false;
+        runRef.current++;
         setCurrent(null);
         setDone(true);
     };
@@ -167,7 +181,7 @@ export function AddStreamModal({ deviceId, connection, used, onPick, onClose }: 
                                 key={item.substream}
                                 type="button"
                                 className="probe-row"
-                                onClick={() => onPick(item.substream)}
+                                onClick={() => onPick(item)}
                             >
                                 <span className="chnum">{item.substream}</span>
                                 <span className="who">

@@ -205,7 +205,11 @@ namespace neural {
             std::string camera_id = it->second->get_name();
             it->second->stop();
             m_cameras.erase(it);
-            if (to_save) m_config_manager.remove_camera(camera_id);
+            // Пробные камеры в конфигурацию не писались, удалять оттуда нечего:
+            // иначе конфигуратор пишет в лог ошибку о несуществующей камере
+            if (to_save && !camera_id.starts_with("__probe_")) {
+                m_config_manager.remove_camera(camera_id);
+            }
             m_logger.info("remove_camera(): successfully removed camera id=" + camera_id);
         }
         return 1;
@@ -224,7 +228,10 @@ namespace neural {
             camera_to_remove = std::move(it->second);
             m_cameras.erase(it);
 
-            if (to_save) m_config_manager.remove_camera(camera_id);
+            // Пробные камеры в конфигурацию не писались, удалять оттуда нечего
+            if (to_save && !camera_id.starts_with("__probe_")) {
+                m_config_manager.remove_camera(camera_id);
+            }
         }
         // Удаление в потоках камеры
         {

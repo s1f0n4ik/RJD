@@ -9,8 +9,8 @@ import {
     PURPOSE_MODULE,
     PURPOSE_NAMES,
     PURPOSE_ORDER,
-    RECORD_PATH,
     purposeAvailable,
+    togglePurpose,
     streamNumber,
     type CameraFormData,
     type StreamForm,
@@ -203,11 +203,13 @@ export function ConnectionFields({
 interface PurposePickerProps {
     purposes: StreamPurpose[];
     modules: string[];
+    /** Уменьшенный набор — для карточки потока в мастере */
+    compact?: boolean;
     onToggle: (purpose: StreamPurpose) => void;
 }
 
 /** Назначения потока: недоступные видны, но выключены — с причиной в подсказке. */
-export function PurposePicker({ purposes, modules, onToggle }: PurposePickerProps) {
+export function PurposePicker({ purposes, modules, compact, onToggle }: PurposePickerProps) {
     return (
         <div className="purp-pick">
             {PURPOSE_ORDER.map(purpose => {
@@ -217,7 +219,7 @@ export function PurposePicker({ purposes, modules, onToggle }: PurposePickerProp
                     <button
                         key={purpose}
                         type="button"
-                        className={`purp-btn purp--${purpose}${on ? ' is-on' : ''}`}
+                        className={`purp-btn${compact ? ' purp-btn--sm' : ''} purp--${purpose}${on ? ' is-on' : ''}`}
                         disabled={!available}
                         title={available ? undefined : `На устройстве нет модуля ${PURPOSE_MODULE[purpose]}`}
                         onClick={() => onToggle(purpose)}
@@ -256,22 +258,6 @@ export function StreamFields({
         );
     }
 
-    const togglePurpose = (purpose: StreamPurpose) => {
-        const has = stream.purposes.includes(purpose);
-        const next = has
-            ? stream.purposes.filter(p => p !== purpose)
-            : [...stream.purposes, purpose];
-
-        // Запись без пути и сегмента не поднимется — подставляем рабочие значения
-        const patch: Partial<StreamForm> = { purposes: next };
-        if (!has && purpose === 'record') {
-            if (!stream.record_path) patch.record_path = RECORD_PATH;
-            if (stream.segment <= 0) patch.segment = 10;
-        }
-
-        onPatch(stream.key, patch);
-    };
-
     return (
         <div className="fields">
             <div className="stream-bar">
@@ -300,7 +286,11 @@ export function StreamFields({
 
             <div className="fcell">
                 <span className="fcap">Назначения</span>
-                <PurposePicker purposes={stream.purposes} modules={modules} onToggle={togglePurpose} />
+                <PurposePicker
+                    purposes={stream.purposes}
+                    modules={modules}
+                    onToggle={purpose => onPatch(stream.key, togglePurpose(stream, purpose))}
+                />
             </div>
 
             <div className="frow frow--3">

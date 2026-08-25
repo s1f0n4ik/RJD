@@ -32,6 +32,24 @@ export interface CameraFormData {
 }
 
 export const RESERVED_PREFIXES = ['__probe_'];
+
+/*
+    Возраст, после которого пробная камера считается брошенной. Координировать
+    уборку с активным превью нельзя — оно живёт в мастере, а список в экране,
+    — поэтому ориентир по времени: в имени лежит метка `__probe_<Date.now()>`.
+*/
+const PROBE_STALE_MS = 2 * 60 * 1000;
+
+/** Брошенные пробные камеры: держат сессию к камере и не видны в списке. */
+export const staleProbes = (cameras: Camera[]): Camera[] => {
+    const now = Date.now();
+
+    return cameras.filter(camera => {
+        const match = camera.id.match(/^__probe_(\d+)$/);
+        if (!match) return false;
+        return now - Number(match[1]) > PROBE_STALE_MS;
+    });
+};
 const NAME_REGEX = /^[a-zA-Z_][a-zA-Z0-9_-]{1,31}$/;
 const IP_REGEX = /^((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/;
 const STREAM_KEY_REGEX = /^stream_([1-9][0-9]*)$/;
@@ -80,6 +98,27 @@ export const makeStream = (key: string, substream: number, purposes: StreamPurpo
     record_path: purposes.includes('record') ? RECORD_PATH : '',
     segment: purposes.includes('record') ? 10 : 0,
 });
+
+/**
+ * Включение и выключение назначения. Вынесено в модель, потому что
+ * применяется из двух мест — карточки потока в мастере и полей в шторке.
+ */
+export const togglePurpose = (stream: StreamForm, purpose: StreamPurpose): Partial<StreamForm> => {
+    const has = stream.purposes.includes(purpose);
+    const patch: Partial<StreamForm> = {
+        purposes: has
+            ? stream.purposes.filter(p => p !== purpose)
+            : [...stream.purposes, purpose],
+    };
+
+    // Запись без пути и сегмента не поднимется — подставляем рабочие значения
+    if (!has && purpose === 'record') {
+        if (!stream.record_path) patch.record_path = RECORD_PATH;
+        if (stream.segment <= 0) patch.segment = 10;
+    }
+
+    return patch;
+};
 
 /** Следующий свободный ключ: номера не переиспользуются в рамках сессии правки. */
 export const nextStreamKey = (streams: StreamForm[]): string => {

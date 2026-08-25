@@ -20,6 +20,7 @@ import {
     formatError,
     ipToNumber,
     makeStream,
+    staleProbes,
     nextStreamKey,
     streamNumber,
     streamsOf,
@@ -92,6 +93,16 @@ export function CamerasScreen() {
             await loadDevices().catch(() => {});
             const { cameras: all } = await api.getSources();
             setCameras(all.filter(c => !RESERVED_PREFIXES.some(p => c.id.startsWith(p))));
+
+            /*
+                Брошенные пробные камеры прятать мало: они держат сессию к камере
+                и остаются невидимыми. Убираем фоном, отрисовку не задерживаем.
+            */
+            const stale = staleProbes(all);
+            if (stale.length > 0) {
+                console.warn(`[Камеры] убираем брошенные пробные камеры: ${stale.length}`);
+                void Promise.allSettled(stale.map(c => api.deleteCamera(c.id, deviceOf(c))));
+            }
         } catch (err) {
             if (!silent) showToast('err', formatError(err));
         } finally {
@@ -214,7 +225,8 @@ export function CamerasScreen() {
             : prev);
 
     // Номер субпотока приходит из опроса камеры, а не назначается по порядку
-    const pickStream = (substream: number) => {
+    const pickStream = (found: { substream: number }) => {
+        const substream = found.substream;
         setAddStreamOpen(false);
         setForm(prev => {
             if (!prev) return prev;
