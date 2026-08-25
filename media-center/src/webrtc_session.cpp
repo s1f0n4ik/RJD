@@ -399,15 +399,6 @@ void UWebRTCSession::teardown() {
 		m_tee_pad_src = nullptr;
 	}
 
-	GstWebRTCICE* ice_agent = nullptr;
-	g_object_get(m_webrtcbin, "ice-agent", &ice_agent, nullptr);
-	
-	if (ice_agent) {
-	//	// Создаём promise, чтобы дождаться завершения закрытия
-		gst_webrtc_ice_close(ice_agent, nullptr);
-		gst_object_unref(ice_agent);
-	}
-
 	// Удаление трансиверов
 	GArray* transceivers = nullptr;
 	g_signal_emit_by_name(m_webrtcbin, "get-transceivers", &transceivers);
@@ -423,13 +414,16 @@ void UWebRTCSession::teardown() {
 		g_array_unref(transceivers);
 	}
 
-	// Закрытие через сигнал
-	g_signal_emit_by_name(m_webrtcbin, "close", nullptr);
-
-	// Остановка всех элементов
+	// выключение wbrtcbin через NULL, должен удалить все висячие дексрипторы
 	if (m_webrtcbin) {
 		gst_element_set_state(m_webrtcbin, GST_STATE_NULL);
-		gst_element_get_state(m_webrtcbin, nullptr, nullptr, GST_SECOND);
+
+		// Ждём дольше секунды: именно здесь освобождаются сокеты ICE,
+		// а незавершённый переход означает утечк
+		const auto ret = gst_element_get_state(m_webrtcbin, nullptr, nullptr, 5 * GST_SECOND);
+		if (ret != GST_STATE_CHANGE_SUCCESS) {
+			m_logger->warn("teardown(): webrtcbin didn't reach NULL state, ICE sockets may leak");
+		}
 	}
 
 	if (m_pay) {
