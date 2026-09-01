@@ -6,6 +6,8 @@
 
 .muted{color:var(--fg-3)}
 
+.is-dim{opacity:.55}
+
 .spacer{margin-left:auto}
 
 .pill{

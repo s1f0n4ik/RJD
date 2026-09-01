@@ -22,13 +22,28 @@ import { WebSocketManager } from './WebSocketManager';
 import type { WSStatus } from './WebSocketManager';
 import { WebRTCManager } from './WebRTCManager';
 import type { RTCStatus } from './WebRTCManager';
+import { describeError, type ErrorInfo } from './error-codes';
 
 export type PlayerStatus =
     | 'connecting'   // WS подключается
     | 'signaling'    // WS есть, ждём accept от камеры
     | 'streaming'    // видео идёт
-    | 'reconnecting' // что-то упало, ждём реконнект
-    | 'error';       // невосстановимая ошибка (не используется сейчас — всё reconnect)
+    | 'reconnecting' // что-то упало, ждём следующую попытку
+    | 'error';       // оставлено для старых потребителей; хук его не выставляет
+
+/** Любое сообщение сигналинга, включая надстройки: neural, correction, orbit */
+export type PlayerMessage = { type: string } & Record<string, unknown>;
+
+/** Измеренные показатели сессии; null в поле — браузер его не отдал */
+export interface PlayerStats {
+    fps: number | null;
+    /** Входящий поток, Мбит/с */
+    mbits: number | null;
+    /** Круговая задержка выбранной пары кандидатов, мс */
+    rttMs: number | null;
+    /** Доля потерянных пакетов, % */
+    lossPct: number | null;
+}
 
 interface UseWebRTCPlayerOptions {
     cameraId: string;
@@ -36,19 +51,40 @@ interface UseWebRTCPlayerOptions {
     stream?: string;
     signalingUrl: string;
     clientId?: string;
+    /** Снимать getStats раз в секунду; включать только у видимых ячеек */
+    collectStats?: boolean;
+    /** Сообщения, которые хук сам не обрабатывает — надстройкам плеера */
+    onMessage?: (msg: PlayerMessage) => void;
 }
 
 interface UseWebRTCPlayerResult {
     status: PlayerStatus;
     errorMsg: string;
+    /** Последняя причина с кодом; живёт до следующего успешного подключения */
+    errorInfo: ErrorInfo | null;
     videoRef: React.RefObject<HTMLVideoElement>;
+    /** null, пока не прошёл первый интервал или сбор выключен */
+    stats: PlayerStats | null;
+    /** Отправить своё сообщение в сигналинг; false — WS закрыт */
+    send: (data: Record<string, unknown>) => boolean;
 }
 
-// Потолок отказов сигналинга
-const MAX_REJECTS = 5;
+// Сколько ждать ответа камеры на запрос соединения. Камера успевает поднять
+// подпайплайн не всегда быстро, поэтому ждём долго, а не долбим её заново
+const ANSWER_TIMEOUT_MS = 10_000;
 
-// Сколько ждать ответа на запрос соединения
-const ANSWER_TIMEOUT_MS = 3000;
+// Пауза перед следующей попыткой: 2 → 4 → 8 → 15 секунд и дальше по 15.
+// Потолка попыток нет: изделие работает без оператора, стучаться нужно всегда
+const BASE_RETRY_MS = 2000;
+const MAX_RETRY_MS = 15_000;
+
+// Сторож кадров: устройство может уничтожить сессию молча (перезапуск потока),
+// и тогда peer-connection остаётся «подключённым», а кадров нет
+const STALL_POLL_MS = 2000;
+const STALL_TIMEOUT_MS = 8000;
+
+// Период снятия статистики соединения
+const STATS_INTERVAL_MS = 1000;
 
 function makeClientId(): string {
     return `client_${Math.random().toString(36).substring(2, 11)}`;
@@ -59,11 +95,18 @@ export function useWebRTCPlayer({
                                     stream,
                                     signalingUrl,
                                     clientId: externalClientId,
+                                    collectStats = false,
+                                    onMessage,
                                 }: UseWebRTCPlayerOptions): UseWebRTCPlayerResult {
     const videoRef = useRef<HTMLVideoElement>(null);
 
     const [status, setStatus] = useState<PlayerStatus>('connecting');
-    const [errorMsg, setErrorMsg] = useState('');
+    const [errorInfo, setErrorInfo] = useState<ErrorInfo | null>(null);
+    const [stats, setStats] = useState<PlayerStats | null>(null);
+
+    // Колбэк в ref: инлайн-функция родителя не должна пересоздавать сессию
+    const onMessageRef = useRef(onMessage);
+    onMessageRef.current = onMessage;
 
     // Стабильный client_id на всё время жизни хука
     const clientIdRef = useRef<string>(externalClientId ?? makeClientId());
@@ -72,8 +115,10 @@ export function useWebRTCPlayer({
     const wsRef = useRef<WebSocketManager | null>(null);
     const rtcRef = useRef<WebRTCManager | null>(null);
 
-    // Подряд идущие отказы и молчания сигналинга; сбрасывается при успехе
-    const rejectsRef = useRef(0);
+    // Номер попытки для нарастающей паузы; обнуляется при успехе и при
+    // открытии нового сокета — свежее соединение это новый шанс
+    const retryAttemptRef = useRef(0);
+    const retryTimerRef = useRef<number | null>(null);
     // Ожидание ответа на запрос соединения
     const answerTimerRef = useRef<number | null>(null);
     // Ссылка на саму отправку: нужна, чтобы повтор вызывал свежую версию
@@ -85,6 +130,33 @@ export function useWebRTCPlayer({
             answerTimerRef.current = null;
         }
     }, []);
+
+    const clearRetryTimer = useCallback(() => {
+        if (retryTimerRef.current !== null) {
+            window.clearTimeout(retryTimerRef.current);
+            retryTimerRef.current = null;
+        }
+    }, []);
+
+    // Следующая попытка запроса сессии. Причина остаётся видимой до успеха:
+    // статус сокета не должен втихую превращать её в «подключение»
+    const scheduleRetry = useCallback((info: ErrorInfo) => {
+        clearAnswerTimer();
+        setErrorInfo(info);
+        setStatus('reconnecting');
+
+        if (retryTimerRef.current !== null) return;
+
+        const delay = Math.min(BASE_RETRY_MS * Math.pow(2, retryAttemptRef.current), MAX_RETRY_MS);
+        retryAttemptRef.current += 1;
+
+        console.warn(`[Player:${cameraId}] retry #${retryAttemptRef.current} in ${delay}ms: ${info.text}`);
+
+        retryTimerRef.current = window.setTimeout(() => {
+            retryTimerRef.current = null;
+            sendRef.current();
+        }, delay);
+    }, [cameraId, clearAnswerTimer]);
 
     // ─── Вспомогательные функции ────────────────────────────────────────────
 
@@ -119,35 +191,41 @@ export function useWebRTCPlayer({
     const sendConnectionRequest = useCallback(() => {
         const ws = wsRef.current;
         if (!ws) return;
-        // Исчерпали попытки — молчим, иначе реконнект WS запустит цикл заново
-        if (rejectsRef.current >= MAX_REJECTS) return;
+
+        clearRetryTimer();
+        clearAnswerTimer();
 
         console.log(`[Player:${cameraId}] → connection request`);
-        setStatus('signaling');
-        ws.sendConnectionRequest({ client_id: clientIdRef.current, camera: cameraId, stream });
+        setStatus(prev => (prev === 'reconnecting' ? prev : 'signaling'));
 
-        // Ответа может не быть вовсе — повторяем сами
-        clearAnswerTimer();
+        const sent = ws.sendConnectionRequest({ client_id: clientIdRef.current, camera: cameraId, stream });
+        if (!sent) {
+            // Сокет закрыт: он поднимется сам, но попытку всё равно планируем —
+            // иначе запрос потеряется молча, как было с потолком отказов
+            scheduleRetry({ code: null, kind: 'transport', text: 'Нет связи с сигналингом' });
+            return;
+        }
+
+        // Ответа может не быть вовсе: брокер молча выбрасывает сообщение,
+        // если камера к нему не подключена
         answerTimerRef.current = window.setTimeout(() => {
             answerTimerRef.current = null;
-            rejectsRef.current += 1;
-
-            if (rejectsRef.current >= MAX_REJECTS) {
-                setStatus('error');
-                setErrorMsg('Камера не отвечает на запрос соединения — возможно, её уже нет на устройстве');
-                return;
-            }
-
-            console.warn(`[Player:${cameraId}] no answer, resending (${rejectsRef.current}/${MAX_REJECTS})`);
-            sendRef.current();
+            scheduleRetry({
+                code: null,
+                kind: 'transport',
+                text: 'Камера не ответила на запрос соединения',
+            });
         }, ANSWER_TIMEOUT_MS);
-    }, [cameraId, stream, clearAnswerTimer]);
+    }, [cameraId, stream, clearAnswerTimer, clearRetryTimer, scheduleRetry]);
 
     useEffect(() => {
         sendRef.current = sendConnectionRequest;
     }, [sendConnectionRequest]);
 
-    useEffect(() => clearAnswerTimer, [clearAnswerTimer]);
+    useEffect(() => () => {
+        clearAnswerTimer();
+        clearRetryTimer();
+    }, [clearAnswerTimer, clearRetryTimer]);
 
     // ─── Создать RTCManager ─────────────────────────────────────────────────
 
@@ -190,13 +268,9 @@ export function useWebRTCPlayer({
                 clearVideoSrc();
                 // Очищаем ссылку (teardown уже внутри RTCManager)
                 rtcRef.current = null;
-                setStatus('reconnecting');
-                setErrorMsg(`Переподключение WebRTC (${reason})`);
-                // Если WS открыт — сразу запрашиваем новую сессию
-                if (ws?.isOpen) {
-                    sendConnectionRequest();
-                }
-                // Если WS не открыт — он реконнектится сам и onOpen запустит sendConnectionRequest
+                // Новая сессия запрашивается через общую очередь: мгновенный
+                // перезапрос от шестнадцати ячеек сразу камере не нужен
+                scheduleRetry({ code: null, kind: 'session', text: `Сессия оборвалась (${reason})` });
             },
 
             onStatusChange: (rtcStatus: RTCStatus) => {
@@ -207,7 +281,7 @@ export function useWebRTCPlayer({
         });
 
         rtcRef.current.createPeerConnection();
-    }, [cameraId, clearVideoSrc, sendConnectionRequest, attachStream]);
+    }, [cameraId, clearVideoSrc, sendConnectionRequest, attachStream, scheduleRetry]);
 
     // ─── useEffect: создаём менеджеры ───────────────────────────────────────
 
@@ -220,7 +294,8 @@ export function useWebRTCPlayer({
         const ws = new WebSocketManager(signalingUrl, {
 
             onOpen: () => {
-                // WS открылся → запрашиваем соединение с камерой
+                // Свежий сокет — новый шанс: очередь пауз начинается заново
+                retryAttemptRef.current = 0;
                 sendConnectionRequest();
             },
 
@@ -231,28 +306,17 @@ export function useWebRTCPlayer({
                     clearAnswerTimer();
 
                     if (msg.ret === 'success') {
-                        rejectsRef.current = 0;
+                        retryAttemptRef.current = 0;
+                        clearRetryTimer();
+                        setErrorInfo(null);
                         console.log(`[Player:${cameraId}] Camera accepted connection`);
                         // Создаём PeerConnection
                         createRTC();
-                    } else {
-                        rejectsRef.current += 1;
-                        console.warn(`[Player:${cameraId}] Camera rejected: ret=${msg.ret} (${rejectsRef.current}/${MAX_REJECTS})`);
-
-                        if (rejectsRef.current >= MAX_REJECTS) {
-                            setStatus('error');
-                            setErrorMsg('Камера не отвечает на запрос соединения — возможно, её уже нет на устройстве');
-                            return;
-                        }
-
-                        setStatus('reconnecting');
-                        setErrorMsg(`Камера отклонила соединение (ret=${msg.ret})`);
-                        // Повторим connection-request через паузу (простая задержка)
-                        setTimeout(() => {
-                            if (rtc?.isConnecting) return;
-                            if (ws.isOpen) sendConnectionRequest();
-                        }, 2000);
+                        return;
                     }
+
+                    // Отказ несёт код: у брокера 1xxx, у камеры — свой
+                    scheduleRetry(describeError(msg as unknown as Record<string, unknown>));
                     return;
                 }
 
@@ -270,18 +334,41 @@ export function useWebRTCPlayer({
                     return;
                 }
 
+                const raw = msg as unknown as PlayerMessage;
+
+                if (raw.type === 'stream_error') {
+                    // Ошибки рассылаются всем клиентам камеры, а потоков у неё
+                    // несколько: чужой сломанный поток нас не касается
+                    if (typeof raw.stream === 'string' && stream && raw.stream !== stream) {
+                        return;
+                    }
+
+                    const info = describeError(raw);
+                    console.warn(`[Player:${cameraId}] stream error: ${info.code ?? info.text}`);
+                    onMessageRef.current?.(raw);
+                    // Сессия поверх умершего потока бесполезна: рвём и встаём в очередь
+                    closeRTC(true);
+                    rtcRef.current = null;
+                    scheduleRetry(info);
+                    return;
+                }
+
                 if (msg.type === 'close') {
                     // Сервер закрыл сессию
                     console.warn(`[Player:${cameraId}] Server closed session`);
                     // Закрываем RTC без повторной отправки close (сервер уже знает)
                     closeRTC(false);
                     rtcRef.current = null;
-                    setStatus('reconnecting');
-                    setErrorMsg('Сервер закрыл сессию, переподключение...');
-                    // Переподключаемся
-                    if (ws.isOpen) sendConnectionRequest();
+
+                    const closeInfo = describeError(raw);
+                    scheduleRetry(closeInfo.code !== null
+                        ? closeInfo
+                        : { code: null, kind: 'session', text: 'Устройство закрыло сессию' });
                     return;
                 }
+
+                // neural, neural_tracks, correction, orbit — разбирают надстройки
+                onMessageRef.current?.(raw);
             },
 
             onClose: (reason) => {
@@ -291,16 +378,17 @@ export function useWebRTCPlayer({
                 console.warn(`[Player:${cameraId}] WS closed: ${reason}`);
                 closeRTC(true);
                 rtcRef.current = null;
+                setErrorInfo({ code: null, kind: 'transport', text: 'Связь с сигналингом прервана' });
                 setStatus('reconnecting');
-                setErrorMsg('Соединение прервано, переподключение...');
                 // WS реконнектится сам. onOpen снова вызовет sendConnectionRequest.
             },
 
             onStatusChange: (wsStatus: WSStatus) => {
                 console.log(`[Player:${cameraId}] WS status: ${wsStatus}`);
-                if (wsStatus === 'connecting') {
-                    setStatus(prev => prev === 'streaming' ? 'reconnecting' : 'connecting');
-                }
+                if (wsStatus !== 'connecting') return;
+                // «Подключение» показываем только на первом заходе: после сбоя
+                // состояние честнее назвать переподключением
+                setStatus(prev => (prev === 'connecting' || prev === 'signaling' ? 'connecting' : 'reconnecting'));
             },
         });
 
@@ -321,5 +409,129 @@ export function useWebRTCPlayer({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [cameraId, stream, signalingUrl]);
 
-    return { status, errorMsg, videoRef };
+    // ─── Сторож кадров ──────────────────────────────────────────────────────
+
+    useEffect(() => {
+        if (status !== 'streaming') return;
+
+        let lastFrames = -1;
+        let stalledMs = 0;
+
+        const timer = window.setInterval(() => {
+            void rtcRef.current?.getStats().then(report => {
+                if (!report) return;
+
+                let frames = -1;
+                report.forEach(entry => {
+                    const item = entry as unknown as Record<string, unknown>;
+                    if (item.type === 'inbound-rtp' && item.kind === 'video'
+                        && typeof item.framesDecoded === 'number') {
+                        frames = item.framesDecoded;
+                    }
+                });
+
+                if (frames < 0) return;
+
+                if (frames !== lastFrames) {
+                    lastFrames = frames;
+                    stalledMs = 0;
+                    return;
+                }
+
+                stalledMs += STALL_POLL_MS;
+                if (stalledMs < STALL_TIMEOUT_MS) return;
+
+                console.warn(`[Player:${cameraId}] no new frames for ${stalledMs}ms, restarting session`);
+                closeRTC(true);
+                rtcRef.current = null;
+                scheduleRetry({ code: null, kind: 'stream', text: 'Кадры перестали приходить' });
+            });
+        }, STALL_POLL_MS);
+
+        return () => window.clearInterval(timer);
+    }, [status, cameraId, closeRTC, scheduleRetry]);
+
+    // ─── Статистика соединения ──────────────────────────────────────────────
+
+    useEffect(() => {
+        if (!collectStats) {
+            setStats(null);
+            return;
+        }
+
+        // Предыдущий снимок: показатели считаются приращением
+        let prev: {
+            ts: number;
+            bytes: number;
+            frames: number;
+            lost: number;
+            received: number;
+        } | null = null;
+
+        const num = (v: unknown): number | null =>
+            typeof v === 'number' && Number.isFinite(v) ? v : null;
+
+        const timer = window.setInterval(async () => {
+            const report = await rtcRef.current?.getStats();
+            if (!report) {
+                setStats(null);
+                prev = null;
+                return;
+            }
+
+            let inbound: Record<string, unknown> | null = null;
+            let rttMs: number | null = null;
+
+            report.forEach(entry => {
+                const item = entry as unknown as Record<string, unknown>;
+                if (item.type === 'inbound-rtp' && item.kind === 'video') {
+                    inbound = item;
+                }
+                // Пара кандидатов бывает нескольких, задержку несёт выбранная
+                if (item.type === 'candidate-pair' && item.state === 'succeeded' && item.nominated) {
+                    const rtt = num(item.currentRoundTripTime);
+                    if (rtt !== null) rttMs = Math.round(rtt * 1000);
+                }
+            });
+
+            if (!inbound) {
+                setStats(null);
+                return;
+            }
+
+            const now = num((inbound as Record<string, unknown>).timestamp) ?? 0;
+            const bytes = num((inbound as Record<string, unknown>).bytesReceived) ?? 0;
+            const frames = num((inbound as Record<string, unknown>).framesDecoded) ?? 0;
+            const lost = num((inbound as Record<string, unknown>).packetsLost) ?? 0;
+            const received = num((inbound as Record<string, unknown>).packetsReceived) ?? 0;
+
+            // framesPerSecond отдают не все сборки Chromium — тогда считаем сами
+            let fps = num((inbound as Record<string, unknown>).framesPerSecond);
+            let mbits: number | null = null;
+            let lossPct: number | null = null;
+
+            if (prev && now > prev.ts) {
+                const seconds = (now - prev.ts) / 1000;
+                mbits = ((bytes - prev.bytes) * 8) / seconds / 1_000_000;
+                if (fps === null) fps = (frames - prev.frames) / seconds;
+
+                const lostDelta = lost - prev.lost;
+                const receivedDelta = received - prev.received;
+                const total = lostDelta + receivedDelta;
+                if (total > 0) lossPct = (lostDelta / total) * 100;
+            }
+
+            prev = { ts: now, bytes, frames, lost, received };
+            setStats({ fps, mbits, rttMs, lossPct });
+        }, STATS_INTERVAL_MS);
+
+        return () => window.clearInterval(timer);
+    }, [collectStats, cameraId, stream, signalingUrl]);
+
+    const send = useCallback((data: Record<string, unknown>): boolean => {
+        return wsRef.current?.sendMessage(data) ?? false;
+    }, []);
+
+    // errorMsg оставлен для потребителей, которым хватает текста
+    return { status, errorMsg: errorInfo?.text ?? '', errorInfo, videoRef, stats, send };
 }

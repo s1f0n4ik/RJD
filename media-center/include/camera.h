@@ -106,7 +106,8 @@ namespace neural {
 			const std::string& client,
 			bool successed,
 			const std::string& type,
-			const std::string& description
+			const std::string& description,
+			int code = 0
 		);
 
 	protected:
@@ -122,7 +123,8 @@ namespace neural {
 		UCameraPipeline* select_web_stream(
 			const std::string& client_id,
 			const std::string& type,
-			const boost::json::object& message
+			const boost::json::object& message,
+			int& code
 		);
 
 		// Вызывается после обработки close; stream — пайплайн, закрывший сессию

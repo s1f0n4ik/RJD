@@ -19,7 +19,9 @@ const KrspsApp = lazy(() => import('./features/krsps/components/KrspsApp'));
 const BirdviewApp = lazy(() =>
     import('./features/birdview/components/BirdviewApp').then(m => ({ default: m.BirdviewApp })));
 import Login from './components/Login';
-import KioskView from './components/KioskView';
+// Трансляция тянет токены и общие классы макета — держим её ленивой, чтобы
+// эти стили не попадали в документ на страницах старого слоя
+const TranslationScreen = lazy(() => import('./screens/translation/TranslationScreen'));
 import { wsService } from './services/websocket';
 import type { SystemState } from './types';
 import { RZD_COLORS } from './theme';
@@ -70,11 +72,15 @@ const GlobalMergeJobPanel: React.FC = () => {
 const AppContent: React.FC = () => {
   const pathname = window.location.pathname;
   const isNewUiRoute = pathname.startsWith('/new');
-  // === KIOSK ROUTING ===
-  // Если URL начинается с /kiosk — рендерим KioskView без Header/авторизации
-  const isKioskRoute = window.location.pathname.startsWith('/kiosk');
+  // === ТРАНСЛЯЦИЯ ===
+  // /translation — прямой эфир без Header и без авторизации: на изделии сюда
+  // приходит автозапуск браузера
+  const isTranslationRoute = pathname.startsWith('/translation');
+  // Прежний адрес киоска остаётся живым редиректом: он прописан в автозапуске
+  // на уже выпущенных изделиях
+  const isLegacyKioskRoute = pathname.startsWith('/kiosk');
   const isAdminRoute = pathname.startsWith('/app'); // 🆕
-  const isLandingRoute = !isKioskRoute && !isAdminRoute && !isNewUiRoute; // 🆕
+  const isLandingRoute = !isTranslationRoute && !isLegacyKioskRoute && !isAdminRoute && !isNewUiRoute;
   const isNeuralRoute = pathname.startsWith('/app/neural');
   const isKrspsRoute = pathname.startsWith('/app/krsps');
   const isBirdviewRoute = pathname.startsWith('/app/birdview');
@@ -188,7 +194,7 @@ const AppContent: React.FC = () => {
   };
 
   useEffect(() => {
-    if (isNewUiRoute || isKioskRoute || isLandingRoute || isNeuralRoute || isKrspsRoute || isBirdviewRoute) return; // В киоск-режиме WS не нужен
+    if (isNewUiRoute || isTranslationRoute || isLegacyKioskRoute || isLandingRoute || isNeuralRoute || isKrspsRoute || isBirdviewRoute) return; // В трансляции WS старого приложения не нужен
     if (token) {
       wsService.connect(
         (newState) => setState(newState),
@@ -198,7 +204,7 @@ const AppContent: React.FC = () => {
     return () => {
       wsService.disconnect();
     };
-  }, [token, isNewUiRoute, isKioskRoute, isLandingRoute, isNeuralRoute, isKrspsRoute, isBirdviewRoute]);
+  }, [token, isNewUiRoute, isTranslationRoute, isLegacyKioskRoute, isLandingRoute, isNeuralRoute, isKrspsRoute, isBirdviewRoute]);
 
   const hasAccessToTab = (tab: number): boolean => {
     if (!ADMIN_TABS.has(tab)) return true;
@@ -305,7 +311,12 @@ const AppContent: React.FC = () => {
     );
   }
 
-  // Защищённая сборка: логин требуется до любого маршрута, включая / и /kiosk
+  if (isLegacyKioskRoute) {
+    window.location.replace(`/translation${pathname.slice('/kiosk'.length)}`);
+    return null;
+  }
+
+  // Защищённая сборка: логин требуется до любого маршрута, включая / и /translation
   if (FULL_AUTH && !token) {
     return (
       <>
@@ -318,13 +329,17 @@ const AppContent: React.FC = () => {
   if (isLandingRoute) {
     // Без FULL_AUTH «/» — это киоск; с FULL_AUTH сюда доходят уже с токеном
     // (проверка выше) и попадают на главную
-    window.location.replace(FULL_AUTH ? '/app' : '/kiosk');
+    window.location.replace(FULL_AUTH ? '/app' : '/translation');
     return null;
   }
 
-  // === РЕНДЕР КИОСК-РЕЖИМА ===
-  if (isKioskRoute) {
-    return <KioskView />;
+  // === РЕНДЕР ТРАНСЛЯЦИИ ===
+  if (isTranslationRoute) {
+    return (
+      <Suspense fallback={null}>
+        <TranslationScreen />
+      </Suspense>
+    );
   }
 
   // === РЕНДЕР ОБЫЧНОГО ИНТЕРФЕЙСА (/app/*) ===

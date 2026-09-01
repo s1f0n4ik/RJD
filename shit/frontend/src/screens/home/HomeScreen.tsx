@@ -4,6 +4,7 @@ import { Icon } from '../../app/Icons';
 import { NAV } from '../../app/nav';
 import { useSystem } from '../../app/SystemContext';
 import { useDisks, useLastDetections } from './useHomeData';
+import { useLayouts } from '../../hooks/Layouts';
 import type { Device } from '../../services/devices';
 import './home.css';
 
@@ -31,12 +32,17 @@ const maxTemp = (device: Device) => {
 export function HomeScreen() {
     const { cameras, devices } = useSystem();
     const disks = useDisks(devices);
+    const { layouts } = useLayouts();
     const { items: detections, available: journalUp } = useLastDetections();
 
     const online = devices.filter(d => d.status === 'online');
     const liveCameras = cameras.filter(isLive).length;
     const deadCameras = cameras.length - liveCameras;
     const offlineDevices = devices.length - online.length;
+
+    const layoutSummary = layouts.length === 0
+        ? 'отображения не настроены'
+        : `${layouts.length} ${plural(layouts.length, 'отображение', 'отображения', 'отображений')}`;
 
     const cameraSummary = cameras.length === 0
         ? 'камеры не добавлены'
@@ -110,6 +116,7 @@ export function HomeScreen() {
                                     <b>{item.label}</b>
                                     {item.desc && <span>{item.desc}</span>}
                                     {item.to === '/cameras' && <span className="foot">{cameraSummary}</span>}
+                                    {item.to === '/live' && <span className="foot">{layoutSummary}</span>}
                                 </Link>
                             ) : (
                                 <div key={item.to} className="tile is-off">

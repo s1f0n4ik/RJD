@@ -31,13 +31,75 @@
 
 #define SIG_ERROR_CODE "error_code"
 
-// Коды ошибок
+// Числовой код ошибки; описания к нему хранит веб-интерфейс
+#define SIG_CODE "code"
+
+// Ключ потока камеры: stream_N или correction
+#define SIG_STREAM "stream"
+
+// Строковые коды ошибок потока: остаются рядом с числовыми, пока в сети
+// встречаются сборки интерфейса, которые их читают
 #define SIG_ERROR_RTSP_TIMEOUT       "RTSP_TIMEOUT"
 #define SIG_ERROR_RTSP_DISCONNECTED  "RTSP_DISCONNECTED"
 #define SIG_ERROR_RTSP_UNAUTHORIZED  "RTSP_UNAUTHORIZED"
 #define SIG_ERROR_RTSP_NOT_FOUND     "RTSP_NOT_FOUND"
 #define SIG_ERROR_GST_ERROR          "GST_ERROR"
 #define SIG_ERROR_EOS                "EOS"
+
+// Коды ошибок. Четыре цифры, тип читается по первой:
+//   2xxx — сессия WebRTC
+//   3xxx — поток камеры
+//   4xxx — надстройки: коррекция 360, орбита, нейронка
+//   5xxx — конфигурация и данные
+// Описания живут в веб-интерфейсе; description остаётся служебным для логов.
+namespace varan {
+namespace signaling {
+
+	// 2xxx — сессия WebRTC
+	inline constexpr int CODE_SESSION_EXISTS        = 2001;  // сессия с этим клиентом уже есть
+	inline constexpr int CODE_SESSION_NOT_FOUND     = 2002;  // сессии с этим клиентом нет
+	inline constexpr int CODE_SESSION_CREATE_FAILED = 2003;  // не удалось создать сессию
+	inline constexpr int CODE_SESSION_PIPELINE      = 2004;  // webrtcbin не поднялся
+	inline constexpr int CODE_SESSION_NEGOTIATION   = 2005;  // отказ на offer, answer или ice
+	inline constexpr int CODE_SESSION_INTERNAL      = 2006;  // внутренняя ошибка сессии
+	inline constexpr int CODE_SESSION_RESTARTED     = 2007;  // сессию закрыл перезапуск потока
+
+	// 3xxx — поток камеры
+	inline constexpr int CODE_RTSP_TIMEOUT       = 3001;
+	inline constexpr int CODE_RTSP_NOT_FOUND     = 3002;
+	inline constexpr int CODE_RTSP_UNAUTHORIZED  = 3003;
+	inline constexpr int CODE_RTSP_DISCONNECTED  = 3004;
+	inline constexpr int CODE_GST_ERROR          = 3005;
+	inline constexpr int CODE_EOS                = 3006;
+
+	// 4xxx — надстройки
+	inline constexpr int CODE_CORRECTION_NO_LINKS   = 4001;  // сопоставление калибровки не настроено
+	inline constexpr int CODE_CORRECTION_BUILD      = 4002;  // пайплайн коррекции не собрался
+	inline constexpr int CODE_CORRECTION_NO_STREAM  = 4003;  // коррекцию просили, пайплайна нет
+	inline constexpr int CODE_ORBIT_NOT_RUNNING     = 4004;  // вывод 360 не запущен
+	inline constexpr int CODE_ORBIT_REJECTED        = 4005;  // режим орбиты отвергнут
+
+	// 5xxx — конфигурация и данные
+	inline constexpr int CODE_NO_WEB_STREAM      = 5001;  // у камеры нет подпайплайна для webrtc
+	inline constexpr int CODE_STREAM_NOT_EXISTS  = 5002;  // запрошенного потока у камеры нет
+	inline constexpr int CODE_STREAM_NOT_VIEWED  = 5003;  // у потока нет назначения view
+	inline constexpr int CODE_UNKNOWN_MESSAGE    = 5004;  // неизвестный тип сообщения
+	inline constexpr int CODE_MESSAGE_MALFORMED  = 5005;  // сообщение не разобралось
+
+	// Строковый код потока по числовому: пока живут оба формата
+	inline const char* legacy_stream_code(int code) {
+		switch (code) {
+			case CODE_RTSP_TIMEOUT:      return SIG_ERROR_RTSP_TIMEOUT;
+			case CODE_RTSP_NOT_FOUND:    return SIG_ERROR_RTSP_NOT_FOUND;
+			case CODE_RTSP_UNAUTHORIZED: return SIG_ERROR_RTSP_UNAUTHORIZED;
+			case CODE_RTSP_DISCONNECTED: return SIG_ERROR_RTSP_DISCONNECTED;
+			case CODE_EOS:               return SIG_ERROR_EOS;
+			default:                     return SIG_ERROR_GST_ERROR;
+		}
+	}
+
+} // namespace signaling
+} // namespace varan
 
 // Варианты полей sender
 #define SIG_SENDER_CLIENT "client"

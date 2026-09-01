@@ -48,7 +48,8 @@ namespace neural {
 
 	private:
 
-		bool build_correction_pipeline(std::string& error);
+		// code — причина отказа: нет привязки калибровки или сборка не удалась
+		bool build_correction_pipeline(std::string& error, int& code);
 
 		// Разбор пайплайна уходит в поток GMainLoop; wait — дождаться конца
 		void destroy_correction(bool wait);

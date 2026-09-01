@@ -23,6 +23,12 @@ export interface SavedLayout {
     surround?: { viewMode: 'top' | 'surround'; manual: boolean };
     // Камеры birdview с включённой коррекцией дисторсии на момент сохранения
     corrections?: Record<string, boolean>;
+    // Показываемый поток камеры: { cameraId: 'stream_2' }
+    streams?: Record<string, string>;
+    // Рамки обнаружений поверх кадра: { cameraId: true }
+    detections?: Record<string, boolean>;
+    // Наложения на всё отображение: имя камеры, время, рамки
+    overlays?: Record<string, boolean>;
     timestamp: number;
 }
 

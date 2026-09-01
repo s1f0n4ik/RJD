@@ -1,32 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Box, Typography, CircularProgress, Paper } from '@mui/material';
 import { Error as ErrorIcon } from '@mui/icons-material';
+import { describeError } from './webrtc/error-codes';
 
-export interface Detection {
-    id:          number;
-    name:        string;
-    color:       string;       // hex из конфига класса
-    superclass:  string;
-    confidence?: number;       // 0..1, опционально
-    // rect: сервер шлёт либо массив [x1,y1,x2,y2], либо объект {x,y,w,h}
-    rect: [number, number, number, number] | { x: number; y: number; w: number; h: number };
-}
-
-export type TrackState = 'tentative' | 'confirmed' | 'lost';
-
-/** Трек из neural_tracks (slot.cpp send_tracks). */
-export interface Track {
-    track_id:    number;
-    class_id:    number;
-    name:        string;
-    color:       string;
-    superclass:  string;
-    confidence?: number;
-    state:       TrackState;
-    age?:        number;
-    lost_frames?: number;
-    rect: [number, number, number, number] | { x: number; y: number; w: number; h: number };
-}
+// Типы обнаружений переехали в webrtc/detections.ts; ре-экспорт держит старые импорты
+import type { Detection, Track } from './webrtc/detections';
+export type { Detection, Track, TrackState } from './webrtc/detections';
 
 /** Состояние плеера для внешних индикаторов. */
 export interface PlayerStatusInfo {
@@ -68,19 +47,6 @@ interface WebRTCPlayerProps {
      */
     background?: string;
 }
-
-const STREAM_ERROR_MESSAGES: Record<string, string> = {
-    'RTSP_TIMEOUT':       'Камера не отвечает (таймаут)',
-    'RTSP_NOT_FOUND':     'Поток не найден',
-    'RTSP_UNAUTHORIZED':  'Нет доступа к камере (401)',
-    'RTSP_DISCONNECTED':  'Соединение с камерой прервано',
-    'GST_ERROR':          'Ошибка медиапотока',
-    'EOS':                'Поток завершён',
-};
-
-const getStreamErrorMessage = (error_code: string): string => {
-    return STREAM_ERROR_MESSAGES[error_code] ?? `Ошибка потока: ${error_code}`;
-};
 
 const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signalingUrl, onError, onDetections, onTracks, signalingRef, onExtraMessage, connectionExtras, onStatusChange, onVideoResolution, background = 'black' }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
@@ -453,7 +419,7 @@ const WebRTCPlayer: React.FC<WebRTCPlayerProps> = ({ cameraId, cameraName, signa
 
                 if (msg.type === 'stream_error') {
                     const errorCode: string = msg.error_code ?? 'UNKNOWN';
-                    const humanMsg = getStreamErrorMessage(errorCode);
+                    const humanMsg = describeError(msg).text;
 
                     console.warn(`[${cameraId}] Stream error: ${errorCode} — ${msg.description}`);
 

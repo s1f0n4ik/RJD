@@ -20,7 +20,7 @@ export interface NavItem {
 export const NAV: NavItem[] = [
     { to: '/',         label: 'Главная',             icon: 'home',  ready: true },
     { to: '/cameras',  label: 'Камеры',              icon: 'cam',   ready: true,  desc: 'Источники, потоки, разрешение' },
-    { to: '/live',     label: 'Отображение',         icon: 'grid',  ready: false },
+    { to: '/live',     label: 'Отображение',         icon: 'grid',  ready: true,  desc: 'Сетки просмотра и прямой эфир' },
     { to: '/archive',  label: 'Архив',               icon: 'arch',  ready: false },
     { to: '/devices',  label: 'Устройства',          icon: 'dev',   ready: false },
 
@@ -33,4 +33,5 @@ export const NAV: NavItem[] = [
 export const CRUMBS: Record<string, string[]> = {
     '/': ['Главная'],
     '/cameras': ['Камеры'],
+    '/live': ['Отображение', 'Редактор сеток'],
 };

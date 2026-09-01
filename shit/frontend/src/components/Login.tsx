@@ -48,7 +48,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     };
 
     const goToBroadcast = () => {
-        window.location.href = '/kiosk';
+        window.location.href = '/translation';
     };
 
     return (

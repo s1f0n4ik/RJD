@@ -8,6 +8,7 @@ import { AppShell } from './AppShell';
 import { SystemProvider } from './SystemContext';
 import { HomeScreen } from '../screens/home/HomeScreen';
 import { CamerasScreen } from '../screens/cameras/CamerasScreen';
+import LiveScreen from '../screens/live/LiveScreen';
 import { LoginScreen } from '../screens/login/LoginScreen';
 import { readStoredToken } from '../utils/auth';
 
@@ -52,6 +53,7 @@ export default function NewApp() {
                     <Route element={<AppShell username={username} role={role} onLogout={handleLogout} />}>
                         <Route index element={<HomeScreen />} />
                         <Route path="cameras" element={<CamerasScreen />} />
+                        <Route path="live" element={<LiveScreen />} />
                         {/* Непереписанные разделы адресов ещё не имеют: любой другой путь ведёт на главную */}
                         <Route path="*" element={<Navigate to="/" replace />} />
                     </Route>

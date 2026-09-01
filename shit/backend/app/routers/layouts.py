@@ -48,6 +48,12 @@ class Layout(BaseModel):
     surround: Dict[str, Any] | None = None
     # Камеры birdview с включённой коррекцией дисторсии: { cameraId: true }
     corrections: Dict[str, bool] | None = None
+    # Показываемый поток камеры: { cameraId: "stream_2" }
+    streams: Dict[str, str] | None = None
+    # Рамки обнаружений поверх кадра: { cameraId: true }
+    detections: Dict[str, bool] | None = None
+    # Наложения на всё отображение: { name, time, detections }
+    overlays: Dict[str, bool] | None = None
     timestamp: int
 
 

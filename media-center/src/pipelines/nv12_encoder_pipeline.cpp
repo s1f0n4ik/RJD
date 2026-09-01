@@ -1,4 +1,5 @@
 #include "video_pipeline.h"
+#include "signaling_definers.h"
 
 #define VIRTUAL_TEE "virtual_tee"
 
@@ -139,8 +140,8 @@ bool UNV12EncodingPipeline::initialize() {
 	return true;
 }
 
-void UNV12EncodingPipeline::on_bus_error(const std::string& error_code, const std::string& description, bool probe_handler) {
-	broadcast_error(error_code, description);
+void UNV12EncodingPipeline::on_bus_error(int code, const std::string& description, bool probe_handler) {
+	broadcast_error(code, description);
 	if (!probe_handler) shedule_restart();
 }
 
@@ -159,13 +160,14 @@ bool UNV12EncodingPipeline::teardown_prefix() {
 	return true;
 }
 
-bool UNV12EncodingPipeline::create_webrtc_session(const std::string& client_id, std::string& description) {
-	if (!UCameraPipeline::create_webrtc_session(client_id, description)) {
+bool UNV12EncodingPipeline::create_webrtc_session(const std::string& client_id, std::string& description, int& code) {
+	if (!UCameraPipeline::create_webrtc_session(client_id, description, code)) {
 		return false;
 	}
 
 	auto remove_callback = [this](const std::string& client_id, std::string& description) {
-		return this->close_webrtc_session(client_id, description);
+		int close_code = 0;
+		return this->close_webrtc_session(client_id, description, close_code);
 		};
 
 	auto session = std::make_unique<UWebRTCSession>(
@@ -181,6 +183,7 @@ bool UNV12EncodingPipeline::create_webrtc_session(const std::string& client_id, 
 
 	if (!session) {
 		description = "Error creation new session!";
+		code = varan::signaling::CODE_SESSION_CREATE_FAILED;
 		return false;
 	}
 
@@ -194,6 +197,7 @@ bool UNV12EncodingPipeline::create_webrtc_session(const std::string& client_id, 
 	else {
 		m_logger->warn("Error creation webrtc session branch with client " + client_id);
 		description = "Connection doesn't resolved!";
+		code = varan::signaling::CODE_SESSION_PIPELINE;
 	}
 	return ret;
 }

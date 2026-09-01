@@ -1,0 +1,53 @@
+/* Трансляция: планка постоянная, автоскрытия нет */
+
+.tr {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    color: var(--fg);
+}
+
+.tr-bar {
+    height: 44px;
+    flex: 0 0 44px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 12px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+}
+
+.tr-title { font-size: 13px; }
+
+.tr-name { font-size: 12.5px; color: var(--fg-2); }
+
+.tr-plain { border-color: transparent; }
+
+.tr-body { flex: 1; min-height: 0; position: relative; display: flex; }
+
+/* Шторка выезжает поверх сетки, ячейки под ней не перестраиваются */
+.tr-drawer {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 268px;
+    z-index: 6;
+    background: var(--surface);
+    border-right: 1px solid var(--line);
+    padding: 12px 10px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.tr-cap { padding: 14px 1px 8px; }
+
+.tr-collapse { margin-top: 12px; }
+
+/* В эфире ячейки прижаты плотнее, чем в редакторе: экран отдан картинке */
+.tr .wall { gap: 4px; padding: 4px; background: #000; }

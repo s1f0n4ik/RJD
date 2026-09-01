@@ -201,6 +201,16 @@ export class WebRTCManager {
         this.close(true);
     }
 
+    /** Сырая статистика соединения; null — сессии нет */
+    async getStats(): Promise<RTCStatsReport | null> {
+        if (!this.pc) return null;
+        try {
+            return await this.pc.getStats();
+        } catch {
+            return null;
+        }
+    }
+
     get isConnecting(): boolean {
         return this.pc?.connectionState === 'connecting';
     }

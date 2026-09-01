@@ -1,0 +1,108 @@
+/* Редактор отображений */
+
+ /* Геометрию экрана держит .screen из оболочки: inset:0 и flex-колонка */
+.live { min-height: 0; }
+
+.live-body { flex: 1; min-height: 0; display: flex; }
+
+.live-banner { margin: 12px 16px 0; }
+
+/* Выпадающий список наложений живёт при кнопке тулбара */
+.live-pop { position: relative; }
+
+.live-pop-body {
+    position: absolute;
+    left: 0;
+    top: calc(100% + 6px);
+    z-index: 30;
+    width: 268px;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    padding: 12px;
+    background: var(--panel);
+    border: 1px solid var(--line-hi);
+    border-radius: var(--r);
+    box-shadow: var(--shadow-lg);
+}
+
+/* Точка несохранённых правок у заголовка списка сеток */
+.live-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--warn);
+    box-shadow: 0 0 7px var(--warn);
+    margin-left: 6px;
+}
+
+.live-row { display: flex; gap: 8px; margin-top: 11px; }
+
+/* Поле с подписью над контролом — как на «Камерах» */
+.live-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
+.live-field label { font-size: 11px; color: var(--fg-3); }
+
+.live-switches { display: flex; flex-direction: column; gap: 9px; margin-top: 12px; }
+
+.live-toast {
+    position: fixed;
+    right: 18px;
+    bottom: 18px;
+    z-index: 60;
+    padding: 11px 15px;
+    border-radius: var(--r);
+    background: var(--panel);
+    border: 1px solid var(--line-hi);
+    box-shadow: var(--shadow-lg);
+    font-size: 13px;
+}
+
+/* Модалка произвольной сетки — крупная: матрица и предпросмотр рядом */
+.freegrid-modal { --modal-w: 1000px; height: min(640px, 88vh); }
+
+/* Тело модалки — flex-колонка: матрица занимает высоту, а не растёт по числу клеток */
+.freegrid-modal .modal-b { display: flex; min-height: 0; }
+
+.freegrid { display: flex; gap: 18px; flex: 1; min-height: 0; }
+
+.freegrid-side { flex: 0 0 240px; display: flex; flex-direction: column; gap: 4px; }
+
+.freegrid-main { flex: 1; min-width: 0; display: flex; }
+
+.freegrid-matrix {
+    flex: 1;
+    min-width: 0;
+    display: grid;
+    gap: 6px;
+    padding: 6px;
+    background: var(--input);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    position: relative;
+    touch-action: none;
+    user-select: none;
+}
+
+.freegrid-tile {
+    border: 1px dashed var(--line-2, var(--line));
+    border-radius: 6px;
+    background: transparent;
+    cursor: crosshair;
+}
+
+.freegrid-tile.is-taken { border-color: transparent; cursor: pointer; }
+.freegrid-tile.is-draw { background: rgba(var(--acc-rgb), .18); border-color: var(--acc); }
+
+/* Готовые ячейки лежат поверх клеток и ловят клик через них */
+.freegrid-cell {
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--acc);
+    border-radius: 6px;
+    background: rgba(var(--acc-rgb), .12);
+    color: var(--acc);
+    font-family: var(--mono);
+    font-size: 13px;
+    pointer-events: none;
+    margin: 0;
+}

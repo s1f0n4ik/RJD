@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { Icon, IconSprite } from './Icons';
 import { CRUMBS, NAV } from './nav';
 import { useSystem } from './SystemContext';
+import { formatDeviceTime, useDeviceClock } from './useDeviceClock';
 import './shell.css';
 
 interface AppShellProps {
@@ -11,19 +12,11 @@ interface AppShellProps {
     onLogout: () => void;
 }
 
-const clock = () =>
-    new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-
 export function AppShell({ username, role, onLogout }: AppShellProps) {
     const [narrow, setNarrow] = useState(false);
-    const [time, setTime] = useState(clock);
+    const { unixMs, source } = useDeviceClock();
     const { connected, cameras, devices } = useSystem();
     const { pathname } = useLocation();
-
-    useEffect(() => {
-        const timer = window.setInterval(() => setTime(clock()), 1000);
-        return () => window.clearInterval(timer);
-    }, []);
 
     const offlineDevices = devices.filter(d => d.status !== 'online').length;
     const crumbs = CRUMBS[pathname] ?? ['Главная'];
@@ -110,7 +103,12 @@ export function AppShell({ username, role, onLogout }: AppShellProps) {
                                 {offlineDevices} устр. не в сети
                             </span>
                         )}
-                        <span className="pill num">{time}</span>
+                        <span
+                            className={`pill num${source === 'can' ? '' : ' is-dim'}`}
+                            title={source === 'can' ? 'Время изделия' : 'Время сервера, шина молчит'}
+                        >
+                            {formatDeviceTime(unixMs)}
+                        </span>
                     </div>
                 </header>
 

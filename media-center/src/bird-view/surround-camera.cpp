@@ -2,6 +2,8 @@
 
 #include <algorithm>
 
+#include "signaling_definers.h"
+
 namespace varan {
 namespace birdview {
 
@@ -49,12 +51,14 @@ namespace birdview {
 			const std::string mode = m->as_string().c_str();
 			if (mode != "manual" && mode != "auto") {
 				send_message(boost::json::serialize(make_json_message(
-					client_id, false, "orbit", "mode must be manual or auto")));
+					client_id, false, "orbit", "mode must be manual or auto",
+					varan::signaling::CODE_ORBIT_REJECTED)));
 				return;
 			}
 			if (!m_orbit_mode) {
 				send_message(boost::json::serialize(make_json_message(
-					client_id, false, "orbit", "output is not in surround mode")));
+					client_id, false, "orbit", "output is not in surround mode",
+					varan::signaling::CODE_ORBIT_NOT_RUNNING)));
 				return;
 			}
 			m_orbit_mode(mode == "manual");

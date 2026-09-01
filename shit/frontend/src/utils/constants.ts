@@ -36,4 +36,4 @@ export const CAMERA_STATUS = {
     RUNNING: 3,
 } as const;
 
-export const KIOSK_PATH_PREFIX = '/kiosk';
+export const TRANSLATION_PATH_PREFIX = '/translation';

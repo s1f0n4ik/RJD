@@ -139,15 +139,17 @@ public:
 
 	void shedule_restart();
 
-	virtual bool create_webrtc_session(const std::string& client_id, std::string& description);
+	// code — причина отказа из signaling_definers.h; при успехе не трогается
+	virtual bool create_webrtc_session(const std::string& client_id, std::string& description, int& code);
 
-	virtual bool close_webrtc_session(const std::string& client_id, std::string& description);
+	virtual bool close_webrtc_session(const std::string& client_id, std::string& description, int& code);
 
 	virtual bool process_webrtc_session(
 		const std::string& client_id,
 		const boost::json::object& message,
 		const std::string& type,
-		std::string& description
+		std::string& description,
+		int& code
 	);
 
 	virtual FPipelineData get_pipeline_data() = 0;
@@ -177,12 +179,15 @@ protected:
 	// Возвращает владельца: у кого он лежит, тот и снимает
 	[[nodiscard]] FBusWatch setup_bus_watch(GstElement* pipeline, bool use_probe_handler = false);
 
-	// Логика для обработки ошибок
-	virtual void on_bus_error(const std::string& error_code, const std::string& description, bool is_probe = false);
+	// Логика для обработки ошибок; code — числовой код из signaling_definers.h
+	virtual void on_bus_error(int code, const std::string& description, bool is_probe = false);
 	// для сецифичной работы pipeline
 	virtual void on_bus_message(GstMessage* msg) = 0;
 
-	void broadcast_error(const std::string& error_code, const std::string& description);
+	void broadcast_error(int code, const std::string& description);
+
+	// Прощание с клиентом, чью сессию уничтожает не он сам
+	void broadcast_session_closed(const std::string& client_id, int code, const std::string& description);
 
 	// Првоверка шины на существуюший пайплайн
 	void invalidate_bus_watch();
@@ -293,7 +298,7 @@ public:
 
 	virtual bool teardown_prefix() override;
 
-	virtual bool create_webrtc_session(const std::string& client_id, std::string& description) override;
+	virtual bool create_webrtc_session(const std::string& client_id, std::string& description, int& code) override;
 
 	virtual FPipelineData get_pipeline_data() override;
 
@@ -301,7 +306,7 @@ public:
 
 protected:
 
-	virtual void on_bus_error(const std::string& error_code, const std::string& description, bool probe_handler = false);
+	virtual void on_bus_error(int code, const std::string& description, bool probe_handler = false);
 	virtual void on_bus_message(GstMessage* msg);
 
 private:
@@ -355,7 +360,7 @@ public:
 
 	virtual bool teardown_prefix() override;
 
-	virtual bool create_webrtc_session(const std::string& client_id, std::string& description) override;
+	virtual bool create_webrtc_session(const std::string& client_id, std::string& description, int& code) override;
 
 	virtual FPipelineData get_pipeline_data() override;
 
@@ -363,7 +368,7 @@ public:
 
 protected:
 
-	virtual void on_bus_error(const std::string& error_code, const std::string& description, bool probe_handler = false);
+	virtual void on_bus_error(int code, const std::string& description, bool probe_handler = false);
 	virtual void on_bus_message(GstMessage* msg);
 
 private:

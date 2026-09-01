@@ -131,7 +131,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     if (module.disabled || !moduleAvailable(module)) return;
 
     if (module.kiosk) {
-      window.location.href = '/kiosk';
+      window.location.href = '/translation';
       return;
     }
 

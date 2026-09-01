@@ -56,9 +56,9 @@ namespace neural {
 			}
 		}
 
-		auto reply = [this, client_id, type](bool ok, const std::string& description) {
+		auto reply = [this, client_id, type](bool ok, const std::string& description, int code = 0) {
 			ok ? m_logger.info(description) : m_logger.error(description);
-			m_reply(client_id, ok, type, description);
+			m_reply(client_id, ok, type, description, code);
 		};
 
 		if (!enable) {
@@ -77,7 +77,8 @@ namespace neural {
 		}
 
 		if (m_correction_building.exchange(true)) {
-			reply(false, "Correction pipeline is already being created");
+			reply(false, "Correction pipeline is already being created",
+				varan::signaling::CODE_CORRECTION_BUILD);
 			return true;
 		}
 
@@ -88,9 +89,10 @@ namespace neural {
 		// Создание тяжёлое (карты, EGL, gstreamer) — не держим поток вебсокета
 		m_correction_thread = std::thread([this, reply]() {
 			std::string error;
-			const bool ok = build_correction_pipeline(error);
+			int code = varan::signaling::CODE_CORRECTION_BUILD;
+			const bool ok = build_correction_pipeline(error, code);
 			m_correction_building = false;
-			reply(ok, ok ? "Correction pipeline is ready" : error);
+			reply(ok, ok ? "Correction pipeline is ready" : error, ok ? 0 : code);
 		});
 
 		return true;
@@ -146,7 +148,7 @@ namespace neural {
 		}
 	}
 
-	bool UCorrectionExtension::build_correction_pipeline(std::string& error) {
+	bool UCorrectionExtension::build_correction_pipeline(std::string& error, int& code) {
 		namespace calib = varan::calibration;
 
 		if (!m_storage || !m_gl_manager) {
@@ -189,6 +191,7 @@ namespace neural {
 		}
 		if (config_key.empty()) {
 			error = "Camera is not linked to any calibration configuration";
+			code = varan::signaling::CODE_CORRECTION_NO_LINKS;
 			return false;
 		}
 

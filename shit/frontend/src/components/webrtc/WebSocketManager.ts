@@ -183,6 +183,11 @@ export class WebSocketManager {
         });
     }
 
+    /** Произвольное сообщение сигналинга: коррекция, орбита и прочие надстройки */
+    sendMessage(data: Record<string, unknown>): boolean {
+        return this.send(data);
+    }
+
     get isOpen(): boolean {
         return this.ws?.readyState === WebSocket.OPEN;
     }

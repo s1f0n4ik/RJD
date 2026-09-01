@@ -68,8 +68,10 @@ namespace neural {
         if (has_birdview && m_frame_storage) {
             auto* raw = camera.get();
 
-            auto reply = [raw](const std::string& client_id, bool ok, const std::string& type, const std::string& description) {
-                raw->send_message(boost::json::serialize(raw->make_json_message(client_id, ok, type, description)));
+            auto reply = [raw](const std::string& client_id, bool ok, const std::string& type,
+                               const std::string& description, int code) {
+                raw->send_message(boost::json::serialize(
+                    raw->make_json_message(client_id, ok, type, description, code)));
             };
 
             auto send = [raw](std::string message) {

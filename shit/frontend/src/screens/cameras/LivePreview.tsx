@@ -13,16 +13,21 @@ interface LivePreviewProps {
 
 /** Предпросмотр потока: видео на всю плитку, без панелей и наложений. */
 export function LivePreview({ cameraId, stream, signalingUrl, caption, style }: LivePreviewProps) {
-    const { status, errorMsg, videoRef } = useWebRTCPlayer({ cameraId, stream, signalingUrl });
+    const { status, errorInfo, videoRef } = useWebRTCPlayer({ cameraId, stream, signalingUrl });
 
     return (
         <div className="cam-preview" style={style}>
             <video ref={videoRef} autoPlay muted playsInline />
             {status !== 'streaming' && (
                 <div className="state">
-                    {status === 'error'
-                        ? (errorMsg || 'Поток не открылся')
-                        : <><span className="spin" />подключение…</>}
+                    <span className="spin" />
+                    {status === 'connecting' || status === 'signaling' ? 'подключение…' : 'переподключение…'}
+                    {errorInfo && (
+                        <span className="cell-state-why">
+                            {errorInfo.text}
+                            {errorInfo.code !== null && <i className="cell-code">{errorInfo.code}</i>}
+                        </span>
+                    )}
                 </div>
             )}
             {caption && status === 'streaming' && <span className="cap">{caption}</span>}

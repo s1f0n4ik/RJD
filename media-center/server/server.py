@@ -49,6 +49,51 @@ async def _safe_close(ws, reason: str = "peer disconnected") -> None:
         pass
 
 
+# Error codes of the signaling transport. Range 1xxx belongs to the broker,
+# the rest is emitted by media-center. Human readable texts live in the web
+# interface, here we only send the number and service details.
+ERR_CAMERA_NOT_CONNECTED = 1001
+ERR_CAMERA_SEND_FAILED = 1002
+ERR_CAMERA_GONE = 1003
+ERR_CAMERA_REPLACED = 1004
+
+
+def _message_type(message) -> str | None:
+    """Message type of a text frame; binary and broken frames give None."""
+    if isinstance(message, (bytes, bytearray)):
+        return None
+    try:
+        parsed = json.loads(message)
+        if isinstance(parsed, dict):
+            kind = parsed.get("type")
+            return kind if isinstance(kind, str) else None
+    except (json.JSONDecodeError, ValueError):
+        pass
+    return None
+
+
+async def _send_error(ws, kind: str, camera_id: str, client_id: str | None,
+                      code: int, description: str) -> None:
+    """Answer the client with a coded failure instead of dropping in silence."""
+    if ws is None:
+        return
+    payload = json.dumps({
+        "type": kind,
+        "ret": "fault",
+        "code": code,
+        "camera": camera_id,
+        "client_id": client_id,
+        "description": description,
+        "sender": "signaling",
+        "timestamp": _now(),
+    })
+    try:
+        await ws.send(payload)
+    except Exception as exc:
+        log.error("[BROKER] error reply failed  camera=%s  code=%s  error=%s",
+                  camera_id, code, exc)
+
+
 def _msg_size(message) -> str:
     if isinstance(message, (bytes, bytearray)):
         return f"{len(message)} bytes (binary)"
@@ -67,7 +112,8 @@ async def handle_camera(camera_id: str, websocket) -> None:
 
         if pair["camera"] is not None:
             # Только тут вытеснение всё ещё имеет смысл: камера одна.
-            log.warning("[CAMERA] replacing existing camera connection  id=%s", camera_id)
+            log.warning("[CAMERA] replacing existing camera connection  id=%s  code=%d",
+                        camera_id, ERR_CAMERA_REPLACED)
             await _safe_close(pair["camera"], "replaced by new camera connection")
 
         pair["camera"] = websocket
@@ -129,6 +175,8 @@ async def handle_client_for_camera(camera_id: str, websocket) -> None:
                 camera = camera_pairs.get(camera_id, {}).get("camera")
 
             size = _msg_size(message)
+            kind = _message_type(message)
+
             if camera:
                 log.debug("[CAM-CLIENT→CAMERA] camera=%s  client=%s  %s",
                           camera_id, assigned_client_id, size)
@@ -137,9 +185,18 @@ async def handle_client_for_camera(camera_id: str, websocket) -> None:
                 except Exception as exc:
                     log.error("[CAM-CLIENT→CAMERA] send failed  camera=%s  error=%s",
                               camera_id, exc)
+                    # The client must not wait for an answer that will never come
+                    if kind == "connection":
+                        await _send_error(websocket, "connection", camera_id, assigned_client_id,
+                                          ERR_CAMERA_SEND_FAILED, f"send to camera failed: {exc}")
             else:
-                log.debug("[CAM-CLIENT→CAMERA] camera=%s  %s  — no camera, dropped",
-                          camera_id, size)
+                log.debug("[CAM-CLIENT→CAMERA] camera=%s  %s  — no camera, answered %d",
+                          camera_id, size, ERR_CAMERA_NOT_CONNECTED)
+                # Only session requests are answered: follow-up messages of a
+                # session that cannot exist would just spam the client
+                if kind == "connection":
+                    await _send_error(websocket, "connection", camera_id, assigned_client_id,
+                                      ERR_CAMERA_NOT_CONNECTED, "camera is not connected to signaling")
 
     except (ConnectionClosedOK, ConnectionClosedError) as exc:
         log.info("[CAM-CLIENT] disconnected  camera=%s  client=%s  reason=%s",
@@ -224,8 +281,10 @@ async def _cleanup_camera_disconnect(camera_id: str, websocket) -> None:
         log.info("[CAMERA-PAIR] camera gone, closing %d clients  id=%s",
                  len(clients), camera_id)
 
-    # Закрываем клиентов ВНЕ lock
+    # Закрываем клиентов ВНЕ lock, но сперва называем причину
     for client_ws in clients:
+        await _send_error(client_ws, "close", camera_id, None,
+                          ERR_CAMERA_GONE, "camera disconnected from signaling")
         await _safe_close(client_ws, "camera disconnected")
 
 

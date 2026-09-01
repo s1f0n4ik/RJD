@@ -421,13 +421,14 @@ namespace neural {
 			}
 
 			std::string description;
-			UCameraPipeline* web_stream = select_web_stream(client_id, type, json_object);
+			int code = 0;
+			UCameraPipeline* web_stream = select_web_stream(client_id, type, json_object, code);
 			if (!web_stream) {
 				std::string text = "There is no sub pipeline in camera to get webrtc session!";
 				m_logger.debug(text);
 				send_message(
 					boost::json::serialize(
-						make_json_message(client_id, false, type, text)
+						make_json_message(client_id, false, type, text, code)
 					)
 				);
 				return;
@@ -435,14 +436,14 @@ namespace neural {
 			// Запрос на соединение
 			if (type == "connection" || type == "close") {
 				const bool ret = (type == "connection")
-					? web_stream->create_webrtc_session(client_id, description)
-					: web_stream->close_webrtc_session(client_id, description);
+					? web_stream->create_webrtc_session(client_id, description, code)
+					: web_stream->close_webrtc_session(client_id, description, code);
 
 				ret ? m_logger.info(description) : m_logger.error(description);
 
 				send_message(
 					boost::json::serialize(
-						make_json_message(client_id, ret, type, description)
+						make_json_message(client_id, ret, type, description, ret ? 0 : code)
 					)
 				);
 
@@ -453,7 +454,7 @@ namespace neural {
 				return;
 			}
 			else {
-				auto ret = web_stream->process_webrtc_session(client_id, json_object, type, description);
+				auto ret = web_stream->process_webrtc_session(client_id, json_object, type, description, code);
 				ret ? m_logger.info(description) : m_logger.error(description);
 				//send_message(
 				//	boost::json::serialize(
@@ -467,7 +468,8 @@ namespace neural {
 			m_logger.error(err_text);
 			send_message(
 				boost::json::serialize(
-					make_json_message("", false, "fault", err_text)
+					make_json_message("", false, "fault", err_text,
+						varan::signaling::CODE_MESSAGE_MALFORMED)
 				)
 			);
 		}
@@ -497,8 +499,11 @@ namespace neural {
 	UCameraPipeline* UCamera::select_web_stream(
 		const std::string& client_id,
 		const std::string& type,
-		const boost::json::object& message
+		const boost::json::object& message,
+		int& code
 	) {
+		code = varan::signaling::CODE_NO_WEB_STREAM;
+
 		// Надстройки спрашиваются первыми
 		for (const auto& extension : m_extensions) {
 			const auto claim = extension->select_stream(client_id, type, message);
@@ -506,6 +511,10 @@ namespace neural {
 				if (!claim.stream) {
 					m_logger.error("select_web_stream(): extension " + extension->stream_key()
 						+ " has no stream at camera " + m_options.id);
+					code = varan::signaling::CODE_CORRECTION_NO_STREAM;
+				}
+				else {
+					code = 0;
 				}
 				return claim.stream;
 			}
@@ -523,6 +532,7 @@ namespace neural {
 			if (it == m_streams.end()) {
 				m_logger.error("select_web_stream(): stream " + requested
 					+ " doesn't exist at camera " + m_options.id);
+				code = varan::signaling::CODE_STREAM_NOT_EXISTS;
 				return nullptr;
 			}
 
@@ -530,14 +540,17 @@ namespace neural {
 			if (!it->second->get_purposes().view) {
 				m_logger.error("select_web_stream(): stream " + requested
 					+ " at camera " + m_options.id + " has no view purpose");
+				code = varan::signaling::CODE_STREAM_NOT_VIEWED;
 				return nullptr;
 			}
 
+			code = 0;
 			return it->second.get();
 		}
 
 		for (const auto& [name, stream] : m_streams) {
 			if (stream->get_purposes().view) {
+				code = 0;
 				return stream.get();
 			}
 		}
@@ -570,7 +583,8 @@ namespace neural {
 		const std::string& client,
 		bool successed,
 		const std::string& type,
-		const std::string& description
+		const std::string& description,
+		int code
 	) 
 	{
 		boost::json::object message;
@@ -580,6 +594,9 @@ namespace neural {
 		message[SIG_CLIENT] = client;
 		message[SIG_CAMERA] = m_options.id;
 		message[SIG_DECRIPTION] = description;
+		if (code != 0) {
+			message[SIG_CODE] = code;
+		}
 		return message;
 	}
 

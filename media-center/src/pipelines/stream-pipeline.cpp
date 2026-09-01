@@ -1,4 +1,5 @@
 #include "video_pipeline.h"
+#include "signaling_definers.h"
 #include <filesystem>
 
 #include <gst/rtsp/gstrtsptransport.h>
@@ -82,6 +83,8 @@ bool UCameraStreamPipeline::initialize() {
 		m_logger->error("Cannot create pipeline, context still exists!");
 		return false;
 	}
+
+	auto input_queue = gst_element_factory_make("queue", "input_queue");
 	auto tee = gst_element_factory_make("tee", MAIN_TEE);
 	auto fake_queue = gst_element_factory_make("queue", "sink_queue");
 	auto fakesink = gst_element_factory_make("fakesink", "sink");
@@ -91,20 +94,22 @@ bool UCameraStreamPipeline::initialize() {
 		if (src) gst_object_unref(src);
 		if (depay) gst_object_unref(depay);
 		if (parse) gst_object_unref(parse);
+		if (input_queue) gst_object_unref(input_queue);
 		if (tee) gst_object_unref(tee);
 		if (fake_queue) gst_object_unref(fake_queue);
 		if (fakesink) gst_object_unref(fakesink);
 		};
 
-	if (!m_pipeline || !src || !depay || !parse || !tee || !fake_queue || !fakesink) {
+	if (!m_pipeline || !src || !depay || !parse || !input_queue || !tee || !fake_queue || !fakesink) {
 		std::ostringstream oss;
 		oss << "Failed to create elements at reading pipeline: "
 			<< "\n\tpipeline=" << (m_pipeline ? "OK" : "NULL") << ","
 			<< "\n\tsrc=" << (src ? "OK" : "NULL") << ","
 			<< "\n\tdepay=" << (depay ? "OK" : "NULL") << ","
 			<< "\n\tparse=" << (parse ? "OK" : "NULL") << ","
+			<< "\n\tinput_queue=" << (input_queue ? "OK" : "NULL") << ","
 			<< "\n\ttee=" << (tee ? "OK" : "NULL") << ","
-			<< "\n\ttee=" << (fake_queue ? "OK" : "NULL") << ","
+			<< "\n\tfake_queue=" << (fake_queue ? "OK" : "NULL") << ","
 			<< "\n\tsink=" << (fakesink ? "OK" : "NULL") << ",";
 		m_logger->error(oss.str());
 		clean_up();
@@ -120,6 +125,15 @@ bool UCameraStreamPipeline::initialize() {
 		nullptr
 	);
 
+	g_object_set(input_queue,
+		"max-size-buffers", 3,
+		"max-size-bytes", 0,
+		"max-size-time", (guint64)0,
+		"leaky", 2,
+		"silent", TRUE,
+		nullptr
+	);
+
 	g_object_set(fakesink,
 		"sync", FALSE,
 		nullptr
@@ -132,7 +146,7 @@ bool UCameraStreamPipeline::initialize() {
 	);
 
 	gst_bin_add_many(GST_BIN(m_pipeline),
-		src, depay, parse, tee, fake_queue, fakesink, nullptr
+		src, depay, parse, input_queue, tee, fake_queue, fakesink, nullptr
 	);
 
 	auto fail = [&](const std::string& m) {
@@ -145,8 +159,8 @@ bool UCameraStreamPipeline::initialize() {
 	};
 
 	// Связывание основного потока
-	if (!gst_element_link_many(depay, parse, tee, nullptr)) {
-		return fail("error link depay/parse/tee");
+	if (!gst_element_link_many(depay, parse, input_queue, tee, nullptr)) {
+		return fail("error link depay/parse/input_queue/tee");
 	}
 
 	// Связывание ветки с декодером
@@ -222,8 +236,8 @@ bool UCameraStreamPipeline::initialize() {
 	return true;
 }
 
-void UCameraStreamPipeline::on_bus_error(const std::string& error_code, const std::string& description, bool probe_handler) {
-	broadcast_error(error_code, description);
+void UCameraStreamPipeline::on_bus_error(int code, const std::string& description, bool probe_handler) {
+	broadcast_error(code, description);
 	if (!probe_handler) shedule_restart();
 }
 
@@ -597,10 +611,10 @@ bool UCameraStreamPipeline::destroy_branch(FPipelineBranch& branch)
 	return true;
 }
 
-bool UCameraStreamPipeline::create_webrtc_session(const std::string& client_id, std::string& description)
+bool UCameraStreamPipeline::create_webrtc_session(const std::string& client_id, std::string& description, int& code)
 {
 	std::string client = client_id;
-	if (!UCameraPipeline::create_webrtc_session(client, description)) {
+	if (!UCameraPipeline::create_webrtc_session(client, description, code)) {
 		return false;
 	}
 
@@ -613,7 +627,8 @@ bool UCameraStreamPipeline::create_webrtc_session(const std::string& client_id, 
 		m_send_callback,
 		std::move(
 			[this](const std::string& client, std::string& description) {
-				return this->close_webrtc_session(client, description);
+				int close_code = 0;
+				return this->close_webrtc_session(client, description, close_code);
 			}
 		),
 		m_logger.get()
@@ -621,6 +636,7 @@ bool UCameraStreamPipeline::create_webrtc_session(const std::string& client_id, 
 
 	if (!session) {
 		description = "Unresolved error creation new session!";
+		code = varan::signaling::CODE_SESSION_CREATE_FAILED;
 		return false;
 	}
 
@@ -634,6 +650,7 @@ bool UCameraStreamPipeline::create_webrtc_session(const std::string& client_id, 
 	else {
 		m_logger->info("Error creation webrtc session branch with client " + client);
 		description = "Connection doesn't resolved!";
+		code = varan::signaling::CODE_SESSION_PIPELINE;
 	}
 	return ret;
 }

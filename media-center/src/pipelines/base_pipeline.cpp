@@ -145,8 +145,11 @@ bool UCameraPipeline::teardown(bool is_blocking)
 
     m_is_playing = false;
 
-    // Удаляем все сессии
+    // Удаляем все сессии. Клиенту об этом говорим: иначе его peer-connection
+    // остаётся «подключённым» без кадров и переподключаться он не начнёт
     for (const auto& [name, session] : m_webrtc_sessions) {
+        broadcast_session_closed(name, varan::signaling::CODE_SESSION_RESTARTED,
+            "session closed by stream teardown");
         session->teardown();
     }
     m_webrtc_sessions.clear();
@@ -404,7 +407,7 @@ UCameraPipeline::FBusWatch UCameraPipeline::setup_bus_watch(GstElement* pipeline
                 self->m_logger->error("GST ERROR: " + err_msg + " | debug: " + dbg_msg);
 
                 // Определяем код ошибки
-                std::string error_code = SIG_ERROR_GST_ERROR;
+                int code = varan::signaling::CODE_GST_ERROR;
                 if (err) {
                     std::string msg_lower = err_msg;
                     std::transform(msg_lower.begin(), msg_lower.end(),
@@ -412,40 +415,40 @@ UCameraPipeline::FBusWatch UCameraPipeline::setup_bus_watch(GstElement* pipeline
 
                     if (msg_lower.find("unauthorized") != std::string::npos ||
                         msg_lower.find("401") != std::string::npos) {
-                        error_code = SIG_ERROR_RTSP_UNAUTHORIZED;
+                        code = varan::signaling::CODE_RTSP_UNAUTHORIZED;
                     }
                     else if (msg_lower.find("not found") != std::string::npos ||
                         msg_lower.find("404") != std::string::npos ||
                         msg_lower.find("no route") != std::string::npos) {
-                        error_code = SIG_ERROR_RTSP_NOT_FOUND;
+                        code = varan::signaling::CODE_RTSP_NOT_FOUND;
                     }
                     else if (msg_lower.find("timeout") != std::string::npos ||
                         msg_lower.find("timed out") != std::string::npos) {
-                        error_code = SIG_ERROR_RTSP_TIMEOUT;
+                        code = varan::signaling::CODE_RTSP_TIMEOUT;
                     }
                     else if (msg_lower.find("end-of-file") != std::string::npos ||
                         msg_lower.find("received end") != std::string::npos ||
                         msg_lower.find("could not receive message") != std::string::npos) {
-                        error_code = SIG_ERROR_RTSP_DISCONNECTED;
+                        code = varan::signaling::CODE_RTSP_DISCONNECTED;
                     }
                 }
 
                 if (err) g_error_free(err);
                 if (debug) g_free(debug);
 
-                self->on_bus_error(error_code, err_msg, probe_handler);
+                self->on_bus_error(code, err_msg, probe_handler);
                 break;
             }
             case GST_MESSAGE_EOS: {
                 self->m_logger->warn("GST EOS received");
-                self->on_bus_error(SIG_ERROR_EOS, "End of stream", probe_handler);
+                self->on_bus_error(varan::signaling::CODE_EOS, "End of stream", probe_handler);
                 break;
             }
             case GST_MESSAGE_ELEMENT: {
                 const GstStructure* s = gst_message_get_structure(msg);
                 if (s && gst_structure_has_name(s, "GstRTSPSrcTimeout")) {
                     self->m_logger->warn("RTSP timeout detected");
-                    self->on_bus_error(SIG_ERROR_RTSP_TIMEOUT, "RTSP connection timed out", probe_handler);
+                    self->on_bus_error(varan::signaling::CODE_RTSP_TIMEOUT, "RTSP connection timed out", probe_handler);
                 }
                 break;
             }
@@ -472,20 +475,40 @@ void UCameraPipeline::invalidate_bus_watch() {
     m_bus_watch.reset();
 }
 
-void UCameraPipeline::on_bus_error(const std::string& error_code, const std::string& description, bool is_probe) {
-    broadcast_error(error_code, description);
+void UCameraPipeline::on_bus_error(int code, const std::string& description, bool is_probe) {
+    broadcast_error(code, description);
     // Не рестартим
     //shedule_restart();
 }
 
-void UCameraPipeline::broadcast_error(const std::string& error_code, const std::string& description) {
+void UCameraPipeline::broadcast_session_closed(const std::string& client_id, int code,
+                                              const std::string& description) {
+    if (!m_send_callback) return;
+
+    boost::json::object msg;
+    msg[SIG_TYPE] = SIG_TYPE_CLOSE;
+    msg[SIG_SENDER] = SIG_SENDER_CAMERA;
+    msg[SIG_CAMERA] = m_parameters.camera_name;
+    msg[SIG_STREAM] = m_parameters.name;
+    msg[SIG_CLIENT] = client_id;
+    msg[SIG_RET] = SIG_RET_FAULT;
+    msg[SIG_CODE] = code;
+    msg[SIG_DECRIPTION] = description;
+
+    m_send_callback(boost::json::serialize(msg));
+}
+
+void UCameraPipeline::broadcast_error(int code, const std::string& description) {
     if (!m_send_callback) return;
 
     boost::json::object msg;
     msg[SIG_TYPE] = SIG_TYPE_STREAM_ERROR;
     msg[SIG_SENDER] = SIG_SENDER_CAMERA;
     msg[SIG_CAMERA] = m_parameters.camera_name;
-    msg[SIG_ERROR_CODE] = error_code;
+    msg[SIG_STREAM] = m_parameters.name;
+    msg[SIG_CODE] = code;
+    // Строковый код для сборок интерфейса, которые ещё не знают числовых
+    msg[SIG_ERROR_CODE] = varan::signaling::legacy_stream_code(code);
     msg[SIG_DECRIPTION] = description;
     msg[SIG_RET] = SIG_RET_FAULT;
 
@@ -634,17 +657,19 @@ void UCameraPipeline::on_rtsp_pad_added(GstElement*, GstPad* pad, gpointer user_
     gst_caps_unref(caps);
 }
 
-bool UCameraPipeline::create_webrtc_session(const std::string& client_id, std::string& description) {
+bool UCameraPipeline::create_webrtc_session(const std::string& client_id, std::string& description, int& code) {
     std::ostringstream oss_error;
 
     if (!m_probe.ready()) {
         oss_error << "Session cannot be created: no probing " << m_parameters.name << " pipeline!";
         description = oss_error.str();
+        code = varan::signaling::CODE_SESSION_CREATE_FAILED;
         return false;
     }
 
     if (m_pending_teardown_clients.count(client_id)) {
         description = "Session with " + client_id + " is still tearing down, try again later.";
+        code = varan::signaling::CODE_SESSION_CREATE_FAILED;
         return false;
     }
 
@@ -652,16 +677,18 @@ bool UCameraPipeline::create_webrtc_session(const std::string& client_id, std::s
     if (ses_it != m_webrtc_sessions.end()) {
         oss_error << "Session with " << client_id << " in " << m_parameters.name << " pipeline already exists!";
         description = oss_error.str();
+        code = varan::signaling::CODE_SESSION_EXISTS;
         return false;
     }
 
     return true;
 }
 
-bool UCameraPipeline::close_webrtc_session(const std::string& client_id, std::string& description) {
+bool UCameraPipeline::close_webrtc_session(const std::string& client_id, std::string& description, int& code) {
     auto it = m_webrtc_sessions.find(client_id);
     if (it == m_webrtc_sessions.end()) {
         description = "Cannot close session with " + client_id + ": session doesn't exist!";
+        code = varan::signaling::CODE_SESSION_NOT_FOUND;
         return false;
     }
 
@@ -711,30 +738,31 @@ bool UCameraPipeline::process_webrtc_session(
     const std::string& client_id, 
     const boost::json::object& message,
     const std::string& type,
-    std::string& description
+    std::string& description,
+    int& code
 ) {
     // Проверяем есть ли сессия
     auto it_client = m_webrtc_sessions.find(client_id);
     if (it_client == m_webrtc_sessions.end()) {
         description = "Cannot process message: session with client " + client_id + " doesn't exist!";
+        code = varan::signaling::CODE_SESSION_NOT_FOUND;
         return false;
     }
     // Сессия существует
     auto session = it_client->second.get();
 
-    if (type == "offer") {
-        return session->make_offer(message, description);
-    }
-    else if (type == "answer") {
-        return session->create_answer(message, description);
-    }
-    else if (type == "ice") {
-        return session->add_ice_candidate(message, description);
-    }
-    else {
-        description = "No supported type of recieved message!";
-        return false;
+    if (type == "offer" || type == "answer" || type == "ice") {
+        const bool ret = type == "offer" ? session->make_offer(message, description)
+            : type == "answer" ? session->create_answer(message, description)
+            : session->add_ice_candidate(message, description);
+
+        if (!ret) {
+            code = varan::signaling::CODE_SESSION_NEGOTIATION;
+        }
+        return ret;
     }
 
-    return true;
+    description = "No supported type of recieved message!";
+    code = varan::signaling::CODE_UNKNOWN_MESSAGE;
+    return false;
 }

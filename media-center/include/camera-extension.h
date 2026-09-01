@@ -9,12 +9,13 @@
 namespace varan {
 namespace neural {
 
-	// Ответ клиенту от имени камеры: текст уйдет в сигналинг как есть
+	// Ответ клиенту от имени камеры: текст уйдет в сигналинг как есть,
 	using CModuleReply = std::function<void(
 		const std::string& client_id,
 		bool successed,
 		const std::string& type,
-		const std::string& description
+		const std::string& description,
+		int code
 	)>;
 
 	struct FStreamClaim {

@@ -50,7 +50,7 @@
         var theme = 'light';
         if (p.indexOf('/app/birdview') === 0) theme = 'birdview';
         else if (p.indexOf('/app/krsps') === 0) theme = 'krsps';
-        else if (p.indexOf('/app/neural') === 0 || p.indexOf('/kiosk') === 0 || p === '/') theme = 'dark';
+        else if (p.indexOf('/app/neural') === 0 || p.indexOf('/translation') === 0 || p.indexOf('/kiosk') === 0 || p === '/') theme = 'dark';
         document.getElementById('boot').setAttribute('data-theme', theme);
       })();
     </script>
