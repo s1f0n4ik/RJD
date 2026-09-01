@@ -54,6 +54,9 @@ namespace neural {
 		// Разбор пайплайна уходит в поток GMainLoop; wait — дождаться конца
 		void destroy_correction(bool wait);
 
+		// Разбор конкретного пайплайна, в том числе недособранного
+		void dispose_pipeline(std::unique_ptr<UCorrectionPipeline> victim, bool wait);
+
 	private:
 		std::string m_camera_id;
 

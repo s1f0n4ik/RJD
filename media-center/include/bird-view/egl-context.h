@@ -286,7 +286,12 @@ namespace birdview {
             );
 
             if (shared == EGL_NO_CONTEXT) {
-                if (logger) logger->error("create_shared_context(): failed to create shared context!");
+                if (logger) {
+                    std::ostringstream oss;
+                    oss << "create_shared_context(): failed to create shared context! egl error 0x"
+                        << std::hex << eglGetError();
+                    logger->error(oss.str());
+                }
                 return false;
             }
 
@@ -304,11 +309,39 @@ namespace birdview {
                 EGL_NONE
             };
 
-            if (eglCreatePbufferSurface(shared_context.display, shared_context.config, pbuffer_attribs) == EGL_NO_SURFACE) {
-                if (logger) logger->error("create_shared_surface(): cannot create shared surface for shared context!");
+            EGLSurface surface = eglCreatePbufferSurface(shared_context.display, shared_context.config, pbuffer_attribs);
+            if (surface == EGL_NO_SURFACE) {
+                if (logger) {
+                    std::ostringstream oss;
+                    oss << "create_shared_surface(): cannot create shared surface for shared context! egl error 0x"
+                        << std::hex << eglGetError();
+                    logger->error(oss.str());
+                }
                 return false;
             }
+
+            shared_surface = surface;
             return true;
+        }
+
+        // Освобождение контекста и поверхности, выданных create_shared_*; дисплей общий и не закрывается
+        static void destroy_shared_context(FEGLContext& shared_context) {
+            if (shared_context.display == EGL_NO_DISPLAY) {
+                return;
+            }
+
+            if (shared_context.surface != EGL_NO_SURFACE) {
+                eglDestroySurface(shared_context.display, shared_context.surface);
+                shared_context.surface = EGL_NO_SURFACE;
+            }
+
+            if (shared_context.context != EGL_NO_CONTEXT) {
+                eglDestroyContext(shared_context.display, shared_context.context);
+                shared_context.context = EGL_NO_CONTEXT;
+            }
+
+            shared_context.display = EGL_NO_DISPLAY;
+            shared_context.config = nullptr;
         }
 
         static std::string ptrToHex(const void* p) {

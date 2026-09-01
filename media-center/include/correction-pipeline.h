@@ -21,6 +21,9 @@ public:
 	// Карты и размер потока задаются до initialize(); карты обязаны совпасть с размером
 	bool set_maps(cv::Mat map_x, cv::Mat map_y, int width, int height, int fps, std::string& error);
 
+	// false — источник кадров без GL-контекста, поток коррекции будет пустым
+	bool is_source_ready() const;
+
 	virtual bool start() override;
 
 	virtual bool teardown_prefix() override;

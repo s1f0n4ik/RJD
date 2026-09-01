@@ -14,11 +14,12 @@ class UWebRTCSession {
 	#define OFFER_TIMEOUT = 10; // Таймаут для организации соединенеия с клиентом
 
 	using CSendMessage = std::function<void(const std::string& msg)>;
-	using CRemoveSession = std::function<bool(const std::string& client_id, std::string& description)>;
+	using CRemoveSession = std::function<bool(const std::string& session_id, std::string& description)>;
 
 public:
 	UWebRTCSession(
 		std::string client, 
+		std::string session, 
 		std::string camera, 
 		bool is_sub, 
 		GstElement* pipeline, 
@@ -48,7 +49,7 @@ public:
 	// Геттеры и сеттеры
 	void send_message(const std::string& msg);
 
-	void send_close_request(const std::string& msg, std::string& description);
+	void send_close_request(std::string& description);
 
 	GstElement* get_webrtcbin_element();
 
@@ -58,6 +59,8 @@ public:
 
 	std::string get_client_id();
 
+	const std::string& get_session_id() const { return m_session_id; }
+
 	void set_connected(bool is_connected);
 
 	ULogger* get_logger();
@@ -66,6 +69,7 @@ public:
 
 private:
 	std::string m_client_id;
+	std::string m_session_id;
 	std::string m_camera_name;
 
 	GstElement* m_pipeline = nullptr;

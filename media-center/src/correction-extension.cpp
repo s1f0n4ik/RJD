@@ -111,25 +111,13 @@ namespace neural {
 			if (auto* v = message.if_contains(rest::fields::STREAM); v && v->is_string()) {
 				wanted = (v->as_string().c_str() == STREAM_KEY);
 			}
-			// Легаси-флаг старого плеера 360, живёт до шага уборки
-			if (auto* v = message.if_contains("correction"); v && v->is_bool() && v->as_bool()) {
-				wanted = true;
-			}
-
 			// Просили коррекцию, а пайплайна нет — заявка с пустым потоком,
 			// камера ответит ошибкой вместо подмены
 			if (wanted) {
 				return { true, m_correction.get() };
 			}
 
-			return {};
 		}
-
-		// Продолжение уже установленной сессии
-		if (m_correction && m_correction->has_webrtc_session(client_id)) {
-			return { true, m_correction.get() };
-		}
-
 		return {};
 	}
 
@@ -289,15 +277,24 @@ namespace neural {
 			m_storage
 		);
 
+		// Источник без GL-контекста отдал бы пустой поток при успешном ответе
+		if (!pipeline->is_source_ready()) {
+			error = "GL context for the correction stream is unavailable";
+			code = varan::signaling::CODE_CORRECTION_BUILD;
+			return false;
+		}
+
 		if (!pipeline->set_maps(std::move(map_x), std::move(map_y), width, height, fps, error)) {
 			return false;
 		}
 		if (!pipeline->initialize()) {
 			error = "Cannot initialize the correction pipeline";
+			dispose_pipeline(std::move(pipeline), true);
 			return false;
 		}
 		if (!pipeline->start()) {
 			error = "Cannot start the correction pipeline";
+			dispose_pipeline(std::move(pipeline), true);
 			return false;
 		}
 
@@ -312,6 +309,10 @@ namespace neural {
 			std::lock_guard<std::mutex> lock(m_correction_mutex);
 			victim = std::move(m_correction);
 		}
+		dispose_pipeline(std::move(victim), wait);
+	}
+
+	void UCorrectionExtension::dispose_pipeline(std::unique_ptr<UCorrectionPipeline> victim, bool wait) {
 		if (!victim) return;
 
 		// Разбор gst-пайплайна — на потоке GMainLoop, как в UCamera::stop()
@@ -337,7 +338,7 @@ namespace neural {
 		if (wait) {
 			auto future = done->get_future();
 			if (future.wait_for(std::chrono::seconds(5)) == std::future_status::timeout) {
-				m_logger.error("destroy_correction(): teardown timeout");
+				m_logger.error("dispose_pipeline(): teardown timeout");
 			}
 		}
 	}

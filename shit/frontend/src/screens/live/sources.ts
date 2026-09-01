@@ -36,12 +36,10 @@ export interface WallSource {
     hasBirdview: boolean;
 }
 
-// Поток называем каналом и разрешением: «основной/превью» в модели больше нет
-function streamLabel(key: string, stream: CPPCamera['streams'][string]): string {
-    const parts = [`Канал ${stream.channel}`];
-    if (stream.substream) parts.push(`субпоток ${stream.substream}`);
-    if (stream.width && stream.height) parts.push(`${stream.width}×${stream.height}`);
-    return parts.join(' · ') || key;
+// Разрешение — единственное, что отличает потоки для глаза
+function streamLabel(stream: CPPCamera['streams'][string]): string {
+    if (stream.width && stream.height) return `${stream.width}×${stream.height}`;
+    return stream.substream ? `канал ${stream.channel} · ${stream.substream}` : `канал ${stream.channel}`;
 }
 
 export function cameraToWallSource(camera: CPPCamera): WallSource {
@@ -51,7 +49,7 @@ export function cameraToWallSource(camera: CPPCamera): WallSource {
         .filter(([, stream]) => stream.purposes?.includes('view'))
         .map(([key, stream]) => ({
             key,
-            label: streamLabel(key, stream),
+            label: streamLabel(stream),
             running: stream.status === CAMERA_STATUS.RUNNING,
         }));
 

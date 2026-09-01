@@ -37,6 +37,9 @@
 // Ключ потока камеры: stream_N или correction
 #define SIG_STREAM "stream"
 
+// Идентификатор webrtc-сессии
+#define SIG_SESSION "session_id"
+
 // Строковые коды ошибок потока: остаются рядом с числовыми, пока в сети
 // встречаются сборки интерфейса, которые их читают
 #define SIG_ERROR_RTSP_TIMEOUT       "RTSP_TIMEOUT"
@@ -63,6 +66,7 @@ namespace signaling {
 	inline constexpr int CODE_SESSION_NEGOTIATION   = 2005;  // отказ на offer, answer или ice
 	inline constexpr int CODE_SESSION_INTERNAL      = 2006;  // внутренняя ошибка сессии
 	inline constexpr int CODE_SESSION_RESTARTED     = 2007;  // сессию закрыл перезапуск потока
+	inline constexpr int CODE_SESSION_CLOSED        = 2008;  // камера закрыла сессию сама
 
 	// 3xxx — поток камеры
 	inline constexpr int CODE_RTSP_TIMEOUT       = 3001;

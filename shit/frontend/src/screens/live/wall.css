@@ -29,6 +29,17 @@
 
 .cell.is-sel { border-color: var(--acc); box-shadow: 0 0 0 1px var(--acc), 0 0 18px rgba(var(--acc-rgb), .28); }
 
+.cell.is-drop { border-color: var(--acc); box-shadow: inset 0 0 0 2px var(--acc), 0 0 20px rgba(var(--acc-rgb), .35); }
+
+/* Цель броска: затемнение поверх кадра, рамку даёт .is-drop */
+.cell-drop {
+    position: absolute;
+    inset: 0;
+    z-index: 15;
+    pointer-events: none;
+    background: rgba(8, 10, 14, .66);
+}
+
 .cell.is-off {
     background: var(--input);
     border-style: dashed;
@@ -67,6 +78,8 @@
 .cell-tools {
     position: absolute;
     right: 6px; top: 6px;
+    /* Выше жестового слоя 360, иначе кнопки не нажимаются */
+    z-index: 14;
     display: flex;
     gap: 4px;
     opacity: 0;
@@ -116,7 +129,15 @@
     pointer-events: none;
 }
 
-.cellv-tools { position: absolute; left: 6px; top: 30px; display: flex; flex-direction: column; gap: 4px; opacity: 0; transition: opacity .12s; }
+.cellv-tools {
+    position: absolute;
+    right: 6px; bottom: 6px;
+    z-index: 12;
+    display: flex;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity .12s;
+}
 .cell:hover .cellv-tools { opacity: 1; }
 
 @media (pointer: coarse) {
@@ -181,20 +202,6 @@
 
 .cellv-note-x:hover { color: var(--fg); background: rgba(255, 255, 255, .06); }
 
-.badge-360 {
-    position: absolute;
-    right: 8px; bottom: 8px;
-    font-family: var(--mono);
-    font-size: 10px;
-    padding: 2px 7px;
-    border-radius: 5px;
-    background: rgba(var(--acc-rgb), .12);
-    border: 1px solid rgba(var(--acc-rgb), .3);
-    color: var(--fg-2);
-    cursor: pointer;
-}
-
-.badge-360.is-on { background: rgba(var(--acc-rgb), .2); border-color: rgba(var(--acc-rgb), .4); color: var(--acc); }
 
 /* Плашка на разборе: ячейки гаснут под ней, а не на глазах */
 .wall-mask {

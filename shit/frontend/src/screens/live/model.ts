@@ -31,6 +31,8 @@ export interface Grid {
 export interface Overlays {
     name: boolean;
     time: boolean;
+    /** fps и битрейт в подписи ячейки */
+    stats: boolean;
 }
 
 export interface LayoutState {
@@ -49,7 +51,7 @@ export interface LayoutState {
     surround?: SavedLayout['surround'];
 }
 
-export const DEFAULT_OVERLAYS: Overlays = { name: true, time: false };
+export const DEFAULT_OVERLAYS: Overlays = { name: true, time: false, stats: true };
 
 // ── Пресеты ────────────────────────────────────────────────────
 

@@ -139,13 +139,19 @@ public:
 
 	void shedule_restart();
 
-	// code — причина отказа из signaling_definers.h; при успехе не трогается
-	virtual bool create_webrtc_session(const std::string& client_id, std::string& description, int& code);
-
-	virtual bool close_webrtc_session(const std::string& client_id, std::string& description, int& code);
-
-	virtual bool process_webrtc_session(
+	// Создание сессии
+	virtual bool create_webrtc_session(
 		const std::string& client_id,
+		const std::string& session_id,
+		std::string& description,
+		int& code
+	);
+
+	virtual bool close_webrtc_session(const std::string& session_id, std::string& description, int& code);
+
+	// Обработка функций внутри сессии (передача кандидатов, контракта и тд)
+	virtual bool process_webrtc_session(
+		const std::string& session_id,
 		const boost::json::object& message,
 		const std::string& type,
 		std::string& description,
@@ -160,9 +166,12 @@ public:
 
 	const varan::nvr::FStreamPurposes& get_purposes() const { return m_parameters.purposes; }
 
+	// Ключ потока: stream_N или correction
+	const std::string& get_stream_key() const { return m_parameters.name; }
+
 	// Сессии живут на потоке вебсокета камеры, читать оттуда же
-	bool has_webrtc_session(const std::string& client_id) const {
-		return m_webrtc_sessions.count(client_id) > 0;
+	bool has_webrtc_session(const std::string& session_id) const {
+		return m_webrtc_sessions.count(session_id) > 0;
 	}
 
 	size_t webrtc_session_count() const {
@@ -206,6 +215,7 @@ protected:
 	std::mutex m_teardown_mutex;
 	// Словарь сессий webrtcbin
 	// Ключ - клиент, с которым установлена сессия
+	// Ключ — идентификатор сессии
 	std::map<std::string, std::unique_ptr<UWebRTCSession>> m_webrtc_sessions;
 
 	// параметры самого pipeline
@@ -219,6 +229,7 @@ protected:
 	std::atomic<bool> m_is_playing{false};
 	std::atomic<EPipelineStatus> m_status{ EPipelineStatus::NONE };
 
+	// Удержание клиентов во время удаления сессий
 	std::set<std::string> m_pending_teardown_clients;
 
 	// Поток для рестарта
@@ -298,7 +309,12 @@ public:
 
 	virtual bool teardown_prefix() override;
 
-	virtual bool create_webrtc_session(const std::string& client_id, std::string& description, int& code) override;
+	virtual bool create_webrtc_session(
+		const std::string& client_id,
+		const std::string& session_id,
+		std::string& description,
+		int& code
+	) override;
 
 	virtual FPipelineData get_pipeline_data() override;
 
@@ -360,7 +376,12 @@ public:
 
 	virtual bool teardown_prefix() override;
 
-	virtual bool create_webrtc_session(const std::string& client_id, std::string& description, int& code) override;
+	virtual bool create_webrtc_session(
+		const std::string& client_id,
+		const std::string& session_id,
+		std::string& description,
+		int& code
+	) override;
 
 	virtual FPipelineData get_pipeline_data() override;
 

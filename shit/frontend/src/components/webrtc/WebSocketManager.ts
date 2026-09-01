@@ -32,6 +32,8 @@ export interface ConnectionResponseMsg {
     ret: 'success' | 'error' | string;
     client_id: string;
     camera: string;
+    /** Идентификатор сессии: возвращается во всех дальнейших сообщениях */
+    session_id?: string;
     description?: string;
 }
 
@@ -70,6 +72,7 @@ export interface ConnectionRequestPayload {
 export interface IceCandidatePayload {
     client_id: string;
     camera: string;
+    session_id: string;
     candidate: string;
     sdpMLineIndex: number | null;
     sdpMid: string | null;
@@ -79,12 +82,14 @@ export interface IceCandidatePayload {
 export interface AnswerPayload {
     client_id: string;
     camera: string;
+    session_id: string;
     sdp: string;
 }
 
 export interface ClosePayload {
     client_id: string;
     camera: string;
+    session_id: string;
     description?: string;
 }
 
@@ -133,13 +138,20 @@ export class WebSocketManager {
      * Отправить connection-request (запрос на подключение к камере).
      */
     sendConnectionRequest(payload: ConnectionRequestPayload): boolean {
-        return this.send({
+        const message: Record<string, unknown> = {
             type: 'connection',
             client_id: payload.client_id,
             camera: payload.camera,
             description: 'connect_request from client',
             ret: 'none',
-        });
+        };
+
+        // Пусто — камера сама возьмёт первый смотрибельный поток
+        if (payload.stream) {
+            message.stream = payload.stream;
+        }
+
+        return this.send(message);
     }
 
     /**
@@ -150,6 +162,7 @@ export class WebSocketManager {
             type: 'ice',
             client_id: payload.client_id,
             camera: payload.camera,
+            session_id: payload.session_id,
             candidate: payload.candidate,
             sdpMLineIndex: payload.sdpMLineIndex,
             sdpMid: payload.sdpMid,
@@ -165,6 +178,7 @@ export class WebSocketManager {
             type: 'answer',
             client_id: payload.client_id,
             camera: payload.camera,
+            session_id: payload.session_id,
             description: 'SDP answer from client',
             sdp: payload.sdp,
         });
@@ -179,6 +193,7 @@ export class WebSocketManager {
             type: 'close',
             client_id: payload.client_id,
             camera: payload.camera,
+            session_id: payload.session_id,
             description: payload.description ?? 'client disconnect',
         });
     }

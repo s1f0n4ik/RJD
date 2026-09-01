@@ -616,24 +616,30 @@ bool UCameraStreamPipeline::destroy_branch(FPipelineBranch& branch)
 	return true;
 }
 
-bool UCameraStreamPipeline::create_webrtc_session(const std::string& client_id, std::string& description, int& code)
+bool UCameraStreamPipeline::create_webrtc_session(
+	const std::string& client_id,
+	const std::string& session_id,
+	std::string& description,
+	int& code
+)
 {
 	std::string client = client_id;
-	if (!UCameraPipeline::create_webrtc_session(client, description, code)) {
+	if (!UCameraPipeline::create_webrtc_session(client, session_id, description, code)) {
 		return false;
 	}
 
 	auto session = std::make_unique<UWebRTCSession>(
 		client,
+		session_id,
 		m_parameters.camera_name,
 		false,
 		m_pipeline,
 		m_tees[std::string(MAIN_TEE)],
 		m_send_callback,
 		std::move(
-			[this](const std::string& client, std::string& description) {
+			[this](const std::string& session, std::string& description) {
 				int close_code = 0;
-				return this->close_webrtc_session(client, description, close_code);
+				return this->close_webrtc_session(session, description, close_code);
 			}
 		),
 		m_logger.get()
@@ -645,7 +651,7 @@ bool UCameraStreamPipeline::create_webrtc_session(const std::string& client_id, 
 		return false;
 	}
 
-	auto [it, inserted] = m_webrtc_sessions.emplace(client, std::move(session));
+	auto [it, inserted] = m_webrtc_sessions.emplace(session_id, std::move(session));
 
 	auto ret = it->second->create_branch(m_probe.codec_name);
 	if (ret) {

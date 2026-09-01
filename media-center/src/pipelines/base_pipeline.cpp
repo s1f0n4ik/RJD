@@ -145,10 +145,9 @@ bool UCameraPipeline::teardown(bool is_blocking)
 
     m_is_playing = false;
 
-    // Удаляем все сессии. Клиенту об этом говорим: иначе его peer-connection
-    // остаётся «подключённым» без кадров и переподключаться он не начнёт
-    for (const auto& [name, session] : m_webrtc_sessions) {
-        broadcast_session_closed(name, varan::signaling::CODE_SESSION_RESTARTED,
+    // Удаление всех сессий, отправление клиентам сообщения о закрытии
+    for (const auto& [id, session] : m_webrtc_sessions) {
+        broadcast_session_closed(session->get_client_id(), varan::signaling::CODE_SESSION_RESTARTED,
             "session closed by stream teardown");
         session->teardown();
     }
@@ -657,7 +656,12 @@ void UCameraPipeline::on_rtsp_pad_added(GstElement*, GstPad* pad, gpointer user_
     gst_caps_unref(caps);
 }
 
-bool UCameraPipeline::create_webrtc_session(const std::string& client_id, std::string& description, int& code) {
+bool UCameraPipeline::create_webrtc_session(
+    const std::string& client_id,
+    const std::string& session_id,
+    std::string& description,
+    int& code
+) {
     std::ostringstream oss_error;
 
     if (!m_probe.ready()) {
@@ -668,14 +672,14 @@ bool UCameraPipeline::create_webrtc_session(const std::string& client_id, std::s
     }
 
     if (m_pending_teardown_clients.count(client_id)) {
-        description = "Session with " + client_id + " is still tearing down, try again later.";
+        description = "Previous session of " + client_id + " is still tearing down, try again later.";
         code = varan::signaling::CODE_SESSION_CREATE_FAILED;
         return false;
     }
 
-    auto ses_it = m_webrtc_sessions.find(client_id);
+    auto ses_it = m_webrtc_sessions.find(session_id);
     if (ses_it != m_webrtc_sessions.end()) {
-        oss_error << "Session with " << client_id << " in " << m_parameters.name << " pipeline already exists!";
+        oss_error << "Session " << session_id << " in " << m_parameters.name << " pipeline already exists!";
         description = oss_error.str();
         code = varan::signaling::CODE_SESSION_EXISTS;
         return false;
@@ -684,10 +688,10 @@ bool UCameraPipeline::create_webrtc_session(const std::string& client_id, std::s
     return true;
 }
 
-bool UCameraPipeline::close_webrtc_session(const std::string& client_id, std::string& description, int& code) {
-    auto it = m_webrtc_sessions.find(client_id);
+bool UCameraPipeline::close_webrtc_session(const std::string& session_id, std::string& description, int& code) {
+    auto it = m_webrtc_sessions.find(session_id);
     if (it == m_webrtc_sessions.end()) {
-        description = "Cannot close session with " + client_id + ": session doesn't exist!";
+        description = "Cannot close session " + session_id + ": session doesn't exist!";
         code = varan::signaling::CODE_SESSION_NOT_FOUND;
         return false;
     }
@@ -695,7 +699,9 @@ bool UCameraPipeline::close_webrtc_session(const std::string& client_id, std::st
     std::unique_ptr<UWebRTCSession> session = std::move(it->second);
     m_webrtc_sessions.erase(it);
 
-    // Помечаем что сессия с этим клиентом ещё рвётся
+    // Пока сессия рвётся, новую этому клиенту не создаём: разбор и создание
+    // сходятся на одном tee и мешают друг другу
+    const std::string client_id = session->get_client_id();
     m_pending_teardown_clients.insert(client_id);
 
     bool needs_restart = session->is_timeout_triggered();
@@ -724,27 +730,27 @@ bool UCameraPipeline::close_webrtc_session(const std::string& client_id, std::st
     );
 
     if (needs_restart) {
-        description = "Session with " + client_id + " closed by timeout, scheduling pipeline restart.";
+        description = "Session " + session_id + " closed by timeout, scheduling pipeline restart.";
         shedule_restart();
     }
     else {
-        description = "Session with " + client_id + " closed successfully.";
+        description = "Session " + session_id + " closed successfully.";
     }
 
     return true;
 }
 
 bool UCameraPipeline::process_webrtc_session(
-    const std::string& client_id, 
+    const std::string& session_id, 
     const boost::json::object& message,
     const std::string& type,
     std::string& description,
     int& code
 ) {
     // Проверяем есть ли сессия
-    auto it_client = m_webrtc_sessions.find(client_id);
+    auto it_client = m_webrtc_sessions.find(session_id);
     if (it_client == m_webrtc_sessions.end()) {
-        description = "Cannot process message: session with client " + client_id + " doesn't exist!";
+        description = "Cannot process message: session " + session_id + " doesn't exist!";
         code = varan::signaling::CODE_SESSION_NOT_FOUND;
         return false;
     }

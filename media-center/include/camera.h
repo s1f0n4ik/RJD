@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <iostream>
 #include <thread>
 #include <functional>
@@ -119,6 +120,12 @@ namespace neural {
 			const boost::json::object& message
 		);
 
+		// Новый идентификатор сессии; уникален в пределах камеры
+		std::string make_session_id();
+
+		// Поток, который держит сессию; nullptr — сессии нет
+		UCameraPipeline* find_session_stream(const std::string& session_id, int& code);
+
 		// Функция хелпер для выбора на какой webrtc поток отправляются сообщения
 		UCameraPipeline* select_web_stream(
 			const std::string& client_id,
@@ -180,6 +187,10 @@ namespace neural {
 
 		// Поля Gstream для считывания кадров
 		std::map<std::string, std::unique_ptr<UCameraPipeline>> m_streams;
+
+		// Реестр сессий, сессия нужна для просмотра одним клиентом нескольких потоков
+		std::map<std::string, UCameraPipeline*> m_sessions;
+		std::uint64_t m_session_counter = 0;
 
 		// Надстройки модулей: коррекция 360 и все, что придет следом
 		std::vector<std::unique_ptr<ICameraExtension>> m_extensions;

@@ -49,6 +49,11 @@ namespace varan {
 			return true;
 		}
 
+		if (!m_initialized_context) {
+			log_and_send_message("start_handler_thread(): cannot start thread, shared GL context is not initialized", ULogger::ELoggerLevel::ERROR, send);
+			return false;
+		}
+
 		if (!m_storage || !m_storage->is_exists(slot_name)) {
 			log_and_send_message("process_images(): slot " + slot_name + " at storage doesn't exists!", ULogger::ELoggerLevel::ERROR, send);
 			return false;
@@ -114,11 +119,13 @@ namespace varan {
 	{
 		if (!m_initialized_context) {
 			log_and_send_message("process_images(): cannot start processing loop, context doesn't initialized", ULogger::ELoggerLevel::ERROR, send);
+			m_running_thread = false;
 			return;
 		}
 
 		if (!m_storage->is_exists(current_slot())) {
 			//log_and_send_message("process_images(): slot " + storage_slot + " at storage doesn't exists!", ULogger::ELoggerLevel::ERROR, send);
+			m_running_thread = false;
 			return;
 		}
 
@@ -126,6 +133,7 @@ namespace varan {
 		// Установление контекста
 		if (!eglMakeCurrent(m_context.display, m_context.surface, m_context.surface, m_context.context)) {
 			log_and_send_message("process_images(): cannot start processing loop, context didn't current", ULogger::ELoggerLevel::ERROR, send);
+			m_running_thread = false;
 			return;
 		}
 
@@ -133,6 +141,8 @@ namespace varan {
 		auto render = UImageConverter();
 		if (init_converter(render) == false) {
 			log_and_send_message("processing_loop(): render didn't initialize, abort linking loop!", ULogger::ELoggerLevel::ERROR, send);
+			eglMakeCurrent(m_context.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+			m_running_thread = false;
 			return;
 		}
 
@@ -240,9 +250,22 @@ namespace varan {
 		render.unbind_fbo();
 		render.destroy_fbo();
 		eglMakeCurrent(m_context.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+		m_running_thread = false;
 	}
 
-	UImageHandler::~UImageHandler() {}
+	UImageHandler::~UImageHandler() {
+		// Поток обработки гасится, если наследник этого не сделал
+		if (m_handler_thread.joinable()) {
+			if (m_running_thread) {
+				m_logger.warn("Destructor: handler thread is still running, stopping it");
+			}
+			m_running_thread = false;
+			m_handler_thread.join();
+		}
+
+		birdview::UEGLContextManager::destroy_shared_context(m_context);
+		m_initialized_context = false;
+	}
 
 	void UImageHandler::log_and_send_message(
 		const std::string& message,

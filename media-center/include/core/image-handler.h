@@ -35,6 +35,9 @@ namespace varan {
 
 		bool is_running();
 
+		// false — shared-контекст не создался, обработка кадров невозможна
+		bool is_context_initialized() const { return m_initialized_context; }
+
 		void stop_handler_thread(std::function<void(const std::string& message)> send = nullptr);
 
 		// Смена источника кадров без перезапуска потока обработки.

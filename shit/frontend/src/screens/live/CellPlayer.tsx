@@ -8,6 +8,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { isTransient, type ErrorInfo } from '../../components/webrtc/error-codes';
 import {
     useWebRTCPlayer,
     type PlayerMessage,
@@ -15,7 +16,6 @@ import {
     type PlayerStatus,
 } from '../../components/webrtc/useWebRTCPlayer';
 import { drawDetections, type Detection, type Track } from '../../components/webrtc/detections';
-import { fetchCalibrationLinks } from '../../features/birdview/api/links';
 import { formatDeviceDate, formatDeviceTime } from '../../app/useDeviceClock';
 import { Icon } from '../../app/Icons';
 import { CellFlash, CellState, useFlash } from './CellOverlays';
@@ -25,7 +25,10 @@ import type { Overlays } from './model';
 const CORRECTION_STREAM = 'correction';
 
 // Сколько ждём ответа камеры на запрос коррекции
-const CORRECTION_TIMEOUT_MS = 15_000;
+const CORRECTION_TIMEOUT_MS = 5000;
+
+// Камера отказала: коррекцию просили, а пайплайна нет
+const CODE_CORRECTION_MISSING = 4003;
 
 interface CellPlayerProps {
     cameraId: string;
@@ -35,7 +38,7 @@ interface CellPlayerProps {
     streamKey?: string;
     /** У камеры есть поток с назначением neural */
     canDetect: boolean;
-    /** У камеры есть поток с назначением birdview */
+    /** Коррекция применима: есть поток birdview и настроено сопоставление */
     canCorrect: boolean;
     corrected: boolean;
     onCorrectedChange: (value: boolean) => void;
@@ -47,8 +50,12 @@ interface CellPlayerProps {
     onStatus?: (status: PlayerStatus) => void;
     /** Измеренные показатели наружу — их показывает блок «Ячейка N» */
     onStats?: (stats: PlayerStats | null) => void;
-    /** Кнопки слоёв в самой ячейке */
-    controls?: boolean;
+    /** Какие кнопки слоёв показывать в самой ячейке */
+    controls?: 'none' | 'correction' | 'all';
+    /** Запрос коррекции извне: правая колонка идёт тем же путём, что кнопка */
+    correctionRequest?: { enable: boolean; nonce: number };
+    /** Идёт запрос: пока он не завершён, переключать нечего */
+    onCorrectionBusy?: (busy: boolean) => void;
 }
 
 function num(value: number | null | undefined, digits: number): string {
@@ -71,7 +78,9 @@ export function CellPlayer({
     collectStats,
     onStatus,
     onStats,
-    controls = true,
+    controls = 'all',
+    correctionRequest,
+    onCorrectionBusy,
 }: CellPlayerProps) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const boxRef = useRef<HTMLDivElement>(null);
@@ -81,10 +90,11 @@ export function CellPlayer({
     const tracksRef = useRef<Track[]>([]);
 
     const [switching, setSwitching] = useState(false);
-    const [correctionAvailable, setCorrectionAvailable] = useState(false);
 
     const pendingRef = useRef(false);
     const switchTimerRef = useRef<number | null>(null);
+    const switchingRef = useRef(false);
+    switchingRef.current = switching;
 
     const { flash, show: showNote, hide: hideNote } = useFlash();
 
@@ -120,11 +130,12 @@ export function CellPlayer({
             settle();
 
             if (msg.ret === 'success') {
-                // Пайплайн собран — переподключаемся на его поток
-                onCorrectedChange(true);
+                // Пайплайн собран; сессию поднимет очередная попытка плеера
                 return;
             }
 
+            // Просьба не выполнена: намерение снимаем, чтобы интерфейс не врал
+            onCorrectedChange(false);
             showNote(typeof msg.description === 'string' && msg.description
                 ? `Коррекция недоступна: ${msg.description}`
                 : 'Камера не смогла включить коррекцию');
@@ -133,7 +144,7 @@ export function CellPlayer({
 
     const stream = corrected ? CORRECTION_STREAM : streamKey;
 
-    const { status, errorInfo, videoRef, stats, send } = useWebRTCPlayer({
+    const { status, errorInfo, attempt, grantedStream, videoRef, stats, send } = useWebRTCPlayer({
         cameraId,
         stream,
         signalingUrl,
@@ -149,34 +160,18 @@ export function CellPlayer({
         onStats?.(stats);
     }, [stats, onStats]);
 
-    // Коррекционная сессия не поднялась — возвращаемся на обычный поток.
-    // Отказов у камеры может быть много подряд, откатываем один раз
-    const revertedRef = useRef(false);
-
     useEffect(() => {
-        if (!corrected) {
-            revertedRef.current = false;
-            return;
-        }
-        if (revertedRef.current || status !== 'reconnecting' || !errorInfo) return;
+        onCorrectionBusy?.(switching);
+    }, [switching, onCorrectionBusy]);
 
-        revertedRef.current = true;
+    // Камера отдала не тот поток, что просили: тумблер не должен это скрывать
+    useEffect(() => {
+        if (!corrected || grantedStream === null) return;
+        if (grantedStream === CORRECTION_STREAM) return;
+
         onCorrectedChange(false);
-        showNote('Поток коррекции недоступен — возврат к обычному режиму', errorInfo.code);
-    }, [corrected, status, errorInfo, onCorrectedChange, showNote]);
-
-    // Тумблер коррекции показывается только у камер с сопоставлением калибровки
-    useEffect(() => {
-        if (!canCorrect) {
-            setCorrectionAvailable(false);
-            return;
-        }
-        let alive = true;
-        fetchCalibrationLinks()
-            .then(data => { if (alive) setCorrectionAvailable(Boolean(data.links[cameraId])); })
-            .catch(() => { if (alive) setCorrectionAvailable(false); });
-        return () => { alive = false; };
-    }, [canCorrect, cameraId]);
+        showNote('Камера отдала обычный поток вместо коррекции');
+    }, [corrected, grantedStream, onCorrectedChange, showNote]);
 
     useEffect(() => () => {
         if (switchTimerRef.current) window.clearTimeout(switchTimerRef.current);
@@ -186,7 +181,7 @@ export function CellPlayer({
     // пока картинка есть, занимать ею центр незачем
     useEffect(() => {
         if (status !== 'streaming' || !errorInfo) return;
-        showNote(errorInfo.text, errorInfo.code);
+        showNote(errorInfo.text, errorInfo.code, isTransient(errorInfo.code) ? 'info' : 'err');
     }, [status, errorInfo, showNote]);
 
     // ─── Отрисовка рамок ────────────────────────────────────────
@@ -225,29 +220,49 @@ export function CellPlayer({
 
     // ─── Коррекция ──────────────────────────────────────────────
 
-    const toggleCorrection = () => {
-        if (switching) return;
+    // Нажатие меняет намерение: ячейка сразу просит поток коррекции
+    const applyCorrection = useCallback((enable: boolean) => {
+        if (switchingRef.current) return;
+        onCorrectedChange(enable);
+    }, [onCorrectedChange]);
 
-        if (corrected) {
-            // Выключение сообщений не требует: connection уйдёт с обычным потоком
-            onCorrectedChange(false);
-            return;
-        }
+    // Пайплайна коррекции на устройстве может не быть: сетку сохранили с
+    // коррекцией, а камера с тех пор перезапускалась. Камера отказывает кодом
+    // 4003, мы просим собрать пайплайн, сессию поднимет очередная попытка.
+    // Отметка нужна, чтобы на один отказ приходилась одна просьба: причина
+    // живёт до следующего успешного подключения
+    const handledFaultRef = useRef<ErrorInfo | null>(null);
 
+    useEffect(() => {
+        if (!corrected || switching) return;
+        if (errorInfo?.code !== CODE_CORRECTION_MISSING) return;
+        if (handledFaultRef.current === errorInfo) return;
+
+        handledFaultRef.current = errorInfo;
         setSwitching(true);
         pendingRef.current = true;
         switchTimerRef.current = window.setTimeout(() => {
             pendingRef.current = false;
             settle();
+            onCorrectedChange(false);
             showNote('Камера не ответила на запрос коррекции');
         }, CORRECTION_TIMEOUT_MS);
 
         if (!send({ type: 'correction', meta: { enable: true } })) {
             pendingRef.current = false;
             settle();
-            showNote('Нет соединения с камерой');
+            showNote('Нет связи с камерой');
         }
-    };
+    }, [corrected, switching, errorInfo, send, settle, showNote, onCorrectedChange]);
+
+    // Запрос из правой колонки: nonce отличает новое нажатие от перерисовки
+    const lastRequestRef = useRef(correctionRequest?.nonce ?? 0);
+
+    useEffect(() => {
+        if (!correctionRequest || correctionRequest.nonce === lastRequestRef.current) return;
+        lastRequestRef.current = correctionRequest.nonce;
+        applyCorrection(correctionRequest.enable);
+    }, [correctionRequest, applyCorrection]);
 
     // ─── Разметка ───────────────────────────────────────────────
 
@@ -259,17 +274,18 @@ export function CellPlayer({
 
             {detectionsOn && <canvas ref={canvasRef} className="cellv-canvas" />}
 
-            <div className="cell-bar">
-                {overlays.name && <span className="nm">{cameraName}</span>}
-                {/* До первого кадра числа показывать нечего — состояние в центре */}
-                {live && (
-                    <span className="num">
-                        {num(stats?.fps, 1)} fps · {num(stats?.mbits, 1)} Мбит/с
-                    </span>
-                )}
-            </div>
+            {(overlays.name || (live && overlays.stats)) && (
+                <div className="cell-bar">
+                    {overlays.name && <span className="nm">{cameraName}</span>}
+                    {live && overlays.stats && (
+                        <span className="num">
+                            {num(stats?.fps, 1)} fps · {num(stats?.mbits, 1)} Мбит/с
+                        </span>
+                    )}
+                </div>
+            )}
 
-            {!live && <CellState status={status} error={errorInfo} />}
+            {!live && <CellState status={status} error={errorInfo} attempt={attempt} />}
 
             {overlays.time && (
                 <span className="cellv-time">
@@ -277,9 +293,9 @@ export function CellPlayer({
                 </span>
             )}
 
-            {controls && (canDetect || correctionAvailable) && (
-                <div className="cellv-tools">
-                    {canDetect && (
+            {(canCorrect || (controls === 'all' && canDetect)) && controls !== 'none' && (
+                <div className="cellv-tools" onDoubleClick={event => event.stopPropagation()}>
+                    {controls === 'all' && canDetect && (
                         <button
                             className={`cellv-btn${showDetections ? ' is-on' : ''}`}
                             title={showDetections ? 'Скрыть рамки обнаружений' : 'Показать рамки обнаружений'}
@@ -288,14 +304,14 @@ export function CellPlayer({
                             <Icon name="eye" />
                         </button>
                     )}
-                    {correctionAvailable && (
+                    {canCorrect && (
                         <button
                             className={`cellv-btn${corrected ? ' is-on' : ''}`}
                             title={corrected ? 'Выключить коррекцию' : 'Включить коррекцию дисторсии'}
                             disabled={switching}
-                            onClick={event => { event.stopPropagation(); toggleCorrection(); }}
+                            onClick={event => { event.stopPropagation(); applyCorrection(!corrected); }}
                         >
-                            <Icon name="360" />
+                            <Icon name="undist" />
                         </button>
                     )}
                 </div>

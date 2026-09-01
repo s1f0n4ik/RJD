@@ -18,11 +18,16 @@ import {
     type PlayerStatus,
 } from '../../components/webrtc/useWebRTCPlayer';
 import { getVideoContentRect } from '../../components/webrtc/video-rect';
+import { Icon } from '../../app/Icons';
 import { formatDeviceDate, formatDeviceTime } from '../../app/useDeviceClock';
+import { describeError } from '../../components/webrtc/error-codes';
 import { CellFlash, CellState, useFlash } from './CellOverlays';
 import type { Overlays } from './model';
 
 const SEND_INTERVAL_MS = 33;
+
+// Сколько ждём подтверждения смены режима вращения
+const ORBIT_TIMEOUT_MS = 5000;
 const WHEEL_ZOOM_STEP = 0.0008;
 
 interface SurroundCellProps {
@@ -35,6 +40,8 @@ interface SurroundCellProps {
     /** Режим орбиты из сохранённого отображения */
     initialManual?: boolean;
     onManualChange?: (manual: boolean) => void;
+    /** Жест начался: пока он идёт, ячейку нельзя перетаскивать */
+    onGestureLock?: (locked: boolean) => void;
     onStatus?: (status: PlayerStatus) => void;
     onStats?: (stats: PlayerStats | null) => void;
 }
@@ -52,6 +59,7 @@ export function SurroundCell({
     collectStats,
     initialManual,
     onManualChange,
+    onGestureLock,
     onStatus,
     onStats,
 }: SurroundCellProps) {
@@ -67,6 +75,19 @@ export function SurroundCell({
 
     const [manual, setManual] = useState(Boolean(initialManual));
     const [dragging, setDragging] = useState(false);
+    // Ответ ещё не пришёл: кнопка ждёт устройство, а не гадает
+    const [pending, setPending] = useState(false);
+    const pendingTimerRef = useRef<number | null>(null);
+
+    const { flash, show: showFlash, hide: hideFlash } = useFlash();
+
+    const settleOrbit = useCallback(() => {
+        setPending(false);
+        if (pendingTimerRef.current) {
+            window.clearTimeout(pendingTimerRef.current);
+            pendingTimerRef.current = null;
+        }
+    }, []);
 
     const handleMessage = useCallback((msg: PlayerMessage) => {
         if (msg.type !== 'orbit') return;
@@ -76,19 +97,20 @@ export function SurroundCell({
             if (description.startsWith('mode=')) {
                 const on = description === 'mode=manual';
                 confirmedRef.current = on;
+                settleOrbit();
                 setManual(on);
                 onManualChange?.(on);
             }
             return;
         }
 
-        // Отказ устройства откатывает кнопку к подтверждённому состоянию
-        setManual(confirmedRef.current);
-    }, [onManualChange]);
+        // Отказ ничего не переключает: показываем причину и оставляем как было
+        settleOrbit();
+        const info = describeError(msg);
+        showFlash(info.text, info.code);
+    }, [onManualChange, settleOrbit, showFlash]);
 
-    const { flash, show: showFlash, hide: hideFlash } = useFlash();
-
-    const { status, errorInfo, videoRef, stats, send } = useWebRTCPlayer({
+    const { status, errorInfo, attempt, videoRef, stats, send } = useWebRTCPlayer({
         cameraId: streamId,
         signalingUrl,
         collectStats,
@@ -108,6 +130,10 @@ export function SurroundCell({
         if (status !== 'streaming' || !errorInfo) return;
         showFlash(errorInfo.text, errorInfo.code);
     }, [status, errorInfo, showFlash]);
+
+    useEffect(() => () => {
+        if (pendingTimerRef.current) window.clearTimeout(pendingTimerRef.current);
+    }, []);
 
     // Слой жестов держится точно по кадру: при contain по краям поля
     useEffect(() => {
@@ -165,16 +191,25 @@ export function SurroundCell({
         }
     }, [initialManual, status, send]);
 
+    // Состояние меняется только по ответу устройства
     const toggleManual = () => {
-        const next = !manual;
-        // Оптимистично: отказ устройства откатит ответом orbit
-        if (send({ type: 'orbit', mode: next ? 'manual' : 'auto' })) {
-            setManual(next);
-            onManualChange?.(next);
+        if (pending) return;
+
+        if (!send({ type: 'orbit', mode: manual ? 'auto' : 'manual' })) {
+            showFlash('Нет связи с устройством');
+            return;
         }
+
+        setPending(true);
+        pendingTimerRef.current = window.setTimeout(() => {
+            pendingTimerRef.current = null;
+            setPending(false);
+            showFlash('Устройство не ответило на смену режима вращения');
+        }, ORBIT_TIMEOUT_MS);
     };
 
     const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+        onGestureLock?.(true);
         event.currentTarget.setPointerCapture(event.pointerId);
         pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
         if (pointersRef.current.size === 2) {
@@ -214,7 +249,10 @@ export function SurroundCell({
     const onPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
         pointersRef.current.delete(event.pointerId);
         pinchRef.current = 0;
-        if (pointersRef.current.size === 0) setDragging(false);
+        if (pointersRef.current.size === 0) {
+            setDragging(false);
+            onGestureLock?.(false);
+        }
     };
 
     const live = status === 'streaming';
@@ -232,16 +270,18 @@ export function SurroundCell({
                 onPointerCancel={onPointerUp}
             />
 
-            <div className="cell-bar">
-                {overlays.name && <span className="nm">{name}</span>}
-                {live && (
-                    <span className="num">
-                        {num(stats?.fps, 1)} fps · {num(stats?.mbits, 1)} Мбит/с
-                    </span>
-                )}
-            </div>
+            {(overlays.name || (live && overlays.stats)) && (
+                <div className="cell-bar">
+                    {overlays.name && <span className="nm">{name}</span>}
+                    {live && overlays.stats && (
+                        <span className="num">
+                            {num(stats?.fps, 1)} fps · {num(stats?.mbits, 1)} Мбит/с
+                        </span>
+                    )}
+                </div>
+            )}
 
-            {!live && <CellState status={status} error={errorInfo} />}
+            {!live && <CellState status={status} error={errorInfo} attempt={attempt} />}
             {live && flash && <CellFlash flash={flash} onClose={hideFlash} />}
 
             {overlays.time && (
@@ -250,13 +290,16 @@ export function SurroundCell({
                 </span>
             )}
 
-            <button
-                className={`badge-360${manual ? ' is-on' : ''}`}
-                title={manual ? 'Ручное вращение включено' : 'Включить ручное вращение'}
-                onClick={event => { event.stopPropagation(); toggleManual(); }}
-            >
-                вращение
-            </button>
+            <div className="cellv-tools" onDoubleClick={event => event.stopPropagation()}>
+                <button
+                    className={`cellv-btn${manual ? ' is-on' : ''}`}
+                    title={manual ? 'Выключить ручное вращение' : 'Включить ручное вращение'}
+                    disabled={pending}
+                    onClick={event => { event.stopPropagation(); toggleManual(); }}
+                >
+                    <Icon name="360" />
+                </button>
+            </div>
         </div>
     );
 }

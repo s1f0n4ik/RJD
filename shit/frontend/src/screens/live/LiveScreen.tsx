@@ -23,6 +23,7 @@ import type { PlayerStats } from '../../components/webrtc/useWebRTCPlayer';
 import { Wall } from './Wall';
 import { FreeGridModal } from './FreeGridModal';
 import { cameraToWallSource, resolveStream, virtualToWallSource, type WallSource } from './sources';
+import { useCorrectionLinks } from './useCorrectionLinks';
 import {
     emptyLayout,
     layoutFromSaved,
@@ -31,6 +32,7 @@ import {
     PRESETS,
     type Grid,
     type LayoutState,
+    type Overlays,
 } from './model';
 import './live.css';
 
@@ -52,6 +54,7 @@ function num(value: number | null | undefined, digits: number): string {
 export default function LiveScreen() {
     const navigate = useNavigate();
     const { layouts, loading, loadError, opError, save, remove } = useLayouts();
+    const correctionLinks = useCorrectionLinks();
     const { unixMs } = useDeviceClock();
 
     const [cameras, setCameras] = useState<CPPCamera[]>([]);
@@ -69,8 +72,15 @@ export default function LiveScreen() {
     const [selectedSource, setSelectedSource] = useState<string | null>(null);
     const [counts, setCounts] = useState({ live: 0, total: 0 });
     const [cellStats, setCellStats] = useState<PlayerStats | null>(null);
+    // Коррекция включается только с подтверждением камеры, поэтому правая
+    // колонка не правит отображение сама, а просит об этом ячейку
+    const [correctionRequest, setCorrectionRequest] = useState<
+        { cameraId: string; enable: boolean; nonce: number } | null>(null);
+    const [correctionBusy, setCorrectionBusy] = useState<Record<string, boolean>>({});
+    const requestSeq = useRef(0);
 
     const [overlaysOpen, setOverlaysOpen] = useState(false);
+    const overlaysRef = useRef<HTMLDivElement>(null);
     const [freeGridOpen, setFreeGridOpen] = useState(false);
     const [saveName, setSaveName] = useState<string | null>(null);
     const [confirmDelete, setConfirmDelete] = useState(false);
@@ -146,6 +156,16 @@ export default function LiveScreen() {
         const found = layouts.find(item => item.name === lastName) ?? layouts[0] ?? null;
         applyLayout(found);
     }, [loading, layouts, applyLayout]);
+
+    useEffect(() => {
+        if (!overlaysOpen) return;
+        const onDown = (event: MouseEvent) => {
+            if (overlaysRef.current?.contains(event.target as Node)) return;
+            setOverlaysOpen(false);
+        };
+        document.addEventListener('mousedown', onDown);
+        return () => document.removeEventListener('mousedown', onDown);
+    }, [overlaysOpen]);
 
     // Правки не должны теряться молча при закрытии вкладки
     useEffect(() => {
@@ -252,9 +272,18 @@ export default function LiveScreen() {
         setSelectedCell(null);
     };
 
-    const setOverlay = (key: 'name' | 'time', value: boolean) => {
+    const setOverlay = (key: keyof Overlays, value: boolean) => {
         setLayout(prev => ({ ...prev, overlays: { ...prev.overlays, [key]: value } }));
     };
+
+    const requestCorrection = (cameraId: string, enable: boolean) => {
+        requestSeq.current += 1;
+        setCorrectionRequest({ cameraId, enable, nonce: requestSeq.current });
+    };
+
+    const handleCorrectionBusy = useCallback((cameraId: string, busy: boolean) => {
+        setCorrectionBusy(prev => (prev[cameraId] === busy ? prev : { ...prev, [cameraId]: busy }));
+    }, []);
 
     const setCorrected = useCallback((cameraId: string, value: boolean) => {
         setLayout(prev => ({ ...prev, corrections: { ...prev.corrections, [cameraId]: value } }));
@@ -376,7 +405,7 @@ export default function LiveScreen() {
 
                 <div className="tbar-sep" />
 
-                <div className="live-pop">
+                <div className="live-pop" ref={overlaysRef}>
                     <button
                         className={`tool${overlaysOpen ? ' is-on' : ''}`}
                         onClick={() => setOverlaysOpen(value => !value)}
@@ -387,12 +416,14 @@ export default function LiveScreen() {
                         <div className="live-pop-body">
                             <Switch on={layout.overlays.name} onToggle={value => setOverlay('name', value)}>Имя камеры поверх кадра</Switch>
                             <Switch on={layout.overlays.time} onToggle={value => setOverlay('time', value)}>Время и дата</Switch>
+                            <Switch on={layout.overlays.stats} onToggle={value => setOverlay('stats', value)}>Кадры и битрейт</Switch>
                         </div>
                     )}
                 </div>
 
                 <div className="zoom">
-                    <span className={`pill${counts.live < counts.total ? ' warn' : ''}`}>
+                    <span className={`pill${counts.total === 0 ? ''
+                        : counts.live < counts.total ? ' warn' : ' ok'}`}>
                         <span className="dot" />
                         {counts.live} из {counts.total} в эфире
                     </span>
@@ -434,7 +465,10 @@ export default function LiveScreen() {
                     onSurroundManualChange={setSurroundManual}
                     onLiveCount={handleLiveCount}
                     onCellStats={setCellStats}
-                    cellControls={false}
+                    cellControls="correction"
+                    correctionLinks={correctionLinks}
+                    correctionRequest={correctionRequest}
+                    onCorrectionBusy={handleCorrectionBusy}
                 />
 
                 <aside className="settings">
@@ -444,29 +478,31 @@ export default function LiveScreen() {
                             {dirty && <span className="live-dot" title="Есть несохранённые правки" />}
                         </span>
 
-                        {layouts.map(item => (
-                            <button
-                                key={item.name}
-                                className={`row-item${item.name === layout.name ? ' is-sel' : ''}`}
-                                onClick={() => guard(() => applyLayout(item))}
-                            >
-                                <span className="chip-col" style={{ background: 'var(--acc)' }} />
-                                <span className="nm">{item.name}</span>
-                                <span className="num">{gridLabel(layoutFromSaved(item).grid)}</span>
-                            </button>
-                        ))}
+                        <div className="live-list">
+                            {layouts.map(item => (
+                                <button
+                                    key={item.name}
+                                    className={`row-item${item.name === layout.name ? ' is-sel' : ''}`}
+                                    onClick={() => guard(() => applyLayout(item))}
+                                >
+                                    <span className="chip-col" style={{ background: 'var(--acc)' }} />
+                                    <span className="nm">{item.name}</span>
+                                    <span className="num">{gridLabel(layoutFromSaved(item).grid)}</span>
+                                </button>
+                            ))}
 
-                        <div className="live-row">
-                            <button className="btn btn--sm" style={{ flex: 1 }} onClick={() => setSaveName(layout.name)}>
-                                Сохранить как…
-                            </button>
-                            <button
-                                className="btn btn--sm btn--err"
-                                disabled={!layout.name}
-                                onClick={() => setConfirmDelete(true)}
-                            >
-                                <Icon name="trash" />
-                            </button>
+                            <div className="live-row">
+                                <button className="btn btn--sm" style={{ flex: 1 }} onClick={() => setSaveName(layout.name)}>
+                                    Сохранить как…
+                                </button>
+                                <button
+                                    className="btn btn--sm btn--err"
+                                    disabled={!layout.name}
+                                    onClick={() => setConfirmDelete(true)}
+                                >
+                                    <Icon name="trash" />
+                                </button>
+                            </div>
                         </div>
                     </div>
 
@@ -479,7 +515,7 @@ export default function LiveScreen() {
 
                         {cellSource?.kind === 'camera' && (
                             <>
-                                <div className="live-field">
+                                <div className="field">
                                     <label>Поток</label>
                                     <Select
                                         value={resolved.key ?? ''}
@@ -488,18 +524,18 @@ export default function LiveScreen() {
                                             label: stream.label,
                                         }))}
                                         onChange={value => setCellStream(cellSource.id, value)}
-                                        placeholder="нет смотрибельных потоков"
+                                        placeholder="нет потоков"
                                     />
                                 </div>
 
                                 <div className="field">
                                     <label>Задержка</label>
-                                    <input className="inp" value={num(cellStats?.rttMs, 0)} readOnly />
+                                    <span className="live-val num">{num(cellStats?.rttMs, 0)}</span>
                                     <span className="unit">мс</span>
                                 </div>
                                 <div className="field">
                                     <label>Потерь пакетов</label>
-                                    <input className="inp" value={num(cellStats?.lossPct, 2)} readOnly />
+                                    <span className="live-val num">{num(cellStats?.lossPct, 2)}</span>
                                     <span className="unit">%</span>
                                 </div>
 
@@ -507,8 +543,14 @@ export default function LiveScreen() {
                                     {cellSource.hasNeural && (
                                         <Switch on={Boolean(layout.detections[cellSource.id])} onToggle={value => setDetections(cellSource.id, value)}>Рамки обнаружений</Switch>
                                     )}
-                                    {cellSource.hasBirdview && (
-                                        <Switch on={Boolean(layout.corrections[cellSource.id])} onToggle={value => setCorrected(cellSource.id, value)}>Коррекция дисторсии</Switch>
+                                    {cellSource.hasBirdview && correctionLinks[cellSource.id] && (
+                                        <Switch
+                                            on={Boolean(layout.corrections[cellSource.id])}
+                                            disabled={Boolean(correctionBusy[cellSource.id])}
+                                            onToggle={value => requestCorrection(cellSource.id, value)}
+                                        >
+                                            Коррекция дисторсии
+                                        </Switch>
                                     )}
                                 </div>
                             </>

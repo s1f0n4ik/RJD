@@ -98,11 +98,11 @@ namespace core {
 		bool at_idle = false;
 	};
 
-	// Подключение ветки к tee из IDLE-пробы; ветка к этому моменту должна быть запущена
+	// Подключение ветки к tee из IDLE-пробы
 	inline FAttachResult attach_tee_pad(
 		GstElement* tee,
 		GstElement* branch_queue,
-		std::chrono::milliseconds wait = std::chrono::seconds(2)
+		std::chrono::milliseconds wait = std::chrono::milliseconds(300)
 	) {
 		FAttachResult result;
 		if (!tee || !branch_queue) {

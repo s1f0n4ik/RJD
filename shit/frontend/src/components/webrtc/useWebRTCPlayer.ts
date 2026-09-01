@@ -62,6 +62,10 @@ interface UseWebRTCPlayerResult {
     errorMsg: string;
     /** Последняя причина с кодом; живёт до следующего успешного подключения */
     errorInfo: ErrorInfo | null;
+    /** Номер текущей попытки подключения; 0 — идёт первая */
+    attempt: number;
+    /** Ключ потока, который камера отдала на самом деле; null — не сказала */
+    grantedStream: string | null;
     videoRef: React.RefObject<HTMLVideoElement>;
     /** null, пока не прошёл первый интервал или сбор выключен */
     stats: PlayerStats | null;
@@ -102,6 +106,10 @@ export function useWebRTCPlayer({
 
     const [status, setStatus] = useState<PlayerStatus>('connecting');
     const [errorInfo, setErrorInfo] = useState<ErrorInfo | null>(null);
+    const [attempt, setAttempt] = useState(0);
+    // Ответ храним вместе с запросом, на который он пришёл: иначе при смене
+    // потока сторожа наверху судят по ответу прошлой сессии
+    const [granted, setGranted] = useState<{ forStream?: string; value: string | null } | null>(null);
     const [stats, setStats] = useState<PlayerStats | null>(null);
 
     // Колбэк в ref: инлайн-функция родителя не должна пересоздавать сессию
@@ -110,6 +118,9 @@ export function useWebRTCPlayer({
 
     // Стабильный client_id на всё время жизни хука
     const clientIdRef = useRef<string>(externalClientId ?? makeClientId());
+
+    // Идентификатор сессии выдаёт камера; им адресуются answer, ice и close
+    const sessionIdRef = useRef<string>('');
 
     // Ссылки на менеджеры — создаются один раз в useEffect
     const wsRef = useRef<WebSocketManager | null>(null);
@@ -149,6 +160,7 @@ export function useWebRTCPlayer({
 
         const delay = Math.min(BASE_RETRY_MS * Math.pow(2, retryAttemptRef.current), MAX_RETRY_MS);
         retryAttemptRef.current += 1;
+        setAttempt(retryAttemptRef.current);
 
         console.warn(`[Player:${cameraId}] retry #${retryAttemptRef.current} in ${delay}ms: ${info.text}`);
 
@@ -196,6 +208,9 @@ export function useWebRTCPlayer({
         clearAnswerTimer();
 
         console.log(`[Player:${cameraId}] → connection request`);
+        // Прежней сессии больше нет
+        sessionIdRef.current = '';
+        setGranted(null);
         setStatus(prev => (prev === 'reconnecting' ? prev : 'signaling'));
 
         const sent = ws.sendConnectionRequest({ client_id: clientIdRef.current, camera: cameraId, stream });
@@ -242,6 +257,7 @@ export function useWebRTCPlayer({
                 ws?.sendIceCandidate({
                     client_id: clientIdRef.current,
                     camera: cameraId,
+                    session_id: sessionIdRef.current,
                     candidate: candidate.candidate ?? '',
                     sdpMLineIndex: candidate.sdpMLineIndex ?? null,
                     sdpMid: candidate.sdpMid ?? null,
@@ -250,7 +266,12 @@ export function useWebRTCPlayer({
             },
 
             onSendAnswer: (sdp) => {
-                ws?.sendAnswer({ client_id: clientIdRef.current, camera: cameraId, sdp });
+                ws?.sendAnswer({
+                    client_id: clientIdRef.current,
+                    camera: cameraId,
+                    session_id: sessionIdRef.current,
+                    sdp,
+                });
             },
 
             // Любое закрытие PC → уведомить сервер
@@ -258,6 +279,7 @@ export function useWebRTCPlayer({
                 ws?.sendClose({
                     client_id: clientIdRef.current,
                     camera: cameraId,
+                    session_id: sessionIdRef.current,
                     description: 'client WebRTC closed',
                 });
             },
@@ -307,8 +329,13 @@ export function useWebRTCPlayer({
 
                     if (msg.ret === 'success') {
                         retryAttemptRef.current = 0;
+                        setAttempt(0);
                         clearRetryTimer();
                         setErrorInfo(null);
+
+                        const value = (msg as unknown as PlayerMessage).stream;
+                        setGranted({ forStream: stream, value: typeof value === 'string' ? value : null });
+                        sessionIdRef.current = msg.session_id ?? '';
                         console.log(`[Player:${cameraId}] Camera accepted connection`);
                         // Создаём PeerConnection
                         createRTC();
@@ -354,7 +381,10 @@ export function useWebRTCPlayer({
                 }
 
                 if (msg.type === 'close') {
-                    // Сервер закрыл сессию
+                    // Подтверждение нашего же close: закрывать нечего
+                    if (msg.ret === 'success') return;
+
+                    // Сессию разорвало устройство
                     console.warn(`[Player:${cameraId}] Server closed session`);
                     // Закрываем RTC без повторной отправки close (сервер уже знает)
                     closeRTC(false);
@@ -364,6 +394,11 @@ export function useWebRTCPlayer({
                     scheduleRetry(closeInfo.code !== null
                         ? closeInfo
                         : { code: null, kind: 'session', text: 'Устройство закрыло сессию' });
+                    return;
+                }
+
+                if (raw.type === 'fault') {
+                    setErrorInfo(describeError(raw));
                     return;
                 }
 
@@ -529,9 +564,17 @@ export function useWebRTCPlayer({
     }, [collectStats, cameraId, stream, signalingUrl]);
 
     const send = useCallback((data: Record<string, unknown>): boolean => {
-        return wsRef.current?.sendMessage(data) ?? false;
-    }, []);
+        // client_id и camera обязательны: без них камера отвечает отказом
+        return wsRef.current?.sendMessage({
+            client_id: clientIdRef.current,
+            camera: cameraId,
+            ...data,
+        }) ?? false;
+    }, [cameraId]);
 
     // errorMsg оставлен для потребителей, которым хватает текста
-    return { status, errorMsg: errorInfo?.text ?? '', errorInfo, videoRef, stats, send };
+    // Ответ прошлой сессии для текущего запроса не значит ничего
+    const grantedStream = granted && granted.forStream === stream ? granted.value : null;
+
+    return { status, errorMsg: errorInfo?.text ?? '', errorInfo, attempt, grantedStream, videoRef, stats, send };
 }

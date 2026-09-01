@@ -402,7 +402,15 @@ namespace neural {
 				client_id = v->as_string().c_str();
 			}
 			else {
-				m_logger.error("Error with recieving message: missing client id!");
+				// Ответ уйдёт всем клиентам камеры: адресата в сообщении нет
+				std::string text = "Message has no client_id";
+				m_logger.error(text);
+				send_message(
+					boost::json::serialize(
+						make_json_message("", false, "fault", text,
+							varan::signaling::CODE_MESSAGE_MALFORMED)
+					)
+				);
 				return;
 			}
 
@@ -412,7 +420,14 @@ namespace neural {
 				type = v->as_string().c_str();
 			}
 			else {
-				m_logger.error("Error while receiving message: missing type!");
+				std::string text = "Message has no type";
+				m_logger.error(text);
+				send_message(
+					boost::json::serialize(
+						make_json_message(client_id, false, "fault", text,
+							varan::signaling::CODE_MESSAGE_MALFORMED)
+					)
+				);
 				return;
 			}
 
@@ -422,9 +437,20 @@ namespace neural {
 
 			std::string description;
 			int code = 0;
-			UCameraPipeline* web_stream = select_web_stream(client_id, type, json_object, code);
+
+			std::string session_id;
+			if (const auto* v = json_object.if_contains(SIG_SESSION); v && v->is_string()) {
+				session_id = v->as_string().c_str();
+			}
+
+			UCameraPipeline* web_stream = (type == SIG_TYPE_CONNECT)
+				? select_web_stream(client_id, type, json_object, code)
+				: find_session_stream(session_id, code);
+
 			if (!web_stream) {
-				std::string text = "There is no sub pipeline in camera to get webrtc session!";
+				std::string text = (type == SIG_TYPE_CONNECT)
+					? "There is no sub pipeline in camera to get webrtc session!"
+					: "Session " + session_id + " is unknown at this camera";
 				m_logger.debug(text);
 				send_message(
 					boost::json::serialize(
@@ -433,28 +459,43 @@ namespace neural {
 				);
 				return;
 			}
+
 			// Запрос на соединение
-			if (type == "connection" || type == "close") {
-				const bool ret = (type == "connection")
-					? web_stream->create_webrtc_session(client_id, description, code)
-					: web_stream->close_webrtc_session(client_id, description, code);
+			if (type == SIG_TYPE_CONNECT || type == SIG_TYPE_CLOSE) {
+				bool ret = false;
+
+				if (type == SIG_TYPE_CONNECT) {
+					session_id = make_session_id();
+					ret = web_stream->create_webrtc_session(client_id, session_id, description, code);
+					if (ret) {
+						m_sessions[session_id] = web_stream;
+					}
+				}
+				else {
+					ret = web_stream->close_webrtc_session(session_id, description, code);
+					m_sessions.erase(session_id);
+				}
 
 				ret ? m_logger.info(description) : m_logger.error(description);
 
-				send_message(
-					boost::json::serialize(
-						make_json_message(client_id, ret, type, description, ret ? 0 : code)
-					)
-				);
+				// Клиент должен знать, какой поток ему отдали: иначе интерфейс
+				// показывает коррекцию там, где идет обычный поток
+				auto reply = make_json_message(client_id, ret, type, description, ret ? 0 : code);
+				reply[SIG_STREAM] = web_stream->get_stream_key();
+				if (ret) {
+					reply[SIG_SESSION] = session_id;
+				}
 
-				if (type == "close") {
+				send_message(boost::json::serialize(reply));
+
+				if (type == SIG_TYPE_CLOSE) {
 					on_session_closed(client_id, web_stream);
 				}
 
 				return;
 			}
 			else {
-				auto ret = web_stream->process_webrtc_session(client_id, json_object, type, description, code);
+				auto ret = web_stream->process_webrtc_session(session_id, json_object, type, description, code);
 				ret ? m_logger.info(description) : m_logger.error(description);
 				//send_message(
 				//	boost::json::serialize(
@@ -494,6 +535,28 @@ namespace neural {
 		}
 
 		return false;
+	}
+
+	std::string UCamera::make_session_id() {
+		return m_options.id + ":" + std::to_string(++m_session_counter);
+	}
+
+	UCameraPipeline* UCamera::find_session_stream(const std::string& session_id, int& code) {
+		code = varan::signaling::CODE_SESSION_NOT_FOUND;
+
+		const auto it = m_sessions.find(session_id);
+		if (it == m_sessions.end()) {
+			return nullptr;
+		}
+
+		// Поток мог разобрать сессию сам, не спрашивая камеру
+		if (!it->second->has_webrtc_session(session_id)) {
+			m_sessions.erase(it);
+			return nullptr;
+		}
+
+		code = 0;
+		return it->second;
 	}
 
 	UCameraPipeline* UCamera::select_web_stream(

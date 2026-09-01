@@ -36,7 +36,18 @@
     margin-left: 6px;
 }
 
+/* Заголовок секции задаёт отступ сам себе не здесь, а через блок ниже */
+.live .sect > .eyebrow { margin-bottom: 0; }
+
+.live-list { margin-top: 12px; }
+
 .live-row { display: flex; gap: 8px; margin-top: 11px; }
+
+/* Селект в строке показателей: ширина как у полей, а не во всю колонку */
+.live .field .uisel { width: 136px; flex: 0 0 136px; }
+
+/* Показ, а не поле ввода */
+.live-val { flex: 0 0 94px; text-align: right; font-size: 12.5px; color: var(--fg); }
 
 /* Поле с подписью над контролом — как на «Камерах» */
 .live-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }

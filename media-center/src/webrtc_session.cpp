@@ -9,6 +9,7 @@
 
 UWebRTCSession::UWebRTCSession(
 	std::string client, 
+	std::string session, 
 	std::string camera, 
 	bool is_sub,
 	GstElement* pipeline, 
@@ -18,6 +19,7 @@ UWebRTCSession::UWebRTCSession(
 	ULogger* logger
 )
 	: m_client_id(client)
+	, m_session_id(std::move(session))
 	, m_camera_name(camera)
 	, m_is_sub(is_sub)
 	, m_tee(tee)
@@ -652,7 +654,7 @@ void UWebRTCSession::send_message(const std::string& msg) {
 	m_send_callback(msg);
 }
 
-void UWebRTCSession::send_close_request(const std::string& client_id, std::string& description) {
+void UWebRTCSession::send_close_request(std::string& description) {
 	if (m_close_requested.exchange(true)) {
 		return;
 	}
@@ -663,10 +665,11 @@ void UWebRTCSession::send_close_request(const std::string& client_id, std::strin
 
 	m_logger->warn("session with " + m_client_id + " closing...");
 
-	bool ret = m_remove_callback(client_id, description);
+	m_remove_callback(m_session_id, description);
 	if (m_send_callback) {
-		auto msg = boost::json::serialize(make_json(ret, "connection", description));
-		m_send_callback(msg);
+		auto message = make_json(false, SIG_TYPE_CLOSE, description);
+		message[SIG_CODE] = varan::signaling::CODE_SESSION_CLOSED;
+		m_send_callback(boost::json::serialize(message));
 	}
 }
 
@@ -696,7 +699,7 @@ void UWebRTCSession::on_connection_state_changed(GObject* obj, GParamSpec*, gpoi
 	case GST_WEBRTC_PEER_CONNECTION_STATE_FAILED:
 	case GST_WEBRTC_PEER_CONNECTION_STATE_CLOSED: {
 		std::string desc = "webrtc connection with" + self->get_client_id() + " was closed!";
-		self->send_close_request(self->get_client_id(), desc);
+		self->send_close_request(desc);
 		self->get_logger()->debug(desc);
 		break;
 	}
@@ -740,7 +743,7 @@ void UWebRTCSession::on_ice_state_changed(GObject* obj, GParamSpec*, gpointer us
 		case GST_WEBRTC_ICE_CONNECTION_STATE_CLOSED:
 		case GST_WEBRTC_ICE_CONNECTION_STATE_FAILED: {
 			std::string desc = "closed ICE connection with " + self->get_client_id() + "!";
-			self->send_close_request(self->get_client_id(), desc);
+			self->send_close_request(desc);
 			self->get_logger()->error(desc);
 			break;
 		}
@@ -777,7 +780,7 @@ gboolean UWebRTCSession::on_connection_timeout(gpointer user_data) {
 
 	self->m_timeout_triggered.store(true);
 	std::string desc;
-	self->send_close_request(self->get_client_id(), desc);
+	self->send_close_request(desc);
 
 
 	return G_SOURCE_REMOVE;
@@ -801,6 +804,7 @@ boost::json::object UWebRTCSession::make_json(
 	message[SIG_SENDER] = SIG_SENDER_CAMERA;
 	message[SIG_RET] = successed ? SIG_RET_SUCCESS : SIG_RET_FAULT;
 	message[SIG_CLIENT] = m_client_id;
+	message[SIG_SESSION] = m_session_id;
 	message[SIG_CAMERA] = m_camera_name;
 	message[SIG_DECRIPTION] = description;
 	return message;

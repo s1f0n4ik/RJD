@@ -23,6 +23,7 @@ import type { CPPCamera, VirtualStream } from '../../types';
 import { Wall } from '../live/Wall';
 import { cameraToWallSource, virtualToWallSource, type WallSource } from '../live/sources';
 import { emptyLayout, layoutFromSaved, PRESETS, type LayoutState } from '../live/model';
+import { useCorrectionLinks } from '../live/useCorrectionLinks';
 import '../../styles/tokens.css';
 import '../../styles/ui.css';
 import './translation.css';
@@ -41,6 +42,7 @@ function layoutNameFromPath(): string {
 export default function TranslationScreen() {
     const { layouts, loading, loadError } = useLayouts();
     const { unixMs, source } = useDeviceClock();
+    const correctionLinks = useCorrectionLinks();
 
     const [cameras, setCameras] = useState<CPPCamera[]>([]);
     const [virtual, setVirtual] = useState<VirtualStream[]>([]);
@@ -49,7 +51,6 @@ export default function TranslationScreen() {
     const [switchKey, setSwitchKey] = useState('init');
     const [fallback, setFallback] = useState(false);
     const [drawerOpen, setDrawerOpen] = useState(false);
-    const [selectedCell, setSelectedCell] = useState<string | null>(null);
     const [counts, setCounts] = useState({ live: 0, total: 0 });
 
     const switchSeq = useRef(0);
@@ -104,7 +105,6 @@ export default function TranslationScreen() {
         setLayout(layoutFromSaved(saved));
         setFallback(false);
         setSwitchKey(`${saved.name}#${switchSeq.current}`);
-        setSelectedCell(null);
         window.history.replaceState(null, '', `/translation/${encodeURIComponent(saved.name)}`);
     }, []);
 
@@ -134,14 +134,6 @@ export default function TranslationScreen() {
         setLayout(prev => ({ ...prev, cells: { ...prev.cells, [cellId]: sourceId } }));
     };
 
-    const removeFromCell = (cellId: string) => {
-        setLayout(prev => {
-            const cells = { ...prev.cells };
-            delete cells[cellId];
-            return { ...prev, cells };
-        });
-    };
-
     const swap = (from: string, to: string) => {
         setLayout(prev => {
             const cells = { ...prev.cells };
@@ -165,19 +157,17 @@ export default function TranslationScreen() {
         setCounts(prev => (prev.live === live && prev.total === total ? prev : { live, total }));
     }, []);
 
-    const handleCellClick = (cellId: string) => setSelectedCell(cellId);
-
-    const handleSourceClick = (sourceId: string) => {
-        if (!selectedCell) return;
-        assign(selectedCell, sourceId);
-        setSelectedCell(null);
-    };
-
     const cellOfSource = (sourceId: string): string | null => {
         const found = Object.entries(layout.cells).find(([, id]) => id === sourceId);
         if (!found) return null;
         const index = layout.grid.cells.findIndex(cell => cell.id === found[0]);
         return index >= 0 ? `яч. ${index + 1}` : null;
+    };
+
+    // Перезапуск всех сессий: стена разберёт их по очереди и поднимет заново
+    const reloadStreams = () => {
+        switchSeq.current += 1;
+        setSwitchKey(`${fallback ? 'fallback' : layout.name}#${switchSeq.current}`);
     };
 
     const toggleFullscreen = () => {
@@ -220,6 +210,9 @@ export default function TranslationScreen() {
                     {formatDeviceDate(unixMs)} · {formatDeviceTime(unixMs)}
                 </span>
 
+                <button className="icon-btn tr-plain" title="Обновить все потоки" onClick={reloadStreams}>
+                    <Icon name="refresh" />
+                </button>
                 <button className="icon-btn tr-plain" title="Во весь экран" onClick={toggleFullscreen}>
                     <Icon name="full" />
                 </button>
@@ -264,7 +257,6 @@ export default function TranslationScreen() {
                             <button
                                 key={item.id}
                                 className="row-item"
-                                onClick={() => handleSourceClick(item.id)}
                                 draggable
                                 onDragStart={event => event.dataTransfer.setData('text/plain', `source:${item.id}`)}
                             >
@@ -295,14 +287,12 @@ export default function TranslationScreen() {
                     signalingUrlOf={signalingUrlOf}
                     deviceTimeMs={unixMs}
                     editable
-                    selectedCell={selectedCell}
-                    onSelectCell={handleCellClick}
                     onAssign={assign}
                     onSwap={swap}
-                    onRemove={removeFromCell}
                     onCorrectedChange={setCorrected}
                     onDetectionsChange={setDetections}
                     onLiveCount={handleLiveCount}
+                    correctionLinks={correctionLinks}
                 />
             </div>
         </div>

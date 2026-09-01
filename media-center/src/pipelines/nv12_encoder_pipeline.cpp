@@ -160,18 +160,24 @@ bool UNV12EncodingPipeline::teardown_prefix() {
 	return true;
 }
 
-bool UNV12EncodingPipeline::create_webrtc_session(const std::string& client_id, std::string& description, int& code) {
-	if (!UCameraPipeline::create_webrtc_session(client_id, description, code)) {
+bool UNV12EncodingPipeline::create_webrtc_session(
+	const std::string& client_id,
+	const std::string& session_id,
+	std::string& description,
+	int& code
+) {
+	if (!UCameraPipeline::create_webrtc_session(client_id, session_id, description, code)) {
 		return false;
 	}
 
-	auto remove_callback = [this](const std::string& client_id, std::string& description) {
+	auto remove_callback = [this](const std::string& session_id, std::string& description) {
 		int close_code = 0;
-		return this->close_webrtc_session(client_id, description, close_code);
+		return this->close_webrtc_session(session_id, description, close_code);
 		};
 
 	auto session = std::make_unique<UWebRTCSession>(
 		client_id,
+		session_id,
 		m_parameters.camera_name,
 		true,
 		m_pipeline,
@@ -187,7 +193,7 @@ bool UNV12EncodingPipeline::create_webrtc_session(const std::string& client_id, 
 		return false;
 	}
 
-	auto [it, inserted] = m_webrtc_sessions.emplace(client_id, std::move(session));
+	auto [it, inserted] = m_webrtc_sessions.emplace(session_id, std::move(session));
 
 	auto ret = it->second->create_branch(m_probe.codec_name);
 	if (ret) {

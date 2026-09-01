@@ -35,6 +35,10 @@ bool UCorrectionPipeline::set_maps(cv::Mat map_x, cv::Mat map_y, int width, int 
 	return true;
 }
 
+bool UCorrectionPipeline::is_source_ready() const {
+	return m_source && m_source->is_context_initialized();
+}
+
 bool UCorrectionPipeline::start() {
 	if (!UCameraPipeline::start()) {
 		return false;

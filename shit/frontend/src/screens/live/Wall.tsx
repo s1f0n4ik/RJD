@@ -23,6 +23,11 @@ const OPEN_STEP_MS = 200;
 // Пауза между закрытием соседних сессий
 const CLOSE_STEP_MS = 120;
 
+interface FCellKey {
+    key: string;
+    sourceId: string;
+}
+
 export interface WallProps {
     grid: Grid;
     layout: LayoutState;
@@ -45,9 +50,14 @@ export interface WallProps {
     onLiveCount?: (live: number, total: number) => void;
     /** Показатели выбранной ячейки; остальные ячейки родителя не дёргают */
     onCellStats?: (stats: PlayerStats | null) => void;
-    /** Кнопки слоёв на самой ячейке. В редакторе они не нужны: тумблеры
-     *  живут в блоке «Ячейка» правой колонки */
-    cellControls?: boolean;
+    /** Какие кнопки слоёв показывать на ячейке: в редакторе рамки живут в
+     *  правой колонке, а коррекция остаётся под рукой */
+    cellControls?: 'none' | 'correction' | 'all';
+    /** Камеры с настроенным сопоставлением калибровки */
+    correctionLinks?: Record<string, boolean>;
+    /** Запрос коррекции из правой колонки */
+    correctionRequest?: { cameraId: string; enable: boolean; nonce: number } | null;
+    onCorrectionBusy?: (cameraId: string, busy: boolean) => void;
 }
 
 export function Wall({
@@ -68,12 +78,21 @@ export function Wall({
     onSurroundManualChange,
     onLiveCount,
     onCellStats,
-    cellControls = true,
+    cellControls = 'all',
+    correctionLinks = {},
+    correctionRequest = null,
+    onCorrectionBusy,
 }: WallProps) {
     const [mounted, setMounted] = useState<string[]>([]);
     const [closing, setClosing] = useState<{ total: number; done: number } | null>(null);
     const [expanded, setExpanded] = useState<string | null>(null);
     const [statuses, setStatuses] = useState<Record<string, PlayerStatus>>({});
+    const [dragOver, setDragOver] = useState<string | null>(null);
+    const [fullscreenCell, setFullscreenCell] = useState<string | null>(null);
+    const [dragSource, setDragSource] = useState<string | null>(null);
+
+    // Пишется из жестов 360 синхронно: dragstart приходит сразу за pointerdown
+    const gestureLockRef = useRef(false);
 
     const mountedRef = useRef<string[]>([]);
     mountedRef.current = mounted;
@@ -85,10 +104,71 @@ export function Wall({
         [sources],
     );
 
+    // Ключ закрепляется за плеером и переезжает вместе с ним: и React, и
+    // очередь подъёма видят один и тот же плеер на новом месте. Раздавать
+    // ключи по порядку нельзя — при двух ячейках с одной камерой порядок
+    // меняется от любой перестановки, и плееры пересоздаются
+    const keysRef = useRef({ byCell: new Map<string, FCellKey>(), seq: 0 });
+
+    const cellKeys = useMemo(() => {
+        const before = keysRef.current.byCell;
+        const after = new Map<string, FCellKey>();
+        const taken = new Set<string>();
+        const keys: Record<string, string> = {};
+
+        const occupied = grid.cells
+            .map(cell => ({ cellId: cell.id, sourceId: layout.cells[cell.id] }))
+            .filter(item => Boolean(item.sourceId));
+
+        // Ячейка не меняла источник — ключ остаётся за ней
+        occupied.forEach(({ cellId, sourceId }) => {
+            const kept = before.get(cellId);
+            if (!kept || kept.sourceId !== sourceId) return;
+
+            keys[cellId] = kept.key;
+            after.set(cellId, kept);
+            taken.add(kept.key);
+        });
+
+        // Плеер переехал — забирает свой ключ с покинутой ячейки
+        occupied.forEach(({ cellId, sourceId }) => {
+            if (keys[cellId]) return;
+
+            for (const kept of before.values()) {
+                if (kept.sourceId !== sourceId || taken.has(kept.key)) continue;
+
+                keys[cellId] = kept.key;
+                after.set(cellId, { key: kept.key, sourceId });
+                taken.add(kept.key);
+                return;
+            }
+        });
+
+        // Источник появился впервые — новый ключ
+        occupied.forEach(({ cellId, sourceId }) => {
+            if (keys[cellId]) return;
+
+            keysRef.current.seq += 1;
+            const key = `src:${sourceId}#${keysRef.current.seq}`;
+            keys[cellId] = key;
+            after.set(cellId, { key, sourceId });
+            taken.add(key);
+        });
+
+        grid.cells.forEach(cell => {
+            if (!keys[cell.id]) keys[cell.id] = `cell:${cell.id}`;
+        });
+
+        keysRef.current.byCell = after;
+        return keys;
+    }, [grid, layout.cells]);
+
     // Занятые ячейки текущей сетки, в порядке слева направо сверху вниз
     const target = useMemo(
-        () => grid.cells.map(cell => cell.id).filter(id => Boolean(layout.cells[id])),
-        [grid, layout.cells],
+        () => grid.cells
+            .filter(cell => Boolean(layout.cells[cell.id]))
+            .map(cell => cellKeys[cell.id]),
+        [grid, layout.cells, cellKeys],
     );
 
     // ─── Разбор при смене отображения ───────────────────────────
@@ -142,12 +222,22 @@ export function Wall({
     // ─── Счётчик живых сессий ───────────────────────────────────
 
     useEffect(() => {
-        const live = target.filter(id => statuses[id] === 'streaming').length;
+        const live = target.filter(key => statuses[key] === 'streaming').length;
         onLiveCount?.(live, target.length);
     }, [statuses, target, onLiveCount]);
 
-    const setStatus = useCallback((cellId: string, status: PlayerStatus) => {
-        setStatuses(prev => (prev[cellId] === status ? prev : { ...prev, [cellId]: status }));
+    const setStatus = useCallback((key: string, status: PlayerStatus) => {
+        setStatuses(prev => (prev[key] === status ? prev : { ...prev, [key]: status }));
+    }, []);
+
+    // Полный экран могут закрыть и мимо кнопки — клавишей или жестом
+    useEffect(() => {
+        const onChange = () => {
+            const node = document.fullscreenElement;
+            setFullscreenCell(node instanceof HTMLElement ? node.dataset.cell ?? null : null);
+        };
+        document.addEventListener('fullscreenchange', onChange);
+        return () => document.removeEventListener('fullscreenchange', onChange);
     }, []);
 
     // ─── Раскрытие ячейки ───────────────────────────────────────
@@ -161,10 +251,17 @@ export function Wall({
         return () => window.removeEventListener('keydown', onKey);
     }, [expanded]);
 
-    const goFullscreen = (cellId: string) => {
-        // Полный экран просим у контейнера ячейки, а не у video: иначе канвас
-        // рамок и кнопки 360 остаются за кадром
+    // Полный экран просим у контейнера ячейки, а не у video: иначе канвас
+    // рамок и кнопки слоёв остаются за кадром
+    const toggleFullscreen = (cellId: string) => {
         const node = wallRef.current?.querySelector(`[data-cell="${cellId}"]`);
+
+        // Полный экран уже занят этой ячейкой — кнопка работает на выход
+        if (document.fullscreenElement === node) {
+            document.exitFullscreen().catch(() => {});
+            return;
+        }
+
         if (node instanceof HTMLElement) node.requestFullscreen?.().catch(() => {});
     };
 
@@ -213,8 +310,13 @@ export function Wall({
             return <div className="cell-msg"><b>{source.name}</b>нет потока для просмотра</div>;
         }
 
-        if (!mounted.includes(cellId)) {
-            return <div className="cell-msg">{source.name}<br /><span className="cell-msg-dim">подключение…</span></div>;
+        if (!mounted.includes(cellKeys[cellId])) {
+            return (
+                <div className="cell-state">
+                    <span className="spin" />
+                    <span>в очереди на подключение</span>
+                </div>
+            );
         }
 
         if (source.kind === 'virtual') {
@@ -226,10 +328,12 @@ export function Wall({
                     signalingUrl={signalingUrlOf(sourceId)}
                     overlays={layout.overlays}
                     deviceTimeMs={deviceTimeMs}
-                    collectStats={!expanded || expanded === cellId}
+                    collectStats={(!expanded || expanded === cellId)
+                        && (layout.overlays.stats || cellId === selectedCell)}
                     initialManual={layout.surround?.manual}
                     onManualChange={onSurroundManualChange}
-                    onStatus={status => setStatus(cellId, status)}
+                    onGestureLock={locked => { gestureLockRef.current = locked; }}
+                    onStatus={status => setStatus(cellKeys[cellId], status)}
                     onStats={cellId === selectedCell ? onCellStats : undefined}
                 />
             );
@@ -245,17 +349,20 @@ export function Wall({
                 signalingUrl={signalingUrlOf(sourceId)}
                 streamKey={key}
                 canDetect={source.hasNeural}
-                canCorrect={source.hasBirdview}
+                canCorrect={source.hasBirdview && Boolean(correctionLinks[sourceId])}
                 corrected={Boolean(layout.corrections[sourceId])}
                 onCorrectedChange={value => onCorrectedChange?.(sourceId, value)}
                 showDetections={Boolean(layout.detections[sourceId])}
                 onDetectionsChange={value => onDetectionsChange?.(sourceId, value)}
                 overlays={layout.overlays}
                 deviceTimeMs={deviceTimeMs}
-                collectStats={!expanded || expanded === cellId}
-                onStatus={status => setStatus(cellId, status)}
+                collectStats={(!expanded || expanded === cellId)
+                    && (layout.overlays.stats || cellId === selectedCell)}
+                onStatus={status => setStatus(cellKeys[cellId], status)}
                 onStats={cellId === selectedCell ? onCellStats : undefined}
                 controls={cellControls}
+                correctionRequest={correctionRequest?.cameraId === sourceId ? correctionRequest : undefined}
+                onCorrectionBusy={busy => onCorrectionBusy?.(sourceId, busy)}
             />
         );
     };
@@ -274,6 +381,7 @@ export function Wall({
             >
                 {grid.cells.map(cell => {
                     const sourceId = layout.cells[cell.id];
+                    const key = cellKeys[cell.id];
                     const source = sourceOf(sourceId);
                     const empty = !sourceId;
                     const broken = Boolean(sourceId) && (!source || source.offline
@@ -284,13 +392,14 @@ export function Wall({
 
                     return (
                         <div
-                            key={cell.id}
+                            key={key}
                             data-cell={cell.id}
                             className={[
                                 'cell',
                                 empty ? 'is-off' : '',
                                 broken ? 'is-off is-err' : '',
                                 selectedCell === cell.id ? 'is-sel' : '',
+                                dragOver === cell.id ? 'is-drop' : '',
                                 hidden ? 'is-hidden' : '',
                                 expanded === cell.id ? 'is-solo' : '',
                             ].filter(Boolean).join(' ')}
@@ -298,28 +407,58 @@ export function Wall({
                                 gridArea: `${cell.row + 1} / ${cell.col + 1} / span ${cell.rowSpan} / span ${cell.colSpan}`,
                             }}
                             draggable={editable && Boolean(sourceId)}
-                            onDragStart={event => event.dataTransfer.setData('text/plain', `cell:${cell.id}`)}
-                            onDragOver={event => { if (editable) event.preventDefault(); }}
-                            onDrop={event => { if (editable) onDrop(event, cell.id); }}
+                            onDragStart={event => {
+                                // Жесты 360 держат перетаскивание: иначе вращение
+                                // превращается в перенос ячейки
+                                if (gestureLockRef.current) {
+                                    event.preventDefault();
+                                    return;
+                                }
+                                event.dataTransfer.setData('text/plain', `cell:${cell.id}`);
+                                setDragSource(cell.id);
+                            }}
+                            onDragEnd={() => { setDragSource(null); setDragOver(null); }}
+                            onDragOver={event => {
+                                if (!editable) return;
+                                event.preventDefault();
+                                if (dragOver !== cell.id) setDragOver(cell.id);
+                            }}
+                            onDragLeave={event => {
+                                // Уход на дочерний элемент — не уход из ячейки
+                                if (event.currentTarget.contains(event.relatedTarget as Node)) return;
+                                setDragOver(prev => (prev === cell.id ? null : prev));
+                            }}
+                            onDrop={event => {
+                                setDragOver(null);
+                                setDragSource(null);
+                                if (editable) onDrop(event, cell.id);
+                            }}
                             onClick={() => onSelectCell?.(cell.id)}
                             onDoubleClick={() => setExpanded(prev => (prev === cell.id ? null : cell.id))}
                         >
                             {renderBody(cell.id)}
 
+                            {dragOver === cell.id && dragSource !== cell.id && (
+                                <div className="cell-drop" />
+                            )}
+
                             {Boolean(sourceId) && (
-                                <div className="cell-tools">
+                                <div
+                                    className="cell-tools"
+                                    onDoubleClick={event => event.stopPropagation()}
+                                >
                                     <button
                                         className="cell-btn"
-                                        title="Во весь экран"
-                                        onClick={event => { event.stopPropagation(); goFullscreen(cell.id); }}
+                                        title={fullscreenCell === cell.id ? 'Выйти из полного экрана' : 'Во весь экран'}
+                                        onClick={event => { event.stopPropagation(); toggleFullscreen(cell.id); }}
                                     >
-                                        <Icon name="full" />
+                                        <Icon name={fullscreenCell === cell.id ? 'x' : 'full'} />
                                     </button>
-                                    {editable && (
+                                    {editable && onRemove && (
                                         <button
                                             className="cell-btn"
                                             title="Убрать из ячейки"
-                                            onClick={event => { event.stopPropagation(); onRemove?.(cell.id); }}
+                                            onClick={event => { event.stopPropagation(); onRemove(cell.id); }}
                                         >
                                             <Icon name="x" />
                                         </button>

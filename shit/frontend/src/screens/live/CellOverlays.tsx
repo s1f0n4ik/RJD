@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '../../app/Icons';
-import type { ErrorInfo } from '../../components/webrtc/error-codes';
+import { isTransient, type ErrorInfo } from '../../components/webrtc/error-codes';
 import type { PlayerStatus } from '../../components/webrtc/useWebRTCPlayer';
 
 const FLASH_HIDE_MS = 6000;
@@ -21,14 +21,24 @@ export interface Flash {
     tone: 'err' | 'info';
 }
 
-export function CellState({ status, error }: { status: PlayerStatus; error: ErrorInfo | null }) {
+export function CellState({ status, error, attempt = 0 }: {
+    status: PlayerStatus;
+    error: ErrorInfo | null;
+    /** Номер попытки: без него повторы выглядят зависанием */
+    attempt?: number;
+}) {
     const first = status === 'connecting' || status === 'signaling';
+    // Ожидание — не отказ: показываем, чего ждём, без номера и без попыток
+    const waiting = Boolean(error && isTransient(error.code));
 
     return (
         <div className="cell-state">
             <span className="spin" />
-            <span>{first ? 'подключение…' : 'переподключение…'}</span>
-            {error && (
+            <span>
+                {waiting ? `${error!.text}…` : first ? 'подключение…' : 'переподключение…'}
+                {!waiting && attempt > 1 && <i className="cell-code">попытка {attempt}</i>}
+            </span>
+            {error && !waiting && (
                 <span className="cell-state-why">
                     {error.text}
                     {error.code !== null && <i className="cell-code">{error.code}</i>}
