@@ -11,6 +11,7 @@
 
 #include "video_utility.h"
 #include "utility/json-definers.h"
+#include "utility/branch-helpers.h"
 #include "nvr/element-definers.h"
 
 #define MAIN_TEE "tee_main"
@@ -84,6 +85,7 @@ bool UCameraStreamPipeline::initialize() {
 		return false;
 	}
 
+	// Развязка приёмного потока rtspsrc и веток tee
 	auto input_queue = gst_element_factory_make("queue", "input_queue");
 	auto tee = gst_element_factory_make("tee", MAIN_TEE);
 	auto fake_queue = gst_element_factory_make("queue", "sink_queue");
@@ -125,6 +127,7 @@ bool UCameraStreamPipeline::initialize() {
 		nullptr
 	);
 
+	// Развязка, а не буфер: запас три кадра, лишнее отбрасывается
 	g_object_set(input_queue,
 		"max-size-buffers", 3,
 		"max-size-bytes", 0,
@@ -472,25 +475,36 @@ bool UCameraStreamPipeline::create_record_branch(GstElement* tee)
 
 	gst_bin_add_many(GST_BIN(m_pipeline), record_queue, splitmux, nullptr);
 
-	// Связывание падов tee
-	GstPad* tee_record_pad = gst_element_request_pad_simple(tee, "src_%u");
-	GstPad* queue_record_pad = gst_element_get_static_pad(record_queue, "sink");
-
-	if (gst_pad_link(tee_record_pad, queue_record_pad) != GST_PAD_LINK_OK) {
-		m_logger->error("Failed to link tee to record queue");
-		return false;
-	}
-
-	gst_object_unref(queue_record_pad);
-
-	// Связывание остальные элеентов
+	// Связывание элементов ветки
 	if (!gst_element_link(record_queue, splitmux)) {
 		if (m_logger) m_logger->error("Failed to link file record tee: tee, record_queue, splitmux");
 		return false;
 	}
 
+	// Ветка запускается до подключения к tee: пуш в незапущенную даёт FLUSHING
 	gst_element_sync_state_with_parent(record_queue);
 	gst_element_sync_state_with_parent(splitmux);
+
+	if (gst_element_get_state(record_queue, nullptr, nullptr, 2 * GST_SECOND) == GST_STATE_CHANGE_FAILURE) {
+		m_logger->error("create_record_branch(): record queue didn't start");
+		return false;
+	}
+
+	const auto attached = varan::core::attach_tee_pad(tee, record_queue);
+	if (!attached.linked) {
+		m_logger->error("Failed to link tee to record queue");
+		if (attached.pad) {
+			gst_element_release_request_pad(tee, attached.pad);
+			gst_object_unref(attached.pad);
+		}
+		return false;
+	}
+
+	if (!attached.at_idle) {
+		m_logger->warn("create_record_branch(): branch was linked without idle probe");
+	}
+
+	GstPad* tee_record_pad = attached.pad;
 
 	if (m_record_branch.elements.size() != 0) m_record_branch.elements.clear();
 
@@ -557,22 +571,13 @@ bool UCameraStreamPipeline::destroy_branch(FPipelineBranch& branch)
 		}
 	}
 
-	// Блокировка ветки
 	if (branch.tee_pad) {
-		gst_pad_add_probe(branch.tee_pad, GST_PAD_PROBE_TYPE_BLOCK_DOWNSTREAM,
-			[](GstPad*, GstPadProbeInfo*, gpointer) { return GST_PAD_PROBE_REMOVE; }, nullptr, nullptr);
-
-		auto queue = branch.get_element(varan::nvr::QUEUE);
-		if (queue) {
-			GstPad* queue_sink = gst_element_get_static_pad(queue, "sink");
-			if (queue_sink) {
-				m_logger->debug("destroy_branch(): unlink tee_pad with queue_pad!");
-				gst_pad_unlink(branch.tee_pad, queue_sink);
-				gst_object_unref(queue_sink);
-			}
+		if (!varan::core::detach_tee_pad(m_tees[MAIN_TEE], branch.tee_pad,
+				branch.get_element(varan::nvr::QUEUE))) {
+			m_logger->warn("destroy_branch(): " + branch.name
+				+ " branch was detached without idle probe");
 		}
 
-		gst_element_release_request_pad(m_tees[MAIN_TEE], branch.tee_pad);
 		gst_object_unref(branch.tee_pad);
 		m_logger->debug("destroy_branch(): relese request tee pad from main pipeline!");
 		branch.tee_pad = nullptr;

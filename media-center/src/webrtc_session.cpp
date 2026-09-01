@@ -5,6 +5,7 @@
 #include <thread>
 
 #include "signaling_definers.h"
+#include "utility/branch-helpers.h"
 
 UWebRTCSession::UWebRTCSession(
 	std::string client, 
@@ -126,37 +127,6 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 		gst_bin_add_many(GST_BIN(m_pipeline), m_queue, m_webrtcbin, nullptr);
 	}
 
-	using TGstUniqePad = std::unique_ptr<GstPad, decltype(&gst_object_unref)>;
-
-	// Получаем src пад (выходы) от tee для дальнейшего связывания по цепочке
-	m_tee_pad_src = gst_element_request_pad_simple(m_tee, "src_%u");
-	if (!m_tee_pad_src) {
-		std::ostringstream oss;
-		oss << "Cannot create self branch: tee has not any src pads!";
-		m_logger->error(oss.str());
-		m_is_valid = false;
-		return m_is_valid;
-	}
-
-	// Получаем входы от очереди
-	auto queue_sink_pad = gst_element_get_static_pad(m_queue, "sink");
-	if (!queue_sink_pad) {
-		std::ostringstream oss;
-		oss << "Cannot create self " + get_session_name() + " branch: queue has not any sink pads!";
-		m_logger->error(oss.str());
-		m_is_valid = false;
-		return false;
-	}
-
-	// Связываем tee с queue
-	auto tee_queue_link = gst_pad_link(m_tee_pad_src, queue_sink_pad);
-	if (tee_queue_link != GST_PAD_LINK_OK) {
-		m_logger->error("Cannot create self " + get_session_name() + " branch: tee cannot link with queue!");
-		m_is_valid = false;
-		return m_is_valid;
-	}
-	gst_object_unref(queue_sink_pad);
-
 	// Линк созданных объектов друг с другом
 	auto link_result = m_pay ? gst_element_link_many(m_queue, m_pay, m_webrtcbin, nullptr) : gst_element_link(m_queue, m_webrtcbin);
 	if (!link_result) {
@@ -164,37 +134,6 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 		m_is_valid = false;
 		return m_is_valid;
 	}
-
-	// Создаём структуру для передачи в probe
-	struct BlockCtx {
-		UWebRTCSession* session;
-		GstElement* webrtcbin;
-	};
-	auto* block_ctx = new BlockCtx{ this, m_webrtcbin };
-
-	// Probe который сам снимается когда webrtcbin готов
-	gst_pad_add_probe(m_tee_pad_src,
-		GST_PAD_PROBE_TYPE_BLOCK_DOWNSTREAM,
-		[](GstPad*, GstPadProbeInfo*, gpointer user_data) -> GstPadProbeReturn {
-			auto* ctx = static_cast<BlockCtx*>(user_data);
-
-			GstState cur, pend;
-			GstStateChangeReturn ret = gst_element_get_state(
-				ctx->webrtcbin, &cur, &pend, 0  // неблокирующая проверка
-			);
-
-			if (cur >= GST_STATE_PAUSED) {
-				// webrtcbin готов — снимаем блок
-				delete ctx;
-				return GST_PAD_PROBE_REMOVE;
-			}
-
-			// Ещё не готов — продолжаем блокировать
-			return GST_PAD_PROBE_DROP;
-		},
-		block_ctx,
-		nullptr
-	);
 
 	// Привязываем сигналы протокола к только что созданной сессии
 	g_signal_handlers_disconnect_by_data(m_webrtcbin, this);
@@ -204,10 +143,36 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 	g_signal_connect(m_webrtcbin, "notify::connection-state", G_CALLBACK(&UWebRTCSession::on_connection_state_changed), this);
 	g_signal_connect(m_webrtcbin, "notify::ice-connection-state", G_CALLBACK(&UWebRTCSession::on_ice_state_changed), this);
 
-	// Синхронихируем состояние с основным пайплайном
+	// Ветка запускается до подключения к tee: пуш в незапущенную даёт FLUSHING
 	gst_element_sync_state_with_parent(m_queue);
 	if (m_pay) gst_element_sync_state_with_parent(m_pay);
 	gst_element_sync_state_with_parent(m_webrtcbin);
+
+	// Ждем только очередь: webrtcbin до прихода данных остаётся ASYNC
+	if (gst_element_get_state(m_queue, nullptr, nullptr, 2 * GST_SECOND) == GST_STATE_CHANGE_FAILURE) {
+		m_logger->error("Cannot create self " + get_session_name() + " branch: queue didn't start!");
+		m_is_valid = false;
+		return m_is_valid;
+	}
+
+	const auto attached = varan::core::attach_tee_pad(m_tee, m_queue);
+	if (!attached.pad) {
+		m_logger->error("Cannot create self branch: tee has not any src pads!");
+		m_is_valid = false;
+		return m_is_valid;
+	}
+
+	m_tee_pad_src = attached.pad;
+
+	if (!attached.linked) {
+		m_logger->error("Cannot create self " + get_session_name() + " branch: tee cannot link with queue!");
+		m_is_valid = false;
+		return m_is_valid;
+	}
+
+	if (!attached.at_idle) {
+		m_logger->warn("create_branch(): branch of " + m_client_id + " was linked without idle probe");
+	}
 
 	GstPad* queue_src = gst_element_get_static_pad(m_queue, "src");
 	if (queue_src) {
@@ -384,18 +349,12 @@ void UWebRTCSession::teardown() {
 	// Отключение сигналов
 	g_signal_handlers_disconnect_by_data(m_webrtcbin, this);
 
-	// блокирование ветки
 	if (m_tee_pad_src) {
-		gst_pad_add_probe(m_tee_pad_src, GST_PAD_PROBE_TYPE_BLOCK_DOWNSTREAM,
-			[](GstPad*, GstPadProbeInfo*, gpointer) { return GST_PAD_PROBE_REMOVE; }, nullptr, nullptr);
-
-		GstPad* queue_sink = gst_element_get_static_pad(m_queue, "sink");
-		if (queue_sink) {
-			gst_pad_unlink(m_tee_pad_src, queue_sink);
-			gst_object_unref(queue_sink);
+		if (!varan::core::detach_tee_pad(m_tee, m_tee_pad_src, m_queue)) {
+			m_logger->warn("teardown(): branch of " + m_client_id
+				+ " was detached without idle probe");
 		}
 
-		gst_element_release_request_pad(m_tee, m_tee_pad_src);
 		gst_object_unref(m_tee_pad_src);
 		m_tee_pad_src = nullptr;
 	}
