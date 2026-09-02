@@ -344,6 +344,7 @@
 }
 
 .tl-peek-shot {
+  position: relative;
   height: 112px;
   display: grid;
   place-items: center;
@@ -354,7 +355,23 @@
 }
 
 .tl-peek-shot img { width: 100%; height: 100%; object-fit: contain; background: #000 }
+.tl-peek-shot img.is-load { opacity: 0 }
 .tl-peek-shot.is-none { color: var(--warn); font-size: 11.5px }
+
+/* Кружок центрируется отступами, а не transform: его занимает вращение */
+.tl-peek-spin {
+  position: absolute;
+  top: calc(50% - 9px);
+  left: calc(50% - 9px);
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--line-hi);
+  border-top-color: var(--acc);
+  animation: tl-spin .7s linear infinite;
+}
+
+@keyframes tl-spin { to { transform: rotate(360deg) } }
 
 .tl-peek-meta { padding: 7px 10px; display: flex; flex-direction: column; gap: 2px }
 .tl-peek-meta .t { font-family: var(--mono); font-size: 13px }

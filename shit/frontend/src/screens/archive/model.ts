@@ -184,6 +184,13 @@ export function fmtDuration(ms: number): string {
     return `${seconds} с`;
 }
 
+/** Короткая длительность для ячейки календаря: до часа — минуты, дальше часы. */
+export function fmtHoursShort(ms: number): string {
+    const minutes = Math.round(ms / 60_000);
+    if (minutes < 60) return `${minutes} мин`;
+    return `${Math.round(minutes / 60)} ч`;
+}
+
 export function fmtBytes(bytes: number): string {
     if (!bytes) return '0 ГБ';
     const gb = bytes / 1024 ** 3;

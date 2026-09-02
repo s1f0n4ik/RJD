@@ -68,11 +68,17 @@ def _extract(path: Path, offset_ms: int) -> Optional[bytes]:
 
 def frame_at(camera_id: str, stream_key: str, ms: int) -> Optional[bytes]:
     """Кадр дорожки на момент времени изделия; None, если записи там нет."""
-    segments = index.range_segments(camera_id, stream_key, ms, ms + 1)
-    if not segments:
+    # У строк без конца выборка подставляет запасную длительность, поэтому в
+    # кандидаты попадает всё, что началось незадолго до момента. Нужен
+    # последний из них — он единственный может содержать этот кадр
+    started = [
+        segment for segment in index.range_segments(camera_id, stream_key, ms, ms + 1)
+        if segment["start_ms"] <= ms
+    ]
+    if not started:
         return None
 
-    segment = segments[0]
+    segment = started[-1]
     path = Path(segment["path"])
     if not path.exists():
         return None

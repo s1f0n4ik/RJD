@@ -19,6 +19,8 @@ import os
 import re
 import sqlite3
 import subprocess
+import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -50,6 +52,13 @@ OPEN_STALE_SEC = 120
 # Потолок длительности сегмента, когда её нечем измерить
 FALLBACK_DURATION_MS = 600_000
 
+# Сколько времени один проход сверки тратит на промер длительностей
+MEASURE_BUDGET_SEC = 60
+
+# Одиночный ffprobe на плате стоит ~125 мс, поэтому меряем пачками
+MEASURE_WORKERS = 4
+MEASURE_CHUNK = 32
+
 # Источники, которым можно верить. sadko — нынешнее имя, can — прежнее
 TRUSTED_SOURCES = ("sadko", "can")
 
@@ -69,6 +78,8 @@ class SegmentIndex:
 
     def __init__(self, db_path: Path):
         self.db_path = db_path
+        # Файлы, которые ffprobe не смог измерить, — второй раз не пробуем
+        self._unmeasurable: set[int] = set()
 
     @property
     def records_root(self) -> Path:
@@ -238,7 +249,7 @@ class SegmentIndex:
             sessions = self._load_sessions(conn)
             self._persist_anchors(conn, sessions)
 
-            rows = self._rows_in_window(conn, sessions, from_ms, to_ms)
+            rows = self._rows_in_window(conn, sessions, from_ms, to_ms, with_neighbours=True)
             tracks = self._build_tracks(rows, from_ms, to_ms, self._known_tracks(conn))
 
             return {
@@ -252,46 +263,80 @@ class SegmentIndex:
         finally:
             conn.close()
 
+    # Ближайшие соседи за краями окна: без них разрыв, накрывший окно целиком,
+    # выглядел бы отсутствием записей и пропадал при приближении
+    _NEIGHBOUR_SQL = (
+        "SELECT *, MAX({column}) FROM segments"
+        " WHERE {scope} AND {column} < ? GROUP BY camera_id, stream_key;",
+        "SELECT *, MIN({column}) FROM segments"
+        " WHERE {scope} AND {column} >= ? GROUP BY camera_id, stream_key;",
+    )
+
     def _rows_in_window(
         self,
         conn: sqlite3.Connection,
         sessions: list[FSession],
         window_start: int,
         window_end: int,
+        with_neighbours: bool = False,
     ) -> list[dict]:
         """
         Сегменты, попадающие в окно. Идём по сессиям: окно переводится в
-        монотонную шкалу сессии её же якорем.
+        монотонную шкалу сессии её же якорем. С `with_neighbours` добавляются
+        ближайшие сегменты за обоими краями — они нужны, чтобы знать границы
+        разрыва, накрывшего окно целиком.
         """
         found: list[dict] = []
+
+        def collect(sql: str, params: tuple, session: Optional[FSession]) -> None:
+            for row in conn.execute(sql, params):
+                found.append(self._normalize(row, session))
 
         for session in sessions:
             mono_lo = window_start - session.anchor_ms
             mono_hi = window_end - session.anchor_ms
+            scope = "session_uid=?"
 
-            cursor = conn.execute(
+            collect(
                 "SELECT * FROM segments"
                 " WHERE session_uid=? AND mono_start_ms < ?"
                 " AND COALESCE(mono_end_ms, mono_start_ms + ?) > ?"
                 " ORDER BY mono_start_ms;",
                 (session.uid, mono_hi, FALLBACK_DURATION_MS, mono_lo),
+                session,
             )
-            for row in cursor:
-                found.append(self._normalize(row, session))
+
+            if with_neighbours:
+                for template, bound in zip(self._NEIGHBOUR_SQL, (mono_lo, mono_hi)):
+                    collect(
+                        template.format(column="mono_start_ms", scope=scope),
+                        (session.uid, bound),
+                        session,
+                    )
 
         # Строки, найденные сверкой: сессии у них нет, время только настенное
-        cursor = conn.execute(
+        scope = "(session_uid IS NULL OR session_uid='')"
+        collect(
             "SELECT * FROM segments"
-            " WHERE (session_uid IS NULL OR session_uid='')"
+            f" WHERE {scope}"
             " AND wall_start_ms < ?"
             " AND COALESCE(wall_end_ms, wall_start_ms + ?) > ?"
             " ORDER BY wall_start_ms;",
             (window_end, FALLBACK_DURATION_MS, window_start),
+            None,
         )
-        for row in cursor:
-            found.append(self._normalize(row, None))
 
-        return found
+        if with_neighbours:
+            for template, bound in zip(self._NEIGHBOUR_SQL, (window_start, window_end)):
+                collect(
+                    template.format(column="wall_start_ms", scope=scope),
+                    (bound,),
+                    None,
+                )
+
+        # Соседи пересекаются с основной выборкой — оставляем по одной строке
+        unique = {row["id"]: row for row in found}
+        return list(unique.values())
 
     @staticmethod
     def _normalize(row: sqlite3.Row, session: Optional[FSession]) -> dict:
@@ -332,11 +377,16 @@ class SegmentIndex:
     def _build_tracks(
         self,
         rows: list[dict],
-        day_start: int,
-        day_end: int,
+        window_start: int,
+        window_end: int,
         known: Iterable[tuple[str, str]] = (),
     ) -> list[dict]:
-        """Группирует сегменты по дорожкам и считает куски и пропуски."""
+        """
+        Группирует сегменты по дорожкам и считает куски и пропуски. Куски и
+        разрывы считаются по всему, что пришло, включая соседей за краями окна,
+        и лишь потом подрезаются: разрыв — свойство архива, а не окна. Границы
+        разрыва отдаются настоящими, чтобы подпись не врала о его длине.
+        """
         by_track: dict[tuple[str, str], list[dict]] = {}
         for row in rows:
             by_track.setdefault((row["camera_id"], row["stream_key"]), []).append(row)
@@ -350,20 +400,32 @@ class SegmentIndex:
             items.sort(key=lambda x: x["start_ms"])
             _fill_missing_ends(items)
 
-            runs = _merge_runs(items, day_start, day_end)
+            runs = _merge_runs(items)
             gaps = _find_gaps(items, runs)
 
-            recorded_ms = sum(end - start for start, end in runs)
+            inside = [
+                item for item in items
+                if item["end_ms"] > window_start and item["start_ms"] < window_end
+            ]
+            visible = [
+                (max(start, window_start), min(end, window_end))
+                for start, end in runs
+                if end > window_start and start < window_end
+            ]
+
             tracks.append({
                 "camera_id": camera_id,
                 "stream_key": stream_key,
-                "trusted": all(item["trusted"] for item in items) if items else True,
-                "recorded_ms": recorded_ms,
-                "bytes": sum(item["size_bytes"] for item in items),
-                "segment_count": len(items),
-                "runs": [{"start_ms": s, "end_ms": e} for s, e in runs],
-                "gaps": gaps,
-                "segments": items,
+                "trusted": all(item["trusted"] for item in inside) if inside else True,
+                "recorded_ms": sum(end - start for start, end in visible),
+                "bytes": sum(item["size_bytes"] for item in inside),
+                "segment_count": len(inside),
+                "runs": [{"start_ms": s, "end_ms": e} for s, e in visible],
+                "gaps": [
+                    gap for gap in gaps
+                    if gap["end_ms"] > window_start and gap["start_ms"] < window_end
+                ],
+                "segments": inside,
             })
 
         return tracks
@@ -542,14 +604,21 @@ class SegmentIndex:
             removed = self._drop_missing(conn, known)
             closed = self._close_abandoned(conn, known)
             added = self._add_found(conn, known)
-
             conn.commit()
-            if removed or closed or added:
+
+            measured = self._measure_missing_ends(conn)
+            conn.commit()
+
+            if removed or closed or added or measured:
                 logger.info(
-                    "Segment index reconciled: %d rows dropped, %d closed, %d found on disk",
-                    removed, closed, added,
+                    "Segment index reconciled: %d rows dropped, %d closed,"
+                    " %d found on disk, %d durations measured",
+                    removed, closed, added, measured,
                 )
-            return {"dropped": removed, "closed": closed, "found": added}
+            return {
+                "dropped": removed, "closed": closed,
+                "found": added, "measured": measured,
+            }
         finally:
             conn.close()
 
@@ -594,6 +663,48 @@ class SegmentIndex:
             closed += 1
 
         return closed
+
+    def _measure_missing_ends(self, conn: sqlite3.Connection) -> int:
+        """
+        Закрытая строка без конца — это находка сверки: время взято из имени
+        файла, а длительность неизвестна. Меряем ffprobe и записываем настоящий
+        конец, иначе он додумывается при каждой выборке.
+        """
+        rows = [
+            row for row in conn.execute(
+                "SELECT id, path, mono_start_ms, wall_start_ms FROM segments"
+                " WHERE closed=1 AND (mono_end_ms IS NULL OR wall_end_ms IS NULL)"
+                " ORDER BY id;"
+            )
+            if row["id"] not in self._unmeasurable
+        ]
+        if not rows:
+            return 0
+
+        deadline = time.monotonic() + MEASURE_BUDGET_SEC
+        measured = 0
+
+        with ThreadPoolExecutor(max_workers=MEASURE_WORKERS) as pool:
+            for start in range(0, len(rows), MEASURE_CHUNK):
+                if time.monotonic() > deadline:
+                    break
+
+                chunk = rows[start:start + MEASURE_CHUNK]
+                durations = pool.map(_probe_duration_ms, [row["path"] for row in chunk])
+
+                for row, duration_ms in zip(chunk, durations):
+                    if duration_ms is None:
+                        self._unmeasurable.add(row["id"])
+                        continue
+
+                    conn.execute(
+                        "UPDATE segments SET mono_end_ms=mono_start_ms+?,"
+                        " wall_end_ms=wall_start_ms+? WHERE id=?;",
+                        (duration_ms, duration_ms, row["id"]),
+                    )
+                    measured += 1
+
+        return measured
 
     def _add_found(self, conn: sqlite3.Connection, known: dict) -> int:
         """
@@ -766,13 +877,13 @@ def _fill_missing_ends(items: list[dict]) -> None:
         item["estimated_end"] = True
 
 
-def _merge_runs(items: list[dict], day_start: int, day_end: int) -> list[tuple[int, int]]:
+def _merge_runs(items: list[dict]) -> list[tuple[int, int]]:
     """Соседние сегменты сливаются в непрерывный кусок, пока зазор мал."""
     runs: list[tuple[int, int]] = []
 
     for item in items:
-        start = max(item["start_ms"], day_start)
-        end = min(item["end_ms"], day_end)
+        start = item["start_ms"]
+        end = item["end_ms"]
         if end <= start:
             continue
 

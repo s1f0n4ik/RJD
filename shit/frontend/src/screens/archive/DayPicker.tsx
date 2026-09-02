@@ -5,7 +5,7 @@ import { Icon } from '../../app/Icons';
 import { elementAnchor, usePopover } from '../../app/popover';
 import type { Anchor } from '../../app/popover';
 import type { DaySummary } from './model';
-import { dateKey, dayStartMs, fetchDays, weekdayShort } from './model';
+import { dateKey, dayStartMs, fetchDays, fmtHoursShort, weekdayShort } from './model';
 
 /*
     Выбор дня. Календарь только выбирает дату и больше ничего не делает:
@@ -119,8 +119,11 @@ export function DayPicker({ date, todayKey, onChange }: Props) {
 
                             if (!cell.inMonth) classes.push('is-out');
                             if (summary) {
+                                // recorded_ms — сумма по всем потокам, поэтому полные
+                                // сутки меряются сутками на каждую дорожку
+                                const full = 86_400_000 * Math.max(1, summary.track_count);
                                 if (!summary.trusted) classes.push('is-doubt');
-                                else if (summary.recorded_ms >= 86_400_000 * FULL_DAY_RATIO) classes.push('is-full');
+                                else if (summary.recorded_ms >= full * FULL_DAY_RATIO) classes.push('is-full');
                                 else classes.push('is-part');
                             }
                             if (cell.key === date) classes.push('is-on');
@@ -132,9 +135,12 @@ export function DayPicker({ date, todayKey, onChange }: Props) {
                                     type="button"
                                     className={classes.join(' ')}
                                     onClick={() => { onChange(cell.key); setOpen(false); }}
-                                    title={summary ? `${Math.round(summary.recorded_ms / 60000)} мин записи` : 'записей нет'}
+                                    title={summary
+                                        ? `${fmtHoursShort(summary.recorded_ms)} записи на ${summary.track_count} дорожках`
+                                        : 'записей нет'}
                                 >
-                                    {cell.day}
+                                    <b>{cell.day}</b>
+                                    {summary && <em>{fmtHoursShort(summary.recorded_ms)}</em>}
                                 </button>
                             );
                         })}

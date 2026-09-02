@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { Icon } from '../../app/Icons';
@@ -343,34 +343,33 @@ export function Timeline({
                                         />
                                     ))}
 
+                                    {/* Разрыв приходит настоящими границами и может выходить
+                                        за окно: рисуем видимую часть, подписываем полную длину */}
                                     {track.gaps.map((gap, index) => {
-                                        const left = percentIn(gap.start_ms, from, to);
-                                        const width = percentIn(gap.end_ms, from, to) - left;
+                                        const left = Math.max(0, percentIn(gap.start_ms, from, to));
+                                        const right = Math.min(100, percentIn(gap.end_ms, from, to));
+                                        if (right <= left) return null;
+
                                         return (
-                                            <i
-                                                key={`g${index}`}
-                                                className="tl-gap"
-                                                style={{ left: `${left}%`, width: `${width}%` }}
-                                                title={`${fmtTime(gap.start_ms)} → ${fmtTime(gap.end_ms)}`}
-                                            />
+                                            <Fragment key={`g${index}`}>
+                                                <i
+                                                    className="tl-gap"
+                                                    style={{ left: `${left}%`, width: `${right - left}%` }}
+                                                    title={`${fmtTime(gap.start_ms)} → ${fmtTime(gap.end_ms)}`}
+                                                />
+                                                {right - left > GAP_LABEL_MIN_PERCENT && (
+                                                    <span
+                                                        className="tl-gap-lab"
+                                                        style={{ left: `${(left + right) / 2}%` }}
+                                                    >
+                                                        разрыв · {fmtDuration(gap.end_ms - gap.start_ms)}
+                                                    </span>
+                                                )}
+                                            </Fragment>
                                         );
                                     })}
 
-                                    {track.gaps
-                                        .filter(gap => percentIn(gap.end_ms, from, to) - percentIn(gap.start_ms, from, to) > GAP_LABEL_MIN_PERCENT)
-                                        .map((gap, index) => (
-                                            <span
-                                                key={`gl${index}`}
-                                                className="tl-gap-lab"
-                                                style={{
-                                                    left: `${(percentIn(gap.start_ms, from, to) + percentIn(gap.end_ms, from, to)) / 2}%`,
-                                                }}
-                                            >
-                                                разрыв · {fmtDuration(gap.end_ms - gap.start_ms)}
-                                            </span>
-                                        ))}
-
-                                    {!track.segment_count && (
+                                    {!track.segment_count && !track.gaps.length && (
                                         <span className="tl-row-none">за это время записей нет</span>
                                     )}
                                 </div>
@@ -433,6 +432,7 @@ function Peek({ hover, track }: { hover: Hover; track: Track }) {
     const segment = segmentAt(track, hover.ms);
 
     const [shot, setShot] = useState<string | null>(null);
+    const [loaded, setLoaded] = useState<string | null>(null);
     const [broken, setBroken] = useState(false);
 
     useEffect(() => {
@@ -449,14 +449,25 @@ function Peek({ hover, track }: { hover: Hover; track: Track }) {
         return () => window.clearTimeout(timer);
     }, [track, hover.ms, segment?.path]);
 
+    // Кадр внутри секунды один и тот же, поэтому адрес часто не меняется —
+    // ждём именно загрузку, а не назначение src
+    const waiting = !!segment && !broken && shot !== loaded;
+
     return createPortal(
         <div className="tl-peek" ref={ref}>
             <div className={`tl-peek-shot${segment ? '' : ' is-none'}`}>
                 {!segment && 'записи в этот момент нет'}
                 {segment && broken && 'кадр не получен'}
                 {segment && shot && !broken && (
-                    <img src={shot} alt="" onError={() => setBroken(true)} />
+                    <img
+                        src={shot}
+                        alt=""
+                        className={shot === loaded ? '' : 'is-load'}
+                        onLoad={() => setLoaded(shot)}
+                        onError={() => setBroken(true)}
+                    />
                 )}
+                {waiting && <i className="tl-peek-spin" />}
             </div>
             <div className="tl-peek-meta">
                 <span className="t">{fmtTime(hover.ms)}</span>
