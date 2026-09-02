@@ -70,6 +70,35 @@ async def archive_day(date: str = Query(..., description="YYYY-MM-DD")):
     return {"date": date, "tracks": tracks, "offline_devices": offline}
 
 
+@router.get("/archive/range")
+async def archive_range(
+    from_ms: int = Query(..., description="начало окна, мс времени изделия"),
+    to_ms: int = Query(..., description="конец окна"),
+):
+    """Дорожки всех устройств за окно времени; у каждой сказано, чья она."""
+    if to_ms <= from_ms:
+        raise HTTPException(status_code=400, detail="to_ms must be greater than from_ms")
+
+    results = await _fan_out("/archive/range", {"from_ms": from_ms, "to_ms": to_ms})
+
+    tracks: list[dict] = []
+    offline: list[str] = []
+
+    for device, data in results:
+        if data is None:
+            offline.append(device["id"])
+            continue
+
+        for track in data.get("tracks") or []:
+            track["device_id"] = device["id"]
+            track["device_name"] = device.get("name") or device["id"]
+            tracks.append(track)
+
+    tracks.sort(key=lambda t: (t.get("camera_id", ""), t.get("stream_key", "")))
+
+    return {"from_ms": from_ms, "to_ms": to_ms, "tracks": tracks, "offline_devices": offline}
+
+
 @router.get("/archive/days")
 async def archive_days(
     date_from: str = Query(..., alias="from"),

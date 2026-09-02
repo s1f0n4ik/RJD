@@ -34,6 +34,22 @@ async def archive_day(date: str = Query(..., description="YYYY-MM-DD")):
     return await loop.run_in_executor(None, index.day, date)
 
 
+@router.get("/archive/range")
+async def archive_range(
+    from_ms: int = Query(..., description="начало окна, мс времени изделия"),
+    to_ms: int = Query(..., description="конец окна"),
+):
+    """
+    Дорожки за произвольное окно времени — то, что рисует таймлайн. Сутками он
+    не ограничен, границы приходят от него.
+    """
+    if to_ms <= from_ms:
+        raise HTTPException(status_code=400, detail="to_ms must be greater than from_ms")
+
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, index.window, from_ms, to_ms)
+
+
 @router.get("/archive/days")
 async def archive_days(
     date_from: str = Query(..., alias="from", description="YYYY-MM-DD"),

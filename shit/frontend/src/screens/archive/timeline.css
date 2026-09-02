@@ -1,0 +1,400 @@
+/* Таймлайн архива: шапка со временем и масштабом, шкала с сеткой, дорожки */
+
+.tl {
+  flex: 0 0 auto;
+  /* Высоту задаёт якорь; на весь раздел — растягивается сам */
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  /* Протяжка окна не должна цеплять выделение текста */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* На весь раздел таймлайн забирает всю высоту, кадр не рисуется */
+.tl--full { flex: 1; height: auto }
+
+/* Ручка растягивания: тянет вверх, отбирая высоту у кадра */
+.tl-grip {
+  height: 8px;
+  flex: 0 0 8px;
+  display: grid;
+  place-items: center;
+  border-bottom: 1px solid var(--line);
+  cursor: ns-resize;
+}
+
+.tl-grip i { display: block; width: 44px; height: 3px; border-radius: 2px; background: var(--line-hi); transition: .12s }
+.tl-grip:hover i { background: var(--acc); width: 60px }
+.tl-grip:active i { background: var(--acc) }
+
+.tl-head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  flex-wrap: wrap;
+  flex: 0 0 auto;
+  padding: 9px 14px;
+}
+
+.tl-now {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-right: 12px;
+  border-right: 1px solid var(--line);
+}
+
+.tl-now b {
+  font-family: var(--mono);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.tl-now span { font-family: var(--mono); font-size: 10.5px; color: var(--fg-3) }
+
+.tl-zoom {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--input);
+  overflow: hidden;
+}
+
+.tl-zoom button { width: 28px; height: 100%; color: var(--fg-2); font-family: var(--mono); font-size: 14px }
+.tl-zoom button:hover:not(:disabled) { background: var(--panel); color: var(--fg) }
+.tl-zoom button:disabled { opacity: .35; cursor: default }
+
+.tl-zoom .lvl {
+  min-width: 92px;
+  padding: 0 10px;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--fg-2);
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+}
+
+/* Всё о выбранном диапазоне живёт здесь же, у дорожек */
+.tl-pick {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 5px 10px;
+  border: 1px solid rgba(229, 161, 99, .32);
+  border-radius: var(--r);
+  background: rgba(229, 161, 99, .07);
+}
+
+.tl-pick .range { font-family: var(--mono); font-size: 12.5px; color: var(--save) }
+.tl-pick .fact { font-size: 12px; color: var(--fg-2) }
+.tl-pick .warn { font-size: 12px; color: var(--warn) }
+
+.tl-tools { margin-left: auto; display: flex; gap: 7px }
+
+.tl-tool {
+  height: 30px;
+  padding: 0 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+  color: var(--fg-2);
+  font-size: 12px;
+  transition: .14s;
+}
+
+.tl-tool:hover { border-color: var(--line-hi); color: var(--fg) }
+.tl-tool.is-on { background: rgba(var(--acc-rgb), .16); border-color: rgba(var(--acc-rgb), .45); color: var(--fg) }
+
+/* ── поле ── */
+
+.tl-field {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 216px 1fr;
+  border-top: 1px solid var(--line);
+}
+
+.tl-names { border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0 }
+
+.tl-corner {
+  height: 30px;
+  flex: 0 0 30px;
+  display: flex;
+  align-items: center;
+  padding: 0 11px;
+  border-bottom: 1px solid var(--line);
+  background: var(--input);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--fg-3);
+}
+
+/* Имена и дорожки одной высоты: строки обязаны совпадать */
+.tl-names-body { flex: 1; min-height: 0; overflow: hidden }
+
+.tl-name {
+  position: relative;
+  width: 100%;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 11px;
+  border-bottom: 1px solid rgba(51, 59, 74, .45);
+  text-align: left;
+  transition: .12s;
+}
+
+.tl-name:hover { background: var(--panel) }
+.tl-name.is-sel { background: rgba(var(--acc-rgb), .12) }
+
+.tl-name.is-sel::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--acc);
+  box-shadow: 0 0 10px var(--acc);
+}
+
+.tl-st {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 9px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 7px rgba(87, 214, 154, .5);
+}
+
+.tl-st.is-off { background: var(--fg-3); box-shadow: none }
+
+/* Удалённая камера — не точка: записи есть, а камеры уже нет */
+.tl-st.is-gone {
+  position: relative;
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  border-radius: 3px;
+  background: none;
+  border: 1.5px solid var(--warn);
+  box-shadow: none;
+}
+
+.tl-st.is-gone::after {
+  content: '';
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  top: 50%;
+  height: 1.5px;
+  background: var(--warn);
+  transform: translateY(-50%) rotate(-45deg);
+}
+
+.tl-nm { min-width: 0; display: flex; flex-direction: column; gap: 1px }
+.tl-nm b { font-size: 12.5px; font-weight: 500; color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.tl-name.is-sel .tl-nm b { color: var(--fg) }
+.tl-nm span { font-family: var(--mono); font-size: 9.5px; color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+
+.tl-canvas { position: relative; min-width: 0; display: flex; flex-direction: column; cursor: grab }
+.tl-canvas:active { cursor: grabbing }
+.tl-canvas.is-picking, .tl-canvas.is-picking:active { cursor: crosshair }
+
+.tl-scale {
+  position: relative;
+  height: 30px;
+  flex: 0 0 30px;
+  border-bottom: 1px solid var(--line);
+  background: var(--input);
+  overflow: hidden;
+}
+
+.tl-tick { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--line) }
+.tl-tick.is-minor { top: 62%; border-left-color: rgba(51, 59, 74, .55) }
+
+.tl-tick span {
+  position: absolute;
+  left: 5px;
+  top: 7px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--fg-3);
+  white-space: nowrap;
+}
+
+.tl-rows {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+}
+
+/* Сетка — по тем же засечкам, что и шкала: время читается по вертикали */
+.tl-grid { position: absolute; inset: 0; pointer-events: none }
+.tl-grid i { position: absolute; top: 0; bottom: 0; border-left: 1px solid rgba(51, 59, 74, .55) }
+.tl-grid i.is-minor { border-left-color: rgba(51, 59, 74, .26) }
+
+.tl-row { position: relative; height: 38px; border-bottom: 1px solid rgba(51, 59, 74, .45) }
+.tl-row.is-sel { background: rgba(var(--acc-rgb), .07) }
+
+.tl-run { position: absolute; top: 7px; bottom: 7px; border-radius: 3px; background: rgba(var(--acc-rgb), .45) }
+.tl-row.is-sel .tl-run { background: rgba(var(--acc-rgb), .62) }
+
+/* Недостоверное время — штриховка: видно раньше, чем прочитана подпись */
+.tl-run.is-doubt {
+  background: repeating-linear-gradient(45deg, rgba(var(--acc-rgb), .4) 0 5px, rgba(var(--acc-rgb), .14) 5px 10px);
+}
+
+.tl-gap {
+  position: absolute;
+  top: 7px;
+  bottom: 7px;
+  background: repeating-linear-gradient(45deg, rgba(255, 107, 128, .28) 0 5px, transparent 5px 10px);
+  border-left: 1px solid rgba(255, 107, 128, .5);
+  border-right: 1px solid rgba(255, 107, 128, .5);
+}
+
+/* Разрыв на границе сессий — изделие было обесточено, а не поломка записи */
+.tl-gap.is-power {
+  background: repeating-linear-gradient(45deg, rgba(123, 134, 152, .26) 0 5px, transparent 5px 10px);
+  border-color: rgba(123, 134, 152, .45);
+}
+
+.tl-gap-lab {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(18, 20, 26, .86);
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--err);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.tl-gap-lab.is-power { color: var(--fg-2) }
+
+.tl-row-none {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  color: var(--fg-3);
+  opacity: .75;
+  pointer-events: none;
+}
+
+.tl-empty { padding: 26px 0; text-align: center; font-size: 12.5px; color: var(--fg-3) }
+
+.tl-pickband {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(229, 161, 99, .18);
+  border-left: 1px solid var(--save);
+  border-right: 1px solid var(--save);
+  pointer-events: none;
+}
+
+/* Курсор один на всё полотно и проходит сквозь все дорожки */
+.tl-cursor {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--acc);
+  box-shadow: 0 0 12px var(--acc);
+  pointer-events: none;
+  z-index: 4;
+}
+
+.tl-cursor::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 8px solid var(--acc);
+}
+
+.tl-hover {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(241, 243, 249, .45);
+  pointer-events: none;
+  z-index: 3;
+}
+
+/* ── превью и подсказка: порталом в body, поэтому fixed и без обрезки ── */
+
+.tl-peek {
+  position: fixed;
+  z-index: 90;
+  width: 224px;
+  transform: translate(-50%, -100%);
+  margin-top: -14px;
+  background: var(--panel);
+  border: 1px solid var(--line-hi);
+  border-radius: var(--r);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.tl-peek-shot {
+  height: 112px;
+  display: grid;
+  place-items: center;
+  border-bottom: 1px solid var(--line);
+  background:
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, .02) 0 8px, transparent 8px 16px),
+    var(--input);
+}
+
+.tl-peek-shot.is-none { color: var(--warn); font-size: 11.5px }
+
+.tl-peek-meta { padding: 7px 10px; display: flex; flex-direction: column; gap: 2px }
+.tl-peek-meta .t { font-family: var(--mono); font-size: 13px }
+.tl-peek-meta .f { font-family: var(--mono); font-size: 10px; color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+
+.tl-tip {
+  position: fixed;
+  z-index: 92;
+  width: 252px;
+  padding: 9px 11px;
+  background: var(--panel);
+  border: 1px solid var(--line-hi);
+  border-radius: var(--r);
+  box-shadow: var(--shadow-lg);
+  pointer-events: none;
+}
+
+.tl-tip b { display: block; font-size: 12.5px; margin-bottom: 5px }
+.tl-tip .r { display: flex; gap: 8px; padding: 2px 0; font-size: 11.5px; color: var(--fg-3) }
+.tl-tip .r span:last-child { margin-left: auto; font-family: var(--mono); color: var(--fg-2) }

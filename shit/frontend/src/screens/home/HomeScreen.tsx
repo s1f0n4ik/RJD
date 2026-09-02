@@ -57,40 +57,25 @@ export function HomeScreen() {
         <section className="screen glow">
             <div className="scroll">
 
-                {devices.length === 0 ? (
-                    <div className="card" style={{ marginBottom: 18 }}>
-                        <div className="card-b">
-                            <div className="empty">
-                                <Icon name="dev" size={34} />
-                                <b>Устройства не добавлены</b>
-                                <p>
-                                    В системе нет ни одного вычислительного устройства — показывать нечего.
-                                    Добавьте устройство в разделе «Устройства».
-                                </p>
-                            </div>
+                <div className="hero">
+                    <div>
+                        <h1>Общее состояние</h1>
+                    </div>
+                    <div className="hero-stats">
+                        <div className="stat is-acc">
+                            <b>{liveCameras}/{cameras.length}</b>
+                            <span>камер в работе</span>
+                        </div>
+                        <div className="stat">
+                            <b>{online.length}/{devices.length}</b>
+                            <span>устройств в сети</span>
+                        </div>
+                        <div className={`stat${deadCameras + offlineDevices > 0 ? ' is-warn' : ''}`}>
+                            <b>{deadCameras + offlineDevices}</b>
+                            <span>требуют внимания</span>
                         </div>
                     </div>
-                ) : (
-                    <div className="hero">
-                        <div>
-                            <h1>Общее состояние</h1>
-                        </div>
-                        <div className="hero-stats">
-                            <div className="stat is-acc">
-                                <b>{liveCameras}/{cameras.length}</b>
-                                <span>камер в работе</span>
-                            </div>
-                            <div className="stat">
-                                <b>{online.length}/{devices.length}</b>
-                                <span>устройств в сети</span>
-                            </div>
-                            <div className={`stat${deadCameras + offlineDevices > 0 ? ' is-warn' : ''}`}>
-                                <b>{deadCameras + offlineDevices}</b>
-                                <span>требуют внимания</span>
-                            </div>
-                        </div>
-                    </div>
-                )}
+                </div>
 
                 {offlineDevices > 0 && dismissed !== offlineNames && (
                     <div className="banner" style={{ marginBottom: 18 }}>
@@ -135,6 +120,15 @@ export function HomeScreen() {
                                 <span className="eyebrow">опрос 10 с</span>
                             </div>
                             <div className="card-b" style={{ paddingTop: 4, paddingBottom: 8 }}>
+                                {devices.length === 0 && (
+                                    <div className="card-none">
+                                        <b>Устройства не добавлены</b>
+                                        <span>
+                                            Показывать нечего: ни одно вычислительное устройство
+                                            не подключено. Добавьте его в разделе «Устройства».
+                                        </span>
+                                    </div>
+                                )}
                                 {devices.map(device => {
                                     const temp = maxTemp(device);
                                     const cpu = device.telemetry?.cpu?.percent;
@@ -182,7 +176,9 @@ export function HomeScreen() {
                                         </div>
                                     );
                                 })}
-                                {devices.every(d => !disks[d.id]) && (
+                                {devices.length === 0 ? (
+                                    <p className="hint">Накопители появятся вместе с устройствами.</p>
+                                ) : devices.every(d => !disks[d.id]) && (
                                     <p className="hint">Служба хранения не отвечает — занятость дисков неизвестна.</p>
                                 )}
                             </div>

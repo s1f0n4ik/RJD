@@ -215,29 +215,37 @@ class SegmentIndex:
     # ── выборка дня ──
 
     def day(self, date_key: str) -> dict:
-        """Дорожки за сутки: непрерывные куски, пропуски и сами сегменты."""
+        """Сутки целиком — частный случай окна."""
+        start = _day_start_ms(date_key)
+        result = self.window(start, start + DAY_MS)
+        result["date"] = date_key
+        return result
+
+    def window(self, from_ms: int, to_ms: int) -> dict:
+        """
+        Дорожки за произвольный отрезок времени: непрерывные куски, пропуски и
+        сами сегменты. Таймлайн не привязан к суткам, поэтому границы задаёт он.
+        """
         conn = self._connect()
         if conn is None:
-            return {"date": date_key, "tracks": [], "available": False}
+            return {"from_ms": from_ms, "to_ms": to_ms, "tracks": [], "available": False}
 
         try:
             self._ensure_own_schema(conn)
             if not self._has_table(conn, "segments"):
-                return {"date": date_key, "tracks": [], "available": False}
-
-            day_start = _day_start_ms(date_key)
-            day_end = day_start + DAY_MS
+                return {"from_ms": from_ms, "to_ms": to_ms, "tracks": [], "available": False}
 
             sessions = self._load_sessions(conn)
             self._persist_anchors(conn, sessions)
 
-            rows = self._rows_in_window(conn, sessions, day_start, day_end)
-            tracks = self._build_tracks(rows, day_start, day_end)
+            rows = self._rows_in_window(conn, sessions, from_ms, to_ms)
+            tracks = self._build_tracks(rows, from_ms, to_ms)
 
             return {
-                "date": date_key,
-                "day_start_ms": day_start,
-                "day_end_ms": day_end,
+                "from_ms": from_ms,
+                "to_ms": to_ms,
+                "day_start_ms": from_ms,
+                "day_end_ms": to_ms,
                 "available": True,
                 "tracks": tracks,
             }

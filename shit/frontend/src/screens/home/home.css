@@ -71,3 +71,10 @@
 .disk-h b{font-size:12.5px;font-weight:600}
 
 .disk-h .num{margin-left:auto;font-size:11.5px;color:var(--fg-2)}
+
+/* Пусто в карточке: заголовок предупреждающим, под ним — что с этим делать */
+.card-none{display:flex;flex-direction:column;gap:4px;padding:6px 2px 4px}
+
+.card-none b{font-size:13px;font-weight:600;color:var(--warn)}
+
+.card-none span{font-size:12px;line-height:1.4;color:var(--fg-3)}

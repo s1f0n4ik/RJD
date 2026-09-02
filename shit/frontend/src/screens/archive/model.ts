@@ -98,6 +98,10 @@ async function getJson<T>(url: string): Promise<T> {
 export const fetchDay = (date: string) =>
     getJson<DayIndex>(`/api/archive/day?date=${date}`);
 
+/** Дорожки за произвольное окно времени — то, что рисует таймлайн. */
+export const fetchRange = (fromMs: number, toMs: number) =>
+    getJson<DayIndex>(`/api/archive/range?from_ms=${Math.round(fromMs)}&to_ms=${Math.round(toMs)}`);
+
 export const fetchDays = (from: string, to: string) =>
     getJson<{ days: DaySummary[] }>(`/api/archive/days?from=${from}&to=${to}`);
 
@@ -282,3 +286,84 @@ export const jobDownloadUrl = (deviceId: string, jobId: string) =>
 
 export const jobCancelUrl = (deviceId: string, jobId: string) =>
     storagePath(deviceId, `/api/recordings/jobs/${jobId}`);
+
+// ── масштаб таймлайна ──
+
+const SECOND = 1000;
+const MINUTE = 60 * SECOND;
+const HOUR = 60 * MINUTE;
+
+/**
+ * Уровень приближения: ширина окна, шаг засечек и то, что писать в подписи.
+ * Чем ближе, тем подробнее подпись — часы, минуты, секунды.
+ */
+export interface ZoomLevel {
+    span: number;
+    label: string;
+    major: number;
+    minor: number;
+    fmt: 'date' | 'hm' | 'hms';
+}
+
+export const ZOOMS: ZoomLevel[] = [
+    { span: 7 * DAY_MS, label: '7 суток',  major: DAY_MS,      minor: 6 * HOUR,   fmt: 'date' },
+    { span: 2 * DAY_MS, label: '2 суток',  major: 6 * HOUR,    minor: HOUR,       fmt: 'hm' },
+    { span: DAY_MS,     label: 'сутки',    major: 3 * HOUR,    minor: HOUR,       fmt: 'hm' },
+    { span: 6 * HOUR,   label: '6 часов',  major: HOUR,        minor: 15 * MINUTE, fmt: 'hm' },
+    { span: HOUR,       label: 'час',      major: 10 * MINUTE, minor: 2 * MINUTE, fmt: 'hm' },
+    { span: 15 * MINUTE, label: '15 минут', major: 2 * MINUTE, minor: 30 * SECOND, fmt: 'hms' },
+    { span: 5 * MINUTE, label: '5 минут',  major: MINUTE,      minor: 15 * SECOND, fmt: 'hms' },
+    { span: MINUTE,     label: 'минута',   major: 10 * SECOND, minor: 2 * SECOND, fmt: 'hms' },
+];
+
+export const DEFAULT_ZOOM = 3;
+
+export interface Tick {
+    ms: number;
+    major: boolean;
+    label: string | null;
+}
+
+const TICK_FMT: Record<ZoomLevel['fmt'], Intl.DateTimeFormatOptions> = {
+    date: { timeZone: 'UTC', day: '2-digit', month: '2-digit' },
+    hm: { timeZone: 'UTC', hour: '2-digit', minute: '2-digit' },
+    hms: { timeZone: 'UTC', hour: '2-digit', minute: '2-digit', second: '2-digit' },
+};
+
+/** Подпись засечки: чем крупнее приближение, тем подробнее. */
+export function fmtTick(ms: number, fmt: ZoomLevel['fmt']): string {
+    const date = new Date(ms);
+    // Полночь подписываем датой на любом масштабе — иначе не видно, где сутки
+    if (fmt !== 'date' && ms % DAY_MS === 0) {
+        return date.toLocaleDateString('ru-RU', TICK_FMT.date);
+    }
+    return fmt === 'date'
+        ? date.toLocaleDateString('ru-RU', TICK_FMT.date)
+        : date.toLocaleTimeString('ru-RU', TICK_FMT[fmt]);
+}
+
+/** Засечки окна: крупные подписаны, промежуточные только линиями. */
+export function buildTicks(from: number, to: number, level: ZoomLevel): Tick[] {
+    const ticks: Tick[] = [];
+    const step = level.minor;
+    const start = Math.ceil(from / step) * step;
+
+    for (let ms = start; ms <= to; ms += step) {
+        const major = ms % level.major === 0;
+        ticks.push({ ms, major, label: major ? fmtTick(ms, level.fmt) : null });
+    }
+    return ticks;
+}
+
+/** Доля окна в процентах — позиция на полотне. */
+export const percentIn = (ms: number, from: number, to: number) =>
+    ((ms - from) / (to - from)) * 100;
+
+export const msAt = (percent: number, from: number, to: number) =>
+    from + (percent / 100) * (to - from);
+
+export function fmtDateLong(ms: number): string {
+    return new Date(ms).toLocaleDateString('ru-RU', {
+        timeZone: 'UTC', weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric',
+    });
+}

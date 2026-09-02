@@ -87,9 +87,12 @@ export function ArchivePlayer({
             return;
         }
 
-        const target = segmentAt(track, seek.ms) || segmentAfter(track, seek.ms);
+        // Курсор можно ставить в пустоту — тогда честно показываем, что записи
+        // здесь нет, вместо тихого прыжка к ближайшей
+        const target = segmentAt(track, seek.ms);
         if (!target) {
             setCurrent(null);
+            setFailed(false);
             return;
         }
 
@@ -187,7 +190,7 @@ export function ArchivePlayer({
             {!current && (
                 <div className="arch-empty">
                     <Icon name="arch" />
-                    <span>{track ? 'За этот момент записи нет' : 'Выберите дорожку'}</span>
+                    <span>{track ? 'В этот момент записи нет' : 'Выберите дорожку'}</span>
                 </div>
             )}
 
