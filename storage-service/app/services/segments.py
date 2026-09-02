@@ -708,17 +708,20 @@ class SegmentIndex:
             known.pop(path, None)
         return len(gone)
 
-    @staticmethod
-    def _close_abandoned(conn: sqlite3.Connection, known: dict) -> int:
+    def _close_abandoned(self, conn: sqlite3.Connection, known: dict) -> int:
         """
         Открытая строка, файл которой давно не менялся, — след обрыва питания:
         media-center закрыть её уже не сможет, меряем файл и закрываем сами.
+
+        Файл, записанный до фрагментного mp4, обрывом теряет заголовок целиком
+        и не измерим никогда — такие строки запоминаем, чтобы не звать ffprobe
+        на них каждый проход сверки.
         """
         now = datetime.now().timestamp()
         closed = 0
 
         for path, row in known.items():
-            if row["closed"]:
+            if row["closed"] or row["id"] in self._unmeasurable:
                 continue
             try:
                 stat = os.stat(path)
@@ -729,6 +732,8 @@ class SegmentIndex:
 
             duration_ms = _probe_duration_ms(path)
             if duration_ms is None:
+                self._unmeasurable.add(row["id"])
+                logger.warning("Cannot measure abandoned segment, skipping it from now on: %s", path)
                 continue
 
             conn.execute(
@@ -835,23 +840,12 @@ class SegmentIndex:
                 elif entry.is_file() and entry.suffix.lower() in VIDEO_EXTENSIONS:
                     yield str(entry), camera_dir.name, LEGACY_STREAM
 
-    def forget_file(self, path: str) -> None:
-        """Файл удалён чисткой — строка уходит вместе с ним."""
-        conn = self._connect()
-        if conn is None:
-            return
-        try:
-            if not self._has_table(conn, "segments"):
-                return
-            conn.execute("DELETE FROM segments WHERE path=?;", (path,))
-            conn.commit()
-        finally:
-            conn.close()
-
-    def files_oldest_first(self) -> list[str]:
+    def oldest_files(self, limit: int) -> list[str]:
         """
-        Порядок удаления при нехватке места — по нормализованному времени, а не
-        по mtime: когда часы врали, mtime не совпадает с порядком записи.
+        Самые старые файлы по нормализованному времени — порядок удаления при
+        нехватке места. Не по mtime: когда часы врали, он не совпадает с
+        порядком записи. Сортирует SQLite, наружу уходит только запрошенная
+        пачка — таблица целиком в память не поднимается.
         """
         conn = self._connect()
         if conn is None:
@@ -862,19 +856,45 @@ class SegmentIndex:
             if not self._has_table(conn, "segments"):
                 return []
 
-            sessions = {s.uid: s for s in self._load_sessions(conn)}
+            sessions = self._load_sessions(conn)
+
+            params: list = []
+            when = []
+            for session in sessions:
+                when.append("WHEN ? THEN mono_start_ms + ?")
+                params += [session.uid, session.anchor_ms]
+
+            # Строки сверки сессии не знают, у них есть только настенное время
+            started = (
+                "CASE session_uid " + " ".join(when) + " ELSE wall_start_ms END"
+                if when else "wall_start_ms"
+            )
+
             rows = conn.execute(
-                "SELECT path, session_uid, mono_start_ms, wall_start_ms FROM segments;"
-            ).fetchall()
+                f"SELECT path FROM segments ORDER BY ({started}) LIMIT ?;",
+                (*params, limit),
+            )
+            return [row["path"] for row in rows]
+        finally:
+            conn.close()
 
-            ordered = []
-            for row in rows:
-                session = sessions.get(row["session_uid"])
-                start = (row["mono_start_ms"] + session.anchor_ms) if session else row["wall_start_ms"]
-                ordered.append((start, row["path"]))
+    def forget_files(self, paths: Iterable[str]) -> None:
+        """
+        Файлы удалены чисткой — строки уходят вместе с ними, одной транзакцией.
+        По строке за раз это были бы сотни блокировок подряд поверх писателя.
+        """
+        batch = [(path,) for path in paths]
+        if not batch:
+            return
 
-            ordered.sort(key=lambda item: item[0])
-            return [path for _, path in ordered]
+        conn = self._connect()
+        if conn is None:
+            return
+        try:
+            if not self._has_table(conn, "segments"):
+                return
+            conn.executemany("DELETE FROM segments WHERE path=?;", batch)
+            conn.commit()
         finally:
             conn.close()
 

@@ -354,7 +354,17 @@
     var(--input);
 }
 
-.tl-peek-shot img { width: 100%; height: 100%; object-fit: contain; background: #000 }
+/* Кадр вынут из потока сетки: как её элемент он получал height:100% от строки
+   размера auto, строка мерилась по нему же, и процент отбрасывался в пользу
+   натуральной высоты — рамка росла под размер кадра */
+.tl-peek-shot img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
 .tl-peek-shot img.is-load { opacity: 0 }
 .tl-peek-shot.is-none { color: var(--warn); font-size: 11.5px }
 

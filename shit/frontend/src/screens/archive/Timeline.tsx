@@ -218,8 +218,15 @@ export function Timeline({
                     <span>{cursorMs === null ? 'курсор не поставлен' : fmtDateLong(cursorMs)}</span>
                 </div>
 
+                {/* Курсор задаёт дату, только пока он в окне: иначе прыжок по
+                    календарю двигал бы таймлайн, а сам календарь оставался на
+                    сутках курсора, уехавшего за край */}
                 <DayPicker
-                    date={dateKey(cursorMs ?? (from + (to - from) / 2))}
+                    date={dateKey(
+                        cursorMs !== null && cursorMs >= from && cursorMs <= to
+                            ? cursorMs
+                            : from + (to - from) / 2,
+                    )}
                     todayKey={todayKey}
                     onChange={onJumpDate}
                 />

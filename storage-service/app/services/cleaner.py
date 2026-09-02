@@ -1,6 +1,7 @@
 import asyncio
 import logging
 
+from itertools import islice
 from pathlib import Path
 
 from app.config import settings
@@ -86,44 +87,55 @@ class StorageCleaner:
         Идём от самых старых файлов к новым и удаляем, пока оценка свободного
         места не достигнет target_free_bytes. Запись параллельно занимает место,
         поэтому это оценка, финальную коррекцию делает следующий цикл.
+
+        Проход ограничен сверху: освободить девять процентов диска одним махом
+        значит снести сотни файлов подряд, а следующий цикл всё равно через
+        минуту. Заодно это страховка — неверный порядок удаления виден после
+        первой пачки, а не после всей глубины архива.
         """
-        deleted_count = 0
+        limit = settings.CLEANUP_MAX_FILES_PER_PASS
+        deleted: list[str] = []
         freed_bytes = 0
 
-        for file_path in self._oldest_first():
+        for file_path in self._oldest_first(limit):
             if start_free_bytes + freed_bytes >= target_free_bytes:
+                break
+            if freed_bytes >= settings.CLEANUP_MAX_BYTES_PER_PASS:
+                logger.info("Pass byte limit reached, rest goes to the next cycle")
                 break
             try:
                 size = file_path.stat().st_size
                 file_path.unlink()
                 freed_bytes += size
-                deleted_count += 1
-                # Файл и его строка уходят вместе, иначе индекс начнёт врать
-                index.forget_file(str(file_path))
+                deleted.append(str(file_path))
                 logger.info("Deleted old recording: %s (%.2fMB)", file_path, size / 1024**2)
             except OSError as e:
                 logger.warning("Failed to delete %s: %s", file_path, e)
 
+        # Файлы и их строки уходят вместе, иначе индекс начнёт врать
+        index.forget_files(deleted)
+
         removed_dirs = storage.remove_empty_subdirs()
 
         logger.info(
-            "Cleanup done: %d files (%.2fGB freed), %d empty dirs removed",
-            deleted_count, freed_bytes / 1024 ** 3, removed_dirs,
+            "Cleanup pass done: %d files (%.2fGB freed), %d empty dirs removed",
+            len(deleted), freed_bytes / 1024 ** 3, removed_dirs,
                            )
 
     @staticmethod
-    def _oldest_first():
+    def _oldest_first(limit: int):
         """
         Порядок удаления берём из индекса: он знает нормализованное время
         записи. Когда часы изделия врали, mtime не совпадает с порядком записи,
         и чистка по нему съедает не то. Индекса нет — падаем на обход диска.
         """
-        indexed = index.files_oldest_first()
+        indexed = index.oldest_files(limit)
         if indexed:
             return [Path(path) for path in indexed]
 
         logger.warning("Segment index is empty, falling back to mtime order")
-        return storage.all_files_oldest_first()
+        # Обход диска отдаёт итератор, срез по нему не сделать
+        return list(islice(storage.all_files_oldest_first(), limit))
 
 
 cleaner = StorageCleaner()
