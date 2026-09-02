@@ -8,6 +8,11 @@
 
 version: '3.8'
 
+# Имя проекта задано явно: иначе оно берётся из имени каталога, и та же
+# команда из другого места создаёт второй проект, а фиксированные
+# container_name уже заняты — compose падает на конфликте имён
+name: varan-minion
+
 services:
   # ========== Signaling Server (WebSocket для WebRTC) ==========
   signaling-server:
