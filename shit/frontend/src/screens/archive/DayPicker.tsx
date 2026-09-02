@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { Icon } from '../../app/Icons';
 import { elementAnchor, usePopover } from '../../app/popover';
 import type { Anchor } from '../../app/popover';
-import type { DaySummary } from './model';
-import { dateKey, dayStartMs, fetchDays, fmtHoursShort, weekdayShort } from './model';
+import { Calendar } from './Calendar';
+import { dateKey, dayStartMs, weekdayShort } from './model';
 
 // Выбор дня
 
@@ -15,17 +15,9 @@ interface Props {
     onChange: (date: string) => void;
 }
 
-const MONTHS = [
-    'январь', 'февраль', 'март', 'апрель', 'май', 'июнь',
-    'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь',
-];
-
-const FULL_DAY_RATIO = 0.97;
-
 export function DayPicker({ date, todayKey, onChange }: Props) {
     const [open, setOpen] = useState(false);
     const [month, setMonth] = useState(() => date.slice(0, 7));
-    const [days, setDays] = useState<Map<string, DaySummary>>(new Map());
     const box = useRef<HTMLDivElement | null>(null);
     const button = useRef<HTMLButtonElement | null>(null);
     const [anchor, setAnchor] = useState<Anchor | null>(null);
@@ -55,27 +47,6 @@ export function DayPicker({ date, todayKey, onChange }: Props) {
         };
     }, [open, pop]);
 
-    useEffect(() => {
-        if (!open) return;
-
-        const [year, monthNumber] = month.split('-').map(Number);
-        const from = `${month}-01`;
-        const to = dateKey(Date.UTC(year, monthNumber, 0));
-
-        let alive = true;
-        fetchDays(from, to)
-            .then(data => {
-                if (!alive) return;
-                setDays(new Map(data.days.map(day => [day.date, day])));
-            })
-            .catch(() => alive && setDays(new Map()));
-
-        return () => { alive = false; };
-    }, [open, month]);
-
-    const cells = useMemo(() => buildMonth(month), [month]);
-    const [year, monthNumber] = month.split('-').map(Number);
-
     return (
         <div className="arch-daypick" ref={box}>
             <div className="arch-step">
@@ -86,6 +57,7 @@ export function DayPicker({ date, todayKey, onChange }: Props) {
                     ref={button}
                     onClick={() => {
                         if (button.current) setAnchor(elementAnchor(button.current));
+                        setMonth(date.slice(0, 7));
                         setOpen(value => !value);
                     }}
                 >
@@ -98,49 +70,14 @@ export function DayPicker({ date, todayKey, onChange }: Props) {
 
             {open && anchor && createPortal(
                 <div className="arch-pop" ref={pop}>
-                    <div className="arch-cal-head">
-                        <button type="button" onClick={() => setMonth(shiftMonth(month, -1))}>‹</button>
-                        <b>{MONTHS[monthNumber - 1]} {year}</b>
-                        <button type="button" onClick={() => setMonth(shiftMonth(month, 1))}>›</button>
-                    </div>
-
-                    <div className="arch-cal-grid">
-                        {['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс'].map(name => (
-                            <span key={name}>{name}</span>
-                        ))}
-
-                        {cells.map(cell => {
-                            const summary = days.get(cell.key);
-                            const classes = ['arch-cal-d'];
-
-                            if (!cell.inMonth) classes.push('is-out');
-                            if (summary) {
-                                // recorded_ms — сумма по всем потокам, поэтому полные
-                                // сутки меряются сутками на каждую дорожку
-                                const full = 86_400_000 * Math.max(1, summary.track_count);
-                                if (!summary.trusted) classes.push('is-doubt');
-                                else if (summary.recorded_ms >= full * FULL_DAY_RATIO) classes.push('is-full');
-                                else classes.push('is-part');
-                            }
-                            if (cell.key === date) classes.push('is-on');
-                            else if (cell.key === todayKey) classes.push('is-today');
-
-                            return (
-                                <button
-                                    key={cell.key}
-                                    type="button"
-                                    className={classes.join(' ')}
-                                    onClick={() => { onChange(cell.key); setOpen(false); }}
-                                    title={summary
-                                        ? `${fmtHoursShort(summary.recorded_ms)} записи на ${summary.track_count} дорожках`
-                                        : 'записей нет'}
-                                >
-                                    <b>{cell.day}</b>
-                                    {summary && <em>{fmtHoursShort(summary.recorded_ms)}</em>}
-                                </button>
-                            );
-                        })}
-                    </div>
+                    <Calendar
+                        month={month}
+                        onMonth={setMonth}
+                        todayKey={todayKey}
+                        from={date}
+                        to={date}
+                        onPick={key => { onChange(key); setOpen(false); }}
+                    />
                 </div>,
                 document.body,
             )}
@@ -155,28 +92,4 @@ function formatDay(key: string): string {
 
 function shift(key: string, days: number): string {
     return dateKey(dayStartMs(key) + days * 86_400_000);
-}
-
-function shiftMonth(month: string, delta: number): string {
-    const [year, monthNumber] = month.split('-').map(Number);
-    const shifted = new Date(Date.UTC(year, monthNumber - 1 + delta, 1));
-    return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, '0')}`;
-}
-
-// Сетка месяца с понедельника, с хвостами соседних месяцев
-function buildMonth(month: string) {
-    const [year, monthNumber] = month.split('-').map(Number);
-    const first = new Date(Date.UTC(year, monthNumber - 1, 1));
-    const offset = (first.getUTCDay() + 6) % 7;
-    const start = Date.UTC(year, monthNumber - 1, 1 - offset);
-
-    return Array.from({ length: 42 }, (_, index) => {
-        const ms = start + index * 86_400_000;
-        const date = new Date(ms);
-        return {
-            key: dateKey(ms),
-            day: date.getUTCDate(),
-            inMonth: date.getUTCMonth() === monthNumber - 1,
-        };
-    });
 }

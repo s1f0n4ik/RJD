@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { Icon, IconSprite } from './Icons';
 import { CRUMBS, NAV } from './nav';
+import { DownloadsPill } from './DownloadsPill';
 import { useSystem } from './SystemContext';
 import { formatDeviceTime, useDeviceClock } from './useDeviceClock';
 import './shell.css';
@@ -89,6 +90,7 @@ export function AppShell({ username, role, onLogout }: AppShellProps) {
                     </div>
 
                     <div className="top-right">
+                        <DownloadsPill />
                         <span className={`pill ${connected ? 'ok' : 'err'}`}>
                             <span className="dot" />
                             {connected ? 'связь' : 'нет связи'}

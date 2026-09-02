@@ -282,8 +282,19 @@ bool UCameraStreamPipeline::initialize() {
 		nullptr
 	);
 
+	// Ветка-заглушка не должна останавливать tee: очередь утекает, sink не участвует в преролле
+	g_object_set(fake_queue,
+		"max-size-buffers", 3,
+		"max-size-bytes", 0,
+		"max-size-time", (guint64)0,
+		"leaky", 2,
+		"silent", TRUE,
+		nullptr
+	);
+
 	g_object_set(fakesink,
 		"sync", FALSE,
+		"async", FALSE,
 		nullptr
 	);
 

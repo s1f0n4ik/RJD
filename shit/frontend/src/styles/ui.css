@@ -449,3 +449,48 @@ select.sel:disabled{opacity:.45;cursor:not-allowed}
 .inp[type=number]{-moz-appearance:textfield}
 .inp:disabled{opacity:.45}
 .inp.is-err{border-color:var(--err)}
+
+/* ── выгрузки: плашка в шапке и список ── */
+
+.pill--job{border-color:rgba(var(--acc-rgb),.45);color:var(--fg);cursor:pointer}
+
+.pill--job:hover{border-color:var(--acc)}
+
+.pill--job.is-done{border-color:rgba(87,214,154,.5)}
+
+.ring{width:15px;height:15px;flex:0 0 15px;border-radius:50%;background:conic-gradient(var(--acc) var(--p,0%),rgba(255,255,255,.1) 0)}
+
+.pill--job.is-done .ring{background:var(--ok)}
+
+/* Координаты ставит app/popover.ts после отрисовки */
+.dl-pop{position:fixed;visibility:hidden;z-index:95;width:392px;background:var(--panel);border:1px solid var(--line-hi);border-radius:var(--r-lg);box-shadow:var(--shadow-lg);overflow:hidden}
+
+.dl-pop-h{display:flex;align-items:center;padding:12px 14px;border-bottom:1px solid var(--line)}
+
+.dl-job{padding:12px 14px;border-bottom:1px solid var(--line)}
+
+.dl-job:last-child{border-bottom:0}
+
+.dl-job-t{display:flex;align-items:baseline;gap:8px}
+
+.dl-job-t b{font-size:12.5px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.dl-job-t .st{margin-left:auto;flex:0 0 auto;font-family:var(--mono);font-size:11px;color:var(--fg-3)}
+
+.dl-job-t .st.ok{color:var(--ok)}
+
+.dl-job-t .st.err{color:var(--err)}
+
+.dl-job-sub{margin-top:3px;font-family:var(--mono);font-size:10.5px;color:var(--fg-3)}
+
+.dl-bar{height:4px;border-radius:2px;background:var(--input);margin:9px 0 7px;overflow:hidden}
+
+.dl-bar i{display:block;height:100%;background:var(--acc);transition:width .2s}
+
+.dl-bar.is-done i{background:var(--ok)}
+
+.dl-bar.is-wait i{background:var(--fg-3)}
+
+.dl-job-f{display:flex;align-items:center;gap:7px}
+
+.dl-job-f .dl-grow:first-of-type{margin-left:auto}

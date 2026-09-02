@@ -4,14 +4,14 @@ import { Icon } from '../../app/Icons';
 import { useSystem } from '../../app/SystemContext';
 import { useDeviceClock } from '../../app/useDeviceClock';
 import { ArchivePlayer } from './ArchivePlayer';
+import { DownloadModal } from './DownloadModal';
 import { Timeline } from './Timeline';
 import type { TimelineView } from './Timeline';
-import type { ArchiveShape, ArchiveState, JobProgress, Segment, Track } from './model';
+import type { ArchiveShape, ArchiveState, Segment, Track } from './model';
 import {
     DAY_MS, DEFAULT_ZOOM, ZOOMS, dateKey, dayStartMs, fetchSegments,
-    fetchShape, fetchState, fmtBytes, fmtDate, fmtDuration, fmtTime, jobCancelUrl,
-    jobDownloadUrl, jobProgressUrl, segmentAt, segmentUrl,
-    startCut, startZip, trackKey,
+    fetchShape, fetchState, fmtBytes, fmtDate, fmtDuration, fmtTime,
+    recordedWithin, segmentAt, segmentUrl, trackKey,
 } from './model';
 import './archive.css';
 
@@ -26,16 +26,6 @@ const SEGMENT_SPAN_MS = 2 * 60 * 60 * 1000;
 const SEGMENT_MARGIN_MS = 20 * 60 * 1000;
 
 // Задача склейки или выгрузки, идущая на устройстве
-interface ArchiveJob extends Partial<JobProgress> {
-    id: string;
-    deviceId: string;
-    kind: 'cut' | 'zip';
-    title: string;
-    status: string;
-    progress: number;
-    message: string;
-}
-
 export function ArchiveScreen() {
     const { cameras } = useSystem();
     const clock = useDeviceClock();
@@ -65,8 +55,8 @@ export function ArchiveScreen() {
     const [picking, setPicking] = useState(false);
     const [selection, setSelection] = useState<{ from: number; to: number } | null>(null);
 
-    // Склейка и выгрузка идут задачей на устройстве: прогресс приходит по WS
-    const [job, setJob] = useState<ArchiveJob | null>(null);
+    // Окно выгрузки открывается и из шапки таймлайна, и из карточки диапазона
+    const [downloadOpen, setDownloadOpen] = useState(false);
 
     // Окно встаёт на последнюю запись, а не на сейчас: на изделии с
     // недостоверным временем сегодняшних суток в архиве может не быть вовсе
@@ -225,62 +215,29 @@ export function ArchiveScreen() {
 
     const currentSegment = cursorMs === null ? null : segmentAt(segments, cursorMs);
 
-    // ── задачи ──
-
-    useEffect(() => {
-        if (!job || job.status === 'ready' || job.status === 'failed') return;
-
-        const socket = new WebSocket(jobProgressUrl(job.deviceId, job.id));
-        socket.onmessage = event => {
-            const data = JSON.parse(event.data) as JobProgress;
-            setJob(current => (current && current.id === job.id ? { ...current, ...data } : current));
-        };
-        socket.onerror = () => setJob(current => (current && current.id === job.id
-            ? { ...current, status: 'failed', error: 'связь с устройством потеряна' }
-            : current));
-
-        return () => socket.close();
-    }, [job?.id, job?.status]);
-
-    const runJob = useCallback(async (
-        kind: 'cut' | 'zip',
-        rangeFrom: number,
-        rangeTo: number,
-        title: string,
-    ) => {
-        if (!selected) return;
-
-        try {
-            const start = kind === 'cut' ? startCut : startZip;
-            const { job_id } = await start(selected, rangeFrom, rangeTo);
-            setJob({
-                id: job_id,
-                deviceId: selected.device_id,
-                kind,
-                title,
-                status: 'queued',
-                progress: 0,
-                message: 'Задача поставлена',
-            });
-        } catch (e) {
-            setJob({
-                id: '', deviceId: selected.device_id, kind, title,
-                status: 'failed', progress: 0, message: '', error: String(e),
-            });
-        }
-    }, [selected]);
-
     // Отмена в карточке диапазона: гасим и выделение, и сам режим выбора
     const cancelPicking = useCallback(() => {
         setSelection(null);
         setPicking(false);
     }, []);
 
-    const cancelJob = useCallback(() => {
-        if (!job?.id) { setJob(null); return; }
-        fetch(jobCancelUrl(job.deviceId, job.id), { method: 'DELETE' }).catch(() => undefined);
-        setJob(null);
-    }, [job]);
+    // Вход из карточки диапазона не даёт выбирать диапазон заново
+    const [fixedRange, setFixedRange] = useState(false);
+
+    const openDownload = useCallback((fixed: boolean) => {
+        setFixedRange(fixed);
+        setDownloadOpen(true);
+    }, []);
+
+    const preselected = useMemo(() => {
+        if (selection) {
+            const inside = tracks
+                .filter(track => recordedWithin(track, selection.from, selection.to) > 0)
+                .map(trackKey);
+            if (inside.length) return inside;
+        }
+        return selected ? [trackKey(selected)] : [];
+    }, [selection, tracks, selected]);
 
     const windowRecorded = tracks.reduce((sum, track) => sum + track.recorded_ms, 0);
     const windowGaps = tracks.reduce((sum, track) => sum + track.gaps.length, 0);
@@ -368,41 +325,6 @@ export function ArchiveScreen() {
 
                     {sideOpen && (
                     <aside className="arch-side">
-                        {job && (
-                            <div className="sect">
-                                <span className="eyebrow">{job.kind === 'cut' ? 'Склейка' : 'Выгрузка'}</span>
-                                <div className="kv">
-                                    <span className="k">{job.title}</span>
-                                    <span className="v">{Math.round(job.progress * 100)} %</span>
-                                </div>
-
-                                <div className="arch-meter">
-                                    <div className="arch-meter-bar">
-                                        <i style={{ width: `${Math.round(job.progress * 100)}%` }} />
-                                    </div>
-                                    <div className="arch-meter-cap">
-                                        <span>{job.error ? job.error : job.message}</span>
-                                    </div>
-                                </div>
-
-                                {job.status === 'ready' && (
-                                    <a
-                                        className="arch-act arch-act--acc arch-act-main"
-                                        href={jobDownloadUrl(job.deviceId, job.id)}
-                                        download
-                                        onClick={() => window.setTimeout(() => setJob(null), 1000)}
-                                    >
-                                        Скачать
-                                        <span className="num">{job.result_filename ?? ''}</span>
-                                    </a>
-                                )}
-
-                                <button type="button" className="arch-act" onClick={cancelJob}>
-                                    {job.status === 'ready' || job.status === 'failed' ? 'Убрать' : 'Отменить'}
-                                </button>
-                            </div>
-                        )}
-
                         <div className="sect">
                             <span className="eyebrow">В окне таймлайна</span>
                             <div className="kv"><span className="k">Записано</span><span className="v">{fmtDuration(windowRecorded)}</span></div>
@@ -475,10 +397,23 @@ export function ArchiveScreen() {
                 onSelectionChange={setSelection}
                 onCancelPick={cancelPicking}
                 onPicking={() => setPicking(value => !value)}
-                onCut={() => selection && runJob('cut', selection.from, selection.to,
-                    `${fmtTime(selection.from)} — ${fmtTime(selection.to)}`)}
+                onDownload={openDownload}
                 onView={setView}
             />
+
+            {downloadOpen && (
+                <DownloadModal
+                    tracks={tracks}
+                    cameraNames={cameraNames}
+                    selection={selection}
+                    fixedRange={fixedRange}
+                    preselected={preselected}
+                    todayKey={clock.unixMs === null ? null : dateKey(clock.unixMs)}
+                    archiveFrom={shape?.first_ms ?? null}
+                    archiveTo={shape?.last_ms ?? null}
+                    onClose={() => setDownloadOpen(false)}
+                />
+            )}
 
             {(error || (loading && !shape)) && (
                 <div className={`arch-toast${error ? ' is-err' : ''}`}>

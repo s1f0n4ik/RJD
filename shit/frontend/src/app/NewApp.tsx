@@ -5,6 +5,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import '../styles/tokens.css';
 import '../styles/ui.css';
 import { AppShell } from './AppShell';
+import { DownloadsProvider } from './DownloadsContext';
 import { SystemProvider } from './SystemContext';
 import { HomeScreen } from '../screens/home/HomeScreen';
 import { CamerasScreen } from '../screens/cameras/CamerasScreen';
@@ -50,6 +51,7 @@ export default function NewApp() {
     return (
         <BrowserRouter basename="/new">
             <SystemProvider>
+                <DownloadsProvider>
                 <Routes>
                     <Route element={<AppShell username={username} role={role} onLogout={handleLogout} />}>
                         <Route index element={<HomeScreen />} />
@@ -60,6 +62,7 @@ export default function NewApp() {
                         <Route path="*" element={<Navigate to="/" replace />} />
                     </Route>
                 </Routes>
+                </DownloadsProvider>
             </SystemProvider>
         </BrowserRouter>
     );

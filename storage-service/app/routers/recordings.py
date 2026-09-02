@@ -93,6 +93,8 @@ async def list_active_jobs():
                 "status": j.status.value,
                 "progress": j.progress,
                 "message": j.message,
+                "title": j.title,
+                "subtitle": j.subtitle,
                 "files_total": j.files_total,
                 "files_processed": j.files_processed,
                 "bytes_total": j.bytes_total,

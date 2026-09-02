@@ -57,6 +57,9 @@
   box-shadow: var(--shadow-lg);
 }
 
+/* Попап из модалки: выше подложки .overlay (400) */
+.arch-pop--over { z-index: 520 }
+
 .arch-cal-head { display: flex; align-items: center; gap: 8px; margin-bottom: 11px }
 .arch-cal-head b { flex: 1; text-align: center; font-size: 13px; font-weight: 600 }
 
@@ -122,6 +125,13 @@
 }
 
 .arch-cal-d.is-today { border-color: var(--line-hi); color: var(--fg-2) }
+
+/* Сутки внутри выбранного промежутка */
+.arch-cal-d.is-range {
+  background: rgba(var(--acc-rgb), .16);
+  border-color: rgba(var(--acc-rgb), .3);
+  color: var(--fg);
+}
 
 .arch-cal-d.is-on {
   background: var(--acc);
@@ -422,3 +432,136 @@
 
 /* Раздел «Скачать» ждёт переделки — блок приглушён целиком */
 .sect.is-off { opacity: .55 }
+
+/* ── окно выгрузки ── */
+
+/* Список камер прокручивается внутри окна, отступы дают сами разделы */
+.dm-body { padding: 0; scrollbar-gutter: auto }
+
+/* Заголовок раздела и его контрол стоят одной строкой */
+.dm-line { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 12px 16px }
+.dm-line > .eyebrow { margin-bottom: 0; flex: 0 0 auto }
+.dm-line .seg { flex: 0 0 auto }
+
+.dm-when {
+  margin-left: auto;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.dm-when b { font-weight: 500; color: var(--fg) }
+.dm-when span { font-size: 11px; color: var(--fg-3) }
+.dm-when.is-fixed { margin-left: 0 }
+
+.dm-count {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--fg-3);
+}
+
+/* Одна шкала на весь список: края подписаны границами диапазона */
+.dm-scale { position: relative; height: 18px; font-family: var(--mono); font-size: 9.5px; color: var(--fg-3) }
+.dm-scale i { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; font-style: normal }
+.dm-scale i.is-start { left: 0; transform: none }
+.dm-scale i.is-end { right: 0; transform: none }
+
+.dm-trk {
+  display: block;
+  width: 100%;
+  padding: 8px 0 9px;
+  border-top: 1px solid rgba(51, 59, 74, .55);
+  text-align: left;
+}
+
+.dm-trk:disabled { opacity: .45; cursor: default }
+.dm-trk:not(:disabled):hover .dm-nm b { color: var(--fg) }
+
+.dm-trk-h {
+  display: grid;
+  grid-template-columns: 14px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+  padding: 0 2px;
+}
+
+.dm-nm { min-width: 0 }
+.dm-nm b { display: block; font-size: 12.5px; font-weight: 500; color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.dm-trk.is-on .dm-nm b { color: var(--fg) }
+.dm-nm span { display: block; font-family: var(--mono); font-size: 9.5px; color: var(--fg-3); margin-top: 1px }
+
+.dm-num { font-family: var(--mono); font-size: 11px; color: var(--fg-3); white-space: nowrap; font-variant-numeric: tabular-nums }
+.dm-trk.is-on .dm-num { color: var(--fg-2) }
+
+.dm-chk {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  border: 1px solid var(--line-hi);
+  background: var(--bg);
+}
+
+.dm-trk.is-on .dm-chk { background: var(--acc); border-color: var(--acc) }
+
+.dm-trk.is-on .dm-chk::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 3px;
+  height: 7px;
+  border-right: 2px solid #08101f;
+  border-bottom: 2px solid #08101f;
+  transform: rotate(42deg);
+}
+
+/* Полоса покрытия во всю ширину: засечки, записи, поверх них разрывы */
+.dm-lane {
+  position: relative;
+  display: block;
+  height: 12px;
+  border-radius: 3px;
+  background: var(--input);
+  overflow: hidden;
+}
+
+.dm-lane s { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--line); text-decoration: none }
+.dm-lane i { position: absolute; top: 0; bottom: 0; background: rgba(var(--acc-rgb), .38) }
+.dm-trk.is-on .dm-lane i { background: rgba(var(--acc-rgb), .78) }
+
+.dm-lane u {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  text-decoration: none;
+  background: repeating-linear-gradient(45deg, rgba(255, 107, 128, .32) 0 3px, transparent 3px 6px);
+}
+
+.dm-lane.is-empty { background: repeating-linear-gradient(90deg, var(--input) 0 6px, transparent 6px 9px) }
+
+.dm-lane.is-empty::after {
+  content: 'записей нет';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  padding-left: 8px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--fg-3);
+}
+
+.dm-total { margin-left: 4px; margin-right: auto; display: flex; align-items: baseline; gap: 12px; white-space: nowrap }
+.dm-total b { font-family: var(--mono); font-size: 14px; font-weight: 500 }
+.dm-total span { font-family: var(--mono); font-size: 11.5px; color: var(--fg-3) }
+
+.dm-err { color: var(--err); font-size: 12px }

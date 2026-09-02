@@ -681,6 +681,7 @@ class SegmentIndex:
             )}
 
             removed = self._drop_missing(conn, known)
+            empty = self._drop_empty(conn, known)
             closed = self._close_abandoned(conn, known)
             added = self._add_found(conn, known)
             conn.commit()
@@ -690,14 +691,14 @@ class SegmentIndex:
 
             repaired = self._repair_headers(conn)
 
-            if removed or closed or added or measured or repaired:
+            if removed or empty or closed or added or measured or repaired:
                 logger.info(
-                    "Segment index reconciled: %d rows dropped, %d closed,"
+                    "Segment index reconciled: %d rows dropped, %d empty files removed, %d closed,"
                     " %d found on disk, %d durations measured, %d headers repaired",
-                    removed, closed, added, measured, repaired,
+                    removed, empty, closed, added, measured, repaired,
                 )
             return {
-                "dropped": removed, "closed": closed, "found": added,
+                "dropped": removed, "empty": empty, "closed": closed, "found": added,
                 "measured": measured, "repaired": repaired,
             }
 
@@ -752,6 +753,39 @@ class SegmentIndex:
         conn.executemany("DELETE FROM segments WHERE path=?;", [(p,) for p in gone])
         for path in gone:
             known.pop(path, None)
+        return len(gone)
+
+    def _drop_empty(self, conn: sqlite3.Connection, known: dict) -> int:
+        """
+        Пустой файл, который давно не меняется, — след зависшей записи: в нём
+        нет ни байта, играть и мерить нечего. Файл удаляется с диска, строка
+        индекса — вместе с ним. Только что открытый фрагмент тоже пуст, но он
+        моложе порога и остаётся.
+        """
+        now = datetime.now().timestamp()
+        gone = []
+
+        for path, _camera_id, _stream_key in self._walk_records():
+            try:
+                stat = os.stat(path)
+            except OSError:
+                continue
+            if stat.st_size or now - stat.st_mtime < OPEN_STALE_SEC:
+                continue
+            try:
+                os.remove(path)
+            except OSError as e:
+                logger.warning("Cannot remove empty segment %s: %s", path, e)
+                continue
+            gone.append(path)
+
+        if not gone:
+            return 0
+
+        conn.executemany("DELETE FROM segments WHERE path=?;", [(p,) for p in gone])
+        for path in gone:
+            known.pop(path, None)
+            logger.warning("Empty segment removed: %s", path)
         return len(gone)
 
     def _close_abandoned(self, conn: sqlite3.Connection, known: dict) -> int:

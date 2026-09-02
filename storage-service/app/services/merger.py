@@ -206,7 +206,7 @@ async def run_archive_job(
 
         # Архивация в executor с прогрессом
         await zip_files(
-            files=files,
+            entries=[(f, f.name) for f in files],
             target=output_zip,
             total_bytes=total_bytes,
             job=job,
@@ -234,9 +234,10 @@ async def run_archive_job(
         await jobs.cleanup(job)
 
 
-async def zip_files(*, files: list[Path], target: Path, total_bytes: int, job):
+async def zip_files(*, entries: list[tuple[Path, str]], target: Path, total_bytes: int, job):
     """
-    Архивирует несколько файлов с честным прогрессом по байтам.
+    Архивирует файлы с честным прогрессом по байтам. entries — пары «путь на
+    диске, имя внутри архива»: имя несёт папку камеры, когда камер несколько.
     Запускается в executor, чтобы не блокировать event loop.
     """
     import zipfile
@@ -249,10 +250,10 @@ async def zip_files(*, files: list[Path], target: Path, total_bytes: int, job):
         with zipfile.ZipFile(target, "w", zipfile.ZIP_STORED) as zf:
             # ZIP_STORED — без компрессии. mp4 уже сжатый, deflate даст 1-3%
             # выигрыша, но времени потратит сильно больше.
-            for f in files:
+            for source, arcname in entries:
                 if state["cancelled"]:
                     return
-                with open(f, "rb") as src, zf.open(f.name, "w") as dst:
+                with open(source, "rb") as src, zf.open(arcname, "w") as dst:
                     while True:
                         if state["cancelled"]:
                             return

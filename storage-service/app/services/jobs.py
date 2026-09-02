@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 class JobStatus(str, Enum):
     PENDING = "pending"
+    QUEUED = "queued"          # ждёт, пока устройство освободится
     PARSING = "parsing"        # ищем файлы в диапазоне
     MERGING = "merging"        # ffmpeg склейка
     ARCHIVING = "archiving"    # упаковка в zip
@@ -32,12 +33,17 @@ class JobEvent:
     duration_seconds: float = 0.0
     result_filename: Optional[str] = None
     result_media_type: Optional[str] = None
+    title: str = ""
+    subtitle: str = ""
 
 
 @dataclass
 class Job:
     id: str
     status: JobStatus = JobStatus.PENDING
+    # Что это за выгрузка: пережидает перезагрузку страницы
+    title: str = ""
+    subtitle: str = ""
     progress: float = 0.0
     message: str = ""
     error: Optional[str] = None
@@ -66,6 +72,8 @@ class Job:
             duration_seconds=self.duration_seconds,
             result_filename=self.result_filename,
             result_media_type=self.result_media_type,
+            title=self.title,
+            subtitle=self.subtitle,
         )
 
 
@@ -75,13 +83,18 @@ class JobManager:
     def __init__(self):
         self._jobs: dict[str, Job] = {}
         self._lock = asyncio.Lock()
+        # Тяжёлая часть идёт по одной: рядом пишутся живые камеры
+        self._device = asyncio.Lock()
 
-    async def create(self) -> Job:
+    async def create(self, title: str = "", subtitle: str = "") -> Job:
         async with self._lock:
             job_id = uuid.uuid4().hex
-            job = Job(id=job_id)
+            job = Job(id=job_id, title=title, subtitle=subtitle)
             self._jobs[job_id] = job
             return job
+
+    def device_lock(self) -> asyncio.Lock:
+        return self._device
 
     async def get(self, job_id: str) -> Optional[Job]:
         async with self._lock:

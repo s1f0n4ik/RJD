@@ -278,6 +278,11 @@ export interface JobProgress {
     message: string;
     error?: string | null;
     result_filename?: string;
+    title?: string;
+    subtitle?: string;
+    files_total?: number;
+    files_processed?: number;
+    bytes_total?: number;
 }
 
 async function postJson(url: string, body: unknown): Promise<{ job_id: string }> {
@@ -293,25 +298,28 @@ async function postJson(url: string, body: unknown): Promise<{ job_id: string }>
     return response.json();
 }
 
-// Склейка диапазона в один файл; возвращает идентификатор задачи
-export function startCut(track: Track, fromMs: number, toMs: number) {
-    return postJson(storagePath(track.device_id, '/api/archive/cut'), {
-        camera: track.camera_id,
-        stream: track.stream_key,
-        from_ms: Math.round(fromMs),
-        to_ms: Math.round(toMs),
-    });
+// Что и за какой отрезок выгружаем; tracks — камеры одного устройства
+export interface ExportRequest {
+    tracks: Array<{ camera: string; stream: string }>;
+    from_ms: number;
+    to_ms: number;
+    title: string;
+    subtitle: string;
 }
 
-// Выгрузка исходных сегментов диапазона архивом
-export function startZip(track: Track, fromMs: number, toMs: number) {
-    return postJson(storagePath(track.device_id, '/api/archive/zip'), {
-        camera: track.camera_id,
-        stream: track.stream_key,
-        from_ms: Math.round(fromMs),
-        to_ms: Math.round(toMs),
-    });
-}
+// Склейка: по файлу на дорожку, несколько дорожек уходят архивом
+export const startCut = (deviceId: string, request: ExportRequest) =>
+    postJson(storagePath(deviceId, '/api/archive/cut'), request);
+
+// Выгрузка исходных сегментов архивом, папка на камеру
+export const startZip = (deviceId: string, request: ExportRequest) =>
+    postJson(storagePath(deviceId, '/api/archive/zip'), request);
+
+// Активные задачи устройства — ими восстанавливается список после перезагрузки
+export const fetchJobs = (deviceId: string) =>
+    getJson<{ jobs: Array<JobProgress & { id: string }> }>(
+        storagePath(deviceId, '/api/recordings/jobs'),
+    );
 
 export function jobProgressUrl(deviceId: string, jobId: string): string {
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';

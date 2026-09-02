@@ -119,11 +119,10 @@ export function RangeCard({
 
                     <div className="rc-foot">
                         <button type="button" className="btn btn--sm" onClick={onCancel}>Отменить</button>
-                        <button type="button" className="btn btn--sm btn--acc" disabled>
-                            Скачать архивом
+                        <button type="button" className="btn btn--sm btn--acc" onClick={onDownload}>
+                            Скачать
                         </button>
                     </div>
-                    <span className="rc-note">выгрузка в работе</span>
                 </>
             ) : (
                 <>
@@ -146,16 +145,10 @@ export function RangeCard({
 
                     <div className="rc-foot">
                         <button type="button" className="btn btn--sm" onClick={onCancel}>Отменить</button>
-                        <button
-                            type="button"
-                            className="btn btn--sm btn--acc"
-                            onClick={onDownload}
-                            disabled
-                        >
+                        <button type="button" className="btn btn--sm btn--acc" onClick={onDownload}>
                             Скачать
                         </button>
                     </div>
-                    <span className="rc-note">выгрузка в работе</span>
                 </>
             )}
         </div>,

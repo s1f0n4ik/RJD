@@ -146,49 +146,48 @@ async def archive_reconcile():
     return await loop.run_in_executor(None, index.reconcile)
 
 
-class RangeRequest(BaseModel):
-    """Диапазон дорожки в настенном времени изделия, миллисекунды."""
+class TrackRef(BaseModel):
     camera: str
     stream: str
+
+
+class ExportRequest(BaseModel):
+    # Диапазон в настенном времени изделия, миллисекунды
+    tracks: list[TrackRef]
     from_ms: int
     to_ms: int
+    # Что показывать в списке выгрузок, в том числе после перезагрузки страницы
+    title: str = ""
+    subtitle: str = ""
 
 
-def _check_range(req: RangeRequest) -> None:
+def _check_export(req: ExportRequest) -> list[dict]:
     if req.to_ms <= req.from_ms:
         raise HTTPException(status_code=400, detail="to_ms must be greater than from_ms")
+    if not req.tracks:
+        raise HTTPException(status_code=400, detail="tracks must not be empty")
+    return [{"camera": t.camera, "stream": t.stream} for t in req.tracks]
 
 
 @router.post("/archive/cut")
-async def archive_cut(req: RangeRequest):
+async def archive_cut(req: ExportRequest):
     """
-    Склеить диапазон в один MP4 копированием потока. Прогресс — по
-    WS /api/recordings/jobs/{id}/progress, результат — GET .../download.
+    Склеить диапазон копированием потока: по файлу на дорожку, несколько дорожек
+    уходят архивом. Прогресс — по WS /api/recordings/jobs/{id}/progress,
+    результат — GET .../download.
     """
-    _check_range(req)
+    tracks = _check_export(req)
 
-    job = await jobs.create()
-    asyncio.create_task(run_cut_job(
-        job,
-        camera=req.camera,
-        stream=req.stream,
-        from_ms=req.from_ms,
-        to_ms=req.to_ms,
-    ))
+    job = await jobs.create(title=req.title, subtitle=req.subtitle)
+    asyncio.create_task(run_cut_job(job, tracks=tracks, from_ms=req.from_ms, to_ms=req.to_ms))
     return {"job_id": job.id}
 
 
 @router.post("/archive/zip")
-async def archive_zip(req: RangeRequest):
-    """Выгрузить исходные сегменты диапазона архивом, без обработки."""
-    _check_range(req)
+async def archive_zip(req: ExportRequest):
+    """Выгрузить исходные сегменты диапазона архивом: папка на камеру."""
+    tracks = _check_export(req)
 
-    job = await jobs.create()
-    asyncio.create_task(run_zip_job(
-        job,
-        camera=req.camera,
-        stream=req.stream,
-        from_ms=req.from_ms,
-        to_ms=req.to_ms,
-    ))
+    job = await jobs.create(title=req.title, subtitle=req.subtitle)
+    asyncio.create_task(run_zip_job(job, tracks=tracks, from_ms=req.from_ms, to_ms=req.to_ms))
     return {"job_id": job.id}

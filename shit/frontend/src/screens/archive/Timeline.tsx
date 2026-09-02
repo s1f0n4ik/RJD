@@ -38,7 +38,7 @@ interface Props {
     onSelectionChange: (range: { from: number; to: number } | null) => void;
     onCancelPick: () => void;
     onPicking: () => void;
-    onCut: () => void;
+    onDownload: (fixedRange: boolean) => void;
     onView: (view: TimelineView) => void;
 }
 
@@ -61,7 +61,7 @@ export function Timeline({
     from, to, zoom, tracks, cameraNames, selectedKey, cursorMs,
     todayKey, selection, picking, view,
     onZoom, onPan, onJumpDate, onSelect, onSeek, onSelectionChange, onCancelPick,
-    onPicking, onCut, onView,
+    onPicking, onDownload, onView,
 }: Props) {
     const canvas = useRef<HTMLDivElement | null>(null);
     const root = useRef<HTMLDivElement | null>(null);
@@ -272,6 +272,10 @@ export function Timeline({
                 </div>
 
                 <div className="tl-tools">
+                    <button type="button" className="tl-tool" onClick={() => onDownload(false)}>
+                        <Icon name="save" size={13} />
+                        Скачать
+                    </button>
                     <button
                         type="button"
                         className={`tl-tool${picking ? ' is-on' : ''}`}
@@ -454,7 +458,7 @@ export function Timeline({
                     cameraNames={cameraNames}
                     multi={view === 'full'}
                     onCancel={onCancelPick}
-                    onDownload={onCut}
+                    onDownload={() => onDownload(true)}
                 />
             )}
         </div>
