@@ -9,7 +9,7 @@ import { RangeCard } from './RangeCard';
 import type { Track, ZoomLevel } from './model';
 import {
     ZOOMS, buildTicks, dateKey, fmtDateLong, fmtDuration,
-    fmtTime, frameUrl, msAt, percentIn, segmentAt, trackKey,
+    fmtTime, frameUrl, isRecorded, msAt, percentIn, trackKey,
 } from './model';
 import './timeline.css';
 
@@ -429,14 +429,16 @@ const FRAME_DEBOUNCE_MS = 180;
  */
 function Peek({ hover, track }: { hover: Hover; track: Track }) {
     const ref = usePopover<HTMLDivElement>(pointAnchor(hover.x, hover.y), { side: 'top' });
-    const segment = segmentAt(track, hover.ms);
+    // Есть ли запись в этот момент, видно по кускам: список сегментов таймлайну
+    // не приходит, а кадр ручка отдаёт по времени, а не по имени файла
+    const recorded = isRecorded(track, hover.ms);
 
     const [shot, setShot] = useState<string | null>(null);
     const [loaded, setLoaded] = useState<string | null>(null);
     const [broken, setBroken] = useState(false);
 
     useEffect(() => {
-        if (!segment) {
+        if (!recorded) {
             setShot(null);
             return;
         }
@@ -447,18 +449,18 @@ function Peek({ hover, track }: { hover: Hover; track: Track }) {
         }, FRAME_DEBOUNCE_MS);
 
         return () => window.clearTimeout(timer);
-    }, [track, hover.ms, segment?.path]);
+    }, [track, hover.ms, recorded]);
 
     // Кадр внутри секунды один и тот же, поэтому адрес часто не меняется —
     // ждём именно загрузку, а не назначение src
-    const waiting = !!segment && !broken && shot !== loaded;
+    const waiting = recorded && !broken && shot !== loaded;
 
     return createPortal(
         <div className="tl-peek" ref={ref}>
-            <div className={`tl-peek-shot${segment ? '' : ' is-none'}`}>
-                {!segment && 'записи в этот момент нет'}
-                {segment && broken && 'кадр не получен'}
-                {segment && shot && !broken && (
+            <div className={`tl-peek-shot${recorded ? '' : ' is-none'}`}>
+                {!recorded && 'записи в этот момент нет'}
+                {recorded && broken && 'кадр не получен'}
+                {recorded && shot && !broken && (
                     <img
                         src={shot}
                         alt=""
@@ -471,7 +473,7 @@ function Peek({ hover, track }: { hover: Hover; track: Track }) {
             </div>
             <div className="tl-peek-meta">
                 <span className="t">{fmtTime(hover.ms)}</span>
-                <span className="f">{segment ? segment.file : track.camera_id}</span>
+                <span className="f">{track.camera_id}</span>
             </div>
         </div>,
         document.body,

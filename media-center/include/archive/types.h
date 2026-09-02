@@ -25,7 +25,8 @@ namespace archive {
     struct FSegmentEvent {
         // Статус сегмента, открыт - media-center начал писать, сегмент не закончен
         // закрыт - сегмент полностью валидный и оконченный, его время можно брать из записи в БД
-        enum class EKind { OPENED, CLOSED };
+        // TIME_MARK - не сегмент, а точка соответствия mono и wall при улучшении источника
+        enum class EKind { OPENED, CLOSED, TIME_MARK };
 
         EKind kind = EKind::OPENED;
 

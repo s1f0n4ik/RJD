@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Icon } from '../../app/Icons';
 import type { Segment, Track } from './model';
-import { fmtTime, segmentAfter, segmentAt, segmentUrl, trackKey } from './model';
+import { fmtTime, runAfter, segmentAfter, segmentAt, segmentUrl, trackKey } from './model';
 
 /*
     Проигрывание архива через границы сегментов.
@@ -14,6 +14,8 @@ import { fmtTime, segmentAfter, segmentAt, segmentUrl, trackKey } from './model'
 
 interface Props {
     track: Track | null;
+    /** Сегменты выбранной дорожки — их грузит экран, а не таймлайн. */
+    segments: Segment[];
     /** Внешняя перемотка: token меняется на каждый клик по дорожке. */
     seek: { ms: number; token: number };
     playing: boolean;
@@ -29,7 +31,7 @@ interface Props {
 const PRELOAD_LEAD_SEC = 3;
 
 export function ArchivePlayer({
-    track, seek, playing, speed, onProgress, onPlayingChange, onTrackEnd, onSeekTo,
+    track, segments, seek, playing, speed, onProgress, onPlayingChange, onTrackEnd, onSeekTo,
 }: Props) {
     const videoA = useRef<HTMLVideoElement | null>(null);
     const videoB = useRef<HTMLVideoElement | null>(null);
@@ -75,12 +77,12 @@ export function ArchivePlayer({
     const preloadNext = useCallback((afterSegment: Segment) => {
         if (!track) return;
 
-        const next = segmentAfter(track, afterSegment.end_ms);
+        const next = segmentAfter(segments, afterSegment.end_ms);
         if (!next || standbySegment.current?.path === next.path) return;
 
         standbySegment.current = next;
         mount(active === 0 ? 1 : 0, next, 0);
-    }, [active, mount, track]);
+    }, [active, mount, segments, track]);
 
     // Перемотка снаружи: клик по дорожке, смена дорожки, смена дня
     useEffect(() => {
@@ -91,7 +93,7 @@ export function ArchivePlayer({
 
         // Курсор можно ставить в пустоту — тогда честно показываем, что записи
         // здесь нет, вместо тихого прыжка к ближайшей
-        const target = segmentAt(track, seek.ms);
+        const target = segmentAt(segments, seek.ms);
         if (!target) {
             setCurrent(null);
             setFailed(false);
@@ -108,6 +110,22 @@ export function ArchivePlayer({
         // десять секунд, а перемонтировать надо только при смене дорожки
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [seek.token, track && trackKey(track)]);
+
+    // Сегменты приезжают после выбора дорожки — как только они есть, ставим
+    // фрагмент под курсором, не дожидаясь следующей перемотки
+    useEffect(() => {
+        if (current || !track || !segments.length) return;
+
+        const target = segmentAt(segments, seek.ms);
+        if (!target) return;
+
+        setFailed(false);
+        setCurrent(target);
+        standbySegment.current = null;
+        mount(active, target, Math.max(0, seek.ms - target.start_ms));
+        preloadNext(target);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [segments, current, track, seek.token]);
 
     // Пуск и пауза идут только активному элементу
     useEffect(() => {
@@ -142,7 +160,7 @@ export function ArchivePlayer({
     const handleEnded = useCallback((index: number) => {
         if (index !== active || !track || !current) return;
 
-        const next = standbySegment.current || segmentAfter(track, current.end_ms);
+        const next = standbySegment.current || segmentAfter(segments, current.end_ms);
         if (!next) {
             onPlayingChange(false);
             onTrackEnd();
@@ -158,14 +176,16 @@ export function ArchivePlayer({
         setCurrent(next);
         setActive(nextIndex);
         onProgress(next.start_ms);
-    }, [active, current, mount, onPlayingChange, onProgress, onTrackEnd, track]);
+    }, [active, current, mount, onPlayingChange, onProgress, onTrackEnd, segments, track]);
 
     const stamp = current
         ? `${track?.camera_id ?? ''} · ${fmtTime(current.start_ms)}`
         : '';
 
-    // Записи под курсором нет — кадр гаснет, а не остаётся под надписью
-    const next = !current && track ? segmentAfter(track, seek.ms) : null;
+    // Записи под курсором нет — кадр гаснет, а не остаётся под надписью.
+    // Куда прыгать, считаем по кускам: они есть у дорожки всегда, в отличие
+    // от сегментов, которые подгружаются только вокруг курсора
+    const nextMs = !current && track ? runAfter(track, seek.ms) : null;
 
     return (
         <div className="arch-video">
@@ -196,13 +216,13 @@ export function ArchivePlayer({
                 <div className="arch-empty">
                     <Icon name="arch" />
                     <span>{track ? 'В этот момент записи нет' : 'Выберите дорожку'}</span>
-                    {next && (
+                    {nextMs !== null && (
                         <button
                             type="button"
                             className="btn btn--sm"
-                            onClick={() => onSeekTo(next.start_ms)}
+                            onClick={() => onSeekTo(nextMs)}
                         >
-                            Дальше запись в {fmtTime(next.start_ms)}
+                            Дальше запись в {fmtTime(nextMs)}
                         </button>
                     )}
                 </div>

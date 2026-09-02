@@ -150,18 +150,14 @@ class SegmentIndex:
                 time_source=row["time_source"] or "none",
             )
 
-            trusted_anchor = self._trusted_anchor(conn, session)
-            if trusted_anchor is not None:
-                session.anchor_ms = trusted_anchor
-                session.trusted = True
-            else:
-                # Догадка по часам изделия — годится, только если не залезает
-                # на уже уложенные сессии
-                guess = session.started_wall_ms - session.started_mono_ms
-                if wall_floor is not None and guess < wall_floor:
-                    guess = wall_floor
-                session.anchor_ms = guess
-                session.trusted = False
+            anchor, trusted = self._anchor_of(conn, session)
+            if not trusted and wall_floor is not None and anchor < wall_floor:
+                # Часы могли уехать назад: без Садко их никто не синхронизирует,
+                # и новая сессия не должна лечь поверх уже уложенных
+                anchor = wall_floor
+
+            session.anchor_ms = anchor
+            session.trusted = trusted
 
             end = self._session_end_ms(conn, session)
             if end is not None:
@@ -171,29 +167,53 @@ class SegmentIndex:
 
         return sessions
 
+    def _anchor_of(self, conn: sqlite3.Connection, session: FSession) -> tuple[int, bool]:
+        """
+        Сдвиг монотонной шкалы к настенной и то, чего он стоит.
+
+        Источники перебираются от лучшего к худшему, внутри источника берётся
+        самая ранняя по mono запись — тогда скачок часов посреди сессии не
+        двигает её целиком. Строка sessions идёт последней: её настенное время
+        снято при старте процесса, когда шлюз ещё молчал, и с временем самих
+        сегментов может расходиться на пояс.
+
+        can — прежнее имя источника Садко, старые базы читаются наравне.
+        """
+        has_marks = self._has_table(conn, "time_marks")
+
+        for sources in (TRUSTED_SOURCES, ("system",), ("none",)):
+            trusted = sources is TRUSTED_SOURCES
+
+            if trusted and session.time_source in TRUSTED_SOURCES:
+                return session.started_wall_ms - session.started_mono_ms, True
+
+            if has_marks:
+                base = self._base_from(
+                    conn,
+                    "SELECT wall_ms - mono_ms AS base FROM time_marks"
+                    f" WHERE session_uid=? AND time_source IN ({_places(sources)})"
+                    " ORDER BY mono_ms LIMIT 1;",
+                    (session.uid, *sources),
+                )
+                if base is not None:
+                    return base, trusted
+
+            base = self._base_from(
+                conn,
+                "SELECT wall_start_ms - mono_start_ms AS base FROM segments"
+                f" WHERE session_uid=? AND time_source IN ({_places(sources)})"
+                " ORDER BY mono_start_ms LIMIT 1;",
+                (session.uid, *sources),
+            )
+            if base is not None:
+                return base, trusted
+
+        return session.started_wall_ms - session.started_mono_ms, False
+
     @staticmethod
-    def _trusted_anchor(conn: sqlite3.Connection, session: FSession) -> Optional[int]:
-        """
-        Сдвиг монотонной шкалы к настоящему времени. Берётся из первой точки
-        сессии, где время пришло от Садко: ею чинится вся сессия целиком,
-        включая записанное до того, как источник времени ожил.
-
-        can — как это называлось до переименования источника; старые базы
-        читаются наравне с новыми.
-        """
-        if session.time_source in TRUSTED_SOURCES:
-            return session.started_wall_ms - session.started_mono_ms
-
-        row = conn.execute(
-            "SELECT wall_start_ms, mono_start_ms FROM segments"
-            " WHERE session_uid=? AND time_source IN (?, ?)"
-            " ORDER BY mono_start_ms LIMIT 1;",
-            (session.uid, *TRUSTED_SOURCES),
-        ).fetchone()
-
-        if row is None:
-            return None
-        return row["wall_start_ms"] - row["mono_start_ms"]
+    def _base_from(conn: sqlite3.Connection, sql: str, params: tuple) -> Optional[int]:
+        row = conn.execute(sql, params).fetchone()
+        return None if row is None else row["base"]
 
     @staticmethod
     def _session_end_ms(conn: sqlite3.Connection, session: FSession) -> Optional[int]:
@@ -210,7 +230,26 @@ class SegmentIndex:
         return last_mono + session.anchor_ms
 
     def _persist_anchors(self, conn: sqlite3.Connection, sessions: Iterable[FSession]) -> None:
-        """Кладём посчитанное рядом — чтобы поправки были видны снаружи."""
+        """
+        Кладём посчитанное рядом — чтобы поправки были видны снаружи. Пишем
+        только изменившееся: якоря считаются на каждый запрос архива, и
+        безусловная запись делала писателем любое чтение.
+        """
+        stored = {
+            row["session_uid"]: (row["anchor_ms"], row["trusted"])
+            for row in conn.execute(
+                "SELECT session_uid, anchor_ms, trusted FROM session_time;"
+            )
+        }
+
+        changed = [
+            (s.uid, s.anchor_ms, 1 if s.trusted else 0)
+            for s in sessions
+            if stored.get(s.uid) != (s.anchor_ms, 1 if s.trusted else 0)
+        ]
+        if not changed:
+            return
+
         now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
         conn.executemany(
             "INSERT INTO session_time(session_uid,anchor_ms,trusted,computed_at)"
@@ -219,7 +258,7 @@ class SegmentIndex:
             " anchor_ms=excluded.anchor_ms,"
             " trusted=excluded.trusted,"
             " computed_at=excluded.computed_at;",
-            [(s.uid, s.anchor_ms, 1 if s.trusted else 0, now_ms) for s in sessions],
+            [(uid, anchor, trusted, now_ms) for uid, anchor, trusted in changed],
         )
         conn.commit()
 
@@ -271,6 +310,43 @@ class SegmentIndex:
         "SELECT *, MIN({column}) FROM segments"
         " WHERE {scope} AND {column} >= ? GROUP BY camera_id, stream_key;",
     )
+
+    def shape(self) -> dict:
+        """
+        Куски и разрывы всех дорожек за всю глубину архива, без списков
+        сегментов. Это всё, что нужно таймлайну: он берёт форму один раз и
+        дальше только пересчитывает координаты, не ходя в сеть на каждый сдвиг.
+        Сами сегменты запрашивает плеер, и только у выбранной дорожки.
+        """
+        conn = self._connect()
+        if conn is None:
+            return {"tracks": [], "available": False}
+
+        try:
+            self._ensure_own_schema(conn)
+            if not self._has_table(conn, "segments"):
+                return {"tracks": [], "available": False}
+
+            sessions = self._load_sessions(conn)
+            self._persist_anchors(conn, sessions)
+
+            first, last = self._bounds(conn, sessions)
+            if first is None:
+                return {"tracks": [], "available": True, "first_ms": None, "last_ms": None}
+
+            rows = self._rows_in_window(conn, sessions, first, last + 1)
+            tracks = self._build_tracks(rows, first, last + 1, self._known_tracks(conn))
+            for track in tracks:
+                track.pop("segments", None)
+
+            return {
+                "available": True,
+                "first_ms": first,
+                "last_ms": last,
+                "tracks": tracks,
+            }
+        finally:
+            conn.close()
 
     def _rows_in_window(
         self,
@@ -704,6 +780,10 @@ class SegmentIndex:
                     )
                     measured += 1
 
+                # Пачка коммитится сразу: длинная транзакция держала бы писателя
+                # media-center и запросы архива всё время прохода
+                conn.commit()
+
         return measured
 
     def _add_found(self, conn: sqlite3.Connection, known: dict) -> int:
@@ -800,6 +880,11 @@ class SegmentIndex:
 
 
 # ── свободные функции ──
+
+def _places(values: Iterable) -> str:
+    """Плейсхолдеры под IN (...) по числу значений."""
+    return ",".join("?" for _ in values)
+
 
 def _day_start_ms(date_key: str) -> int:
     """

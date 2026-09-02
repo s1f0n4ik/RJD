@@ -97,9 +97,20 @@ namespace {
             // mc — строку записала ветка записи, scan — нашёл storage-service
             "  origin TEXT NOT NULL DEFAULT 'mc'"
             ");"
+            // Точка соответствия монотонного и настенного времени. Пишется, когда
+            // источник стал лучше: по ней storage-service ставит якорь сессии,
+            // не дожидаясь первого фрагмента
+            "CREATE TABLE IF NOT EXISTS time_marks("
+            "  id INTEGER PRIMARY KEY,"
+            "  session_uid TEXT NOT NULL,"
+            "  mono_ms INTEGER NOT NULL,"
+            "  wall_ms INTEGER NOT NULL,"
+            "  time_source TEXT NOT NULL"
+            ");"
             "CREATE INDEX IF NOT EXISTS idx_seg_track ON segments(camera_id, stream_key, wall_start_ms);"
             "CREATE INDEX IF NOT EXISTS idx_seg_session ON segments(session_uid);"
-            "CREATE INDEX IF NOT EXISTS idx_seg_open ON segments(closed);";
+            "CREATE INDEX IF NOT EXISTS idx_seg_open ON segments(closed);"
+            "CREATE INDEX IF NOT EXISTS idx_mark_session ON time_marks(session_uid, mono_ms);";
 
         return db().exec(kSchema, "schema");
     }
@@ -158,9 +169,58 @@ namespace {
     bool USegmentWriter::write_one(const FSegmentEvent& event) {
         if (!db().is_open()) return false;
 
-        return event.kind == FSegmentEvent::EKind::OPENED
-            ? open_segment(event)
-            : close_segment(event);
+        switch (event.kind) {
+        case FSegmentEvent::EKind::OPENED:    return open_segment(event);
+        case FSegmentEvent::EKind::CLOSED:    return close_segment(event);
+        case FSegmentEvent::EKind::TIME_MARK: return insert_mark(event);
+        }
+        return false;
+    }
+
+    void USegmentWriter::note_time() {
+        if (!running()) return;
+
+        const FTimeStamp stamp = now_stamp();
+        const int rank = static_cast<int>(stamp.source);
+
+        // Пишем только улучшение: шлюз отвечает раз в десять секунд, а точек
+        // на сессию должно быть не больше трёх
+        int best = m_best_source.load();
+        while (rank > best) {
+            if (m_best_source.compare_exchange_weak(best, rank)) {
+                FSegmentEvent event;
+                event.kind = FSegmentEvent::EKind::TIME_MARK;
+                event.mono_ms = stamp.mono_ms;
+                event.wall_ms = stamp.wall_ms;
+                event.source = stamp.source;
+                enqueue(std::move(event));
+                return;
+            }
+        }
+    }
+
+    bool USegmentWriter::insert_mark(const FSegmentEvent& event) {
+        db::UStatement insert(db(),
+            "INSERT INTO time_marks(session_uid,mono_ms,wall_ms,time_source) "
+            "VALUES(?,?,?,?);");
+        if (!insert.ok()) {
+            logger().warn("prepare time mark: " + db().error());
+            return false;
+        }
+
+        insert.bind(m_session_uid)
+              .bind(event.mono_ms)
+              .bind(event.wall_ms)
+              .bind(std::string(to_string(event.source)));
+
+        if (!insert.step_done()) {
+            logger().warn("insert time mark: " + db().error());
+            return false;
+        }
+
+        logger().info("time source improved to " + std::string(to_string(event.source))
+            + ", mark written at mono=" + std::to_string(event.mono_ms));
+        return true;
     }
 
     bool USegmentWriter::open_segment(const FSegmentEvent& event) {

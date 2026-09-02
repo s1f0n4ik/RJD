@@ -99,6 +99,65 @@ async def archive_range(
     return {"from_ms": from_ms, "to_ms": to_ms, "tracks": tracks, "offline_devices": offline}
 
 
+@router.get("/archive/shape")
+async def archive_shape():
+    """Форма архива всех устройств: куски и разрывы без списков сегментов."""
+    results = await _fan_out("/archive/shape")
+
+    tracks: list[dict] = []
+    offline: list[str] = []
+    first: int | None = None
+    last: int | None = None
+
+    for device, data in results:
+        if data is None:
+            offline.append(device["id"])
+            continue
+
+        for track in data.get("tracks") or []:
+            track["device_id"] = device["id"]
+            track["device_name"] = device.get("name") or device["id"]
+            tracks.append(track)
+
+        lo, hi = data.get("first_ms"), data.get("last_ms")
+        if lo is not None:
+            first = lo if first is None else min(first, lo)
+        if hi is not None:
+            last = hi if last is None else max(last, hi)
+
+    tracks.sort(key=lambda t: (t.get("camera_id", ""), t.get("stream_key", "")))
+
+    return {"first_ms": first, "last_ms": last, "tracks": tracks, "offline_devices": offline}
+
+
+@router.get("/archive/segments")
+async def archive_segments(
+    camera: str = Query(...),
+    stream: str = Query(...),
+    from_ms: int = Query(...),
+    to_ms: int = Query(...),
+    device: str | None = Query(None, description="устройство дорожки"),
+):
+    """
+    Сегменты одной дорожки. Устройство известно фронту из формы архива, поэтому
+    спрашиваем только его; без него пришлось бы опрашивать весь реестр.
+    """
+    if to_ms <= from_ms:
+        raise HTTPException(status_code=400, detail="to_ms must be greater than from_ms")
+
+    params = {"camera": camera, "stream": stream, "from_ms": from_ms, "to_ms": to_ms}
+    devices = [d for d in registry.snapshot() if device is None or d["id"] == device]
+    results = await asyncio.gather(*(_fetch(d, "/archive/segments", params) for d in devices))
+
+    segments: list[dict] = []
+    for _, data in results:
+        if data is not None:
+            segments.extend(data.get("segments") or [])
+
+    segments.sort(key=lambda s: s.get("start_ms", 0))
+    return {"segments": segments}
+
+
 @router.get("/archive/days")
 async def archive_days(
     date_from: str = Query(..., alias="from"),

@@ -117,10 +117,6 @@ int main(int argc, char* argv[])
 		gateway_config.port = config.gateway_port;
 
 		gateway_client = std::make_shared<varan::gateway::UGatewayClient>(gateway_config);
-		gateway_client->set_time_callback([](const varan::gateway::FGatewayTimeGps& t) {
-			varan::time_sync::update(t);
-		});
-		gateway_client->start();
 	}
 
 	// Создание писателя сегментов
@@ -134,6 +130,16 @@ int main(int argc, char* argv[])
 		main_logger.error("archive index DISABLED: writer start failed at "
 			+ varan::paths().archive.string() + " (check permissions and sqlite availability)");
 		segment_writer.reset();
+	}
+
+	// Клиент шлюза стартует после писателя: первый же ответ шлюза должен лечь
+	// точкой времени, иначе сессия останется с якорем по часам этой машины
+	if (gateway_client) {
+		gateway_client->set_time_callback([segment_writer](const varan::gateway::FGatewayTimeGps& t) {
+			varan::time_sync::update(t);
+			if (segment_writer) segment_writer->note_time();
+		});
+		gateway_client->start();
 	}
 
 	// Определение железа на устройстве

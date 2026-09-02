@@ -36,6 +36,11 @@ export interface Gap {
     kind: 'record' | 'power';
 }
 
+/**
+ * Дорожка таймлайна. Списка сегментов у неё нет: форма архива весит килобайты,
+ * а сегменты — мегабайты, и нужны они одному плееру. Их подгружает экран
+ * отдельно, для выбранной дорожки вокруг курсора.
+ */
 export interface Track {
     camera_id: string;
     stream_key: string;
@@ -47,11 +52,23 @@ export interface Track {
     segment_count: number;
     runs: Run[];
     gaps: Gap[];
+}
+
+/** Дорожка вместе с подгруженными сегментами — то, что играет плеер. */
+export interface LoadedTrack extends Track {
     segments: Segment[];
 }
 
 export interface DayIndex {
     date: string;
+    tracks: LoadedTrack[];
+    offline_devices: string[];
+}
+
+/** Форма архива целиком: границы глубины и дорожки без сегментов. */
+export interface ArchiveShape {
+    first_ms: number | null;
+    last_ms: number | null;
     tracks: Track[];
     offline_devices: string[];
 }
@@ -98,9 +115,22 @@ async function getJson<T>(url: string): Promise<T> {
 export const fetchDay = (date: string) =>
     getJson<DayIndex>(`/api/archive/day?date=${date}`);
 
-/** Дорожки за произвольное окно времени — то, что рисует таймлайн. */
+/** Дорожки за произвольное окно времени — вместе с сегментами. */
 export const fetchRange = (fromMs: number, toMs: number) =>
     getJson<DayIndex>(`/api/archive/range?from_ms=${Math.round(fromMs)}&to_ms=${Math.round(toMs)}`);
+
+/** Форма всего архива: куски и разрывы без сегментов — это рисует таймлайн. */
+export const fetchShape = () =>
+    getJson<ArchiveShape>('/api/archive/shape');
+
+/** Сегменты одной дорожки в отрезке — по ним плеер открывает файлы. */
+export function fetchSegments(track: Track, fromMs: number, toMs: number) {
+    const query = `camera=${encodeURIComponent(track.camera_id)}`
+        + `&stream=${encodeURIComponent(track.stream_key)}`
+        + `&device=${encodeURIComponent(track.device_id)}`
+        + `&from_ms=${Math.round(fromMs)}&to_ms=${Math.round(toMs)}`;
+    return getJson<{ segments: Segment[] }>(`/api/archive/segments?${query}`);
+}
 
 export const fetchDays = (from: string, to: string) =>
     getJson<{ days: DaySummary[] }>(`/api/archive/days?from=${from}&to=${to}`);
@@ -214,13 +244,19 @@ export const msAtPercent = (percent: number, dayStart: number) =>
     dayStart + (percent / 100) * DAY_MS;
 
 /** Сегмент, внутри которого лежит момент. */
-export function segmentAt(track: Track, ms: number): Segment | null {
-    return track.segments.find(s => s.start_ms <= ms && ms < s.end_ms) || null;
+export function segmentAt(segments: Segment[], ms: number): Segment | null {
+    return segments.find(s => s.start_ms <= ms && ms < s.end_ms) || null;
 }
 
 /** Ближайший сегмент, начинающийся не раньше момента, — куда прыгать через разрыв. */
-export function segmentAfter(track: Track, ms: number): Segment | null {
-    return track.segments.find(s => s.start_ms >= ms) || null;
+export function segmentAfter(segments: Segment[], ms: number): Segment | null {
+    return segments.find(s => s.start_ms >= ms) || null;
+}
+
+/** Ближайшее начало записи после момента — по кускам, без списка сегментов. */
+export function runAfter(track: Track, ms: number): number | null {
+    const run = track.runs.find(r => r.start_ms >= ms);
+    return run ? run.start_ms : null;
 }
 
 /** Записан ли момент: попадает ли он в непрерывный кусок. */

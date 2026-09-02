@@ -480,28 +480,22 @@ bool UCameraStreamPipeline::create_record_branch(GstElement* tee)
 		this
 	);
 
-	auto muxer = gst_element_factory_make("mp4mux", "record_mux");
-	if (!muxer) {
-		m_logger->error("create_record_branch(): failed to create mp4mux");
-		gst_object_unref(record_queue);
-		gst_object_unref(splitmux);
-		return false;
-	}
-
-	g_object_set(muxer,
-		"fragment-duration", 1000,
-		"fragment-mode", 1,
+	GstStructure* muxer_props = gst_structure_new("mp4mux",
+		"fragment-duration", G_TYPE_UINT, 1000,
 		nullptr
 	);
 
 	g_object_set(
 		splitmux,
 		"max-size-time", static_cast<guint64>(m_parameters.segment_length) * GST_SECOND,
-		"muxer", muxer,
+		"muxer-factory", "mp4mux",
+		"muxer-properties", muxer_props,
+		"async-finalize", TRUE,
 		"send-keyframe-requests", TRUE,
-		//"async-finalize", TRUE,
 		nullptr
 	);
+
+	gst_structure_free(muxer_props);
 
 	gst_bin_add_many(GST_BIN(m_pipeline), record_queue, splitmux, nullptr);
 

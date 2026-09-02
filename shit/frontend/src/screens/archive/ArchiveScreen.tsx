@@ -6,10 +6,10 @@ import { useDeviceClock } from '../../app/useDeviceClock';
 import { ArchivePlayer } from './ArchivePlayer';
 import { Timeline } from './Timeline';
 import type { TimelineView } from './Timeline';
-import type { ArchiveState, DayIndex, JobProgress, Track } from './model';
+import type { ArchiveShape, ArchiveState, JobProgress, Segment, Track } from './model';
 import {
-    DAY_MS, DEFAULT_ZOOM, ZOOMS, dateKey, dayStartMs, fetchRange,
-    fetchState, fmtBytes, fmtDate, fmtDuration, fmtTime, jobCancelUrl,
+    DAY_MS, DEFAULT_ZOOM, ZOOMS, dateKey, dayStartMs, fetchSegments,
+    fetchShape, fetchState, fmtBytes, fmtDate, fmtDuration, fmtTime, jobCancelUrl,
     jobDownloadUrl, jobProgressUrl, segmentAt, segmentUrl,
     startCut, startZip, trackKey,
 } from './model';
@@ -25,8 +25,12 @@ import './archive.css';
 */
 
 const REFRESH_MS = 10_000;
-const RELOAD_DELAY_MS = 220;
 const SPEEDS = [0.5, 1, 2, 4];
+
+// Сколько времени сегментов держим у выбранной дорожки и за сколько до края
+// подгружаем следующую порцию
+const SEGMENT_SPAN_MS = 2 * 60 * 60 * 1000;
+const SEGMENT_MARGIN_MS = 20 * 60 * 1000;
 
 /** Задача склейки или выгрузки, идущая на устройстве. */
 interface ArchiveJob extends Partial<JobProgress> {
@@ -48,7 +52,12 @@ export function ArchiveScreen() {
     const [zoom, setZoom] = useState(DEFAULT_ZOOM);
     const [view, setView] = useState<TimelineView>('normal');
 
-    const [window_, setWindow] = useState<DayIndex | null>(null);
+    // Форма архива: куски и разрывы всех дорожек за всю глубину. Весит
+    // килобайты, поэтому берётся целиком — сдвиг и зум в сеть не ходят
+    const [shape, setShape] = useState<ArchiveShape | null>(null);
+    // Сегменты только выбранной дорожки, вокруг курсора
+    const [segments, setSegments] = useState<Segment[]>([]);
+    const loadedSpan = useRef<{ key: string; from: number; to: number } | null>(null);
     const [state, setState] = useState<ArchiveState | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -83,7 +92,7 @@ export function ArchiveScreen() {
     // Живые камеры сверху, удалённые в конце: порядок меняется от правки
     // конфигурации, а не от того, где сейчас стоит окно таймлайна
     const tracks = useMemo(() => {
-        const list = [...(window_?.tracks ?? [])];
+        const list = [...(shape?.tracks ?? [])];
         if (!cameraNames.size) return list;
 
         return list.sort((first, second) => {
@@ -91,7 +100,7 @@ export function ArchiveScreen() {
                 - Number(!cameraNames.has(second.camera_id));
             return gone || trackKey(first).localeCompare(trackKey(second));
         });
-    }, [window_, cameraNames]);
+    }, [shape, cameraNames]);
 
     const selected = tracks.find(track => trackKey(track) === selectedKey) || null;
 
@@ -111,37 +120,57 @@ export function ArchiveScreen() {
 
     useEffect(loadState, [loadState]);
 
-    // Окно меняется часто — тянем данные с задержкой, иначе протяжка мышью
-    // засыпает сервер запросами
-    useEffect(() => {
-        const timer = window.setTimeout(() => {
-            fetchRange(from, to)
-                .then(next => {
-                    setWindow(next);
-                    setError(null);
-                })
-                .catch(e => setError(String(e)))
-                .finally(() => setLoading(false));
-        }, RELOAD_DELAY_MS);
-
-        return () => window.clearTimeout(timer);
-    }, [from, to]);
-
-    /* Хвост записи дописывается прямо сейчас — обновляем, пока правый край окна
-       достаёт до текущего времени. Часы читаются из ref: они тикают раз в
-       секунду, и в зависимостях интервал пересоздавался бы, не успев сработать */
-    const clockRef = useRef(clock.unixMs);
-    clockRef.current = clock.unixMs;
+    /* Форма архива тянется целиком и один раз: она весит килобайты, а сдвиг и
+       зум после этого — чистая арифметика без единого запроса. Обновляем её по
+       таймеру только ради хвоста, который пишется прямо сейчас */
+    const loadShape = useCallback((first: boolean) => {
+        fetchShape()
+            .then(next => {
+                setShape(next);
+                setError(null);
+                if (first && !opened.current && next.last_ms) {
+                    opened.current = true;
+                    setCenter(next.last_ms - ZOOMS[DEFAULT_ZOOM].span / 4);
+                }
+            })
+            .catch(e => { if (first) setError(String(e)); })
+            .finally(() => setLoading(false));
+    }, []);
 
     useEffect(() => {
-        const timer = window.setInterval(() => {
-            const now = clockRef.current;
-            if (now === null || to < now) return;
-            fetchRange(from, to).then(setWindow).catch(() => undefined);
-        }, REFRESH_MS);
-
+        loadShape(true);
+        const timer = window.setInterval(() => loadShape(false), REFRESH_MS);
         return () => window.clearInterval(timer);
-    }, [from, to]);
+    }, [loadShape]);
+
+    /* Сегменты нужны одному плееру, поэтому грузятся только выбранной дорожке и
+       только вокруг курсора: их мегабайты на весь архив таймлайну ни к чему */
+    useEffect(() => {
+        if (!selected || cursorMs === null) return;
+
+        const key = trackKey(selected);
+        const span_ = loadedSpan.current;
+        const covered = span_ !== null
+            && span_.key === key
+            && cursorMs > span_.from + SEGMENT_MARGIN_MS
+            && cursorMs < span_.to - SEGMENT_MARGIN_MS;
+        if (covered) return;
+
+        const wanted = {
+            key,
+            from: cursorMs - SEGMENT_SPAN_MS / 2,
+            to: cursorMs + SEGMENT_SPAN_MS / 2,
+        };
+        loadedSpan.current = wanted;
+
+        fetchSegments(selected, wanted.from, wanted.to)
+            .then(data => {
+                if (loadedSpan.current === wanted) setSegments(data.segments);
+            })
+            .catch(() => {
+                if (loadedSpan.current === wanted) loadedSpan.current = null;
+            });
+    }, [selected, cursorMs]);
 
     // Дорожка выбирается сама: первая, где в окне что-то записано
     useEffect(() => {
@@ -204,7 +233,7 @@ export function ArchiveScreen() {
         setSeek({ ms, token: Date.now() });
     }, [cursorMs]);
 
-    const currentSegment = selected && cursorMs !== null ? segmentAt(selected, cursorMs) : null;
+    const currentSegment = cursorMs === null ? null : segmentAt(segments, cursorMs);
 
     // ── задачи ──
 
@@ -275,6 +304,7 @@ export function ArchiveScreen() {
                         <div className="arch-stage">
                             <ArchivePlayer
                                 track={selected}
+                                segments={segments}
                                 seek={seek}
                                 playing={playing}
                                 speed={speed}
@@ -391,10 +421,10 @@ export function ArchiveScreen() {
                                 <span className="k">Пропусков</span>
                                 <span className={`v${windowGaps ? ' is-err' : ''}`}>{windowGaps}</span>
                             </div>
-                            {!!window_?.offline_devices.length && (
+                            {!!shape?.offline_devices?.length && (
                                 <div className="kv">
                                     <span className="k">Не отвечает устройств</span>
-                                    <span className="v is-warn">{window_.offline_devices.length}</span>
+                                    <span className="v is-warn">{shape.offline_devices.length}</span>
                                 </div>
                             )}
                         </div>
@@ -460,7 +490,7 @@ export function ArchiveScreen() {
                 onView={setView}
             />
 
-            {(error || (loading && !window_)) && (
+            {(error || (loading && !shape)) && (
                 <div className={`arch-toast${error ? ' is-err' : ''}`}>
                     <span>{error ? `Архив не отвечает: ${error}` : 'Читаем архив…'}</span>
                     {error && (

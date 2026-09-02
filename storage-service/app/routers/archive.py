@@ -54,6 +54,34 @@ async def archive_range(
     return await loop.run_in_executor(None, index.window, from_ms, to_ms)
 
 
+@router.get("/archive/shape")
+async def archive_shape():
+    """
+    Форма архива целиком: куски и разрывы всех дорожек без списков сегментов.
+    Таймлайн берёт её один раз, дальше сдвиг и зум — чистая арифметика.
+    """
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, index.shape)
+
+
+@router.get("/archive/segments")
+async def archive_segments(
+    camera: str = Query(..., description="идентификатор камеры"),
+    stream: str = Query(..., description="ключ потока"),
+    from_ms: int = Query(..., description="начало, мс времени изделия"),
+    to_ms: int = Query(..., description="конец"),
+):
+    """Сегменты одной дорожки — по ним плеер знает, какой файл открыть."""
+    if to_ms <= from_ms:
+        raise HTTPException(status_code=400, detail="to_ms must be greater than from_ms")
+
+    loop = asyncio.get_running_loop()
+    segments = await loop.run_in_executor(
+        None, index.range_segments, camera, stream, from_ms, to_ms
+    )
+    return {"segments": segments}
+
+
 @router.get("/archive/frame")
 async def archive_frame(
     camera: str = Query(..., description="идентификатор камеры"),
