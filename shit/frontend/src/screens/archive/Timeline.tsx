@@ -1,12 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { Icon } from '../../app/Icons';
+import type { Anchor } from '../../app/popover';
+import { elementAnchor, pointAnchor, usePopover } from '../../app/popover';
 import { DayPicker } from './DayPicker';
-import type { Gap, Track, ZoomLevel } from './model';
+import { RangeCard } from './RangeCard';
+import type { Track, ZoomLevel } from './model';
 import {
-    ZOOMS, buildTicks, dateKey, fmtBytes, fmtDateLong, fmtDuration,
-    fmtTime, msAt, percentIn, segmentAt, trackKey,
+    ZOOMS, buildTicks, dateKey, fmtDateLong, fmtDuration,
+    fmtTime, frameUrl, msAt, percentIn, segmentAt, trackKey,
 } from './model';
 import './timeline.css';
 
@@ -21,14 +24,6 @@ import './timeline.css';
 /** Таймлайн живёт в своей высоте либо занимает раздел целиком. */
 export type TimelineView = 'normal' | 'full';
 
-/** Что даст выбранный диапазон: запрошено, реально записано, чем это станет. */
-export interface SelectionInfo {
-    requested: number;
-    recorded: number;
-    gaps: Gap[];
-    bytes: number;
-}
-
 interface Props {
     from: number;
     to: number;
@@ -39,7 +34,6 @@ interface Props {
     cursorMs: number | null;
     todayKey: string | null;
     selection: { from: number; to: number } | null;
-    selectionInfo: SelectionInfo | null;
     picking: boolean;
     view: TimelineView;
     onZoom: (zoom: number, anchorMs?: number) => void;
@@ -71,7 +65,7 @@ type Hover = { ms: number; x: number; y: number; track: Track | null };
 
 export function Timeline({
     from, to, zoom, tracks, cameraNames, selectedKey, cursorMs,
-    todayKey, selection, selectionInfo, picking, view,
+    todayKey, selection, picking, view,
     onZoom, onPan, onJumpDate, onSelect, onSeek, onSelectionChange, onCancelPick,
     onPicking, onCut, onView,
 }: Props) {
@@ -80,7 +74,9 @@ export function Timeline({
     const [height, setHeight] = useState(DEFAULT_H);
     const resize = useRef<{ y: number; h: number } | null>(null);
     const [hover, setHover] = useState<Hover | null>(null);
-    const [tip, setTip] = useState<{ track: Track; x: number; y: number } | null>(null);
+    const [tip, setTip] = useState<{ track: Track; anchor: Anchor } | null>(null);
+    const [dragging, setDragging] = useState(false);
+    const [pickAnchor, setPickAnchor] = useState<Anchor | null>(null);
 
     const drag = useRef<{ x: number; ms: number; moved: boolean; mode: 'pan' | 'pick' } | null>(null);
 
@@ -118,9 +114,28 @@ export function Timeline({
         return tracks[index] ?? null;
     }, [tracks]);
 
+    /* Карточка диапазона приколота к полосе выделения. Пока полосу тянут, её
+       нет: окошко прыгало бы под рукой и закрывало то, что выделяют */
+    useLayoutEffect(() => {
+        const rows = canvas.current?.querySelector('.tl-rows');
+        if (!selection || dragging || !rows) {
+            setPickAnchor(null);
+            return;
+        }
+
+        const box = rows.getBoundingClientRect();
+        setPickAnchor({
+            left: box.left + (percentIn(selection.from, from, to) / 100) * box.width,
+            right: box.left + (percentIn(selection.to, from, to) / 100) * box.width,
+            top: box.top,
+            bottom: box.top,
+        });
+    }, [selection, dragging, from, to]);
+
     const handleDown = (event: React.MouseEvent<HTMLDivElement>) => {
         const ms = msFromX(event.clientX);
         drag.current = { x: event.clientX, ms, moved: false, mode: picking ? 'pick' : 'pan' };
+        setDragging(true);
         if (picking) onSelectionChange({ from: ms, to: ms });
     };
 
@@ -146,6 +161,7 @@ export function Timeline({
     const handleUp = (event: React.MouseEvent<HTMLDivElement>) => {
         const state = drag.current;
         drag.current = null;
+        setDragging(false);
         if (!state || state.moved || picking) return;
 
         // Клик без протяжки — перемотка. Курсор можно ставить и в пустоту:
@@ -221,26 +237,6 @@ export function Timeline({
                     </button>
                 </div>
 
-                {selection && selectionInfo && (
-                    <div className="tl-pick">
-                        <span className="range">{fmtTime(selection.from)} — {fmtTime(selection.to)}</span>
-                        <span className="fact">запрошено {fmtDuration(selectionInfo.requested)}</span>
-                        <span className="fact">в записи {fmtDuration(selectionInfo.recorded)}</span>
-                        <span className="fact">≈ {fmtBytes(selectionInfo.bytes)}</span>
-                        {selectionInfo.gaps.length > 0 && (
-                            <span className="warn">
-                                короче на {fmtDuration(selectionInfo.requested - selectionInfo.recorded)}
-                            </span>
-                        )}
-                        <button type="button" className="btn btn--sm" onClick={onCancelPick}>
-                            Отменить
-                        </button>
-                        <button type="button" className="btn btn--sm btn--acc" onClick={onCut}>
-                            Склеить в MP4
-                        </button>
-                    </div>
-                )}
-
                 <div className="tl-tools">
                     <button
                         type="button"
@@ -267,7 +263,8 @@ export function Timeline({
                     <div className="tl-names-body">
                         {tracks.map(track => {
                             const key = trackKey(track);
-                            const deleted = !cameraNames.has(track.camera_id);
+                            // Пустой список камер значит обрыв связи, а не то, что удалены все
+                            const deleted = cameraNames.size > 0 && !cameraNames.has(track.camera_id);
                             const name = cameraNames.get(track.camera_id) || track.camera_id;
 
                             return (
@@ -276,10 +273,7 @@ export function Timeline({
                                     key={key}
                                     className={`tl-name${key === selectedKey ? ' is-sel' : ''}`}
                                     onClick={() => onSelect(track)}
-                                    onMouseEnter={event => {
-                                        const box = event.currentTarget.getBoundingClientRect();
-                                        setTip({ track, x: box.right + 8, y: box.top });
-                                    }}
+                                    onMouseEnter={event => setTip({ track, anchor: elementAnchor(event.currentTarget) })}
                                     onMouseLeave={() => setTip(null)}
                                 >
                                     {deleted ? (
@@ -309,7 +303,7 @@ export function Timeline({
                     onMouseDown={handleDown}
                     onMouseMove={handleMove}
                     onMouseUp={handleUp}
-                    onMouseLeave={() => { setHover(null); drag.current = null; }}
+                    onMouseLeave={() => { setHover(null); drag.current = null; setDragging(false); }}
                 >
                     <div className="tl-scale">
                         {ticks.map(tick => (
@@ -355,7 +349,7 @@ export function Timeline({
                                         return (
                                             <i
                                                 key={`g${index}`}
-                                                className={`tl-gap${gap.kind === 'power' ? ' is-power' : ''}`}
+                                                className="tl-gap"
                                                 style={{ left: `${left}%`, width: `${width}%` }}
                                                 title={`${fmtTime(gap.start_ms)} → ${fmtTime(gap.end_ms)}`}
                                             />
@@ -367,13 +361,12 @@ export function Timeline({
                                         .map((gap, index) => (
                                             <span
                                                 key={`gl${index}`}
-                                                className={`tl-gap-lab${gap.kind === 'power' ? ' is-power' : ''}`}
+                                                className="tl-gap-lab"
                                                 style={{
                                                     left: `${(percentIn(gap.start_ms, from, to) + percentIn(gap.end_ms, from, to)) / 2}%`,
                                                 }}
                                             >
-                                                {gap.kind === 'power' ? 'изделие было обесточено · ' : 'запись прервалась · '}
-                                                {fmtDuration(gap.end_ms - gap.start_ms)}
+                                                разрыв · {fmtDuration(gap.end_ms - gap.start_ms)}
                                             </span>
                                         ))}
 
@@ -409,27 +402,65 @@ export function Timeline({
                 </div>
             </div>
 
-            {hover && <Peek hover={hover} />}
+            {hover?.track && <Peek hover={hover} track={hover.track} />}
             {tip && <NameTip tip={tip} name={cameraNames.get(tip.track.camera_id)} />}
+
+            {selection && pickAnchor && (
+                <RangeCard
+                    anchor={pickAnchor}
+                    range={selection}
+                    tracks={tracks}
+                    selected={tracks.find(track => trackKey(track) === selectedKey) ?? null}
+                    cameraNames={cameraNames}
+                    multi={view === 'full'}
+                    onCancel={onCancelPick}
+                    onDownload={onCut}
+                />
+            )}
         </div>
     );
 }
+
+// Кадр запрашивается, только когда мышь остановилась
+const FRAME_DEBOUNCE_MS = 180;
 
 /**
  * Превью под указателем. Живёт порталом в body: внутри таймлайна его резали бы
  * границы полотна, а всплывать оно должно поверх кадра.
  */
-function Peek({ hover }: { hover: Hover }) {
-    const segment = hover.track ? segmentAt(hover.track, hover.ms) : null;
+function Peek({ hover, track }: { hover: Hover; track: Track }) {
+    const ref = usePopover<HTMLDivElement>(pointAnchor(hover.x, hover.y), { side: 'top' });
+    const segment = segmentAt(track, hover.ms);
+
+    const [shot, setShot] = useState<string | null>(null);
+    const [broken, setBroken] = useState(false);
+
+    useEffect(() => {
+        if (!segment) {
+            setShot(null);
+            return;
+        }
+
+        const timer = window.setTimeout(() => {
+            setBroken(false);
+            setShot(frameUrl(track, hover.ms));
+        }, FRAME_DEBOUNCE_MS);
+
+        return () => window.clearTimeout(timer);
+    }, [track, hover.ms, segment?.path]);
 
     return createPortal(
-        <div className="tl-peek" style={{ left: hover.x, top: hover.y }}>
+        <div className="tl-peek" ref={ref}>
             <div className={`tl-peek-shot${segment ? '' : ' is-none'}`}>
-                {segment ? '' : 'записи в этот момент нет'}
+                {!segment && 'записи в этот момент нет'}
+                {segment && broken && 'кадр не получен'}
+                {segment && shot && !broken && (
+                    <img src={shot} alt="" onError={() => setBroken(true)} />
+                )}
             </div>
             <div className="tl-peek-meta">
                 <span className="t">{fmtTime(hover.ms)}</span>
-                <span className="f">{segment ? segment.file : hover.track?.camera_id ?? '—'}</span>
+                <span className="f">{segment ? segment.file : track.camera_id}</span>
             </div>
         </div>,
         document.body,
@@ -437,11 +468,12 @@ function Peek({ hover }: { hover: Hover }) {
 }
 
 /** Подробности камеры при наведении на имя. */
-function NameTip({ tip, name }: { tip: { track: Track; x: number; y: number }; name?: string }) {
+function NameTip({ tip, name }: { tip: { track: Track; anchor: Anchor }; name?: string }) {
     const { track } = tip;
+    const ref = usePopover<HTMLDivElement>(tip.anchor, { side: 'right', align: 'start' });
 
     return createPortal(
-        <div className="tl-tip" style={{ left: tip.x, top: tip.y }}>
+        <div className="tl-tip" ref={ref}>
             <b>{name || track.camera_id}</b>
             <div className="r"><span>Идентификатор</span><span>{track.camera_id}</span></div>
             <div className="r"><span>Поток</span><span>{track.stream_key}</span></div>

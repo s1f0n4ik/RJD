@@ -44,11 +44,11 @@
 
 /* ── календарь ── */
 
+/* Координаты ставит app/popover.ts после отрисовки — до неё попап скрыт */
 .arch-pop {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 0;
-  z-index: 40;
+  position: fixed;
+  visibility: hidden;
+  z-index: 96;
   width: 272px;
   padding: 14px;
   background: var(--panel);
@@ -189,12 +189,12 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  color: var(--fg-3);
-  font-size: 12.5px;
+  gap: 12px;
+  color: var(--fg-2);
+  font-size: 15px;
 }
 
-.arch-empty svg { width: 26px; height: 26px; opacity: .6 }
+.arch-empty svg { width: 34px; height: 34px; opacity: .5 }
 
 .arch-ctl {
   position: absolute;

@@ -239,7 +239,7 @@ class SegmentIndex:
             self._persist_anchors(conn, sessions)
 
             rows = self._rows_in_window(conn, sessions, from_ms, to_ms)
-            tracks = self._build_tracks(rows, from_ms, to_ms)
+            tracks = self._build_tracks(rows, from_ms, to_ms, self._known_tracks(conn))
 
             return {
                 "from_ms": from_ms,
@@ -320,11 +320,30 @@ class SegmentIndex:
             "session_uid": row["session_uid"] or "",
         }
 
-    def _build_tracks(self, rows: list[dict], day_start: int, day_end: int) -> list[dict]:
+    @staticmethod
+    def _known_tracks(conn: sqlite3.Connection) -> list[tuple[str, str]]:
+        """Все пары «камера + поток», когда-либо писавшие, — по индексу idx_seg_track."""
+        cursor = conn.execute(
+            "SELECT DISTINCT camera_id, stream_key FROM segments"
+            " WHERE camera_id IS NOT NULL AND stream_key IS NOT NULL;"
+        )
+        return [(row["camera_id"], row["stream_key"]) for row in cursor]
+
+    def _build_tracks(
+        self,
+        rows: list[dict],
+        day_start: int,
+        day_end: int,
+        known: Iterable[tuple[str, str]] = (),
+    ) -> list[dict]:
         """Группирует сегменты по дорожкам и считает куски и пропуски."""
         by_track: dict[tuple[str, str], list[dict]] = {}
         for row in rows:
             by_track.setdefault((row["camera_id"], row["stream_key"]), []).append(row)
+
+        # Дорожка живёт, пока у камеры есть хоть один сегмент в архиве
+        for key in known:
+            by_track.setdefault(key, [])
 
         tracks = []
         for (camera_id, stream_key), items in sorted(by_track.items()):
@@ -766,10 +785,7 @@ def _merge_runs(items: list[dict], day_start: int, day_end: int) -> list[tuple[i
 
 
 def _find_gaps(items: list[dict], runs: list[tuple[int, int]]) -> list[dict]:
-    """
-    Пропуски между кусками. Разрыв на границе сессий значит, что изделие было
-    обесточено, — это не поломка записи, и красным его помечать нельзя.
-    """
+    """Пропуски между кусками: kind=power на границе сессий, record внутри одной."""
     sessions_at = [(item["start_ms"], item["session_uid"]) for item in items]
 
     gaps = []

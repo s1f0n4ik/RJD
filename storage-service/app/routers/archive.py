@@ -2,10 +2,11 @@ import asyncio
 import logging
 import re
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import BaseModel
 
 from app.services.cutter import run_cut_job, run_zip_job
+from app.services.frames import frame_at
 from app.services.jobs import jobs
 from app.services.segments import index
 from app.services.storage import storage
@@ -14,6 +15,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 DATE_KEY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+# Кадров для лупы просят по движению мыши, а ffmpeg на плате не бесплатный
+_frame_gate = asyncio.Semaphore(2)
 
 
 def _check_date(value: str, field: str) -> str:
@@ -48,6 +52,28 @@ async def archive_range(
 
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, index.window, from_ms, to_ms)
+
+
+@router.get("/archive/frame")
+async def archive_frame(
+    camera: str = Query(..., description="идентификатор камеры"),
+    stream: str = Query(..., description="ключ потока"),
+    ms: int = Query(..., description="момент времени изделия, мс"),
+):
+    """Кадр под курсором таймлайна: JPEG из сегмента, покрывающего момент."""
+    loop = asyncio.get_running_loop()
+
+    async with _frame_gate:
+        data = await loop.run_in_executor(None, frame_at, camera, stream, ms)
+
+    if data is None:
+        raise HTTPException(status_code=404, detail="No frame at this moment")
+
+    return Response(
+        content=data,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
 
 
 @router.get("/archive/days")

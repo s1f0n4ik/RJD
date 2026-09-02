@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Icon } from '../../app/Icons';
 import type { Segment, Track } from './model';
-import { fmtTime, segmentAfter, segmentAt, segmentUrl } from './model';
+import { fmtTime, segmentAfter, segmentAt, segmentUrl, trackKey } from './model';
 
 /*
     Проигрывание архива через границы сегментов.
@@ -21,13 +21,15 @@ interface Props {
     onProgress: (ms: number) => void;
     onPlayingChange: (playing: boolean) => void;
     onTrackEnd: () => void;
+    /** Переход к ближайшей записи из пустого места. */
+    onSeekTo: (ms: number) => void;
 }
 
 // За сколько до конца фрагмента поднимать следующий
 const PRELOAD_LEAD_SEC = 3;
 
 export function ArchivePlayer({
-    track, seek, playing, speed, onProgress, onPlayingChange, onTrackEnd,
+    track, seek, playing, speed, onProgress, onPlayingChange, onTrackEnd, onSeekTo,
 }: Props) {
     const videoA = useRef<HTMLVideoElement | null>(null);
     const videoB = useRef<HTMLVideoElement | null>(null);
@@ -102,10 +104,10 @@ export function ArchivePlayer({
         standbySegment.current = null;
         mount(active, target, offset);
         preloadNext(target);
-        // active намеренно не в зависимостях: смена активного элемента — это
-        // стык эстафеты, перемонтировать по нему ничего не надо
+        // Дорожка сравнивается по ключу: fetchRange отдаёт новый объект каждые
+        // десять секунд, а перемонтировать надо только при смене дорожки
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [seek.token, track]);
+    }, [seek.token, track && trackKey(track)]);
 
     // Пуск и пауза идут только активному элементу
     useEffect(() => {
@@ -162,11 +164,14 @@ export function ArchivePlayer({
         ? `${track?.camera_id ?? ''} · ${fmtTime(current.start_ms)}`
         : '';
 
+    // Записи под курсором нет — кадр гаснет, а не остаётся под надписью
+    const next = !current && track ? segmentAfter(track, seek.ms) : null;
+
     return (
         <div className="arch-video">
             <video
                 ref={videoA}
-                className={`arch-frame${active === 0 ? ' is-on' : ''}`}
+                className={`arch-frame${active === 0 && current ? ' is-on' : ''}`}
                 playsInline
                 muted
                 preload="auto"
@@ -176,7 +181,7 @@ export function ArchivePlayer({
             />
             <video
                 ref={videoB}
-                className={`arch-frame${active === 1 ? ' is-on' : ''}`}
+                className={`arch-frame${active === 1 && current ? ' is-on' : ''}`}
                 playsInline
                 muted
                 preload="auto"
@@ -191,6 +196,15 @@ export function ArchivePlayer({
                 <div className="arch-empty">
                     <Icon name="arch" />
                     <span>{track ? 'В этот момент записи нет' : 'Выберите дорожку'}</span>
+                    {next && (
+                        <button
+                            type="button"
+                            className="btn btn--sm"
+                            onClick={() => onSeekTo(next.start_ms)}
+                        >
+                            Дальше запись в {fmtTime(next.start_ms)}
+                        </button>
+                    )}
                 </div>
             )}
 

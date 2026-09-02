@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 import { Icon } from '../../app/Icons';
+import { elementAnchor, usePopover } from '../../app/popover';
+import type { Anchor } from '../../app/popover';
 import type { DaySummary } from './model';
 import { dateKey, dayStartMs, fetchDays, weekdayShort } from './model';
 
@@ -28,24 +31,33 @@ export function DayPicker({ date, todayKey, onChange }: Props) {
     const [month, setMonth] = useState(() => date.slice(0, 7));
     const [days, setDays] = useState<Map<string, DaySummary>>(new Map());
     const box = useRef<HTMLDivElement | null>(null);
+    const button = useRef<HTMLButtonElement | null>(null);
+    const [anchor, setAnchor] = useState<Anchor | null>(null);
+    const pop = usePopover<HTMLDivElement>(anchor, { side: 'top', align: 'start' });
 
     useEffect(() => {
         if (!open) return;
 
+        // Попап лежит в body, поэтому снаружи считается всё, что не он и не кнопка
         const onDocumentDown = (event: MouseEvent) => {
-            if (box.current && !box.current.contains(event.target as Node)) setOpen(false);
+            const target = event.target as Node;
+            if (box.current?.contains(target) || pop.current?.contains(target)) return;
+            setOpen(false);
         };
         const onEscape = (event: KeyboardEvent) => {
             if (event.key === 'Escape') setOpen(false);
         };
+        const close = () => setOpen(false);
 
         document.addEventListener('mousedown', onDocumentDown);
         document.addEventListener('keydown', onEscape);
+        window.addEventListener('resize', close);
         return () => {
             document.removeEventListener('mousedown', onDocumentDown);
             document.removeEventListener('keydown', onEscape);
+            window.removeEventListener('resize', close);
         };
-    }, [open]);
+    }, [open, pop]);
 
     useEffect(() => {
         if (!open) return;
@@ -72,7 +84,15 @@ export function DayPicker({ date, todayKey, onChange }: Props) {
         <div className="arch-daypick" ref={box}>
             <div className="arch-step">
                 <button type="button" className="arch-step-arrow" onClick={() => onChange(shift(date, -1))} aria-label="Предыдущий день">‹</button>
-                <button type="button" className="arch-step-day" onClick={() => setOpen(value => !value)}>
+                <button
+                    type="button"
+                    className="arch-step-day"
+                    ref={button}
+                    onClick={() => {
+                        if (button.current) setAnchor(elementAnchor(button.current));
+                        setOpen(value => !value);
+                    }}
+                >
                     <b>{formatDay(date)}</b>
                     <em>{weekdayShort(date)}</em>
                     <Icon name="cal" />
@@ -80,8 +100,8 @@ export function DayPicker({ date, todayKey, onChange }: Props) {
                 <button type="button" className="arch-step-arrow" onClick={() => onChange(shift(date, 1))} aria-label="Следующий день">›</button>
             </div>
 
-            {open && (
-                <div className="arch-pop">
+            {open && anchor && createPortal(
+                <div className="arch-pop" ref={pop}>
                     <div className="arch-cal-head">
                         <button type="button" onClick={() => setMonth(shiftMonth(month, -1))}>‹</button>
                         <b>{MONTHS[monthNumber - 1]} {year}</b>
@@ -119,7 +139,8 @@ export function DayPicker({ date, todayKey, onChange }: Props) {
                             );
                         })}
                     </div>
-                </div>
+                </div>,
+                document.body,
             )}
         </div>
     );

@@ -118,6 +118,14 @@ export function segmentUrl(track: Track, segment: Segment, download = false): st
     );
 }
 
+/** Кадр дорожки на момент времени — превью в лупе таймлайна. */
+export function frameUrl(track: Track, ms: number): string {
+    const query = `camera=${encodeURIComponent(track.camera_id)}`
+        + `&stream=${encodeURIComponent(track.stream_key)}`
+        + `&ms=${Math.round(ms)}`;
+    return storagePath(track.device_id, `/api/archive/frame?${query}`);
+}
+
 // ── ключи и подписи ──
 
 export const trackKey = (track: Track) =>

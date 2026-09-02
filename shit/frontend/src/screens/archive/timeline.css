@@ -82,22 +82,6 @@
   border-right: 1px solid var(--line);
 }
 
-/* Всё о выбранном диапазоне живёт здесь же, у дорожек */
-.tl-pick {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  padding: 5px 10px;
-  border: 1px solid rgba(229, 161, 99, .32);
-  border-radius: var(--r);
-  background: rgba(229, 161, 99, .07);
-}
-
-.tl-pick .range { font-family: var(--mono); font-size: 12.5px; color: var(--save) }
-.tl-pick .fact { font-size: 12px; color: var(--fg-2) }
-.tl-pick .warn { font-size: 12px; color: var(--warn) }
-
 .tl-tools { margin-left: auto; display: flex; gap: 7px }
 
 .tl-tool {
@@ -273,12 +257,6 @@
   border-right: 1px solid rgba(255, 107, 128, .5);
 }
 
-/* Разрыв на границе сессий — изделие было обесточено, а не поломка записи */
-.tl-gap.is-power {
-  background: repeating-linear-gradient(45deg, rgba(123, 134, 152, .26) 0 5px, transparent 5px 10px);
-  border-color: rgba(123, 134, 152, .45);
-}
-
 .tl-gap-lab {
   position: absolute;
   top: 50%;
@@ -292,8 +270,6 @@
   white-space: nowrap;
   pointer-events: none;
 }
-
-.tl-gap-lab.is-power { color: var(--fg-2) }
 
 .tl-row-none {
   position: absolute;
@@ -353,12 +329,12 @@
 
 /* ── превью и подсказка: порталом в body, поэтому fixed и без обрезки ── */
 
+/* Координаты попапам ставит app/popover.ts после отрисовки — до неё они скрыты */
 .tl-peek {
   position: fixed;
+  visibility: hidden;
   z-index: 90;
   width: 224px;
-  transform: translate(-50%, -100%);
-  margin-top: -14px;
   background: var(--panel);
   border: 1px solid var(--line-hi);
   border-radius: var(--r);
@@ -377,6 +353,7 @@
     var(--input);
 }
 
+.tl-peek-shot img { width: 100%; height: 100%; object-fit: contain; background: #000 }
 .tl-peek-shot.is-none { color: var(--warn); font-size: 11.5px }
 
 .tl-peek-meta { padding: 7px 10px; display: flex; flex-direction: column; gap: 2px }
@@ -385,6 +362,7 @@
 
 .tl-tip {
   position: fixed;
+  visibility: hidden;
   z-index: 92;
   width: 252px;
   padding: 9px 11px;
@@ -398,3 +376,95 @@
 .tl-tip b { display: block; font-size: 12.5px; margin-bottom: 5px }
 .tl-tip .r { display: flex; gap: 8px; padding: 2px 0; font-size: 11.5px; color: var(--fg-3) }
 .tl-tip .r span:last-child { margin-left: auto; font-family: var(--mono); color: var(--fg-2) }
+
+/* ── карточка выбранного диапазона ── */
+
+.rc {
+  position: fixed;
+  visibility: hidden;
+  z-index: 94;
+  width: 292px;
+  padding: 11px 12px 10px;
+  background: var(--panel);
+  border: 1px solid rgba(229, 161, 99, .38);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg);
+}
+
+.rc-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.rc-head b { font-family: var(--mono); font-size: 12.5px; color: var(--save) }
+.rc-head span { margin-left: auto; font-size: 11.5px; color: var(--fg-3) }
+
+.rc-cam {
+  padding: 8px 0 6px;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rc-row { display: flex; gap: 8px; padding: 3px 0; font-size: 11.5px; color: var(--fg-3) }
+.rc-row b { margin-left: auto; font-family: var(--mono); font-weight: 400; color: var(--fg-2) }
+.rc-row.is-warn, .rc-row.is-warn b { color: var(--warn) }
+
+.rc-list {
+  max-height: 190px;
+  overflow-y: auto;
+  margin: 7px 0;
+  scrollbar-width: none;
+}
+
+.rc-list::-webkit-scrollbar { display: none }
+
+.rc-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border: 0;
+  border-radius: var(--r);
+  background: transparent;
+  color: var(--fg-3);
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rc-item:hover { background: var(--input) }
+.rc-item.is-on { color: var(--fg-2) }
+
+.rc-chk {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 13px;
+  border-radius: 3px;
+  border: 1px solid var(--line-hi);
+  background: var(--input);
+}
+
+.rc-item.is-on .rc-chk { background: var(--acc); border-color: var(--acc) }
+
+.rc-item-nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.rc-item-f { font-family: var(--mono); font-size: 10.5px; color: var(--fg-3) }
+
+.rc-none { padding: 12px 0; text-align: center; font-size: 11.5px; color: var(--fg-3) }
+
+.rc-foot {
+  display: flex;
+  gap: 7px;
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px solid var(--line);
+}
+
+.rc-foot .btn { flex: 1 }
+
+.rc-note { display: block; margin-top: 6px; text-align: center; font-size: 10.5px; color: var(--fg-3) }

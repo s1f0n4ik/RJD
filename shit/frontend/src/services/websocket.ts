@@ -37,8 +37,9 @@ export class WebSocketService {
             if (!Array.isArray(stateData.cameras)) {
 
               const camerasObj = stateData.cameras as any;
-              stateData.cameras = Object.entries(camerasObj).map(([name, data]: [string, any]) => ({
-                name,  // ✅ Добавляем ключ как name
+              // Ключ словаря — это camera_id, весь код читает его как id
+              stateData.cameras = Object.entries(camerasObj).map(([id, data]: [string, any]) => ({
+                id,
                 ...data
               }));
             }

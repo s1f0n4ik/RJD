@@ -8,9 +8,9 @@ import { Timeline } from './Timeline';
 import type { TimelineView } from './Timeline';
 import type { ArchiveState, DayIndex, JobProgress, Track } from './model';
 import {
-    DAY_MS, DEFAULT_ZOOM, ZOOMS, dateKey, dayStartMs, estimateBytes, fetchRange,
-    fetchState, fmtBytes, fmtDate, fmtDuration, fmtTime, gapsWithin, jobCancelUrl,
-    jobDownloadUrl, jobProgressUrl, recordedWithin, segmentAt, segmentUrl,
+    DAY_MS, DEFAULT_ZOOM, ZOOMS, dateKey, dayStartMs, fetchRange,
+    fetchState, fmtBytes, fmtDate, fmtDuration, fmtTime, jobCancelUrl,
+    jobDownloadUrl, jobProgressUrl, segmentAt, segmentUrl,
     startCut, startZip, trackKey,
 } from './model';
 import './archive.css';
@@ -80,7 +80,19 @@ export function ArchiveScreen() {
         return names;
     }, [cameras]);
 
-    const tracks = window_?.tracks ?? [];
+    // Живые камеры сверху, удалённые в конце: порядок меняется от правки
+    // конфигурации, а не от того, где сейчас стоит окно таймлайна
+    const tracks = useMemo(() => {
+        const list = [...(window_?.tracks ?? [])];
+        if (!cameraNames.size) return list;
+
+        return list.sort((first, second) => {
+            const gone = Number(!cameraNames.has(first.camera_id))
+                - Number(!cameraNames.has(second.camera_id));
+            return gone || trackKey(first).localeCompare(trackKey(second));
+        });
+    }, [window_, cameraNames]);
+
     const selected = tracks.find(track => trackKey(track) === selectedKey) || null;
 
     // ── данные ──
@@ -115,16 +127,21 @@ export function ArchiveScreen() {
         return () => window.clearTimeout(timer);
     }, [from, to]);
 
-    // Хвост записи дописывается прямо сейчас — обновляем, пока он в окне
-    useEffect(() => {
-        if (clock.unixMs === null || clock.unixMs < from || clock.unixMs > to + DAY_MS) return;
+    /* Хвост записи дописывается прямо сейчас — обновляем, пока правый край окна
+       достаёт до текущего времени. Часы читаются из ref: они тикают раз в
+       секунду, и в зависимостях интервал пересоздавался бы, не успев сработать */
+    const clockRef = useRef(clock.unixMs);
+    clockRef.current = clock.unixMs;
 
+    useEffect(() => {
         const timer = window.setInterval(() => {
+            const now = clockRef.current;
+            if (now === null || to < now) return;
             fetchRange(from, to).then(setWindow).catch(() => undefined);
         }, REFRESH_MS);
 
         return () => window.clearInterval(timer);
-    }, [clock.unixMs, from, to]);
+    }, [from, to]);
 
     // Дорожка выбирается сама: первая, где в окне что-то записано
     useEffect(() => {
@@ -234,7 +251,7 @@ export function ArchiveScreen() {
         }
     }, [selected]);
 
-    /** Выход из выбора диапазона: сегмента в шапке больше нет, отменяем здесь */
+    /** Отмена в карточке диапазона: гасим и выделение, и сам режим выбора. */
     const cancelPicking = useCallback(() => {
         setSelection(null);
         setPicking(false);
@@ -245,18 +262,6 @@ export function ArchiveScreen() {
         fetch(jobCancelUrl(job.deviceId, job.id), { method: 'DELETE' }).catch(() => undefined);
         setJob(null);
     }, [job]);
-
-    const selectionInfo = useMemo(() => {
-        if (!selection || !selected) return null;
-        const requested = selection.to - selection.from;
-        const recorded = recordedWithin(selected, selection.from, selection.to);
-        return {
-            requested,
-            recorded,
-            gaps: gapsWithin(selected, selection.from, selection.to),
-            bytes: estimateBytes(selected, recorded),
-        };
-    }, [selection, selected]);
 
     const windowRecorded = tracks.reduce((sum, track) => sum + track.recorded_ms, 0);
     const windowGaps = tracks.reduce((sum, track) => sum + track.gaps.length, 0);
@@ -276,6 +281,7 @@ export function ArchiveScreen() {
                                 onProgress={setCursorMs}
                                 onPlayingChange={setPlaying}
                                 onTrackEnd={() => setPlaying(false)}
+                                onSeekTo={ms => handleSeek(selected, ms)}
                             />
 
                             <div className="arch-ctl">
@@ -342,23 +348,6 @@ export function ArchiveScreen() {
 
                     {sideOpen && (
                     <aside className="arch-side">
-                        <div className="sect is-off">
-                            <span className="eyebrow">Скачать</span>
-                            {/* Выгрузка целиком переделывается — кнопки выключены до неё */}
-                            <button type="button" className="arch-act" disabled>
-                                Склеить фрагмент
-                                <span className="num">в работе</span>
-                            </button>
-                            <button type="button" className="arch-act" disabled>
-                                Скачать день архивом
-                                <span className="num">в работе</span>
-                            </button>
-                            <button type="button" className="arch-act" disabled>
-                                Скачать все записи камеры
-                                <span className="num">в работе</span>
-                            </button>
-                        </div>
-
                         {job && (
                             <div className="sect">
                                 <span className="eyebrow">{job.kind === 'cut' ? 'Склейка' : 'Выгрузка'}</span>
@@ -456,7 +445,6 @@ export function ArchiveScreen() {
                 cursorMs={cursorMs}
                 todayKey={clock.unixMs === null ? null : dateKey(clock.unixMs)}
                 selection={selection}
-                selectionInfo={selectionInfo}
                 picking={picking}
                 view={view}
                 onZoom={handleZoom}
