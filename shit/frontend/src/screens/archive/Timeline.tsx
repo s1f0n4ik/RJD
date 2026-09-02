@@ -13,15 +13,9 @@ import {
 } from './model';
 import './timeline.css';
 
-/*
-    Таймлайн архива — одно полотно на все камеры.
+// Таймлайн архива — одно полотно на все камеры
 
-    Сутками он не ограничен: окно задаётся масштабом и центром, тянется мышью в
-    обе стороны и приближается колесом вплоть до минуты. Курсор один и сквозной,
-    сетка общая, время читается по верхней шкале сразу для всех дорожек.
-*/
-
-/** Таймлайн живёт в своей высоте либо занимает раздел целиком. */
+// Таймлайн живёт в своей высоте либо занимает раздел целиком
 export type TimelineView = 'normal' | 'full';
 
 interface Props {
@@ -71,6 +65,9 @@ export function Timeline({
 }: Props) {
     const canvas = useRef<HTMLDivElement | null>(null);
     const root = useRef<HTMLDivElement | null>(null);
+    const rows = useRef<HTMLDivElement | null>(null);
+    const names = useRef<HTMLDivElement | null>(null);
+    const [more, setMore] = useState(false);
     const [height, setHeight] = useState(DEFAULT_H);
     const resize = useRef<{ y: number; h: number } | null>(null);
     const [hover, setHover] = useState<Hover | null>(null);
@@ -89,12 +86,39 @@ export function Timeline({
         return msAt(((clientX - box.left) / box.width) * 100, from, to);
     }, [from, to]);
 
-    // Колесо приближает к точке под указателем, а не к середине окна
+    // Колонка имён прокручивается вслед за полосами
+    const syncScroll = useCallback(() => {
+        const area = rows.current;
+        if (!area) return;
+
+        if (names.current) names.current.scrollTop = area.scrollTop;
+        setMore(area.scrollHeight - area.clientHeight - area.scrollTop > 1);
+    }, []);
+
+    useLayoutEffect(syncScroll, [syncScroll, tracks, height, view]);
+
+    // На весь раздел высота полос зависит от окна, а не от состояния
+    useEffect(() => {
+        window.addEventListener('resize', syncScroll);
+        return () => window.removeEventListener('resize', syncScroll);
+    }, [syncScroll]);
+
+    // Колесо листает дорожки, с Shift — меняет масштаб к точке под указателем
     useEffect(() => {
         const element = canvas.current;
         if (!element) return;
 
         const onWheel = (event: WheelEvent) => {
+            if (!event.shiftKey) {
+                const area = rows.current;
+                if (!area || area.scrollHeight <= area.clientHeight) return;
+
+                event.preventDefault();
+                // Firefox отдаёт дельту строками, а не пикселями
+                area.scrollTop += event.deltaMode === 1 ? event.deltaY * ROW_H : event.deltaY;
+                return;
+            }
+
             event.preventDefault();
             const anchor = msFromX(event.clientX);
             const next = event.deltaY < 0 ? zoom + 1 : zoom - 1;
@@ -106,24 +130,23 @@ export function Timeline({
     }, [msFromX, onZoom, zoom]);
 
     const trackAt = useCallback((clientY: number): Track | null => {
-        const rows = canvas.current?.querySelector('.tl-rows');
-        if (!rows) return null;
+        const area = rows.current;
+        if (!area) return null;
 
-        const box = rows.getBoundingClientRect();
-        const index = Math.floor((clientY - box.top + rows.scrollTop) / ROW_H);
+        const box = area.getBoundingClientRect();
+        const index = Math.floor((clientY - box.top + area.scrollTop) / ROW_H);
         return tracks[index] ?? null;
     }, [tracks]);
 
-    /* Карточка диапазона приколота к полосе выделения. Пока полосу тянут, её
-       нет: окошко прыгало бы под рукой и закрывало то, что выделяют */
+    // Карточка диапазона приколота к полосе выделения
     useLayoutEffect(() => {
-        const rows = canvas.current?.querySelector('.tl-rows');
-        if (!selection || dragging || !rows) {
+        const area = rows.current;
+        if (!selection || dragging || !area) {
             setPickAnchor(null);
             return;
         }
 
-        const box = rows.getBoundingClientRect();
+        const box = area.getBoundingClientRect();
         setPickAnchor({
             left: box.left + (percentIn(selection.from, from, to) / 100) * box.width,
             right: box.left + (percentIn(selection.to, from, to) / 100) * box.width,
@@ -171,8 +194,7 @@ export function Timeline({
         onSeek(track, msFromX(event.clientX));
     };
 
-    /* Тянем якорь вверх — таймлайн отбирает высоту у кадра. Высота живая, а не
-       два состояния: при двух дорожках переключение ступенями ничего не меняло */
+    // Тянем якорь вверх — таймлайн отбирает высоту у кадра
     const startResize = (event: React.PointerEvent<HTMLDivElement>) => {
         event.preventDefault();
         event.currentTarget.setPointerCapture(event.pointerId);
@@ -218,9 +240,7 @@ export function Timeline({
                     <span>{cursorMs === null ? 'курсор не поставлен' : fmtDateLong(cursorMs)}</span>
                 </div>
 
-                {/* Курсор задаёт дату, только пока он в окне: иначе прыжок по
-                    календарю двигал бы таймлайн, а сам календарь оставался на
-                    сутках курсора, уехавшего за край */}
+                {/* Курсор задаёт дату, только пока он в окне */}
                 <DayPicker
                     date={dateKey(
                         cursorMs !== null && cursorMs >= from && cursorMs <= to
@@ -232,13 +252,20 @@ export function Timeline({
                 />
 
                 <div className="tl-zoom">
-                    <button type="button" onClick={() => onZoom(zoom - 1)} disabled={zoom === 0} title="Отдалить">−</button>
+                    <button
+                        type="button"
+                        onClick={() => onZoom(zoom - 1)}
+                        disabled={zoom === 0}
+                        title="Отдалить (Shift с колесом)"
+                    >
+                        −
+                    </button>
                     <span className="lvl">{level.label}</span>
                     <button
                         type="button"
                         onClick={() => onZoom(zoom + 1)}
                         disabled={zoom === ZOOMS.length - 1}
-                        title="Приблизить"
+                        title="Приблизить (Shift с колесом)"
                     >
                         +
                     </button>
@@ -267,7 +294,7 @@ export function Timeline({
             <div className="tl-field">
                 <div className="tl-names">
                     <div className="tl-corner">Камера</div>
-                    <div className="tl-names-body">
+                    <div className="tl-names-body" ref={names}>
                         {tracks.map(track => {
                             const key = trackKey(track);
                             // Пустой список камер значит обрыв связи, а не то, что удалены все
@@ -324,17 +351,8 @@ export function Timeline({
                         ))}
                     </div>
 
-                    <div className="tl-rows">
-                        <div className="tl-grid">
-                            {ticks.map(tick => (
-                                <i
-                                    key={tick.ms}
-                                    className={tick.major ? '' : 'is-minor'}
-                                    style={{ left: `${percentIn(tick.ms, from, to)}%` }}
-                                />
-                            ))}
-                        </div>
-
+                    <div className="tl-body">
+                    <div className="tl-rows" ref={rows} onScroll={syncScroll}>
                         {tracks.map(track => {
                             const key = trackKey(track);
                             return (
@@ -350,8 +368,7 @@ export function Timeline({
                                         />
                                     ))}
 
-                                    {/* Разрыв приходит настоящими границами и может выходить
-                                        за окно: рисуем видимую часть, подписываем полную длину */}
+                                    {/* Разрыв приходит настоящими границами и может выходить за окно */}
                                     {track.gaps.map((gap, index) => {
                                         const left = Math.max(0, percentIn(gap.start_ms, from, to));
                                         const right = Math.min(100, percentIn(gap.end_ms, from, to));
@@ -386,6 +403,19 @@ export function Timeline({
                         {!tracks.length && (
                             <div className="tl-empty">За это время не писала ни одна камера</div>
                         )}
+                    </div>
+
+                    {/* Разметка времени поверх дорожек и вне прокрутки */}
+                    <div className="tl-over">
+                        <div className="tl-grid">
+                            {ticks.map(tick => (
+                                <i
+                                    key={tick.ms}
+                                    className={tick.major ? '' : 'is-minor'}
+                                    style={{ left: `${percentIn(tick.ms, from, to)}%` }}
+                                />
+                            ))}
+                        </div>
 
                         {selection && (
                             <i
@@ -404,6 +434,10 @@ export function Timeline({
                         {hover && (
                             <div className="tl-hover" style={{ left: `${percentIn(hover.ms, from, to)}%` }} />
                         )}
+                    </div>
+
+                    {/* Полоса прокрутки скрыта, чтобы ширина полос совпадала со шкалой */}
+                    {more && <i className="tl-more" aria-hidden="true" />}
                     </div>
                 </div>
             </div>
@@ -430,10 +464,7 @@ export function Timeline({
 // Кадр запрашивается, только когда мышь остановилась
 const FRAME_DEBOUNCE_MS = 180;
 
-/**
- * Превью под указателем. Живёт порталом в body: внутри таймлайна его резали бы
- * границы полотна, а всплывать оно должно поверх кадра.
- */
+// Превью под указателем
 function Peek({ hover, track }: { hover: Hover; track: Track }) {
     const ref = usePopover<HTMLDivElement>(pointAnchor(hover.x, hover.y), { side: 'top' });
     // Есть ли запись в этот момент, видно по кускам: список сегментов таймлайну
@@ -487,7 +518,7 @@ function Peek({ hover, track }: { hover: Hover; track: Track }) {
     );
 }
 
-/** Подробности камеры при наведении на имя. */
+// Подробности камеры при наведении на имя
 function NameTip({ tip, name }: { tip: { track: Track; anchor: Anchor }; name?: string }) {
     const { track } = tip;
     const ref = usePopover<HTMLDivElement>(tip.anchor, { side: 'right', align: 'start' });

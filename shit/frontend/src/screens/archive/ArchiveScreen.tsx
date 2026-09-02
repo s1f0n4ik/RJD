@@ -15,14 +15,7 @@ import {
 } from './model';
 import './archive.css';
 
-/*
-    Экран архива.
-
-    Дорожки — пишущие потоки всех устройств сразу: оператору важно покрытие
-    борта, а не то, какой мини-компьютер чью камеру пишет. Играет выбранная
-    дорожка, курсор общий и сквозной — видно, что в этот момент писала одна
-    камера, а другая нет.
-*/
+// Экран архива
 
 const REFRESH_MS = 10_000;
 const SPEEDS = [0.5, 1, 2, 4];
@@ -32,7 +25,7 @@ const SPEEDS = [0.5, 1, 2, 4];
 const SEGMENT_SPAN_MS = 2 * 60 * 60 * 1000;
 const SEGMENT_MARGIN_MS = 20 * 60 * 1000;
 
-/** Задача склейки или выгрузки, идущая на устройстве. */
+// Задача склейки или выгрузки, идущая на устройстве
 interface ArchiveJob extends Partial<JobProgress> {
     id: string;
     deviceId: string;
@@ -120,9 +113,7 @@ export function ArchiveScreen() {
 
     useEffect(loadState, [loadState]);
 
-    /* Форма архива тянется целиком и один раз: она весит килобайты, а сдвиг и
-       зум после этого — чистая арифметика без единого запроса. Обновляем её по
-       таймеру только ради хвоста, который пишется прямо сейчас */
+    // Форма архива тянется целиком и один раз
     const loadShape = useCallback((first: boolean) => {
         fetchShape()
             .then(next => {
@@ -143,8 +134,7 @@ export function ArchiveScreen() {
         return () => window.clearInterval(timer);
     }, [loadShape]);
 
-    /* Сегменты нужны одному плееру, поэтому грузятся только выбранной дорожке и
-       только вокруг курсора: их мегабайты на весь архив таймлайну ни к чему */
+    // Сегменты нужны одному плееру, поэтому грузятся только выбранной дорожке и только вокруг курсора
     useEffect(() => {
         if (!selected || cursorMs === null) return;
 
@@ -191,7 +181,7 @@ export function ArchiveScreen() {
 
     // ── окно ──
 
-    /** Приближение с удержанием точки под указателем на месте. */
+    // Приближение с удержанием точки под указателем на месте
     const handleZoom = useCallback((next: number, anchorMs?: number) => {
         if (next < 0 || next >= ZOOMS.length) return;
 
@@ -280,7 +270,7 @@ export function ArchiveScreen() {
         }
     }, [selected]);
 
-    /** Отмена в карточке диапазона: гасим и выделение, и сам режим выбора. */
+    // Отмена в карточке диапазона: гасим и выделение, и сам режим выбора
     const cancelPicking = useCallback(() => {
         setSelection(null);
         setPicking(false);

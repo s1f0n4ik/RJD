@@ -1,12 +1,6 @@
 import { storagePath } from '../../services/devices';
 
-/*
-    Данные экрана архива.
-
-    Время везде — миллисекунды настенного времени изделия: шлюз отдаёт unix_ms
-    уже сдвинутым на настроенный пояс, поэтому форматируется всё UTC-геттерами.
-    Иначе браузер добавит свой пояс вторым слоем.
-*/
+// Данные экрана архива
 
 export interface Segment {
     id: number;
@@ -29,18 +23,14 @@ export interface Run {
     end_ms: number;
 }
 
-/** record — запись прервалась, power — изделие было обесточено. */
+// record — запись прервалась, power — изделие было обесточено
 export interface Gap {
     start_ms: number;
     end_ms: number;
     kind: 'record' | 'power';
 }
 
-/**
- * Дорожка таймлайна. Списка сегментов у неё нет: форма архива весит килобайты,
- * а сегменты — мегабайты, и нужны они одному плееру. Их подгружает экран
- * отдельно, для выбранной дорожки вокруг курсора.
- */
+// Дорожка таймлайна
 export interface Track {
     camera_id: string;
     stream_key: string;
@@ -54,7 +44,7 @@ export interface Track {
     gaps: Gap[];
 }
 
-/** Дорожка вместе с подгруженными сегментами — то, что играет плеер. */
+// Дорожка вместе с подгруженными сегментами — то, что играет плеер
 export interface LoadedTrack extends Track {
     segments: Segment[];
 }
@@ -65,7 +55,7 @@ export interface DayIndex {
     offline_devices: string[];
 }
 
-/** Форма архива целиком: границы глубины и дорожки без сегментов. */
+// Форма архива целиком: границы глубины и дорожки без сегментов
 export interface ArchiveShape {
     first_ms: number | null;
     last_ms: number | null;
@@ -115,15 +105,15 @@ async function getJson<T>(url: string): Promise<T> {
 export const fetchDay = (date: string) =>
     getJson<DayIndex>(`/api/archive/day?date=${date}`);
 
-/** Дорожки за произвольное окно времени — вместе с сегментами. */
+// Дорожки за произвольное окно времени — вместе с сегментами
 export const fetchRange = (fromMs: number, toMs: number) =>
     getJson<DayIndex>(`/api/archive/range?from_ms=${Math.round(fromMs)}&to_ms=${Math.round(toMs)}`);
 
-/** Форма всего архива: куски и разрывы без сегментов — это рисует таймлайн. */
+// Форма всего архива: куски и разрывы без сегментов — это рисует таймлайн
 export const fetchShape = () =>
     getJson<ArchiveShape>('/api/archive/shape');
 
-/** Сегменты одной дорожки в отрезке — по ним плеер открывает файлы. */
+// Сегменты одной дорожки в отрезке — по ним плеер открывает файлы
 export function fetchSegments(track: Track, fromMs: number, toMs: number) {
     const query = `camera=${encodeURIComponent(track.camera_id)}`
         + `&stream=${encodeURIComponent(track.stream_key)}`
@@ -138,7 +128,7 @@ export const fetchDays = (from: string, to: string) =>
 export const fetchState = () =>
     getJson<ArchiveState>('/api/archive/state');
 
-/** Адрес файла сегмента на устройстве, которое его писало. */
+// Адрес файла сегмента на устройстве, которое его писало
 export function segmentUrl(track: Track, segment: Segment, download = false): string {
     const kind = download ? 'download' : 'stream';
     const query = `?stream=${encodeURIComponent(track.stream_key)}`;
@@ -148,7 +138,7 @@ export function segmentUrl(track: Track, segment: Segment, download = false): st
     );
 }
 
-/** Кадр дорожки на момент времени — превью в лупе таймлайна. */
+// Кадр дорожки на момент времени — превью в лупе таймлайна
 export function frameUrl(track: Track, ms: number): string {
     const query = `camera=${encodeURIComponent(track.camera_id)}`
         + `&stream=${encodeURIComponent(track.stream_key)}`
@@ -161,10 +151,7 @@ export function frameUrl(track: Track, ms: number): string {
 export const trackKey = (track: Track) =>
     `${track.device_id}/${track.camera_id}/${track.stream_key}`;
 
-/**
- * Подпись дорожки: имя камеры, а когда у камеры пишется несколько потоков —
- * с номером канала. Дорожка — это поток, а не камера.
- */
+// Подпись дорожки: имя камеры, а когда у камеры пишется несколько потоков — с номером канала
 export function trackTitle(track: Track, tracks: Track[], cameraNames: Map<string, string>): string {
     const name = cameraNames.get(track.camera_id) || track.camera_id;
     const siblings = tracks.filter(
@@ -187,7 +174,7 @@ const DATE_FMT: Intl.DateTimeFormatOptions = {
 export const fmtTime = (ms: number) => new Date(ms).toLocaleTimeString('ru-RU', TIME_FMT);
 export const fmtDate = (ms: number) => new Date(ms).toLocaleDateString('ru-RU', DATE_FMT);
 
-/** Ключ суток YYYY-MM-DD из миллисекунд времени изделия. */
+// Ключ суток YYYY-MM-DD из миллисекунд времени изделия
 export function dateKey(ms: number): string {
     const date = new Date(ms);
     const month = String(date.getUTCMonth() + 1).padStart(2, '0');
@@ -214,7 +201,7 @@ export function fmtDuration(ms: number): string {
     return `${seconds} с`;
 }
 
-/** Короткая длительность для ячейки календаря: до часа — минуты, дальше часы. */
+// Короткая длительность для ячейки календаря: до часа — минуты, дальше часы
 export function fmtHoursShort(ms: number): string {
     const minutes = Math.round(ms / 60_000);
     if (minutes < 60) return `${minutes} мин`;
@@ -236,34 +223,34 @@ export function weekdayShort(key: string): string {
 
 // ── геометрия дорожки ──
 
-/** Доля суток в процентах — позиция на полосе. */
+// Доля суток в процентах — позиция на полосе
 export const percentOf = (ms: number, dayStart: number) =>
     Math.min(100, Math.max(0, ((ms - dayStart) / DAY_MS) * 100));
 
 export const msAtPercent = (percent: number, dayStart: number) =>
     dayStart + (percent / 100) * DAY_MS;
 
-/** Сегмент, внутри которого лежит момент. */
+// Сегмент, внутри которого лежит момент
 export function segmentAt(segments: Segment[], ms: number): Segment | null {
     return segments.find(s => s.start_ms <= ms && ms < s.end_ms) || null;
 }
 
-/** Ближайший сегмент, начинающийся не раньше момента, — куда прыгать через разрыв. */
+// Ближайший сегмент, начинающийся не раньше момента, — куда прыгать через разрыв
 export function segmentAfter(segments: Segment[], ms: number): Segment | null {
     return segments.find(s => s.start_ms >= ms) || null;
 }
 
-/** Ближайшее начало записи после момента — по кускам, без списка сегментов. */
+// Ближайшее начало записи после момента — по кускам, без списка сегментов
 export function runAfter(track: Track, ms: number): number | null {
     const run = track.runs.find(r => r.start_ms >= ms);
     return run ? run.start_ms : null;
 }
 
-/** Записан ли момент: попадает ли он в непрерывный кусок. */
+// Записан ли момент: попадает ли он в непрерывный кусок
 export const isRecorded = (track: Track, ms: number) =>
     track.runs.some(run => run.start_ms <= ms && ms < run.end_ms);
 
-/** Сколько записи внутри диапазона — то, что реально попадёт в склейку. */
+// Сколько записи внутри диапазона — то, что реально попадёт в склейку
 export function recordedWithin(track: Track, from: number, to: number): number {
     return track.runs.reduce((sum, run) => {
         const start = Math.max(run.start_ms, from);
@@ -272,12 +259,12 @@ export function recordedWithin(track: Track, from: number, to: number): number {
     }, 0);
 }
 
-/** Разрывы, попавшие в диапазон: о них предупреждаем до склейки. */
+// Разрывы, попавшие в диапазон: о них предупреждаем до склейки
 export function gapsWithin(track: Track, from: number, to: number): Gap[] {
     return track.gaps.filter(gap => gap.end_ms > from && gap.start_ms < to);
 }
 
-/** Оценка размера куска по средней плотности записи на дорожке. */
+// Оценка размера куска по средней плотности записи на дорожке
 export function estimateBytes(track: Track, ms: number): number {
     if (!track.recorded_ms) return 0;
     return Math.round((track.bytes / track.recorded_ms) * ms);
@@ -306,7 +293,7 @@ async function postJson(url: string, body: unknown): Promise<{ job_id: string }>
     return response.json();
 }
 
-/** Склейка диапазона в один файл; возвращает идентификатор задачи. */
+// Склейка диапазона в один файл; возвращает идентификатор задачи
 export function startCut(track: Track, fromMs: number, toMs: number) {
     return postJson(storagePath(track.device_id, '/api/archive/cut'), {
         camera: track.camera_id,
@@ -316,7 +303,7 @@ export function startCut(track: Track, fromMs: number, toMs: number) {
     });
 }
 
-/** Выгрузка исходных сегментов диапазона архивом. */
+// Выгрузка исходных сегментов диапазона архивом
 export function startZip(track: Track, fromMs: number, toMs: number) {
     return postJson(storagePath(track.device_id, '/api/archive/zip'), {
         camera: track.camera_id,
@@ -344,10 +331,7 @@ const SECOND = 1000;
 const MINUTE = 60 * SECOND;
 const HOUR = 60 * MINUTE;
 
-/**
- * Уровень приближения: ширина окна, шаг засечек и то, что писать в подписи.
- * Чем ближе, тем подробнее подпись — часы, минуты, секунды.
- */
+// Уровень приближения: ширина окна, шаг засечек и то, что писать в подписи
 export interface ZoomLevel {
     span: number;
     label: string;
@@ -381,7 +365,7 @@ const TICK_FMT: Record<ZoomLevel['fmt'], Intl.DateTimeFormatOptions> = {
     hms: { timeZone: 'UTC', hour: '2-digit', minute: '2-digit', second: '2-digit' },
 };
 
-/** Подпись засечки: чем крупнее приближение, тем подробнее. */
+// Подпись засечки: чем крупнее приближение, тем подробнее
 export function fmtTick(ms: number, fmt: ZoomLevel['fmt']): string {
     const date = new Date(ms);
     // Полночь подписываем датой на любом масштабе — иначе не видно, где сутки
@@ -393,7 +377,7 @@ export function fmtTick(ms: number, fmt: ZoomLevel['fmt']): string {
         : date.toLocaleTimeString('ru-RU', TICK_FMT[fmt]);
 }
 
-/** Засечки окна: крупные подписаны, промежуточные только линиями. */
+// Засечки окна: крупные подписаны, промежуточные только линиями
 export function buildTicks(from: number, to: number, level: ZoomLevel): Tick[] {
     const ticks: Tick[] = [];
     const step = level.minor;
@@ -406,7 +390,7 @@ export function buildTicks(from: number, to: number, level: ZoomLevel): Tick[] {
     return ticks;
 }
 
-/** Доля окна в процентах — позиция на полотне. */
+// Доля окна в процентах — позиция на полотне
 export const percentIn = (ms: number, from: number, to: number) =>
     ((ms - from) / (to - from)) * 100;
 

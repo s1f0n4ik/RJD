@@ -345,7 +345,8 @@ private:
 	bool create_record_branch(GstElement* tee);
 
 	// Функция-сигнал для обработки сегмента
-	void on_record_fragment(const char* location, bool opened);
+	// duration_ns берётся из сообщения шины и равен длине фрагмента
+	void on_record_fragment(const char* location, bool opened, std::uint64_t duration_ns);
 
 	void set_timer_check_record_branch();
 

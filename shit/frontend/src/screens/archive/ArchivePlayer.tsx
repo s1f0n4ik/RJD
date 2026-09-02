@@ -4,26 +4,20 @@ import { Icon } from '../../app/Icons';
 import type { Segment, Track } from './model';
 import { fmtTime, runAfter, segmentAfter, segmentAt, segmentUrl, trackKey } from './model';
 
-/*
-    Проигрывание архива через границы сегментов.
-
-    Файлов много и они короткие, поэтому играют два <video> по очереди: пока
-    один показывает текущий фрагмент, второй уже загрузил следующий и стоит на
-    нулевом кадре. На стыке меняется только видимость — ни паузы, ни черноты.
-*/
+// Проигрывание архива через границы сегментов
 
 interface Props {
     track: Track | null;
-    /** Сегменты выбранной дорожки — их грузит экран, а не таймлайн. */
+    // Сегменты выбранной дорожки — их грузит экран, а не таймлайн
     segments: Segment[];
-    /** Внешняя перемотка: token меняется на каждый клик по дорожке. */
+    // Внешняя перемотка: token меняется на каждый клик по дорожке
     seek: { ms: number; token: number };
     playing: boolean;
     speed: number;
     onProgress: (ms: number) => void;
     onPlayingChange: (playing: boolean) => void;
     onTrackEnd: () => void;
-    /** Переход к ближайшей записи из пустого места. */
+    // Переход к ближайшей записи из пустого места
     onSeekTo: (ms: number) => void;
 }
 
@@ -48,7 +42,7 @@ export function ArchivePlayer({
         [],
     );
 
-    /** Поставить фрагмент в элемент и перемотать внутрь него. */
+    // Поставить фрагмент в элемент и перемотать внутрь него
     const mount = useCallback((index: number, segment: Segment, offsetMs: number) => {
         const element = elementAt(index);
         if (!element || !track) return;
@@ -73,7 +67,7 @@ export function ArchivePlayer({
         else element.addEventListener('loadedmetadata', applyOffset, { once: true });
     }, [elementAt, track]);
 
-    /** Зарядить следующий фрагмент в резервный элемент. */
+    // Зарядить следующий фрагмент в резервный элемент
     const preloadNext = useCallback((afterSegment: Segment) => {
         if (!track) return;
 
@@ -156,7 +150,7 @@ export function ArchivePlayer({
         if (Number.isFinite(left) && left <= PRELOAD_LEAD_SEC) preloadNext(current);
     }, [active, current, elementAt, onProgress, preloadNext]);
 
-    /** Фрагмент кончился — передаём эстафету, а через разрыв прыгаем. */
+    // Фрагмент кончился — передаём эстафету, а через разрыв прыгаем
     const handleEnded = useCallback((index: number) => {
         if (index !== active || !track || !current) return;
 

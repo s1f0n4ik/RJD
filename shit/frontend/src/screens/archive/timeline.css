@@ -103,11 +103,13 @@
 
 /* ── поле ── */
 
+/* Строка сетки фиксируется высотой контейнера */
 .tl-field {
   flex: 1;
   min-height: 0;
   display: grid;
   grid-template-columns: 216px 1fr;
+  grid-template-rows: minmax(0, 1fr);
   border-top: 1px solid var(--line);
 }
 
@@ -197,7 +199,8 @@
 .tl-name.is-sel .tl-nm b { color: var(--fg) }
 .tl-nm span { font-family: var(--mono); font-size: 9.5px; color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 
-.tl-canvas { position: relative; min-width: 0; display: flex; flex-direction: column; cursor: grab }
+/* min-height нужен наравне с min-width */
+.tl-canvas { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; cursor: grab }
 .tl-canvas:active { cursor: grabbing }
 .tl-canvas.is-picking, .tl-canvas.is-picking:active { cursor: crosshair }
 
@@ -223,13 +226,47 @@
   white-space: nowrap;
 }
 
+/* Область дорожек */
+.tl-body { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column }
+
+.tl-over { position: absolute; inset: 0; overflow: hidden; pointer-events: none }
+
+/* Полоса прокрутки скрыта намеренно */
 .tl-rows {
   flex: 1;
   min-height: 0;
   position: relative;
   overflow-y: auto;
   overflow-x: hidden;
-  scrollbar-width: thin;
+  scrollbar-width: none;
+}
+
+.tl-rows::-webkit-scrollbar { display: none }
+
+/* Стрелка у нижней кромки: ниже есть дорожки, которых не видно */
+.tl-more {
+  position: absolute;
+  left: 50%;
+  bottom: 4px;
+  width: 18px;
+  height: 18px;
+  margin-left: -9px;
+  border-radius: 50%;
+  background: rgba(18, 20, 26, .86);
+  border: 1px solid var(--line-hi);
+  pointer-events: none;
+}
+
+.tl-more::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 5px;
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid var(--fg-2);
+  border-bottom: 1.5px solid var(--fg-2);
+  transform: rotate(45deg);
 }
 
 /* Сетка — по тем же засечкам, что и шкала: время читается по вертикали */
@@ -354,9 +391,7 @@
     var(--input);
 }
 
-/* Кадр вынут из потока сетки: как её элемент он получал height:100% от строки
-   размера auto, строка мерилась по нему же, и процент отбрасывался в пользу
-   натуральной высоты — рамка росла под размер кадра */
+/* Кадр вынут из потока сетки */
 .tl-peek-shot img {
   position: absolute;
   inset: 0;

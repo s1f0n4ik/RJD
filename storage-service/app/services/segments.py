@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from app.config import settings
+from app.services import mp4_header
 from app.services.storage import storage
 
 logger = logging.getLogger(__name__)
@@ -80,6 +81,8 @@ class SegmentIndex:
         self.db_path = db_path
         # Файлы, которые ffprobe не смог измерить, — второй раз не пробуем
         self._unmeasurable: set[int] = set()
+        # Заголовки, уже проверенные на верную длительность
+        self._header_checked: set[int] = set()
 
     @property
     def records_root(self) -> Path:
@@ -685,18 +688,61 @@ class SegmentIndex:
             measured = self._measure_missing_ends(conn)
             conn.commit()
 
-            if removed or closed or added or measured:
+            repaired = self._repair_headers(conn)
+
+            if removed or closed or added or measured or repaired:
                 logger.info(
                     "Segment index reconciled: %d rows dropped, %d closed,"
-                    " %d found on disk, %d durations measured",
-                    removed, closed, added, measured,
+                    " %d found on disk, %d durations measured, %d headers repaired",
+                    removed, closed, added, measured, repaired,
                 )
             return {
-                "dropped": removed, "closed": closed,
-                "found": added, "measured": measured,
+                "dropped": removed, "closed": closed, "found": added,
+                "measured": measured, "repaired": repaired,
             }
+
         finally:
             conn.close()
+
+    def _repair_headers(self, conn: sqlite3.Connection) -> int:
+        """
+        Заголовок фрагментного mp4 не знает длительности файла: media-center
+        дописывает её по событию закрытия, но у оборванных обесточиванием
+        событие не наступает, а записанное прежними сборками осталось битым.
+        Длительность берём из строки — она уже посчитана и точнее ffprobe.
+        """
+        rows = [
+            row for row in conn.execute(
+                "SELECT id, path, mono_end_ms - mono_start_ms AS span FROM segments"
+                " WHERE closed=1 AND mono_end_ms IS NOT NULL;"
+            )
+            if row["id"] not in self._header_checked
+        ]
+        if not rows:
+            return 0
+
+        deadline = time.monotonic() + MEASURE_BUDGET_SEC
+        repaired = 0
+
+        for row in rows:
+            if time.monotonic() > deadline:
+                break
+
+            self._header_checked.add(row["id"])
+            span = row["span"]
+            if not span or span <= 0:
+                continue
+
+            path = Path(row["path"])
+            stated = mp4_header.header_duration_ms(path)
+            # Заголовка нет вовсе или он уже верен в пределах секунды
+            if stated is None or abs(stated - span) <= 1000:
+                continue
+
+            if mp4_header.write_duration(path, span):
+                repaired += 1
+
+        return repaired
 
     @staticmethod
     def _drop_missing(conn: sqlite3.Connection, known: dict) -> int:

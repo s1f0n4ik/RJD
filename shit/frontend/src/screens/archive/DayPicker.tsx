@@ -7,11 +7,7 @@ import type { Anchor } from '../../app/popover';
 import type { DaySummary } from './model';
 import { dateKey, dayStartMs, fetchDays, fmtHoursShort, weekdayShort } from './model';
 
-/*
-    Выбор дня. Календарь только выбирает дату и больше ничего не делает:
-    подсвечивает сутки, за которые есть записи, и различает полные сутки,
-    часть суток и сутки с недостоверным временем.
-*/
+// Выбор дня
 
 interface Props {
     date: string;
@@ -167,7 +163,7 @@ function shiftMonth(month: string, delta: number): string {
     return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
-/** Сетка месяца с понедельника, с хвостами соседних месяцев. */
+// Сетка месяца с понедельника, с хвостами соседних месяцев
 function buildMonth(month: string) {
     const [year, monthNumber] = month.split('-').map(Number);
     const first = new Date(Date.UTC(year, monthNumber - 1, 1));

@@ -8,21 +8,14 @@ import {
     estimateBytes, fmtBytes, fmtDuration, fmtTime, gapsWithin, recordedWithin, trackKey,
 } from './model';
 
-/*
-    Окошко выбранного диапазона.
-
-    В обычном режиме речь про одну камеру — ту, что играет. В полноэкранном
-    кадра нет и «текущей» камеры тоже: там перечисляются все дорожки, задетые
-    диапазоном, и каждая станет отдельным файлом внутри архива.
-*/
-
+// Окошко диапазона: в обычном режиме одна камера, в полноэкранном список дорожек
 interface Props {
     anchor: Anchor;
     range: { from: number; to: number };
     tracks: Track[];
     selected: Track | null;
     cameraNames: Map<string, string>;
-    /** Полноэкранный режим: список дорожек вместо одной камеры. */
+    // Полноэкранный режим: список дорожек вместо одной камеры
     multi: boolean;
     onCancel: () => void;
     onDownload: () => void;

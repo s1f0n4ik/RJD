@@ -1,7 +1,10 @@
 #include "video_pipeline.h"
 #include "signaling_definers.h"
 #include <filesystem>
+#include <array>
+#include <fstream>
 #include <string_view>
+#include <vector>
 #include <system_error>
 
 #include <gst/rtsp/gstrtsptransport.h>
@@ -20,6 +23,145 @@
 #define MAIN_TEE "tee_main"
 
 using namespace varan;
+
+namespace {
+
+// Заголовок фрагментного mp4 лежит в начале файла: ftyp, free, moov
+constexpr std::size_t kHeaderBytes = 256 * 1024;
+
+constexpr std::uint32_t box_tag(const char* name) {
+	return (std::uint32_t(static_cast<unsigned char>(name[0])) << 24)
+		 | (std::uint32_t(static_cast<unsigned char>(name[1])) << 16)
+		 | (std::uint32_t(static_cast<unsigned char>(name[2])) << 8)
+		 |  std::uint32_t(static_cast<unsigned char>(name[3]));
+}
+
+std::uint32_t read_be32(const std::vector<char>& data, std::size_t at) {
+	const auto* p = reinterpret_cast<const unsigned char*>(data.data() + at);
+	return (std::uint32_t(p[0]) << 24) | (std::uint32_t(p[1]) << 16)
+		 | (std::uint32_t(p[2]) << 8)  |  std::uint32_t(p[3]);
+}
+
+// Где начинается тело коробки и где она кончается
+struct FBox {
+	std::size_t body = 0;
+	std::size_t end = 0;
+	bool found = false;
+};
+
+FBox find_box(const std::vector<char>& data, std::size_t from, std::size_t to, const char* name) {
+	const std::uint32_t want = box_tag(name);
+
+	while (from + 8 <= to && from + 8 <= data.size()) {
+		std::uint64_t size = read_be32(data, from);
+		const std::uint32_t kind = read_be32(data, from + 4);
+		std::size_t header = 8;
+
+		if (size == 1) {
+			if (from + 16 > data.size()) return {};
+			size = (std::uint64_t(read_be32(data, from + 8)) << 32) | read_be32(data, from + 12);
+			header = 16;
+		}
+		else if (size == 0) {
+			size = to - from;
+		}
+		if (size < header) return {};
+
+		const std::size_t end = from + std::size_t(size);
+		if (kind == want) return { from + header, std::min(end, data.size()), true };
+		if (end <= from) return {};
+		from = end;
+	}
+	return {};
+}
+
+// Смещение поля длительности зависит от версии коробки
+void put_duration(std::fstream& file, const std::vector<char>& data, std::size_t body,
+				  std::size_t narrow, std::size_t wide_off, std::uint64_t value)
+{
+	const bool wide = static_cast<unsigned char>(data[body]) == 1;
+	const std::size_t at = body + (wide ? wide_off : narrow);
+
+	std::array<char, 8> buffer{};
+	if (wide) {
+		for (int i = 0; i < 8; ++i) buffer[i] = char((value >> (56 - 8 * i)) & 0xFF);
+	}
+	else {
+		const std::uint32_t narrow_value = std::uint32_t(value);
+		for (int i = 0; i < 4; ++i) buffer[i] = char((narrow_value >> (24 - 8 * i)) & 0xFF);
+	}
+
+	file.seekp(std::streamoff(at));
+	file.write(buffer.data(), wide ? 8 : 4);
+}
+
+// Шкала времени лежит перед длительностью в mvhd и mdhd
+std::uint32_t timescale_of(const std::vector<char>& data, std::size_t body) {
+	const bool wide = static_cast<unsigned char>(data[body]) == 1;
+	return read_be32(data, body + (wide ? 20 : 12));
+}
+
+// Дописывает длительность в mvhd, mehd, tkhd и mdhd, не сдвигая байты файла
+bool write_mp4_duration(const std::filesystem::path& path, std::int64_t duration_ms) {
+	if (duration_ms <= 0) return false;
+
+	std::fstream file(path, std::ios::in | std::ios::out | std::ios::binary);
+	if (!file) return false;
+
+	std::vector<char> data(kHeaderBytes);
+	file.read(data.data(), std::streamsize(data.size()));
+	data.resize(std::size_t(file.gcount()));
+	file.clear();
+	if (data.size() < 32) return false;
+
+	const FBox moov = find_box(data, 0, data.size(), "moov");
+	if (!moov.found) return false;
+
+	const FBox mvhd = find_box(data, moov.body, moov.end, "mvhd");
+	if (!mvhd.found) return false;
+
+	const std::uint32_t movie_scale = timescale_of(data, mvhd.body);
+	if (movie_scale == 0) return false;
+
+	const std::uint64_t movie_units = std::uint64_t(duration_ms) * movie_scale / 1000;
+	put_duration(file, data, mvhd.body, 16, 24, movie_units);
+
+	// В mehd splitmuxsink кладёт время от старта конвейера
+	const FBox mvex = find_box(data, moov.body, moov.end, "mvex");
+	if (mvex.found) {
+		const FBox mehd = find_box(data, mvex.body, mvex.end, "mehd");
+		if (mehd.found) put_duration(file, data, mehd.body, 4, 4, movie_units);
+	}
+
+	// У каждой дорожки своя шкала в mdhd
+	std::size_t at = moov.body;
+	while (at < moov.end) {
+		const FBox trak = find_box(data, at, moov.end, "trak");
+		if (!trak.found) break;
+
+		const FBox tkhd = find_box(data, trak.body, trak.end, "tkhd");
+		if (tkhd.found) put_duration(file, data, tkhd.body, 20, 28, movie_units);
+
+		const FBox mdia = find_box(data, trak.body, trak.end, "mdia");
+		if (mdia.found) {
+			const FBox mdhd = find_box(data, mdia.body, mdia.end, "mdhd");
+			if (mdhd.found) {
+				const std::uint32_t media_scale = timescale_of(data, mdhd.body);
+				if (media_scale != 0) {
+					put_duration(file, data, mdhd.body, 16, 24,
+						std::uint64_t(duration_ms) * media_scale / 1000);
+				}
+			}
+		}
+
+		at = trak.end;
+	}
+
+	file.flush();
+	return file.good();
+}
+
+} // namespace
 
 UCameraStreamPipeline::UCameraStreamPipeline(
 	const FPipelineConfig& parameters,
@@ -258,7 +400,10 @@ void UCameraStreamPipeline::on_bus_message(GstMessage* msg) {
 		const bool closed = gst_structure_has_name(structure, "splitmuxsink-fragment-closed");
 		if (opened || closed) {
 			const gchar* location = gst_structure_get_string(structure, "location");
-			on_record_fragment(location, opened);
+			// Длину фрагмента сплитер сообщает сам
+			guint64 duration_ns = 0;
+			if (closed) gst_structure_get_uint64(structure, "fragment-duration", &duration_ns);
+			on_record_fragment(location, opened, duration_ns);
 		}
 		break;
 	}
@@ -558,7 +703,7 @@ void UCameraStreamPipeline::set_segment_writer(std::shared_ptr<varan::archive::U
 	}
 }
 
-void UCameraStreamPipeline::on_record_fragment(const char* location, bool opened) {
+void UCameraStreamPipeline::on_record_fragment(const char* location, bool opened, std::uint64_t duration_ns) {
 	// При переполнении диска format-location отдаёт /dev/null — это не запись
 	if (!location || *location == '\0') return;
 	if (std::string_view(location) == "/dev/null") return;
@@ -585,6 +730,12 @@ void UCameraStreamPipeline::on_record_fragment(const char* location, bool opened
 		std::error_code ec;
 		const auto size = std::filesystem::file_size(location, ec);
 		if (!ec) event.size_bytes = static_cast<std::int64_t>(size);
+
+		// Заголовок фрагментного mp4 не знает длины файла, дописываем её
+		const std::int64_t duration_ms = static_cast<std::int64_t>(duration_ns / 1'000'000);
+		if (duration_ms > 0 && !write_mp4_duration(location, duration_ms)) {
+			m_logger->warn(std::string("cannot write duration into header: ") + location);
+		}
 	}
 
 	m_logger->debug(std::string("fragment ") + (opened ? "opened: " : "closed: ") + location

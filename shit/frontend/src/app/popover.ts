@@ -1,14 +1,6 @@
 import { useLayoutEffect, useRef } from 'react';
 
-/*
-    Позиционирование всплывающих окон.
-
-    Попап живёт порталом в body с position:fixed — так его не режут
-    прокручиваемые родители. Здесь считается, куда его поставить: сначала
-    предпочтительная сторона, при нехватке места переворот на противоположную,
-    затем упор в кромки окна. За экран не уходит ничего и никогда.
-*/
-
+// Позиционирование попапов: предпочтительная сторона, переворот, упор в кромки окна
 export interface Anchor {
     left: number;
     top: number;
@@ -17,24 +9,24 @@ export interface Anchor {
 }
 
 export interface PopoverOptions {
-    /** Предпочтительная сторона от якоря. */
+    // Предпочтительная сторона от якоря
     side?: 'top' | 'bottom' | 'left' | 'right';
-    /** Выравнивание по второй оси. */
+    // Выравнивание по второй оси
     align?: 'center' | 'start';
-    /** Зазор между якорем и попапом. */
+    // Зазор между якорем и попапом
     gap?: number;
-    /** Отступ от кромки окна. */
+    // Отступ от кромки окна
     margin?: number;
 }
 
 const GAP = 10;
 const MARGIN = 8;
 
-/** Точка как якорь нулевого размера — для курсора мыши. */
+// Точка как якорь нулевого размера
 export const pointAnchor = (x: number, y: number): Anchor =>
     ({ left: x, top: y, right: x, bottom: y });
 
-/** Рамка узла как якорь. */
+// Рамка узла как якорь
 export const elementAnchor = (element: Element): Anchor => {
     const box = element.getBoundingClientRect();
     return { left: box.left, top: box.top, right: box.right, bottom: box.bottom };
@@ -89,11 +81,7 @@ export function placePopover(
     };
 }
 
-/**
- * Ставит попап у якоря. Координаты пишутся прямо в узел: положение зависит от
- * размера самого попапа, а он известен только после отрисовки, и гонять это
- * через состояние — лишний рендер на каждое движение мыши.
- */
+// Координаты пишутся прямо в узел: размер попапа известен только после отрисовки
 export function usePopover<T extends HTMLElement>(
     anchor: Anchor | null,
     options: PopoverOptions = {},
