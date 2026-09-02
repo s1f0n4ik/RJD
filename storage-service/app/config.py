@@ -30,6 +30,15 @@ class Settings(BaseSettings):
     # Не удаляем сразу, чтобы клиент успел дописать большой архив на диск.
     DOWNLOAD_CLEANUP_DELAY_SEC: int = 300
 
+    # ── Индекс архивных записей ──
+    # Базу пишет media-center (WAL): строка сегмента появляется при открытии
+    # фрагмента и закрывается при его закрытии. storage-service нормализует
+    # время сессий, сверяет базу с диском и удаляет строки вместе с файлами.
+    ARCHIVE_DB_PATH: str = "/storage/archive/segments.db"
+
+    # Как часто сверять базу с диском (секунды)
+    RECONCILE_INTERVAL_SEC: int = 300
+
     # ── Журнал обнаружений ──
     # База пишется media-center'ом (WAL), storage-service читает и правит вердикты.
     JOURNAL_DB_PATH: str = "/storage/journal/journal.db"

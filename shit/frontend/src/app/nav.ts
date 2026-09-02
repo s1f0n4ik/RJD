@@ -21,7 +21,7 @@ export const NAV: NavItem[] = [
     { to: '/',         label: 'Главная',             icon: 'home',  ready: true },
     { to: '/cameras',  label: 'Камеры',              icon: 'cam',   ready: true,  desc: 'Источники, потоки, разрешение' },
     { to: '/live',     label: 'Отображение',         icon: 'grid',  ready: true,  desc: 'Сетки просмотра и прямой эфир' },
-    { to: '/archive',  label: 'Архив',               icon: 'arch',  ready: false },
+    { to: '/archive',  label: 'Архив',               icon: 'arch',  ready: true,  desc: 'Записи, таймлайны и склейка' },
     { to: '/devices',  label: 'Устройства',          icon: 'dev',   ready: false },
 
     { to: '/neural',   label: 'Техническое зрение',  icon: 'eye',   ready: false, group: 'Модули' },
@@ -34,4 +34,5 @@ export const CRUMBS: Record<string, string[]> = {
     '/': ['Главная'],
     '/cameras': ['Камеры'],
     '/live': ['Отображение', 'Редактор сеток'],
+    '/archive': ['Архив'],
 };

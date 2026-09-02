@@ -42,6 +42,8 @@ namespace varan {
             // Уже сдвинуто на настроенный пояс: потребители используют как есть
             std::int64_t unix_ms = 0;
             int tz_offset_min = 0;
+            // Время взято с шины. false — тикают часы шлюза, доверять нельзя
+            bool can_time = false;
             double lat = 0.0;
             double lon = 0.0;
             double alt = 0.0;

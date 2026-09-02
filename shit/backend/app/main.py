@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 import logging
 
 from app.config import settings
-from app.routers import loaders, status, streams, auth, layouts, devices, device_proxy
+from app.routers import loaders, status, streams, auth, layouts, devices, device_proxy, archive
 from app.routers import time as time_router
 from app.services.websocket_manager import manager, websocket_endpoint
 from app.services.devices import registry
@@ -49,6 +49,7 @@ app.include_router(time_router.router, prefix="/api", tags=["Time"])
 app.include_router(loaders.router, prefix="/api", tags=["Loaders"])
 app.include_router(status.router, prefix="/api", tags=["Status"])
 app.include_router(devices.router, prefix="/api", tags=["Devices"])
+app.include_router(archive.router, prefix="/api", tags=["Archive"])
 app.include_router(device_proxy.router, tags=["DeviceProxy"])
 app.include_router(auth.router, prefix="/auth", tags=["Auth"])
 app.include_router(streams.router, tags=["Streams"])

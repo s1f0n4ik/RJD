@@ -1,4 +1,6 @@
 #include "camera.h"
+
+#include "archive/segment-writer.h"
 #include <gst/gst.h>
 #include <gst/allocators/allocators.h>
 #include <gst/webrtc/webrtc.h>
@@ -45,6 +47,10 @@ namespace neural {
 			m_gst_loop_running = false;
 		});
 	};
+
+	void UCamera::set_segment_writer(std::shared_ptr<varan::archive::USegmentWriter> writer) {
+		m_segment_writer = std::move(writer);
+	}
 
 	void UCamera::set_configurations(
 		const FCameraData& options,
@@ -97,6 +103,9 @@ namespace neural {
 					std::move(frame_callback),
 					m_gl_manager
 				);
+
+				// Индекс архива нужен только пишущим потокам; остальные его игнорируют
+				m_streams[name]->set_segment_writer(m_segment_writer);
 			}
 			catch (const std::exception& e) {
 				m_logger.error("Camera constructor: " + std::string(e.what()));

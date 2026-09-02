@@ -1,6 +1,8 @@
 #include "video_pipeline.h"
 #include "signaling_definers.h"
 #include <filesystem>
+#include <string_view>
+#include <system_error>
 
 #include <gst/rtsp/gstrtsptransport.h>
 
@@ -13,6 +15,7 @@
 #include "utility/json-definers.h"
 #include "utility/branch-helpers.h"
 #include "nvr/element-definers.h"
+#include "archive/segment-writer.h"
 
 #define MAIN_TEE "tee_main"
 
@@ -246,6 +249,19 @@ void UCameraStreamPipeline::on_bus_error(int code, const std::string& descriptio
 
 void UCameraStreamPipeline::on_bus_message(GstMessage* msg) {
 	switch (GST_MESSAGE_TYPE(msg)) {
+	case GST_MESSAGE_ELEMENT: {
+		// splitmuxsink сообщает об открытии и закрытии фрагмента только в bus
+		const GstStructure* structure = gst_message_get_structure(msg);
+		if (!structure) break;
+
+		const bool opened = gst_structure_has_name(structure, "splitmuxsink-fragment-opened");
+		const bool closed = gst_structure_has_name(structure, "splitmuxsink-fragment-closed");
+		if (opened || closed) {
+			const gchar* location = gst_structure_get_string(structure, "location");
+			on_record_fragment(location, opened);
+		}
+		break;
+	}
 	case GST_MESSAGE_NEED_CONTEXT: {
 		const gchar* type = nullptr;
 		gst_message_parse_context_type(msg, &type);
@@ -464,10 +480,24 @@ bool UCameraStreamPipeline::create_record_branch(GstElement* tee)
 		this
 	);
 
+	auto muxer = gst_element_factory_make("mp4mux", "record_mux");
+	if (!muxer) {
+		m_logger->error("create_record_branch(): failed to create mp4mux");
+		gst_object_unref(record_queue);
+		gst_object_unref(splitmux);
+		return false;
+	}
+
+	g_object_set(muxer,
+		"fragment-duration", 1000,
+		"fragment-mode", 1,
+		nullptr
+	);
+
 	g_object_set(
 		splitmux,
 		"max-size-time", static_cast<guint64>(m_parameters.segment_length) * GST_SECOND,
-		"muxer-factory", "mp4mux",
+		"muxer", muxer,
 		"send-keyframe-requests", TRUE,
 		//"async-finalize", TRUE,
 		nullptr
@@ -519,6 +549,54 @@ bool UCameraStreamPipeline::create_record_branch(GstElement* tee)
 	if (m_logger) m_logger->info("create_record_branch(): record branch successfully created!");
 
 	return true;
+}
+
+void UCameraStreamPipeline::set_segment_writer(std::shared_ptr<varan::archive::USegmentWriter> writer) {
+	m_segment_writer = std::move(writer);
+
+	if (!m_parameters.purposes.record) return;
+
+	if (m_segment_writer) {
+		m_logger->debug("archive index attached, session=" + m_segment_writer->session_uid());
+	}
+	else {
+		m_logger->warn("archive index is off: segments will not be indexed, timeline will miss this stream");
+	}
+}
+
+void UCameraStreamPipeline::on_record_fragment(const char* location, bool opened) {
+	// При переполнении диска format-location отдаёт /dev/null — это не запись
+	if (!location || *location == '\0') return;
+	if (std::string_view(location) == "/dev/null") return;
+
+	if (!m_segment_writer) {
+		m_logger->warn(std::string("fragment ") + (opened ? "opened" : "closed")
+			+ " but archive index is off: " + location);
+		return;
+	}
+
+	const archive::FTimeStamp stamp = archive::now_stamp();
+
+	archive::FSegmentEvent event;
+	event.kind = opened ? archive::FSegmentEvent::EKind::OPENED
+					    : archive::FSegmentEvent::EKind::CLOSED;
+	event.camera_id = m_parameters.camera_name;
+	event.stream_key = m_parameters.name;
+	event.path = location;
+	event.mono_ms = stamp.mono_ms;
+	event.wall_ms = stamp.wall_ms;
+	event.source = stamp.source;
+
+	if (!opened) {
+		std::error_code ec;
+		const auto size = std::filesystem::file_size(location, ec);
+		if (!ec) event.size_bytes = static_cast<std::int64_t>(size);
+	}
+
+	m_logger->debug(std::string("fragment ") + (opened ? "opened: " : "closed: ") + location
+		+ " (time source " + archive::to_string(stamp.source) + ")");
+
+	m_segment_writer->enqueue(std::move(event));
 }
 
 void UCameraStreamPipeline::set_timer_check_record_branch() {

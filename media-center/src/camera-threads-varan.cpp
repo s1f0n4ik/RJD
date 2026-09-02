@@ -18,6 +18,7 @@
 #include "core/modules.h"
 #include "core/paths.h"
 #include "core/time-sync.h"
+#include "archive/segment-writer.h"
 #include "gateway/client.h"
 #include "main-server/rest_server.h"
 #include "bird-view/linker.h"
@@ -42,13 +43,16 @@ struct AppConfig {
 	// Корень рабочего каталога: nvr, neural и surround_view кладут данные сюда.
 	std::filesystem::path varan_root;
 
-	// Журнал обнаружений живёт на своём томе, отдельно от varan_root.
+	// Путь к БД с журналом обнаружений
 	std::filesystem::path journal_dir;
+
+	// Путь к БД с сешментными записями архивных видел
+	std::filesystem::path archive_dir;
 
 	// Опциональные модули сборки; ядро камер включено всегда.
 	varan::FModuleSet modules;
 
-	// Опциональное подключение к message-gateway (ingress кадров).
+	// Опциональное подключение к сервису message-gateway
 	bool gateway_enabled = false;
 	std::string gateway_ip;
 	std::string gateway_port;
@@ -69,10 +73,9 @@ int main(int argc, char* argv[])
 		return EXIT_FAILURE;
 	}
 
-	varan::init_paths(config.varan_root, config.journal_dir);
+	varan::init_paths(config.varan_root, config.journal_dir, config.archive_dir);
 
-	// Создаём дерево заранее, чтобы отказ по правам был виден при старте,
-	// а не через часы работы при первом сохранении конфигурации.
+	// Создание дерева директорий
 	for (const auto& dir : varan::required_directories()) {
 		std::error_code ec;
 		std::filesystem::create_directories(dir, ec);
@@ -120,7 +123,20 @@ int main(int argc, char* argv[])
 		gateway_client->start();
 	}
 
-	// Определяем площадку в самом начале и логируем — дальше передаём в нейронку.
+	// Создание писателя сегментов
+	auto segment_writer = std::make_shared<varan::archive::USegmentWriter>(
+		varan::paths().archive / "segments.db", ULogger::ELoggerLevel::DEBUG);
+	if (segment_writer->start()) {
+		main_logger.info("archive index enabled -> " + varan::paths().archive.string()
+			+ " session=" + segment_writer->session_uid());
+	}
+	else {
+		main_logger.error("archive index DISABLED: writer start failed at "
+			+ varan::paths().archive.string() + " (check permissions and sqlite availability)");
+		segment_writer.reset();
+	}
+
+	// Определение железа на устройстве
 	const auto platform_info = varan::detect_platform();
 	main_logger.info((std::ostringstream()
 		<< "Platform: " << platform_info.label
@@ -135,7 +151,7 @@ int main(int argc, char* argv[])
 	auto main_context = std::make_shared<varan::birdview::UEGLContextManager>();
 	main_context->init(true, &main_logger);
 
-	// Модуль 360 с калибратором — только при birdview
+	// Модуль 360 с калибратором - только при birdview
 	std::shared_ptr<varan::birdview::ULinker> linker_360;
 	std::shared_ptr<varan::calibration::UCalibrator> calibrator;
 	if (config.modules.birdview) {
@@ -145,7 +161,7 @@ int main(int argc, char* argv[])
 		calibrator->start_websocket_connection();
 	}
 
-	// Нейронный загрузчик — только при neural
+	// Нейронный загрузчик - только при neural
 	std::shared_ptr<varan::neural::UNeuralLoader> loader;
 	if (config.modules.neural) {
 		loader = std::make_shared<varan::neural::UNeuralLoader>(
@@ -163,6 +179,8 @@ int main(int argc, char* argv[])
 	// Создание центра видеонаблюдения
 	auto center = std::make_shared<varan::neural::UMediaCenter>(socket_options, main_context.get());
 	center->set_modules(config.modules);
+	// Ставится до создания камер: писателя получает каждая пишущая труба
+	center->set_segment_writer(segment_writer);
 
 	// Колбэки кадров ставятся только потребляющим модулям
 	if (config.modules.birdview) {
@@ -220,6 +238,10 @@ int main(int argc, char* argv[])
 	if (gateway_client) {
 		gateway_client->stop();
 	}
+
+	// Индекс закрываем последним: run_eos() дописывает хвосты фрагментов, и их
+	// закрытия должны успеть лечь в базу
+	if (segment_writer) segment_writer->stop();
 
 	return 0;
 }
@@ -281,11 +303,12 @@ static void print_usage(const char* exe, ULogger* logger) {
 		"    --varan-root=<dir> \\\n"
 		"    [--modules=birdview,neural] \\\n"
 		"    [--gateway-ip=<ip> --gateway-port=<port>] \\\n"
-		"    [--journal-dir=<dir>]\n"
+		"    [--journal-dir=<dir>] [--archive-dir=<dir>]\n"
 		"\n"
 		"  --varan-root   working directory: nvr, neural, surround_view\n"
 		"  --modules      optional build modules; without the flag it is a pure NVR\n"
 		"  --journal-dir  detection journal; otherwise MC_JOURNAL_DIR, otherwise /storage/journal\n"
+		"  --archive-dir  recording index; otherwise MC_ARCHIVE_DIR, otherwise /storage/archive\n"
 		"  --gateway-*    connection to message-gateway; set both or none\n";
 
 	if (logger) logger->error(text);
@@ -339,6 +362,8 @@ bool parse_arguments(int argc, char* argv[], AppConfig& config, ULogger* logger)
 			config.modules = *modules;
 		} else if (name == "journal-dir") {
 			config.journal_dir = value;
+		} else if (name == "archive-dir") {
+			config.archive_dir = value;
 		} else if (name == "gateway-ip") {
 			config.gateway_ip = value;
 		} else if (name == "gateway-port") {
@@ -390,6 +415,14 @@ bool parse_arguments(int argc, char* argv[], AppConfig& config, ULogger* logger)
 		config.journal_dir = (env_dir && *env_dir)
 			? std::filesystem::path(env_dir)
 			: std::filesystem::path("/storage/journal");
+	}
+
+	// Индекс архива: тот же порядок предпочтений
+	if (config.archive_dir.empty()) {
+		const char* env_dir = std::getenv("MC_ARCHIVE_DIR");
+		config.archive_dir = (env_dir && *env_dir)
+			? std::filesystem::path(env_dir)
+			: std::filesystem::path("/storage/archive");
 	}
 
 	return true;

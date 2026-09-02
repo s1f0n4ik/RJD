@@ -33,6 +33,12 @@
 using namespace varan::nvr;
 using namespace varan;
 
+namespace varan {
+namespace archive {
+	class USegmentWriter;
+}
+}
+
 class UCameraPipeline {
 protected:
 	struct FProbeResult {
@@ -165,6 +171,8 @@ public:
 	virtual EPilelineType get_type() = 0;
 
 	const varan::nvr::FStreamPurposes& get_purposes() const { return m_parameters.purposes; }
+
+	virtual void set_segment_writer(std::shared_ptr<varan::archive::USegmentWriter> writer) { return; }
 
 	// Ключ потока: stream_N или correction
 	const std::string& get_stream_key() const { return m_parameters.name; }
@@ -320,6 +328,9 @@ public:
 
 	virtual EPilelineType get_type() override;
 
+	// Индекс архива нужен только этой трубе: она и держит ветку записи
+	void set_segment_writer(std::shared_ptr<varan::archive::USegmentWriter> writer) override;
+
 protected:
 
 	virtual void on_bus_error(int code, const std::string& description, bool probe_handler = false);
@@ -332,6 +343,9 @@ private:
 	bool create_decoder_branch(GstElement* tee);
 
 	bool create_record_branch(GstElement* tee);
+
+	// Функция-сигнал для обработки сегмента
+	void on_record_fragment(const char* location, bool opened);
 
 	void set_timer_check_record_branch();
 
@@ -351,6 +365,9 @@ private:
 
 	FPipelineBranch m_record_branch;
 	std::filesystem::path m_record_path = "";
+
+	// Писатель индекса сегментов; пусто — записи в базу нет, файлы пишутся как раньше
+	std::shared_ptr<varan::archive::USegmentWriter> m_segment_writer;
 	guint m_timer_check_record_id = 0;
 
 	FPipelineBranch m_decoder_branch;

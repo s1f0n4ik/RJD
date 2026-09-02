@@ -58,17 +58,15 @@ public:
 	// Набор модулей сборки: назначения чужих модулей не обслуживаются
 	void set_modules(const FModuleSet& modules);
 
-	/*
-		Проверка потоков перед созданием камеры. Возвращает описание первой
-		причины отказа: назначение без модуля, два потребителя на одном потоке
-		или второй поток того же потребителя.
-	*/
 	std::optional<std::string> validate_streams(
 		const std::map<std::string, FPipelineConfig>& pipelines
 	) const;
 
 	// Хранилище кадров для потока коррекции камер с назначением 360
 	void set_frame_storage(FFrameStorage<IFrame>* storage);
+
+	// Индекс архивных сегментов; раздаётся камерам при их создании
+	void set_segment_writer(std::shared_ptr<varan::archive::USegmentWriter> writer);
 
 public:
 	// Методы для серверной части
@@ -113,6 +111,8 @@ private:
 	CFrameMover m_neural_frame_mover = nullptr;
 
 	FFrameStorage<IFrame>* m_frame_storage = nullptr;
+
+	std::shared_ptr<varan::archive::USegmentWriter> m_segment_writer;
 
 	// Потоки для удаления камер асинхронно
 	std::mutex m_cleanup_mutex;

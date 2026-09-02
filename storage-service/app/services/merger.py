@@ -113,7 +113,7 @@ async def run_merge_job(
             merge_msg += f" (пропущено битых: {skipped})"
         await jobs.update(job, status=JobStatus.MERGING, progress=0.0, message=merge_msg)
 
-        await _run_ffmpeg_with_progress(
+        await run_ffmpeg_concat(
             list_file=list_file,
             output_file=output_mp4,
             progress_file=progress_file,
@@ -205,7 +205,7 @@ async def run_archive_job(
         job.temp_files.append(output_zip)
 
         # Архивация в executor с прогрессом
-        await _zip_many_files(
+        await zip_files(
             files=files,
             target=output_zip,
             total_bytes=total_bytes,
@@ -234,7 +234,7 @@ async def run_archive_job(
         await jobs.cleanup(job)
 
 
-async def _zip_many_files(*, files: list[Path], target: Path, total_bytes: int, job):
+async def zip_files(*, files: list[Path], target: Path, total_bytes: int, job):
     """
     Архивирует несколько файлов с честным прогрессом по байтам.
     Запускается в executor, чтобы не блокировать event loop.
@@ -367,16 +367,25 @@ async def _probe_all(files: list[Path], job) -> list[tuple[Path, float | None]]:
     return results
 
 
-async def _run_ffmpeg_with_progress(
+async def run_ffmpeg_concat(
         *, list_file, output_file, progress_file, expected_seconds,
         on_progress, job, files_count,
+        trim_start_sec: float = 0.0, trim_duration_sec: float | None = None,
 ):
+    # Поток копируется без перекодирования, поэтому левая граница ложится на
+    # ближайший предшествующий ключевой кадр: точность — интервал ключевых
+    # кадров, у нас это длительность фрагмента, около секунды.
+    seek = ["-ss", f"{trim_start_sec:.3f}"] if trim_start_sec > 0 else []
+    limit = ["-t", f"{trim_duration_sec:.3f}"] if trim_duration_sec else []
+
     cmd = [
         "ffmpeg",
         "-err_detect", "ignore_err",
         "-fflags", "+genpts+discardcorrupt",
+        *seek,
         "-f", "concat", "-safe", "0",
         "-i", str(list_file),
+        *limit,
         "-c", "copy",
         "-movflags", "+faststart",
         "-progress", str(progress_file),

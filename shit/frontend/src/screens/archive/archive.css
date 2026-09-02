@@ -1,0 +1,619 @@
+/* Экран архива: планка дня, кадр с оверлейным управлением, панель и дорожки */
+
+ /* Геометрию экрана держит .screen из оболочки: inset:0 и flex-колонка */
+.arch { min-height: 0 }
+
+/* ── верхняя планка ── */
+
+.arch-bar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 18px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
+}
+
+.arch-daypick { position: relative }
+
+.arch-step {
+  display: inline-flex;
+  align-items: stretch;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--input);
+  overflow: hidden;
+}
+
+ /* Ширина у стрелок своя: по иерархии она перебивала бы кнопку даты */
+.arch-step-arrow {
+  width: 30px;
+  flex: 0 0 30px;
+  color: var(--fg-3);
+  font-family: var(--mono);
+  font-size: 13px;
+  transition: .14s;
+}
+
+.arch-step-arrow:hover { color: var(--fg); background: var(--panel) }
+
+.arch-step-day {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 12px;
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  color: var(--fg-2);
+}
+
+.arch-step-day b { font-family: var(--mono); font-size: 12.5px; font-weight: 500; color: var(--fg) }
+.arch-step-day em { font-style: normal; font-size: 11px; color: var(--fg-3) }
+.arch-step-day svg { width: 13px; height: 13px; color: var(--fg-3) }
+
+/* ── календарь ── */
+
+.arch-pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 40;
+  width: 272px;
+  padding: 14px;
+  background: var(--panel);
+  border: 1px solid var(--line-hi);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg);
+}
+
+.arch-cal-head { display: flex; align-items: center; gap: 8px; margin-bottom: 11px }
+.arch-cal-head b { flex: 1; text-align: center; font-size: 13px; font-weight: 600 }
+
+.arch-cal-head button {
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--fg-3);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.arch-cal-head button:hover { color: var(--fg); border-color: var(--line-hi) }
+
+.arch-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px }
+
+.arch-cal-grid > span {
+  text-align: center;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--fg-3);
+  padding-bottom: 4px;
+}
+
+.arch-cal-d {
+  height: 31px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--fg-3);
+  border: 1px solid transparent;
+  transition: .12s;
+}
+
+.arch-cal-d:hover { border-color: var(--line-hi); color: var(--fg) }
+.arch-cal-d.is-out { opacity: .25 }
+
+.arch-cal-d.is-full {
+  background: rgba(var(--acc-rgb), .13);
+  border-color: rgba(var(--acc-rgb), .22);
+  color: var(--fg-2);
+}
+
+/* Часть суток — самый частый случай, поэтому он штриховкой, а не заливкой */
+.arch-cal-d.is-part {
+  background: repeating-linear-gradient(45deg, rgba(var(--acc-rgb), .16) 0 4px, transparent 4px 8px);
+  border-color: rgba(var(--acc-rgb), .2);
+  color: var(--fg-2);
+}
+
+.arch-cal-d.is-doubt {
+  background: repeating-linear-gradient(45deg, rgba(240, 189, 87, .18) 0 4px, transparent 4px 8px);
+  border-color: rgba(240, 189, 87, .28);
+  color: var(--warn);
+}
+
+.arch-cal-d.is-today { border-color: var(--line-hi); color: var(--fg-2) }
+
+.arch-cal-d.is-on {
+  background: var(--acc);
+  border-color: var(--acc);
+  color: #08101f;
+  font-weight: 700;
+}
+
+/* ── кадр и оверлей ── */
+
+.arch-body { flex: 1; min-height: 0; display: flex }
+
+/* Кадр и дорожки — одна колонка: таймлайн ровно по ширине плеера, а правая
+   панель стоит рядом с ними во всю высоту экрана */
+.arch-left {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.arch-stage {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  margin: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  background: var(--input);
+}
+
+.arch-video { position: absolute; inset: 0; background: var(--input) }
+
+.arch-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Активен всегда ровно один элемент — второй в это время грузит следующий фрагмент */
+.arch-frame.is-on { opacity: 1 }
+
+.arch-stamp {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  display: flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 7px;
+  background: rgba(10, 12, 16, .62);
+  border: 1px solid rgba(255, 255, 255, .07);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: rgba(241, 243, 249, .82);
+}
+
+.arch-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--fg-3);
+  font-size: 12.5px;
+}
+
+.arch-empty svg { width: 26px; height: 26px; opacity: .6 }
+
+.arch-ctl {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 12px;
+  background: linear-gradient(to top, rgba(9, 11, 15, .88) 0%, rgba(9, 11, 15, .55) 55%, rgba(9, 11, 15, 0) 100%);
+}
+
+.arch-ctl-group { display: flex; align-items: center; gap: 7px; flex: 0 0 auto }
+
+.arch-vbtn {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  background: rgba(24, 28, 37, .6);
+  border: 1px solid rgba(255, 255, 255, .08);
+  color: rgba(241, 243, 249, .86);
+  transition: .14s;
+}
+
+.arch-vbtn svg { width: 13px; height: 13px }
+.arch-vbtn:hover { background: rgba(40, 46, 60, .85); color: #fff }
+.arch-vbtn.is-off { opacity: .35; pointer-events: none }
+
+.arch-vbtn.is-main {
+  width: 30px;
+  height: 30px;
+  background: var(--acc);
+  border-color: var(--acc);
+  color: #08101f;
+}
+
+.arch-vbtn.is-main:hover { background: #7cb4ff; color: #08101f }
+.arch-vbtn.is-main svg { width: 15px; height: 15px }
+
+.arch-vtime {
+  flex: 0 0 auto;
+  margin-left: 5px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.arch-vtime small { font-size: 11px; color: rgba(241, 243, 249, .5) }
+
+.arch-vspeed {
+  flex: 0 0 auto;
+  height: 26px;
+  padding: 0 9px;
+  border-radius: 6px;
+  background: rgba(24, 28, 37, .6);
+  border: 1px solid rgba(255, 255, 255, .08);
+  color: rgba(241, 243, 249, .86);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.arch-vspeed:hover { background: rgba(40, 46, 60, .85); color: #fff }
+
+/* ── правая панель ── */
+
+.arch-side {
+  width: 300px;
+  flex: 0 0 300px;
+  border-left: 1px solid var(--line);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.arch-side .kv .v.is-err { color: var(--err) }
+.arch-side .kv .v.is-warn { color: var(--warn) }
+
+.arch-act {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 38px;
+  padding: 0 12px;
+  margin-bottom: 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+  color: var(--fg-2);
+  font-size: 12.5px;
+  text-align: left;
+  transition: .14s;
+}
+
+.arch-act:last-child { margin-bottom: 0 }
+.arch-act:hover:not(:disabled) { border-color: var(--line-hi); color: var(--fg) }
+.arch-act:disabled { opacity: .45; cursor: default }
+.arch-act .num { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--fg-3) }
+
+.arch-act--acc {
+  background: var(--acc);
+  border-color: var(--acc);
+  color: #08101f;
+  font-weight: 600;
+}
+
+.arch-act--acc:hover:not(:disabled) { background: #7cb4ff; color: #08101f }
+.arch-act--acc .num { color: rgba(8, 16, 31, .62) }
+
+.arch-act-main { margin: 12px 0 8px }
+
+.arch-warn {
+  margin-top: 12px;
+  padding: 9px 11px;
+  border: 1px solid rgba(240, 189, 87, .35);
+  border-radius: var(--r);
+  background: rgba(240, 189, 87, .08);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--warn);
+}
+
+.arch-warn b { display: block; margin-bottom: 2px; color: var(--fg); font-weight: 600 }
+
+.arch-meter { margin-top: 11px }
+
+.arch-meter-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--input);
+  border: 1px solid var(--line);
+  position: relative;
+  overflow: hidden;
+}
+
+.arch-meter-bar i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--acc-dim), var(--acc));
+}
+
+.arch-meter-cap {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 5px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--fg-3);
+}
+
+/* ── планка выбранного диапазона: живёт у дорожек ── */
+
+.arch-pickbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px 11px;
+  border: 1px solid rgba(229, 161, 99, .32);
+  border-radius: var(--r);
+  background: rgba(229, 161, 99, .07);
+}
+
+.arch-pickbar-range {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--save);
+  font-variant-numeric: tabular-nums;
+}
+
+.arch-pickbar-fact { font-size: 12px; color: var(--fg-2) }
+.arch-pickbar-warn { font-size: 12px; color: var(--warn) }
+.arch-pickbar-acts { margin-left: auto; display: flex; gap: 8px }
+
+/* ── дорожки ── */
+
+.arch-timeline {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  padding: 12px 18px 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.arch-tl-grid { display: grid; grid-template-columns: 200px 1fr 62px; gap: 0 12px }
+
+.arch-tl-scale {
+  grid-column: 2;
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--fg-3);
+}
+
+.arch-tl-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 232px;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.arch-trk {
+  display: grid;
+  grid-template-columns: 200px 1fr 62px;
+  gap: 0 12px;
+  align-items: center;
+}
+
+.arch-trk-name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  text-align: left;
+  color: var(--fg-2);
+}
+
+.arch-trk-name .dot { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--ok) }
+.arch-trk-name .dot.is-off { background: var(--fg-3) }
+.arch-trk-name b { font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.arch-trk.is-sel .arch-trk-name b { color: var(--fg) }
+
+.arch-tag {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--fg-3);
+  white-space: nowrap;
+}
+
+.arch-tag.is-doubt { color: var(--warn); border-color: rgba(240, 189, 87, .35) }
+
+.arch-trk-wrap { position: relative; min-width: 0 }
+
+.arch-trk-strip {
+  position: relative;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--input);
+  overflow: hidden;
+  cursor: crosshair;
+}
+
+.arch-trk.is-sel .arch-trk-strip { box-shadow: inset 0 0 0 1px rgba(var(--acc-rgb), .5) }
+
+.arch-seg { position: absolute; top: 0; bottom: 0; background: rgba(var(--acc-rgb), .42) }
+
+/* Недостоверное время — штриховка: видно раньше, чем прочитана подпись */
+.arch-seg.is-doubt {
+  background: repeating-linear-gradient(45deg, rgba(var(--acc-rgb), .34) 0 5px, rgba(var(--acc-rgb), .1) 5px 10px);
+}
+
+.arch-gap {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(45deg, rgba(255, 107, 128, .3) 0 5px, transparent 5px 10px);
+  border-left: 1px solid rgba(255, 107, 128, .5);
+  border-right: 1px solid rgba(255, 107, 128, .5);
+}
+
+/* Разрыв на границе сессий — изделие было обесточено, а не поломка записи */
+.arch-gap.is-power {
+  background: repeating-linear-gradient(45deg, rgba(123, 134, 152, .28) 0 5px, transparent 5px 10px);
+  border-color: rgba(123, 134, 152, .45);
+}
+
+.arch-gap-label {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(18, 20, 26, .82);
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--err);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.arch-pick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(229, 161, 99, .2);
+  border-left: 1px solid var(--save);
+  border-right: 1px solid var(--save);
+}
+
+.arch-cursor {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--acc);
+  box-shadow: 0 0 10px var(--acc);
+  pointer-events: none;
+}
+
+.arch-hover {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(241, 243, 249, .5);
+  pointer-events: none;
+}
+
+.arch-trk-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  color: var(--fg-3);
+  pointer-events: none;
+}
+
+.arch-trk-num {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--fg-3);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── всплывающее превью ── */
+
+.arch-peek {
+  position: absolute;
+  bottom: calc(100% + 9px);
+  transform: translateX(-50%);
+  width: 236px;
+  z-index: 30;
+  background: var(--panel);
+  border: 1px solid var(--line-hi);
+  border-radius: var(--r);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.arch-peek-shot {
+  height: 118px;
+  border-bottom: 1px solid var(--line);
+  background:
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, .02) 0 8px, transparent 8px 16px),
+    var(--input);
+}
+
+.arch-peek-meta { padding: 8px 10px; display: flex; flex-direction: column; gap: 3px }
+.arch-peek-meta .t { font-family: var(--mono); font-size: 13px; color: var(--fg) }
+.arch-peek-meta .f { font-family: var(--mono); font-size: 10px; color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+
+.arch-tl-none { padding: 18px 0; text-align: center; font-size: 12.5px; color: var(--fg-3) }
+
+.arch-toast {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 420px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-hi);
+  border-radius: var(--r);
+  background: var(--panel);
+  box-shadow: var(--shadow-lg);
+  font-size: 12.5px;
+  color: var(--fg-2);
+}
+
+.arch-toast.is-err { border-color: rgba(255, 107, 128, .45); color: var(--err) }
+
+.arch-toast button {
+  margin-left: auto;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  color: var(--fg-3);
+}
+
+.arch-toast button:hover { color: var(--fg); background: var(--input) }

@@ -8,15 +8,8 @@
 namespace varan {
 namespace time_sync {
 
-/*
-	Единое время процесса. Кормится клиентом шлюза (GetTime раз в 10с):
-	снимок запоминается вместе с монотонным моментом приёма, между опросами
-	время дотягивается локально. Шлюз отдаёт unix_ms уже сдвинутым на
-	настроенный пользователем пояс — потребители используют его как есть.
-
-	Пока шлюз не ответил, now() отдаёт системные часы (valid=false у GPS) —
-	процесс работает как раньше, просто без «действительного» времени.
-*/
+	// Синхронизация времени, получаемая из message-gateway
+	// Класс должен понимать, приходит еу валидное время или нет
 
 namespace detail {
 
@@ -47,6 +40,20 @@ inline bool synced() {
 	auto& s = detail::state();
 	std::lock_guard<std::mutex> lock(s.mutex);
 	return s.synced;
+}
+
+// Флаг положительный, сервис взял время у Садко - достоверное
+inline bool trusted() {
+	auto& s = detail::state();
+	std::lock_guard<std::mutex> lock(s.mutex);
+	return s.synced && s.base.sadko_time;
+}
+
+inline std::int64_t mono_ms() {
+	static const std::chrono::steady_clock::time_point started =
+		std::chrono::steady_clock::now();
+	return std::chrono::duration_cast<std::chrono::milliseconds>(
+		std::chrono::steady_clock::now() - started).count();
 }
 
 // Последний снимок времени+GPS, дотянутый монотонными часами

@@ -10,9 +10,6 @@
 namespace varan {
 namespace gateway {
 
-    // Пакет proto — varan.gateway.rpc, так что rpc:: здесь ищется сразу в
-    // varan::gateway и алиас не нужен (он бы конфликтовал по имени).
-
     namespace {
 
         // Максимальный размер сообщения - 64МБ
@@ -189,6 +186,8 @@ namespace gateway {
                 if (m_time_callback) {
                     FGatewayTimeGps t;
                     t.unix_ms = reply.unix_ms();
+                    // В proto поле осталось can_time: пакет неизменен
+                    t.sadko_time = reply.can_time();
                     t.lat = reply.gps().lat();
                     t.lon = reply.gps().lon();
                     t.alt = reply.gps().alt();

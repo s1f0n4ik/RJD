@@ -73,6 +73,7 @@ namespace varan {
                     : now_ms();
                 s.unix_ms = utc_ms + static_cast<std::int64_t>(m_tz_offset_min) * 60000;
                 s.tz_offset_min = m_tz_offset_min;
+                s.can_time = m_has_can_time;
 
                 if (m_has_can_gps) {
                     s.lat = m_lat;
@@ -98,11 +99,12 @@ namespace varan {
             boost::json::object snapshot() const {
                 const FTimeGpsSnapshot s = snapshot_struct();
 
-                std::string time_src, gps_src;
+                // Источник времени берём из самого снимка — он единый для REST и gRPC
+                const std::string time_src = s.can_time ? "can" : "server";
+                std::string gps_src;
                 std::int64_t gps_age = -1;
                 {
                     std::lock_guard<std::mutex> lock(m_mutex);
-                    time_src = m_has_can_time ? "can" : "server";
                     gps_src = m_has_can_gps ? "can" : "static";
                     if (m_has_can_gps) {
                         gps_age = mono_ms() - m_gps_mono;

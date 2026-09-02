@@ -1,5 +1,7 @@
 #include "media_center.h"
 
+#include "archive/segment-writer.h"
+
 #include <algorithm>
 
 #include "correction-extension.h"
@@ -55,11 +57,16 @@ namespace neural {
         m_frame_storage = storage;
     }
 
+    void UMediaCenter::set_segment_writer(std::shared_ptr<varan::archive::USegmentWriter> writer) {
+        m_segment_writer = std::move(writer);
+    }
+
     std::shared_ptr<UCamera> UMediaCenter::make_camera(
         const FCameraData& options,
         const std::map<std::string, FPipelineConfig>& pipelines
     ) {
         auto camera = std::make_shared<UCamera>(options.id, m_websocket);
+        camera->set_segment_writer(m_segment_writer);
 
         const bool has_birdview = std::any_of(pipelines.begin(), pipelines.end(),
             [](const auto& item) { return item.second.purposes.birdview; });

@@ -8,12 +8,7 @@
 namespace varan {
 
 /*
-	Раскладка рабочего каталога приложения.
-
-	Раньше пути были inline-константами в constants.h каждой подсистемы и
-	считались до входа в main — поэтому не могли зависеть от аргументов запуска.
-	Здесь они заполняются один раз явным вызовом init_paths() сразу после
-	разбора argv.
+	Раскладка рабочего каталога приложения
 
 	<varan_root>/
 	    nvr/configurations.json
@@ -24,7 +19,7 @@ namespace varan {
 	        projection/
 	        linker/
 
-	Журнал обнаружений задаётся отдельно: он живёт на своём томе (/storage).
+	Журнал обнаружений задается отдельно на своём томе (/storage).
 */
 struct FPaths {
 	struct FNvr {
@@ -51,6 +46,8 @@ struct FPaths {
 	} surround;
 
 	std::filesystem::path journal;
+	// Индекс архивных записей: тоже свой том, отдельно от рабочего корня
+	std::filesystem::path archive;
 };
 
 namespace detail {
@@ -67,10 +64,11 @@ namespace detail {
 
 } // detail
 
-// Заполняет раскладку. Вызывается ровно один раз, до создания подсистем.
+// Заполняет раскладку, вызывается в мейне до создания подсистем
 inline void init_paths(
 	const std::filesystem::path& varan_root,
-	const std::filesystem::path& journal_dir
+	const std::filesystem::path& journal_dir,
+	const std::filesystem::path& archive_dir
 ) {
 	FPaths& p = detail::mutable_paths();
 
@@ -94,11 +92,12 @@ inline void init_paths(
 	p.surround.linker_state_root    = surround_root / "linker";
 
 	p.journal = journal_dir;
+	p.archive = archive_dir;
 
 	detail::paths_initialized() = true;
 }
 
-// Обращение до init_paths() — ошибка программиста, а не рантайма.
+// Обращение до init_paths() - серьезная ошибка программиста
 inline const FPaths& paths() {
 	if (!detail::paths_initialized()) {
 		std::cerr << "FATAL: varan::paths() used before init_paths()" << std::endl;
@@ -107,7 +106,7 @@ inline const FPaths& paths() {
 	return detail::mutable_paths();
 }
 
-// Каталоги, которые приложение создаёт при старте.
+// Каталоги, которые приложение создает при старте
 inline std::vector<std::filesystem::path> required_directories() {
 	const FPaths& p = paths();
 	return {

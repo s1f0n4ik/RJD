@@ -68,4 +68,6 @@ message TimeReply {
     int64 unix_ms = 1;
     GpsData gps = 2;
     int32 tz_offset_min = 3;
+    // Время получено с шины. false — тикают часы шлюза, доверять нельзя
+    bool can_time = 4;
 }

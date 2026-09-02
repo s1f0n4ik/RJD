@@ -1,7 +1,10 @@
 import asyncio
 import logging
 
+from pathlib import Path
+
 from app.config import settings
+from app.services.segments import index
 from app.services.storage import storage
 
 logger = logging.getLogger(__name__)
@@ -87,7 +90,7 @@ class StorageCleaner:
         deleted_count = 0
         freed_bytes = 0
 
-        for file_path in storage.all_files_oldest_first():
+        for file_path in self._oldest_first():
             if start_free_bytes + freed_bytes >= target_free_bytes:
                 break
             try:
@@ -95,6 +98,8 @@ class StorageCleaner:
                 file_path.unlink()
                 freed_bytes += size
                 deleted_count += 1
+                # Файл и его строка уходят вместе, иначе индекс начнёт врать
+                index.forget_file(str(file_path))
                 logger.info("Deleted old recording: %s (%.2fMB)", file_path, size / 1024**2)
             except OSError as e:
                 logger.warning("Failed to delete %s: %s", file_path, e)
@@ -105,6 +110,20 @@ class StorageCleaner:
             "Cleanup done: %d files (%.2fGB freed), %d empty dirs removed",
             deleted_count, freed_bytes / 1024 ** 3, removed_dirs,
                            )
+
+    @staticmethod
+    def _oldest_first():
+        """
+        Порядок удаления берём из индекса: он знает нормализованное время
+        записи. Когда часы изделия врали, mtime не совпадает с порядком записи,
+        и чистка по нему съедает не то. Индекса нет — падаем на обход диска.
+        """
+        indexed = index.files_oldest_first()
+        if indexed:
+            return [Path(path) for path in indexed]
+
+        logger.warning("Segment index is empty, falling back to mtime order")
+        return storage.all_files_oldest_first()
 
 
 cleaner = StorageCleaner()

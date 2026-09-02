@@ -65,6 +65,9 @@ namespace neural {
 		// Надстройка модуля над камерой; вешается до старта потоков
 		void add_extension(std::unique_ptr<ICameraExtension> extension);
 
+		// Индекс архива для пишущих потоков; ставится до set_configurations
+		void set_segment_writer(std::shared_ptr<varan::archive::USegmentWriter> writer);
+
 		bool initialize();
 
 		// Запуск потоков обработки кадров
@@ -148,6 +151,8 @@ namespace neural {
 		);
 
 	protected:
+
+		std::shared_ptr<varan::archive::USegmentWriter> m_segment_writer;
 
 		FCameraData m_options;
 		std::string m_name;

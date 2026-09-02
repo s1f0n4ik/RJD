@@ -10,9 +10,7 @@
 namespace varan {
 namespace gateway {
 
-    // Семантика кадра для отправки в message-gateway. Без protobuf/gRPC-типов,
-    // чтобы слот и загрузчик не тянули зависимости gRPC — трансляцию в proto
-    // делает UGatewayClient в своей единице трансляции.
+    // Семантика кадра для отправки в message-gateway
     struct FGatewayDetection {
         int cid = 0;                        // числовой id класса
         std::string cls;                    // имя класса
@@ -22,29 +20,30 @@ namespace gateway {
     };
 
     struct FGatewayFrame {
-        int ver = 1;                        // версия протокола (кодек шлюза)
+        int ver = 1;                        // версия протокола
         std::int64_t id = 0;
         std::int64_t ts = 0;                // unix-время, мс
         int width = 0;
         int height = 0;
         std::string format;                 // jpeg / png / webp
         std::string camera_id;              // источник кадра
-        // Конфигурация нейросети, которой получены обнаружения. Имена классов
-        // (cls/scls) осмысленны только внутри своей конфигурации, поэтому шлюз
-        // по этому id выбирает таблицу соответствий.
+        // Конфигурация нейросети, которой получены обнаружения. 
+        // ID классов осмысленны только внутри своей конфигурации, поэтому шлюз
+        // по id конфигурации выбирает таблицу соответствий
         std::string config_id;
         std::string image;                  // закодированные байты изображения
-        std::vector<FGatewayDetection> dets;
+        std::vector<FGatewayDetection> dets;   // Список обнаружений
     };
 
     // Неблокирующая отправка кадра в шлюз (перемещаемый, т.к. несёт изображение).
     using FGatewayFrameSender = std::function<void(FGatewayFrame)>;
 
-    // Точное время + GPS шлюза (см. UGatewayClient::GetTime). UNeuralLoader
-    // опрашивает раз в 10с и держит локальный тикающий таймер поверх последнего
-    // снимка — тот же приём, что и в krsps-панели времени на фронте.
+    // Точное время + GPS шлюза
     struct FGatewayTimeGps {
         std::int64_t unix_ms = 0;
+        // Время получено шлюзом от Садко. Каким транспортом тот подключён —
+        // CAN, Modbus, TCP — неважно, важен источник
+        bool sadko_time = false;
         double lat = 0.0;
         double lon = 0.0;
         double alt = 0.0;
@@ -54,12 +53,10 @@ namespace gateway {
         double course = 0.0;  // градусы
     };
 
-    // Колбэк, которым UGatewayClient сообщает загрузчику свежий снимок времени/GPS.
+    // Колбэк, которым UGatewayClient сообщает загрузчику свежий снимок времени и gps
     using FGatewayTimeCallback = std::function<void(const FGatewayTimeGps&)>;
 
-    // Колбэк, которым загрузчик отдаёт слоту текущее (синхронизированное локальным
-    // таймером) время + GPS одной структурой — именно её слот использует для
-    // простановки времени в сообщении шлюзу.
+    // Этим колбэком отдает текущее синхронизированное время и gps
     using FGatewayTimeProvider = std::function<FGatewayTimeGps()>;
 
 } // namespace gateway
