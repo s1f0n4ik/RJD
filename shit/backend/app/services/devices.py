@@ -20,17 +20,11 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Соответствие ECameraType (C++) → слот таблицы маршрутизации.
-# VIRTUAL (4) не маршрутизируется: виртуальные потоки создают сами модули.
-CAMERA_TYPE_GENERAL = 1
-CAMERA_TYPE_NEURAL = 2
-CAMERA_TYPE_BIRDVIEW = 3
+# Слоты таблицы маршрутизации: устройство по умолчанию для модуля или для новых камер
+MODULE_SLOTS = ("birdview", "neural", "krsps")
+ROUTING_SLOTS = MODULE_SLOTS + ("cameras",)
 
-EMPTY_ROUTING: dict[str, Any] = {
-    "birdview": None,
-    "neural": None,
-    "camera_types": {},
-}
+EMPTY_ROUTING: dict[str, Any] = {slot: None for slot in ROUTING_SLOTS}
 
 
 class DeviceRegistry:
@@ -53,7 +47,11 @@ class DeviceRegistry:
         try:
             raw = json.loads(self._path.read_text(encoding="utf-8"))
             self._devices = {d["id"]: d for d in raw.get("devices", [])}
-            self._routing = {**json.loads(json.dumps(EMPTY_ROUTING)), **raw.get("routing", {})}
+            stored = raw.get("routing", {})
+            self._routing = {slot: stored.get(slot) for slot in ROUTING_SLOTS}
+            # Слоты, которых не было в старом файле, заполняются по известным устройствам
+            for device in self._devices.values():
+                self._autofill_routing(device)
             logger.info(f"Loaded {len(self._devices)} devices from {self._path}")
         except FileNotFoundError:
             logger.info(f"No devices file at {self._path}, starting empty")
@@ -115,13 +113,9 @@ class DeviceRegistry:
             del self._devices[device_id]
             self._state.pop(device_id, None)
             # Ссылки маршрутов на удалённое устройство очищаются
-            if self._routing.get("birdview") == device_id:
-                self._routing["birdview"] = None
-            if self._routing.get("neural") == device_id:
-                self._routing["neural"] = None
-            self._routing["camera_types"] = {
-                k: v for k, v in self._routing.get("camera_types", {}).items() if v != device_id
-            }
+            for slot in ROUTING_SLOTS:
+                if self._routing.get(slot) == device_id:
+                    self._routing[slot] = None
             self._save()
             return True
 
@@ -132,30 +126,20 @@ class DeviceRegistry:
 
     async def set_routing(self, routing: dict) -> dict:
         async with self._lock:
-            self._routing = {
-                "birdview": routing.get("birdview"),
-                "neural": routing.get("neural"),
-                "camera_types": {str(k): v for k, v in (routing.get("camera_types") or {}).items()},
-            }
+            self._routing = {slot: routing.get(slot) for slot in ROUTING_SLOTS}
             self._save()
             return self._routing
 
     def _autofill_routing(self, device: dict) -> None:
         """Пустые слоты заполняются по модулям устройства; занятые не трогаем."""
         modules = device.get("modules", [])
-        types = self._routing.setdefault("camera_types", {})
 
-        if "birdview" in modules:
-            if not self._routing.get("birdview"):
-                self._routing["birdview"] = device["id"]
-            types.setdefault(str(CAMERA_TYPE_BIRDVIEW), device["id"])
-        if "neural" in modules:
-            if not self._routing.get("neural"):
-                self._routing["neural"] = device["id"]
-            types.setdefault(str(CAMERA_TYPE_NEURAL), device["id"])
-        # Обычные камеры — на устройство без тяжёлых модулей
-        if not modules:
-            types.setdefault(str(CAMERA_TYPE_GENERAL), device["id"])
+        for slot in MODULE_SLOTS:
+            if slot in modules and not self._routing.get(slot):
+                self._routing[slot] = device["id"]
+        # Камеры создаёт любое устройство: ядро media-center
+        if not self._routing.get("cameras"):
+            self._routing["cameras"] = device["id"]
 
     def device_for_module(self, module: str) -> Optional[dict]:
         device_id = self._routing.get(module)
@@ -177,6 +161,12 @@ class DeviceRegistry:
                 "net_tx_bps": state.get("net_tx_bps"),
             })
         return result
+
+    def snapshot_one(self, device_id: str) -> Optional[dict]:
+        device = self._devices.get(device_id)
+        if not device:
+            return None
+        return next((d for d in self.snapshot() if d["id"] == device_id), None)
 
     def cached_camera_data(self, device_id: str) -> dict:
         """Форма как у GET /camera: {"cameras": {id: {...}}, "virtual": [...]}."""
@@ -251,7 +241,41 @@ class DeviceRegistry:
         except Exception as e:
             logger.debug(f"Camera cache refresh failed for {device['id']}: {e}")
 
+    async def poll_now(self, device_id: str) -> Optional[dict]:
+        device = self._devices.get(device_id)
+        if not device:
+            return None
+        await self._poll_device(device)
+        return self.snapshot_one(device_id)
+
     # ── Discovery ──
+
+    def _passport(self, ip: str, info: dict) -> Optional[dict]:
+        device_id = info.get("device_id")
+        if not device_id:
+            return None
+        return {
+            "id": device_id,
+            "ip": ip,
+            "hostname": info.get("hostname"),
+            "version": info.get("version"),
+            "modules": info.get("modules", []),
+            "platform": info.get("platform"),
+            "known": device_id in self._devices,
+        }
+
+    async def probe_address(self, ip: str) -> Optional[dict]:
+        # Ручной ввод адреса: id устройства знает только оно само
+        try:
+            response = await self.client.get(
+                f"http://{ip}:{settings.DEVICE_MC_PORT}/system/info"
+            )
+            response.raise_for_status()
+            info = response.json().get("data", {})
+        except Exception as e:
+            logger.debug(f"Probe of {ip} failed: {e}")
+            return None
+        return self._passport(ip, info)
 
     async def scan(self) -> list[dict]:
         """TCP-обход /24 подсетей мастера по порту media-center."""
@@ -281,26 +305,18 @@ class DeviceRegistry:
                 )
                 response.raise_for_status()
                 info = response.json().get("data", {})
-                device_id = info.get("device_id")
-                if not device_id:
+                passport = self._passport(ip, info)
+                if not passport:
                     continue
 
-                known = self._devices.get(device_id)
+                known = self._devices.get(passport["id"])
                 # Смена IP по DHCP: известное устройство нашлось по новому адресу
                 if known and known["ip"] != ip:
                     async with self._lock:
                         known["ip"] = ip
                         self._save()
 
-                results.append({
-                    "id": device_id,
-                    "ip": ip,
-                    "hostname": info.get("hostname"),
-                    "version": info.get("version"),
-                    "modules": info.get("modules", []),
-                    "platform": info.get("platform"),
-                    "known": known is not None,
-                })
+                results.append(passport)
             except Exception as e:
                 logger.debug(f"Probe of {ip} failed: {e}")
 

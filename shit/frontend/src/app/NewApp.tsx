@@ -11,6 +11,7 @@ import { HomeScreen } from '../screens/home/HomeScreen';
 import { CamerasScreen } from '../screens/cameras/CamerasScreen';
 import LiveScreen from '../screens/live/LiveScreen';
 import ArchiveScreen from '../screens/archive/ArchiveScreen';
+import { DevicesScreen } from '../screens/devices/DevicesScreen';
 import { LoginScreen } from '../screens/login/LoginScreen';
 import { readStoredToken } from '../utils/auth';
 
@@ -58,6 +59,7 @@ export default function NewApp() {
                         <Route path="cameras" element={<CamerasScreen />} />
                         <Route path="live" element={<LiveScreen />} />
                         <Route path="archive" element={<ArchiveScreen />} />
+                        <Route path="devices" element={<DevicesScreen />} />
                         {/* Непереписанные разделы адресов ещё не имеют: любой другой путь ведёт на главную */}
                         <Route path="*" element={<Navigate to="/" replace />} />
                     </Route>

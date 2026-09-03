@@ -44,6 +44,11 @@ export function HomeScreen() {
         ? 'отображения не настроены'
         : `${layouts.length} ${plural(layouts.length, 'отображение', 'отображения', 'отображений')}`;
 
+    const deviceSummary = devices.length === 0
+        ? 'устройства не добавлены'
+        : `${devices.length} ${plural(devices.length, 'устройство', 'устройства', 'устройств')}` +
+          (offlineDevices > 0 ? ` · ${offlineDevices} не в сети` : ' · все в сети');
+
     const cameraSummary = cameras.length === 0
         ? 'камеры не добавлены'
         : `${cameras.length} ${plural(cameras.length, 'камера', 'камеры', 'камер')}` +
@@ -102,6 +107,7 @@ export function HomeScreen() {
                                     {item.desc && <span>{item.desc}</span>}
                                     {item.to === '/cameras' && <span className="foot">{cameraSummary}</span>}
                                     {item.to === '/live' && <span className="foot">{layoutSummary}</span>}
+                                    {item.to === '/devices' && <span className="foot">{deviceSummary}</span>}
                                 </Link>
                             ) : (
                                 <div key={item.to} className="tile is-off">

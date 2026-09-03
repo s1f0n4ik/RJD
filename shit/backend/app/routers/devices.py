@@ -29,7 +29,12 @@ class DeviceRenameRequest(BaseModel):
 class RoutingTable(BaseModel):
     birdview: Optional[str] = None
     neural: Optional[str] = None
-    camera_types: dict[str, Optional[str]] = {}
+    krsps: Optional[str] = None
+    cameras: Optional[str] = None
+
+
+class DeviceProbeRequest(BaseModel):
+    ip: str
 
 
 @router.get("/devices")
@@ -43,6 +48,15 @@ async def scan_devices():
     """Обход подсетей мастера по порту media-center."""
     found = await registry.scan()
     return {"found": found}
+
+
+@router.post("/devices/probe")
+async def probe_device(body: DeviceProbeRequest):
+    """Паспорт устройства по адресу: id, имя, версия, модули."""
+    passport = await registry.probe_address(body.ip.strip())
+    if not passport:
+        raise HTTPException(status_code=502, detail="No media-center answered at this address")
+    return {"device": passport}
 
 
 @router.post("/devices")
@@ -64,6 +78,15 @@ async def remove_device(device_id: str):
     if not await registry.remove(device_id):
         raise HTTPException(status_code=404, detail="Device not found")
     return {"result": "success", "routing": registry.get_routing()}
+
+
+@router.post("/devices/{device_id}/poll")
+async def poll_device(device_id: str):
+    """Внеочередной опрос устройства вне цикла поллера."""
+    device = await registry.poll_now(device_id)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    return {"device": device}
 
 
 @router.get("/devices/routing")

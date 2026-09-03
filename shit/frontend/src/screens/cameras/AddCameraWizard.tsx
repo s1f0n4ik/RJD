@@ -3,7 +3,8 @@ import { Icon } from '../../app/Icons';
 import { Modal } from '../../app/Modal';
 import { Select } from '../../app/Select';
 import { api } from '../../services/api';
-import { getDevices, mcPath, signalingWsUrl } from '../../services/devices';
+import { defaultCameraDeviceId, getDevices, mcPath, signalingWsUrl } from '../../services/devices';
+import { MODULE_LABEL } from '../devices/model';
 import type { StreamPurpose } from '../../types';
 import { AddStreamModal, type FoundStream } from './AddStreamModal';
 import { PurposePicker, useDeviceModules } from './CameraFields';
@@ -55,11 +56,14 @@ function F({ cap, children }: { cap: string; children: React.ReactNode }) {
 
 export function AddCameraWizard({ cameras, initial, onClose, onSaved }: AddCameraWizardProps) {
     const devices = getDevices();
-    const firstOnline = devices.find(d => d.status === 'online')?.id ?? '';
+    const online = devices.filter(d => d.status === 'online');
+    // Умолчание из маршрутизации; если это устройство молчит — первое живое
+    const routed = defaultCameraDeviceId();
+    const defaultDevice = online.find(d => d.id === routed)?.id ?? online[0]?.id ?? '';
 
     const [form, setForm] = useState<CameraFormData>({
         ...DEFAULT_FORM,
-        device_id: firstOnline,
+        device_id: defaultDevice,
         ...initial,
     });
     const [saving, setSaving] = useState(false);
@@ -460,7 +464,9 @@ export function AddCameraWizard({ cameras, initial, onClose, onSaved }: AddCamer
                                                 value: d.id,
                                                 label: d.name || d.id,
                                                 disabled: d.status !== 'online',
-                                                hint: d.status === 'online' ? d.modules.join(', ') || 'без модулей' : 'не в сети',
+                                                hint: d.status === 'online'
+                                                    ? d.modules.map(m => MODULE_LABEL[m] ?? m).join(' · ') || 'только камеры'
+                                                    : 'не в сети',
                                             }))}
                                         />
                                     </F>

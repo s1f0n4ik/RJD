@@ -39,6 +39,28 @@ export interface Device {
 export interface RoutingTable {
     birdview: string | null;
     neural: string | null;
+    krsps: string | null;
+    cameras: string | null;
+}
+
+export const EMPTY_ROUTING: RoutingTable = { birdview: null, neural: null, krsps: null, cameras: null };
+
+// В кэш попадают только известные слоты: старый бэкенд шлёт ещё camera_types
+const pickRouting = (raw?: Partial<RoutingTable> | null): RoutingTable => {
+    const result = { ...EMPTY_ROUTING };
+    for (const slot of Object.keys(EMPTY_ROUTING) as Array<keyof RoutingTable>) {
+        result[slot] = raw?.[slot] ?? null;
+    }
+    return result;
+};
+
+export interface DevicePassport {
+    id: string;
+    ip: string;
+    hostname?: string;
+    version?: string;
+    modules: string[];
+    known: boolean;
 }
 
 export interface ScanResult {
@@ -53,7 +75,7 @@ export interface ScanResult {
 // ── Кэш ──
 
 let devicesCache: Device[] = [];
-let routingCache: RoutingTable = { birdview: null, neural: null };
+let routingCache: RoutingTable = { ...EMPTY_ROUTING };
 
 async function json<T>(res: Response): Promise<T> {
     if (!res.ok) {
@@ -70,7 +92,7 @@ async function json<T>(res: Response): Promise<T> {
 export async function loadDevices(signal?: AbortSignal): Promise<{ devices: Device[]; routing: RoutingTable }> {
     const data = await fetch('/api/devices', { signal }).then(json<{ devices: Device[]; routing: RoutingTable }>);
     devicesCache = data.devices ?? [];
-    routingCache = { birdview: null, neural: null, ...data.routing };
+    routingCache = pickRouting(data.routing);
     return { devices: devicesCache, routing: routingCache };
 }
 
@@ -103,6 +125,9 @@ export function moduleDeviceId(module: 'birdview' | 'neural'): string {
     return deviceId;
 }
 
+/** Устройство по умолчанию для новых камер; null — маршрут не задан. */
+export const defaultCameraDeviceId = (): string | null => routingCache.cameras;
+
 /** REST media-center устройства, назначенного модулю: /linker/*, /neural/*. */
 export const modulePath = (module: 'birdview' | 'neural', path: string) =>
     mcPath(moduleDeviceId(module), path);
@@ -117,7 +142,23 @@ export const devicesApi = {
     load: loadDevices,
 
     scan(): Promise<{ found: ScanResult[] }> {
-        return fetch('/api/devices/scan', { method: 'POST' }).then(json);
+        return fetch('/api/devices/scan', { method: 'POST' }).then(json<{ found: ScanResult[] }>);
+    },
+
+    probe(ip: string): Promise<{ device: DevicePassport }> {
+        return fetch('/api/devices/probe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ip }),
+        }).then(json<{ device: DevicePassport }>);
+    },
+
+    async poll(deviceId: string): Promise<Device> {
+        const data = await fetch(`/api/devices/${encodeURIComponent(deviceId)}/poll`, {
+            method: 'POST',
+        }).then(json<{ device: Device }>);
+        devicesCache = devicesCache.map(d => (d.id === deviceId ? data.device : d));
+        return data.device;
     },
 
     async add(device: { id: string; ip: string; name: string; modules: string[] }): Promise<void> {

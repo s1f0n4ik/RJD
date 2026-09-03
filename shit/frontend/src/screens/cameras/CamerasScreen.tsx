@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Icon } from '../../app/Icons';
 import { Modal, isModalOpen } from '../../app/Modal';
 import { api } from '../../services/api';
@@ -64,6 +65,9 @@ export function CamerasScreen() {
     const [cameras, setCameras] = useState<Camera[]>([]);
     const [loaded, setLoaded] = useState(false);
     const [purposeFilter, setPurposeFilter] = useState<PurposeFilter>('all');
+    // Переход из раздела «Устройства»: ?device=<id> сужает список до его камер
+    const [params, setParams] = useSearchParams();
+    const deviceFilter = params.get('device');
 
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [closing, setClosing] = useState(false);
@@ -117,12 +121,18 @@ export function CamerasScreen() {
         [cameras],
     );
 
-    const visible = purposeFilter === 'all'
-        ? sorted
-        : sorted.filter(c => cameraPurposes(c).includes(purposeFilter));
+    const byDevice = deviceFilter ? sorted.filter(c => deviceOf(c) === deviceFilter) : sorted;
 
-    const liveCount = cameras.filter(c => cameraStatus(c).tone === 'ok').length;
-    const troubled = cameras.length - liveCount;
+    const visible = purposeFilter === 'all'
+        ? byDevice
+        : byDevice.filter(c => cameraPurposes(c).includes(purposeFilter));
+
+    const filterDeviceName = deviceFilter
+        ? getDevices().find(d => d.id === deviceFilter)?.name ?? deviceFilter
+        : null;
+
+    const liveCount = byDevice.filter(c => cameraStatus(c).tone === 'ok').length;
+    const troubled = byDevice.length - liveCount;
 
     const selected = cameras.find(c => c.id === selectedId) ?? null;
     const selectedStreams = selected ? streamsOf(selected) : [];
@@ -284,15 +294,29 @@ export function CamerasScreen() {
     return (
         <section className="screen">
             <div className="filters">
-                <span className="fld"><span className="k">Всего</span><span className="v st-acc">{cameras.length}</span></span>
+                <span className="fld"><span className="k">Всего</span><span className="v st-acc">{byDevice.length}</span></span>
                 <span className="fld">
                     <span className="k">В работе</span>
-                    <span className={`v ${liveCount !== cameras.length ? 'st-warn' : 'st-ok'}`}>{liveCount}</span>
+                    <span className={`v ${liveCount !== byDevice.length ? 'st-warn' : 'st-ok'}`}>{liveCount}</span>
                 </span>
                 <span className="fld">
                     <span className="k">С проблемами</span>
                     <span className={`v ${troubled > 0 ? 'st-err' : 'st-ok'}`}>{troubled}</span>
                 </span>
+
+                {filterDeviceName && (
+                    <span className="fld">
+                        <span className="k">Устройство</span>
+                        <span className="v">{filterDeviceName}</span>
+                        <button
+                            className="icon-btn"
+                            aria-label="Снять фильтр по устройству"
+                            onClick={() => setParams({}, { replace: true })}
+                        >
+                            <Icon name="x" size={12} />
+                        </button>
+                    </span>
+                )}
 
                 <div className="seg">
                     {FILTERS.map(([value, label]) => (
