@@ -14,6 +14,9 @@ const IP_RE = /^(\d{1,3}\.){3}\d{1,3}$/;
 const passportName = (passport: DevicePassport): string =>
     passport.hostname?.trim() || passport.ip;
 
+const modulesLine = (modules: string[]): string =>
+    modules.length ? modules.map(m => MODULE_LABEL[m] ?? m).join(' · ') : 'только камеры';
+
 export function AddDeviceModal({ onClose, onAdded }: AddDeviceModalProps) {
     const [ip, setIp] = useState('');
     const [passport, setPassport] = useState<DevicePassport | null>(null);
@@ -25,6 +28,7 @@ export function AddDeviceModal({ onClose, onAdded }: AddDeviceModalProps) {
     const [saving, setSaving] = useState(false);
 
     const ipValid = IP_RE.test(ip.trim());
+    const busy = probing || scanning || saving;
 
     const take = (device: DevicePassport) => {
         setPassport(device);
@@ -62,28 +66,29 @@ export function AddDeviceModal({ onClose, onAdded }: AddDeviceModalProps) {
 
     const add = async () => {
         if (!passport) return;
+        const finalName = name.trim() || passportName(passport);
         setSaving(true);
         setError(null);
         try {
             await devicesApi.add({
                 id: passport.id,
                 ip: passport.ip,
-                name: name.trim() || passportName(passport),
+                name: finalName,
                 modules: passport.modules,
             });
-            onAdded(name.trim() || passportName(passport));
+            onAdded(finalName);
         } catch (e) {
             setError(e instanceof Error ? e.message : 'Не удалось добавить');
             setSaving(false);
         }
     };
 
-    const canAdd = !!passport && !passport.known && !!name.trim() && !saving;
+    const canAdd = !!passport && !passport.known && !!name.trim() && !busy;
 
     return (
         <Modal
             title="Добавить устройство"
-            size="mid"
+            className="add-dev-modal"
             onClose={onClose}
             footer={
                 <>
@@ -93,21 +98,23 @@ export function AddDeviceModal({ onClose, onAdded }: AddDeviceModalProps) {
             }
         >
             <div className="modal-b add-dev">
-                <div className="add-line">
-                    <input
-                        className="inp"
-                        placeholder="192.168.1.102"
-                        value={ip}
-                        autoFocus
-                        onChange={e => setIp(e.target.value)}
-                        onKeyDown={e => { if (e.key === 'Enter' && ipValid && !probing) void probe(); }}
-                    />
-                    <button className="btn" disabled={!ipValid || probing} onClick={probe}>
-                        {probing ? 'Опрос…' : 'Проверить'}
-                    </button>
-                    <button className="btn" disabled={scanning} onClick={scan}>
-                        <Icon name="search" size={16} />{scanning ? 'Скан…' : 'Сканировать сеть'}
-                    </button>
+                <div className="addr">
+                    <span className="fcap">Адрес устройства</span>
+                    <div className="addr-in">
+                        <input
+                            className="inp mono"
+                            placeholder="192.168.1.102"
+                            value={ip}
+                            autoFocus
+                            disabled={probing}
+                            onChange={e => setIp(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter' && ipValid && !busy) void probe(); }}
+                        />
+                        <button className="btn" disabled={!ipValid || busy} onClick={probe}>
+                            {probing ? 'Опрос…' : 'Проверить'}
+                        </button>
+                    </div>
+                    {probing && <div className="probe-bar"><i /></div>}
                 </div>
 
                 {error && (
@@ -116,18 +123,32 @@ export function AddDeviceModal({ onClose, onAdded }: AddDeviceModalProps) {
                     </div>
                 )}
 
-                {passport && (
-                    <div className="add-card">
-                        <div className="add-card-h">
-                            <b>{passportName(passport)}</b>
-                            <span className="mono">{passport.ip}</span>
-                            {passport.known && <span className="tag is-warn spacer">уже в реестре</span>}
+                {probing && (
+                    <div className="pass is-skel">
+                        <div className="pass-h">
+                            <span className="skel" style={{ width: 120 }} />
+                            <span className="skel spacer" style={{ width: 88 }} />
                         </div>
-                        <div className="add-grid">
+                        <div className="pass-g">
+                            <span className="k">Идентификатор</span><span className="v"><span className="skel" /></span>
+                            <span className="k">Версия</span><span className="v"><span className="skel" style={{ width: '40%' }} /></span>
+                            <span className="k">Модули</span><span className="v"><span className="skel" style={{ width: '55%' }} /></span>
+                        </div>
+                    </div>
+                )}
+
+                {passport && !probing && (
+                    <div className="pass">
+                        <div className="pass-h">
+                            <span className="dot ok" />
+                            <b>{passportName(passport)}</b>
+                            {passport.known
+                                ? <span className="tag is-warn spacer">уже в реестре</span>
+                                : <span className="mono spacer">{passport.version ?? '—'}</span>}
+                        </div>
+                        <div className="pass-g">
                             <span className="k">Идентификатор</span>
-                            <span className="mono">{passport.id}</span>
-                            <span className="k">Версия</span>
-                            <span className="mono">{passport.version ?? '—'}</span>
+                            <span className="v">{passport.id}</span>
                             <span className="k">Модули</span>
                             <span className="mods-line">
                                 {passport.modules.length
@@ -137,48 +158,70 @@ export function AddDeviceModal({ onClose, onAdded }: AddDeviceModalProps) {
                                     : <span className="tag">только камеры</span>}
                             </span>
                         </div>
-                        <div className="add-name">
-                            <span className="fcap">Имя</span>
-                            <input
-                                className="inp"
-                                value={name}
-                                disabled={passport.known}
-                                onChange={e => setName(e.target.value)}
-                            />
-                        </div>
+                        {!passport.known && (
+                            <div className="pass-name">
+                                <div className="fcell">
+                                    <span className="fcap">Имя</span>
+                                    <input
+                                        className="inp"
+                                        value={name}
+                                        onChange={e => setName(e.target.value)}
+                                        onKeyDown={e => { if (e.key === 'Enter' && canAdd) void add(); }}
+                                    />
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
 
-                {found && (
-                    <div className="add-found">
-                        <div className="add-found-h">
+                {found === null ? (
+                    <>
+                        <div className="divider">или</div>
+                        <button className="btn btn--wide" disabled={busy} onClick={scan}>
+                            <Icon name="search" size={15} />
+                            {scanning ? 'Скан…' : 'Найти в сети · порт 7777'}
+                        </button>
+                        {scanning && <div className="probe-bar"><i /></div>}
+                    </>
+                ) : (
+                    <div className="found">
+                        <div className="found-h">
                             <span className="eyebrow">Найдено в сети</span>
-                            <span className="tag spacer">{found.length}</span>
+                            <span className="tag">{found.length}</span>
+                            <button className="btn btn--sm spacer" disabled={busy} onClick={scan}>
+                                {scanning ? 'Скан…' : 'Повторить'}
+                            </button>
                         </div>
-                        {found.length === 0 && (
-                            <div className="add-empty">
+                        {scanning && <div className="probe-bar"><i /></div>}
+                        {found.length === 0 && !scanning && (
+                            <div className="fnd-empty">
                                 <Icon name="empty" size={28} />
                                 <b>Устройства не найдены</b>
                             </div>
                         )}
-                        {found.map(item => (
-                            <button
-                                key={item.id}
-                                className={`add-row${passport?.id === item.id ? ' is-sel' : ''}`}
-                                onClick={() => take(item)}
-                            >
-                                <span className="nm">{item.hostname || item.ip}</span>
-                                <span className="mono">{item.ip}</span>
-                                <span className="mods-line">
-                                    {item.modules.map(m => (
-                                        <span key={m} className="tag is-acc">{MODULE_LABEL[m] ?? m}</span>
-                                    ))}
-                                </span>
-                                {item.known
-                                    ? <span className="tag spacer">в реестре</span>
-                                    : <span className="tag is-ok spacer">новое</span>}
-                            </button>
-                        ))}
+                        {found.map(item => {
+                            const selected = passport?.id === item.id;
+                            return (
+                                <button
+                                    key={item.id}
+                                    className={`fnd-row${selected ? ' is-sel' : ''}${item.known ? ' is-known' : ''}`}
+                                    disabled={item.known || busy}
+                                    onClick={() => take(item)}
+                                >
+                                    <span className="fnd-main">
+                                        <span className="nm">
+                                            {item.hostname || item.ip}
+                                            {item.known && <span className="tag tag--xs">в реестре</span>}
+                                        </span>
+                                        <span className="sub">{item.ip} · {modulesLine(item.modules)}</span>
+                                    </span>
+                                    <span className="fnd-right">
+                                        <span className="tag">{item.version ?? '—'}</span>
+                                        {!item.known && <span className="tag is-ok">новое</span>}
+                                    </span>
+                                </button>
+                            );
+                        })}
                     </div>
                 )}
             </div>

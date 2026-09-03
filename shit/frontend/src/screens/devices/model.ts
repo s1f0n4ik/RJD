@@ -24,6 +24,13 @@ export const formatBytes = (bytes?: number | null): string => {
     return `${Math.round(bytes / GB)} ГБ`;
 };
 
+// Пара «занято / всего» с единицей один раз, если она общая
+export const formatPair = (used: number, total: number): string => {
+    const tb = 1024 * GB;
+    if (total >= tb) return `${ru(used / tb)} / ${ru(total / tb)} ТБ`;
+    return `${Math.round(used / GB)} / ${Math.round(total / GB)} ГБ`;
+};
+
 export const formatBits = (bps?: number | null): string => {
     if (bps === null || bps === undefined) return '—';
     return ru(bps * 8 / 1_000_000);
@@ -74,8 +81,8 @@ const EMPTY_METRIC = (key: string, label: string): DeviceMetric =>
 export function deviceMetrics(device: Device): DeviceMetric[] {
     const keys = [
         ['cpu', 'Процессор'],
-        ['mem', 'ОЗУ свободно'],
-        ['disk', 'Диск свободно'],
+        ['mem', 'ОЗУ'],
+        ['disk', 'Диск'],
         ['temp', 'Температура'],
         ['ping', 'Отклик'],
     ] as const;
@@ -101,20 +108,25 @@ export function deviceMetrics(device: Device): DeviceMetric[] {
         tone: band(cpu, 70, 88),
     });
 
-    metrics.push(!total ? EMPTY_METRIC('mem', 'ОЗУ свободно') : {
+    const memUsed = Math.max(0, total - free);
+    const memPct = total ? (memUsed / total) * 100 : 0;
+    metrics.push(!total ? EMPTY_METRIC('mem', 'ОЗУ') : {
         key: 'mem',
-        label: 'ОЗУ свободно',
-        value: `${ru(free / GB)} / ${ru(total / GB)} ГБ`,
-        pct: Math.min(100, (free / total) * 100),
-        tone: band(100 - (free / total) * 100, 82, 92),
+        label: 'ОЗУ',
+        value: `${ru(memUsed / GB)} / ${ru(total / GB)} ГБ`,
+        pct: Math.min(100, memPct),
+        tone: band(memPct, 50, 80),
     });
 
-    metrics.push(!disk ? EMPTY_METRIC('disk', 'Диск свободно') : {
+    const diskTotal = disk?.total_bytes ?? 0;
+    const diskUsed = Math.max(0, diskTotal - (disk?.free_bytes ?? 0));
+    const diskPct = diskTotal ? (diskUsed / diskTotal) * 100 : 0;
+    metrics.push(!disk ? EMPTY_METRIC('disk', 'Диск') : {
         key: 'disk',
-        label: 'Диск свободно',
-        value: formatBytes(disk.free_bytes),
-        pct: Math.min(100, ((disk.free_bytes ?? 0) / (disk.total_bytes ?? 1)) * 100),
-        tone: band(100 - ((disk.free_bytes ?? 0) / (disk.total_bytes ?? 1)) * 100, 85, 95),
+        label: 'Диск',
+        value: formatPair(diskUsed, diskTotal),
+        pct: Math.min(100, diskPct),
+        tone: band(diskPct, 85, 95),
     });
 
     metrics.push(temp === null ? EMPTY_METRIC('temp', 'Температура') : {
@@ -136,9 +148,10 @@ export function deviceMetrics(device: Device): DeviceMetric[] {
     return metrics;
 }
 
-export const netLabel = (device: Device): string => {
-    if (!isOnline(device) || device.net_rx_bps === null) return '—';
-    return `↓ ${formatBits(device.net_rx_bps)} ↑ ${formatBits(device.net_tx_bps)} Мбит/с`;
+// Приём и отдача в Мбит/с; null — устройство молчит или дельты ещё нет
+export const netParts = (device: Device): { rx: string; tx: string } | null => {
+    if (!isOnline(device) || device.net_rx_bps === null) return null;
+    return { rx: formatBits(device.net_rx_bps), tx: formatBits(device.net_tx_bps) };
 };
 
 // В сети сверху, дальше по имени

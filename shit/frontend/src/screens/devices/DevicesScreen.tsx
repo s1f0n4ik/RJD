@@ -20,7 +20,7 @@ import {
     deviceMetrics,
     isOnline,
     lastSeenTime,
-    netLabel,
+    netParts,
     routingCandidates,
     sameRouting,
     sinceLabel,
@@ -32,6 +32,7 @@ import {
 import './devices.css';
 
 const CAMERAS_POLL_MS = 15_000;
+const SIDE_WIDTH = 340;
 
 interface CameraCount {
     total: number;
@@ -57,6 +58,7 @@ export function DevicesScreen() {
     const [renameValue, setRenameValue] = useState('');
     const [confirmDelete, setConfirmDelete] = useState<Device | null>(null);
     const [polling, setPolling] = useState<string | null>(null);
+    const [sideOpen, setSideOpen] = useState(true);
     const [toast, setToast] = useState<ToastState | null>(null);
     const toastTimer = useRef<number | null>(null);
     const menuRef = usePopover<HTMLDivElement>(menu?.anchor ?? null, { side: 'bottom', align: 'start' });
@@ -195,25 +197,27 @@ export function DevicesScreen() {
         const missing = candidates.length === 0;
 
         return (
-            <div className="route-row" key={row.slot}>
-                <label>{row.label}</label>
-                <Select
-                    value={value}
-                    disabled={missing}
-                    placeholder="Не назначено"
-                    options={[
-                        { value: '', label: 'Не назначено' },
-                        ...candidates.map(device => ({
-                            value: device.id,
-                            label: device.name,
-                            hint: isOnline(device) ? device.ip : `${device.ip} · не в сети`,
-                        })),
-                    ]}
-                    onChange={next => setSlot(row.slot, next)}
-                />
-                <span className={`tag${missing ? ' is-mute' : ''}`}>
-                    {missing ? 'модуля нет' : row.state}
-                </span>
+            <div className="rt-row" key={row.slot}>
+                <span className="rt-cap">{row.label}</span>
+                <div className="rt-line">
+                    <Select
+                        value={value}
+                        disabled={missing}
+                        placeholder="Не назначено"
+                        options={[
+                            { value: '', label: 'Не назначено' },
+                            ...candidates.map(device => ({
+                                value: device.id,
+                                label: device.name,
+                                hint: isOnline(device) ? device.ip : `${device.ip} · не в сети`,
+                            })),
+                        ]}
+                        onChange={next => setSlot(row.slot, next)}
+                    />
+                    <span className={`tag${missing ? ' is-mute' : ''}`}>
+                        {missing ? 'модуля нет' : row.state}
+                    </span>
+                </div>
             </div>
         );
     };
@@ -236,138 +240,154 @@ export function DevicesScreen() {
             </div>
 
             <div className="dev-body">
-                {devices.length === 0 ? (
-                    <div className="dev-empty">
-                        <Icon name="dev" size={34} />
-                        <b>Устройства не добавлены</b>
-                        <button className="btn btn--acc" onClick={() => setAddOpen(true)}>
-                            <Icon name="plus" size={16} />Добавить устройство
+                <div className="dev-list">
+                    {devices.length === 0 ? (
+                        <div className="dev-empty">
+                            <Icon name="dev" size={34} />
+                            <b>Устройства не добавлены</b>
+                            <button className="btn btn--acc" onClick={() => setAddOpen(true)}>
+                                <Icon name="plus" size={16} />Добавить устройство
+                            </button>
+                        </div>
+                    ) : (
+                        <div className="dev-grid">
+                            {sorted.map(device => {
+                                const offline = !isOnline(device);
+                                const count = counts[device.id];
+                                const net = netParts(device);
+                                return (
+                                    <article key={device.id} className={`dev${offline ? ' is-off' : ''}`}>
+                                        <div className="dev-h">
+                                            <span className={`dot ${offline ? 'err' : 'ok'}`} />
+                                            <div className="dev-name">
+                                                <b>{device.name}</b>
+                                                <div className="host">
+                                                    {device.ip} · {offline
+                                                        ? `не в сети ${sinceLabel(device.last_seen)}`
+                                                        : `в работе ${uptimeLabel(device.telemetry?.uptime_sec)}`}
+                                                </div>
+                                            </div>
+                                            {offline && (
+                                                <button
+                                                    className="btn btn--sm spacer"
+                                                    disabled={polling === device.id}
+                                                    onClick={() => pollDevice(device)}
+                                                >
+                                                    <Icon name="refresh" size={15} />
+                                                    {polling === device.id ? 'Опрос…' : 'Повторить опрос'}
+                                                </button>
+                                            )}
+                                            <button
+                                                className={`icon-btn${offline ? '' : ' spacer'}`}
+                                                aria-label="Действия"
+                                                onClick={e => setMenu(
+                                                    menu?.device.id === device.id
+                                                        ? null
+                                                        : { device, anchor: elementAnchor(e.currentTarget) },
+                                                )}
+                                            >
+                                                <Icon name="dots" size={17} />
+                                            </button>
+                                        </div>
+
+                                        <div className="dev-b">
+                                            {offline && (
+                                                <div className="banner is-err">
+                                                    <Icon name="warn" size={15} />
+                                                    Последний ответ {lastSeenTime(device.last_seen)} · данные из кэша
+                                                </div>
+                                            )}
+
+                                            {deviceMetrics(device).map(metric => (
+                                                <div className="met" key={metric.key}>
+                                                    <span className="k">{metric.label}</span>
+                                                    <span className="bar sm">
+                                                        <i
+                                                            className={metric.tone === 'dim' ? '' : `is-${metric.tone}`}
+                                                            style={{ width: `${metric.pct}%` }}
+                                                        />
+                                                    </span>
+                                                    <span className="v">{metric.value}</span>
+                                                </div>
+                                            ))}
+
+                                            <div className="kv">
+                                                <span className="k">Сеть</span>
+                                                <span className="v">
+                                                    {net ? (
+                                                        <>
+                                                            <span className="net-rx">↓ {net.rx}</span>
+                                                            <span className="net-tx">↑ {net.tx}</span>
+                                                            <span>Мбит/с</span>
+                                                        </>
+                                                    ) : '—'}
+                                                </span>
+                                            </div>
+
+                                            <div className="mods">
+                                                <span className="tag">{device.telemetry?.version ?? 'версия неизвестна'}</span>
+                                                {device.modules.map(module => {
+                                                    const assigned = routing[module as RoutingSlot] === device.id;
+                                                    return (
+                                                        <span
+                                                            key={module}
+                                                            className={`tag is-acc${assigned ? '' : ' is-mute'}`}
+                                                        >
+                                                            {MODULE_LABEL[module] ?? module}
+                                                        </span>
+                                                    );
+                                                })}
+                                                {routing.cameras === device.id && (
+                                                    <span className="tag is-acc">новые камеры</span>
+                                                )}
+                                                <button
+                                                    className={`tag tag-btn ${count?.offline ? 'is-err' : 'is-ok'}`}
+                                                    onClick={() => navigate(`/cameras?device=${encodeURIComponent(device.id)}`)}
+                                                >
+                                                    камер: {count?.total ?? 0}{count?.offline ? ' · офлайн' : ''}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </article>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+
+                <button
+                    type="button"
+                    className={`dev-grip${sideOpen ? '' : ' is-closed'}`}
+                    style={{ right: sideOpen ? SIDE_WIDTH : 0 }}
+                    onClick={() => setSideOpen(open => !open)}
+                    title={sideOpen ? 'Скрыть маршрутизацию' : 'Показать маршрутизацию'}
+                    aria-label={sideOpen ? 'Скрыть маршрутизацию' : 'Показать маршрутизацию'}
+                >
+                    <Icon name="chev" size={12} />
+                </button>
+
+                <aside className={`dev-side${sideOpen ? '' : ' is-closed'}`} aria-hidden={!sideOpen}>
+                    <div className="blk-h"><h3>Маршрутизация</h3></div>
+                    <div className="dev-side-b">
+                        <span className="eyebrow">Модули</span>
+                        {MODULE_ROWS.map(routingRow)}
+                        <span className="eyebrow">Камеры</span>
+                        {CAMERA_ROWS.map(routingRow)}
+                    </div>
+                    <div className="blk-f">
+                        {dirty && <span className="tag is-warn">есть правки</span>}
+                        <button className="btn btn--ghost btn--sm spacer" disabled={!dirty} onClick={resetRouting}>
+                            Сбросить
+                        </button>
+                        <button
+                            className="btn btn--acc btn--sm"
+                            disabled={!dirty || saving || sameRouting(routing, getRouting())}
+                            onClick={saveRouting}
+                        >
+                            Сохранить
                         </button>
                     </div>
-                ) : (
-                    <div className="dev-grid">
-                        {sorted.map(device => {
-                            const offline = !isOnline(device);
-                            const count = counts[device.id];
-                            return (
-                                <article key={device.id} className={`dev${offline ? ' is-off' : ''}`}>
-                                    <div className="dev-h">
-                                        <span className={`dot ${offline ? 'err' : 'ok'}`} />
-                                        <div className="dev-name">
-                                            <b>{device.name}</b>
-                                            <div className="host">
-                                                {device.ip} · {offline
-                                                    ? `не в сети ${sinceLabel(device.last_seen)}`
-                                                    : `в работе ${uptimeLabel(device.telemetry?.uptime_sec)}`}
-                                            </div>
-                                        </div>
-                                        {offline && (
-                                            <button
-                                                className="btn btn--sm spacer"
-                                                disabled={polling === device.id}
-                                                onClick={() => pollDevice(device)}
-                                            >
-                                                <Icon name="refresh" size={15} />
-                                                {polling === device.id ? 'Опрос…' : 'Повторить опрос'}
-                                            </button>
-                                        )}
-                                        <button
-                                            className={`icon-btn${offline ? '' : ' spacer'}`}
-                                            aria-label="Действия"
-                                            onClick={e => setMenu(
-                                                menu?.device.id === device.id
-                                                    ? null
-                                                    : { device, anchor: elementAnchor(e.currentTarget) },
-                                            )}
-                                        >
-                                            <Icon name="dots" size={17} />
-                                        </button>
-                                    </div>
-
-                                    <div className="dev-b">
-                                        {offline && (
-                                            <div className="banner is-err">
-                                                <Icon name="warn" size={15} />
-                                                Последний ответ {lastSeenTime(device.last_seen)} · данные из кэша
-                                            </div>
-                                        )}
-
-                                        {deviceMetrics(device).map(metric => (
-                                            <div className="met" key={metric.key}>
-                                                <span className="k">{metric.label}</span>
-                                                <span className="bar sm">
-                                                    <i
-                                                        className={metric.tone === 'dim' ? '' : `is-${metric.tone}`}
-                                                        style={{ width: `${metric.pct}%` }}
-                                                    />
-                                                </span>
-                                                <span className="v">{metric.value}</span>
-                                            </div>
-                                        ))}
-
-                                        <div className="kv">
-                                            <span className="k">Сеть</span>
-                                            <span className="v">{netLabel(device)}</span>
-                                        </div>
-
-                                        <div className="mods">
-                                            <span className="tag">{device.telemetry?.version ?? 'версия неизвестна'}</span>
-                                            {device.modules.map(module => {
-                                                const assigned = routing[module as RoutingSlot] === device.id;
-                                                return (
-                                                    <span
-                                                        key={module}
-                                                        className={`tag is-acc${assigned ? '' : ' is-mute'}`}
-                                                    >
-                                                        {MODULE_LABEL[module] ?? module}
-                                                    </span>
-                                                );
-                                            })}
-                                            {routing.cameras === device.id && (
-                                                <span className="tag is-acc">новые камеры</span>
-                                            )}
-                                            <button
-                                                className={`tag tag-btn ${count?.offline ? 'is-err' : 'is-ok'}`}
-                                                onClick={() => navigate(`/cameras?device=${encodeURIComponent(device.id)}`)}
-                                            >
-                                                камер: {count?.total ?? 0}{count?.offline ? ' · офлайн' : ''}
-                                            </button>
-                                        </div>
-                                    </div>
-                                </article>
-                            );
-                        })}
-                    </div>
-                )}
-            </div>
-
-            <div className="blk dev-routing">
-                <div className="blk-h"><h3>Маршрутизация</h3></div>
-                <div className="blk-b">
-                    <div className="route-grid">
-                        <div className="route-col">
-                            <span className="eyebrow">Модули</span>
-                            {MODULE_ROWS.map(routingRow)}
-                        </div>
-                        <div className="route-col">
-                            <span className="eyebrow">Камеры</span>
-                            {CAMERA_ROWS.map(routingRow)}
-                        </div>
-                    </div>
-                </div>
-                <div className="blk-f">
-                    {dirty && <span className="tag is-warn">есть несохранённые правки</span>}
-                    <button className="btn btn--ghost spacer" disabled={!dirty} onClick={resetRouting}>
-                        Сбросить
-                    </button>
-                    <button
-                        className="btn btn--acc"
-                        disabled={!dirty || saving || sameRouting(routing, getRouting())}
-                        onClick={saveRouting}
-                    >
-                        Сохранить
-                    </button>
-                </div>
+                </aside>
             </div>
 
             {menu && (
@@ -449,6 +469,7 @@ export function DevicesScreen() {
             {confirmDelete && (
                 <Modal
                     title={`Удалить устройство «${confirmDelete.name}»?`}
+                    className="del-dev-modal"
                     onClose={() => setConfirmDelete(null)}
                     footer={
                         <>
@@ -458,15 +479,15 @@ export function DevicesScreen() {
                     }
                 >
                     <div className="modal-b del-dev">
-                        <div className="route-row">
+                        <div className="del-row">
                             <label>Адрес</label>
                             <span className="mono">{confirmDelete.ip}</span>
                         </div>
-                        <div className="route-row">
+                        <div className="del-row">
                             <label>Камер</label>
                             <span className="mono">{counts[confirmDelete.id]?.total ?? 0}</span>
                         </div>
-                        <div className="route-row">
+                        <div className="del-row">
                             <label>Назначенные модули</label>
                             <span className="mods-line">
                                 {(Object.keys(routing) as RoutingSlot[])
