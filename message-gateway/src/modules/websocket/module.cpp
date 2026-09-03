@@ -133,6 +133,10 @@ namespace varan {
             // ним статус так же, как у CAN по connection.error.
             connection["error"] = m_ws->connected() ? std::string() : m_ws->last_error();
             connection["retrying"] = m_ws->failed() && !m_ws->connected();
+            // Ход переподключения: страница показывает номер попытки и отсчёт до следующей
+            connection["phase"] = m_ws->phase();
+            connection["attempt"] = m_ws->attempt();
+            connection["retry_in_ms"] = m_ws->retry_in_ms();
 
             json::array versions;
             for (int v : m_registry.versions()) {

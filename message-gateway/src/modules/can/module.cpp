@@ -460,6 +460,10 @@ namespace varan {
             connection["url"] = bus ? bus->describe()
                 : (cfg.mode == "slcan" ? cfg.device : cfg.iface);
             connection["error"] = bus ? bus->last_error() : std::string();
+            // Ход переподключения: страница показывает номер попытки и отсчёт до следующей
+            connection["phase"] = bus ? bus->phase() : std::string("off");
+            connection["attempt"] = bus ? bus->attempt() : 0;
+            connection["retry_in_ms"] = bus ? bus->retry_in_ms() : 0;
 
             // Сообщения: адресация целиком, чтобы страница собрала раздел без
             // догадок, плюс готовый id — на шине искать проще по нему.

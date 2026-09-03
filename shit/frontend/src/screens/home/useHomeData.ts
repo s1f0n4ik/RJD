@@ -79,3 +79,31 @@ export function useLastDetections(limit = 4) {
 
     return { items, available };
 }
+
+/** Сводка шлюза КРСПС для плитки: null — шлюз не ответил. */
+export interface GatewaySummary {
+    modules: number;
+    connected: number;
+}
+
+export function useGatewayStatus() {
+    const [summary, setSummary] = useState<GatewaySummary | null>(null);
+
+    useEffect(() => {
+        let alive = true;
+        (async () => {
+            try {
+                const res = await fetch('/api/gateway/status');
+                if (!res.ok) throw new Error(String(res.status));
+                const data = await res.json() as { modules?: Array<{ connection?: { connected?: boolean } }> };
+                const modules = data.modules ?? [];
+                if (alive) setSummary({ modules: modules.length, connected: modules.filter(m => m.connection?.connected).length });
+            } catch {
+                if (alive) setSummary(null);
+            }
+        })();
+        return () => { alive = false; };
+    }, []);
+
+    return summary;
+}

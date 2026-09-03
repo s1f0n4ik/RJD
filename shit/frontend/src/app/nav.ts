@@ -1,4 +1,5 @@
 import type { IconName } from './Icons';
+import { sectionLabel } from '../screens/krsps/sections';
 
 /**
  * Разделы новой оболочки.
@@ -26,7 +27,7 @@ export const NAV: NavItem[] = [
 
     { to: '/neural',   label: 'Техническое зрение',  icon: 'eye',   ready: false, group: 'Модули' },
     { to: '/surround', label: 'Система 360',         icon: '360',   ready: false },
-    { to: '/krsps',    label: 'АС КРСПС',            icon: 'gate',  ready: false },
+    { to: '/krsps',    label: 'АС КРСПС',            icon: 'gate',  ready: true,  desc: 'Шлюз сообщений и таблица соответствий' },
 ];
 
 // Крошки верхней планки: раздел и, при необходимости, шаг внутри него
@@ -37,3 +38,12 @@ export const CRUMBS: Record<string, string[]> = {
     '/archive': ['Архив'],
     '/devices': ['Устройства'],
 };
+
+// Крошки для путей с разделами внутри: /krsps/<модуль>
+export function crumbsFor(pathname: string): string[] {
+    const exact = CRUMBS[pathname];
+    if (exact) return exact;
+    const krsps = /^\/krsps(?:\/([^/]+))?$/.exec(pathname);
+    if (krsps) return krsps[1] ? ['АС КРСПС', sectionLabel(krsps[1], krsps[1])] : ['АС КРСПС'];
+    return ['Главная'];
+}

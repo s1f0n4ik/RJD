@@ -7,6 +7,7 @@
 #include <mutex>
 #include <atomic>
 #include <cstdint>
+#include <chrono>
 
 #include <boost/asio.hpp>
 
@@ -52,6 +53,12 @@ namespace varan {
             // Текст последней ошибки открытия/чтения — его показывает страница,
             // иначе "нет связи" без причины и непонятно, куда смотреть.
             virtual std::string last_error() const = 0;
+
+            // Ход переподключения: номер попытки, время до следующей и фаза
+            // (connected / waiting / connecting / off).
+            virtual int attempt() const = 0;
+            virtual std::int64_t retry_in_ms() const = 0;
+            virtual std::string phase() const = 0;
         };
 
         // Общая часть обеих шин: хранение обработчика, бесконечное переподключение
@@ -83,6 +90,29 @@ namespace varan {
                 return m_last_error;
             }
 
+            int attempt() const override {
+                return m_attempt.load();
+            }
+
+            std::int64_t retry_in_ms() const override {
+                const std::int64_t next = m_next_retry_ms.load();
+                if (next <= 0) {
+                    return 0;
+                }
+                const std::int64_t now = steady_ms();
+                return next > now ? next - now : 0;
+            }
+
+            std::string phase() const override {
+                if (m_connected.load()) {
+                    return "connected";
+                }
+                if (!m_enabled.load()) {
+                    return "off";
+                }
+                return m_waiting.load() ? "waiting" : "connecting";
+            }
+
             void open() override {
                 m_enabled = true;
                 boost::asio::post(m_ioc, [self = shared_from_this()] { self->try_open(); });
@@ -92,6 +122,9 @@ namespace varan {
                 m_enabled = false;
                 boost::asio::post(m_ioc, [self = shared_from_this()] {
                     self->m_retry_timer.cancel();
+                    self->m_waiting = false;
+                    self->m_next_retry_ms = 0;
+                    self->m_attempt = 0;
                     self->do_close();
                     self->m_connected = false;
                 });
@@ -129,9 +162,12 @@ namespace varan {
                 if (!m_enabled.load() || m_connected.load()) {
                     return;
                 }
+                m_attempt.fetch_add(1);
                 std::string err;
                 if (do_open(err)) {
                     m_connected = true;
+                    m_attempt = 0;
+                    m_next_retry_ms = 0;
                     set_error("");
                     return;
                 }
@@ -144,12 +180,21 @@ namespace varan {
                 if (!m_enabled.load()) {
                     return;
                 }
+                m_waiting = true;
+                m_next_retry_ms = steady_ms() + static_cast<std::int64_t>(m_retry_sec) * 1000;
                 m_retry_timer.expires_after(std::chrono::seconds(m_retry_sec));
                 m_retry_timer.async_wait([self = shared_from_this()](const boost::system::error_code& ec) {
+                    self->m_waiting = false;
+                    self->m_next_retry_ms = 0;
                     if (!ec) {
                         self->try_open();
                     }
                 });
+            }
+
+            static std::int64_t steady_ms() {
+                return std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now().time_since_epoch()).count();
             }
 
         protected:
@@ -161,6 +206,9 @@ namespace varan {
         private:
             boost::asio::steady_timer m_retry_timer;
             int m_retry_sec;
+            std::atomic_bool m_waiting{ false };
+            std::atomic_int m_attempt{ 0 };
+            std::atomic<std::int64_t> m_next_retry_ms{ 0 };
             mutable std::mutex m_err_mutex;
             std::string m_last_error;
         };

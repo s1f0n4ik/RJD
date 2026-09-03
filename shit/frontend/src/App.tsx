@@ -15,7 +15,6 @@ import Dashboard from './components/Dashboard';
 // import LoaderSettings from './components/LoaderSettings';
 // import NeuralSettings from './components/NeuralSettings';
 const NeuralConfigApp = lazy(() => import('./features/neural/components/NeuralConfigApp'));
-const KrspsApp = lazy(() => import('./features/krsps/components/KrspsApp'));
 const BirdviewApp = lazy(() =>
     import('./features/birdview/components/BirdviewApp').then(m => ({ default: m.BirdviewApp })));
 import Login from './components/Login';
@@ -380,12 +379,9 @@ const AppContent: React.FC = () => {
     );
   }
   if (isKrspsRoute) {
-    return (
-      <Suspense fallback={null}>
-        <KrspsApp />
-        <OnScreenKeyboard />
-      </Suspense>
-    );
+    // Раздел переехал в новую оболочку
+    window.location.replace('/new/krsps');
+    return null;
   }
   if (isBirdviewRoute) {
     return (

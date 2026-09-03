@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Icon } from '../../app/Icons';
 import { NAV } from '../../app/nav';
 import { useSystem } from '../../app/SystemContext';
-import { useDisks, useLastDetections } from './useHomeData';
+import { useDisks, useGatewayStatus, useLastDetections } from './useHomeData';
 import { useLayouts } from '../../hooks/Layouts';
 import type { Device } from '../../services/devices';
 import './home.css';
@@ -34,6 +34,7 @@ export function HomeScreen() {
     const disks = useDisks(devices);
     const { layouts } = useLayouts();
     const { items: detections, available: journalUp } = useLastDetections();
+    const gateway = useGatewayStatus();
 
     const online = devices.filter(d => d.status === 'online');
     const liveCameras = cameras.filter(isLive).length;
@@ -48,6 +49,10 @@ export function HomeScreen() {
         ? 'устройства не добавлены'
         : `${devices.length} ${plural(devices.length, 'устройство', 'устройства', 'устройств')}` +
           (offlineDevices > 0 ? ` · ${offlineDevices} не в сети` : ' · все в сети');
+
+    const gatewaySummary = gateway
+        ? `${gateway.modules} ${plural(gateway.modules, 'модуль', 'модуля', 'модулей')} · ${gateway.connected} на связи`
+        : 'шлюз не отвечает';
 
     const cameraSummary = cameras.length === 0
         ? 'камеры не добавлены'
@@ -101,13 +106,14 @@ export function HomeScreen() {
                     <div className="tiles">
                         {NAV.filter(item => item.to !== '/').map(item => (
                             item.ready ? (
-                                <Link key={item.to} to={item.to} className="tile">
+                                <Link key={item.to} to={item.to} className={`tile${item.to === '/krsps' && !gateway ? ' is-off' : ''}`}>
                                     <Icon name={item.icon} size={22} />
                                     <b>{item.label}</b>
                                     {item.desc && <span>{item.desc}</span>}
                                     {item.to === '/cameras' && <span className="foot">{cameraSummary}</span>}
                                     {item.to === '/live' && <span className="foot">{layoutSummary}</span>}
                                     {item.to === '/devices' && <span className="foot">{deviceSummary}</span>}
+                                    {item.to === '/krsps' && <span className="foot">{gatewaySummary}</span>}
                                 </Link>
                             ) : (
                                 <div key={item.to} className="tile is-off">

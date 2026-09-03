@@ -1,18 +1,15 @@
-import React from 'react';
-import { IconCheck, IconClose, IconHeart } from '../icons';
+import React, { useEffect, useState } from 'react';
 import type { GwMessageRecord, GwModule } from '../types';
 import { formatBytes, formatClock } from '../utils/format';
+import { humanizeError } from '../utils/errors';
 
 // Общие элементы разделов модуля: их одинаково рисуют и WebSocket, и CAN.
-// Лежат отдельно, чтобы состояние соединения и лента сообщений выглядели и
-// вели себя одинаково во всех модулях.
 
 export type PillState = 'ok' | 'wait' | 'err' | 'off';
 
-// Состояние подключения по флагам соединения. Общий для WebSocket и CAN, чтобы
-// оба модуля подсвечивались одинаково: зелёный — связь есть, жёлтый — первая
-// попытка идёт, красный — попытка сорвалась (таймаут/ошибка) и канал
-// переподключается, серый — модуль выключен.
+// Состояние подключения по флагам соединения: зелёный — связь есть, жёлтый —
+// идёт попытка, красный — попытка сорвалась и канал переподключается, серый —
+// модуль выключен.
 export function connState(m: GwModule): PillState {
   if (m.connection.connected) return 'ok';
   if (!m.connection.enabled) return 'off';
@@ -27,20 +24,65 @@ const PILL_LABEL: Record<PillState, string> = {
   off: 'Выключено',
 };
 
-export const Pill: React.FC<{ state: PillState }> = ({ state }) => (
-  <span className={`krsps-pill krsps-pill--${state}`}>
-    <span className="krsps-pill__dot" />
-    {PILL_LABEL[state]}
-  </span>
-);
+const PILL_TONE: Record<PillState, string> = { ok: 'ok', wait: 'warn', err: 'err', off: '' };
+
+// Отсчёт до следующей попытки идёт локально между опросами статуса
+function useCountdown(retryInMs: number | undefined): number {
+  const [tick, setTick] = useState(0);
+  const [base] = useState(() => ({ at: 0, ms: 0 }));
+  if (retryInMs !== undefined && retryInMs !== base.ms) {
+    base.ms = retryInMs;
+    base.at = Date.now();
+  }
+  useEffect(() => {
+    const t = setInterval(() => setTick((n) => n + 1), 500);
+    return () => clearInterval(t);
+  }, []);
+  void tick;
+  return Math.max(0, base.ms - (Date.now() - base.at));
+}
+
+// Пилюля состояния: соединено, попытка идёт, ожидание следующей попытки с отсчётом
+export const Pill: React.FC<{ module: GwModule }> = ({ module }) => {
+  const c = module.connection;
+  const state = connState(module);
+  const left = useCountdown(c.retry_in_ms);
+
+  if (state === 'ok' || state === 'off' || !c.phase) {
+    const active = state === 'wait' || (state === 'err' && !!c.retrying);
+    return (
+      <span className={`pill ${PILL_TONE[state]}`}>
+        {active ? <span className="spin sm" /> : <span className="dot" />}
+        {state === 'err' && c.retrying ? 'Нет связи · переподключение' : PILL_LABEL[state]}
+      </span>
+    );
+  }
+
+  const n = c.attempt && c.attempt > 0 ? c.attempt : 1;
+  if (c.phase === 'connecting') {
+    return (
+      <span className={`pill ${PILL_TONE[state]}`}>
+        <span className="spin sm" />
+        {`Попытка ${n} · подключение`}
+      </span>
+    );
+  }
+  const sec = Math.ceil(left / 1000);
+  return (
+    <span className={`pill ${PILL_TONE[state]}`}>
+      <span className="dot" />
+      {sec > 0 ? `Нет связи · попытка ${n + 1} через ${sec} с` : `Нет связи · попытка ${n + 1}`}
+    </span>
+  );
+};
 
 export const Kpi: React.FC<{ label: string; value: string; unit?: string }> = ({ label, value, unit }) => (
-  <div className="krsps-kpi">
-    <div className="krsps-kpi__label">{label}</div>
-    <div className="krsps-kpi__value">
+  <div className="kpi">
+    <span>{label}</span>
+    <b>
       {value}
-      {unit && <span className="krsps-kpi__unit">{unit}</span>}
-    </div>
+      {unit && <small>{unit}</small>}
+    </b>
   </div>
 );
 
@@ -60,10 +102,9 @@ export function bytesShort(n: number): string {
 
 interface RecordRowProps {
   r: GwMessageRecord;
-  // Что означает успешная отправка для этого транспорта: БИУС принял кадр либо
-  // нагрузка ушла на шину.
+  // Что означает успешная отправка для этого транспорта
   sentNote: string;
-  // Версию протокола показываем только там, где она есть (WebSocket).
+  // Версию протокола показываем только там, где она есть (WebSocket)
   showVer?: boolean;
 }
 
@@ -72,7 +113,7 @@ export const RecordRow: React.FC<RecordRowProps> = ({ r, sentNote, showVer = tru
   const heartbeat = r.kind === 'heartbeat';
 
   const kind = rejected ? 'err' : heartbeat ? 'hb' : 'ok';
-  const icon = rejected ? <IconClose /> : heartbeat ? <IconHeart /> : <IconCheck />;
+  const glyph = rejected ? '✕' : heartbeat ? '♥' : '✓';
 
   const title = heartbeat
     ? 'heartbeat'
@@ -82,19 +123,19 @@ export const RecordRow: React.FC<RecordRowProps> = ({ r, sentNote, showVer = tru
 
   const ver = showVer ? ` · v${r.ver}` : '';
   const sub = rejected
-    ? `${formatClock(r.ts)}${ver} · ${r.error ?? 'отклонено'}`
+    ? `${formatClock(r.ts)}${ver} · ${r.error ? humanizeError(r.error) : 'отклонено'}`
     : heartbeat
     ? `${formatClock(r.ts)}${ver} · служебное`
     : `${formatClock(r.ts)}${ver} · ${sentNote}`;
 
   return (
-    <div className="krsps-feed__row">
-      <div className={`krsps-feed__ico krsps-feed__ico--${kind}`}>{icon}</div>
-      <div className="krsps-feed__main">
-        <div className="krsps-feed__title">{title}</div>
-        <div className="krsps-feed__sub">{sub}</div>
+    <div className="rec">
+      <span className={`ic ${kind}`}>{glyph}</span>
+      <div className="t">
+        <b>{title}</b>
+        <span>{sub}</span>
       </div>
-      <div className="krsps-feed__size">{rejected ? '—' : bytesShort(r.wire_size)}</div>
+      <span className="sz">{rejected ? '—' : bytesShort(r.wire_size)}</span>
     </div>
   );
 };

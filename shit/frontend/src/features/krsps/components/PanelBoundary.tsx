@@ -1,8 +1,7 @@
 import React from 'react';
 
 interface Props {
-  // Смена ключа пересоздаёт предохранитель: перешли в другой раздел — ошибка
-  // предыдущего не должна на нём висеть.
+  // Смена ключа пересоздаёт предохранитель: ошибка прошлого раздела не висит на новом
   resetKey: string;
   children: React.ReactNode;
 }
@@ -11,9 +10,7 @@ interface State {
   error: Error | null;
 }
 
-// Раздел страницы не должен уносить с собой всю страницу. Шлюз развивается,
-// его JSON меняется, и панель, встретившая ответ незнакомой формы, обязана
-// сказать об этом, а не оставить белый экран.
+// Раздел, встретивший ответ незнакомой формы, сообщает об этом сам, а не роняет экран
 class PanelBoundary extends React.Component<Props, State> {
   state: State = { error: null };
 
@@ -32,21 +29,18 @@ class PanelBoundary extends React.Component<Props, State> {
     if (!error) return this.props.children;
 
     return (
-      <div className="krsps-card">
-        <div className="krsps-panel__head">
-          <div className="krsps-panel__title">Раздел не отрисовался</div>
+      <div className="card">
+        <div className="card-h"><h3>Раздел не отрисовался</h3></div>
+        <div className="card-b">
+          <div className="banner is-err">{error.message}</div>
+          <p className="hint" style={{ marginTop: 12 }}>
+            Страница новее работающего шлюза и ждёт полей, которых тот не отдаёт. Нужна пересборка message-gateway.
+          </p>
         </div>
-        <div className="krsps-panel__body">
-          <div className="krsps-alert">{error.message}</div>
-          <div className="krsps-note" style={{ marginTop: 12 }}>
-            Чаще всего это значит, что страница новее работающего шлюза и ждёт полей, которых тот ещё не
-            отдаёт. Помогает пересборка message-gateway. Остальные разделы работают.
-          </div>
-          <div className="krsps-actions" style={{ marginTop: 12 }}>
-            <button type="button" className="krsps-btn krsps-btn--ghost" onClick={() => this.setState({ error: null })}>
-              Повторить
-            </button>
-          </div>
+        <div className="card-f">
+          <button type="button" className="btn btn--ghost spacer" onClick={() => this.setState({ error: null })}>
+            Повторить
+          </button>
         </div>
       </div>
     );

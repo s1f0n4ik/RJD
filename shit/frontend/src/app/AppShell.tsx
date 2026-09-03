@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { Icon, IconSprite } from './Icons';
-import { CRUMBS, NAV } from './nav';
+import { NAV, crumbsFor } from './nav';
 import { DownloadsPill } from './DownloadsPill';
 import { useSystem } from './SystemContext';
 import { formatDeviceTime, useDeviceClock } from './useDeviceClock';
@@ -20,7 +20,7 @@ export function AppShell({ username, role, onLogout }: AppShellProps) {
     const { pathname } = useLocation();
 
     const offlineDevices = devices.filter(d => d.status !== 'online').length;
-    const crumbs = CRUMBS[pathname] ?? ['Главная'];
+    const crumbs = crumbsFor(pathname);
     const initials = username.slice(0, 2).toUpperCase() || 'ОП';
 
     return (

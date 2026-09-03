@@ -58,6 +58,21 @@ namespace varan {
                 return m_client ? m_client->last_error() : std::string();
             }
 
+            int attempt() const {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                return m_client ? m_client->attempt() : 0;
+            }
+
+            std::int64_t retry_in_ms() const {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                return m_client ? m_client->retry_in_ms() : 0;
+            }
+
+            std::string phase() const {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                return m_client ? m_client->phase() : std::string("off");
+            }
+
             void send(const std::string& payload, bool binary) override {
                 std::shared_ptr<UWebSocketClient> client;
                 {

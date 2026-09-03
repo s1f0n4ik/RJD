@@ -9,6 +9,8 @@
 #include <memory>
 #include <atomic>
 #include <mutex>
+#include <chrono>
+#include <cstdint>
 
 #include "gateway/utility/log.h"
 
@@ -66,7 +68,34 @@ namespace varan {
                 return m_last_error;
             }
 
+            // Номер текущей попытки соединения с момента последнего обрыва; 0 — соединено
+            int attempt() const {
+                return m_attempt.load();
+            }
+
+            // Сколько осталось до следующей попытки; 0 — попытка идёт или таймер не взведён
+            std::int64_t retry_in_ms() const {
+                const std::int64_t next = m_next_retry_ms.load();
+                if (next <= 0) {
+                    return 0;
+                }
+                const std::int64_t now = steady_ms();
+                return next > now ? next - now : 0;
+            }
+
+            // Фаза канала: connected / waiting (таймер до попытки) / connecting (попытка идёт) / off
+            std::string phase() const {
+                if (m_connected.load()) {
+                    return "connected";
+                }
+                if (m_stopping.load()) {
+                    return "off";
+                }
+                return m_reconnecting.load() ? "waiting" : "connecting";
+            }
+
             void run() {
+                m_attempt = 1;
                 recreate_ws();
                 log("Starting connection to ws://" + m_host + ":" + m_port + m_target);
                 start_resolve();
@@ -133,6 +162,7 @@ namespace varan {
                 }
 
                 log("Will retry connection in 10 seconds...");
+                m_next_retry_ms = steady_ms() + 10000;
                 m_timer.expires_after(std::chrono::seconds(10));
                 m_timer.async_wait(
                     [self = shared_from_this()](boost::beast::error_code ec) {
@@ -143,6 +173,8 @@ namespace varan {
                         // schedule_reconnect() поставит новый таймер. Так попытки
                         // идут бесконечно, а не гаснут после первой неудачной.
                         self->m_reconnecting = false;
+                        self->m_next_retry_ms = 0;
+                        self->m_attempt.fetch_add(1);
                         self->log("Reconnecting...");
                         self->recreate_ws();
                         self->start_resolve();
@@ -202,6 +234,8 @@ namespace varan {
 
                 m_reconnecting = false;
                 m_connected = true;
+                m_attempt = 0;
+                m_next_retry_ms = 0;
                 {
                     std::lock_guard<std::mutex> lock(m_err_mutex);
                     m_last_error.clear();
@@ -273,6 +307,11 @@ namespace varan {
             // Логирует сбой и запоминает его как последнюю ошибку канала: отсюда
             // страница узнаёт причину и красит статус. Флаг снимается только при
             // удачном рукопожатии.
+            static std::int64_t steady_ms() {
+                return std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now().time_since_epoch()).count();
+            }
+
             void note_error(const std::string& msg) {
                 log(msg);
                 {
@@ -297,6 +336,8 @@ namespace varan {
             // Последняя попытка провалилась и канал переподключается. Снимается
             // при удачном рукопожатии.
             std::atomic_bool m_failed{ false };
+            std::atomic_int m_attempt{ 0 };
+            std::atomic<std::int64_t> m_next_retry_ms{ 0 };
 
             mutable std::mutex m_err_mutex;
             std::string m_last_error;

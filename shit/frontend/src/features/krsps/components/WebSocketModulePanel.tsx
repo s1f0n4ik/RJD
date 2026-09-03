@@ -1,18 +1,21 @@
 import React, { useEffect, useState } from 'react';
+import { Icon } from '../../../app/Icons';
+import { Switch } from '../../../app/Modal';
 import type { GwModule, GwWsConfigPatch } from '../types';
 import { formatInt, formatBytes } from '../utils/format';
-import { IconRefresh } from '../icons';
-import { Kpi, Pill, RecordRow, connState } from './ModuleBits';
+import { Kpi, Pill, RecordRow } from './ModuleBits';
+import { humanizeError } from '../utils/errors';
 
 interface Props {
   module: GwModule;
+  title: string;
   busy: boolean;
   onSave: (patch: GwWsConfigPatch) => void;
   onConnect: () => void;
   onDisconnect: () => void;
 }
 
-// Разбор адреса вида ws://host:port/target (схема и target опциональны).
+// Разбор адреса вида ws://host:port/target (схема и target опциональны)
 function parseWsUrl(raw: string): { host: string; port: string; target: string } | null {
   let s = raw.trim();
   if (!s) return null;
@@ -28,7 +31,7 @@ function parseWsUrl(raw: string): { host: string; port: string; target: string }
   return { host, port, target };
 }
 
-const WebSocketModulePanel: React.FC<Props> = ({ module, busy, onSave, onConnect, onDisconnect }) => {
+const WebSocketModulePanel: React.FC<Props> = ({ module, title, busy, onSave, onConnect, onDisconnect }) => {
   const [url, setUrl] = useState('');
   const [heartbeat, setHeartbeat] = useState('5');
   const [heartbeatOn, setHeartbeatOn] = useState(true);
@@ -62,144 +65,101 @@ const WebSocketModulePanel: React.FC<Props> = ({ module, busy, onSave, onConnect
 
   const stats = module.stats;
   const bytes = formatBytes(stats.bytes);
+  const versions = module.protocol_versions?.length ? module.protocol_versions.map((v) => `v${v}`).join(', ') : '';
 
   return (
-    <div>
-      {/*<div className="krsps-module__head">
-        <div className="krsps-module__title">WebSocket → БИУС</div>
-        <Pill state={connState(module)} />
-        <div className="krsps-module__meta">
-          протокол {module.protocol_versions.map((v) => `v${v}`).join(', ') || '—'}
-        </div>
-      </div>*/}
+    <>
+      <div className="mod-title">
+        <h2>{title}</h2>
+        <Pill module={module} />
+        <span className="pill">{module.transport}{versions ? ` · ${versions}` : ''}</span>
+        <button type="button" className="btn btn--ghost spacer" onClick={onDisconnect} disabled={busy}>Отключить</button>
+        <button type="button" className="btn" onClick={onConnect} disabled={busy}>
+          <Icon name="refresh" size={16} />Переподключить
+        </button>
+        <button type="button" className="btn btn--acc" onClick={handleSave} disabled={busy}>Применить</button>
+      </div>
 
-      {/* Настройки: поля в гриде + серый футер действий — как в разделе CAN. */}
-      <div className="krsps-card">
-        <div className="krsps-panel__head">
-          <div className="krsps-panel__title">Настройки передачи</div>
-          <Pill state={connState(module)} />
-          <div className="krsps-panel__meta">{module.connection.url || '—'}</div>
-          <button
-            type="button"
-            className="krsps-icon-btn"
-            title="Переподключить"
-            aria-label="Переподключить"
-            onClick={onConnect}
-            disabled={busy}
-          >
-            <IconRefresh />
-          </button>
-        </div>
-        <div className="krsps-panel__body">
-          <div className="krsps-formgrid">
-            <div className="krsps-field krsps-formgrid__wide">
-              <label className="krsps-field__label" htmlFor="krsps-ws-url">
-                Адрес WebSocket (БИУС)
-              </label>
+      <div className="mod-rows">
+        <div className="card">
+          <div className="card-b">
+            <div className="g-addr">
+              <label className="cap" htmlFor="krsps-ws-url">Адрес WebSocket (БИУС)</label>
               <input
                 id="krsps-ws-url"
-                className={`krsps-input${urlError ? ' krsps-input--error' : ''}`}
+                className={`inp inp--text${urlError ? ' is-err' : ''}`}
                 value={url}
                 spellCheck={false}
-                onChange={(e) => setUrl(e.target.value)}
                 placeholder="ws://192.168.1.50:8080/ws/frames"
+                onChange={(e) => setUrl(e.target.value)}
               />
-              <div className={`krsps-field__hint${urlError ? ' krsps-field__hint--error' : ''}`}>
-                {urlError || 'Можно менять как угодно'}
-              </div>
+              {urlError && <p className="hint is-err">{urlError}</p>}
             </div>
-
-            <div className="krsps-field">
-              <label className="krsps-field__label" htmlFor="krsps-ws-hb">
-                Сообщение heartbeat
-              </label>
-              <div className="krsps-inlinectl">
-                <button
-                  type="button"
-                  className={`krsps-switch krsps-switch--bare${heartbeatOn ? ' krsps-switch--on' : ''}`}
-                  role="switch"
-                  aria-checked={heartbeatOn}
-                  aria-label="Отправлять heartbeat"
-                  onClick={() => setHeartbeatOn((v) => !v)}
-                >
-                  <span className="krsps-switch__track" />
-                </button>
-                <span className="krsps-inlinectl__sep" />
-                <span className={`krsps-inlinectl__val${heartbeatOn ? '' : ' krsps-inlinectl__val--off'}`}>
-                  <span>каждые</span>
+            <div className="g-row">
+              <div className="fc">
+                <span className="cap">Сообщение heartbeat</span>
+                <div className="g-hb">
+                  <Switch on={heartbeatOn} onToggle={setHeartbeatOn}>{''}</Switch>
+                  <span className="sep" />
+                  <span className={heartbeatOn ? '' : 'off'}>каждые</span>
                   <input
                     id="krsps-ws-hb"
-                    className="krsps-input"
+                    className="inp"
                     value={heartbeat}
                     inputMode="numeric"
                     disabled={!heartbeatOn}
                     onChange={(e) => setHeartbeat(e.target.value.replace(/[^\d]/g, ''))}
                   />
-                  <span className="krsps-inlinectl__unit">с при простое</span>
-                </span>
+                  <span className={`unit${heartbeatOn ? '' : ' off'}`}>с при простое</span>
+                </div>
+              </div>
+              <span className="vsep" />
+              <div className="fc">
+                <span className="cap">Передача обнаружений</span>
+                <div className="g-hb">
+                  <Switch on={enabled} onToggle={setEnabled}>{enabled ? 'включена' : 'выключена'}</Switch>
+                </div>
               </div>
             </div>
+            {module.connection.error && (
+              <div className="banner is-err" style={{ marginTop: 14 }}>
+                <Icon name="warn" size={15} />
+                Связь: {humanizeError(module.connection.error)}{module.connection.retrying ? ' · переподключение идёт' : ''}
+              </div>
+            )}
           </div>
-
-          {module.connection.error && (
-            <div className="krsps-alert" style={{ marginTop: 16 }}>
-              Связь: {module.connection.error}. Переподключение…
-            </div>
-          )}
         </div>
 
-        <div className="krsps-formfoot">
-          <button
-            type="button"
-            className={`krsps-switch${enabled ? ' krsps-switch--on' : ''}`}
-            role="switch"
-            aria-checked={enabled}
-            onClick={() => setEnabled((v) => !v)}
-          >
-            <span className="krsps-switch__track" />
-            Передача обнаружений включена
-          </button>
+        <div className="card">
+          <div className="card-h">
+            <h3>Состояние</h3>
+            <span className="meta">за сеанс · отклонено {formatInt(stats.rejected)} · heartbeat {formatInt(stats.heartbeats)}</span>
+          </div>
+          <div className="card-b">
+            <div className="kpis">
+              <Kpi label="Отдано" value={formatInt(stats.messages)} />
+              <Kpi label="Обнаружений" value={formatInt(stats.detections)} />
+              <Kpi label="Изображений" value={formatInt(stats.images)} />
+              <Kpi label="Передано" value={bytes.value} unit={bytes.unit} />
+            </div>
+          </div>
+        </div>
 
-          <div className="krsps-actions">
-            <button type="button" className="krsps-btn krsps-btn--primary" onClick={handleSave} disabled={busy}>
-              Сохранить
-            </button>
-            <button type="button" className="krsps-btn krsps-btn--text" onClick={onDisconnect} disabled={busy}>
-              Отключить
-            </button>
+        <div className="card">
+          <div className="card-h">
+            <h3>Последние сообщения</h3>
+            <span className="meta">{stats.recent.length}</span>
+          </div>
+          <div className="card-b" style={{ paddingTop: 4, paddingBottom: 4 }}>
+            {stats.recent.length > 0 ? (
+              stats.recent.map((r) => <RecordRow key={r.seq} r={r} sentNote="БИУС принял" />)
+            ) : (
+              <div className="empty"><b>Сообщений пока не было</b></div>
+            )}
           </div>
         </div>
       </div>
-
-      {/* Состояние — единым блоком: счётчики + лента сообщений. */}
-      <div className="krsps-card">
-        <div className="krsps-panel__head">
-          <div className="krsps-panel__title">Состояние</div>
-          <div className="krsps-panel__meta">
-            отклонено {formatInt(stats.rejected)} · heartbeat {formatInt(stats.heartbeats)}
-          </div>
-        </div>
-        <div className="krsps-panel__body">
-          <div className="krsps-kpis">
-            <Kpi label="Отдано" value={formatInt(stats.messages)} />
-            <Kpi label="Обнаружений" value={formatInt(stats.detections)} />
-            <Kpi label="Изображений" value={formatInt(stats.images)} />
-            <Kpi label="Передано" value={bytes.value} unit={bytes.unit} />
-          </div>
-
-          <div className="krsps-feed__label">Последние сообщения · {stats.recent.length}</div>
-          {stats.recent.length > 0 ? (
-            <div className="krsps-feed">
-              {stats.recent.map((r) => (
-                <RecordRow key={r.seq} r={r} sentNote="БИУС принял" />
-              ))}
-            </div>
-          ) : (
-            <div className="krsps-empty">Сообщений пока не было</div>
-          )}
-        </div>
-      </div>
-    </div>
+    </>
   );
 };
 

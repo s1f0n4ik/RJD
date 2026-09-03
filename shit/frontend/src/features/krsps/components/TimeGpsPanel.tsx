@@ -1,16 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { IconClock, IconPin } from '../icons';
 import { krspsApi } from '../api/client';
 import type { GwTime } from '../types';
 import { formatInt } from '../utils/format';
 
 interface Props {
   time: GwTime | null;
-  // Смещение серверного времени относительно локального (мс). Обновляется после
-  // каждого ответа ручки /time; таймер тикает локально от этого смещения.
+  // Смещение серверного времени относительно локального (мс); таймер тикает от него
   offsetMs: number;
   synced: boolean;
-  // Смена пояса отвечает свежим снимком — приложение обновляет часы сразу
+  // Смена пояса отвечает свежим снимком — часы обновляются сразу
   onTimeUpdate: (t: GwTime) => void;
 }
 
@@ -33,28 +31,20 @@ function two(n: number): string {
   return n < 10 ? '0' + n : String(n);
 }
 
-// Координаты приходят с шины со знаком: южная широта и западная долгота
-// отрицательные. Показываем полушарие, а не приклеенные N/E.
+// Координаты приходят со знаком: показываем полушарие, а не приклеенные N/E
 function coord(v: number, pos: string, neg: string): string {
   return `${Math.abs(v).toFixed(4)}° ${v < 0 ? neg : pos}`;
 }
 
 const SOURCE_NOTE: Record<string, string> = {
-  can: 'стороннее устройство на шине CAN',
-  server: 'часы сервиса (шина молчит)',
-  static: 'фиксированные координаты (шина молчит)',
+  can: 'шина CAN',
+  server: 'часы сервиса, шина молчит',
+  static: 'заглушка, шина молчит',
 };
 
 function sourceNote(kind?: string): string {
   return kind ? SOURCE_NOTE[kind] ?? kind : '—';
 }
-
-const Kv: React.FC<{ k: string; v: React.ReactNode }> = ({ k, v }) => (
-  <div className="krsps-kv">
-    <span className="krsps-kv__k">{k}</span>
-    <span className="krsps-kv__v">{v}</span>
-  </div>
-);
 
 const TimeGpsPanel: React.FC<Props> = ({ time, offsetMs, synced, onTimeUpdate }) => {
   const [nowMs, setNowMs] = useState(() => Date.now() + offsetMs);
@@ -89,29 +79,18 @@ const TimeGpsPanel: React.FC<Props> = ({ time, offsetMs, synced, onTimeUpdate })
 
   const gps = time?.gps;
   const fromCan = time?.source.time === 'can';
+  const syncTone = !synced ? 'warn' : fromCan ? 'ok' : '';
+  const syncLabel = !synced ? 'ожидание шлюза' : fromCan ? 'синхронизировано по шине CAN' : 'часы шлюза';
 
   return (
-    <div>
-      {/*
-      <div className="krsps-module__head">
-        <div className="krsps-module__title">Время и GPS</div>
-      </div>
-      */}
-
-      <div className="krsps-card">
-        <div className="krsps-panel__head">
-          <IconClock />
-          <div className="krsps-panel__title">Единое время ({tzLabel(time?.tz_offset_min)})</div>
-          <div className={`krsps-panel__meta krsps-clock__sync${synced ? ' krsps-clock__sync--ok' : ''}`}>
-            <span className="krsps-clock__sync-dot" />
-            {!synced ? 'ожидание шлюза' : fromCan ? 'синхронизировано по шине CAN' : 'часы шлюза'}
-          </div>
-        </div>
-
-        <div className="krsps-clock__tz">
-          <span className="krsps-clock__tz-lbl">Часовой пояс</span>
+    <>
+      <div className="mod-title">
+        <h2>Время и GPS</h2>
+        <span className={`pill ${syncTone}`}><span className="dot" />{syncLabel}</span>
+        <div className="title-sel spacer">
+          <span className="cap">Часовой пояс</span>
           <select
-            className="krsps-input krsps-input--sm"
+            className="sel"
             value={time?.tz_offset_min ?? 180}
             disabled={tzBusy || !synced}
             onChange={(e) => void handleTzChange(Number(e.target.value))}
@@ -120,47 +99,50 @@ const TimeGpsPanel: React.FC<Props> = ({ time, offsetMs, synced, onTimeUpdate })
               <option key={o.minutes} value={o.minutes}>{o.label}</option>
             ))}
           </select>
-          <span className="krsps-clock__tz-note">
-            По шине время идёт в UTC; шлюз раздаёт и показывает его в этом поясе.
-          </span>
-        </div>
-
-        <div className="krsps-clock-grid">
-          <div className="krsps-clock__left">
-            <div className="krsps-clock__cap">Текущее время</div>
-            <div className="krsps-clock__time">
-              {hh}:{mm}:{ss}
-              <span className="krsps-clock__ms">.{mmm}</span>
-            </div>
-            <div className="krsps-clock__date">
-              {dateStr} · unix {formatInt(unixS)}
-            </div>
-          </div>
-
-          <div className="krsps-clock__right">
-            <div className="krsps-clock__right-cap">
-              <IconPin />
-              <span>Координаты</span>
-            </div>
-            <Kv k="Широта" v={gps ? coord(gps.lat, 'N', 'S') : '—'} />
-            <Kv k="Долгота" v={gps ? coord(gps.lon, 'E', 'W') : '—'} />
-            <Kv k="Скорость" v={gps ? `${gps.speed.toFixed(2)} м/с` : '—'} />
-            <Kv
-              k="Данные"
-              v={gps ? (gps.valid ? 'актуальны' : 'устарели') : '—'}
-            />
-          </div>
-        </div>
-
-        <div className="krsps-clock__note">
-          Источник: время - {sourceNote(time?.source.time)}, координаты - {sourceNote(time?.source.gps)}.
-          {fromCan
-            ? ' Время идёт от последнего сообщения по шине и тикает дальше внутри сервиса, поэтому остаётся точным между сообщениями.'
-            : ' Пока по шине ничего не пришло, отдаются часы сервиса и заглушка координат.'}{' '}
-          Таймер на странице идёт локально и синхронизируется по ручке /time.
         </div>
       </div>
-    </div>
+
+      <div className="mod-rows">
+        <div className="card fit time">
+          <div className="card-h">
+            <h3>Единое время ({tzLabel(time?.tz_offset_min)})</h3>
+            <span className="meta">источник · {sourceNote(time?.source.time)}</span>
+          </div>
+          <div className="card-b">
+            <div className="clock-wrap">
+              <div className="clock">
+                {hh}:{mm}:{ss}<small>.{mmm}</small>
+              </div>
+              <span className="date">{dateStr} · unix {formatInt(unixS)}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="card gps" style={{ '--w': '420px' } as React.CSSProperties}>
+          <div className="card-h">
+            <h3>Координаты</h3>
+            <span className="meta">источник · {sourceNote(time?.source.gps)}</span>
+          </div>
+          <div className="card-b">
+            <div className="kvs">
+              <div className="kv"><span className="k">Широта</span><span className="v">{gps ? coord(gps.lat, 'N', 'S') : '—'}</span></div>
+              <div className="kv"><span className="k">Долгота</span><span className="v">{gps ? coord(gps.lon, 'E', 'W') : '—'}</span></div>
+              <div className="kv"><span className="k">Скорость</span><span className="v">{gps ? `${gps.speed.toFixed(2)} м/с` : '—'}</span></div>
+              <div className="kv">
+                <span className="k">Данные</span>
+                {!gps ? (
+                  <span className="v">—</span>
+                ) : time?.source.gps === 'static' ? (
+                  <span className="v warn">заглушка</span>
+                ) : (
+                  <span className={`v${gps.valid ? ' ok' : ' err'}`}>{gps.valid ? 'актуальны' : 'устарели'}</span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
   );
 };
 

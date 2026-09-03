@@ -1,22 +1,16 @@
 import React from 'react';
 
 // Описание кадра: поля протокола, нарисованные во всю длину. Раскладка задана
-// стороной заказчика и не редактируется, поэтому живёт в коде рядом со схемой,
-// а не в настройках — на странице её можно только читать.
+// стороной заказчика и не редактируется, поэтому живёт в коде рядом со схемой.
 //
-// span — сколько байт занимает поле. Многобайтовые поля рисуются одним блоком:
-// таблицей «байты 3–4» это только описывалось словами, а здесь видно.
-// parts — деление байта на битовые поля: минуты и знак лежат в одном байте, и
-// знак должен быть отдельным блоком с указанием бита.
-
+// span — сколько байт занимает поле, многобайтовые поля рисуются одним блоком.
+// parts — деление байта на битовые поля: минуты и знак лежат в одном байте.
 export interface FieldPart {
   name: string;
-  bits: string;   // «биты 1–6» / «бит 7»
+  bits: string;
   tone: Tone;
 }
-
 export type Tone = 'f1' | 'f2' | 'f3' | 'f4' | 'off';
-
 export interface Field {
   name: string;
   fmt?: string;
@@ -24,7 +18,6 @@ export interface Field {
   tone: Tone;
   parts?: FieldPart[];
 }
-
 export interface MessageSpec {
   fields: Field[];
 }
@@ -82,52 +75,41 @@ export const SPECS: Record<string, MessageSpec> = {
 
 interface Props {
   spec: MessageSpec;
-  // Байты последнего кадра как «02 01 04 01 FF FF FF FF». Нет — рисуем только
-  // раскладку, без значений.
+  // Байты последнего кадра как «02 01 04 01 FF FF FF FF»; нет — только раскладка
   data?: string;
 }
 
 const CanMessageSpec: React.FC<Props> = ({ spec, data }) => {
   const bytes = data ? data.split(' ').filter(Boolean) : [];
-
   let byteAt = 0;
   return (
-    <div className="krsps-wire">
-      <div className="krsps-wire__ruler">
+    <div className="wire">
+      <div className="wire-r">
         {Array.from({ length: 8 }, (_, i) => (
-          <div key={i} className="krsps-wire__rn">
-            {i + 1}
-          </div>
+          <span key={i}>{i + 1}</span>
         ))}
       </div>
-      <div className="krsps-wire__grid">
+      <div className="wire-g">
         {spec.fields.map((f, i) => {
           const first = byteAt;
           byteAt += f.span;
           const value = bytes.slice(first, first + f.span).join(' ');
-
           return (
-            <div
-              key={i}
-              className={`krsps-span krsps-span--${f.tone}`}
-              style={{ gridColumn: `span ${f.span}` }}
-            >
-              <div className="krsps-span__n">{f.name}</div>
+            <div key={i} className={`wspan ${f.tone}`} style={{ gridColumn: `span ${f.span}` }}>
+              <b>{f.name}</b>
               {f.parts ? (
-                // Байт делится на битовые поля: знак — отдельным блоком с
-                // указанием бита, иначе непонятно, где он лежит.
-                <div className="krsps-span__parts">
+                <div className="wparts">
                   {f.parts.map((p) => (
-                    <div key={p.bits} className={`krsps-part krsps-part--${p.tone}`}>
-                      <span className="krsps-part__n">{p.name}</span>
-                      <span className="krsps-part__b">{p.bits}</span>
+                    <div key={p.bits} className={`wpart ${p.tone}`}>
+                      <b>{p.name}</b>
+                      <span>{p.bits}</span>
                     </div>
                   ))}
                 </div>
               ) : (
-                f.fmt && <div className="krsps-span__t">{f.fmt}</div>
+                f.fmt && <span className="t">{f.fmt}</span>
               )}
-              {value && <div className="krsps-span__v">{value}</div>}
+              {value && <span className="v">{value}</span>}
             </div>
           );
         })}
