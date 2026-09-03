@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { GwMessageRecord, GwModule } from '../types';
 import { formatBytes, formatClock } from '../utils/format';
 import { humanizeError } from '../utils/errors';
@@ -26,52 +26,41 @@ const PILL_LABEL: Record<PillState, string> = {
 
 const PILL_TONE: Record<PillState, string> = { ok: 'ok', wait: 'warn', err: 'err', off: '' };
 
-// Отсчёт до следующей попытки идёт локально между опросами статуса
-function useCountdown(retryInMs: number | undefined): number {
-  const [tick, setTick] = useState(0);
-  const [base] = useState(() => ({ at: 0, ms: 0 }));
-  if (retryInMs !== undefined && retryInMs !== base.ms) {
-    base.ms = retryInMs;
-    base.at = Date.now();
-  }
-  useEffect(() => {
-    const t = setInterval(() => setTick((n) => n + 1), 500);
-    return () => clearInterval(t);
-  }, []);
-  void tick;
-  return Math.max(0, base.ms - (Date.now() - base.at));
-}
+// Пилюля состояния: точка мягко пульсирует, пока связи нет; ожидание красное, попытка жёлтая.
+// Сама попытка длится миллисекунды и в опрос раз в 2 с не попадает, поэтому жёлтый держится
+// 2 с после каждого прироста номера попытки.
+const FLASH_MS = 2200;
 
-// Пилюля состояния: соединено, попытка идёт, ожидание следующей попытки с отсчётом
 export const Pill: React.FC<{ module: GwModule }> = ({ module }) => {
   const c = module.connection;
   const state = connState(module);
-  const left = useCountdown(c.retry_in_ms);
+  const [flash, setFlash] = useState(false);
+  const prevAttempt = useRef<number | undefined>(undefined);
 
-  if (state === 'ok' || state === 'off' || !c.phase) {
-    const active = state === 'wait' || (state === 'err' && !!c.retrying);
+  useEffect(() => {
+    const a = c.attempt;
+    const bumped = a !== undefined && prevAttempt.current !== undefined && a !== prevAttempt.current && !c.connected;
+    prevAttempt.current = a;
+    if (!bumped) return;
+    setFlash(true);
+    const t = setTimeout(() => setFlash(false), FLASH_MS);
+    return () => clearTimeout(t);
+  }, [c.attempt, c.connected]);
+
+  if (state === 'ok' || state === 'off') {
     return (
       <span className={`pill ${PILL_TONE[state]}`}>
-        {active ? <span className="spin sm" /> : <span className="dot" />}
-        {state === 'err' && c.retrying ? 'Нет связи · переподключение' : PILL_LABEL[state]}
+        <span className="dot" />
+        {PILL_LABEL[state]}
       </span>
     );
   }
 
-  const n = c.attempt && c.attempt > 0 ? c.attempt : 1;
-  if (c.phase === 'connecting') {
-    return (
-      <span className={`pill ${PILL_TONE[state]}`}>
-        <span className="spin sm" />
-        {`Попытка ${n} · подключение`}
-      </span>
-    );
-  }
-  const sec = Math.ceil(left / 1000);
+  const connecting = c.phase ? c.phase === 'connecting' || flash : state === 'wait';
   return (
-    <span className={`pill ${PILL_TONE[state]}`}>
-      <span className="dot" />
-      {sec > 0 ? `Нет связи · попытка ${n + 1} через ${sec} с` : `Нет связи · попытка ${n + 1}`}
+    <span className={`pill ${connecting ? 'warn' : 'err'}`}>
+      <span className="dot is-pulse" />
+      {connecting ? 'Переподключение' : 'Нет связи'}
     </span>
   );
 };

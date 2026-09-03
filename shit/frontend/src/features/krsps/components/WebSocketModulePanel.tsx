@@ -31,36 +31,45 @@ function parseWsUrl(raw: string): { host: string; port: string; target: string }
   return { host, port, target };
 }
 
+// Тумблеры и период уходят запросом сразу; адрес — только кнопкой, он переподключает канал
 const WebSocketModulePanel: React.FC<Props> = ({ module, title, busy, onSave, onConnect, onDisconnect }) => {
-  const [url, setUrl] = useState('');
-  const [heartbeat, setHeartbeat] = useState('5');
-  const [heartbeatOn, setHeartbeatOn] = useState(true);
-  const [enabled, setEnabled] = useState(true);
+  const savedUrl = module.connection.url;
+  // Начальные значения из статуса: иначе первый кадр считает адрес изменённым
+  const [url, setUrl] = useState(savedUrl);
+  const [heartbeat, setHeartbeat] = useState(String(module.heartbeat_sec));
   const [urlError, setUrlError] = useState('');
 
-  useEffect(() => {
-    setUrl(module.connection.url);
-    setHeartbeat(String(module.heartbeat_sec));
-    setHeartbeatOn(module.heartbeat_enabled ?? true);
-    setEnabled(module.connection.enabled);
-  }, [module.connection.url, module.heartbeat_sec, module.heartbeat_enabled, module.connection.enabled]);
+  const heartbeatOn = module.heartbeat_enabled ?? true;
+  const enabled = module.connection.enabled;
 
-  const handleSave = () => {
+  useEffect(() => {
+    setUrl(savedUrl);
+    setUrlError('');
+  }, [savedUrl]);
+
+  useEffect(() => {
+    setHeartbeat(String(module.heartbeat_sec));
+  }, [module.heartbeat_sec]);
+
+  const dirty = url.trim() !== savedUrl;
+
+  const applyUrl = () => {
     const parsed = parseWsUrl(url);
     if (!parsed) {
       setUrlError('Ожидается адрес вида ws://host:port/target');
       return;
     }
     setUrlError('');
+    onSave({ host: parsed.host, port: parsed.port, target: parsed.target });
+  };
+
+  const commitHeartbeat = () => {
     const hb = parseInt(heartbeat, 10);
-    onSave({
-      host: parsed.host,
-      port: parsed.port,
-      target: parsed.target,
-      enabled,
-      heartbeat_sec: Number.isFinite(hb) ? hb : undefined,
-      heartbeat_enabled: heartbeatOn,
-    });
+    if (!Number.isFinite(hb)) {
+      setHeartbeat(String(module.heartbeat_sec));
+      return;
+    }
+    if (hb !== module.heartbeat_sec) onSave({ heartbeat_sec: hb });
   };
 
   const stats = module.stats;
@@ -77,7 +86,6 @@ const WebSocketModulePanel: React.FC<Props> = ({ module, title, busy, onSave, on
         <button type="button" className="btn" onClick={onConnect} disabled={busy}>
           <Icon name="refresh" size={16} />Переподключить
         </button>
-        <button type="button" className="btn btn--acc" onClick={handleSave} disabled={busy}>Применить</button>
       </div>
 
       <div className="mod-rows">
@@ -85,21 +93,36 @@ const WebSocketModulePanel: React.FC<Props> = ({ module, title, busy, onSave, on
           <div className="card-b">
             <div className="g-addr">
               <label className="cap" htmlFor="krsps-ws-url">Адрес WebSocket (БИУС)</label>
-              <input
-                id="krsps-ws-url"
-                className={`inp inp--text${urlError ? ' is-err' : ''}`}
-                value={url}
-                spellCheck={false}
-                placeholder="ws://192.168.1.50:8080/ws/frames"
-                onChange={(e) => setUrl(e.target.value)}
-              />
+              <div className="line">
+                <input
+                  id="krsps-ws-url"
+                  className={`inp inp--text${urlError ? ' is-err' : dirty ? ' is-dirty' : ''}`}
+                  value={url}
+                  spellCheck={false}
+                  placeholder="ws://192.168.1.50:8080/ws/frames"
+                  onChange={(e) => setUrl(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && dirty) applyUrl();
+                  }}
+                />
+                <button
+                  type="button"
+                  className={`icon-btn${dirty ? ' is-acc' : ''}`}
+                  title="Подключиться по этому адресу"
+                  aria-label="Подключиться по этому адресу"
+                  disabled={busy || !dirty}
+                  onClick={applyUrl}
+                >
+                  <Icon name="swap" size={18} />
+                </button>
+              </div>
               {urlError && <p className="hint is-err">{urlError}</p>}
             </div>
             <div className="g-row">
               <div className="fc">
                 <span className="cap">Сообщение heartbeat</span>
                 <div className="g-hb">
-                  <Switch on={heartbeatOn} onToggle={setHeartbeatOn}>{''}</Switch>
+                  <Switch on={heartbeatOn} disabled={busy} onToggle={(v) => onSave({ heartbeat_enabled: v })}>{''}</Switch>
                   <span className="sep" />
                   <span className={heartbeatOn ? '' : 'off'}>каждые</span>
                   <input
@@ -107,8 +130,12 @@ const WebSocketModulePanel: React.FC<Props> = ({ module, title, busy, onSave, on
                     className="inp"
                     value={heartbeat}
                     inputMode="numeric"
-                    disabled={!heartbeatOn}
+                    disabled={!heartbeatOn || busy}
                     onChange={(e) => setHeartbeat(e.target.value.replace(/[^\d]/g, ''))}
+                    onBlur={commitHeartbeat}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') e.currentTarget.blur();
+                    }}
                   />
                   <span className={`unit${heartbeatOn ? '' : ' off'}`}>с при простое</span>
                 </div>
@@ -117,7 +144,7 @@ const WebSocketModulePanel: React.FC<Props> = ({ module, title, busy, onSave, on
               <div className="fc">
                 <span className="cap">Передача обнаружений</span>
                 <div className="g-hb">
-                  <Switch on={enabled} onToggle={setEnabled}>{enabled ? 'включена' : 'выключена'}</Switch>
+                  <Switch on={enabled} disabled={busy} onToggle={(v) => onSave({ enabled: v })}>{enabled ? 'включена' : 'выключена'}</Switch>
                 </div>
               </div>
             </div>

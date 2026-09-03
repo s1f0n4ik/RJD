@@ -224,24 +224,16 @@ const CanModulePanel: React.FC<Props> = ({ module, title, devices, busy, onSave,
   // Нет списка сообщений — шлюз собран до этих правок, показываем только подключение
   const stale = !module.messages;
 
-  const [mode, setMode] = useState<'socketcan' | 'slcan'>('socketcan');
-  const [iface, setIface] = useState('can0');
-  const [device, setDevice] = useState('/dev/ttyUSB0');
-  const [bitrate, setBitrate] = useState('250000');
-  const [enabled, setEnabled] = useState(true);
+  const mode = conn.mode ?? 'socketcan';
+  const iface = conn.iface ?? 'can0';
+  const device = conn.device ?? '/dev/ttyUSB0';
+  const bitrate = String(conn.bitrate ?? 250000);
+  const enabled = conn.enabled;
 
   const [period, setPeriod] = useState('');
   const [ttl, setTtl] = useState('');
   const [txError, setTxError] = useState('');
   const [filter, setFilter] = useState<'all' | 'tx' | 'rx'>('all');
-
-  useEffect(() => {
-    setMode(conn.mode ?? 'socketcan');
-    setIface(conn.iface ?? 'can0');
-    setDevice(conn.device ?? '/dev/ttyUSB0');
-    setBitrate(String(conn.bitrate ?? 250000));
-    setEnabled(conn.enabled);
-  }, [conn.mode, conn.iface, conn.device, conn.bitrate, conn.enabled]);
 
   // Зависимости — примитивы, а не объект tx: он новый на каждый опрос статуса
   useEffect(() => {
@@ -251,8 +243,9 @@ const CanModulePanel: React.FC<Props> = ({ module, title, devices, busy, onSave,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tx?.period_ms, tx?.payload_ttl_ms]);
 
-  const saveConnection = () =>
-    onSave({ mode, iface, device, bitrate: parseNum(bitrate) ?? 250000, enabled });
+  // Подключение целиком: смена любого поля пересоздаёт шину, поэтому уходит сразу
+  const patchConnection = (part: Partial<GwCanConfigPatch>) =>
+    onSave({ mode, iface, device, bitrate: parseNum(bitrate) ?? 250000, enabled, ...part });
 
   // Период и жизнь нагрузки уходят по уходу с поля, тумблеры — сразу
   const commitPeriod = () => {
@@ -297,7 +290,6 @@ const CanModulePanel: React.FC<Props> = ({ module, title, devices, busy, onSave,
         <button type="button" className="btn" onClick={onConnect} disabled={busy}>
           <Icon name="refresh" size={16} />Переподключить
         </button>
-        <button type="button" className="btn btn--acc" onClick={saveConnection} disabled={busy}>Применить</button>
       </div>
 
       <div className="mod-rows">
@@ -307,8 +299,8 @@ const CanModulePanel: React.FC<Props> = ({ module, title, devices, busy, onSave,
               <div className="fc">
                 <span className="cap">Режим</span>
                 <div className="seg">
-                  <button type="button" className={mode === 'socketcan' ? 'is-on' : ''} onClick={() => setMode('socketcan')}>SocketCAN</button>
-                  <button type="button" className={mode === 'slcan' ? 'is-on' : ''} onClick={() => setMode('slcan')}>slcan (serial)</button>
+                  <button type="button" className={mode === 'socketcan' ? 'is-on' : ''} disabled={busy} onClick={() => mode !== 'socketcan' && patchConnection({ mode: 'socketcan' })}>SocketCAN</button>
+                  <button type="button" className={mode === 'slcan' ? 'is-on' : ''} disabled={busy} onClick={() => mode !== 'slcan' && patchConnection({ mode: 'slcan' })}>slcan (serial)</button>
                 </div>
               </div>
               {mode === 'socketcan' ? (
@@ -319,7 +311,7 @@ const CanModulePanel: React.FC<Props> = ({ module, title, devices, busy, onSave,
                     value={iface}
                     options={canOptions}
                     emptyText="CAN-интерфейсов не найдено"
-                    onChange={setIface}
+                    onChange={(v) => patchConnection({ iface: v })}
                   />
                 </div>
               ) : (
@@ -331,12 +323,12 @@ const CanModulePanel: React.FC<Props> = ({ module, title, devices, busy, onSave,
                       value={device}
                       options={serialOptions}
                       emptyText="Serial-портов не найдено"
-                      onChange={setDevice}
+                      onChange={(v) => patchConnection({ device: v })}
                     />
                   </div>
                   <div className="fc" style={{ flex: '0 1 180px' }}>
                     <label className="cap" htmlFor="krsps-can-bitrate">Скорость шины</label>
-                    <select id="krsps-can-bitrate" className="sel" value={bitrate} onChange={(e) => setBitrate(e.target.value)}>
+                    <select id="krsps-can-bitrate" className="sel" value={bitrate} onChange={(e) => patchConnection({ bitrate: parseNum(e.target.value) ?? 250000 })}>
                       {BITRATES.map((b) => (
                         <option key={b} value={b}>
                           {formatInt(b)} бит/с
@@ -350,7 +342,7 @@ const CanModulePanel: React.FC<Props> = ({ module, title, devices, busy, onSave,
               <div className="fc">
                 <span className="cap">Обмен по шине</span>
                 <div className="row">
-                  <Switch on={enabled} onToggle={setEnabled}>{enabled ? 'включён' : 'выключен'}</Switch>
+                  <Switch on={enabled} disabled={busy} onToggle={(v) => patchConnection({ enabled: v })}>{enabled ? 'включён' : 'выключен'}</Switch>
                 </div>
               </div>
             </div>

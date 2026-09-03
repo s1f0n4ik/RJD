@@ -55,6 +55,11 @@
 /* Строка заголовка: пилюли состояния */
 .mod-title .pill{height:28px}
 .spin.sm{width:11px;height:11px;border-width:1.5px;flex:0 0 11px}
+.mod-screen .pill.warn{border-color:rgba(240,189,87,.35);color:var(--warn)}
+.pill .dot.is-pulse{animation:dot-pulse 1.6s ease-in-out infinite}
+.pill.err .dot.is-pulse{--glow:255,107,128}
+.pill.warn .dot.is-pulse{--glow:240,189,87}
+@keyframes dot-pulse{0%,100%{opacity:.35;box-shadow:0 0 0 0 rgba(var(--glow),0)}50%{opacity:1;box-shadow:0 0 9px 2px rgba(var(--glow),.55)}}
 .card-h .pill{height:24px;font-size:10px}
 .card-h .meta{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .card-h .meta+.icon-btn{margin-left:0}
@@ -64,7 +69,13 @@
 /* Шлюз: адрес крупно своей строкой, ниже heartbeat и тумблер передачи через перегородку */
 .g-addr{display:flex;flex-direction:column;gap:8px}
 .g-addr .cap{font-size:14px;color:var(--fg-2)}
-.g-addr .inp{height:42px;flex:none;font-size:15px;width:100%;text-align:left;padding:0 13px}
+.g-addr .line{display:flex;align-items:center;gap:8px}
+.g-addr .inp{height:42px;flex:1 1 0;min-width:0;font-size:15px;width:0;text-align:left;padding:0 13px}
+.g-addr .inp.is-dirty{border-color:var(--warn)}
+.g-addr .icon-btn{width:42px;height:42px;flex:0 0 42px;border-radius:var(--r)}
+.icon-btn.is-acc{background:var(--acc);border-color:var(--acc);color:#08101f}
+.icon-btn.is-acc:hover{background:#7cb4ff;color:#08101f}
+.icon-btn:disabled{opacity:.4;cursor:not-allowed}
 .g-row{display:flex;align-items:stretch;gap:22px;margin-top:16px;flex-wrap:wrap}
 .g-row .vsep{width:1px;background:var(--line)}
 .g-row .fc .cap{font-size:12.5px;color:var(--fg-2)}
