@@ -128,6 +128,7 @@ async def run_merge_job(
 
         job.temp_files.append(output_mp4)
         job.result_path = output_mp4
+        job.result_paths = [output_mp4]
         job.result_filename = output_mp4.name
         job.result_media_type = "video/mp4"
 
@@ -216,6 +217,7 @@ async def run_archive_job(
             return
 
         job.result_path = output_zip
+        job.result_paths = [output_zip]
         job.result_filename = output_zip.name
         job.result_media_type = "application/zip"
         job.bytes_total = output_zip.stat().st_size
@@ -253,7 +255,7 @@ async def zip_files(*, entries: list[tuple[Path, str]], target: Path, total_byte
             for source, arcname in entries:
                 if state["cancelled"]:
                     return
-                with open(source, "rb") as src, zf.open(arcname, "w") as dst:
+                with open(source, "rb") as src, zf.open(arcname, "w", force_zip64=True) as dst:
                     while True:
                         if state["cancelled"]:
                             return

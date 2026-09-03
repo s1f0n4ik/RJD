@@ -3,13 +3,15 @@ import logging
 import re
 
 from fastapi import APIRouter, HTTPException, Query, Response
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app.services.cutter import run_cut_job, run_zip_job
+from app.services.cutter import run_cut_job, zip_entries
 from app.services.frames import frame_at
 from app.services.jobs import jobs
 from app.services.segments import index
 from app.services.storage import storage
+from app.services.zipstream import stream_zip
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -183,11 +185,35 @@ async def archive_cut(req: ExportRequest):
     return {"job_id": job.id}
 
 
-@router.post("/archive/zip")
-async def archive_zip(req: ExportRequest):
-    """Выгрузить исходные сегменты диапазона архивом: папка на камеру."""
-    tracks = _check_export(req)
+@router.get("/archive/zip")
+async def archive_zip(
+    track: list[str] = Query(..., description="camera:stream, повторяется"),
+    from_ms: int = Query(...),
+    to_ms: int = Query(...),
+):
+    """
+    Исходные сегменты диапазона архивом, папка на камеру. Zip без сжатия
+    формируется прямо в ответ: на диске ничего не создаётся, задачи нет,
+    ход скачивания показывает браузер.
+    """
+    if to_ms <= from_ms:
+        raise HTTPException(status_code=400, detail="to_ms must be greater than from_ms")
 
-    job = await jobs.create(title=req.title, subtitle=req.subtitle)
-    asyncio.create_task(run_zip_job(job, tracks=tracks, from_ms=req.from_ms, to_ms=req.to_ms))
-    return {"job_id": job.id}
+    tracks = []
+    for item in track:
+        camera, _, stream = item.partition(":")
+        if not camera or not stream:
+            raise HTTPException(status_code=400, detail="track must be camera:stream")
+        tracks.append({"camera": camera, "stream": stream})
+
+    loop = asyncio.get_running_loop()
+    entries, name = await loop.run_in_executor(None, zip_entries, tracks, from_ms, to_ms)
+    if not entries:
+        raise HTTPException(status_code=404, detail="No recordings in the selected range")
+
+    logger.info("Streaming zip %s: %d files", name, len(entries))
+    return StreamingResponse(
+        stream_zip(entries),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )

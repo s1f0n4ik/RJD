@@ -5,7 +5,9 @@ from fastapi import FastAPI
 
 from app.config import settings
 from app.routers import recordings, journal, archive
+from app.services import exports
 from app.services.cleaner import cleaner
+from app.services.jobs import jobs
 from app.services.journal_cleaner import journal_cleaner
 from app.services.reconciler import reconciler
 
@@ -19,11 +21,15 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting %s", settings.APP_NAME)
+    # После перезапуска задач нет, а их результаты на диске — есть
+    exports.sweep()
+    await jobs.start()
     await cleaner.start()
     await journal_cleaner.start()
     await reconciler.start()
     yield
     logger.info("Stopping background services")
+    await jobs.stop()
     await cleaner.stop()
     await journal_cleaner.stop()
     await reconciler.stop()

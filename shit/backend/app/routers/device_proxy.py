@@ -69,8 +69,10 @@ async def proxy_http(device_id: str, service: str, path: str, request: Request):
     except httpx.HTTPError as e:
         raise HTTPException(status_code=502, detail=f"Device unreachable: {e}")
 
+    # Тело идёт байт в байт, поэтому Content-Length устройства верен и нужен клиенту
     response_headers = {
-        k: v for k, v in upstream.headers.items() if k.lower() not in _HOP_HEADERS
+        k: v for k, v in upstream.headers.items()
+        if k.lower() not in _HOP_HEADERS or k.lower() == "content-length"
     }
     return StreamingResponse(
         upstream.aiter_raw(),

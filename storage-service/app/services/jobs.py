@@ -1,10 +1,14 @@
 import asyncio
 import logging
+import shutil
+import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Optional
+
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +23,9 @@ class JobStatus(str, Enum):
     DOWNLOADED = "downloaded"  # клиент уже забрал
     FAILED = "failed"
     CANCELLED = "cancelled"
+
+
+FINISHED = (JobStatus.READY, JobStatus.DOWNLOADED, JobStatus.FAILED, JobStatus.CANCELLED)
 
 
 @dataclass
@@ -47,16 +54,20 @@ class Job:
     progress: float = 0.0
     message: str = ""
     error: Optional[str] = None
-    result_path: Optional[Path] = None
+    # Результат: по файлу на дорожку; несколько файлов уходят архивом на лету
+    result_paths: list[Path] = field(default_factory=list)
     result_filename: Optional[str] = None
     result_media_type: str = "video/mp4"
-    # Новые поля метрик
+    # Каталог результатов этой задачи внутри каталога выгрузок
+    work_dir: Optional[Path] = None
+    result_path: Optional[Path] = None
     files_total: int = 0
     files_processed: int = 0
     bytes_total: int = 0
     duration_seconds: float = 0.0
-    cancelled: bool = False              # ← флаг отмены
-    process: Optional[asyncio.subprocess.Process] = None  # ← чтобы убить ffmpeg
+    finished_at: Optional[float] = None
+    cancelled: bool = False
+    process: Optional[asyncio.subprocess.Process] = None
     temp_files: list[Path] = field(default_factory=list)
     _subscribers: list[asyncio.Queue] = field(default_factory=list)
 
@@ -76,6 +87,15 @@ class Job:
             subtitle=self.subtitle,
         )
 
+    def result_bytes(self) -> int:
+        total = 0
+        for path in self.result_paths:
+            try:
+                total += path.stat().st_size
+            except OSError:
+                continue
+        return total
+
 
 class JobManager:
     """In-memory хранилище задач склейки."""
@@ -85,6 +105,19 @@ class JobManager:
         self._lock = asyncio.Lock()
         # Тяжёлая часть идёт по одной: рядом пишутся живые камеры
         self._device = asyncio.Lock()
+        self._sweeper: Optional[asyncio.Task] = None
+
+    async def start(self):
+        self._sweeper = asyncio.create_task(self._sweep_loop())
+
+    async def stop(self):
+        if self._sweeper:
+            self._sweeper.cancel()
+            try:
+                await self._sweeper
+            except asyncio.CancelledError:
+                pass
+            self._sweeper = None
 
     async def create(self, title: str = "", subtitle: str = "") -> Job:
         async with self._lock:
@@ -112,6 +145,8 @@ class JobManager:
         """Обновить состояние и разослать всем подписчикам."""
         if status is not None:
             job.status = status
+            if status in FINISHED and job.finished_at is None:
+                job.finished_at = time.monotonic()
         if progress is not None:
             job.progress = max(0.0, min(1.0, progress))
         if message is not None:
@@ -140,17 +175,19 @@ class JobManager:
             job._subscribers.remove(q)
 
     async def cleanup(self, job: Job):
-        """Удалить временные файлы и саму job."""
+        """Удалить временные файлы, результаты и саму job."""
         for p in job.temp_files:
             try:
                 p.unlink(missing_ok=True)
             except OSError as e:
                 logger.warning("Failed to remove %s: %s", p, e)
-        if job.result_path:
+        for p in job.result_paths:
             try:
-                job.result_path.unlink(missing_ok=True)
-            except OSError:
-                pass
+                p.unlink(missing_ok=True)
+            except OSError as e:
+                logger.warning("Failed to remove %s: %s", p, e)
+        if job.work_dir:
+            shutil.rmtree(job.work_dir, ignore_errors=True)
         async with self._lock:
             self._jobs.pop(job.id, None)
 
@@ -164,6 +201,43 @@ class JobManager:
                 pass
         await self.update(job, status=JobStatus.CANCELLED, message="Отменено пользователем")
         await self.cleanup(job)
+
+    # Освободить место под новую задачу: готовые результаты уходят от старых к новым
+    async def evict(self, need: int) -> int:
+        async with self._lock:
+            done = sorted(
+                (j for j in self._jobs.values()
+                 if j.status in (JobStatus.READY, JobStatus.DOWNLOADED) and j.result_paths),
+                key=lambda j: j.finished_at or 0.0,
+            )
+        freed = 0
+        for job in done:
+            if freed >= need:
+                break
+            size = job.result_bytes()
+            logger.info("Evicting export %s (%d bytes) to make room", job.id, size)
+            await self.cleanup(job)
+            freed += size
+        return freed
+
+    # Нескачанные результаты не живут вечно, законченные задачи не копятся в памяти
+    async def _sweep_loop(self):
+        while True:
+            await asyncio.sleep(60)
+            now = time.monotonic()
+            async with self._lock:
+                stale = [
+                    j for j in self._jobs.values()
+                    if j.finished_at is not None and (
+                        (j.status in (JobStatus.READY, JobStatus.DOWNLOADED)
+                         and now - j.finished_at > settings.EXPORT_TTL_SEC)
+                        or (j.status in (JobStatus.FAILED, JobStatus.CANCELLED)
+                            and now - j.finished_at > 3600)
+                    )
+                ]
+            for job in stale:
+                logger.info("Export %s expired (%s)", job.id, job.status.value)
+                await self.cleanup(job)
 
 
 jobs = JobManager()

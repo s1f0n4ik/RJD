@@ -5,13 +5,13 @@ import type { Anchor } from './popover';
 import { elementAnchor, usePopover } from './popover';
 import { isFinished, useDownloads } from './DownloadsContext';
 import type { Download } from './DownloadsContext';
+import { fmtBytes } from '../screens/archive/model';
 
 const STATUS: Record<string, string> = {
-    queued: 'устройство занято',
+    queued: 'в очереди',
     pending: 'ожидание',
-    parsing: 'подбор файлов',
+    parsing: 'подбор',
     merging: 'склейка',
-    archiving: 'упаковка',
     ready: 'готово',
     failed: 'ошибка',
     cancelled: 'отменено',
@@ -95,27 +95,34 @@ interface RowProps {
 function Row({ item, onCancel, onDismiss, onSave }: RowProps) {
     const done = item.status === 'ready';
     const failed = item.status === 'failed';
-    const percent = Math.round((item.saving ? item.savingProgress : item.progress) * 100);
+    const percent = Math.round(item.progress * 100);
+
+    // Слева в подвале — что делает устройство прямо сейчас, а не выдуманные файлы
+    const foot = failed
+        ? item.error || 'ошибка'
+        : done
+            ? fmtBytes(item.bytes)
+            : item.status === 'queued'
+                ? 'устройство занято'
+                : `${item.message ? `${item.message} · ` : ''}${percent} %`;
 
     return (
         <div className="dl-job">
             <div className="dl-job-t">
                 <b>{item.title}</b>
                 <span className={`st${done ? ' ok' : ''}${failed ? ' err' : ''}`}>
-                    {item.saving ? 'скачивание' : STATUS[item.status] ?? item.status}
+                    {STATUS[item.status] ?? item.status}
                 </span>
             </div>
-            <div className="dl-job-sub">{item.error || item.subtitle}</div>
+            <div className="dl-job-sub">{item.subtitle}</div>
 
-            <div className={`dl-bar${done && !item.saving ? ' is-done' : ''}${item.status === 'queued' ? ' is-wait' : ''}`}>
+            <div className={`dl-bar${done ? ' is-done' : ''}${item.status === 'queued' ? ' is-wait' : ''}`}>
                 <i style={{ width: `${percent}%` }} />
             </div>
 
             <div className="dl-job-f">
-                <span className="dl-job-sub">
-                    {item.filesTotal ? `${item.filesDone} из ${item.filesTotal} файлов` : `${percent} %`}
-                </span>
-                {done && !item.saving && (
+                <span className="dl-job-sub">{foot}</span>
+                {done && (
                     <button type="button" className="btn btn--sm btn--acc dl-grow" onClick={() => onSave(item.id)}>
                         Сохранить файл
                     </button>

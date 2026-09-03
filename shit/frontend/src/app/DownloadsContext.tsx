@@ -3,10 +3,10 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import { useSystem } from './SystemContext';
 import type { ExportRequest, JobProgress } from '../screens/archive/model';
 import {
-    fetchJobs, jobCancelUrl, jobDownloadUrl, jobProgressUrl, startCut, startZip,
+    browserDownload, fetchJobs, jobCancelUrl, jobDownloadUrl, jobProgressUrl, startCut,
 } from '../screens/archive/model';
 
-// Выгрузка, идущая на устройстве, вместе с ходом скачивания результата
+// Склейка, идущая на устройстве; результат скачивает сам браузер
 export interface Download {
     id: string;
     deviceId: string;
@@ -20,18 +20,16 @@ export interface Download {
     filesDone: number;
     bytes: number;
     filename: string;
-    saving: boolean;
-    savingProgress: number;
 }
 
 interface DownloadsValue {
     items: Download[];
     // Доля от нуля до единицы по всем незавершённым задачам
     overall: number;
-    start: (deviceId: string, kind: 'cut' | 'zip', request: ExportRequest) => Promise<void>;
+    start: (deviceId: string, request: ExportRequest) => Promise<void>;
     cancel: (id: string) => void;
     dismiss: (id: string) => void;
-    save: (id: string) => Promise<void>;
+    save: (id: string) => void;
 }
 
 const DownloadsContext = createContext<DownloadsValue>({
@@ -40,7 +38,7 @@ const DownloadsContext = createContext<DownloadsValue>({
     start: async () => undefined,
     cancel: () => undefined,
     dismiss: () => undefined,
-    save: async () => undefined,
+    save: () => undefined,
 });
 
 export const useDownloads = () => useContext(DownloadsContext);
@@ -54,7 +52,6 @@ function blank(id: string, deviceId: string, title: string, subtitle: string): D
         id, deviceId, title, subtitle,
         status: 'queued', progress: 0, message: '',
         filesTotal: 0, filesDone: 0, bytes: 0, filename: '',
-        saving: false, savingProgress: 0,
     };
 }
 
@@ -129,12 +126,8 @@ export function DownloadsProvider({ children }: { children: React.ReactNode }) {
         sockets.current.clear();
     }, []);
 
-    const start = useCallback(async (
-        deviceId: string,
-        kind: 'cut' | 'zip',
-        request: ExportRequest,
-    ) => {
-        const { job_id } = await (kind === 'cut' ? startCut : startZip)(deviceId, request);
+    const start = useCallback(async (deviceId: string, request: ExportRequest) => {
+        const { job_id } = await startCut(deviceId, request);
         setItems(list => [...list, blank(job_id, deviceId, request.title, request.subtitle)]);
         listen(job_id, deviceId);
     }, [listen]);
@@ -151,42 +144,13 @@ export function DownloadsProvider({ children }: { children: React.ReactNode }) {
         dismiss(id);
     }, [dismiss, items]);
 
-    // Результат тянется потоком: архив на гигабайты едет с платы заметное время
-    const save = useCallback(async (id: string) => {
+    // Файл забирает браузер; устройство удалит результат само после отдачи
+    const save = useCallback((id: string) => {
         const item = items.find(value => value.id === id);
         if (!item) return;
-
-        patch(id, { saving: true, savingProgress: 0 });
-
-        try {
-            const response = await fetch(jobDownloadUrl(item.deviceId, id));
-            if (!response.ok || !response.body) throw new Error(String(response.status));
-
-            const total = Number(response.headers.get('content-length')) || 0;
-            const reader = response.body.getReader();
-            const chunks: BlobPart[] = [];
-            let read = 0;
-
-            for (;;) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                chunks.push(value);
-                read += value.length;
-                if (total) patch(id, { savingProgress: read / total });
-            }
-
-            const url = URL.createObjectURL(new Blob(chunks));
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = item.filename || 'archive.zip';
-            link.click();
-            URL.revokeObjectURL(url);
-
-            dismiss(id);
-        } catch (e) {
-            patch(id, { saving: false, error: String(e) });
-        }
-    }, [dismiss, items, patch]);
+        browserDownload(jobDownloadUrl(item.deviceId, id));
+        dismiss(id);
+    }, [dismiss, items]);
 
     const running = items.filter(item => !isFinished(item));
     const overall = running.length

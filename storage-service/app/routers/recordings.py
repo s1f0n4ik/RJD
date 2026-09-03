@@ -17,6 +17,7 @@ from app.config import settings
 from app.services.jobs import JobStatus, jobs
 from app.services.merger import run_merge_job, run_archive_job
 from app.services.storage import storage
+from app.services.zipstream import stream_zip
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -163,20 +164,28 @@ async def merge_download(job_id: str, background_tasks: BackgroundTasks):
     job = await jobs.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
-    if job.status != JobStatus.READY or not job.result_path:
+    if job.status != JobStatus.READY or not job.result_paths:
         raise HTTPException(
             status_code=400,
             detail=f"Job not ready (status: {job.status.value})",
         )
-    if not job.result_path.exists():
+    if not all(path.exists() for path in job.result_paths):
         raise HTTPException(status_code=410, detail="Result file expired")
 
     background_tasks.add_task(_finalize_job, job_id)
 
-    return FileResponse(
-        path=job.result_path,
-        media_type=job.result_media_type,
-        filename=job.result_filename,
+    if len(job.result_paths) == 1:
+        return FileResponse(
+            path=job.result_paths[0],
+            media_type=job.result_media_type,
+            filename=job.result_filename,
+        )
+
+    # Несколько дорожек — zip из готовых mp4 собирается на лету
+    return StreamingResponse(
+        stream_zip([(path, path.name) for path in job.result_paths]),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{job.result_filename}"'},
     )
 
 @router.websocket("/recordings/jobs/{job_id}/progress")

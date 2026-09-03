@@ -5,6 +5,7 @@ from itertools import islice
 from pathlib import Path
 
 from app.config import settings
+from app.services import exports
 from app.services.segments import index
 from app.services.storage import storage
 
@@ -60,12 +61,16 @@ class StorageCleaner:
         if usage is None:
             return
 
-        used_percent = usage.used / usage.total * 100 if usage.total else 0.0
+        # Результаты выгрузок живут под своей квотой и записи не вытесняют
+        exported = await loop.run_in_executor(None, lambda: exports.dir_size(exports.root()))
+        used = max(0, usage.used - exported)
+        free = usage.free + exported
+        used_percent = used / usage.total * 100 if usage.total else 0.0
 
         if used_percent <= settings.MAX_USED_PERCENT:
             logger.debug(
                 "Disk OK: %.1f%% used (free %.2fGB)",
-                used_percent, usage.free / 1024 ** 3,
+                used_percent, free / 1024 ** 3,
                 )
             return
 
@@ -79,7 +84,7 @@ class StorageCleaner:
             used_percent, settings.MAX_USED_PERCENT, target_used_percent,
             )
 
-        await loop.run_in_executor(None, self._free_until, target_free_bytes, usage.free)
+        await loop.run_in_executor(None, self._free_until, target_free_bytes, free)
 
     def _free_until(self, target_free_bytes: int, start_free_bytes: int):
         """

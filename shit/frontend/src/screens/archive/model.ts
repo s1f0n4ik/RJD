@@ -311,9 +311,29 @@ export interface ExportRequest {
 export const startCut = (deviceId: string, request: ExportRequest) =>
     postJson(storagePath(deviceId, '/api/archive/cut'), request);
 
-// Выгрузка исходных сегментов архивом, папка на камеру
-export const startZip = (deviceId: string, request: ExportRequest) =>
-    postJson(storagePath(deviceId, '/api/archive/zip'), request);
+// Исходные сегменты архивом: zip собирается на лету, качает сам браузер
+export function zipUrl(
+    deviceId: string,
+    tracks: Array<{ camera: string; stream: string }>,
+    fromMs: number,
+    toMs: number,
+): string {
+    const params = new URLSearchParams();
+    tracks.forEach(track => params.append('track', `${track.camera}:${track.stream}`));
+    params.set('from_ms', String(Math.round(fromMs)));
+    params.set('to_ms', String(Math.round(toMs)));
+    return storagePath(deviceId, `/api/archive/zip?${params.toString()}`);
+}
+
+// Скачивание отдаётся браузеру: файл на гигабайты в памяти вкладки не собирается
+export function browserDownload(url: string): void {
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = '';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+}
 
 // Активные задачи устройства — ими восстанавливается список после перезагрузки
 export const fetchJobs = (deviceId: string) =>

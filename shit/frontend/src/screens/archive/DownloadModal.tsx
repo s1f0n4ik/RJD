@@ -8,8 +8,9 @@ import { elementAnchor, usePopover } from '../../app/popover';
 import { Calendar } from './Calendar';
 import type { Track, ZoomLevel } from './model';
 import {
-    DAY_MS, ZOOMS, buildTicks, dateKey, dayStartMs, estimateBytes, fmtBytes, fmtDate,
-    fmtDuration, fmtTick, fmtTime, gapsWithin, percentIn, recordedWithin, trackKey,
+    DAY_MS, ZOOMS, browserDownload, buildTicks, dateKey, dayStartMs, estimateBytes, fmtBytes,
+    fmtDate, fmtDuration, fmtTick, fmtTime, gapsWithin, percentIn, recordedWithin, trackKey,
+    zipUrl,
 } from './model';
 
 type RangeMode = 'today' | 'period' | 'all';
@@ -164,19 +165,26 @@ export function DownloadModal({
             byDevice.set(row.track.device_id, list);
         });
 
-        const title = kind === 'cut' ? 'Склейка' : 'Сегменты';
         const subtitle = `${fmtDate(range.from)} ${fmtTime(range.from)} — ${fmtTime(range.to)}`;
 
         try {
             for (const [deviceId, list] of byDevice) {
-                await start(deviceId, kind, {
-                    tracks: list.map(row => ({
-                        camera: row.track.camera_id,
-                        stream: row.track.stream_key,
-                    })),
+                const tracks = list.map(row => ({
+                    camera: row.track.camera_id,
+                    stream: row.track.stream_key,
+                }));
+
+                // Сегменты как есть идут потоком прямо в загрузки браузера, без задачи
+                if (kind === 'zip') {
+                    browserDownload(zipUrl(deviceId, tracks, range.from, range.to));
+                    continue;
+                }
+
+                await start(deviceId, {
+                    tracks,
                     from_ms: Math.round(range.from),
                     to_ms: Math.round(range.to),
-                    title: `${title} · ${list.length === 1 ? list[0].name : `${list.length} камеры`}`,
+                    title: `Склейка · ${list.length === 1 ? list[0].name : `${list.length} камеры`}`,
                     subtitle,
                 });
             }
