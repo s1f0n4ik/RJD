@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Icon } from '../../app/Icons';
+import { ArchiveFeed } from './feed';
 import type { Segment, Track } from './model';
-import { fmtTime, runAfter, segmentAfter, segmentAt, segmentUrl, trackKey } from './model';
+import { fmtTime, isRecorded, runAfter, segmentAt, segmentUrl, trackKey } from './model';
 
 // Проигрывание архива через границы сегментов
 
@@ -21,156 +22,164 @@ interface Props {
     onSeekTo: (ms: number) => void;
 }
 
-// За сколько до конца фрагмента поднимать следующий
-const PRELOAD_LEAD_SEC = 3;
-
 export function ArchivePlayer({
-    track, segments, seek, playing, speed, onProgress, onPlayingChange, onTrackEnd, onSeekTo,
+    track, segments: allSegments, seek, playing, speed, onProgress, onPlayingChange, onTrackEnd, onSeekTo,
 }: Props) {
-    const videoA = useRef<HTMLVideoElement | null>(null);
-    const videoB = useRef<HTMLVideoElement | null>(null);
-
-    const [active, setActive] = useState(0);
-    const [current, setCurrent] = useState<Segment | null>(null);
-    const [failed, setFailed] = useState(false);
-
-    // Что заряжено в резервный элемент — чтобы не грузить одно и то же дважды
-    const standbySegment = useRef<Segment | null>(null);
-
-    const elementAt = useCallback(
-        (index: number) => (index === 0 ? videoA.current : videoB.current),
-        [],
+    // Список сегментов приезжает позже смены дорожки — чужие не берём
+    const segments = useMemo(
+        () => (track
+            ? allSegments.filter(s => s.camera_id === track.camera_id && s.stream_key === track.stream_key)
+            : []),
+        [allSegments, track],
     );
 
-    // Поставить фрагмент в элемент и перемотать внутрь него
-    const mount = useCallback((index: number, segment: Segment, offsetMs: number) => {
-        const element = elementAt(index);
+    const video = useRef<HTMLVideoElement | null>(null);
+    const feed = useRef<ArchiveFeed | null>(null);
+
+    const [current, setCurrent] = useState<Segment | null>(null);
+    const [failed, setFailed] = useState(false);
+    const [error, setError] = useState('');
+
+    // Колбэки экрана меняются каждый рендер, лента живёт дольше
+    const callbacks = useRef({ onProgress, onPlayingChange, onTrackEnd });
+    callbacks.current = { onProgress, onPlayingChange, onTrackEnd };
+    const playingRef = useRef(playing);
+    playingRef.current = playing;
+    // load() при пересоздании источника сбрасывает playbackRate — возвращаем после перемотки
+    const speedRef = useRef(speed);
+    speedRef.current = speed;
+
+    // Лента создаётся на дорожку: у другой дорожки свой MediaSource
+    useEffect(() => {
+        const element = video.current;
         if (!element || !track) return;
 
-        const url = segmentUrl(track, segment);
-        if (element.dataset.path !== segment.path) {
-            element.dataset.path = segment.path;
-            element.src = url;
-            element.load();
-        }
+        const instance = new ArchiveFeed(element, segment => segmentUrl(track, segment), {
+            onError: message => {
+                settling.current = false;
+                setError(message);
+                setFailed(true);
+            },
+            onEnd: () => {
+                callbacks.current.onPlayingChange(false);
+                callbacks.current.onTrackEnd();
+            },
+        });
+        feed.current = instance;
 
-        const offsetSec = Math.max(0, offsetMs / 1000);
-        const applyOffset = () => {
-            try {
-                element.currentTime = offsetSec;
-            } catch {
-                // Метаданные ещё не подъехали — сработает по loadedmetadata
-            }
+        return () => {
+            instance.destroy();
+            feed.current = null;
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [track && trackKey(track)]);
 
-        if (element.readyState >= 1) applyOffset();
-        else element.addEventListener('loadedmetadata', applyOffset, { once: true });
-    }, [elementAt, track]);
+    useEffect(() => {
+        feed.current?.setSegments(segments);
+    }, [segments]);
 
-    // Зарядить следующий фрагмент в резервный элемент
-    const preloadNext = useCallback((afterSegment: Segment) => {
-        if (!track) return;
+    // Перемотка в работе: время замораживается, воспроизведение стоит, пока
+    // данные на новой позиции не окажутся в буфере — об этом скажет seeked
+    const settling = useRef(false);
 
-        const next = segmentAfter(segments, afterSegment.end_ms);
-        if (!next || standbySegment.current?.path === next.path) return;
+    const mount = useCallback((segment: Segment, ms: number) => {
+        setFailed(false);
+        setCurrent(segment);
+        settling.current = true;
+        video.current?.pause();
+        void feed.current?.seek(segment, ms);
+    }, []);
 
-        standbySegment.current = next;
-        mount(active === 0 ? 1 : 0, next, 0);
-    }, [active, mount, segments, track]);
+    const handleSeeked = useCallback(() => {
+        const element = video.current;
+        if (element) element.playbackRate = speedRef.current;
+        if (!settling.current) return;
+        settling.current = false;
+        if (playingRef.current && element) {
+            element.play().catch(() => callbacks.current.onPlayingChange(false));
+        }
+    }, []);
 
-    // Перемотка снаружи: клик по дорожке, смена дорожки, смена дня
+    // Что уже поставлено: перемотка и дорожка; повторно тот же клик не монтируется
+    const served = useRef<string | null>(null);
+    // Клик, под который время уже заморожено в ожидании сегментов
+    const frozen = useRef<string | null>(null);
+
+    // Перемотка снаружи: клик по дорожке, смена дорожки, смена дня. Сегменты
+    // приезжают окном вокруг курсора и позже клика — эффект ждёт их сам
     useEffect(() => {
         if (!track) {
             setCurrent(null);
             return;
         }
 
-        // Курсор можно ставить в пустоту — тогда честно показываем, что записи
-        // здесь нет, вместо тихого прыжка к ближайшей
+        const key = `${seek.token}/${trackKey(track)}`;
         const target = segmentAt(segments, seek.ms);
-        if (!target) {
+
+        if (target) {
+            if (served.current !== key) {
+                served.current = key;
+                mount(target, seek.ms);
+            }
+            return;
+        }
+
+        // Сегмента ещё нет, но по кускам дорожки запись есть — кадр не гасим,
+        // а время замораживаем уже сейчас: иначе плеер утащит курсор обратно,
+        // и экран запросит сегменты не вокруг клика, а вокруг старого места
+        if (isRecorded(track, seek.ms)) {
+            if (frozen.current !== key) {
+                frozen.current = key;
+                settling.current = true;
+                video.current?.pause();
+            }
+            return;
+        }
+
+        // Курсор в пустоте — честно показываем, что записи здесь нет
+        if (served.current !== key) {
+            served.current = key;
+            settling.current = false;
             setCurrent(null);
             setFailed(false);
-            return;
+            feed.current?.park();
         }
+    }, [seek.token, seek.ms, segments, track, mount]);
 
-        const offset = Math.max(0, seek.ms - target.start_ms);
-        setFailed(false);
-        setCurrent(target);
-        standbySegment.current = null;
-        mount(active, target, offset);
-        preloadNext(target);
-        // Дорожка сравнивается по ключу: fetchRange отдаёт новый объект каждые
-        // десять секунд, а перемонтировать надо только при смене дорожки
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [seek.token, track && trackKey(track)]);
-
-    // Сегменты приезжают после выбора дорожки — как только они есть, ставим
-    // фрагмент под курсором, не дожидаясь следующей перемотки
     useEffect(() => {
-        if (current || !track || !segments.length) return;
-
-        const target = segmentAt(segments, seek.ms);
-        if (!target) return;
-
-        setFailed(false);
-        setCurrent(target);
-        standbySegment.current = null;
-        mount(active, target, Math.max(0, seek.ms - target.start_ms));
-        preloadNext(target);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [segments, current, track, seek.token]);
-
-    // Пуск и пауза идут только активному элементу
-    useEffect(() => {
-        const element = elementAt(active);
+        const element = video.current;
         if (!element || !current) return;
 
-        if (playing) {
-            element.play().catch(() => onPlayingChange(false));
-        } else {
+        element.playbackRate = speedRef.current;
+        if (!playing) {
             element.pause();
+        } else if (!settling.current) {
+            element.play().catch(() => callbacks.current.onPlayingChange(false));
         }
-    }, [playing, active, current, elementAt, onPlayingChange]);
+    }, [playing, current]);
 
     useEffect(() => {
-        const element = elementAt(active);
-        if (element) element.playbackRate = speed;
-    }, [speed, active, elementAt]);
+        if (video.current) video.current.playbackRate = speed;
+    }, [speed]);
 
-    const handleTimeUpdate = useCallback((index: number) => {
-        if (index !== active || !current) return;
+    const handleTimeUpdate = useCallback(() => {
+        const instance = feed.current;
+        if (!instance || !current) return;
 
-        const element = elementAt(index);
-        if (!element) return;
+        instance.tick(playingRef.current);
 
-        onProgress(current.start_ms + element.currentTime * 1000);
+        const ms = instance.positionMs();
+        if (ms === null || settling.current) return;
+        callbacks.current.onProgress(ms);
 
-        const left = (element.duration || 0) - element.currentTime;
-        if (Number.isFinite(left) && left <= PRELOAD_LEAD_SEC) preloadNext(current);
-    }, [active, current, elementAt, onProgress, preloadNext]);
+        // Эстафета прошла через границу файла — подпись и ошибка про новый
+        const at = segmentAt(segments, ms);
+        if (at && at.path !== current.path) setCurrent(at);
+    }, [current, segments]);
 
-    // Фрагмент кончился — передаём эстафету, а через разрыв прыгаем
-    const handleEnded = useCallback((index: number) => {
-        if (index !== active || !track || !current) return;
-
-        const next = standbySegment.current || segmentAfter(segments, current.end_ms);
-        if (!next) {
-            onPlayingChange(false);
-            onTrackEnd();
-            return;
-        }
-
-        const nextIndex = active === 0 ? 1 : 0;
-        if (standbySegment.current?.path !== next.path) {
-            mount(nextIndex, next, 0);
-        }
-
-        standbySegment.current = null;
-        setCurrent(next);
-        setActive(nextIndex);
-        onProgress(next.start_ms);
-    }, [active, current, mount, onPlayingChange, onProgress, onTrackEnd, segments, track]);
+    const handleWaiting = useCallback(() => {
+        feed.current?.tick(playingRef.current);
+    }, []);
 
     const stamp = current
         ? `${track?.camera_id ?? ''} · ${fmtTime(current.start_ms)}`
@@ -184,24 +193,22 @@ export function ArchivePlayer({
     return (
         <div className="arch-video">
             <video
-                ref={videoA}
-                className={`arch-frame${active === 0 && current ? ' is-on' : ''}`}
+                ref={video}
+                className={`arch-frame${current && !failed ? ' is-on' : ''}`}
                 playsInline
                 muted
                 preload="auto"
-                onTimeUpdate={() => handleTimeUpdate(0)}
-                onEnded={() => handleEnded(0)}
-                onError={() => active === 0 && setFailed(true)}
-            />
-            <video
-                ref={videoB}
-                className={`arch-frame${active === 1 && current ? ' is-on' : ''}`}
-                playsInline
-                muted
-                preload="auto"
-                onTimeUpdate={() => handleTimeUpdate(1)}
-                onEnded={() => handleEnded(1)}
-                onError={() => active === 1 && setFailed(true)}
+                onTimeUpdate={handleTimeUpdate}
+                onSeeked={handleSeeked}
+                onWaiting={handleWaiting}
+                onEnded={() => feed.current?.onEnded()}
+                onError={() => {
+                    // Событие доезжает позже пересоздания источника — тогда error уже пуст
+                    const media = video.current?.error;
+                    if (!media) return;
+                    setError(media.message);
+                    setFailed(true);
+                }}
             />
 
             {current && !failed && <div className="arch-stamp">{stamp}</div>}
@@ -225,7 +232,7 @@ export function ArchivePlayer({
             {failed && (
                 <div className="arch-empty">
                     <Icon name="warn" />
-                    <span>Фрагмент не открылся: {current?.file}</span>
+                    <span>Фрагмент не открылся: {current?.file}{error ? ` · ${error}` : ''}</span>
                 </div>
             )}
         </div>
