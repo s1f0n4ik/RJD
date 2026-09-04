@@ -86,13 +86,18 @@ export function Select({ value, options, onChange, disabled, placeholder, emptyT
             if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
         };
         const close = () => setOpen(false);
+        // Прокрутка самого списка приходит сюда же в фазе захвата — её пропускаем
+        const onScroll = (e: Event) => {
+            if (rootRef.current?.contains(e.target as Node)) return;
+            setOpen(false);
+        };
         document.addEventListener('mousedown', onDown);
         window.addEventListener('resize', close);
-        document.addEventListener('scroll', close, true);
+        document.addEventListener('scroll', onScroll, true);
         return () => {
             document.removeEventListener('mousedown', onDown);
             window.removeEventListener('resize', close);
-            document.removeEventListener('scroll', close, true);
+            document.removeEventListener('scroll', onScroll, true);
         };
     }, [open]);
 

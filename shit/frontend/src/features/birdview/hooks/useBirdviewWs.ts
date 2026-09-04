@@ -122,7 +122,11 @@ export function useBirdviewWs({
             reasonRef.current = null;
             takenByRef.current = null;
             logRef.current(
-                meta.took_over ? 'Сессия калибратора перехвачена' : 'Сессия калибратора получена',
+                meta.took_over
+                    ? 'Сессия калибратора перехвачена'
+                    : meta.resumed
+                      ? 'Сессия калибратора восстановлена'
+                      : 'Сессия калибратора получена',
                 'ok',
             );
             return true;
@@ -188,7 +192,10 @@ export function useBirdviewWs({
         const target = urlRef.current.trim();
         if (!target) return;
 
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        // CONNECTING тоже считается занятым: иначе на странице заводится второй
+        // сокет, и оба клиента дерутся за единственный слот калибратора
+        const current = wsRef.current;
+        if (current && (current.readyState === WebSocket.OPEN || current.readyState === WebSocket.CONNECTING)) {
             logRef.current('WS уже подключён', 'warn');
             return;
         }
@@ -204,17 +211,23 @@ export function useBirdviewWs({
         ws.binaryType = 'arraybuffer';
         wsRef.current = ws;
 
+        // События покинутого сокета не должны трогать состояние живого
+        const isCurrent = () => wsRef.current === ws;
+
         ws.onopen = () => {
+            if (!isCurrent()) return;
             // Сокет открыт, но сессия ещё не наша: её подтверждает session_ready
             logRef.current('WebSocket открыт, ждём подтверждения сессии');
         };
 
         ws.onerror = () => {
+            if (!isCurrent()) return;
             setStatus('disconnected');
             logRef.current('WebSocket ошибка', 'err');
         };
 
         ws.onclose = () => {
+            if (!isCurrent()) return;
             // Сообщение type:'close' тут не шлём: сокет уже закрыт, отправка
             // всё равно не проходит и только пишет ложную ошибку в лог.
             wsRef.current = null;
@@ -231,6 +244,7 @@ export function useBirdviewWs({
         };
 
         ws.onmessage = (event: MessageEvent) => {
+            if (!isCurrent()) return;
             const data = event.data;
 
             if (data instanceof ArrayBuffer) {
@@ -344,6 +358,9 @@ export function useBirdviewWs({
             sayGoodbye();
             wsRef.current?.close();
             wsRef.current = null;
+            // Флаг живёт в ref и переживает размонтирование: без сброса
+            // повторный монтаж (StrictMode, возврат в раздел) не подключится
+            autoConnectedRef.current = false;
         };
     }, [sayGoodbye]);
 

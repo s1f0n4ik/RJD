@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Icon } from '../../../../app/Icons';
 import { fetchCalibrationCameras } from '../../api/cameras';
 import { CustomSelect } from '../common/CustomSelect';
 import type { CalibrationCamera } from '../../api/ws-types';
@@ -46,7 +47,7 @@ export function CameraPanel({
         };
     }, []);
 
-    const streamLabel = pending ? 'Подключение…' : streamOpen ? 'Остановить поток' : 'Запустить поток';
+    const streamLabel = pending ? 'Подключение…' : streamOpen ? 'Остановить' : 'Запустить';
 
     return (
         <>
@@ -82,26 +83,34 @@ export function CameraPanel({
                         <span className="tf-cap">Кадров/с</span>
                         <input className="tf-in" readOnly value={camera ? String(camera.fps) : '—'} />
                     </div>
+                    <button
+                        className="btn btn--sm tf-btn"
+                        onClick={onToggleStream}
+                        disabled={pending || !wsReady}
+                    >
+                        {streamLabel}
+                    </button>
                 </div>
 
                 <div className="tf">
                     <span className="tf-cap">Загружена конфигурация</span>
-                    <input
-                        className="tf-in"
-                        readOnly
-                        value={loadedKey ?? '—'}
-                        title={loadedKey ?? undefined}
-                        style={loadedKey ? { color: 'var(--ok)' } : undefined}
-                    />
-                </div>
-
-                <div className="brow">
-                    <button className="btn btn--sm" onClick={onToggleStream} disabled={pending || !wsReady}>
-                        {streamLabel}
-                    </button>
-                    <button className="btn btn--sm btn--ghost" onClick={onLoadConfiguration} disabled={!wsReady}>
-                        Загрузить конфигурацию
-                    </button>
+                    <div className="tf-attach">
+                        <input
+                            className="tf-in"
+                            readOnly
+                            value={loadedKey ?? '—'}
+                            title={loadedKey ?? undefined}
+                            style={loadedKey ? { color: 'var(--ok)' } : undefined}
+                        />
+                        <button
+                            className="icon-btn ib-tf"
+                            data-tip="Загрузить конфигурацию"
+                            onClick={onLoadConfiguration}
+                            disabled={!wsReady}
+                        >
+                            <Icon name="down" size={15} />
+                        </button>
+                    </div>
                 </div>
             </div>
         </>

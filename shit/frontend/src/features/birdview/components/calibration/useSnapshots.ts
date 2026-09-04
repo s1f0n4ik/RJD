@@ -25,6 +25,10 @@ export interface SnapshotFrame {
 export interface Snapshots {
     items: Snapshot[];
     frame: SnapshotFrame | null;
+    /** Миниатюры по id снимка; заполняются по запросу из шторки. */
+    thumbs: Record<number, string>;
+    /** Дозаказать недостающие миниатюры. */
+    loadThumbs: () => void;
     take: () => void;
     requestFrame: (id: number) => void;
     requestRemove: (id: number) => void;
@@ -46,6 +50,15 @@ interface Options {
 export function useSnapshots({ ws, clientId, log }: Options): Snapshots {
     const [items, setItems] = useState<Snapshot[]>([]);
     const [frame, setFrame] = useState<SnapshotFrame | null>(null);
+    const [thumbs, setThumbs] = useState<Record<number, string>>({});
+
+    // Ждём ответа именно на запрос миниатюры: такой кадр не должен лечь поверх потока
+    const thumbWaitRef = useRef<number | null>(null);
+    const thumbQueueRef = useRef<number[]>([]);
+    const thumbsRef = useRef<Record<number, string>>({});
+    thumbsRef.current = thumbs;
+    const itemsRef = useRef<Snapshot[]>([]);
+    itemsRef.current = items;
 
     // Blob-url надо освобождать вручную, иначе кадры копятся в памяти
     const frameUrlRef = useRef<string | null>(null);
@@ -57,7 +70,20 @@ export function useSnapshots({ ws, clientId, log }: Options): Snapshots {
         }
     }, []);
 
-    useEffect(() => revoke, [revoke]);
+    const dropThumbs = useCallback(() => {
+        Object.values(thumbsRef.current).forEach(URL.revokeObjectURL);
+        thumbQueueRef.current = [];
+        thumbWaitRef.current = null;
+        setThumbs({});
+    }, []);
+
+    useEffect(
+        () => () => {
+            revoke();
+            Object.values(thumbsRef.current).forEach(URL.revokeObjectURL);
+        },
+        [revoke],
+    );
 
     const take = useCallback(() => {
         ws.send({ type: 'add_image', client_id: clientId, meta: {} });
@@ -70,6 +96,35 @@ export function useSnapshots({ ws, clientId, log }: Options): Snapshots {
         },
         [ws, clientId],
     );
+
+    // Миниатюры тянем по одной: 20 полноразмерных кадров разом забьют сокет калибратора
+    const pumpRef = useRef<() => void>(() => {});
+    const thumbTimerRef = useRef<number | null>(null);
+
+    const pumpThumbs = useCallback(() => {
+        if (thumbWaitRef.current !== null) return;
+        const next = thumbQueueRef.current.shift();
+        if (next === undefined) return;
+        thumbWaitRef.current = next;
+        ws.send({ type: 'get_image', client_id: clientId, meta: { id: next } });
+
+        // Ответ может не прийти вовсе — очередь не должна встать навсегда
+        if (thumbTimerRef.current) window.clearTimeout(thumbTimerRef.current);
+        thumbTimerRef.current = window.setTimeout(() => {
+            thumbWaitRef.current = null;
+            pumpRef.current();
+        }, 5000);
+    }, [ws, clientId]);
+    pumpRef.current = pumpThumbs;
+
+    const loadThumbs = useCallback(() => {
+        const missing = itemsRef.current
+            .map(s => s.id)
+            .filter(id => !thumbsRef.current[id] && !thumbQueueRef.current.includes(id) && thumbWaitRef.current !== id);
+        if (!missing.length) return;
+        thumbQueueRef.current.push(...missing);
+        pumpThumbs();
+    }, [pumpThumbs]);
 
     const requestRemove = useCallback(
         (id: number) => {
@@ -91,7 +146,8 @@ export function useSnapshots({ ws, clientId, log }: Options): Snapshots {
         setItems([]);
         revoke();
         setFrame(null);
-    }, [revoke]);
+        dropThumbs();
+    }, [revoke, dropThumbs]);
 
     const setUsed = useCallback((id: number, used: boolean) => {
         setItems(prev => prev.map(s => (s.id === id ? { ...s, used } : s)));
@@ -129,6 +185,8 @@ export function useSnapshots({ ws, clientId, log }: Options): Snapshots {
             }
             // Сервер перенумеровывает оставшиеся подряд — повторяем это же
             setItems(prev => prev.filter(s => s.id !== id).map((s, i) => ({ ...s, id: i })));
+            // Номера съехали, старые миниатюры больше ничему не соответствуют
+            dropThumbs();
         },
         [log, clear],
     );
@@ -141,20 +199,38 @@ export function useSnapshots({ ws, clientId, log }: Options): Snapshots {
             }
             if (!msg.imageBytes) return;
 
+            const id = Number(msg.meta?.id ?? -1);
+
+            // Ответ на запрос миниатюры: кладём в набор превью, поток не трогаем
+            if (thumbWaitRef.current !== null && thumbWaitRef.current === id) {
+                thumbWaitRef.current = null;
+                if (thumbTimerRef.current) window.clearTimeout(thumbTimerRef.current);
+                const bytes = msg.imageBytes.slice();
+                const url = URL.createObjectURL(new Blob([bytes], { type: 'image/jpeg' }));
+                setThumbs(prev => {
+                    if (prev[id]) URL.revokeObjectURL(prev[id]);
+                    return { ...prev, [id]: url };
+                });
+                pumpThumbs();
+                return;
+            }
+
             revoke();
             // slice() копирует байты в собственный буфер — вид над буфером
             // WS-сообщения переживать это сообщение не обязан
             const bytes = msg.imageBytes.slice();
             const url = URL.createObjectURL(new Blob([bytes], { type: 'image/jpeg' }));
             frameUrlRef.current = url;
-            setFrame({ id: msg.meta?.id ?? -1, url });
+            setFrame({ id, url });
         },
-        [log, revoke],
+        [log, revoke, pumpThumbs],
     );
 
     return {
         items,
         frame,
+        thumbs,
+        loadThumbs,
         take,
         requestFrame,
         requestRemove,

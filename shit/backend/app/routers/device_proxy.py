@@ -89,7 +89,9 @@ async def _bridge_websocket(websocket: WebSocket, device_id: str, port: int, pat
         return
 
     await websocket.accept()
-    uri = f"ws://{device['ip']}:{port}/{path}"
+    # Строка запроса несёт идентификатор клиента, устройству она нужна целиком
+    query = websocket.url.query
+    uri = f"ws://{device['ip']}:{port}/{path}" + (f"?{query}" if query else "")
 
     try:
         async with websockets.connect(uri) as upstream:

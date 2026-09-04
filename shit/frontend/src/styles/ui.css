@@ -445,7 +445,8 @@ select.sel option{background:var(--panel);color:var(--fg)}
 select.sel:disabled{opacity:.45;cursor:not-allowed}
 
 /* Числовые поля без спиннеров: единицы и так подписаны рядом */
-.inp::-webkit-outer-spin-button,.inp::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.inp::-webkit-outer-spin-button,.inp::-webkit-inner-spin-button,.tf-in::-webkit-outer-spin-button,.tf-in::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.tf-in[type=number]{-moz-appearance:textfield;appearance:textfield}
 .inp[type=number]{-moz-appearance:textfield}
 .inp:disabled{opacity:.45}
 .inp.is-err{border-color:var(--err)}

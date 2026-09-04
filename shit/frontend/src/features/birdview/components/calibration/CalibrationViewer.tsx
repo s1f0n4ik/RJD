@@ -1,13 +1,12 @@
-import { useRef, useState } from 'react';
-import WebRTCPlayer from '../../../../components/WebRTCPlayer';
-import type { PlayerStatusInfo } from '../../../../components/WebRTCPlayer';
+import { useEffect, useRef, useState } from 'react';
 import { Icon } from '../../../../app/Icons';
 import { Switch } from '../../../../app/Modal';
-import { wsUrl } from '../../constants';
 import type { CalibrationCamera } from '../../api/ws-types';
 import type { EventLog } from '../../hooks/useEventLog';
 import type { ConnState } from '../../types';
 import type { SessionReason } from '../../hooks/useBirdviewWs';
+import type { StreamPlayerState } from '../shared/StreamPlayer';
+import type { PlayerStatus } from '../../../../components/webrtc/useWebRTCPlayer';
 import { CalibrationOverlay } from './CalibrationOverlay';
 import { EventLogPanel } from './EventLogPanel';
 import type { CalOverlayState } from './useCalibrationProcess';
@@ -33,6 +32,14 @@ const REASON_WORDS: Record<SessionReason, string> = {
     closed: 'нет связи',
 };
 
+const RTC_WORDS: Record<PlayerStatus, string> = {
+    connecting: 'подключение',
+    signaling: 'согласование',
+    streaming: 'идёт',
+    reconnecting: 'переподключение',
+    error: 'ошибка',
+};
+
 const STATE_CLASS: Record<ConnState, string> = {
     connected: 'ok',
     connecting: 'warn',
@@ -47,12 +54,11 @@ interface CalibrationViewerProps {
     rtcState: ConnState;
     camera: CalibrationCamera | null;
     streamId: string | null;
-    // Номер пересборки пайплайна: id_stream у калибратора константа
-    streamGeneration: number;
     // Запрос стрима отправлен, ответа калибратора ещё нет
     pendingStream: boolean;
-    playerInfo: PlayerStatusInfo;
-    onPlayerStatus: (info: PlayerStatusInfo) => void;
+    playerState: StreamPlayerState | null;
+    // Узел, в который раздел переносит общий плеер
+    onPlayerHost: (node: HTMLElement | null) => void;
     overlay: CalOverlayState | null;
     onDismissOverlay: () => void;
     snapshots: Snapshots;
@@ -75,10 +81,9 @@ export function CalibrationViewer({
     rtcState,
     camera,
     streamId,
-    streamGeneration,
     pendingStream,
-    playerInfo,
-    onPlayerStatus,
+    playerState,
+    onPlayerHost,
     overlay,
     onDismissOverlay,
     snapshots,
@@ -97,6 +102,14 @@ export function CalibrationViewer({
     const [drawerOpen, setDrawerOpen] = useState(false);
     const [tab, setTab] = useState<'snaps' | 'log'>('snaps');
 
+    const loadThumbs = snapshots.loadThumbs;
+
+    // Превью тянем только когда шторка открыта и вкладка со снимками
+    useEffect(() => {
+        if (!drawerOpen || tab !== 'snaps') return;
+        loadThumbs();
+    }, [drawerOpen, tab, snapshots.items.length, loadThumbs]);
+
     const toggleFullscreen = () => {
         const el = stageRef.current;
         if (!el) return;
@@ -109,12 +122,21 @@ export function CalibrationViewer({
     const calibratorWord =
         wsState === 'disconnected' && wsReason ? REASON_WORDS[wsReason] : WS_WORDS[wsState];
 
+    const stats = playerState?.stats ?? null;
+
+    const fps = stats?.fps != null ? Math.round(stats.fps) : camera?.fps ?? null;
+
+    // Нет сокета — отказ, нет потока при живом сокете — штатная ситуация
+    const pillClass = wsState !== 'connected' ? 'err' : rtcState === 'connected' ? 'ok' : 'warn';
+
     const streamText =
-        rtcState === 'connected'
-            ? `Поток · ${camera?.fps ?? '—'} fps`
-            : rtcState === 'connecting'
-              ? 'Подключение…'
-              : 'Нет потока';
+        wsState !== 'connected'
+            ? 'Нет подключения'
+            : rtcState === 'connected'
+              ? `Поток · ${fps ?? '—'} fps`
+              : rtcState === 'connecting'
+                ? 'Подключение…'
+                : 'Нет потока';
 
     const count = snapshots.items.length;
 
@@ -147,7 +169,7 @@ export function CalibrationViewer({
                 )}
 
                 <div className="pills">
-                    <span className={`pill has-tip ${STATE_CLASS[rtcState]}`}>
+                    <span className={`pill has-tip ${pillClass}`}>
                         <span className="dot" />
                         {streamText}
                         <div className="tipbox">
@@ -165,15 +187,36 @@ export function CalibrationViewer({
                                 </button>
                             </div>
                             <div className="kv">
-                                <span className="k">ICE</span>
-                                <span className="v">{playerInfo.ice}</span>
-                            </div>
-                            <div className="kv">
-                                <span className="k">Соединение</span>
-                                <span className="v">{playerInfo.conn}</span>
-                            </div>
-                            <div className="kv">
                                 <span className="k">Поток</span>
+                                <span className={`v ${STATE_CLASS[rtcState]}`}>
+                                    {playerState ? RTC_WORDS[playerState.status] : 'нет'}
+                                    {playerState && playerState.attempt > 0 && ` · попытка ${playerState.attempt + 1}`}
+                                </span>
+                            </div>
+                            <div className="kv">
+                                <span className="k">Кадры/с</span>
+                                <span className="v">{stats?.fps != null ? Math.round(stats.fps) : '—'}</span>
+                            </div>
+                            <div className="kv">
+                                <span className="k">Битрейт</span>
+                                <span className="v">{stats?.mbits != null ? `${stats.mbits.toFixed(1)} Мбит/с` : '—'}</span>
+                            </div>
+                            <div className="kv">
+                                <span className="k">Задержка</span>
+                                <span className="v">{stats?.rttMs != null ? `${Math.round(stats.rttMs)} мс` : '—'}</span>
+                            </div>
+                            <div className="kv">
+                                <span className="k">Потери</span>
+                                <span className="v">{stats?.lossPct != null ? `${stats.lossPct.toFixed(1)} %` : '—'}</span>
+                            </div>
+                            <div className="kv">
+                                <span className="k">Кадр</span>
+                                <span className="v">
+                                    {playerState?.width ? `${playerState.width}×${playerState.height}` : '—'}
+                                </span>
+                            </div>
+                            <div className="kv">
+                                <span className="k">Идентификатор</span>
                                 <span className="v">{streamId ?? '—'}</span>
                             </div>
                             <div className="kv">
@@ -182,6 +225,15 @@ export function CalibrationViewer({
                                     {camera ? `${camera.id} · ${camera.width}×${camera.height}` : '—'}
                                 </span>
                             </div>
+                            {playerState?.error && (
+                                <div className="kv">
+                                    <span className="k">Причина</span>
+                                    <span className="v err">
+                                        {playerState.error.text}
+                                        {playerState.error.code !== null && ` · ${playerState.error.code}`}
+                                    </span>
+                                </div>
+                            )}
                         </div>
                     </span>
                     <span className={`pill${hasCalibration ? ' ok' : ''}`}>
@@ -210,14 +262,7 @@ export function CalibrationViewer({
             <div className="sv-stage">
                 <div ref={stageRef} className="stream">
                     {streamId ? (
-                        <div className="player">
-                            <WebRTCPlayer
-                                key={`${streamId}-${streamGeneration}`}
-                                cameraId={streamId}
-                                signalingUrl={wsUrl(`/signaling/client/${streamId}`)}
-                                onStatusChange={onPlayerStatus}
-                            />
-                        </div>
+                        <div className="player" ref={onPlayerHost} />
                     ) : pendingStream ? (
                         <div className="empty">
                             <span className="spin" />
@@ -249,43 +294,28 @@ export function CalibrationViewer({
                     {snapshots.frame && (
                         <div className="snapmark">
                             <span className="pill">снимок {String(snapshots.frame.id).padStart(3, '0')}</span>
+                            <button className="btn btn--sm btn--ok" onClick={snapshots.resumeStream}>
+                                <Icon name="play" size={13} className="ico" />
+                                Вернуться к потоку
+                            </button>
                         </div>
                     )}
 
                     {overlay && <CalibrationOverlay state={overlay} onDismiss={onDismissOverlay} />}
                 </div>
+            </div>
 
-                <div className={`sv-drawer${drawerOpen ? ' is-open' : ''}`}>
-                    <div className="sv-anchor" onClick={() => setDrawerOpen(o => !o)}>
-                        <i />
-                        Снимки · {count}
-                        <i />
-                    </div>
-                    <div className="sv-drawer-b">
-                        <div className="sv-drawer-h">
-                            <div className="seg seg--xs">
-                                <button className={tab === 'snaps' ? 'is-on' : ''} onClick={() => setTab('snaps')}>
-                                    Снимки · {count}
-                                </button>
-                                <button className={tab === 'log' ? 'is-on' : ''} onClick={() => setTab('log')}>
-                                    Журнал
-                                </button>
-                            </div>
-                            {tab === 'snaps' ? (
-                                <button
-                                    className="btn btn--sm btn--ghost spacer"
-                                    onClick={snapshots.requestClear}
-                                    disabled={count === 0}
-                                >
-                                    Удалить все
-                                </button>
-                            ) : (
-                                <button className="btn btn--sm btn--ghost spacer" onClick={log.clear}>
-                                    Очистить
-                                </button>
-                            )}
-                        </div>
+            <div className={`snap-sheet${drawerOpen ? ' is-open' : ''}`}>
+                <div className="snap-sheet-h">
+                    <button className="snap-anchor" onClick={() => setDrawerOpen(o => !o)}>
+                        Снимки
+                        <span className="n">{count}</span>
+                        <Icon name="chev" size={11} className="ico" />
+                    </button>
+                </div>
 
+                <div className="snap-sheet-b">
+                    <div className="snap-sheet-main">
                         {tab === 'snaps' ? (
                             count === 0 ? (
                                 <div className="snaps-empty">Снимков нет</div>
@@ -297,7 +327,13 @@ export function CalibrationViewer({
                                             className={`snap${snapshots.frame?.id === s.id ? ' is-sel' : ''}`}
                                             onClick={() => snapshots.requestFrame(s.id)}
                                         >
-                                            <Icon name="img" className="ico" />
+                                            {snapshots.thumbs[s.id] ? (
+                                                <img src={snapshots.thumbs[s.id]} alt="" />
+                                            ) : (
+                                                <span className="ph">
+                                                    <Icon name="img" className="ico" />
+                                                </span>
+                                            )}
                                             <span className="n">{String(s.id).padStart(3, '0')}</span>
                                             <span className={`dot d${s.used ? ' ok' : ''}`} />
                                             <span
@@ -317,8 +353,33 @@ export function CalibrationViewer({
                             <EventLogPanel log={log} />
                         )}
                     </div>
+
+                    <div className="snap-sheet-side">
+                        <button
+                            className={`vtab${tab === 'snaps' ? ' is-on' : ''}`}
+                            onClick={() => setTab('snaps')}
+                        >
+                            <Icon name="img" size={16} className="ico" />
+                            Снимки
+                            <span className="c">{count}</span>
+                        </button>
+                        <button className={`vtab${tab === 'log' ? ' is-on' : ''}`} onClick={() => setTab('log')}>
+                            <Icon name="list" size={16} className="ico" />
+                            Журнал
+                            <span className="c">{log.entries.length}</span>
+                        </button>
+
+                        <button
+                            className="btn btn--sm btn--ghost vtab-foot"
+                            onClick={tab === 'snaps' ? snapshots.requestClear : log.clear}
+                            disabled={tab === 'snaps' && count === 0}
+                        >
+                            Очистить
+                        </button>
+                    </div>
                 </div>
             </div>
+
         </>
     );
 }

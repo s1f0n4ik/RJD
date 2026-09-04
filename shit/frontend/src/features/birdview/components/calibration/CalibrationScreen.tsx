@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { PlayerStatusInfo } from '../../../../components/WebRTCPlayer';
+import type { StreamPlayerState } from '../shared/StreamPlayer';
 import { Icon } from '../../../../app/Icons';
 import type { BirdviewWs } from '../../hooks/useBirdviewWs';
 import type { EventLog } from '../../hooks/useEventLog';
@@ -11,7 +11,7 @@ import { useToast } from '../common/Toast';
 import { CameraPanel } from './CameraPanel';
 import { CalibrationBlock } from './CalibrationBlock';
 import type { PatternInfo } from './CalibrationBlock';
-import { DistortionPanel } from './DistortionPanel';
+import { DistortionPanel, PanoramaPanel } from './DistortionPanel';
 import { CalibrationViewer } from './CalibrationViewer';
 import { ConfigModal } from './ConfigModal';
 import type { ConfigSummary } from './ConfigModal';
@@ -35,8 +35,8 @@ interface CalibrationScreenProps {
     onSelectCamera: (cam: CalibrationCamera) => void;
     stream: StreamControl;
     correction: Correction;
-    playerInfo: PlayerStatusInfo;
-    onPlayerInfo: (info: PlayerStatusInfo) => void;
+    playerState: StreamPlayerState | null;
+    onPlayerHost: (node: HTMLElement | null) => void;
 }
 
 export function CalibrationScreen({
@@ -50,8 +50,8 @@ export function CalibrationScreen({
     onSelectCamera,
     stream,
     correction,
-    playerInfo,
-    onPlayerInfo,
+    playerState,
+    onPlayerHost,
 }: CalibrationScreenProps) {
     const showToast = useToast();
 
@@ -100,7 +100,7 @@ export function CalibrationScreen({
         snapshots,
     });
 
-    const streaming = playerInfo.status === 'connected';
+    const streaming = playerState?.status === 'streaming';
 
     // Обрыв основного WS сбрасывает всё, что зависело от сессии калибратора
     useEffect(() => {
@@ -236,6 +236,15 @@ export function CalibrationScreen({
         [log, distortion],
     );
 
+    // Калибратор погасил пайплайн: и по своей воле, и по просьбе брокера
+    const handleCalibratorClose = useCallback(
+        (msg: WsMessage) => {
+            log.log(`Калибратор закрыл поток: ${msg.meta?.description ?? ''}`, 'warn');
+            stream.reset();
+        },
+        [log, stream],
+    );
+
     const handleUndistortCompute = useCallback(
         (msg: WsMessage) => {
             distortion.handleCompute(msg);
@@ -308,6 +317,7 @@ export function CalibrationScreen({
     // Регистрация обработчиков по msg.type
     useEffect(() => {
         const unsubs = [
+            ws.subscribe('close', handleCalibratorClose),
             ws.subscribe('connection', handleConnection),
             ws.subscribe('get_pattern', handleGetPattern),
             ws.subscribe('chessboard', handleChessboard),
@@ -328,6 +338,7 @@ export function CalibrationScreen({
         return () => unsubs.forEach(u => u());
     }, [
         ws,
+        handleCalibratorClose,
         handleConnection,
         handleGetPattern,
         handleChessboard,
@@ -376,10 +387,9 @@ export function CalibrationScreen({
                     rtcState={rtcState}
                     camera={camera}
                     streamId={stream.streamId}
-                    streamGeneration={stream.generation}
                     pendingStream={stream.pending}
-                    playerInfo={playerInfo}
-                    onPlayerStatus={onPlayerInfo}
+                    playerState={playerState}
+                    onPlayerHost={onPlayerHost}
                     overlay={process.overlay}
                     onDismissOverlay={process.dismiss}
                     snapshots={snapshots}
@@ -433,6 +443,8 @@ export function CalibrationScreen({
                 )}
 
                 {hasCalibration && <DistortionPanel distortion={distortion} rms={process.rms} />}
+
+                {hasCalibration && <PanoramaPanel distortion={distortion} />}
 
                 {saveEnabled && (
                     <>

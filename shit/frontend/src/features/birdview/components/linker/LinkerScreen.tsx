@@ -17,7 +17,7 @@ import type {
 import { SurroundPanel } from './SurroundPanel';
 import type { SurroundTab } from './SurroundPanel';
 import { TopPanel } from './TopPanel';
-import SurroundWebRTCPlayer from '../../../../components/SurroundWebRTCPlayer';
+import { StreamPlayer } from '../shared/StreamPlayer';
 import { wsUrl } from '../../constants';
 import { useToast } from '../common/Toast';
 import { ConfirmModal } from '../common/ConfirmModal';
@@ -526,13 +526,15 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
                     {view === 'stream' && status.streamId ? (
                         // Без кнопок: режимом и орбитой управляет панель параметров
                         <div className="stream">
-                            <SurroundWebRTCPlayer
-                                key={`linker-${status.streamId}-${status.viewMode}`}
-                                cameraId={status.streamId}
-                                signalingUrl={wsUrl(`/signaling/client/${status.streamId}`)}
-                                background="transparent"
-                                onError={e => toastError('Плеер', e)}
-                            />
+                            {active && (
+                                <div className="sv-player">
+                                    <StreamPlayer
+                                        key={`linker-${status.streamId}-${status.viewMode}-${status.width}x${status.height}`}
+                                        cameraId={status.streamId}
+                                        signalingUrl={wsUrl(`/signaling/client/${status.streamId}`)}
+                                    />
+                                </div>
+                            )}
                         </div>
                     ) : (
                         <div className="plan">

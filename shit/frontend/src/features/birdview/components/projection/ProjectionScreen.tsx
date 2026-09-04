@@ -1,11 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import WebRTCPlayer from '../../../../components/WebRTCPlayer';
-import type { PlayerStatusInfo } from '../../../../components/WebRTCPlayer';
 import { Icon } from '../../../../app/Icons';
 import type { BirdviewWs } from '../../hooks/useBirdviewWs';
 import type { EventLog } from '../../hooks/useEventLog';
 import type { CalibrationCamera, WsMessage } from '../../api/ws-types';
-import { wsUrl } from '../../constants';
 import { linkerApi } from '../../api/linker';
 import { fetchCalibrationCameras } from '../../api/cameras';
 import { useToast } from '../common/Toast';
@@ -47,7 +44,12 @@ import '../../../../screens/surround/projection.css';
 // Экран «Сборка»: живой кадр вторым экземпляром WebRTCPlayer с тем же streamId,
 // слой точек внутри трансформируемого слоя видео
 
+import type { StreamPlayerState } from '../shared/StreamPlayer';
+
 interface ProjectionScreenProps {
+    playerState: StreamPlayerState | null;
+    // Узел, в который раздел переносит общий плеер
+    onPlayerHost: (node: HTMLElement | null) => void;
     active: boolean;
     ws: BirdviewWs;
     log: EventLog;
@@ -67,6 +69,8 @@ export function ProjectionScreen({
     correction,
     stream,
     wsReady,
+    playerState,
+    onPlayerHost,
 }: ProjectionScreenProps) {
     const streamId = stream.streamId;
     const showToast = useToast();
@@ -84,12 +88,10 @@ export function ProjectionScreen({
     const [lutSaving, setLutSaving] = useState(false);
 
     // Состояние плеера этого экрана — для пилюли «Поток»
-    const [playerStatus, setPlayerStatus] = useState<PlayerStatusInfo['status']>('connecting');
     // Масштаб слоя в процентах — для числа в полосе
     const [scalePct, setScalePct] = useState(100);
 
     // Реальное разрешение кадра из метаданных потока: конфиг камеры может врать
-    const [videoSize, setVideoSize] = useState<{ w: number; h: number } | null>(null);
 
     // Пресет, на который оператор хочет перейти, пока не подтвердил потерю точек
     const [pendingPreset, setPendingPreset] = useState<string | null>(null);
@@ -139,12 +141,24 @@ export function ProjectionScreen({
         [showToast],
     );
 
-    // Смена потока — старое разрешение и статус плеера больше не факт
+    // Смена потока — старое разрешение больше не факт
     useEffect(() => {
-        setVideoSize(null);
         setProjVideoSize(0, 0);
-        setPlayerStatus('connecting');
     }, [streamId, stream.generation]);
+
+    const videoSize =
+        playerState?.width && playerState?.height ? { w: playerState.width, h: playerState.height } : null;
+
+    // Letterbox канваса пересчитывается от реального кадра
+    useEffect(() => {
+        if (!videoSize) return;
+        setProjVideoSize(videoSize.w, videoSize.h);
+        if (camera && Math.abs(videoSize.w / videoSize.h - camera.width / camera.height) > 0.001) {
+            console.warn(
+                `Проекция: поток ${videoSize.w}×${videoSize.h} расходится по аспекту с конфигом камеры ${camera.width}×${camera.height}`,
+            );
+        }
+    }, [videoSize?.w, videoSize?.h, camera]);
 
     // Применяет текущий зум к слою видео; канвас внутри слоя, ему нужен только bitmap
     const syncTransform = useCallback(() => {
@@ -645,11 +659,13 @@ export function ProjectionScreen({
     const pointsFull = maxPts > 0 && projState.points.length >= maxPts;
     const warpDone = Boolean(projState.activeCam && projState.doneSet.has(projState.activeCam));
 
+    const streaming = playerState?.status === 'streaming';
+
     const streamCls = !streamId
         ? stream.pending ? ' warn' : ''
-        : playerStatus === 'connected'
+        : streaming
             ? ' ok'
-            : playerStatus === 'error'
+            : playerState?.error
                 ? ' err'
                 : ' warn';
 
@@ -711,24 +727,7 @@ export function ProjectionScreen({
                     <div ref={wrapperRef} className={`stream${projState.applied ? ' is-applied' : ''}`}>
                         <div ref={mediaRef} className="pj-media" style={{ aspectRatio: aspect }}>
                             {streamId ? (
-                                <WebRTCPlayer
-                                    key={`proj-${streamId}-${stream.generation}`}
-                                    cameraId={streamId}
-                                    signalingUrl={wsUrl(`/signaling/client/${streamId}`)}
-                                    onStatusChange={info => setPlayerStatus(info.status)}
-                                    onVideoResolution={(w, h) => {
-                                        setVideoSize(prev =>
-                                            prev && prev.w === w && prev.h === h ? prev : { w, h },
-                                        );
-                                        // Letterbox канваса пересчитывается от реального кадра
-                                        setProjVideoSize(w, h);
-                                        if (camera && Math.abs(w / h - camera.width / camera.height) > 0.001) {
-                                            console.warn(
-                                                `Проекция: поток ${w}×${h} расходится по аспекту с конфигом камеры ${camera.width}×${camera.height}`,
-                                            );
-                                        }
-                                    }}
-                                />
+                                <div className="player" ref={onPlayerHost} />
                             ) : (
                                 <div className="empty">
                                     {stream.pending ? (
@@ -750,7 +749,7 @@ export function ProjectionScreen({
                         </div>
 
                         <div className="stream-tag">
-                            <span className={`pill${streamId && playerStatus === 'connected' ? ' ok' : ''}`}>
+                            <span className={`pill${streamId && streaming ? ' ok' : ''}`}>
                                 <span className="dot" />
                                 {camera ? `${camera.displayName} · ${camera.id}` : 'Камера не выбрана'}
                             </span>

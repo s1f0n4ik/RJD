@@ -5,6 +5,7 @@
 .pj-canvas{position:absolute;z-index:5;cursor:crosshair}
 .sv-proj .stream.is-applied .pj-canvas{pointer-events:none;cursor:default}
 .pj-media .empty{position:absolute;inset:0;padding:0}
+.pj-media .player{position:absolute;inset:0;z-index:1}
 .sv-proj .stream.res{cursor:grab;user-select:none}
 .sv-proj .stream.res:active{cursor:grabbing}
 .sv-proj .stream.res .empty{position:absolute;inset:0;padding:0}

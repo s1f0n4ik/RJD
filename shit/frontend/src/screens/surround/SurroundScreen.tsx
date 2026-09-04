@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import { Icon } from '../../app/Icons';
 import { useSystem } from '../../app/SystemContext';
@@ -16,14 +16,14 @@ import { useEventLog } from '../../features/birdview/hooks/useEventLog';
 import { useStreamControl } from '../../features/birdview/hooks/useStreamControl';
 import { useCorrection } from '../../features/birdview/hooks/useCorrection';
 import { wsUrl } from '../../features/birdview/constants';
+import { StreamPlayer } from '../../features/birdview/components/shared/StreamPlayer';
+import type { StreamPlayerState } from '../../features/birdview/components/shared/StreamPlayer';
 import type { CalibrationCamera, WsMessage } from '../../features/birdview/api/ws-types';
-import type { PlayerStatusInfo } from '../../components/WebRTCPlayer';
 import type { ConnState, ScreenId } from '../../features/birdview/types';
 import type { SessionReason } from '../../features/birdview/hooks/useBirdviewWs';
 import { SURROUND_SECTIONS, isSurroundSection } from './sections';
 import './surround.css';
 
-const IDLE_PLAYER: PlayerStatusInfo = { status: 'connecting', ice: '—', conn: '—' };
 
 // Длительность чужой сессии словами
 function heldFor(sec: number | null): string {
@@ -98,7 +98,13 @@ function SurroundContent({ screen }: { screen: ScreenId }) {
     cameraRef.current = camera;
 
     // Состояние плеера поднято сюда ради пилюль над кадром и сброса при смене камеры
-    const [playerInfo, setPlayerInfo] = useState<PlayerStatusInfo>(IDLE_PLAYER);
+    const [playerState, setPlayerState] = useState<StreamPlayerState | null>(null);
+
+    // Кадр показывает активный подэкран, а сессия одна на раздел
+    const [calibHost, setCalibHost] = useState<HTMLElement | null>(null);
+    const [projHost, setProjHost] = useState<HTMLElement | null>(null);
+    const playerBoxRef = useRef<HTMLDivElement>(null);
+    const playerHomeRef = useRef<HTMLDivElement>(null);
 
     const toast = useCallback(
         (title: string, desc: string, type: 'ok' | 'err' | 'info') => showToast(title, desc, type),
@@ -135,7 +141,7 @@ function SurroundContent({ screen }: { screen: ScreenId }) {
     );
 
     const ws = useBirdviewWs({
-        initialUrl: wsUrl('/signaling/cal-client/server'),
+        initialUrl: wsUrl(`/signaling/cal-client/server?client=${clientIdRef.current}`),
         clientId: clientIdRef.current,
         getStreamId: () => streamIdRef.current,
         log: eventLog.log,
@@ -143,7 +149,7 @@ function SurroundContent({ screen }: { screen: ScreenId }) {
         autoConnect: true,
     });
 
-    const resetPlayer = useCallback(() => setPlayerInfo(IDLE_PLAYER), []);
+    const resetPlayer = useCallback(() => setPlayerState(null), []);
 
     const stream = useStreamControl({
         ws,
@@ -234,11 +240,9 @@ function SurroundContent({ screen }: { screen: ScreenId }) {
 
     const rtcState: ConnState = !stream.streamId
         ? 'disconnected'
-        : playerInfo.status === 'connected'
+        : playerState?.status === 'streaming'
           ? 'connected'
-          : playerInfo.status === 'error'
-            ? 'disconnected'
-            : 'connecting';
+          : 'connecting';
 
     // Обрыв основного WS уносит с собой сессию калибратора
     useEffect(() => {
@@ -246,6 +250,19 @@ function SurroundContent({ screen }: { screen: ScreenId }) {
         stream.reset();
         correction.reset();
     }, [ws.status]);
+
+    // Узел плеера переезжает в активный подэкран: пересоздание рвало бы сессию
+    useLayoutEffect(() => {
+        const box = playerBoxRef.current;
+        const home = playerHomeRef.current;
+        if (!box || !home) return;
+
+        const host = screen === 'calibration' ? calibHost : screen === 'projection' ? projHost : null;
+        (host ?? home).appendChild(box);
+        return () => {
+            home.appendChild(box);
+        };
+    }, [screen, calibHost, projHost, stream.streamId]);
 
     // Точка у «Калибровки» в рельсе: поток идёт
     useEffect(() => {
@@ -267,6 +284,19 @@ function SurroundContent({ screen }: { screen: ScreenId }) {
                 />
             )}
 
+            <div ref={playerHomeRef} className="sv-player-home" />
+            <div ref={playerBoxRef} className="sv-player">
+                {stream.streamId && (
+                    <StreamPlayer
+                        key={`${stream.streamId}-${stream.generation}`}
+                        cameraId={stream.streamId}
+                        signalingUrl={wsUrl(`/signaling/client/${stream.streamId}`)}
+                        collectStats={screen === 'calibration'}
+                        onState={setPlayerState}
+                    />
+                )}
+            </div>
+
             <CalibrationScreen
                 active={screen === 'calibration'}
                 ws={ws}
@@ -278,8 +308,8 @@ function SurroundContent({ screen }: { screen: ScreenId }) {
                 onSelectCamera={selectCamera}
                 stream={stream}
                 correction={correction}
-                playerInfo={playerInfo}
-                onPlayerInfo={setPlayerInfo}
+                playerState={playerState}
+                onPlayerHost={setCalibHost}
             />
 
             <ProjectionScreen
@@ -291,6 +321,8 @@ function SurroundContent({ screen }: { screen: ScreenId }) {
                 correction={correction}
                 stream={stream}
                 wsReady={ws.status === 'connected'}
+                playerState={playerState}
+                onPlayerHost={setProjHost}
             />
 
             <LinkerScreen active={screen === 'linker'} />
