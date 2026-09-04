@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PlayerStatusInfo } from '../../../../components/WebRTCPlayer';
+import { Icon } from '../../../../app/Icons';
 import type { BirdviewWs } from '../../hooks/useBirdviewWs';
 import type { EventLog } from '../../hooks/useEventLog';
 import type { CalibrationCamera, SliderKey, WsMessage } from '../../api/ws-types';
 import type { StreamControl } from '../../hooks/useStreamControl';
 import type { Correction } from '../../hooks/useCorrection';
+import type { ConnState } from '../../types';
 import { useToast } from '../common/Toast';
-import { ConnectionPanel } from './ConnectionPanel';
 import { CameraPanel } from './CameraPanel';
 import { CalibrationBlock } from './CalibrationBlock';
 import type { PatternInfo } from './CalibrationBlock';
 import { DistortionPanel } from './DistortionPanel';
-import { EventLogPanel } from './EventLogPanel';
 import { CalibrationViewer } from './CalibrationViewer';
 import { ConfigModal } from './ConfigModal';
 import type { ConfigSummary } from './ConfigModal';
@@ -19,18 +19,16 @@ import { SaveConfigModal } from './SaveConfigModal';
 import { useDistortion } from './useDistortion';
 import { useSnapshots } from './useSnapshots';
 import { useCalibrationProcess } from './useCalibrationProcess';
+import '../../../../screens/surround/calibration.css';
 
-/**
- * Экран «Калибровка». Порт page-1.
- *
- * Здесь же живёт диспетчер основного WS для этого экрана: подписки на 16
- * типов сообщений регистрируются одним эффектом, как это делал switch в
- * no-react. Семнадцатый тип, projection_configuration, заберёт проекция.
- */
+// Экран «Калибровка». Здесь же диспетчер основного WS: подписки на 16 типов
+// сообщений одним эффектом; projection_configuration забирает проекция
 
 interface CalibrationScreenProps {
     active: boolean;
     ws: BirdviewWs;
+    wsState: ConnState;
+    rtcState: ConnState;
     clientId: string;
     log: EventLog;
     camera: CalibrationCamera | null;
@@ -44,6 +42,8 @@ interface CalibrationScreenProps {
 export function CalibrationScreen({
     active,
     ws,
+    wsState,
+    rtcState,
     clientId,
     log,
     camera,
@@ -60,19 +60,18 @@ export function CalibrationScreen({
     const [chessboard, setChessboard] = useState(false);
     const [hasCalibration, setHasCalibration] = useState(false);
     const [undistortionOk, setUndistortionOk] = useState(false);
+    // Последний undistort_compute вернул ошибку
+    const [undistortionErr, setUndistortionErr] = useState(false);
     const [saveEnabled, setSaveEnabled] = useState(false);
-    const [frameInfo, setFrameInfo] = useState('—');
 
     const [configs, setConfigs] = useState<ConfigSummary[] | null>(null);
     const [selectedConfigId, setSelectedConfigId] = useState<string | null>(null);
     const [configDetail, setConfigDetail] = useState<Record<string, any> | null>(null);
 
-    // Ответы calibration_configuration слушает ещё и useCorrection. Разбираем
-    // только те, что запросила модалка этого экрана.
+    // Ответы calibration_configuration слушает ещё и useCorrection: разбираем только свои
     const modalRequestRef = useRef(false);
 
-    // Сохранение под своим ключом. Список нужен, чтобы подставить свободный
-    // идентификатор и распознать намеренную перезапись
+    // Сохранение под своим ключом: список нужен для свободного ключа и распознавания перезаписи
     const [saveOpen, setSaveOpen] = useState(false);
     const [saveKnown, setSaveKnown] = useState<ConfigSummary[]>([]);
     const [saving, setSaving] = useState(false);
@@ -103,12 +102,12 @@ export function CalibrationScreen({
 
     const streaming = playerInfo.status === 'connected';
 
-    // Обрыв основного WS — сбрасываем всё, что зависело от сессии калибратора.
-    // Стрим и коррекция общие, их сбрасывает BirdviewApp.
+    // Обрыв основного WS сбрасывает всё, что зависело от сессии калибратора
     useEffect(() => {
         if (ws.status !== 'disconnected') return;
         setHasCalibration(false);
         setUndistortionOk(false);
+        setUndistortionErr(false);
         setSaveEnabled(false);
         setChessboard(false);
         distortion.setVisible(false);
@@ -117,7 +116,7 @@ export function CalibrationScreen({
 
     const handleConnection = useCallback(
         (msg: WsMessage) => {
-            // Отказ окончательный: сами не повторяем, решение за оператором
+            // Отказ окончательный: повтор за оператором
             if (!msg.ret) {
                 stream.settle(null);
                 toast(
@@ -137,16 +136,12 @@ export function CalibrationScreen({
             }
 
             stream.settle(String(id));
-            setFrameInfo(String(id).slice(0, 8) + '...');
             log.log(`Стрим запущен: ${id}`, 'ok');
 
-            // Статус калибровки запрашиваем сразу, не дожидаясь RTC: он про
-            // калибратор, а не про видеопоток. В no-react висел на onWsOpen
-            // сигналингового сокета — привязка была случайной.
+            // Статус калибровки запрашиваем сразу, не дожидаясь RTC
             ws.send({ type: 'status', client_id: clientId, meta: {} });
 
-            // Кадр появился — только теперь сервер примет конфигурацию коррекции:
-            // load сверяет её разрешение с текущим кадром
+            // Кадр появился: сервер сверяет разрешение конфигурации с ним
             correction.applyPending(camera);
         },
         [ws, clientId, log, stream, correction, camera, toast],
@@ -155,7 +150,7 @@ export function CalibrationScreen({
     const handleGetPattern = useCallback(
         (msg: WsMessage) => {
             if (!msg.ret) {
-                log.log(`Паттерн: ${msg.meta?.description ?? ''}`, 'err');
+                log.log(`Шаблон: ${msg.meta?.description ?? ''}`, 'err');
                 setHasCalibration(false);
                 return;
             }
@@ -231,7 +226,10 @@ export function CalibrationScreen({
 
             const hasUndist = Boolean(meta.is_undistortion);
             setUndistortionOk(hasUndist);
-            if (hasUndist) setSaveEnabled(true);
+            if (hasUndist) {
+                setSaveEnabled(true);
+                setUndistortionErr(false);
+            }
 
             setChessboard(Boolean(meta.show_chessboard));
         },
@@ -241,6 +239,7 @@ export function CalibrationScreen({
     const handleUndistortCompute = useCallback(
         (msg: WsMessage) => {
             distortion.handleCompute(msg);
+            setUndistortionErr(!msg.ret);
             if (msg.ret && msg.meta) {
                 setUndistortionOk(true);
                 setHasCalibration(true);
@@ -296,7 +295,7 @@ export function CalibrationScreen({
                     break;
 
                 case 'load':
-                    // Все загрузки идут через useCorrection — ответы разбирает он
+                    // Все загрузки идут через useCorrection
                     break;
 
                 default:
@@ -306,7 +305,7 @@ export function CalibrationScreen({
         [toast, log],
     );
 
-    // Регистрация обработчиков — аналог switch по msg.type в no-react
+    // Регистрация обработчиков по msg.type
     useEffect(() => {
         const unsubs = [
             ws.subscribe('connection', handleConnection),
@@ -347,13 +346,10 @@ export function CalibrationScreen({
         distortion.handlePanoramaToggle,
     ]);
 
-    // Своё имя конфигурации, если задано; иначе ключ
-    const loadedCfg = correction.configs.find(
-        c => (c.config_key ?? c.id) === correction.loadedKey,
-    );
-    const loadedConfigName = correction.loadedKey
-        ? loadedCfg?.name || correction.loadedKey
-        : null;
+    const toggleWs = () => {
+        if (ws.status === 'disconnected') ws.connect();
+        else ws.disconnect();
+    };
 
     const toggleStream = () => {
         if (stream.streamId) {
@@ -371,30 +367,24 @@ export function CalibrationScreen({
     };
 
     return (
-        <main className={`main-layout ${active ? '' : 'hidden'}`}>
-            <aside className="sidebar">
-                <ConnectionPanel ws={ws} />
-
-                <CameraPanel
+        <div className={`sv sv-calib${active ? '' : ' is-hidden'}`}>
+            <div className="sv-main">
+                <CalibrationViewer
+                    wsState={wsState}
+                    wsReason={ws.reason}
+                    onToggleWs={toggleWs}
+                    rtcState={rtcState}
                     camera={camera}
-                    onSelectCamera={onSelectCamera}
-                    loadedConfigName={loadedConfigName}
+                    streamId={stream.streamId}
+                    streamGeneration={stream.generation}
+                    pendingStream={stream.pending}
+                    playerInfo={playerInfo}
+                    onPlayerStatus={onPlayerInfo}
+                    overlay={process.overlay}
+                    onDismissOverlay={process.dismiss}
+                    snapshots={snapshots}
+                    log={log}
                     streaming={streaming}
-                    canStream={ws.status === 'connected' && !stream.pending}
-                    onToggleStream={toggleStream}
-                    onLoadConfiguration={() => {
-                        modalRequestRef.current = true;
-                        ws.sendMessage('calibration_configuration', { method: 'get_list' });
-                    }}
-                />
-
-                <CalibrationBlock
-                    visible={streaming}
-                    patternSet={patternSet}
-                    pattern={pattern}
-                    onSavePattern={p =>
-                        ws.send({ type: 'calibrate_pattern', client_id: clientId, meta: p })
-                    }
                     chessboard={chessboard}
                     onToggleChessboard={() =>
                         ws.send({
@@ -403,49 +393,78 @@ export function CalibrationScreen({
                             meta: { show: !chessboard },
                         })
                     }
-                    snapshotCount={snapshots.items.length}
-                    onTakeSnapshot={snapshots.take}
-                    onStartCalibration={process.start}
+                    showUndistort={distortion.showUndistort}
+                    canShowUndistort={undistortionOk}
+                    onToggleUndistort={distortion.toggleShowUndistort}
+                    hasCalibration={hasCalibration}
+                    undistortionOk={undistortionOk}
+                    undistortionErr={undistortionErr}
                 />
+            </div>
 
-                <DistortionPanel visible={hasCalibration} distortion={distortion} />
-
-                <button
-                    className={`btn btn-save-config${saveEnabled ? ' active' : ''}`}
-                    disabled={!saveEnabled}
-                    onClick={() => {
-                        // Список тянем перед показом окна: по нему подставляется
-                        // свободный идентификатор
-                        saveRequestRef.current = true;
+            <aside className="mod-side">
+                <CameraPanel
+                    camera={camera}
+                    onSelectCamera={onSelectCamera}
+                    fits={correction.fits}
+                    loadedKey={correction.loadedKey}
+                    streamOpen={Boolean(stream.streamId)}
+                    pending={stream.pending}
+                    wsReady={ws.status === 'connected'}
+                    onToggleStream={toggleStream}
+                    onLoadConfiguration={() => {
+                        modalRequestRef.current = true;
                         ws.sendMessage('calibration_configuration', { method: 'get_list' });
                     }}
-                >
-                    ⊛ Сохранить конфигурацию
-                </button>
+                />
 
-                <EventLogPanel log={log} />
+                {streaming && (
+                    <CalibrationBlock
+                        patternSet={patternSet}
+                        pattern={pattern}
+                        onSavePattern={p =>
+                            ws.send({ type: 'calibrate_pattern', client_id: clientId, meta: p })
+                        }
+                        snapshotCount={snapshots.items.length}
+                        onTakeSnapshot={snapshots.take}
+                        onClearSnapshots={snapshots.requestClear}
+                        onStartCalibration={process.start}
+                    />
+                )}
+
+                {hasCalibration && <DistortionPanel distortion={distortion} rms={process.rms} />}
+
+                {saveEnabled && (
+                    <>
+                        <div className="blk-h">
+                            <h3>Сохранение</h3>
+                        </div>
+                        <div className="blk-b pad">
+                            <button
+                                className="btn btn--save btn--wide"
+                                onClick={() => {
+                                    // Список тянем перед окном: по нему подставляется свободный ключ
+                                    saveRequestRef.current = true;
+                                    ws.sendMessage('calibration_configuration', { method: 'get_list' });
+                                }}
+                            >
+                                <Icon name="save" className="ico" />
+                                Сохранить конфигурацию
+                            </button>
+                        </div>
+                    </>
+                )}
             </aside>
-
-            <CalibrationViewer
-                streamId={stream.streamId}
-                streamGeneration={stream.generation}
-                pendingStream={stream.pending}
-                playerInfo={playerInfo}
-                onPlayerStatus={onPlayerInfo}
-                overlay={process.overlay}
-                onDismissOverlay={process.dismiss}
-                snapshots={snapshots}
-                calibrationState={hasCalibration ? 'installed' : 'none'}
-                undistortionState={undistortionOk ? 'success' : 'failed'}
-                frameInfo={frameInfo}
-            />
 
             {saveOpen && camera && (
                 <SaveConfigModal
                     existing={saveKnown}
                     cameraId={camera.id}
+                    cameraName={camera.displayName}
                     width={camera.width}
                     height={camera.height}
+                    pattern={patternSet ? pattern : null}
+                    rms={process.rms}
                     saving={saving}
                     onClose={() => setSaveOpen(false)}
                     onSubmit={(key, name) => {
@@ -475,13 +494,13 @@ export function CalibrationScreen({
                     }}
                     onLoad={() => {
                         if (!selectedConfigId) return;
-                        // Общий путь загрузки: селект Сборки, fits() и авто-показ
+                        // Общий путь загрузки: fits() и авто-показ в useCorrection
                         correction.select(selectedConfigId);
                         setConfigs(null);
                     }}
                     onClose={() => setConfigs(null)}
                 />
             )}
-        </main>
+        </div>
     );
 }

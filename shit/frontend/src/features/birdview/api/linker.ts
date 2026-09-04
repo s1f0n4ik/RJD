@@ -6,6 +6,7 @@
  */
 
 import { modulePath } from '../../../services/devices';
+import { birdviewStream } from './cameras';
 
 // Путь ручки линкера на устройстве модуля birdview — для fetch мимо fetchJson
 export const linkerPath = (path: string) => modulePath('birdview', path);
@@ -66,7 +67,7 @@ export interface LinkerExport {
     valid: boolean;
 }
 
-/** Камера, пригодная для birdview (type === 3). */
+/** Камера с потоком назначения birdview. */
 export interface LinkerCamera {
     id: string;
     display_name: string;
@@ -328,12 +329,12 @@ export const linkerApi = {
         return list.map((e: any): LinkerExport => ({ ...e, valid: e.valid !== false }));
     },
 
-    /** Только камеры type === 3 — остальные для birdview не годятся. */
+    /** Только камеры с потоком назначения birdview — остальные для 360 не годятся. */
     async getCameras(): Promise<LinkerCamera[]> {
         const json = await fetchJson<any>('GET', '/api/cameras');
-        const all = json.data?.cameras ?? {};
+        const all = json.data?.cameras ?? json.cameras ?? {};
         return Object.entries<any>(all)
-            .filter(([, c]) => c.type === 3)
+            .filter(([, c]) => birdviewStream(c))
             .map(([id, c]) => ({ id, display_name: c.display_name ?? id }));
     },
 

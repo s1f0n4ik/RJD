@@ -1,18 +1,17 @@
 import { useState } from 'react';
-import { useBackdropClose } from '../../hooks/useBackdropClose';
+import { Modal } from '../../../../app/Modal';
 import { confState, useConfStore } from '../../state/conf-store';
 import { useToast } from '../common/Toast';
 import { buildExportJson, formatExportJson, saveExport } from './conf-export';
 import { checkCameraKeys } from './conf-validate';
 
-// Модалка экспорта конфигурации.
+// Модалка расчёта конфигурации: JSON слева, замечания справа
 
 interface ExportModalProps {
     onClose: () => void;
 }
 
 export function ExportModal({ onClose }: ExportModalProps) {
-    const backdrop = useBackdropClose(onClose);
     // Предзаполнение загруженным пресетом: сохранение перезапишет его
     const [id, setId] = useState(confState.presetId);
     const [name, setName] = useState(confState.presetName);
@@ -50,63 +49,68 @@ export function ExportModal({ onClose }: ExportModalProps) {
     };
 
     return (
-        <div className="modal-backdrop" {...backdrop}>
-            <div className="modal-window modal-window--wide" onClick={e => e.stopPropagation()}>
-                <div className="modal-header">
-                    <span className="modal-title">Экспорт конфигурации</span>
-                    <button className="toast-close" onClick={onClose}>✕</button>
-                </div>
-
-                <div className="modal-body" style={{ gap: 14 }}>
-                    <div className="field-row">
-                        <div className="field-group">
-                            <label className="field-label">ID конфигурации</label>
-                            <input
-                                className="field-input"
-                                type="text"
-                                placeholder="my_config_360"
-                                value={id}
-                                onChange={e => setId(e.target.value)}
-                            />
-                        </div>
-                        <div className="field-group">
-                            <label className="field-label">Название</label>
-                            <input
-                                className="field-input"
-                                type="text"
-                                placeholder="Мой birdview"
-                                value={name}
-                                onChange={e => setName(e.target.value)}
-                            />
-                        </div>
-                    </div>
-
-                    {keys.problems.length > 0 && (
-                        <div className="conf-problems">
-                            {keys.problems.map((p, i) => (
-                                <span key={i} className={`conf-problem conf-problem--${p.status}`}>
-                                    {p.status === 'error' ? '✕' : '⚠'} {p.text}
-                                </span>
-                            ))}
-                        </div>
-                    )}
-
-                    <div className="conf-export-preview-wrap">
-                        <pre className="conf-export-preview">{preview}</pre>
-                    </div>
-                </div>
-
-                <div className="modal-footer">
-                    <button className="btn btn-ghost" onClick={onClose}>Отмена</button>
+        <Modal
+            title="Расчёт конфигурации"
+            size="mid"
+            onClose={onClose}
+            footer={
+                <>
+                    <button className="btn btn--ghost spacer" onClick={onClose}>Отмена</button>
                     <button
-                        className="btn btn-primary"
+                        className="btn btn--acc"
                         onClick={handleSave}
-                        disabled={saving || keys.blocked}
+                        disabled={saving || keys.blocked || !id.trim()}
                     >
-                        ⊛ {saving ? 'Сохранение...' : 'Сохранить'}
+                        {saving && <span className="spin sm" />}
+                        {saving ? 'Сохранение…' : 'Сохранить'}
                     </button>
+                </>
+            }
+        >
+            <div className="modal-b conf-export">
+                <div className="tf-row">
+                    <div className="tf">
+                        <span className="tf-cap">ID конфигурации</span>
+                        <input
+                            className={`tf-in${id.trim() ? '' : ' is-err'}`}
+                            type="text"
+                            placeholder="my_config_360"
+                            value={id}
+                            onChange={e => setId(e.target.value)}
+                        />
+                    </div>
+                    <div className="tf">
+                        <span className="tf-cap">Название</span>
+                        <input
+                            className="tf-in"
+                            type="text"
+                            value={name}
+                            onChange={e => setName(e.target.value)}
+                        />
+                    </div>
+                </div>
+
+                <pre className="conf-json">{preview}</pre>
+
+                <div className="conf-problems">
+                    {keys.problems.length === 0 ? (
+                        <div className="kv">
+                            <span className="k"><span className="tag is-ok">без замечаний</span></span>
+                        </div>
+                    ) : (
+                        keys.problems.map((p, i) => (
+                            <div key={i} className="kv">
+                                <span className="k">
+                                    <span className={`tag ${p.status === 'error' ? 'is-err' : 'is-warn'}`}>
+                                        {p.status === 'error' ? 'ошибка' : 'внимание'}
+                                    </span>
+                                </span>
+                                <span className="v">{p.text}</span>
+                            </div>
+                        ))
+                    )}
                 </div>
             </div>
-        </div>
+        </Modal>
     );
 }

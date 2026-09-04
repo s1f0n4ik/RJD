@@ -1,32 +1,28 @@
 import { useEffect, useRef } from 'react';
 import type { EventLog } from '../../hooks/useEventLog';
+import type { LogLevel } from '../../api/ws-types';
 
-/** Лента событий. Порт блока «Лог событий» и log() из utility.js. */
+// Лента событий во вкладке «Журнал» шторки
+
+const LEVEL_CLASS: Record<LogLevel, string> = { info: '', ok: 'ok', warn: 'wr', err: 'er' };
 
 export function EventLogPanel({ log }: { log: EventLog }) {
     const listRef = useRef<HTMLDivElement>(null);
 
-    // Прокрутка к последней записи, как делал append в no-react
+    // Прокрутка к последней записи
     useEffect(() => {
         const el = listRef.current;
         if (el) el.scrollTop = el.scrollHeight;
     }, [log.entries.length]);
 
     return (
-        <section className="panel-block panel-block--log">
-            <div className="block-header">
-                <span className="block-icon">≡</span>
-                <span className="block-title">Лог событий</span>
-                <button className="btn-icon" onClick={log.clear} title="Очистить">✕</button>
-            </div>
-            <div ref={listRef} className="event-log">
-                {log.entries.map(e => (
-                    <div key={e.id} className={`log-entry ${e.level}`}>
-                        <span className="log-time">{e.time}</span>
-                        <span className="log-msg">{e.text}</span>
-                    </div>
-                ))}
-            </div>
-        </section>
+        <div ref={listRef} className="log">
+            {log.entries.map(e => (
+                <div key={e.id} className="row">
+                    <span className="t">{e.time}</span>
+                    <span className={LEVEL_CLASS[e.level]}>{e.text}</span>
+                </div>
+            ))}
+        </div>
     );
 }

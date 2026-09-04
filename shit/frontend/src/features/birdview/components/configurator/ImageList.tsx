@@ -1,32 +1,36 @@
-import { confState, fmtM, useConfStore } from '../../state/conf-store';
+import { Icon } from '../../../../app/Icons';
+import { confState, useConfStore } from '../../state/conf-store';
 import { confDelete, confSelect } from './conf-actions';
 
-/** Список подложек. Порт _renderImgList. */
+// Список подложек: имя файла и размер исходника в пикселях
 
 export function ImageList() {
     useConfStore();
 
     return (
-        <div className="conf-item-list">
+        <>
             {confState.images.map(img => (
                 <div
                     key={img.id}
-                    className={`conf-item ${confState.selected?.id === img.id ? 'selected' : ''}`}
+                    className={`zrow${confState.selected?.id === img.id ? ' is-sel' : ''}`}
                     onClick={() => confSelect({ type: 'image', id: img.id })}
                 >
-                    <span className="conf-item-name">{img.name}</span>
-                    <span className="conf-item-meta">{fmtM(img.w)}×{fmtM(img.h)} м</span>
+                    <span className="cam-icon img">
+                        <Icon name="img" size={12} className="" />
+                    </span>
+                    <span className="nm">{img.name}</span>
+                    <span className="key">{img.img.naturalWidth}×{img.img.naturalHeight}</span>
                     <button
-                        className="conf-item-delete"
+                        className="icon-btn x"
                         onClick={e => {
                             e.stopPropagation();
                             confDelete('image', img.id);
                         }}
                     >
-                        ✕
+                        <Icon name="x" size={12} className="" />
                     </button>
                 </div>
             ))}
-        </div>
+        </>
     );
 }

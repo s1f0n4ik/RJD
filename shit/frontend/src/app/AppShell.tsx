@@ -5,7 +5,15 @@ import { NAV, crumbsFor } from './nav';
 import { DownloadsPill } from './DownloadsPill';
 import { useSystem } from './SystemContext';
 import { formatDeviceTime, useDeviceClock } from './useDeviceClock';
+import { useSurroundStatus, type SurroundStatus } from './surroundStatus';
 import './shell.css';
+
+// Точка состояния у подраздела 360: поток калибровки идёт, вывод в эфире
+function subDot(to: string, status: SurroundStatus) {
+    if (to === '/surround/calibration' && status.streaming) return <span className="dot ok" />;
+    if (to === '/surround/linker' && status.live) return <span className="dot ok" />;
+    return null;
+}
 
 interface AppShellProps {
     username: string;
@@ -18,6 +26,7 @@ export function AppShell({ username, role, onLogout }: AppShellProps) {
     const { unixMs, source } = useDeviceClock();
     const { connected, cameras, devices } = useSystem();
     const { pathname } = useLocation();
+    const surround = useSurroundStatus();
 
     const offlineDevices = devices.filter(d => d.status !== 'online').length;
     const crumbs = crumbsFor(pathname);
@@ -55,7 +64,19 @@ export function AppShell({ username, role, onLogout }: AppShellProps) {
                                     <Icon name={item.icon} />
                                     <span className="lbl">{item.label}</span>
                                 </NavLink>
-                            ) : (
+                            ) : null}
+                            {item.ready && item.sub && (
+                                <div className="rail-sub">
+                                    {item.sub.map(sub => (
+                                        <NavLink key={sub.to} to={sub.to} className={({ isActive }) => `rsub${isActive ? ' is-on' : ''}`}>
+                                            <span className="n">{sub.n}</span>
+                                            {sub.label}
+                                            {subDot(sub.to, surround)}
+                                        </NavLink>
+                                    ))}
+                                </div>
+                            )}
+                            {!item.ready && (
                                 <div className="rail-item is-pending" aria-disabled="true">
                                     <Icon name={item.icon} />
                                     <span className="lbl">{item.label}</span>

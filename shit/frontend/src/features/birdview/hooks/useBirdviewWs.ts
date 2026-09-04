@@ -7,19 +7,38 @@ import type { LogFn } from './useEventLog';
  *
  * Один сокет на всю страницу: его читают и калибровка, и проекция —
  * диспетчер в no-react раздавал 18 типов сообщений между обоими экранами.
- * Поэтому хук живёт в BirdviewApp, а экраны получают send/subscribe пропсами.
+ * Поэтому хук живёт в SurroundScreen, а экраны получают send/subscribe пропсами.
  *
  * Переподключения нет намеренно: на калибратор пускается ровно один клиент
  * ([server.py] handle_client_for_calibrator), и молчаливая борьба за слот с
  * другой вкладкой хуже явной кнопки «Подключить».
  */
 
+// Код брокера: калибратор не пришёл на свою роль
+const ERR_NO_CALIBRATOR = 1005;
+
 export type WsHandler = (msg: WsMessage) => void;
+
+// Почему сессия калибратора не состоялась или оборвалась
+export type SessionReason = 'no-calibrator' | 'busy' | 'revoked' | 'declined' | 'timeout' | 'manual' | 'closed';
+
+// Чужая сессия, которую брокер предлагает разорвать
+export interface SessionBusy {
+    holder: string | null;
+    heldForSec: number | null;
+    timeoutSec: number | null;
+}
 
 export interface BirdviewWs {
     status: WsStatus;
-    url: string;
-    setUrl: (url: string) => void;
+    /** Причина последнего отказа или обрыва. null, пока всё в порядке. */
+    reason: SessionReason | null;
+    /** Брокер спросил, рвать ли чужую сессию. null — вопроса нет. */
+    busy: SessionBusy | null;
+    /** Ответ «да» на вопрос о перехвате. */
+    confirmTakeover: () => void;
+    /** Ответ «нет»: сокет закрывается. */
+    declineTakeover: () => void;
     connect: () => void;
     disconnect: () => void;
     /** Отправка сырого объекта. false, если сокет не открыт. */
@@ -36,7 +55,7 @@ interface Options {
     /** Идентификатор стрима уходит в поле camera — его ждёт калибратор. */
     getStreamId: () => string | null;
     log: LogFn;
-    onClose: () => void;
+    onClose: (reason: SessionReason | null, takenBy: string | null) => void;
     autoConnect: boolean;
 }
 
@@ -49,7 +68,12 @@ export function useBirdviewWs({
     autoConnect,
 }: Options): BirdviewWs {
     const [status, setStatus] = useState<WsStatus>('disconnected');
-    const [url, setUrl] = useState(initialUrl);
+    const [reason, setReason] = useState<SessionReason | null>(null);
+    const [busy, setBusy] = useState<SessionBusy | null>(null);
+
+    // Причина и адрес нужны в onclose, куда состояние не доезжает
+    const reasonRef = useRef<SessionReason | null>(null);
+    const takenByRef = useRef<string | null>(null);
 
     const wsRef = useRef<WebSocket | null>(null);
     const handlersRef = useRef<Map<string, Set<WsHandler>>>(new Map());
@@ -62,8 +86,8 @@ export function useBirdviewWs({
     onCloseRef.current = onClose;
     const getStreamIdRef = useRef(getStreamId);
     getStreamIdRef.current = getStreamId;
-    const urlRef = useRef(url);
-    urlRef.current = url;
+    const urlRef = useRef(initialUrl);
+    urlRef.current = initialUrl;
 
     const send = useCallback((payload: Record<string, unknown>): boolean => {
         const ws = wsRef.current;
@@ -86,6 +110,58 @@ export function useBirdviewWs({
             }),
         [send, clientId],
     );
+
+    // Разбор служебных сообщений брокера; true — сообщение дальше не идёт
+    const handleSession = useCallback((msg: WsMessage): boolean => {
+        const meta = msg.meta ?? {};
+
+        if (msg.type === 'session_ready') {
+            setStatus('connected');
+            setBusy(null);
+            setReason(null);
+            reasonRef.current = null;
+            takenByRef.current = null;
+            logRef.current(
+                meta.took_over ? 'Сессия калибратора перехвачена' : 'Сессия калибратора получена',
+                'ok',
+            );
+            return true;
+        }
+
+        if (msg.type === 'session_busy') {
+            reasonRef.current = 'busy';
+            setBusy({
+                holder: meta.holder ?? null,
+                heldForSec: typeof meta.held_for_sec === 'number' ? meta.held_for_sec : null,
+                timeoutSec: typeof meta.timeout_sec === 'number' ? meta.timeout_sec : null,
+            });
+            logRef.current(`Калибратор занят клиентом ${meta.holder ?? 'неизвестно'}`, 'warn');
+            return true;
+        }
+
+        if (msg.type === 'session_error') {
+            const next: SessionReason = meta.code === ERR_NO_CALIBRATOR ? 'no-calibrator' : 'closed';
+            reasonRef.current = next;
+            setReason(next);
+            logRef.current(
+                next === 'no-calibrator'
+                    ? 'Калибратор не подключён к брокеру'
+                    : `Брокер отказал: ${meta.description ?? ''}`,
+                'err',
+            );
+            return true;
+        }
+
+        if (msg.type === 'session_revoked') {
+            reasonRef.current = 'revoked';
+            setReason('revoked');
+            takenByRef.current = meta.taken_by ?? null;
+            logRef.current(`Сессию перехватил клиент ${meta.taken_by ?? 'неизвестно'}`, 'warn');
+            return true;
+        }
+
+        return false;
+    }, []);
 
     const subscribe = useCallback((type: string, handler: WsHandler): (() => void) => {
         let set = handlersRef.current.get(type);
@@ -118,6 +194,10 @@ export function useBirdviewWs({
         }
 
         setStatus('connecting');
+        setReason(null);
+        setBusy(null);
+        reasonRef.current = null;
+        takenByRef.current = null;
         logRef.current(`Подключение к ${target}...`);
 
         const ws = new WebSocket(target);
@@ -125,8 +205,8 @@ export function useBirdviewWs({
         wsRef.current = ws;
 
         ws.onopen = () => {
-            setStatus('connected');
-            logRef.current('WebSocket подключён', 'ok');
+            // Сокет открыт, но сессия ещё не наша: её подтверждает session_ready
+            logRef.current('WebSocket открыт, ждём подтверждения сессии');
         };
 
         ws.onerror = () => {
@@ -139,8 +219,15 @@ export function useBirdviewWs({
             // всё равно не проходит и только пишет ложную ошибку в лог.
             wsRef.current = null;
             setStatus('disconnected');
+            setBusy(null);
+
+            // Брокер закрыл сокет, не дождавшись ответа на вопрос о перехвате
+            const why: SessionReason = reasonRef.current === 'busy' ? 'timeout' : reasonRef.current ?? 'closed';
+            reasonRef.current = why;
+            setReason(why);
+
             logRef.current('WebSocket закрыт', 'warn');
-            onCloseRef.current();
+            onCloseRef.current(why, takenByRef.current);
         };
 
         ws.onmessage = (event: MessageEvent) => {
@@ -159,6 +246,8 @@ export function useBirdviewWs({
                 return;
             }
 
+            if (handleSession(msg)) return;
+
             logRef.current(`← ${msg.type} | ret=${msg.ret}`, msg.ret === false ? 'err' : 'info');
 
             // Причина отказа приходит в meta.description — без неё в логе
@@ -169,16 +258,17 @@ export function useBirdviewWs({
 
             dispatch(msg);
         };
-    }, [dispatch]);
+    }, [dispatch, handleSession]);
 
     const disconnect = useCallback(() => {
         const ws = wsRef.current;
+        reasonRef.current = 'manual';
         if (ws) {
             send({
                 type: 'close',
                 client_id: clientId,
                 camera: getStreamIdRef.current(),
-                meta: { description: `close websocket from ${clientId}` },
+                meta: { description: `close websocket from ${clientId}`, keep_images: true },
                 ret: 'none',
             });
             ws.close();
@@ -187,6 +277,19 @@ export function useBirdviewWs({
         setStatus('disconnected');
         logRef.current('WS отключён', 'warn');
     }, [send, clientId]);
+
+    const confirmTakeover = useCallback(() => {
+        setBusy(null);
+        reasonRef.current = null;
+        send({ type: 'session_takeover', client_id: clientId, camera: null, meta: {}, ret: 'none' });
+    }, [send, clientId]);
+
+    const declineTakeover = useCallback(() => {
+        setBusy(null);
+        reasonRef.current = 'declined';
+        setReason('declined');
+        wsRef.current?.close();
+    }, []);
 
     // Автоподключение при открытии страницы
     const autoConnectedRef = useRef(false);
@@ -244,7 +347,18 @@ export function useBirdviewWs({
         };
     }, [sayGoodbye]);
 
-    return { status, url, setUrl, connect, disconnect, send, sendMessage, subscribe };
+    return {
+        status,
+        reason,
+        busy,
+        confirmTakeover,
+        declineTakeover,
+        connect,
+        disconnect,
+        send,
+        sendMessage,
+        subscribe,
+    };
 }
 
 /**

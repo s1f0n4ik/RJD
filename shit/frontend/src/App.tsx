@@ -15,8 +15,6 @@ import Dashboard from './components/Dashboard';
 // import LoaderSettings from './components/LoaderSettings';
 // import NeuralSettings from './components/NeuralSettings';
 const NeuralConfigApp = lazy(() => import('./features/neural/components/NeuralConfigApp'));
-const BirdviewApp = lazy(() =>
-    import('./features/birdview/components/BirdviewApp').then(m => ({ default: m.BirdviewApp })));
 import Login from './components/Login';
 // Трансляция тянет токены и общие классы макета — держим её ленивой, чтобы
 // эти стили не попадали в документ на страницах старого слоя
@@ -30,8 +28,6 @@ import RecordingsView from './components/RecordingsView';
 import DeviceSettings from './components/DeviceSettings';
 // Landing (развилка киоск/админка) умер: «/» решается редиректом ниже
 import { getDevices } from './services/devices';
-const BirdviewUnavailable = lazy(() =>
-    import('./features/birdview/components/ModuleUnavailable').then(m => ({ default: m.BirdviewUnavailable })));
 const NeuralUnavailable = lazy(() =>
     import('./features/neural/components/ModuleUnavailable').then(m => ({ default: m.NeuralUnavailable })));
 import OnScreenKeyboard from './components/OnScreenKeyboard';
@@ -384,16 +380,9 @@ const AppContent: React.FC = () => {
     return null;
   }
   if (isBirdviewRoute) {
-    return (
-      <Suspense fallback={null}>
-        {!hasModule('birdview') ? <BirdviewUnavailable /> : (
-          <>
-            <BirdviewApp />
-            <OnScreenKeyboard />
-          </>
-        )}
-      </Suspense>
-    );
+    // Раздел переехал в новую оболочку
+    window.location.replace('/new/surround');
+    return null;
   }
 
   const renderContent = () => {

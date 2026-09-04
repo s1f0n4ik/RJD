@@ -1,15 +1,13 @@
 import { useEffect, useState } from 'react';
-import { useBackdropClose } from '../../hooks/useBackdropClose';
+import { Icon } from '../../../../app/Icons';
+import { Modal } from '../../../../app/Modal';
+import { useToast } from '../common/Toast';
 import { PresetPreview } from './PresetPreview';
 import type { PresetPreviewData } from './PresetPreview';
 import { linkerPath } from '../../api/linker';
 
-/**
- * Загрузка сохранённого пресета в конфигуратор для правки.
- *
- * Пресеты лежат в своём файле и принадлежат конфигуратору. Экспорты сборки —
- * другая сущность в другом файле, здесь их нет.
- */
+// Загрузка сохранённого пресета в конфигуратор. Пресеты лежат в своём файле и
+// принадлежат конфигуратору; экспорты сборки — другая сущность
 
 export interface PresetSummary {
     key: string;
@@ -19,40 +17,36 @@ export interface PresetSummary {
 }
 
 interface LoadPresetModalProps {
-    /** На поле уже что-то есть — загрузка сотрёт это. */
+    // На поле уже что-то есть — загрузка сотрёт это
     dirty: boolean;
     onLoad: (key: string) => void;
     onClose: () => void;
 }
 
 export function LoadPresetModal({ dirty, onLoad, onClose }: LoadPresetModalProps) {
-    const backdrop = useBackdropClose(onClose);
+    const showToast = useToast();
     const [presets, setPresets] = useState<PresetSummary[] | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [selected, setSelected] = useState<string | null>(null);
     const [confirming, setConfirming] = useState(false);
 
-    // Схема выбранного пресета. Тянется отдельно от списка: в списке лежат
-    // только сводные поля, а геометрия — в самой записи
+    // Схема выбранного пресета тянется отдельно: в списке только сводные поля
     const [preview, setPreview] = useState<PresetPreviewData | null>(null);
     const [previewLoading, setPreviewLoading] = useState(false);
 
-    // Удаление выбранного: первый клик — подтверждение, второй удаляет
-    const [deleteConfirm, setDeleteConfirm] = useState(false);
+    // Удаление в два клика: первый взводит кнопку строки, второй удаляет
+    const [armed, setArmed] = useState<string | null>(null);
     const [deleteBusy, setDeleteBusy] = useState(false);
-    const [deleteError, setDeleteError] = useState<string | null>(null);
 
-    const handleDelete = async () => {
-        if (!selected) return;
-        if (!deleteConfirm) {
-            setDeleteConfirm(true);
-            setDeleteError(null);
+    const handleDelete = async (key: string) => {
+        if (armed !== key) {
+            setArmed(key);
             return;
         }
 
         setDeleteBusy(true);
         try {
-            const res = await fetch(linkerPath(`/linker/preset?key=${encodeURIComponent(selected)}`), {
+            const res = await fetch(linkerPath(`/linker/preset?key=${encodeURIComponent(key)}`), {
                 method: 'DELETE',
             });
             if (!res.ok) {
@@ -64,13 +58,13 @@ export function LoadPresetModal({ dirty, onLoad, onClose }: LoadPresetModalProps
                 } catch { /* ответ не json */ }
                 throw new Error(reason || `HTTP ${res.status}`);
             }
-            setPresets(prev => (prev ? prev.filter(p => p.key !== selected) : prev));
-            setSelected(null);
+            setPresets(prev => (prev ? prev.filter(p => p.key !== key) : prev));
+            if (selected === key) setSelected(null);
         } catch (e: unknown) {
-            setDeleteError(e instanceof Error ? e.message : String(e));
+            showToast('Не удалось удалить', e instanceof Error ? e.message : String(e), 'err');
         } finally {
             setDeleteBusy(false);
-            setDeleteConfirm(false);
+            setArmed(null);
         }
     };
 
@@ -129,8 +123,7 @@ export function LoadPresetModal({ dirty, onLoad, onClose }: LoadPresetModalProps
 
     const submit = () => {
         if (!selected) return;
-        // Загрузка заменяет поле целиком: ключи камер двух пресетов совпали бы,
-        // и разобрать потом, что откуда, было бы нельзя
+        // Загрузка заменяет поле целиком: второе нажатие подтверждает замену
         if (dirty && !confirming) {
             setConfirming(true);
             return;
@@ -139,85 +132,77 @@ export function LoadPresetModal({ dirty, onLoad, onClose }: LoadPresetModalProps
     };
 
     return (
-        <div className="modal-backdrop" {...backdrop}>
-            <div className="modal-window modal-window--wide" onClick={e => e.stopPropagation()}>
-                <div className="modal-header">
-                    <span className="modal-title">Загрузка конфигурации</span>
-                    <button className="toast-close" onClick={onClose}>✕</button>
-                </div>
-
-                <div className="modal-config-body">
-                    <div className="config-list">
-                        {presets === null ? (
-                            <div className="custom-select-loading">Загрузка...</div>
-                        ) : error ? (
-                            <div className="custom-select-empty">Не удалось получить список: {error}</div>
-                        ) : presets.length === 0 ? (
-                            <div className="custom-select-empty">Сохранённых конфигураций нет</div>
-                        ) : (
-                            presets.map(p => (
-                                <div
-                                    key={p.key}
-                                    className={`config-list-item${selected === p.key ? ' selected' : ''}`}
-                                    onClick={() => {
-                                        setSelected(p.key);
-                                        setConfirming(false);
-                                        setDeleteConfirm(false);
-                                    }}
-                                >
-                                    <span className="config-item-name">{p.name || p.key}</span>
-                                    <span className="config-item-sub">
-                                        {p.key} · {p.canvas?.width ?? '—'}×{p.canvas?.height ?? '—'}
-                                        {p.cameras != null && ` · ${p.cameras} камер`}
-                                    </span>
-                                </div>
-                            ))
-                        )}
-                    </div>
-
-                    <div className="config-detail">
-                        <div className="preset-preview-wrap">
-                            <PresetPreview preset={preview} loading={previewLoading} />
-                        </div>
-
-                        <div className="preset-preview-foot">
-                            <p className="modal-hint">
-                                Имена зон и шаг сетки восстанавливаются, если конфигурация
-                                сохранена этой версией. У более старых имена будут созданы заново.
-                            </p>
-                            {confirming && (
-                                <p className="modal-text modal-text--warn">
-                                    На поле уже есть камеры и разметка. Загрузка заменит их целиком.
-                                </p>
-                            )}
-                            {deleteError && (
-                                <p className="modal-text modal-text--warn">
-                                    Не удалось удалить: {deleteError}
-                                </p>
-                            )}
-                        </div>
-                    </div>
-                </div>
-
-                <div className="modal-footer">
+        <Modal
+            title="Загрузка конфигурации"
+            size="mid"
+            onClose={onClose}
+            head={presets && presets.length > 0 ? <span className="eyebrow">{presets.length}</span> : undefined}
+            footer={
+                <>
+                    <button className="btn btn--ghost spacer" onClick={onClose}>Отмена</button>
                     <button
-                        className={`btn ${deleteConfirm ? 'btn-danger' : 'btn-ghost'}`}
-                        style={{ marginRight: 'auto' }}
-                        disabled={!selected || deleteBusy}
-                        onClick={handleDelete}
-                    >
-                        {deleteConfirm ? 'Точно удалить?' : 'Удалить'}
-                    </button>
-                    <button className="btn btn-ghost" onClick={onClose}>Отмена</button>
-                    <button
-                        className={`btn ${confirming ? 'btn-danger' : 'btn-primary'}`}
+                        className={`btn ${confirming ? 'btn--err' : 'btn--acc'}`}
                         disabled={!selected}
                         onClick={submit}
                     >
                         {confirming ? 'Заменить' : 'Загрузить'}
                     </button>
+                </>
+            }
+        >
+            <div className="modal-b conf-load">
+                <div className="conf-load-list">
+                    {presets === null ? (
+                        <div className="empty"><span className="spin" /></div>
+                    ) : error ? (
+                        <div className="empty">
+                            <Icon name="warn" />
+                            <b>Список не получен</b>
+                            <p className="num">{error}</p>
+                        </div>
+                    ) : presets.length === 0 ? (
+                        <div className="empty">
+                            <Icon name="empty" />
+                            <b>Сохранённых конфигураций нет</b>
+                        </div>
+                    ) : (
+                        presets.map(p => (
+                            <div
+                                key={p.key}
+                                className={`cfg-row${selected === p.key ? ' is-sel' : ''}`}
+                                onClick={() => {
+                                    setSelected(p.key);
+                                    setConfirming(false);
+                                    setArmed(null);
+                                }}
+                            >
+                                <div className="t">
+                                    <b>{p.name || p.key}</b>
+                                    <span>
+                                        {p.key} · {p.canvas?.width ?? '—'}×{p.canvas?.height ?? '—'}
+                                        {p.cameras != null && ` · ${p.cameras} камер`}
+                                    </span>
+                                </div>
+                                <button
+                                    className={`icon-btn${armed === p.key ? ' is-arm' : ''}`}
+                                    data-tip={armed === p.key ? 'Ещё раз — удалить' : 'Удалить'}
+                                    disabled={deleteBusy}
+                                    onClick={e => {
+                                        e.stopPropagation();
+                                        handleDelete(p.key);
+                                    }}
+                                >
+                                    <Icon name="trash" size={13} className="" />
+                                </button>
+                            </div>
+                        ))
+                    )}
+                </div>
+
+                <div className="conf-load-preview">
+                    <PresetPreview preset={preview} loading={previewLoading} />
                 </div>
             </div>
-        </div>
+        </Modal>
     );
 }

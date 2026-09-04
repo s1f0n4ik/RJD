@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { moduleDeviceId, storagePath, type Device } from '../../services/devices';
+import { moduleDeviceId, modulePath, storagePath, type Device } from '../../services/devices';
 import { journalApi } from '../../features/neural/api/journal';
 import type { JournalDetection } from '../../features/neural/api/journal-types';
 
@@ -98,6 +98,34 @@ export function useGatewayStatus() {
                 const data = await res.json() as { modules?: Array<{ connection?: { connected?: boolean } }> };
                 const modules = data.modules ?? [];
                 if (alive) setSummary({ modules: modules.length, connected: modules.filter(m => m.connection?.connected).length });
+            } catch {
+                if (alive) setSummary(null);
+            }
+        })();
+        return () => { alive = false; };
+    }, []);
+
+    return summary;
+}
+
+/** Сводка вывода 360 для плитки: null — устройство модуля не ответило */
+export interface LinkerSummary {
+    running: boolean;
+    viewMode: string;
+}
+
+export function useLinkerStatus() {
+    const [summary, setSummary] = useState<LinkerSummary | null>(null);
+
+    useEffect(() => {
+        let alive = true;
+        (async () => {
+            try {
+                const res = await fetch(modulePath('birdview', '/linker/status'));
+                if (!res.ok) throw new Error(String(res.status));
+                const json = await res.json() as { data?: { running?: boolean; view_mode?: string }; running?: boolean; view_mode?: string };
+                const data = json.data ?? json;
+                if (alive) setSummary({ running: Boolean(data.running), viewMode: data.view_mode ?? 'top' });
             } catch {
                 if (alive) setSummary(null);
             }

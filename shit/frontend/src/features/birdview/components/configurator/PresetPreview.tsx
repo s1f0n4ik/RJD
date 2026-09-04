@@ -1,15 +1,13 @@
-/**
- * Схема пресета в модалке загрузки.
- *
- * Пресеты различаются раскладкой, а не именем: по «config_n9ecx» не понять,
- * та ли это конфигурация. Поэтому рисуем то, что в ней лежит — подложки,
- * камеры и области разметки в координатах поля.
- */
+import { Icon } from '../../../../app/Icons';
+
+// Схема пресета в модалке загрузки: подложки, камеры, маты и габарит в координатах поля
 
 export interface PresetPreviewData {
     canvas?: { width?: number; height?: number };
     cameras?: Record<string, { name?: string; canvas_region?: number[][]; dst_points?: number[][] }>;
     images?: Array<{ name?: string; rect?: number[] }>;
+    machine?: { rect?: number[] };
+    editor?: { px_per_m?: number; step?: number };
 }
 
 interface Rect {
@@ -37,16 +35,26 @@ interface PresetPreviewProps {
 
 export function PresetPreview({ preset, loading }: PresetPreviewProps) {
     if (loading) {
-        return <div className="preset-preview-empty">Загрузка схемы...</div>;
+        return <div className="empty"><span className="spin" /></div>;
     }
     if (!preset) {
-        return <div className="preset-preview-empty">Выберите конфигурацию слева</div>;
+        return (
+            <div className="empty">
+                <Icon name="empty" />
+                <b>Конфигурация не выбрана</b>
+            </div>
+        );
     }
 
     const width = Number(preset.canvas?.width) || 0;
     const height = Number(preset.canvas?.height) || 0;
     if (width <= 0 || height <= 0) {
-        return <div className="preset-preview-empty">В конфигурации нет размеров поля</div>;
+        return (
+            <div className="empty">
+                <Icon name="warn" />
+                <b>Нет размеров поля</b>
+            </div>
+        );
     }
 
     const overlays = (preset.images ?? [])
@@ -57,7 +65,7 @@ export function PresetPreview({ preset, loading }: PresetPreviewProps) {
         key,
         name: cam?.name || key,
         rect: Array.isArray(cam?.canvas_region) ? boundsOf(cam.canvas_region) : null,
-        // Каждая четвёрка углов — одна область разметки
+        // Каждая четвёрка углов — один мат
         zones: (() => {
             const dst = Array.isArray(cam?.dst_points) ? cam.dst_points : [];
             const out: number[][][] = [];
@@ -71,21 +79,38 @@ export function PresetPreview({ preset, loading }: PresetPreviewProps) {
         })(),
     }));
 
+    const gab = Array.isArray(preset.machine?.rect) && preset.machine.rect.length >= 4
+        && preset.machine.rect.every(Number.isFinite)
+        ? preset.machine.rect
+        : null;
+
+    // Сетка по шагу привязки, если пресет писала эта версия редактора
+    const stepPx = Number(preset.editor?.px_per_m) * Number(preset.editor?.step) || 0;
+    const gridLines: string[] = [];
+    if (stepPx > 0 && Math.max(width, height) / stepPx <= 200) {
+        for (let x = stepPx; x < width; x += stepPx) gridLines.push(`M${x} 0V${height}`);
+        for (let y = stepPx; y < height; y += stepPx) gridLines.push(`M0 ${y}H${width}`);
+    }
+
     // Подпись читается на любом масштабе поля: 1000 и 570 дают разный пиксель
     const labelSize = Math.max(width, height) * 0.028;
+    const stroke = Math.max(width, height) / 400;
 
     return (
         <svg
-            className="preset-preview"
             viewBox={`0 0 ${width} ${height}`}
             preserveAspectRatio="xMidYMid meet"
             role="img"
             aria-label="Схема конфигурации"
         >
-            <rect className="pp-field" x={0} y={0} width={width} height={height} />
+            <rect className="pp-field" x={0} y={0} width={width} height={height} style={{ strokeWidth: stroke * 2 }} />
+
+            {gridLines.length > 0 && (
+                <path className="pp-grid" d={gridLines.join('')} style={{ strokeWidth: stroke * 0.5 }} />
+            )}
 
             {overlays.map((r, i) => (
-                <rect key={`ov-${i}`} className="pp-overlay" x={r[0]} y={r[1]} width={r[2]} height={r[3]} />
+                <rect key={`ov-${i}`} className="pp-overlay" x={r[0]} y={r[1]} width={r[2]} height={r[3]} style={{ strokeWidth: stroke }} />
             ))}
 
             {cameras.map(cam => (
@@ -97,6 +122,7 @@ export function PresetPreview({ preset, loading }: PresetPreviewProps) {
                             y={cam.rect.y}
                             width={cam.rect.w}
                             height={cam.rect.h}
+                            style={{ strokeWidth: stroke * 1.5 }}
                         />
                     )}
                     {cam.zones.map((quad, i) => (
@@ -104,6 +130,7 @@ export function PresetPreview({ preset, loading }: PresetPreviewProps) {
                             key={`z-${i}`}
                             className="pp-zone"
                             points={quad.map(p => `${p[0]},${p[1]}`).join(' ')}
+                            style={{ strokeWidth: stroke }}
                         />
                     ))}
                     {cam.rect && (
@@ -120,6 +147,17 @@ export function PresetPreview({ preset, loading }: PresetPreviewProps) {
                     )}
                 </g>
             ))}
+
+            {gab && (
+                <rect
+                    className="pp-gab"
+                    x={gab[0]}
+                    y={gab[1]}
+                    width={gab[2]}
+                    height={gab[3]}
+                    style={{ strokeWidth: stroke * 1.5, strokeDasharray: `${stroke * 6} ${stroke * 4}` }}
+                />
+            )}
         </svg>
     );
 }

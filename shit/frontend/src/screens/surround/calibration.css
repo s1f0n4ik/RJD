@@ -1,0 +1,46 @@
+/* Подэкран «Калибровка»: кадр, шторка снимков, коррекция, модалки */
+.sv-calib .seg.is-off{opacity:.4;pointer-events:none}
+.sv-calib .seg--xs{padding:2px;border-radius:6px;flex:none}
+.sv-calib .seg--xs button{min-height:24px;padding:0 9px;font-size:11.5px}
+.sv-calib .toolbar .pill .dot{flex:0 0 6px}
+.sv-calib .tipbox .v.ok{color:var(--ok)}
+.sv-calib .tipbox .v.warn{color:var(--warn)}
+.sv-calib .tipbox .v.err{color:var(--err)}
+
+/* Кадр: плеер, снимок поверх, заглушка */
+.sv-calib .stream .player{position:absolute;inset:0;z-index:1}
+.sv-calib .stream .snapshot{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000;z-index:2}
+.sv-calib .stream .empty{position:absolute;inset:0;z-index:1}
+.sv-calib .stream .empty .spin{width:26px;height:26px}
+.sv-calib .stream-tag .pill .dot{flex:0 0 6px}
+
+/* Оверлей хода калибровки */
+.sv-calib .ov-card .t span{white-space:pre-line}
+.sv-calib .ov-card .t .spin{flex:0 0 18px}
+.sv-calib .ov-card .ok-ic.err{background:rgba(255,107,128,.16);color:var(--err)}
+.sv-calib .ov-card .f{display:flex;justify-content:flex-end}
+
+/* Лента снимков: превью сервер не отдаёт, плашка с номером */
+.sv-calib .snap{height:80px;display:grid;place-items:center;color:var(--fg-3)}
+.sv-calib .snap .ico{width:22px;height:22px;opacity:.35}
+.sv-calib .snap.is-sel{color:var(--acc)}
+.sv-calib .snap.is-sel .ico{opacity:.8}
+.sv-calib .snaps-empty{height:80px;display:grid;place-items:center;font-family:var(--mono);font-size:11px;color:var(--fg-3);border:1px dashed var(--line);border-radius:var(--r)}
+.sv-calib .log .row{display:flex;gap:0}
+.sv-calib .log .row span:last-child{overflow:hidden;text-overflow:ellipsis}
+
+/* Ползунки коррекции: нативный range во всю ширину */
+.sv-calib .tf-range input[type=range]{flex:1;min-width:0;height:32px;margin:0;padding:0;background:transparent;accent-color:var(--acc);cursor:pointer}
+.sv-calib .tf-range input[type=range]:focus{outline:none}
+
+/* Модалки: сохранение 460, список конфигураций 260 | 1fr */
+.modal--cfg-save{--modal-w:460px}
+.modal--cfg-save .modal-b{display:flex;flex-direction:column;gap:14px}
+.cfg-body{display:grid;grid-template-columns:260px 1fr;gap:16px;padding:0;min-height:320px}
+.cfg-list{border-right:1px solid var(--line);padding:10px;display:flex;flex-direction:column;gap:3px;min-height:0;overflow-y:auto}
+.cfg-list .cfg-row .tag{padding:1px 7px;font-size:10.5px}
+.cfg-detail{padding:14px 18px 14px 4px;min-height:0;overflow-y:auto}
+.cfg-detail .v.ok{color:var(--ok)}
+.cfg-detail .v.warn{color:var(--warn)}
+.cfg-detail .v.err{color:var(--err)}
+.cfg-detail .empty{padding:24px}

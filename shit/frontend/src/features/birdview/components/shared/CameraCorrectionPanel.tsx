@@ -1,32 +1,21 @@
+import { Switch } from '../../../../app/Modal';
 import { CustomSelect } from '../common/CustomSelect';
 import type { SelectOption } from '../common/CustomSelect';
 import type { Correction } from '../../hooks/useCorrection';
 import type { StreamControl } from '../../hooks/useStreamControl';
 import type { CalibrationCamera } from '../../api/ws-types';
 
-/**
- * Выбор камеры, конфигурации коррекции и управление потоком.
- *
- * Камера и коррекция общие для всей страницы: калибратор один, кадр один.
- * Поэтому выбор здесь двигает то же состояние, что и панель на калибровке.
- *
- * Компоновка — приборная планка: три лампы состояния и ряд кнопок под ними.
- * Карточки panel-block здесь нет намеренно. Она родилась в сайдбаре на 300px,
- * а ящик проекции — 220px, и рамка с отступами отъедала бы 30px ширины.
- *
- * Камеры с разрешением, отличным от выбранной конфигурации, помечаются серым,
- * но остаются кликабельными: не подходит конфигурация, а не камера. Выбор
- * такой камеры снимает конфигурацию — сервер всё равно откажет в load.
- */
+// Блок «Камера и коррекция» правой панели: лампы, камера, конфигурация, поток
+// Камера и коррекция общие для всей страницы — калибратор один, кадр один
 
 interface CameraCorrectionPanelProps {
     camera: CalibrationCamera | null;
     onSelectCamera: (cam: CalibrationCamera) => void;
     correction: Correction;
     stream: StreamControl;
-    /** Основной WS не открыт — трогать поток бессмысленно. */
+    // Основной WS не открыт — поток не трогаем
     disabled: boolean;
-    /** Список камер грузит владелец: он нужен и клику по месту пресета. */
+    // Список камер грузит владелец: он нужен и клику по месту пресета
     cameras: CalibrationCamera[];
     camerasError: boolean;
 }
@@ -51,8 +40,7 @@ export function CameraCorrectionPanel({
 
     const configOptions: SelectOption[] = correction.configs.map(cfg => ({
         value: cfg.config_key ?? cfg.id,
-        // Своё имя, если оператор его задал: одна камера может нести несколько
-        // конфигураций, и различать их по id камеры невозможно
+        // Своё имя, если оператор его задал: у одной камеры бывает несколько конфигураций
         label: cfg.name || cfg.config_key || cfg.id,
         note: `${cfg.width ?? '—'}×${cfg.height ?? '—'}`,
         muted: camera ? cfg.width !== camera.width || cfg.height !== camera.height : false,
@@ -61,100 +49,89 @@ export function CameraCorrectionPanel({
     const live = Boolean(stream.streamId);
 
     return (
-        <section className="cc-panel">
-            <div className="cc-strip">
-                <div className="cc-lamps">
-                    <span className={`cc-lamp${camera ? ' on' : ''}`}>
-                        <i />CAM
+        <>
+            <div className="blk-h"><h3>Камера и коррекция</h3></div>
+            <div className="blk-b pad">
+                <div className="lamps">
+                    <span className="lamp">
+                        <span className={`dot${camera ? ' ok' : camerasError ? ' err' : ''}`} />CAM
                     </span>
-                    <span className={`cc-lamp${correction.ready ? ' on' : ''}`}>
-                        <i />CFG
+                    <span className="lamp">
+                        <span className={`dot${correction.ready ? ' ok' : ''}`} />CFG
                     </span>
-                    <span
-                        className={
-                            'cc-lamp cc-lamp--rtc' +
-                            (live ? ' on' : '') +
-                            (stream.pending ? ' pending' : '')
-                        }
-                    >
-                        <i />RTC
+                    <span className={`lamp${stream.pending ? ' wait' : ''}`}>
+                        <span className={`dot${live ? ' ok' : ''}`} />RTC
                     </span>
                 </div>
 
-                <div className="cc-actions">
+                <div className="tf">
+                    <span className="tf-cap">Камера</span>
+                    <CustomSelect
+                        options={cameraOptions}
+                        value={camera?.id ?? null}
+                        placeholder="Не выбрана"
+                        emptyText={camerasError ? 'Ошибка загрузки' : 'Нет доступных камер'}
+                        onChange={id => {
+                            const found = cameras.find(c => c.id === id);
+                            if (found) onSelectCamera(found);
+                        }}
+                    />
+                </div>
+
+                <div className="tf">
+                    <span className="tf-cap">Конфигурация коррекции</span>
+                    <CustomSelect
+                        options={configOptions}
+                        value={correction.selectedKey}
+                        placeholder="Без коррекции"
+                        emptyText="Список не получен"
+                        onOpen={correction.requestList}
+                        onChange={key => correction.select(key)}
+                    />
+                </div>
+
+                <div className="cc-row">
+                    {/* Пока коррекция на сервере не готова, тумблер скрыт */}
+                    {correction.ready && (
+                        <>
+                            <Switch on={correction.enabled} disabled={disabled} onToggle={correction.setEnabled}>
+                                Коррекция
+                            </Switch>
+                            <span className="tbar-sep" />
+                        </>
+                    )}
                     {stream.pending ? (
-                        <button className="btn cc-act" disabled>
-                            Подключение...
-                        </button>
+                        <button className="btn btn--sm btn--ghost" disabled>Подключение…</button>
                     ) : live ? (
                         <>
                             <button
-                                className="btn cc-act"
+                                className="btn btn--sm btn--ghost"
                                 disabled={disabled || !camera}
                                 title="Поднять поток заново"
                                 onClick={() => camera && stream.restart(camera)}
                             >
-                                ↻ Заново
+                                Заново
                             </button>
                             <button
-                                className="btn cc-act cc-act--stop"
+                                className="btn btn--sm btn--ghost"
                                 disabled={disabled}
                                 title="Закрыть поток"
                                 onClick={stream.close}
                             >
-                                ■ Стоп
+                                Стоп
                             </button>
                         </>
                     ) : (
                         <button
-                            className="btn cc-act"
+                            className="btn btn--sm btn--ghost"
                             disabled={disabled || !camera}
-                            title="Запустить поток выбранной камеры"
                             onClick={() => camera && stream.open(camera)}
                         >
-                            ▶ Запустить стрим
+                            Запустить поток
                         </button>
                     )}
                 </div>
             </div>
-
-            <CustomSelect
-                options={cameraOptions}
-                value={camera?.id ?? null}
-                placeholder="Выберите камеру"
-                emptyText={camerasError ? 'Ошибка загрузки' : 'Нет доступных камер'}
-                onChange={id => {
-                    const found = cameras.find(c => c.id === id);
-                    if (found) onSelectCamera(found);
-                }}
-            />
-
-            <CustomSelect
-                options={configOptions}
-                value={correction.selectedKey}
-                placeholder="Без коррекции"
-                emptyText="Список не получен"
-                onOpen={correction.requestList}
-                onChange={key => correction.select(key)}
-            />
-
-            {/* Пока коррекция на сервере не готова, переключать нечего —
-                тумблер скрыт, а не задизейблен */}
-            {correction.ready && (
-                <label className="toggle-row">
-                    <span className="toggle-label">Коррекция</span>
-                    <input
-                        className="toggle-input"
-                        type="checkbox"
-                        checked={correction.enabled}
-                        disabled={disabled}
-                        onChange={e => correction.setEnabled(e.target.checked)}
-                    />
-                    <span className="toggle-track">
-                        <span className="toggle-thumb" />
-                    </span>
-                </label>
-            )}
-        </section>
+        </>
     );
 }

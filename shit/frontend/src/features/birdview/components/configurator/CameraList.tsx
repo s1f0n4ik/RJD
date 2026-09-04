@@ -1,8 +1,9 @@
-import { confState, fmtM, useConfStore } from '../../state/conf-store';
+import { Icon } from '../../../../app/Icons';
+import { confState, useConfStore } from '../../state/conf-store';
 import { confDelete, confRenameCamera, confSelect } from './conf-actions';
 import { checkCameraKeys } from './conf-validate';
 
-// Список камер с инлайновой правкой ключа и имени.
+// Список камер с инлайновой правкой ключа и имени у выделенной строки
 
 export function CameraList() {
     useConfStore();
@@ -10,49 +11,51 @@ export function CameraList() {
     const keys = checkCameraKeys();
 
     return (
-        <div className="conf-item-list">
+        <>
             {confState.cameras.map(cam => {
                 const isSelected = confState.selected?.id === cam.id;
                 const status = keys.status.get(cam.id) ?? 'ok';
+                const keyClass = status === 'error' ? ' is-err' : status === 'warn' ? ' is-warn' : '';
                 return (
-                    <div key={cam.id} className="conf-item-wrap">
+                    <div key={cam.id}>
                         <div
-                            className={`conf-item ${isSelected ? 'selected' : ''}`}
+                            className={`zrow${isSelected ? ' is-sel' : ''}`}
                             onClick={() => confSelect({ type: 'camera', id: cam.id })}
                         >
-                            <div className="conf-item-color" style={{ background: cam.color }} />
-                            <span className="conf-item-name">{cam.name}</span>
-                            <span className="conf-item-meta">{fmtM(cam.w)}×{fmtM(cam.h)} м</span>
+                            <span className={`cam-icon${status === 'error' ? ' err' : ''}`}>
+                                <Icon name="cam" size={12} className="" />
+                            </span>
+                            <span className="nm">{cam.name}</span>
+                            <span className={`key${keyClass}`}>{cam.key}</span>
                             <button
-                                className="conf-item-delete"
+                                className="icon-btn x"
                                 onClick={e => {
                                     e.stopPropagation();
                                     confDelete('camera', cam.id);
                                 }}
                             >
-                                ✕
+                                <Icon name="x" size={12} className="" />
                             </button>
                         </div>
 
                         {isSelected && (
-                            <div className="conf-item-edit">
-                                <div className="field-row">
-                                    <div className="field-group">
-                                        <label className="field-label">Ключ</label>
-                                        {/* Ключ — это place_key: по нему линкер держит привязку,
-                                            а сервер переносит src_points из прежней записи */}
+                            <div className="zrow-edit">
+                                <div className="tf-row">
+                                    {/* Ключ — place_key: по нему линкер держит привязку и переносит src_points */}
+                                    <div className="tf">
+                                        <span className="tf-cap">Ключ</span>
                                         <input
-                                            className={`field-input${status === 'ok' ? '' : ` field-input--${status}`}`}
+                                            className={`tf-in${keyClass}`}
                                             type="text"
                                             value={cam.key}
                                             onChange={e => confRenameCamera(cam.id, { key: e.target.value })}
                                             onBlur={e => confRenameCamera(cam.id, { key: e.target.value.trim() })}
                                         />
                                     </div>
-                                    <div className="field-group">
-                                        <label className="field-label">Имя</label>
+                                    <div className="tf">
+                                        <span className="tf-cap">Имя</span>
                                         <input
-                                            className="field-input"
+                                            className="tf-in"
                                             type="text"
                                             value={cam.name}
                                             onChange={e => confRenameCamera(cam.id, { name: e.target.value })}
@@ -65,6 +68,6 @@ export function CameraList() {
                     </div>
                 );
             })}
-        </div>
+        </>
     );
 }

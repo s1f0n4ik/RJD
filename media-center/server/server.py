@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import time
 import websockets
 from websockets.exceptions import ConnectionClosedOK, ConnectionClosedError
 from websockets.asyncio.server import serve
@@ -29,7 +30,7 @@ def _now() -> str:
 # camera_id -> {"camera": ws | None, "client": ws | None}
 camera_pairs: dict[str, dict] = {}
 
-# calibrator_id -> {"calibrator": ws | None, "client": ws | None}
+# calibrator_id -> {"calibrator": ws|None, "client": ws|None, "client_remote": tuple|None, "client_since": float|None}
 calibrator_pairs: dict[str, dict] = {}
 
 # Single lock — all state mutations go through it
@@ -56,6 +57,12 @@ ERR_CAMERA_NOT_CONNECTED = 1001
 ERR_CAMERA_SEND_FAILED = 1002
 ERR_CAMERA_GONE = 1003
 ERR_CAMERA_REPLACED = 1004
+ERR_CALIBRATOR_NOT_CONNECTED = 1005
+ERR_CALIBRATOR_BUSY = 1006
+ERR_CALIBRATOR_TAKEN_OVER = 1007
+
+# Сколько брокер ждёт ответа клиента на вопрос о перехвате сессии
+TAKEOVER_TIMEOUT_SEC = 30
 
 
 def _message_type(message) -> str | None:
@@ -92,6 +99,36 @@ async def _send_error(ws, kind: str, camera_id: str, client_id: str | None,
     except Exception as exc:
         log.error("[BROKER] error reply failed  camera=%s  code=%s  error=%s",
                   camera_id, code, exc)
+
+
+def _fmt_remote(remote) -> str | None:
+    # remote_address приходит кортежем (host, port)
+    if remote is None:
+        return None
+    if isinstance(remote, (tuple, list)) and remote:
+        return str(remote[0])
+    return str(remote)
+
+
+async def _send_session_message(ws, kind: str, meta: dict, ret="none") -> bool:
+    # Служебное сообщение брокера клиенту калибратора в конверте протокола
+    if ws is None:
+        return False
+    payload = json.dumps({
+        "type": kind,
+        "client_id": "broker",
+        "camera": None,
+        "meta": meta,
+        "ret": ret,
+        "sender": "signaling",
+        "timestamp": _now(),
+    })
+    try:
+        await ws.send(payload)
+        return True
+    except Exception as exc:
+        log.error("[CAL-CLIENT] session message failed  type=%s  error=%s", kind, exc)
+        return False
 
 
 def _msg_size(message) -> str:
@@ -326,7 +363,10 @@ async def handle_calibrator(calibrator_id: str, websocket) -> None:
     log.info("[CALIBRATOR] connected  id=%s  remote=%s", calibrator_id, websocket.remote_address)
 
     async with _lock:
-        pair = calibrator_pairs.setdefault(calibrator_id, {"calibrator": None, "client": None})
+        pair = calibrator_pairs.setdefault(
+            calibrator_id,
+            {"calibrator": None, "client": None, "client_remote": None, "client_since": None},
+        )
 
         if pair["calibrator"] is not None:
             log.warning("[CALIBRATOR] replacing existing connection  id=%s", calibrator_id)
@@ -357,24 +397,108 @@ async def handle_calibrator(calibrator_id: str, websocket) -> None:
         await _cleanup_calibrator_pair(calibrator_id, websocket)
 
 
+async def _ask_for_takeover(calibrator_id: str, websocket, holder_remote, holder_since) -> bool:
+    # Вопрос новому клиенту о разрыве чужой сессии; True — оператор согласился
+    held_for = int(time.monotonic() - holder_since) if holder_since else None
+    holder = _fmt_remote(holder_remote)
+
+    sent = await _send_session_message(websocket, "session_busy", {
+        "code": ERR_CALIBRATOR_BUSY,
+        "description": "calibrator session already in use",
+        "holder": holder,
+        "held_for_sec": held_for,
+        "timeout_sec": TAKEOVER_TIMEOUT_SEC,
+    })
+    if not sent:
+        return False
+
+    log.info("[CAL-CLIENT] busy, waiting for takeover answer  id=%s  holder=%s", calibrator_id, holder)
+
+    try:
+        answer = await asyncio.wait_for(websocket.recv(), timeout=TAKEOVER_TIMEOUT_SEC)
+    except asyncio.TimeoutError:
+        log.info("[CAL-CLIENT] takeover timed out  id=%s", calibrator_id)
+        await _safe_close(websocket, "takeover confirmation timed out")
+        return False
+    except (ConnectionClosedOK, ConnectionClosedError) as exc:
+        log.info("[CAL-CLIENT] left while asked about takeover  id=%s  reason=%s", calibrator_id, exc)
+        return False
+
+    if _message_type(answer) != "session_takeover":
+        log.info("[CAL-CLIENT] takeover declined  id=%s", calibrator_id)
+        await _safe_close(websocket, "takeover declined")
+        return False
+
+    log.info("[CAL-CLIENT] takeover confirmed  id=%s", calibrator_id)
+    return True
+
+
+async def _revoke_client(calibrator_id: str, client, new_remote) -> None:
+    # Вытеснение прежнего клиента: сначала причина, потом закрытие
+    taken_by = _fmt_remote(new_remote)
+    await _send_session_message(client, "session_revoked", {
+        "code": ERR_CALIBRATOR_TAKEN_OVER,
+        "description": "session taken over by another client",
+        "taken_by": taken_by,
+    })
+    log.info("[CAL-CLIENT] previous session revoked  id=%s  taken_by=%s", calibrator_id, taken_by)
+    await _safe_close(client, "session taken over by another client")
+
+
 async def handle_client_for_calibrator(calibrator_id: str, websocket) -> None:
     log.info("[CAL-CLIENT] connected  id=%s  remote=%s", calibrator_id, websocket.remote_address)
 
     async with _lock:
         pair = calibrator_pairs.get(calibrator_id)
+        has_calibrator = pair is not None and pair["calibrator"] is not None
+        holder = pair.get("client") if pair else None
+        holder_remote = pair.get("client_remote") if pair else None
+        holder_since = pair.get("client_since") if pair else None
 
-        # Only one client allowed — reject if calibrator not ready or client already present
+    if not has_calibrator:
+        log.warning("[CAL-CLIENT] rejected — calibrator not connected  id=%s", calibrator_id)
+        await _send_session_message(websocket, "session_error", {
+            "code": ERR_CALIBRATOR_NOT_CONNECTED,
+            "description": "calibrator is not connected to the broker",
+        }, ret=False)
+        await _safe_close(websocket, "calibrator not connected")
+        return
+
+    # Слот один: занят — новый клиент решает, рвать ли чужую сессию
+    if holder is not None:
+        if not await _ask_for_takeover(calibrator_id, websocket, holder_remote, holder_since):
+            return
+
+    async with _lock:
+        pair = calibrator_pairs.get(calibrator_id)
         if pair is None or pair["calibrator"] is None:
-            log.warning("[CAL-CLIENT] rejected — calibrator not connected  id=%s", calibrator_id)
-            await websocket.close(1008, "calibrator not connected")
-            return
+            calibrator = None
+            previous = None
+        else:
+            previous = pair["client"]
+            calibrator = pair["calibrator"]
+            pair["client"] = websocket
+            pair["client_remote"] = websocket.remote_address
+            pair["client_since"] = time.monotonic()
 
-        if pair["client"] is not None:
-            log.warning("[CAL-CLIENT] rejected — pair already occupied  id=%s", calibrator_id)
-            await websocket.close(1008, "calibrator session already in use")
-            return
+    if calibrator is None:
+        log.warning("[CAL-CLIENT] calibrator left while takeover was asked  id=%s", calibrator_id)
+        await _send_session_message(websocket, "session_error", {
+            "code": ERR_CALIBRATOR_NOT_CONNECTED,
+            "description": "calibrator is not connected to the broker",
+        }, ret=False)
+        await _safe_close(websocket, "calibrator not connected")
+        return
 
-        pair["client"] = websocket
+    if previous is not None and previous is not websocket:
+        await _revoke_client(calibrator_id, previous, websocket.remote_address)
+        await _ask_calibrator_to_stop(calibrator_id, calibrator, "session taken over")
+
+    # Клиент занял слот: до этого сообщения открытый сокет ещё ничего не значит
+    await _send_session_message(websocket, "session_ready", {
+        "description": "calibrator session granted",
+        "took_over": previous is not None and previous is not websocket,
+    }, ret=True)
 
     try:
         async for message in websocket:
@@ -417,6 +541,29 @@ async def _cleanup_calibrator_pair(calibrator_id: str, websocket) -> None:
     log.info("[CAL-PAIR] removed  id=%s", calibrator_id)
 
 
+async def _ask_calibrator_to_stop(calibrator_id: str, calibrator, description: str) -> None:
+    # Просьба погасить пайплайн; keep_images бережёт набор снимков оператора
+    if calibrator is None:
+        return
+
+    message = json.dumps({
+        "type": "close",
+        "client_id": "broker",
+        "camera": None,
+        "meta": {
+            "description": description,
+            "keep_images": True,
+        },
+        "ret": "none",
+    })
+
+    try:
+        await calibrator.send(message)
+        log.info("[CAL-PAIR] asked calibrator to stop  id=%s  reason=%s", calibrator_id, description)
+    except Exception as exc:
+        log.error("[CAL-PAIR] cannot notify calibrator  id=%s  error=%s", calibrator_id, exc)
+
+
 async def _notify_calibrator_client_gone(calibrator_id: str, calibrator) -> None:
     """
     Сообщить калибратору, что смотреть больше некому.
@@ -429,25 +576,7 @@ async def _notify_calibrator_client_gone(calibrator_id: str, calibrator) -> None
     вкладки, обрыва сети, убитого браузера. Набор снимков не трогаем —
     оператор может вернуться и продолжить.
     """
-    if calibrator is None:
-        return
-
-    message = json.dumps({
-        "type": "close",
-        "client_id": "broker",
-        "camera": None,
-        "meta": {
-            "description": "client disconnected",
-            "keep_images": True,
-        },
-        "ret": "none",
-    })
-
-    try:
-        await calibrator.send(message)
-        log.info("[CAL-PAIR] client gone, asked calibrator to stop  id=%s", calibrator_id)
-    except Exception as exc:
-        log.error("[CAL-PAIR] cannot notify calibrator  id=%s  error=%s", calibrator_id, exc)
+    await _ask_calibrator_to_stop(calibrator_id, calibrator, "client disconnected")
 
 
 async def _cleanup_calibrator_side(calibrator_id: str, side: str, websocket) -> None:
@@ -466,6 +595,8 @@ async def _cleanup_calibrator_side(calibrator_id: str, side: str, websocket) -> 
         log.info("[CAL-PAIR] cleared %s  id=%s", side, calibrator_id)
 
         if side == "client":
+            pair["client_remote"] = None
+            pair["client_since"] = None
             calibrator_to_notify = pair["calibrator"]
 
         if pair["calibrator"] is None and pair["client"] is None:

@@ -1,6 +1,6 @@
 import type { CalOverlayState } from './useCalibrationProcess';
 
-/** Оверлей хода калибровки поверх кадра. Порт calOverlay. */
+// Оверлей хода калибровки поверх кадра: шаг, ожидание, итог
 
 interface CalibrationOverlayProps {
     state: CalOverlayState;
@@ -10,30 +10,37 @@ interface CalibrationOverlayProps {
 export function CalibrationOverlay({ state, onDismiss }: CalibrationOverlayProps) {
     if (state.kind === 'result') {
         return (
-            <div className="cal-overlay">
-                <div className={`cal-result-icon ${state.ok ? 'ok' : 'err'}`}>
-                    {state.ok ? '✓' : '✕'}
+            <div className="ov">
+                <div className="ov-card">
+                    <div className="t">
+                        <span className={`ok-ic${state.ok ? '' : ' err'}`}>{state.ok ? '✓' : '✕'}</span>
+                        <div>
+                            <b>{state.title}</b>
+                            {state.desc && <span>{state.desc}</span>}
+                        </div>
+                    </div>
+                    <div className="f">
+                        <button className={`btn btn--sm${state.ok ? ' btn--acc' : ''}`} onClick={onDismiss}>
+                            {state.ok ? 'Готово' : 'Закрыть'}
+                        </button>
+                    </div>
                 </div>
-                <div className={`cal-result-title ${state.ok ? 'ok' : 'err'}`}>{state.title}</div>
-                {state.desc && <div className="cal-result-desc">{state.desc}</div>}
-                <button
-                    className={`btn ${state.ok ? 'btn-accent' : 'btn-ghost'}`}
-                    onClick={onDismiss}
-                >
-                    {state.ok ? 'Готово' : 'Закрыть'}
-                </button>
             </div>
         );
     }
 
     if (state.kind === 'indeterminate') {
         return (
-            <div className="cal-overlay">
-                <div className="cal-indeterminate">
-                    <div className="cal-indeterminate-bar" />
+            <div className="ov">
+                <div className="ov-card">
+                    <div className="t">
+                        <span className="spin" />
+                        <div>
+                            <b>{state.label}</b>
+                            {state.desc && <span>{state.desc}</span>}
+                        </div>
+                    </div>
                 </div>
-                <div className="cal-step-label">{state.label}</div>
-                {state.desc && <div className="cal-step-desc">{state.desc}</div>}
             </div>
         );
     }
@@ -42,30 +49,36 @@ export function CalibrationOverlay({ state, onDismiss }: CalibrationOverlayProps
     const clamped = Math.min(100, Math.max(0, progress));
 
     return (
-        <div className="cal-overlay">
-            <div className="cal-spinner" />
-            <div className="cal-step-label">{state.label}</div>
-            {state.desc && <div className="cal-step-desc">{state.desc}</div>}
-
-            {state.progress !== null && (
-                <div style={{ width: '100%' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                        <span className="cal-step-counter">
-                            {state.step != null && state.totalSteps != null
-                                ? `Шаг ${state.step} / ${state.totalSteps}`
-                                : ''}
-                        </span>
-                        <span className="cal-step-counter">
-                            {state.itemCurrent != null && state.itemTotal != null
-                                ? `${state.itemCurrent} / ${state.itemTotal}`
-                                : `${Math.round(progress)}%`}
-                        </span>
-                    </div>
-                    <div className="cal-progress-track">
-                        <div className="cal-progress-fill" style={{ width: `${clamped}%` }} />
+        <div className="ov">
+            <div className="ov-card">
+                <div className="t">
+                    <span className="spin" />
+                    <div>
+                        <b>{state.label}</b>
+                        {state.desc && <span>{state.desc}</span>}
                     </div>
                 </div>
-            )}
+
+                {state.progress !== null && (
+                    <>
+                        <div className="bar">
+                            <i style={{ width: `${clamped}%` }} />
+                        </div>
+                        <div className="m">
+                            <span>
+                                {state.step != null && state.totalSteps != null
+                                    ? `Шаг ${state.step} / ${state.totalSteps}`
+                                    : ''}
+                            </span>
+                            <span>
+                                {state.itemCurrent != null && state.itemTotal != null
+                                    ? `${state.itemCurrent} / ${state.itemTotal}`
+                                    : `${Math.round(progress)}%`}
+                            </span>
+                        </div>
+                    </>
+                )}
+            </div>
         </div>
     );
 }

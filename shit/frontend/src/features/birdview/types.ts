@@ -3,6 +3,9 @@
 /** Экраны навбара. Порядок соответствует data-step в старой вёрстке. */
 export type ScreenId = 'calibration' | 'projection' | 'linker' | 'configurator' | 'mapping';
 
+/** Состояние подключения калибратора и потока для полосы над кадром */
+export type ConnState = 'connected' | 'connecting' | 'disconnected';
+
 /** Общий тип для всего, что расставляется на поле конфигуратора. */
 // x, y, w, h — метры поля; в пиксели переводит только conf-export
 export interface ConfItem {

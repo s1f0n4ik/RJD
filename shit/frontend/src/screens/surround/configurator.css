@@ -1,0 +1,45 @@
+/* Конфигуратор: холст, панель, модалки. Общие классы раздела — в surround.css */
+.conf-area{position:absolute;inset:0}
+.conf-area canvas{display:block;width:100%;height:100%;touch-action:none}
+.sv-conf .zoom .num{color:var(--fg-2)}
+.sv-conf .mod-side.is-dragging{opacity:.2}
+.sv-conf .blk-h .icon-btn.add{cursor:grab;touch-action:none}
+.sv-conf .blk-h .icon-btn.add:active{cursor:grabbing}
+.sv-conf .blk-b.list{padding-bottom:10px}
+.sv-conf .blk-b.list.is-empty{padding:0;border-bottom:none}
+.sv-conf .blk-b.pad.mat{padding-bottom:6px;border-bottom:none}
+.sv-conf .blk-b.pad.mat .tf{flex:none}
+.sv-conf .zrow{cursor:pointer}
+.sv-conf .zrow .key.is-warn{color:var(--warn)}
+.sv-conf .zrow-edit{padding:4px 10px 8px 42px}
+.sv-conf .zrow-edit .tf-in{height:28px;font-size:11.5px}
+.sv-conf .zrow-edit .tf-cap{font-size:9.5px}
+.sv-conf .cam-icon.img{background:var(--panel-2);color:var(--fg-2)}
+.sv-conf .sv-foot .tf{flex:none}
+.sv-conf .sv-foot .tf-cap .spacer{color:var(--save)}
+
+/* Поле с ошибкой ввода: обёртка .tf красит свой .tf-in */
+.tf.is-err .tf-in{border-color:var(--err);box-shadow:0 0 0 2px rgba(255,107,128,.18)}
+
+/* Модалки конфигуратора */
+.conf-modal-b{display:flex;flex-direction:column;gap:14px}
+.conf-export{display:grid;grid-template-columns:1fr 250px;gap:16px;min-height:0}
+.conf-export .tf-row{grid-column:1 / -1}
+.conf-json{margin:0;background:var(--input);border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;font-family:var(--mono);font-size:11px;line-height:1.55;color:var(--fg-2);max-height:440px;overflow:auto;white-space:pre;min-width:0;box-sizing:border-box}
+.conf-problems{display:flex;flex-direction:column;min-width:0}
+.conf-problems .kv{align-items:flex-start}
+.conf-problems .kv .k{flex:0 0 auto}
+.conf-problems .kv .v{font-family:var(--ui);font-size:12px;color:var(--fg-2);line-height:1.45}
+.conf-load{display:grid;grid-template-columns:270px 1fr;gap:0;padding:0;min-height:360px}
+.conf-load-list{border-right:1px solid var(--line);padding:10px;display:flex;flex-direction:column;gap:3px;overflow-y:auto;min-height:0}
+.conf-load-list .cfg-row{cursor:pointer}
+.conf-load-list .cfg-row .icon-btn.is-arm{border-color:var(--err);color:var(--err)}
+.conf-load-preview{padding:16px;display:flex;align-items:center;justify-content:center;min-width:0;min-height:0}
+.conf-load-preview svg{width:100%;height:100%;max-height:380px;display:block}
+.pp-field{fill:var(--input);stroke:var(--line-hi);stroke-width:2}
+.pp-grid{stroke:var(--line);stroke-width:1;fill:none}
+.pp-overlay{fill:rgba(255,255,255,.04);stroke:var(--line-hi);stroke-width:1.5}
+.pp-camera{fill:rgba(var(--acc-rgb),.07);stroke:var(--acc);stroke-width:2}
+.pp-zone{fill:rgba(87,214,154,.14);stroke:var(--ok);stroke-width:1.5}
+.pp-gab{fill:none;stroke:var(--save);stroke-width:2;stroke-dasharray:8 5}
+.pp-label{font-family:var(--mono);fill:var(--fg-2);pointer-events:none}

@@ -1,0 +1,60 @@
+/* Подэкран «Отображение»: схема мест, пикер камер, контролы вкладок */
+.sv-link .toolbar .tf{flex:0 0 260px}
+.sv-link .toolbar .pill.warn{border-color:rgba(240,189,87,.35);color:var(--warn)}
+.sv-link .plan{display:flex;flex-direction:column}
+.sv-link .plan>.empty{flex:1}
+.sv-link .canvas-wrap .stream{flex:1;min-width:0}
+.sv-link .tf-in:disabled{opacity:.5;cursor:not-allowed}
+.sv-link .tf .seg button{flex:1}
+.sv-link .blk-b .empty{padding:28px 12px}
+.sv-link .blk-b .spin{margin:24px auto}
+.sv-link .sv-foot .spin{border-color:rgba(8,16,31,.3);border-top-color:#08101f}
+
+/* Нативный слайдер вместо трека макета */
+.sv-link .rng{flex:1;min-width:0;height:32px;margin:0;padding:0;accent-color:var(--acc);background:none;cursor:pointer}
+.sv-link .rot .tf-range{flex:1;height:28px}
+.sv-link .rot .chip{box-sizing:border-box}
+.sv-link .chip:disabled{opacity:.4;cursor:not-allowed}
+
+/* Степпер позы: кнопка отката без рамки, «+» держит правое скругление */
+.sv-link .stp button.rst{width:26px;height:26px;margin-left:6px;border:none;background:none;border-radius:6px;padding:0}
+.sv-link .stp .tf-in+button{border-radius:0 6px 6px 0}
+.sv-link .stp button{box-sizing:border-box;padding:0}
+.sv-link .tf-range button.rst{border:none;background:none;padding:0}
+.sv-link .tf-in{box-sizing:border-box}
+
+/* Рисунки вида сверху: блок на файл */
+.sv-link .imgf{display:flex;flex-direction:column;gap:8px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+.sv-link .imgf:last-child{border-bottom:none;padding-bottom:0}
+
+/* Схема мест: следы камер на канвасе конфигурации */
+.plan-host{position:relative;flex:1;min-height:0;padding:14px;box-sizing:border-box}
+.plan-host svg{display:block;width:100%;height:100%}
+.plan-overlay{fill:rgba(136,136,170,.07);stroke:var(--line-hi);stroke-width:1.5}
+.plan-place{cursor:pointer}
+.plan-place.locked{cursor:default}
+.plan-place:focus{outline:none}
+.plan-place-shape{fill:rgba(68,68,90,.18);stroke:var(--fg-3);stroke-width:1.5;stroke-dasharray:7 5;transition:fill .18s,stroke .18s}
+.plan-place.assigned .plan-place-shape{fill:rgba(var(--acc-rgb),.14);stroke:var(--acc);stroke-dasharray:none}
+.plan-place:not(.locked):hover .plan-place-shape{fill:rgba(var(--acc-rgb),.1);stroke:var(--acc)}
+.plan-place.active .plan-place-shape,.plan-place:focus-visible .plan-place-shape{stroke:var(--acc);stroke-width:2}
+.plan-place-title{font-family:var(--mono);letter-spacing:.14em;text-transform:uppercase;fill:var(--fg-3);pointer-events:none}
+.plan-place.assigned .plan-place-title{fill:var(--acc-dim)}
+.plan-place-cam{font-family:var(--mono);letter-spacing:.02em;fill:var(--fg-3);pointer-events:none}
+.plan-place.assigned .plan-place-cam{fill:var(--fg)}
+.plan-cam-icon{pointer-events:none}
+.plan-cam-body{fill:var(--acc);stroke:var(--bg)}
+.plan-cam-lens{fill:var(--bg);stroke:var(--acc)}
+.plan-cam-ray{stroke:rgba(var(--acc-rgb),.55)}
+.plan-overlay-kind,.plan-overlay-name{font-family:var(--mono);pointer-events:none}
+.plan-overlay-kind{letter-spacing:.16em;fill:var(--fg-3)}
+.plan-overlay-name{fill:var(--fg-2)}
+
+/* Пикер камеры у точки клика по месту */
+.pick{position:absolute;z-index:5;width:230px;max-height:60%;overflow-y:auto;padding:5px;background:var(--panel-2);border-color:var(--line-hi);box-shadow:var(--shadow-lg);box-sizing:border-box}
+.pick .pick-h{padding:7px 9px 8px;margin-bottom:4px;border-bottom:1px solid var(--line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pick .row-item{min-height:34px;padding:0 9px;font-size:12.5px;color:var(--fg-2)}
+.pick .row-item:hover{color:var(--fg)}
+.pick .row-item.is-taken .nm{color:var(--fg-3)}
+.pick .row-item.is-clear{color:var(--err)}
+.pick .empty{padding:14px 8px}

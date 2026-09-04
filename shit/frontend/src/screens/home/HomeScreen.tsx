@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Icon } from '../../app/Icons';
 import { NAV } from '../../app/nav';
 import { useSystem } from '../../app/SystemContext';
-import { useDisks, useGatewayStatus, useLastDetections } from './useHomeData';
+import { useDisks, useGatewayStatus, useLastDetections, useLinkerStatus } from './useHomeData';
 import { useLayouts } from '../../hooks/Layouts';
 import type { Device } from '../../services/devices';
 import './home.css';
@@ -35,6 +35,7 @@ export function HomeScreen() {
     const { layouts } = useLayouts();
     const { items: detections, available: journalUp } = useLastDetections();
     const gateway = useGatewayStatus();
+    const linker = useLinkerStatus();
 
     const online = devices.filter(d => d.status === 'online');
     const liveCameras = cameras.filter(isLive).length;
@@ -50,6 +51,9 @@ export function HomeScreen() {
         : `${devices.length} ${plural(devices.length, 'устройство', 'устройства', 'устройств')}` +
           (offlineDevices > 0 ? ` · ${offlineDevices} не в сети` : ' · все в сети');
 
+    const linkerSummary = linker
+        ? linker.running ? `вывод в эфире · ${linker.viewMode === 'surround' ? 'объём' : 'сверху'}` : 'вывод остановлен'
+        : 'модуль не отвечает';
     const gatewaySummary = gateway
         ? `${gateway.modules} ${plural(gateway.modules, 'модуль', 'модуля', 'модулей')} · ${gateway.connected} на связи`
         : 'шлюз не отвечает';
@@ -106,7 +110,7 @@ export function HomeScreen() {
                     <div className="tiles">
                         {NAV.filter(item => item.to !== '/').map(item => (
                             item.ready ? (
-                                <Link key={item.to} to={item.to} className={`tile${item.to === '/krsps' && !gateway ? ' is-off' : ''}`}>
+                                <Link key={item.to} to={item.to} className={`tile${(item.to === '/krsps' && !gateway) || (item.to === '/surround' && !linker) ? ' is-off' : ''}`}>
                                     <Icon name={item.icon} size={22} />
                                     <b>{item.label}</b>
                                     {item.desc && <span>{item.desc}</span>}
@@ -114,6 +118,7 @@ export function HomeScreen() {
                                     {item.to === '/live' && <span className="foot">{layoutSummary}</span>}
                                     {item.to === '/devices' && <span className="foot">{deviceSummary}</span>}
                                     {item.to === '/krsps' && <span className="foot">{gatewaySummary}</span>}
+                                    {item.to === '/surround' && <span className="foot">{linkerSummary}</span>}
                                 </Link>
                             ) : (
                                 <div key={item.to} className="tile is-off">

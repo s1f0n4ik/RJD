@@ -1,0 +1,10 @@
+/* Сопоставление: таблица во всю ширину, библиотека калибровок справа */
+.sv-map .map-wrap{flex:1;min-height:0;overflow:auto}
+.sv-map .map-wrap .empty{height:100%}
+.sv-map .map-tab .tf{flex:none;width:280px}
+.sv-map .map-tab .fps{width:72px;text-align:right;box-sizing:border-box}
+.sv-map .map-tab .fps:disabled{opacity:.4}
+.sv-map .map-tab td.cam b{display:block;color:var(--fg);font-weight:600}
+.sv-map .map-tab td.cam span{font-family:var(--mono);font-size:10.5px;color:var(--fg-3)}
+.sv-map .map-tab tbody td{height:56px}
+.sv-map .cfg-empty{padding:4px 2px;font-size:12.5px;color:var(--fg-3)}

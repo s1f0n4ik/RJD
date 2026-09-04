@@ -1,20 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
+import { Select } from '../../../../app/Select';
 
-/**
- * Выпадающий список в теме страницы.
- *
- * Нативный <select> здесь не годится: список опций рисует ОС, и на тёмной
- * странице он выглядит инородно. Тот же вывод уже сделан в features/neural,
- * но переиспользовать тот компонент нельзя — он завязан на классы из
- * neural/theme.css, а темы фич намеренно изолированы друг от друга.
- */
+/** Выпадающий список раздела 360: тонкая обёртка над общим Select оболочки */
 
 export interface SelectOption {
     value: string;
     label: string;
-    /** Вариант выбирается, но помечен как неподходящий — приглушённый. */
+    /** Вариант выбирается, но помечен как неподходящий — приглушённый */
     muted?: boolean;
-    /** Правая подпись в строке: разрешение, признак и подобное. */
+    /** Правая подпись в строке: разрешение, признак и подобное */
     note?: string;
 }
 
@@ -23,8 +16,9 @@ interface CustomSelectProps {
     value: string | null;
     placeholder?: string;
     emptyText?: string;
-    /** Вызывается при раскрытии списка — например, чтобы подгрузить варианты. */
+    /** Вызывается при раскрытии списка — например, чтобы подгрузить варианты */
     onOpen?: () => void;
+    disabled?: boolean;
     onChange: (value: string) => void;
 }
 
@@ -34,69 +28,18 @@ export function CustomSelect({
     placeholder = '—',
     emptyText = 'Нет вариантов',
     onOpen,
+    disabled,
     onChange,
 }: CustomSelectProps) {
-    const [open, setOpen] = useState(false);
-    const ref = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-        if (!open) return;
-        const onClickOutside = (e: MouseEvent) => {
-            if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-        };
-        document.addEventListener('mousedown', onClickOutside);
-        return () => document.removeEventListener('mousedown', onClickOutside);
-    }, [open]);
-
-    const selected = options.find(o => o.value === value);
-
     return (
-        <div className={`custom-select${open ? ' open' : ''}`} ref={ref}>
-            <button
-                type="button"
-                className="custom-select-trigger"
-                onClick={e => {
-                    e.stopPropagation();
-                    // Вне апдейтера: StrictMode прогоняет апдейтеры дважды,
-                    // и запрос списка уходил в два экземпляра
-                    if (!open) onOpen?.();
-                    setOpen(!open);
-                }}
-            >
-                <span className={`custom-select-label${selected ? ' selected' : ''}`}>
-                    {selected ? selected.label : placeholder}
-                </span>
-                <span className="custom-select-arrow">›</span>
-            </button>
-
-            {open && (
-                <div className="custom-select-dropdown">
-                    {options.length === 0 ? (
-                        <div className="custom-select-empty">{emptyText}</div>
-                    ) : (
-                        <div className="custom-select-list">
-                            {options.map(o => (
-                                <div
-                                    key={o.value}
-                                    className={
-                                        'custom-select-item' +
-                                        (o.value === value ? ' selected' : '') +
-                                        (o.muted ? ' muted' : '')
-                                    }
-                                    onClick={e => {
-                                        e.stopPropagation();
-                                        onChange(o.value);
-                                        setOpen(false);
-                                    }}
-                                >
-                                    <span className="custom-select-item-name">{o.label}</span>
-                                    {o.note && <span className="custom-select-item-note">{o.note}</span>}
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
-            )}
-        </div>
+        <Select
+            value={value ?? ''}
+            options={options.map(o => ({ value: o.value, label: o.label, hint: o.note, muted: o.muted }))}
+            onChange={onChange}
+            placeholder={placeholder}
+            emptyText={emptyText}
+            onOpen={onOpen}
+            disabled={disabled}
+        />
     );
 }

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import WebRTCPlayer from '../../../../components/WebRTCPlayer';
+import type { PlayerStatusInfo } from '../../../../components/WebRTCPlayer';
+import { Icon } from '../../../../app/Icons';
 import type { BirdviewWs } from '../../hooks/useBirdviewWs';
 import type { EventLog } from '../../hooks/useEventLog';
 import type { CalibrationCamera, WsMessage } from '../../api/ws-types';
@@ -40,17 +42,10 @@ import {
 import { ProjSettings } from './ProjSettings';
 import { ProjResult } from './ProjResult';
 import { LutModal } from './LutModal';
+import '../../../../screens/surround/projection.css';
 
-/**
- * Экран «Сборка» (проекция). Порт page-2.
- *
- * Живой кадр берётся вторым экземпляром WebRTCPlayer с тем же streamId:
- * брокер допускает несколько клиентов на камеру, а два независимых плеера
- * избавляют от переноса одного <video> между экранами.
- *
- * Геометрия слоя точек задаётся соотношением сторон камеры через CSS
- * aspect-ratio, поэтому канвас совпадает с кадром без расчёта letterbox.
- */
+// Экран «Сборка»: живой кадр вторым экземпляром WebRTCPlayer с тем же streamId,
+// слой точек внутри трансформируемого слоя видео
 
 interface ProjectionScreenProps {
     active: boolean;
@@ -80,15 +75,20 @@ export function ProjectionScreen({
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const mediaRef = useRef<HTMLDivElement>(null);
     const wrapperRef = useRef<HTMLDivElement>(null);
+    const splitRef = useRef<HTMLDivElement>(null);
 
-    const [settingsOpen, setSettingsOpen] = useState(false);
     const [resultUrl, setResultUrl] = useState<string | null>(null);
+    // Место, чей результат показан
+    const [resultKey, setResultKey] = useState<string | null>(null);
     const [lutOpen, setLutOpen] = useState(false);
     const [lutSaving, setLutSaving] = useState(false);
 
-    // Реальное разрешение кадра из метаданных потока. Аспект слоя точек
-    // берётся отсюда: конфиг камеры может врать, и тогда клики нормализуются
-    // по letterbox-полосам, а не по кадру
+    // Состояние плеера этого экрана — для пилюли «Поток»
+    const [playerStatus, setPlayerStatus] = useState<PlayerStatusInfo['status']>('connecting');
+    // Масштаб слоя в процентах — для числа в полосе
+    const [scalePct, setScalePct] = useState(100);
+
+    // Реальное разрешение кадра из метаданных потока: конфиг камеры может врать
     const [videoSize, setVideoSize] = useState<{ w: number; h: number } | null>(null);
 
     // Пресет, на который оператор хочет перейти, пока не подтвердил потерю точек
@@ -96,7 +96,7 @@ export function ProjectionScreen({
     // Камеры, для которых в пришедшем пресете нашлась сохранённая разметка
     const [restorable, setRestorable] = useState<string[]>([]);
 
-    // Список камер: селект планки, клик по месту и проход «Применить все»
+    // Список камер: селект панели, клик по месту и проход «Применить все»
     const [sourceCams, setSourceCams] = useState<CalibrationCamera[]>([]);
     const [sourceCamsError, setSourceCamsError] = useState(false);
 
@@ -126,11 +126,12 @@ export function ProjectionScreen({
 
     const resultUrlRef = useRef<string | null>(null);
 
-    /** Смена пресета обнуляет карты на сервере — показывать старый результат нельзя. */
+    // Смена пресета обнуляет карты на сервере — старый результат не показываем
     const clearResult = useCallback(() => {
         if (resultUrlRef.current) URL.revokeObjectURL(resultUrlRef.current);
         resultUrlRef.current = null;
         setResultUrl(null);
+        setResultKey(null);
     }, []);
 
     const toast = useCallback(
@@ -138,16 +139,18 @@ export function ProjectionScreen({
         [showToast],
     );
 
-    // Смена потока — старое разрешение больше не факт
+    // Смена потока — старое разрешение и статус плеера больше не факт
     useEffect(() => {
         setVideoSize(null);
         setProjVideoSize(0, 0);
+        setPlayerStatus('connecting');
     }, [streamId, stream.generation]);
 
-    /** Применяет текущий зум к слою видео. Канвас внутри слоя, ему нужен только bitmap. */
+    // Применяет текущий зум к слою видео; канвас внутри слоя, ему нужен только bitmap
     const syncTransform = useCallback(() => {
         if (mediaRef.current) mediaRef.current.style.transform = mediaTransform();
         projSyncZoom();
+        setScalePct(Math.round(projState.view.scale * 100));
     }, []);
 
     // Канвас точек и указатель
@@ -167,7 +170,7 @@ export function ProjectionScreen({
             if (e.ctrlKey || e.shiftKey || e.button !== 0) return;
 
             if (!projState.activeCam) {
-                toast('Камера не выбрана', 'Выберите камеру в настройках', 'err');
+                toast('Камера не выбрана', 'Выберите камеру в списке пресета', 'err');
                 return;
             }
 
@@ -257,8 +260,7 @@ export function ProjectionScreen({
             const mx = e.clientX - rect.left;
             const my = e.clientY - rect.top;
 
-            // При зажатом shift браузер переносит прокрутку в горизонтальную
-            // ось, и deltaY приходит нулевым
+            // При зажатом shift браузер переносит прокрутку в горизонтальную ось, и deltaY приходит нулевым
             const delta = e.deltaY !== 0 ? e.deltaY : e.deltaX;
             if (delta === 0) return;
 
@@ -329,7 +331,7 @@ export function ProjectionScreen({
         }
     }, [active, syncTransform]);
 
-    // Без кадра слой точек пуст: разметка есть, а показывать её не на чем
+    // Без кадра слой точек пуст
     useEffect(() => {
         setProjHasFrame(Boolean(streamId));
     }, [streamId]);
@@ -382,6 +384,7 @@ export function ProjectionScreen({
                         );
                         resultUrlRef.current = url;
                         setResultUrl(url);
+                        setResultKey(meta.key ?? null);
                     }
 
                     const key = meta.key;
@@ -398,8 +401,7 @@ export function ProjectionScreen({
                         log.log(`apply_warp: нет camera_id для <${key}>`, 'warn');
                     }
 
-                    // Ключ коррекции зеркалит запись в пресет: warp без
-                    // конфигурации стирает метку у места
+                    // Ключ коррекции зеркалит запись в пресет: warp без конфигурации стирает метку у места
                     if (typeof meta.calibration === 'string' && meta.calibration) {
                         projState.calibKey[key] = meta.calibration;
                     } else {
@@ -471,7 +473,7 @@ export function ProjectionScreen({
         [ws],
     );
 
-    /** Смена вида конфигурации сбрасывает всю разметку — спрашиваем, если есть что терять. */
+    // Смена пресета сбрасывает всю разметку — спрашиваем, если есть что терять
     const requestPreset = (key: string) => {
         if (key === projState.activePreset?.config_key) return;
         if (hasAnyPoints()) {
@@ -511,7 +513,7 @@ export function ProjectionScreen({
         }
 
         if (!projState.activeCam) {
-            toast('Камера не выбрана', 'Выберите камеру в настройках', 'err');
+            toast('Камера не выбрана', 'Выберите камеру в списке пресета', 'err');
             return;
         }
 
@@ -528,7 +530,7 @@ export function ProjectionScreen({
         });
     };
 
-    /** Очередь прохода: места с полной разметкой и доступной привязанной камерой. */
+    // Очередь прохода: места с полной разметкой и доступной привязанной камерой
     const applyAllQueue = () => {
         const preset = projState.activePreset;
         if (!preset) return [];
@@ -544,7 +546,7 @@ export function ProjectionScreen({
             .filter(q => q.cam && q.maxPts > 0 && q.pts.length >= q.maxPts);
     };
 
-    /** Ожидание условия опросом: пропсы в асинхронном цикле видны через refs. */
+    // Ожидание условия опросом: пропсы в асинхронном цикле видны через refs
     const waitFor = (cond: () => boolean, timeoutMs: number) =>
         new Promise<boolean>(resolve => {
             const start = Date.now();
@@ -556,12 +558,8 @@ export function ProjectionScreen({
             tick();
         });
 
-    /**
-     * Проход по всем местам с точками и привязками: переключение камеры той же
-     * логикой, что клик по месту, затем apply_warp её точками. Камеру надо
-     * переключать честно: сервер пишет привязку и снимает кадр с текущей.
-     * Первая ошибка останавливает проход, успевшее примениться остаётся.
-     */
+    // Проход по всем местам с точками и привязками: честное переключение камеры, затем apply_warp;
+    // первая ошибка останавливает проход, успевшее примениться остаётся
     const applyAll = async () => {
         const queue = applyAllQueue();
         if (queue.length === 0) return;
@@ -617,13 +615,25 @@ export function ProjectionScreen({
         ws.sendMessage(PROJ_TYPE, { method: PROJ_METHOD.RESET_WARP });
     };
 
-    const openLut = () => {
-        if (!allCamerasDone()) {
-            toast('Нельзя сохранить', 'Не все камеры применены', 'err');
-            return;
-        }
-        setLutOpen(true);
+    // Разделитель результата и кадра: --res на .sv-split в пределах 20–80 %
+    const onGutterDown = (e: React.PointerEvent) => {
+        e.preventDefault();
+        const box = splitRef.current;
+        if (!box) return;
+        const r = box.getBoundingClientRect();
+        const move = (ev: PointerEvent) => {
+            const f = Math.max(0.2, Math.min(0.8, (ev.clientX - r.left - 16) / (r.width - 32)));
+            box.style.setProperty('--res', `${(f * 100).toFixed(1)}%`);
+        };
+        const up = () => {
+            window.removeEventListener('pointermove', move);
+            window.removeEventListener('pointerup', up);
+        };
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', up);
     };
+
+    const resetGutter = () => splitRef.current?.style.removeProperty('--res');
 
     // До прихода метаданных живём на конфиге камеры
     const aspect = videoSize
@@ -632,12 +642,128 @@ export function ProjectionScreen({
             ? `${camera.width} / ${camera.height}`
             : '16 / 9';
     const maxPts = currentMaxPoints();
+    const pointsFull = maxPts > 0 && projState.points.length >= maxPts;
+    const warpDone = Boolean(projState.activeCam && projState.doneSet.has(projState.activeCam));
+
+    const streamCls = !streamId
+        ? stream.pending ? ' warn' : ''
+        : playerStatus === 'connected'
+            ? ' ok'
+            : playerStatus === 'error'
+                ? ' err'
+                : ' warn';
+
+    const placeName = (key: string | null) =>
+        key ? projState.activePreset?.cameras.find(c => c.key === key)?.name || key : null;
 
     return (
-        <main className={`main-layout proj-layout ${active ? '' : 'hidden'}`}>
+        <div className={`sv sv-proj${active ? '' : ' is-hidden'}`}>
+            <div className="sv-main">
+                <div className="toolbar">
+                    <button
+                        className="btn btn--sm"
+                        disabled={projState.points.length === 0}
+                        onClick={removeLastPoint}
+                    >
+                        Удалить последнюю
+                    </button>
+                    <button className="btn btn--sm btn--ghost" onClick={clearPoints}>Очистить</button>
+                    {/* Сбрасывает печку и превью, точки и привязки остаются */}
+                    {projState.doneSet.size > 0 && (
+                        <button
+                            className="btn btn--sm btn--ghost"
+                            disabled={applyAllBusy !== null}
+                            onClick={resetWarp}
+                        >
+                            Сбросить warp
+                        </button>
+                    )}
+                    <div className="pills">
+                        <span className={`pill${pointsFull ? ' ok' : ''}`}>
+                            <span className={`dot${pointsFull ? '' : ' acc'}`} />
+                            точек {projState.points.length} из {maxPts}
+                        </span>
+                        <span className={`pill${warpDone ? ' ok' : ''}`}>
+                            <span className="dot" />
+                            {warpDone ? 'warp применён' : 'warp не применён'}
+                        </span>
+                        <span className={`pill${streamCls}`}><span className="dot" />Поток</span>
+                        <span className="tbar-sep" />
+                        <span className="num">{scalePct} %</span>
+                    </div>
+                </div>
+
+                <div ref={splitRef} className="sv-split">
+                    <div className="stream res">
+                        <ProjResult url={resultUrl} />
+                        <div className="stream-tag">
+                            <span className={`pill${resultUrl ? ' ok' : ''}`}>
+                                <span className="dot" />
+                                Результат{resultKey ? ` · ${placeName(resultKey)}` : ''}
+                            </span>
+                        </div>
+                    </div>
+
+                    <div className="sv-gutter" data-gutter onPointerDown={onGutterDown} onDoubleClick={resetGutter}>
+                        <i />
+                    </div>
+
+                    <div ref={wrapperRef} className={`stream${projState.applied ? ' is-applied' : ''}`}>
+                        <div ref={mediaRef} className="pj-media" style={{ aspectRatio: aspect }}>
+                            {streamId ? (
+                                <WebRTCPlayer
+                                    key={`proj-${streamId}-${stream.generation}`}
+                                    cameraId={streamId}
+                                    signalingUrl={wsUrl(`/signaling/client/${streamId}`)}
+                                    onStatusChange={info => setPlayerStatus(info.status)}
+                                    onVideoResolution={(w, h) => {
+                                        setVideoSize(prev =>
+                                            prev && prev.w === w && prev.h === h ? prev : { w, h },
+                                        );
+                                        // Letterbox канваса пересчитывается от реального кадра
+                                        setProjVideoSize(w, h);
+                                        if (camera && Math.abs(w / h - camera.width / camera.height) > 0.001) {
+                                            console.warn(
+                                                `Проекция: поток ${w}×${h} расходится по аспекту с конфигом камеры ${camera.width}×${camera.height}`,
+                                            );
+                                        }
+                                    }}
+                                />
+                            ) : (
+                                <div className="empty">
+                                    {stream.pending ? (
+                                        <>
+                                            <span className="spin" />
+                                            <b>Подключение</b>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Icon name="cam" className="ico" />
+                                            <b>Нет сигнала</b>
+                                        </>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Канвас внутри слоя: наследует его transform */}
+                            <canvas ref={canvasRef} className="pj-canvas" />
+                        </div>
+
+                        <div className="stream-tag">
+                            <span className={`pill${streamId && playerStatus === 'connected' ? ' ok' : ''}`}>
+                                <span className="dot" />
+                                {camera ? `${camera.displayName} · ${camera.id}` : 'Камера не выбрана'}
+                            </span>
+                            {projState.activeCam && (
+                                <span className="pill">камера пресета {projState.activeCam}</span>
+                            )}
+                        </div>
+                        <span className="scene-hint">shift+колесо · масштаб &nbsp; shift+drag · сдвиг</span>
+                    </div>
+                </div>
+            </div>
+
             <ProjSettings
-                open={settingsOpen}
-                onToggle={() => setSettingsOpen(o => !o)}
                 onOpenList={() => ws.sendMessage(PROJ_TYPE, { method: PROJ_METHOD.GET_LIST })}
                 onSelectPreset={requestPreset}
                 onSelectCamera={selectCamera}
@@ -648,124 +774,18 @@ export function ProjectionScreen({
                 wsReady={wsReady}
                 sourceCams={sourceCams}
                 sourceCamsError={sourceCamsError}
+                busy={applyAllBusy}
+                applyAllCount={applyAllQueue().length}
+                lutReady={allCamerasDone()}
+                onToggleApply={toggleApply}
+                onApplyAll={() => void applyAll()}
+                onOpenLut={() => setLutOpen(true)}
             />
-
-            <section className={`proj-warp-area${settingsOpen ? ' shifted' : ''}`}>
-                <div className="viewer-header">
-                    <span className="viewer-label">WARP — Точки проекции</span>
-                    <div className="viewer-meta">
-                        <span className="meta-tag">{projState.points.length} / {maxPts}</span>
-                        <span className="meta-tag">
-                            Режим: {projState.applied ? 'применён' : 'редактирование'}
-                        </span>
-                    </div>
-                </div>
-
-                <div
-                    ref={wrapperRef}
-                    className={`proj-warp-wrapper${projState.applied ? ' applied' : ''}`}
-                >
-                    <div ref={mediaRef} className="proj-media-layer" style={{ aspectRatio: aspect }}>
-                        {streamId ? (
-                            <WebRTCPlayer
-                                key={`proj-${streamId}-${stream.generation}`}
-                                cameraId={streamId}
-                                signalingUrl={wsUrl(`/signaling/client/${streamId}`)}
-                                onVideoResolution={(w, h) => {
-                                    setVideoSize(prev =>
-                                        prev && prev.w === w && prev.h === h ? prev : { w, h },
-                                    );
-                                    // Letterbox канваса пересчитывается от реального кадра
-                                    setProjVideoSize(w, h);
-                                    if (camera && Math.abs(w / h - camera.width / camera.height) > 0.001) {
-                                        console.warn(
-                                            `Проекция: поток ${w}×${h} расходится по аспекту с конфигом камеры ${camera.width}×${camera.height}`,
-                                        );
-                                    }
-                                }}
-                            />
-                        ) : (
-                            <div className="no-signal">
-                                <div className="no-signal-icon">{stream.pending ? '◌' : '⊘'}</div>
-                                <div className="no-signal-text">
-                                    {stream.pending ? 'Подключение' : 'Нет сигнала'}
-                                </div>
-                                <div className="no-signal-sub">
-                                    {stream.pending
-                                        ? 'Калибратор поднимает поток, это занимает несколько секунд'
-                                        : 'Выберите камеру в настройках слева'}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Канвас внутри слоя: наследует его transform, как в no-react */}
-                        <canvas ref={canvasRef} className="proj-warp-canvas" />
-                    </div>
-                    <div className="proj-zoom-hint">shift+scroll — zoom · shift+drag — pan</div>
-                </div>
-
-                <div className="viewer-footer">
-                    <div className="footer-left">
-                        <button className="btn btn-ghost btn-sm" onClick={removeLastPoint}>
-                            ← Удалить
-                        </button>
-                        <button className="btn btn-ghost btn-sm" onClick={clearPoints}>
-                            ✕ Очистить
-                        </button>
-                        {/* Сбрасывает печку и превью, точки и привязки остаются */}
-                        <button
-                            className="btn btn-ghost btn-sm"
-                            disabled={applyAllBusy !== null || projState.doneSet.size === 0}
-                            onClick={resetWarp}
-                        >
-                            ↺ Сбросить варп
-                        </button>
-                    </div>
-                    <div className="footer-right">
-                        {/* Проход по всем местам с точками и привязками из пресета */}
-                        <button
-                            className="btn btn-applyall btn-sm"
-                            disabled={applyAllBusy !== null || applyAllQueue().length === 0}
-                            onClick={() => void applyAll()}
-                        >
-                            {applyAllBusy ? `Применяю ${applyAllBusy}…` : '⊛⊛ Применить все'}
-                        </button>
-                        <button
-                            className="btn btn-primary btn-sm"
-                            disabled={applyAllBusy !== null}
-                            onClick={toggleApply}
-                        >
-                            {projState.applied ? '✎ Вернуть редактирование' : '⊛ Применить warp'}
-                        </button>
-                    </div>
-                </div>
-            </section>
-
-            <section className="proj-result-area">
-                <div className="viewer-header">
-                    <span className="viewer-label">BIRDVIEW — Результат</span>
-                </div>
-
-                <ProjResult url={resultUrl} />
-
-                <button
-                    className="btn proj-lut-btn"
-                    disabled={!allCamerasDone()}
-                    title={
-                        allCamerasDone()
-                            ? 'Сохранить конфигурацию stitching'
-                            : 'Доступно после применения warp на всех камерах'
-                    }
-                    onClick={openLut}
-                >
-                    ⊙ Рассчитать LUT
-                </button>
-            </section>
 
             {pendingPreset && (
                 <ConfirmModal
-                    title="Смена конфигурации"
-                    message="Разметка точек будет потеряна, а результат сборки сброшен. Продолжить?"
+                    title="Смена пресета"
+                    message="Разметка точек будет потеряна, результат сборки сброшен."
                     confirmText="Сменить"
                     onCancel={() => setPendingPreset(null)}
                     onConfirm={() => {
@@ -779,15 +799,9 @@ export function ProjectionScreen({
                 <ConfirmModal
                     title="Сохранённая разметка"
                     message={
-                        'В этой конфигурации сохранены точки для камер: ' +
-                        restorable
-                            .map(
-                                key =>
-                                    projState.activePreset?.cameras.find(c => c.key === key)?.name ||
-                                    key,
-                            )
-                            .join(', ') +
-                        '. Загрузить их?'
+                        'В пресете сохранены точки для камер: ' +
+                        restorable.map(key => placeName(key)).join(', ') +
+                        '.'
                     }
                     confirmText="Загрузить"
                     cancelText="Начать заново"
@@ -813,6 +827,6 @@ export function ProjectionScreen({
                     }}
                 />
             )}
-        </main>
+        </div>
     );
 }

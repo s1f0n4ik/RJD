@@ -29,6 +29,8 @@ export type CalOverlayState =
 
 export interface CalibrationProcess {
     overlay: CalOverlayState | null;
+    // Погрешность последней успешной калибровки, px
+    rms: number | null;
     dismiss: () => void;
     start: () => void;
     handleStart: (msg: WsMessage) => void;
@@ -56,6 +58,7 @@ export function useCalibrationProcess({
     snapshots,
 }: Options): CalibrationProcess {
     const [overlay, setOverlay] = useState<CalOverlayState | null>(null);
+    const [rms, setRms] = useState<number | null>(null);
 
     const dismiss = useCallback(() => setOverlay(null), []);
 
@@ -130,6 +133,7 @@ export function useCalibrationProcess({
     const handleResult = useCallback(
         (msg: WsMessage) => {
             const { width = -1, height = -1, rms = -1, used_images = -1, total = -1 } = msg.meta ?? {};
+            setRms(msg.ret ? Number(rms) : null);
 
             if (!msg.ret) {
                 setOverlay({
@@ -165,6 +169,7 @@ export function useCalibrationProcess({
 
     return {
         overlay,
+        rms,
         dismiss,
         start,
         handleStart,

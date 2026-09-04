@@ -1,22 +1,21 @@
 import type { CalibrationCamera } from './ws-types';
 
-/**
- * Список камер для калибровки. Порт _fetchList из camera.js.
- *
- * Берём только type === 3 (камеры кругового обзора) и внутри каждой —
- * поток type === 1, из которого приходят разрешение и fps.
- */
+// Камера годится для 360, если у неё есть поток с назначением birdview; разрешение и fps берутся из него
+export function birdviewStream(cam: any): any | null {
+    return Object.values<any>(cam?.streams ?? {}).find(s => Array.isArray(s.purposes) && s.purposes.includes('birdview')) ?? null;
+}
+
+/** Камеры для калибровки: только с потоком назначения birdview. */
 export async function fetchCalibrationCameras(): Promise<CalibrationCamera[]> {
     const res = await fetch('/api/cameras');
     const json = await res.json();
-    if (json.error) throw new Error(json.error);
+    if (json.error) throw new Error(json.error.message ?? String(json.error));
 
-    const cameras = json?.data?.cameras ?? {};
+    const cameras = json?.data?.cameras ?? json?.cameras ?? {};
     const items: CalibrationCamera[] = [];
 
     for (const [id, cam] of Object.entries<any>(cameras)) {
-        if (cam.type !== 3) continue;
-        const sub = Object.values<any>(cam.streams ?? {}).find(s => s.type === 1);
+        const sub = birdviewStream(cam);
         if (!sub) continue;
         items.push({
             id,
@@ -34,7 +33,8 @@ export async function fetchCalibrationCameras(): Promise<CalibrationCamera[]> {
 export async function fetchCameraNames(): Promise<Record<string, string>> {
     try {
         const res = await fetch('/api/cameras');
-        const cameras = (await res.json())?.data?.cameras ?? {};
+        const json = await res.json();
+        const cameras = json?.data?.cameras ?? json?.cameras ?? {};
         const map: Record<string, string> = {};
         for (const [id, cam] of Object.entries<any>(cameras)) {
             map[id] = cam.display_name ?? id;

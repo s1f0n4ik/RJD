@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Icon } from '../../../../app/Icons';
 import type { PlanGeometry, Rect } from './plan-geometry';
 import type { LinkerBindings, LinkerCamera } from '../../api/linker';
 
@@ -19,7 +20,7 @@ interface PlanViewProps {
     onAssign: (key: string, cameraId: string | null) => void;
 }
 
-// Ширина пикера из темы: нужна для зажима позиции в границы схемы
+// Ширина пикера .pick: зажим позиции в границы схемы
 const PICKER_W = 230;
 
 export function PlanView({ geometry, bindings, cameras, locked, onAssign }: PlanViewProps) {
@@ -92,7 +93,6 @@ export function PlanView({ geometry, bindings, cameras, locked, onAssign }: Plan
     return (
         <div className="plan-host" ref={hostRef}>
             <svg
-                className="plan-svg"
                 viewBox={`0 0 ${geometry.view.width} ${geometry.view.height}`}
                 preserveAspectRatio="xMidYMid meet"
                 role="group"
@@ -301,8 +301,7 @@ export function PlanView({ geometry, bindings, cameras, locked, onAssign }: Plan
 
             {locked && (
                 <div className="plan-lock">
-                    Вывод в эфире — назначение камер заблокировано.
-                    <br />
+                    <Icon name="lock" />
                     Остановите вывод, чтобы изменить привязки
                 </div>
             )}
@@ -326,11 +325,11 @@ function PlacePicker({ title, placeKey, cameras, bindings, position, onPick }: P
         Object.entries(bindings).find(([key, cam]) => cam === id && key !== placeKey)?.[0];
 
     return (
-        <div className="plan-picker" role="menu" style={position} onClick={e => e.stopPropagation()}>
-            <div className="plan-picker-head">{title}</div>
+        <div className="card pick" role="menu" style={position} onClick={e => e.stopPropagation()}>
+            <div className="pick-h eyebrow">{title}</div>
 
             {cameras.length === 0 ? (
-                <div className="plan-picker-empty">Нет доступных камер</div>
+                <div className="empty">Нет камер</div>
             ) : (
                 cameras.map(c => {
                     const taken = takenBy(c.id);
@@ -338,11 +337,11 @@ function PlacePicker({ title, placeKey, cameras, bindings, position, onPick }: P
                         <button
                             key={c.id}
                             type="button"
-                            className={`plan-picker-item${taken ? ' taken' : ''}`}
+                            className={`row-item${taken ? ' is-taken' : ''}`}
                             onClick={() => onPick(c.id)}
                         >
-                            <span>{c.display_name}</span>
-                            <span className="plan-picker-note">{taken ? 'занята' : c.id}</span>
+                            <span className="nm">{c.display_name}</span>
+                            <span className="num">{taken ? 'занята' : c.id}</span>
                         </button>
                     );
                 })
@@ -351,10 +350,10 @@ function PlacePicker({ title, placeKey, cameras, bindings, position, onPick }: P
             {bindings[placeKey] && (
                 <button
                     type="button"
-                    className="plan-picker-item clear"
+                    className="row-item is-clear"
                     onClick={() => onPick(null)}
                 >
-                    Снять камеру
+                    <span className="nm">Снять камеру</span>
                 </button>
             )}
         </div>

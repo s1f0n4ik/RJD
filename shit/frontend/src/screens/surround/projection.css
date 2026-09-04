@@ -1,0 +1,21 @@
+/* Сборка: слой кадра с зумом, результат, строки камер, модалка LUT */
+.sv-proj .stream{display:flex;align-items:center;justify-content:center}
+.sv-proj .stream.panning{cursor:grabbing}
+.pj-media{position:relative;width:100%;max-width:100%;max-height:100%;transform-origin:0 0;will-change:transform;display:flex;align-items:center;justify-content:center}
+.pj-canvas{position:absolute;z-index:5;cursor:crosshair}
+.sv-proj .stream.is-applied .pj-canvas{pointer-events:none;cursor:default}
+.pj-media .empty{position:absolute;inset:0;padding:0}
+.sv-proj .stream.res{cursor:grab;user-select:none}
+.sv-proj .stream.res:active{cursor:grabbing}
+.sv-proj .stream.res .empty{position:absolute;inset:0;padding:0}
+.pj-res-wrap{position:absolute;inset:0}
+.pj-res{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;pointer-events:none;transform-origin:center}
+.sv-proj .crow .st{width:auto;min-width:64px}
+.sv-proj .crow .st.mu{color:var(--fg-3)}
+.sv-proj .blk-b .empty{padding:18px 12px}
+.cc-row{display:flex;align-items:center;gap:12px}
+.cc-row .tbar-sep{height:18px;align-self:center;margin:0}
+.modal--lut{--modal-w:480px}
+.modal--lut .modal-b{display:flex;flex-direction:column;gap:14px}
+.modal--lut .cfg-rows{margin-top:8px}
+.modal--lut .tf-in.is-err:focus{border-color:var(--err)}

@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Icon } from '../../../../app/Icons';
+import { Switch } from '../../../../app/Modal';
+import { Select } from '../../../../app/Select';
 import { linkerApi } from '../../api/linker';
 import type {
     SurroundCameraPose,
@@ -7,24 +10,15 @@ import type {
     SurroundPatch,
 } from '../../api/linker';
 
-/**
- * Настройки объёмного вида, разложенные по вкладкам колонки «Параметры
- * вывода»: stream — кадр и орбита, scene — габарит, подложка и чаша,
- * model — библиотека .glb и её параметры, cameras — позы мест.
- *
- * Значения приходят из живой печки ручкой GET /linker/surround, правки уходят
- * частичным мёржем POST /linker/surround и применяются сервером в эфире без
- * переподключения. Поля и тумблеры шлют изменение сразу, слайдеры — по
- * отпусканию. Позы камер после тяжёлых правок перечитываются с задержкой:
- * перепечка выполняется в цикле кадра, и свежие высоты появляются не мгновенно.
- */
+// Настройки объёмного вида по вкладкам: stream — кадр и орбита, scene — габарит, подложка, чаша,
+// model — библиотека .glb, cameras — позы мест. Значения из GET /linker/surround, правки — POST мёржем
 
 const REFRESH_AFTER_BAKE_MS = 800;
 
 // 'images' живёт только у top-панели, surround её не получает
 export type SurroundTab = 'stream' | 'scene' | 'model' | 'cameras' | 'images';
 
-/** Полная поза, которую ждёт ручка оверрайда. */
+// Полная поза для ручки оверрайда
 interface PosePayload {
     position: [number, number, number];
     yaw: number;
@@ -33,19 +27,18 @@ interface PosePayload {
 }
 
 interface SurroundPanelProps {
-    /** Вывод этой конфигурации в эфире в объёмном режиме. */
+    // Вывод этой конфигурации в эфире в объёмном режиме
     live: boolean;
     exportId: string | null;
-    /** Какая вкладка колонки открыта. */
     tab: SurroundTab;
-    /** Имена мест из конфигурации, по ключу. */
+    // Имена мест из конфигурации, по ключу
     placeNames: Record<string, string>;
     onError: (title: string, e: unknown) => void;
-    /** Перезапуск вывода с новым разрешением: стоп, запись, старт делает экран. */
+    // Перезапуск вывода с новым разрешением: стоп, запись, старт делает экран
     onApplyResolution: (res: { width: number; height: number }) => Promise<boolean>;
 }
 
-/** Компактное числовое поле с фиксацией по blur или Enter. */
+// Числовое поле .tf с фиксацией по blur или Enter
 export function Num({
     label,
     value,
@@ -59,7 +52,7 @@ export function Num({
     step?: number;
     placeholder?: string;
     onCommit: (value: number) => void;
-    /** Каждое нажатие клавиши: кнопкам применения видно ввод до blur. */
+    // Каждое нажатие клавиши: кнопкам применения видно ввод до blur
     onInput?: (value: number) => void;
 }) {
     const [draft, setDraft] = useState(value === null ? '' : String(value));
@@ -76,10 +69,10 @@ export function Num({
     };
 
     return (
-        <label className="srd-num">
-            <span className="srd-num-label">{label}</span>
+        <label className="tf">
+            <span className="tf-cap">{label}</span>
             <input
-                className="field-input"
+                className="tf-in"
                 type="number"
                 step={step ?? 0.01}
                 value={draft}
@@ -92,7 +85,7 @@ export function Num({
                     }
                 }}
                 onBlur={commit}
-                // Колесо меняло значение под курсором и мешало ввести своё
+                // Колесо меняло значение под курсором
                 onWheel={e => e.currentTarget.blur()}
                 onKeyDown={e => {
                     if (e.key === 'Enter') e.currentTarget.blur();
@@ -102,12 +95,12 @@ export function Num({
     );
 }
 
-/** Кламп стороны кадра: диапазон кодека и кратность 16. */
+// Кламп стороны кадра: диапазон кодека и кратность 16
 export function clampSide(v: number, hi: number): number {
     return Math.min(hi, Math.max(256, Math.round(v / 16) * 16));
 }
 
-/** Слайдер: значение видно при перетаскивании, уходит только по отпусканию. */
+// Слайдер .tf: значение видно при перетаскивании, уходит по отпусканию
 export function Range({
     label,
     value,
@@ -134,26 +127,27 @@ export function Range({
     };
 
     return (
-        <div className="srd-range">
-            <div className="srd-range-head">
-                <span>{label}</span>
-                <span className="srd-range-val">{fmt ? fmt(shown) : shown.toFixed(2)}</span>
+        <div className="tf">
+            <span className="tf-cap">{label}</span>
+            <div className="tf-range">
+                <input
+                    className="rng"
+                    type="range"
+                    min={min}
+                    max={max}
+                    step={step}
+                    value={shown}
+                    onChange={e => setDrag(Number(e.target.value))}
+                    onPointerUp={commit}
+                    onBlur={commit}
+                />
+                <span className="val">{fmt ? fmt(shown) : shown.toFixed(2)}</span>
             </div>
-            <input
-                type="range"
-                min={min}
-                max={max}
-                step={step}
-                value={shown}
-                onChange={e => setDrag(Number(e.target.value))}
-                onPointerUp={commit}
-                onBlur={commit}
-            />
         </div>
     );
 }
 
-/** Слайдер угла в ряду кнопок: значение видно, уходит по отпусканию. */
+// Слайдер угла в ряду .rot: занимает место чипов, уходит по отпусканию
 export function RotSlider({ value, onCommit }: { value: number; onCommit: (v: number) => void }) {
     const [drag, setDrag] = useState<number | null>(null);
     const shown = drag ?? value;
@@ -164,8 +158,9 @@ export function RotSlider({ value, onCommit }: { value: number; onCommit: (v: nu
     };
 
     return (
-        <>
+        <div className="tf-range">
             <input
+                className="rng"
                 type="range"
                 min={0}
                 max={360}
@@ -175,79 +170,88 @@ export function RotSlider({ value, onCommit }: { value: number; onCommit: (v: nu
                 onPointerUp={commit}
                 onBlur={commit}
             />
-            <span className="srd-rot-val">{Math.round(shown)}°</span>
-        </>
-    );
-}
-
-export function Toggle({
-    label,
-    on,
-    onChange,
-}: {
-    label: string;
-    on: boolean;
-    onChange: (on: boolean) => void;
-}) {
-    return (
-        <button
-            type="button"
-            className="srd-toggle"
-            aria-pressed={on}
-            onClick={() => onChange(!on)}
-        >
-            <span className="srd-toggle-track" aria-hidden="true">
-                <span className="srd-toggle-knob" />
-            </span>
-            <span>{label}</span>
-        </button>
-    );
-}
-
-/** Заголовок группы внутри вкладки. */
-export function Subhead({ children }: { children: React.ReactNode }) {
-    return <div className="srd-subhead">{children}</div>;
-}
-
-/**
- * Строка поля позы: подпись, текущее значение и откат к PnP сверху,
- * контрол на всю ширину снизу. Откат жив, только когда значение отличается
- * от расчётного — тогда он красный, а значение подсвечено акцентом.
- */
-function PoseRow({
-    label,
-    shown,
-    changed,
-    onReset,
-    children,
-}: {
-    label: string;
-    shown: string;
-    changed: boolean;
-    onReset: () => void;
-    children: React.ReactNode;
-}) {
-    return (
-        <div className="srd-pose">
-            <div className="srd-pose-head">
-                <span className="srd-num-label">{label}</span>
-                <span className={`srd-pose-val${changed ? ' changed' : ''}`}>{shown}</span>
-                <button
-                    type="button"
-                    className={`srd-pose-reset${changed ? ' active' : ''}`}
-                    disabled={!changed}
-                    title="Откатить поле к PnP"
-                    onClick={onReset}
-                >
-                    ↺
-                </button>
-            </div>
-            {children}
+            <span className="val">{Math.round(shown)}°</span>
         </div>
     );
 }
 
-/** Позиция: ручной ввод плюс степпер с крупными кнопками по краям. */
+// Заголовок группы внутри вкладки
+export function Subhead({ children }: { children: React.ReactNode }) {
+    return <div className="sub-h">{children}</div>;
+}
+
+// Селект модели из библиотеки .glb
+export function ModelSelect({
+    models,
+    source,
+    onPick,
+}: {
+    models: SurroundModelFile[];
+    source: string;
+    onPick: (name: string) => void;
+}) {
+    const known = models.some(mf => mf.name === source);
+    return (
+        <div className="tf">
+            <span className="tf-cap">Модель</span>
+            <Select
+                value={known ? source : ''}
+                options={models.map(mf => ({
+                    value: mf.name,
+                    label: mf.name,
+                    hint: `${(mf.size / 1024 / 1024).toFixed(1)} МБ`,
+                }))}
+                placeholder="—"
+                emptyText="Нет моделей"
+                onChange={v => {
+                    if (v) onPick(v);
+                }}
+            />
+        </div>
+    );
+}
+
+// Ряд поворота: чипы 0/90/180/270 либо слайдер свободного угла, справа чип «∠»
+export function RotRow({
+    rotation,
+    freeAngle,
+    onToggleFree,
+    onCommit,
+}: {
+    rotation: number;
+    freeAngle: boolean;
+    onToggleFree: () => void;
+    onCommit: (deg: number) => void;
+}) {
+    return (
+        <div className="rot">
+            {freeAngle ? (
+                <RotSlider value={rotation} onCommit={onCommit} />
+            ) : (
+                [0, 90, 180, 270].map(deg => (
+                    <button
+                        key={deg}
+                        type="button"
+                        className={`chip${rotation === deg ? ' is-on' : ''}`}
+                        onClick={() => onCommit(deg)}
+                    >
+                        {deg}°
+                    </button>
+                ))
+            )}
+            <button
+                type="button"
+                className={`chip ang${freeAngle ? ' is-on' : ''}`}
+                title="Свободный угол"
+                onClick={onToggleFree}
+            >
+                ∠
+            </button>
+        </div>
+    );
+}
+
+// Позиция: степпер с кнопками по краям и откатом к PnP
 function PoseStepper({
     label,
     value,
@@ -257,7 +261,7 @@ function PoseStepper({
 }: {
     label: string;
     value: number;
-    /** Расчётное PnP-значение — база отката. */
+    // Расчётное PnP-значение — база отката
     base: number;
     step: number;
     onCommit: (value: number) => void;
@@ -277,14 +281,16 @@ function PoseStepper({
     };
 
     return (
-        <PoseRow label={label} shown={value.toFixed(3)} changed={changed}
-            onReset={() => onCommit(base)}>
-            <div className="srd-stepper">
+        <div className="tf">
+            <span className="tf-cap">{label}</span>
+            <div className="stp">
                 <button type="button" onClick={() => onCommit(+(value - step).toFixed(4))}>−</button>
                 <input
+                    className="tf-in"
                     type="number"
                     step={step}
                     value={draft}
+                    style={changed ? { color: 'var(--acc)' } : undefined}
                     onChange={e => setDraft(e.target.value)}
                     onBlur={commitDraft}
                     onWheel={e => e.currentTarget.blur()}
@@ -293,12 +299,21 @@ function PoseStepper({
                     }}
                 />
                 <button type="button" onClick={() => onCommit(+(value + step).toFixed(4))}>+</button>
+                <button
+                    type="button"
+                    className={`rst${changed ? ' is-act' : ''}`}
+                    disabled={!changed}
+                    title="К PnP"
+                    onClick={() => onCommit(base)}
+                >
+                    <Icon name="refresh" size={12} />
+                </button>
             </div>
-        </PoseRow>
+        </div>
     );
 }
 
-/** Угол: слайдер во всю строку, уходит по отпусканию. */
+// Угол: слайдер во всю строку, значение и откат к PnP справа
 function PoseSlider({
     label,
     value,
@@ -324,24 +339,34 @@ function PoseSlider({
     };
 
     return (
-        <PoseRow label={label} shown={`${shown.toFixed(1)}°`} changed={changed}
-            onReset={() => onCommit(base)}>
-            <input
-                type="range"
-                min={min}
-                max={max}
-                step={0.5}
-                value={shown}
-                onChange={e => setDrag(Number(e.target.value))}
-                onPointerUp={commit}
-                onBlur={commit}
-            />
-            <div className="srd-ticks">
-                <span>{min}°</span>
-                <span>0°</span>
-                <span>{max}°</span>
+        <div className="tf">
+            <span className="tf-cap">{label}</span>
+            <div className="tf-range">
+                <input
+                    className="rng"
+                    type="range"
+                    min={min}
+                    max={max}
+                    step={0.5}
+                    value={shown}
+                    onChange={e => setDrag(Number(e.target.value))}
+                    onPointerUp={commit}
+                    onBlur={commit}
+                />
+                <span className="val" style={changed ? { color: 'var(--acc)' } : undefined}>
+                    {shown.toFixed(1)}
+                </span>
+                <button
+                    type="button"
+                    className={`rst${changed ? ' is-act' : ''}`}
+                    disabled={!changed}
+                    title="К PnP"
+                    onClick={() => onCommit(base)}
+                >
+                    <Icon name="refresh" size={12} />
+                </button>
             </div>
-        </PoseRow>
+        </div>
     );
 }
 
@@ -390,7 +415,7 @@ export function SurroundPanel({
         return () => window.clearTimeout(refreshTimer.current);
     }, [live, refetch, refetchModels]);
 
-    // Сохранённый угол не кратен 90 - панель открывается в свободном режиме
+    // Сохранённый угол не кратен 90 — панель открывается в свободном режиме
     useEffect(() => {
         if (cfg && cfg.model.rotation % 90 !== 0) setFreeAngle(true);
     }, [cfg]);
@@ -446,11 +471,7 @@ export function SurroundPanel({
             });
     }, [exportId, scheduleRefetch, refetch, onError]);
 
-    /**
-     * Живое применение позы: значение сразу видно в форме и уходит на сервер
-     * одним POST после паузы в 300 мс — щелчки степпера склеиваются, каждая
-     * отправка перепекается в цикле кадра.
-     */
+    // Поза сразу видна в форме, на сервер уходит одним POST после паузы 300 мс
     const sendPose = useCallback(
         (placeKey: string, pose: PosePayload) => {
             if (!exportId) return;
@@ -512,14 +533,10 @@ export function SurroundPanel({
     );
 
     if (!live) {
-        return (
-            <div className="srd-hint">
-                Настройки объёма доступны, когда вывод этой конфигурации в эфире
-            </div>
-        );
+        return <div className="empty">Вывод остановлен</div>;
     }
     if (!cfg) {
-        return <div className="srd-hint">Загрузка настроек…</div>;
+        return <span className="spin" />;
     }
 
     const m = cfg.machine;
@@ -531,11 +548,10 @@ export function SurroundPanel({
         const resDirty = res.width !== cfg.resolution.width
             || res.height !== cfg.resolution.height;
         return (
-            <div className="srd-panel">
+            <>
                 <Subhead>Кадр</Subhead>
-                {/* Кратность 16 обязательна для кодека: поле выравнивает по
-                    blur, отправка страхуется ещё раз. Кнопка видит каждый ввод */}
-                <div className="srd-row">
+                {/* Кратность 16 обязательна для кодека: поле выравнивает по blur, отправка страхуется ещё раз */}
+                <div className="tf-row">
                     <Num label="Ширина" value={res.width} step={16}
                         onInput={v => setResDraft({ width: v, height: res.height })}
                         onCommit={v => setResDraft({
@@ -549,7 +565,7 @@ export function SurroundPanel({
                 </div>
                 <button
                     type="button"
-                    className="srd-apply"
+                    className="btn btn--wide"
                     disabled={!resDirty || resApplying}
                     onClick={() => {
                         const norm = {
@@ -561,8 +577,7 @@ export function SurroundPanel({
                         void onApplyResolution(norm)
                             .then(ok => {
                                 if (!ok) return;
-                                // Статус-поллинг во время рестарта молчит, live не
-                                // мигает - без явного обновления cfg покажет старое
+                                // Опрос статуса на рестарте молчит, live не мигает: cfg обновляется явно
                                 setCfg(prev =>
                                     prev ? { ...prev, resolution: norm } : prev,
                                 );
@@ -582,18 +597,19 @@ export function SurroundPanel({
                     onCommit={v => apply({ orbit: { height: v } })} />
                 <Range label="Скорость облёта" value={cfg.orbit.speed} min={0} max={1} step={0.05}
                     onCommit={v => apply({ orbit: { speed: v } })} />
-                {/* Действует сразу на живой вывод, кнопка плеера может перебить */}
-                <Toggle label="Ручное вращение на отображении" on={cfg.orbit.interactive}
-                    onChange={v => apply({ orbit: { interactive: v } })} />
-            </div>
+                <Switch on={cfg.orbit.interactive}
+                    onToggle={v => apply({ orbit: { interactive: v } })}>
+                    Ручное вращение на отображении
+                </Switch>
+            </>
         );
     }
 
     if (tab === 'scene') {
         return (
-            <div className="srd-panel">
+            <>
                 <Subhead>Габарит, м</Subhead>
-                <div className="srd-row">
+                <div className="tf-row">
                     <Num label="Длина" value={m.length}
                         onCommit={v => v > 0 && apply({ machine: { length: v } }, true)} />
                     <Num label="Ширина" value={m.width}
@@ -603,11 +619,12 @@ export function SurroundPanel({
                 </div>
 
                 <Subhead>Подложка</Subhead>
-                <Toggle label="Показывать подложку" on={cfg.plate}
-                    onChange={v => apply({ plate: v })} />
+                <Switch on={cfg.plate} onToggle={v => apply({ plate: v })}>
+                    Показывать подложку
+                </Switch>
                 {/* Пусто или 0 — размер от габарита на фактор чаши */}
                 {cfg.plate && (
-                    <div className="srd-row">
+                    <div className="tf-row">
                         <Num label="Длина" value={cfg.plateLength || null}
                             placeholder="авто"
                             onCommit={v => apply({ plate_length: Math.max(0, v) })} />
@@ -618,12 +635,12 @@ export function SurroundPanel({
                 )}
 
                 <Subhead>Чаша</Subhead>
-                <Range label="Стенка (высота)" value={cfg.bowl.wall} min={0.1} max={6} step={0.05}
+                <Range label="Стенка · высота" value={cfg.bowl.wall} min={0.1} max={6} step={0.05}
                     onCommit={v => apply({ bowl: { wall: v } }, true)} />
                 {/* Дно сдвигает начало стенки, её вынос от дна не зависит */}
-                <Range label="Дно (до загиба)" value={cfg.bowl.floor} min={0.1} max={6} step={0.05}
+                <Range label="Дно · до загиба" value={cfg.bowl.floor} min={0.1} max={6} step={0.05}
                     onCommit={v => apply({ bowl: { floor: v } }, true)} />
-                <Range label="Стенка (вынос)" value={cfg.bowl.outer} min={0} max={6} step={0.05}
+                <Range label="Стенка · вынос" value={cfg.bowl.outer} min={0} max={6} step={0.05}
                     fmt={v => (v === 0 ? 'вертикаль' : v.toFixed(2))}
                     onCommit={v => apply({ bowl: { outer: v } }, true)} />
                 <Range label="Скругление углов" value={cfg.bowl.corner} min={0} max={4} step={0.05}
@@ -631,67 +648,45 @@ export function SurroundPanel({
                     onCommit={v => apply({ bowl: { corner: v } }, true)} />
                 <Range label="Ширина шва" value={cfg.bowl.blend} min={0.05} max={1} step={0.05}
                     onCommit={v => apply({ bowl: { blend: v } }, true)} />
-                <Toggle label="Фотонормализация" on={cfg.photometric}
-                    onChange={v => apply({ photometric: v })} />
-                <Toggle label="Сетка без кадров" on={cfg.wireframe}
-                    onChange={v => apply({ wireframe: v })} />
-            </div>
+                <Switch on={cfg.photometric} onToggle={v => apply({ photometric: v })}>
+                    Фотонормализация
+                </Switch>
+                <Switch on={cfg.wireframe} onToggle={v => apply({ wireframe: v })}>
+                    Сетка без кадров
+                </Switch>
+            </>
         );
     }
 
     if (tab === 'model') {
-        const known = models.some(mf => mf.name === cfg.model.source);
         return (
-            <div className="srd-panel">
+            <>
                 <Subhead>Библиотека</Subhead>
-                <label className="srd-num">
-                    <span className="srd-num-label">Модель</span>
-                    <select
-                        className="field-input"
-                        value={known ? cfg.model.source : ''}
-                        disabled={models.length === 0}
-                        onChange={e => {
-                            if (e.target.value) apply({ model: { source: e.target.value } });
-                        }}
-                    >
-                        {models.length === 0 ? (
-                            <option value="">Ничего не найдено — загрузите .glb</option>
-                        ) : (
-                            <>
-                                <option value="">— выберите модель —</option>
-                                {models.map(mf => (
-                                    <option key={mf.name} value={mf.name}>
-                                        {mf.name} · {(mf.size / 1024 / 1024).toFixed(1)} МБ
-                                    </option>
-                                ))}
-                            </>
-                        )}
-                    </select>
-                </label>
-                <div className="srd-model-file">
+                <ModelSelect models={models} source={cfg.model.source}
+                    onPick={name => apply({ model: { source: name } })} />
+                <div className="brow">
                     <button
                         type="button"
-                        className="srd-reset"
+                        className="btn"
                         disabled={uploading}
                         onClick={() => modelFileRef.current?.click()}
                     >
-                        {uploading ? 'Загрузка…' : '⬆ Загрузить .glb'}
+                        {uploading ? 'Загрузка…' : 'Загрузить .glb'}
                     </button>
-                    {cfg.model.source && (
-                        <button
-                            type="button"
-                            className="srd-reset"
-                            onClick={() => apply({ model: { source: '' } })}
-                        >
-                            ✕ Убрать модель
-                        </button>
-                    )}
+                    <button
+                        type="button"
+                        className="btn btn--ghost"
+                        disabled={!cfg.model.source}
+                        onClick={() => apply({ model: { source: '' } })}
+                    >
+                        Убрать модель
+                    </button>
                 </div>
                 <input
                     ref={modelFileRef}
                     type="file"
                     accept=".glb"
-                    style={{ display: 'none' }}
+                    hidden
                     onChange={e => {
                         const file = e.target.files?.[0];
                         e.target.value = '';
@@ -700,39 +695,12 @@ export function SurroundPanel({
                 />
 
                 <Subhead>Поворот</Subhead>
-                {/* Пятая кнопка включает свободный угол: слайдер встаёт на место кнопок */}
-                <div className="srd-rotrow">
-                    {freeAngle ? (
-                        <RotSlider
-                            value={cfg.model.rotation}
-                            onCommit={v => apply({ model: { rotation: v } })}
-                        />
-                    ) : (
-                        [0, 90, 180, 270].map(deg => (
-                            <button
-                                key={deg}
-                                type="button"
-                                className="srd-chip"
-                                aria-pressed={cfg.model.rotation === deg}
-                                onClick={() => apply({ model: { rotation: deg } })}
-                            >
-                                {deg}°
-                            </button>
-                        ))
-                    )}
-                    <button
-                        type="button"
-                        className="srd-chip srd-chip-fixed"
-                        aria-pressed={freeAngle}
-                        title="Свободный угол"
-                        onClick={() => setFreeAngle(!freeAngle)}
-                    >
-                        ∠
-                    </button>
-                </div>
+                <RotRow rotation={cfg.model.rotation} freeAngle={freeAngle}
+                    onToggleFree={() => setFreeAngle(!freeAngle)}
+                    onCommit={deg => apply({ model: { rotation: deg } })} />
 
-                <Subhead>Размеры, м (пусто — габарит)</Subhead>
-                <div className="srd-row">
+                <Subhead>Размеры, м</Subhead>
+                <div className="tf-row">
                     <Num label="Длина" value={cfg.model.length || null}
                         placeholder={m.length.toFixed(2)}
                         onCommit={v => apply({ model: { length: Math.max(0, v) } })} />
@@ -746,7 +714,7 @@ export function SurroundPanel({
                 <Range label="Прозрачность" value={1 - cfg.model.alpha} min={0} max={1} step={0.05}
                     fmt={v => `${Math.round(v * 100)}%`}
                     onCommit={v => apply({ model: { alpha: Number((1 - v).toFixed(2)) } })} />
-            </div>
+            </>
         );
     }
 
@@ -759,86 +727,82 @@ export function SurroundPanel({
 
     const p = selectedPose;
 
+    if (cfg.cameras.length === 0) {
+        return <div className="empty">Поз камер нет</div>;
+    }
+
     return (
-        <div className="srd-panel">
-            {cfg.cameras.length === 0 ? (
-                <div className="srd-hint">Печка ещё не отдала позы камер</div>
-            ) : (
+        <>
+            <div className="chips">
+                {cfg.cameras.map(c => (
+                    <button
+                        key={c.placeKey}
+                        type="button"
+                        className={`chip${p?.placeKey === c.placeKey ? ' is-on' : ''}`}
+                        onClick={() => setPlace(c.placeKey)}
+                    >
+                        {placeNames[c.placeKey] || c.placeKey}
+                    </button>
+                ))}
+            </div>
+            {p && (
                 <>
-                    <div className="srd-chips">
-                        {cfg.cameras.map(c => (
-                            <button
-                                key={c.placeKey}
-                                type="button"
-                                className="srd-chip"
-                                aria-pressed={p?.placeKey === c.placeKey}
-                                onClick={() => setPlace(c.placeKey)}
-                            >
-                                {placeNames[c.placeKey] || c.placeKey}
-                            </button>
-                        ))}
+                    <div className="pnp">
+                        <b>{p.source === 'manual' ? 'ручная поза' : 'PnP'}</b>
+                        {`· h ${p.height.toFixed(3)} м · ${p.reprojectionError.toFixed(1)} px`}
+                        {p.source === 'manual' && <span className="tag is-warn">оверрайд</span>}
                     </div>
-                    {p && (
-                        <>
-                            <div className="srd-pnp">
-                                {p.source === 'manual' ? 'ручная поза' : 'PnP'}
-                                {' · h='}
-                                {p.height.toFixed(3)} м
-                                {` · ${p.reprojectionError.toFixed(1)} px`}
-                            </div>
 
-                            <Subhead>Позиция, м</Subhead>
-                            <PoseStepper label="X" value={p.position[0]}
-                                base={p.pnp.position[0]} step={posStep}
-                                onCommit={v => sendPose(p.placeKey, {
-                                    position: [v, p.position[1], p.position[2]],
-                                    yaw: p.yaw, pitch: p.pitch, roll: p.roll,
-                                })} />
-                            <PoseStepper label="Y (высота)" value={p.position[1]}
-                                base={p.pnp.position[1]} step={posStep}
-                                onCommit={v => sendPose(p.placeKey, {
-                                    position: [p.position[0], v, p.position[2]],
-                                    yaw: p.yaw, pitch: p.pitch, roll: p.roll,
-                                })} />
-                            <PoseStepper label="Z" value={p.position[2]}
-                                base={p.pnp.position[2]} step={posStep}
-                                onCommit={v => sendPose(p.placeKey, {
-                                    position: [p.position[0], p.position[1], v],
-                                    yaw: p.yaw, pitch: p.pitch, roll: p.roll,
-                                })} />
+                    <Subhead>Позиция, м</Subhead>
+                    <PoseStepper label="X" value={p.position[0]}
+                        base={p.pnp.position[0]} step={posStep}
+                        onCommit={v => sendPose(p.placeKey, {
+                            position: [v, p.position[1], p.position[2]],
+                            yaw: p.yaw, pitch: p.pitch, roll: p.roll,
+                        })} />
+                    <PoseStepper label="Y · высота" value={p.position[1]}
+                        base={p.pnp.position[1]} step={posStep}
+                        onCommit={v => sendPose(p.placeKey, {
+                            position: [p.position[0], v, p.position[2]],
+                            yaw: p.yaw, pitch: p.pitch, roll: p.roll,
+                        })} />
+                    <PoseStepper label="Z" value={p.position[2]}
+                        base={p.pnp.position[2]} step={posStep}
+                        onCommit={v => sendPose(p.placeKey, {
+                            position: [p.position[0], p.position[1], v],
+                            yaw: p.yaw, pitch: p.pitch, roll: p.roll,
+                        })} />
 
-                            <Subhead>Углы, °</Subhead>
-                            <PoseSlider label="Yaw" value={p.yaw} base={p.pnp.yaw}
-                                min={-180} max={180}
-                                onCommit={v => sendPose(p.placeKey, {
-                                    position: [...p.position] as [number, number, number],
-                                    yaw: v, pitch: p.pitch, roll: p.roll,
-                                })} />
-                            <PoseSlider label="Pitch" value={p.pitch} base={p.pnp.pitch}
-                                min={-90} max={90}
-                                onCommit={v => sendPose(p.placeKey, {
-                                    position: [...p.position] as [number, number, number],
-                                    yaw: p.yaw, pitch: v, roll: p.roll,
-                                })} />
-                            <PoseSlider label="Roll" value={p.roll} base={p.pnp.roll}
-                                min={-180} max={180}
-                                onCommit={v => sendPose(p.placeKey, {
-                                    position: [...p.position] as [number, number, number],
-                                    yaw: p.yaw, pitch: p.pitch, roll: v,
-                                })} />
+                    <Subhead>Углы, °</Subhead>
+                    <PoseSlider label="Yaw" value={p.yaw} base={p.pnp.yaw}
+                        min={-180} max={180}
+                        onCommit={v => sendPose(p.placeKey, {
+                            position: [...p.position] as [number, number, number],
+                            yaw: v, pitch: p.pitch, roll: p.roll,
+                        })} />
+                    <PoseSlider label="Pitch" value={p.pitch} base={p.pnp.pitch}
+                        min={-90} max={90}
+                        onCommit={v => sendPose(p.placeKey, {
+                            position: [...p.position] as [number, number, number],
+                            yaw: p.yaw, pitch: v, roll: p.roll,
+                        })} />
+                    <PoseSlider label="Roll" value={p.roll} base={p.pnp.roll}
+                        min={-180} max={180}
+                        onCommit={v => sendPose(p.placeKey, {
+                            position: [...p.position] as [number, number, number],
+                            yaw: p.yaw, pitch: p.pitch, roll: v,
+                        })} />
 
-                            <button
-                                type="button"
-                                className="srd-reset"
-                                disabled={p.source !== 'manual'}
-                                onClick={() => resetPose(p)}
-                            >
-                                ↺ Сбросить камеру к PnP
-                            </button>
-                        </>
-                    )}
+                    <button
+                        type="button"
+                        className="btn btn--wide"
+                        disabled={p.source !== 'manual'}
+                        onClick={() => resetPose(p)}
+                    >
+                        Сбросить камеру к PnP
+                    </button>
                 </>
             )}
-        </div>
+        </>
     );
 }

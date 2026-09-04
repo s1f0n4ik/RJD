@@ -1,11 +1,10 @@
-import { useBackdropClose } from '../../hooks/useBackdropClose';
+import { Modal } from '../../../../app/Modal';
 import { confState, fmtM, useConfStore } from '../../state/conf-store';
 import { confDelete, confRenameCamera } from './conf-actions';
 import type { ConfItemType } from '../../types';
 
-// Окно элемента по правой кнопке. У камеры правится только отображаемое имя:
-// ключ — это place_key, под ним линкер держит привязку, а сервер переносит
-// src_points из прежней записи пресета.
+// Окно элемента по правой кнопке. У камеры правится только имя: ключ — это
+// place_key, под ним линкер держит привязку и переносит src_points
 
 interface ElementModalProps {
     type: ConfItemType;
@@ -13,16 +12,20 @@ interface ElementModalProps {
     onClose: () => void;
 }
 
-export function ElementModal({ type, id, onClose }: ElementModalProps) {
-    const backdrop = useBackdropClose(onClose);
+const TITLE: Record<ConfItemType, string> = {
+    camera: 'Камера',
+    zone: 'Разметка',
+    image: 'Рисунок',
+    gabarit: 'Габарит',
+};
 
+export function ElementModal({ type, id, onClose }: ElementModalProps) {
     useConfStore();
 
     const cam = type === 'camera' ? confState.cameras.find(c => c.id === id) : undefined;
     const zone = type === 'zone' ? confState.zones.find(z => z.id === id) : undefined;
     const img = type === 'image' ? confState.images.find(i => i.id === id) : undefined;
 
-    const title = cam?.name ?? zone?.name ?? img?.name ?? '';
     if (!cam && !zone && !img) return null;
 
     const handleDelete = () => {
@@ -31,61 +34,50 @@ export function ElementModal({ type, id, onClose }: ElementModalProps) {
     };
 
     return (
-        <div className="modal-backdrop" {...backdrop}>
-            <div className="modal-window" onClick={e => e.stopPropagation()}>
-                <div className="modal-header">
-                    <span className="modal-title">{title}</span>
-                    <button className="toast-close" onClick={onClose}>✕</button>
-                </div>
-
-                <div className="modal-body" style={{ gap: 14 }}>
-                    {cam && (
-                        <>
-                            <div className="field-group">
-                                <label className="field-label">Имя</label>
-                                <input
-                                    className="field-input"
-                                    type="text"
-                                    value={cam.name}
-                                    onChange={e => confRenameCamera(cam.id, { name: e.target.value })}
-                                    onBlur={e => confRenameCamera(cam.id, { name: e.target.value.trim() })}
-                                />
-                            </div>
-                            <div className="field-group">
-                                <label className="field-label">Ключ места</label>
-                                <span className="modal-stat-value">{cam.key}</span>
-                            </div>
-                            <div className="field-group">
-                                <label className="field-label">Размер</label>
-                                <span className="modal-stat-value">
-                                    {fmtM(cam.w)}×{fmtM(cam.h)} м
-                                </span>
-                            </div>
-                        </>
-                    )}
-
-                    {zone && (
-                        <div className="field-group">
-                            <label className="field-label">Разметка</label>
-                            <span className="modal-stat-value">{fmtM(zone.w)} м</span>
+        <Modal
+            title={TITLE[type]}
+            onClose={onClose}
+            footer={
+                <>
+                    <button className="btn btn--err" onClick={handleDelete}>Удалить</button>
+                    <button className="btn btn--ghost spacer" onClick={onClose}>Готово</button>
+                </>
+            }
+        >
+            <div className="modal-b conf-modal-b">
+                {cam && (
+                    <>
+                        <div className="tf">
+                            <span className="tf-cap">Имя</span>
+                            <input
+                                className="tf-in"
+                                type="text"
+                                value={cam.name}
+                                onChange={e => confRenameCamera(cam.id, { name: e.target.value })}
+                                onBlur={e => confRenameCamera(cam.id, { name: e.target.value.trim() })}
+                            />
                         </div>
-                    )}
-
-                    {img && (
-                        <div className="field-group">
-                            <label className="field-label">Размер</label>
-                            <span className="modal-stat-value">
-                                {fmtM(img.w)}×{fmtM(img.h)} м
-                            </span>
+                        <div>
+                            <div className="kv"><span className="k">Ключ</span><span className="v">{cam.key}</span></div>
+                            <div className="kv"><span className="k">Размер</span><span className="v">{fmtM(cam.w)} × {fmtM(cam.h)} м</span></div>
                         </div>
-                    )}
-                </div>
+                    </>
+                )}
 
-                <div className="modal-footer">
-                    <button className="btn btn-danger" onClick={handleDelete}>Удалить</button>
-                    <button className="btn btn-ghost" onClick={onClose}>Готово</button>
-                </div>
+                {zone && (
+                    <div>
+                        <div className="kv"><span className="k">Имя</span><span className="v">{zone.name}</span></div>
+                        <div className="kv"><span className="k">Сторона</span><span className="v">{fmtM(zone.w)} м</span></div>
+                    </div>
+                )}
+
+                {img && (
+                    <div>
+                        <div className="kv"><span className="k">Файл</span><span className="v">{img.name}</span></div>
+                        <div className="kv"><span className="k">Размер</span><span className="v">{fmtM(img.w)} × {fmtM(img.h)} м</span></div>
+                    </div>
+                )}
             </div>
-        </div>
+        </Modal>
     );
 }

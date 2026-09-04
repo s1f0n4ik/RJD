@@ -7,6 +7,8 @@ export interface SelectOption {
     /** Пояснение мелким текстом справа от подписи */
     hint?: string;
     disabled?: boolean;
+    /** Выбирается, но помечен как неподходящий — приглушённый */
+    muted?: boolean;
 }
 
 interface SelectProps {
@@ -15,6 +17,10 @@ interface SelectProps {
     onChange: (value: string) => void;
     disabled?: boolean;
     placeholder?: string;
+    /** Текст в пустом списке */
+    emptyText?: string;
+    /** Вызывается при раскрытии — чтобы подгрузить варианты */
+    onOpen?: () => void;
 }
 
 interface PopupPos {
@@ -35,7 +41,7 @@ const POPUP_MAX = 320;
  * Позиционируется fixed от рамки кнопки: так его не режут прокручиваемые
  * контейнеры (шторка, тело модалки), а у нижней кромки экрана он открывается вверх.
  */
-export function Select({ value, options, onChange, disabled, placeholder }: SelectProps) {
+export function Select({ value, options, onChange, disabled, placeholder, emptyText, onOpen }: SelectProps) {
     const [open, setOpen] = useState(false);
     const [active, setActive] = useState(-1);
     const [pos, setPos] = useState<PopupPos | null>(null);
@@ -64,6 +70,7 @@ export function Select({ value, options, onChange, disabled, placeholder }: Sele
 
     const openPopup = () => {
         if (disabled) return;
+        onOpen?.();
         setActive(options.findIndex(o => o.value === value));
         setOpen(true);
     };
@@ -150,6 +157,7 @@ export function Select({ value, options, onChange, disabled, placeholder }: Sele
                         bottom: pos.bottom,
                     }}
                 >
+                    {options.length === 0 && <div className="uisel-empty">{emptyText ?? 'Нет вариантов'}</div>}
                     {options.map((option, index) => (
                         <div
                             key={option.value}
@@ -160,6 +168,7 @@ export function Select({ value, options, onChange, disabled, placeholder }: Sele
                                 option.value === value ? 'is-selected' : '',
                                 index === active ? 'is-active' : '',
                                 option.disabled ? 'is-disabled' : '',
+                                option.muted ? 'is-muted' : '',
                             ].filter(Boolean).join(' ')}
                             onMouseEnter={() => !option.disabled && setActive(index)}
                             onMouseDown={e => e.preventDefault()}

@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Icon } from '../../../../app/Icons';
+import { Select } from '../../../../app/Select';
+import { setSurroundStatus } from '../../../../app/surroundStatus';
 import { linkerApi, LinkerError } from '../../api/linker';
 import { ROTATIONS } from '../../api/linker';
 import type {
@@ -20,25 +23,17 @@ import { useToast } from '../common/Toast';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { PlanView } from './PlanView';
 import { buildGeometry } from './plan-geometry';
+import '../../../../screens/surround/linker.css';
 
-/**
- * Экран «Вывод» (линкер). Порт page-3, переписанный на схему.
- *
- * Камеры назначаются не списком ключей, а нажатием на место схемы: места
- * рисуются прямоугольниками из самой конфигурации, поэтому перепутанная
- * камера видна сразу. Ключи вроде left_front в интерфейс не попадают.
- *
- * Данные тянутся по требованию: конфигурации и камеры — на активацию экрана,
- * запись конфигурации и её настройки — на клик по ней. Отдельно от них статус
- * опрашивается по таймеру, пока экран активен: иначе состояние врёт, если
- * линкер остановили снаружи или он упал.
- */
+// Экран «Отображение»: камеры назначаются нажатием на место схемы, ключи мест в интерфейс не попадают.
+// Конфигурации и камеры тянутся на активацию, запись и настройки — на выбор конфигурации,
+// статус опрашивается по таймеру, пока экран активен
 
 const STATUS_POLL_MS = 5_000;
 const START_POLL_MS = 1_000;
 const START_TIMEOUT_MS = 20_000;
 
-/** Идентификатор по умолчанию — тот же, с которым линкер стартовал всегда. */
+// Идентификатор по умолчанию — тот же, с которым линкер стартовал всегда
 const DEFAULT_STREAM_ID = 'birdview_linker';
 
 const EMPTY_STATUS: LinkerStatus = {
@@ -60,6 +55,20 @@ const DEFAULT_PARAMS: LinkerParams = {
     rotation: 0,
     viewMode: 'top',
 };
+
+const SURROUND_TABS: Array<[SurroundTab, string]> = [
+    ['stream', 'Поток'],
+    ['scene', 'Сцена'],
+    ['model', 'Модель'],
+    ['cameras', 'Камеры'],
+];
+
+const TOP_TABS: Array<[SurroundTab, string]> = [
+    ['stream', 'Поток'],
+    ['scene', 'Сцена'],
+    ['model', 'Модель'],
+    ['images', 'Рисунки'],
+];
 
 interface LinkerScreenProps {
     active: boolean;
@@ -83,17 +92,14 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
     const [view, setView] = useState<'plan' | 'stream'>('plan');
     const [starting, setStarting] = useState(false);
     const [pendingDelete, setPendingDelete] = useState<LinkerExport | null>(null);
-    // Схема на узком канвасе тесная — колонку со списком можно убрать
-    const [asideOpen, setAsideOpen] = useState(true);
-    // Вкладка правой колонки: поток / сцена / модель / камеры
+    // Вкладка правой панели: поток / сцена / модель / камеры или рисунки
     const [panelTab, setPanelTab] = useState<SurroundTab>('stream');
 
     // Во время запуска общий опрос молчит: за подъёмом следит свой цикл
     const startingRef = useRef(starting);
     startingRef.current = starting;
 
-    // fps правится черновиком: зажатие в 1..60 на каждое нажатие клавиши
-    // не даёт набрать «15», превращая первую единицу в готовое значение
+    // fps правится черновиком: зажатие в 1..60 на каждое нажатие не даёт набрать «15»
     const [fpsDraft, setFpsDraft] = useState(String(DEFAULT_PARAMS.fps));
 
     useEffect(() => {
@@ -163,14 +169,13 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
         return () => window.clearInterval(id);
     }, [active]);
 
-    /*
-        Возврат к схеме, когда смотреть больше нечего.
+    // Точка у «Отображения» в рельсе: вывод в эфире
+    useEffect(() => {
+        setSurroundStatus({ live: status.running });
+        return () => setSurroundStatus({ live: false });
+    }, [status.running]);
 
-        Два случая: линкер остановлен вовсе, либо оператор выбрал в списке
-        другую конфигурацию — её вывод не запущен, и показывать в плеере чужую
-        картинку нельзя. Плеер размонтируется, WebRTC-сессия рвётся, а сам
-        вывод продолжает работать: его смотрят по id стрима и другие.
-    */
+    // Возврат к схеме: линкер остановлен либо выбрана конфигурация, чей вывод не идёт
     useEffect(() => {
         if (view !== 'stream' || starting) return;
 
@@ -189,12 +194,7 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
             ]);
             setDetail(full);
 
-            /*
-                Сохранённые привязки главнее целиком: явно снятая камера не
-                должна воскресать. А вот конфигурацию без своей записи в
-                состоянии префиллим привязками из пресета, снятыми при
-                расчёте LUT — только доступными камерами и без дублей.
-            */
+            // Сохранённые привязки главнее целиком; без записи в состоянии — префилл из пресета
             let bindings = state.bindings;
             if (Object.keys(bindings).length === 0) {
                 const prefill: LinkerBindings = {};
@@ -239,10 +239,7 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
         });
     };
 
-    /**
-     * POST /linker/start не возвращает stream_id, а сам линкер присваивает его
-     * уже после возврата из async_start. Поэтому ждём появления через статус.
-     */
+    // POST /linker/start не возвращает stream_id: ждём его появления через статус
     const waitForStream = async (): Promise<LinkerStatus | null> => {
         const deadline = Date.now() + START_TIMEOUT_MS;
         while (Date.now() < deadline) {
@@ -316,11 +313,7 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
         }
     };
 
-    /**
-     * Поворот уходит своей ручкой, а не в общем сохранении: он свойство
-     * картинки, и сервер сам пересобирает живой вывод — при 90 и 270 размер
-     * кадра другой, а пайплайн создаётся под конкретный.
-     */
+    // Поворот уходит своей ручкой: сервер сам пересобирает живой вывод под новый размер кадра
     const applyRotation = async (rotation: Rotation) => {
         if (!selected) return;
         const previous = params.rotation;
@@ -341,11 +334,7 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
         }
     };
 
-    /**
-     * Смена режима своей ручкой, как поворот: сервер сам пересобирает живой
-     * вывод — у режимов разный размер кадра и пайплайн. После пересборки
-     * ждём подъёма стрима той же механикой, что и при запуске.
-     */
+    // Смена режима своей ручкой: сервер пересобирает живой вывод, подъём ждём как при запуске
     const applyViewMode = async (mode: ViewMode) => {
         if (!selected || params.viewMode === mode) return;
         const previous = params.viewMode;
@@ -374,11 +363,7 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
         }
     };
 
-    /**
-     * Смена разрешения — как выключить и включить вывод, только одной кнопкой:
-     * стоп, запись в остановленную конфигурацию, старт, ожидание подъёма.
-     * Эта связка уже отлажена ручными кнопками, ей и пользуемся.
-     */
+    // Смена разрешения: стоп, запись в остановленную конфигурацию, старт, ожидание подъёма
     const applyResolution = async (res: { width: number; height: number }): Promise<boolean> => {
         if (!selected) return false;
         setStarting(true);
@@ -400,10 +385,7 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
         }
     };
 
-    /**
-     * Разрешение top-кадра тем же паттерном, что у surround: живой вывод —
-     * стоп, запись, старт; остановленный — только запись, рестарт не нужен.
-     */
+    // Разрешение top-кадра: живой вывод — стоп, запись, старт; остановленный — только запись
     const applyTopResolution = async (res: { width: number; height: number }): Promise<boolean> => {
         if (!selected) return false;
         const live = status.running && status.exportId === selected.id;
@@ -436,8 +418,7 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
         }
     };
 
-    // Пересчёт и смена версии перезапускают живой вывод на сервере —
-    // статус подтягивается сразу, не дожидаясь общего опроса
+    // Пересчёт и смена версии перезапускают живой вывод: статус подтягивается сразу
     const refreshStatus = useCallback(() => {
         linkerApi.getStatus().then(setStatus).catch(() => {});
     }, []);
@@ -455,166 +436,96 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
     const complete = places > 0 && assigned === places;
 
     const isLive = status.running && status.exportId === selected?.id;
-    // Смотреть можно только ту конфигурацию, что сейчас в эфире: у остальных
-    // вкладка вела бы на чужую картинку и путала
+    // Смотреть можно только конфигурацию в эфире: у остальных вкладка вела бы на чужую картинку
     const canWatch = isLive && Boolean(status.streamId);
 
+    const exportOptions = exports.map(exp => ({
+        value: exp.id,
+        label: exp.name || exp.id,
+        // Без ректа габарита и картинок мир не отмасштабировать
+        hint: exp.valid ? `${exp.cameras?.length ?? 0} мест · ${exp.id}` : 'нет габарита',
+        disabled: !exp.valid,
+    }));
+
+    const tabs = params.viewMode === 'surround' ? SURROUND_TABS : TOP_TABS;
+    const fieldsLocked = !selected || isLive;
+
     return (
-        <main
-            className={
-                'main-layout linker-layout' +
-                (asideOpen ? '' : ' aside-hidden') +
-                (active ? '' : ' hidden')
-            }
-        >
-            <button
-                className={`linker-aside-tab${asideOpen ? ' open' : ''}`}
-                onClick={() => setAsideOpen(o => !o)}
-                title={asideOpen ? 'Скрыть список конфигураций' : 'Показать список конфигураций'}
-            >
-                <span className="proj-tab-icon">{asideOpen ? '‹' : '›'}</span>
-                <span className="proj-tab-label">Конфигурации</span>
-            </button>
-
-            <aside className="sidebar linker-aside">
-                <div className="col-title">Конфигурации</div>
-
-                {loading ? (
-                    <div className="linker-empty">Загрузка...</div>
-                ) : exports.length === 0 ? (
-                    <div className="linker-empty">
-                        Нет конфигураций. Посчитайте LUT на экране сборки.
+        <div className={`sv sv-link${active ? '' : ' is-hidden'}`}>
+            <div className="sv-main">
+                <div className="toolbar">
+                    <div className="tf">
+                        <Select
+                            value={selected?.id ?? ''}
+                            options={exportOptions}
+                            placeholder={loading ? 'Загрузка…' : 'Конфигурация'}
+                            emptyText="Нет конфигураций"
+                            disabled={loading || starting}
+                            onChange={id => {
+                                const exp = exports.find(e => e.id === id);
+                                if (exp && exp.id !== selected?.id) void selectExport(exp);
+                            }}
+                        />
                     </div>
-                ) : (
-                    <div className="linker-cfg-list">
-                        {exports.map(exp => {
-                            const live = status.running && status.exportId === exp.id;
-                            // Без ректа габарита и картинок мир не отмасштабировать
-                            const broken = !exp.valid;
-                            return (
-                                <div
-                                    key={exp.id}
-                                    className={`linker-cfg${selected?.id === exp.id ? ' on' : ''}${broken ? ' broken' : ''}`}
-                                    title={broken ? 'Нет габарита и рисунков — задайте габарит в конфигураторе' : ''}
-                                    onClick={() => {
-                                        if (starting) return;
-                                        if (broken) {
-                                            showToast(
-                                                'Конфигурация ошибочна',
-                                                'Нет ни габарита, ни рисунка. Задайте габарит в конфигураторе',
-                                                'err',
-                                            );
-                                            return;
-                                        }
-                                        void selectExport(exp);
-                                    }}
-                                >
-                                    <span className="linker-cfg-dot" />
-                                    <span className="linker-cfg-body">
-                                        <span className="linker-cfg-name">{exp.name || exp.id}</span>
-                                        <span className="linker-cfg-meta">
-                                            {(exp.cameras?.length ?? 0)} мест · {exp.id}
-                                        </span>
-                                    </span>
-                                    {broken && <span className="linker-cfg-broken">нет габарита</span>}
-                                    {live && <span className="linker-cfg-live">LIVE</span>}
-                                    <button
-                                        type="button"
-                                        className="linker-cfg-del"
-                                        disabled={live}
-                                        title={live ? 'Сначала остановите вывод' : 'Удалить конфигурацию'}
-                                        aria-label={`Удалить ${exp.name || exp.id}`}
-                                        onClick={e => {
-                                            e.stopPropagation();
-                                            if (!live) setPendingDelete(exp);
-                                        }}
-                                    >
-                                        ✕
-                                    </button>
-                                </div>
-                            );
-                        })}
+                    <button
+                        type="button"
+                        className="icon-btn"
+                        data-tip="Удалить конфигурацию"
+                        disabled={!selected || isLive || starting}
+                        aria-label="Удалить конфигурацию"
+                        onClick={() => selected && setPendingDelete(selected)}
+                    >
+                        <Icon name="trash" size={14} />
+                    </button>
+                    <span className="tbar-sep" />
+
+                    <span className={`pill has-tip${isLive ? ' ok' : status.running ? ' warn' : ''}`}>
+                        <span className="dot" />
+                        {isLive ? 'в эфире' : status.running ? 'в эфире · другая конфигурация' : 'остановлен'}
+                        <div className="tipbox" style={{ right: 'auto', left: 0 }}>
+                            <div className="kv"><span className="k">Поток</span><span className="v">{status.streamId ?? '—'}</span></div>
+                            <div className="kv"><span className="k">Режим</span><span className="v">{status.viewMode === 'surround' ? 'объём' : 'сверху'}</span></div>
+                            <div className="kv"><span className="k">Кадр</span><span className="v">{status.width && status.height ? `${status.width}×${status.height} · ${status.fps} fps` : '—'}</span></div>
+                            <div className="kv"><span className="k">Конфигурация</span><span className="v">{status.exportId ?? '—'}</span></div>
+                            <div className="kv"><span className="k">Камер</span><span className="v">{places ? `${assigned} из ${places}` : '—'}</span></div>
+                        </div>
+                    </span>
+                    <span className={`pill${complete ? ' ok' : ''}`}>
+                        <span className="dot acc" />
+                        {places ? `назначено ${assigned} из ${places}` : 'назначено —'}
+                    </span>
+                    {geometry && geometry.missing.length > 0 && (
+                        <span className="pill warn" title={geometry.missing.join(', ')}>
+                            <span className="dot warn" />
+                            без места: {geometry.missing.length}
+                        </span>
+                    )}
+
+                    <div className="pills">
+                        <div className="seg" role="group" aria-label="Что показывать">
+                            <button
+                                type="button"
+                                className={view === 'plan' ? 'is-on' : ''}
+                                onClick={() => setView('plan')}
+                            >
+                                Схема
+                            </button>
+                            <button
+                                type="button"
+                                className={view === 'stream' ? 'is-on' : ''}
+                                disabled={!canWatch}
+                                onClick={() => canWatch && setView('stream')}
+                            >
+                                Поток
+                            </button>
+                        </div>
                     </div>
-                )}
-
-                <div className="col-title" style={{ marginTop: 18 }}>Состояние</div>
-                <div className="linker-kv">
-                    <span className="linker-kv-k">Вывод</span>
-                    <span className={`linker-kv-v${status.running ? ' ok' : ''}`}>
-                        {status.running ? 'в эфире' : 'остановлен'}
-                    </span>
-                </div>
-                <div className="linker-kv">
-                    <span className="linker-kv-k">Стрим</span>
-                    <span className="linker-kv-v">{status.streamId ?? '—'}</span>
-                </div>
-                <div className="linker-kv">
-                    <span className="linker-kv-k">Режим</span>
-                    <span className="linker-kv-v">
-                        {status.viewMode === 'surround' ? 'объём' : 'сверху'}
-                    </span>
-                </div>
-                <div className="linker-kv">
-                    <span className="linker-kv-k">Камер</span>
-                    <span className="linker-kv-v">{assigned} / {places || '—'}</span>
-                </div>
-                {/* Кадр шире канваса: стороны округляются под кодек */}
-                <div className="linker-kv">
-                    <span className="linker-kv-k">Кадр</span>
-                    <span className="linker-kv-v">
-                        {status.width && status.height ? `${status.width} × ${status.height}` : '—'}
-                    </span>
-                </div>
-            </aside>
-
-            <section className="linker-stage-pane">
-                <div className="linker-stage-head">
-                    <span className="linker-progress">
-                        <span className="linker-progress-k">Назначено</span>
-                        <span className="linker-progress-n">
-                            {places ? `${assigned} из ${places}` : '—'}
-                        </span>
-                        <span className="linker-progress-bar">
-                            <span
-                                className="linker-progress-fill"
-                                style={{ width: places ? `${(assigned / places) * 100}%` : '0%' }}
-                            />
-                        </span>
-                    </span>
-
-                    <span className="view-seg" role="group" aria-label="Что показывать">
-                        <button
-                            type="button"
-                            aria-pressed={view === 'plan'}
-                            onClick={() => setView('plan')}
-                        >
-                            Схема
-                        </button>
-                        <button
-                            type="button"
-                            aria-pressed={view === 'stream'}
-                            disabled={!canWatch}
-                            title={
-                                canWatch
-                                    ? ''
-                                    : status.running
-                                      ? 'В эфире другая конфигурация'
-                                      : 'Поток не запущен'
-                            }
-                            onClick={() => canWatch && setView('stream')}
-                        >
-                            Стрим
-                        </button>
-                    </span>
                 </div>
 
-                <div className="linker-stage">
+                <div className="canvas-wrap">
                     {view === 'stream' && status.streamId ? (
-                        // Плееру нужна обёртка заданного размера: сам он задаёт
-                        // только высоту, и без ширины схлопывается по содержимому —
-                        // отсюда чёрная полоса по размеру индикатора загрузки
-                        // Без кнопок: режимом и орбитой здесь управляет форма параметров
-                        <div className="linker-player">
+                        // Без кнопок: режимом и орбитой управляет панель параметров
+                        <div className="stream">
                             <SurroundWebRTCPlayer
                                 key={`linker-${status.streamId}-${status.viewMode}`}
                                 cameraId={status.streamId}
@@ -623,229 +534,203 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
                                 onError={e => toastError('Плеер', e)}
                             />
                         </div>
-                    ) : !selected ? (
-                        <div className="no-signal">
-                            <div className="no-signal-icon">◫</div>
-                            <div className="no-signal-text">Конфигурация не выбрана</div>
-                            <div className="no-signal-sub">Выберите её в списке слева</div>
-                        </div>
-                    ) : detailLoading ? (
-                        <div className="no-signal">
-                            <div className="no-signal-icon">◌</div>
-                            <div className="no-signal-text">Загрузка схемы</div>
-                        </div>
-                    ) : geometry && geometry.tiles.length > 0 ? (
-                        <PlanView
-                            geometry={geometry}
-                            bindings={bindings}
-                            cameras={cameras}
-                            locked={isLive || starting}
-                            onAssign={assign}
-                        />
                     ) : (
-                        <div className="no-signal">
-                            <div className="no-signal-icon">⊘</div>
-                            <div className="no-signal-text">Схему не построить</div>
-                            <div className="no-signal-sub">
-                                В конфигурации нет мест камер. Пересчитайте LUT на экране сборки
-                            </div>
+                        <div className="plan">
+                            {!selected ? (
+                                <div className="empty">
+                                    <Icon name="empty" />
+                                    <b>Конфигурация не выбрана</b>
+                                </div>
+                            ) : detailLoading ? (
+                                <div className="empty">
+                                    <span className="spin" />
+                                </div>
+                            ) : geometry && geometry.tiles.length > 0 ? (
+                                <PlanView
+                                    geometry={geometry}
+                                    bindings={bindings}
+                                    cameras={cameras}
+                                    locked={isLive || starting}
+                                    onAssign={assign}
+                                />
+                            ) : (
+                                <div className="empty">
+                                    <Icon name="warn" />
+                                    <b>Нет мест камер</b>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
+            </div>
 
-                {geometry && geometry.missing.length > 0 && (
-                    <div className="linker-warn">
-                        Без места на канвасе: {geometry.missing.join(', ')}. Эти камеры на схеме
-                        не показаны — пересчитайте конфигурацию
+            <aside className="mod-side">
+                <div className="sv-tabs">
+                    <div className="seg" role="tablist" aria-label="Разделы параметров">
+                        {tabs.map(([key, title]) => (
+                            <button
+                                key={key}
+                                type="button"
+                                role="tab"
+                                aria-selected={panelTab === key}
+                                className={panelTab === key ? 'is-on' : ''}
+                                onClick={() => setPanelTab(key)}
+                            >
+                                {title}
+                            </button>
+                        ))}
                     </div>
-                )}
-            </section>
-
-            <aside className="sidebar linker-aside">
-                <div className="col-title">Параметры вывода</div>
-
-                {/* У плоской сшивки поз камер нет — вкладки «Камеры» тоже */}
-                <div className="srd-tabs" role="tablist" aria-label="Разделы параметров">
-                    {(params.viewMode === 'surround'
-                        ? ([
-                            ['stream', 'Поток'],
-                            ['scene', 'Сцена'],
-                            ['model', 'Модель'],
-                            ['cameras', 'Камеры'],
-                        ] as Array<[SurroundTab, string]>)
-                        : ([
-                            ['stream', 'Поток'],
-                            ['scene', 'Сцена'],
-                            ['model', 'Модель'],
-                            ['images', 'Рисунки'],
-                        ] as Array<[SurroundTab, string]>)
-                    ).map(([key, title]) => (
-                        <button
-                            key={key}
-                            type="button"
-                            aria-pressed={panelTab === key}
-                            onClick={() => setPanelTab(key)}
-                        >
-                            {title}
-                        </button>
-                    ))}
                 </div>
 
-                {panelTab === 'stream' && (
-                    <>
-                        <div className="linker-lock-wrap">
-                        <div className="field-group">
-                            <label className="field-label">Название стрима</label>
-                            <input
-                                className="field-input"
-                                type="text"
-                                value={params.streamName}
-                                disabled={!selected || isLive}
-                                onChange={e => setParams(p => ({ ...p, streamName: e.target.value }))}
-                                onBlur={e => setParams(p => ({ ...p, streamName: e.target.value.trim() }))}
-                            />
-                        </div>
-
-                        <div className="field-group">
-                            <label className="field-label">ID стрима</label>
-                            <input
-                                className="field-input"
-                                type="text"
-                                value={params.streamId}
-                                disabled={!selected || isLive}
-                                onChange={e => setParams(p => ({ ...p, streamId: e.target.value }))}
-                                onBlur={e =>
-                                    setParams(p => ({
-                                        ...p,
-                                        streamId: e.target.value.trim() || DEFAULT_STREAM_ID,
-                                    }))
-                                }
-                            />
-                        </div>
-
-                        <div className="field-group">
-                            <label className="field-label">Кадров в секунду</label>
-                            <input
-                                className="field-input"
-                                type="number"
-                                min={1}
-                                max={60}
-                                value={fpsDraft}
-                                disabled={!selected || isLive}
-                                onChange={e => setFpsDraft(e.target.value)}
-                                onBlur={() => commitFps()}
-                                onWheel={e => e.currentTarget.blur()}
-                                onKeyDown={e => {
-                                    if (e.key === 'Enter') commitFps();
-                                }}
-                            />
-                        </div>
-
-                        {isLive && (
-                            <div className="linker-lock">
-                                Остановите вывод, чтобы изменить название, ID и частоту потока
+                <div className="blk-b pad">
+                    {panelTab === 'stream' && (
+                        <>
+                            <label className="tf">
+                                <span className="tf-cap">Название потока</span>
+                                <input
+                                    className="tf-in"
+                                    type="text"
+                                    value={params.streamName}
+                                    disabled={fieldsLocked}
+                                    onChange={e => setParams(p => ({ ...p, streamName: e.target.value }))}
+                                    onBlur={e => setParams(p => ({ ...p, streamName: e.target.value.trim() }))}
+                                />
+                            </label>
+                            <div className="tf-row">
+                                <label className="tf">
+                                    <span className="tf-cap">ID потока</span>
+                                    <input
+                                        className="tf-in"
+                                        type="text"
+                                        value={params.streamId}
+                                        disabled={fieldsLocked}
+                                        onChange={e => setParams(p => ({ ...p, streamId: e.target.value }))}
+                                        onBlur={e =>
+                                            setParams(p => ({
+                                                ...p,
+                                                streamId: e.target.value.trim() || DEFAULT_STREAM_ID,
+                                            }))
+                                        }
+                                    />
+                                </label>
+                                <label className="tf" style={{ flex: '0 0 72px' }}>
+                                    <span className="tf-cap">FPS</span>
+                                    <input
+                                        className="tf-in"
+                                        type="number"
+                                        min={1}
+                                        max={60}
+                                        value={fpsDraft}
+                                        disabled={fieldsLocked}
+                                        onChange={e => setFpsDraft(e.target.value)}
+                                        onBlur={() => commitFps()}
+                                        onWheel={e => e.currentTarget.blur()}
+                                        onKeyDown={e => {
+                                            if (e.key === 'Enter') commitFps();
+                                        }}
+                                    />
+                                </label>
                             </div>
-                        )}
-                        </div>
 
-                        <div className="field-group">
-                            <label className="field-label">Режим вывода</label>
-                            <div className="rot-seg" role="group" aria-label="Режим вывода">
-                                <button
-                                    type="button"
-                                    aria-pressed={params.viewMode === 'top'}
-                                    disabled={!selected || starting}
-                                    onClick={() => applyViewMode('top')}
-                                >
-                                    Сверху
-                                </button>
-                                <button
-                                    type="button"
-                                    aria-pressed={params.viewMode === 'surround'}
-                                    disabled={!selected || starting}
-                                    onClick={() => applyViewMode('surround')}
-                                >
-                                    Объём
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* Поворот — свойство плоской сшивки, в объёме его нет */}
-                        {params.viewMode === 'top' && (
-                            <div className="field-group">
-                                <label className="field-label">Поворот вывода</label>
-                                <div className="rot-seg" role="group" aria-label="Поворот вывода">
-                                    {ROTATIONS.map(deg => (
-                                        <button
-                                            key={deg}
-                                            type="button"
-                                            aria-pressed={params.rotation === deg}
-                                            disabled={!selected}
-                                            onClick={() => applyRotation(deg)}
-                                        >
-                                            {deg}°
-                                        </button>
-                                    ))}
+                            <div className="tf">
+                                <span className="tf-cap">Режим вывода</span>
+                                <div className="seg" role="group" aria-label="Режим вывода">
+                                    <button
+                                        type="button"
+                                        className={params.viewMode === 'top' ? 'is-on' : ''}
+                                        disabled={!selected || starting}
+                                        onClick={() => applyViewMode('top')}
+                                    >
+                                        Сверху
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className={params.viewMode === 'surround' ? 'is-on' : ''}
+                                        disabled={!selected || starting}
+                                        onClick={() => applyViewMode('surround')}
+                                    >
+                                        Объём
+                                    </button>
                                 </div>
                             </div>
-                        )}
-                    </>
-                )}
 
-                {params.viewMode === 'surround' && selected ? (
-                    <SurroundPanel
-                        live={isLive && status.viewMode === 'surround'}
-                        exportId={selected.id}
-                        tab={panelTab}
-                        placeNames={placeNames}
-                        onError={toastError}
-                        onApplyResolution={applyResolution}
-                    />
-                ) : params.viewMode === 'top' && selected ? (
-                    <TopPanel
-                        live={isLive && status.viewMode === 'top'}
-                        exportId={selected.id}
-                        tab={panelTab}
-                        onError={toastError}
-                        onApplyResolution={applyTopResolution}
-                        onOutputRestarted={refreshStatus}
-                    />
-                ) : (
-                    panelTab !== 'stream' && (
-                        <div className="srd-hint">
-                            Выберите конфигурацию в списке слева
-                        </div>
-                    )
-                )}
+                            {/* Поворот — свойство плоской сшивки, в объёме его нет */}
+                            {params.viewMode === 'top' && (
+                                <div className="tf">
+                                    <span className="tf-cap">Поворот</span>
+                                    <div className="rot" role="group" aria-label="Поворот вывода">
+                                        {ROTATIONS.map(deg => (
+                                            <button
+                                                key={deg}
+                                                type="button"
+                                                className={`chip${params.rotation === deg ? ' is-on' : ''}`}
+                                                disabled={!selected}
+                                                onClick={() => applyRotation(deg)}
+                                            >
+                                                {deg}°
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </>
+                    )}
 
-                {status.running ? (
-                    <button className="btn btn-accent btn-stream streaming linker-run" onClick={stop}>
-                        ■ Остановить вывод
-                    </button>
-                ) : (
-                    <button
-                        className="btn btn-accent linker-run"
-                        disabled={!complete || starting}
-                        onClick={start}
-                    >
-                        {starting ? 'Запуск...' : '▶ Запустить вывод'}
-                    </button>
-                )}
+                    {params.viewMode === 'surround' && selected ? (
+                        <SurroundPanel
+                            live={isLive && status.viewMode === 'surround'}
+                            exportId={selected.id}
+                            tab={panelTab}
+                            placeNames={placeNames}
+                            onError={toastError}
+                            onApplyResolution={applyResolution}
+                        />
+                    ) : params.viewMode === 'top' && selected ? (
+                        <TopPanel
+                            live={isLive && status.viewMode === 'top'}
+                            exportId={selected.id}
+                            tab={panelTab}
+                            onError={toastError}
+                            onApplyResolution={applyTopResolution}
+                            onOutputRestarted={refreshStatus}
+                        />
+                    ) : (
+                        panelTab !== 'stream' && (
+                            <div className="empty">Конфигурация не выбрана</div>
+                        )
+                    )}
+                </div>
+
+                <div className="sv-foot">
+                    {status.running ? (
+                        <button type="button" className="btn btn--err btn--wide" onClick={stop}>
+                            <Icon name="pause" />
+                            Остановить вывод
+                        </button>
+                    ) : (
+                        <button
+                            type="button"
+                            className="btn btn--acc btn--wide"
+                            disabled={!complete || starting}
+                            onClick={start}
+                        >
+                            {starting ? <span className="spin sm" /> : <Icon name="play" />}
+                            {starting ? 'Запуск…' : 'Запустить вывод'}
+                        </button>
+                    )}
+                </div>
             </aside>
 
             {pendingDelete && (
                 <ConfirmModal
                     title="Удалить конфигурацию"
                     confirmText="Удалить"
-                    message={
-                        `Конфигурация «${pendingDelete.name || pendingDelete.id}» будет удалена без возможности вернуть. ` +
-                        'Исчезнут запись в индексе, файлы карт remap и weight, а также привязки камер и параметры запуска. ' +
-                        'Пересчитать её можно только заново пройдя калибровку и сборку.'
-                    }
+                    danger
+                    message={`${pendingDelete.name || pendingDelete.id} · ${pendingDelete.cameras?.length ?? 0} мест`}
                     onCancel={() => setPendingDelete(null)}
                     onConfirm={remove}
                 />
             )}
-        </main>
+        </div>
     );
 }

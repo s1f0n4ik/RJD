@@ -1,15 +1,10 @@
 import { useRef, useState } from 'react';
+import { Icon } from '../../../../app/Icons';
 
-/**
- * Результат сшивки: картинка из ответа apply_warp с зумом и перетаскиванием.
- * Порт proj-result.js.
- *
- * Канвас #projResultImg из оригинала не переносится: в него никогда ничего
- * не рисовалось, результат всегда показывался вставляемым <img>.
- */
+// Результат сшивки: картинка из ответа apply_warp с зумом колесом и перетаскиванием
 
 interface ProjResultProps {
-    /** blob-url последнего пришедшего кадра. */
+    // blob-url последнего пришедшего кадра
     url: string | null;
 }
 
@@ -41,32 +36,30 @@ export function ProjResult({ url }: ProjResultProps) {
         e.currentTarget.releasePointerCapture(e.pointerId);
     };
 
+    if (!url) {
+        return (
+            <div className="empty">
+                <Icon name="empty" className="ico" />
+                <b>Результата нет</b>
+            </div>
+        );
+    }
+
     return (
         <div
-            className="proj-result-canvas"
+            className="pj-res-wrap"
             onWheel={onWheel}
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
             onPointerCancel={onPointerUp}
         >
-            {url ? (
-                <img
-                    className="proj-result-img"
-                    src={url}
-                    alt=""
-                    style={{
-                        transform: `translate(${view.ox}px, ${view.oy}px) scale(${view.scale})`,
-                    }}
-                />
-            ) : (
-                <div className="no-signal">
-                    <div className="no-signal-icon">⊘</div>
-                    <div className="no-signal-text">Нет данных</div>
-                    <div className="no-signal-sub">Примените warp для отображения</div>
-                </div>
-            )}
-            <div className="proj-canvas-hint">scroll — zoom · drag — pan</div>
+            <img
+                className="pj-res"
+                src={url}
+                alt=""
+                style={{ transform: `translate(${view.ox}px, ${view.oy}px) scale(${view.scale})` }}
+            />
         </div>
     );
 }

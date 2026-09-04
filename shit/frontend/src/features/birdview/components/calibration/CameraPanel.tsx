@@ -3,15 +3,17 @@ import { fetchCalibrationCameras } from '../../api/cameras';
 import { CustomSelect } from '../common/CustomSelect';
 import type { CalibrationCamera } from '../../api/ws-types';
 
-/** Выбор камеры и управление стримом. Порт блока «Камера» из page-1. */
+// Блок «Камера»: выбор камеры, разрешение, загруженная конфигурация, поток
 
 interface CameraPanelProps {
     camera: CalibrationCamera | null;
     onSelectCamera: (cam: CalibrationCamera) => void;
-    /** Имя загруженной конфигурации коррекции, null — не загружена. */
-    loadedConfigName: string | null;
-    streaming: boolean;
-    canStream: boolean;
+    // Камера подходит под выбранную конфигурацию коррекции
+    fits: (cam: CalibrationCamera) => boolean;
+    loadedKey: string | null;
+    streamOpen: boolean;
+    pending: boolean;
+    wsReady: boolean;
     onToggleStream: () => void;
     onLoadConfiguration: () => void;
 }
@@ -19,9 +21,11 @@ interface CameraPanelProps {
 export function CameraPanel({
     camera,
     onSelectCamera,
-    loadedConfigName,
-    streaming,
-    canStream,
+    fits,
+    loadedKey,
+    streamOpen,
+    pending,
+    wsReady,
     onToggleStream,
     onLoadConfiguration,
 }: CameraPanelProps) {
@@ -42,18 +46,23 @@ export function CameraPanel({
         };
     }, []);
 
-    return (
-        <section className="panel-block">
-            <div className="block-header">
-                <span className="block-icon">◉</span>
-                <span className="block-title">Камера</span>
-            </div>
+    const streamLabel = pending ? 'Подключение…' : streamOpen ? 'Остановить поток' : 'Запустить поток';
 
-            <div className={`camera-fields${streaming ? ' collapsed' : ''}`}>
-                <div className="field-group">
-                    <label className="field-label">Камера</label>
+    return (
+        <>
+            <div className="blk-h">
+                <h3>Камера</h3>
+            </div>
+            <div className="blk-b pad">
+                <div className="tf">
+                    <span className="tf-cap">Камера</span>
                     <CustomSelect
-                        options={cameras.map(c => ({ value: c.id, label: c.displayName }))}
+                        options={cameras.map(c => ({
+                            value: c.id,
+                            label: c.displayName,
+                            note: `${c.width}×${c.height}`,
+                            muted: !fits(c),
+                        }))}
                         value={camera?.id ?? null}
                         placeholder="Выберите камеру"
                         emptyText={error ? 'Ошибка загрузки' : 'Нет доступных камер'}
@@ -64,39 +73,37 @@ export function CameraPanel({
                     />
                 </div>
 
-                <div className="field-row">
-                    <div className="field-group">
-                        <label className="field-label">Ширина</label>
-                        <input className="field-input" type="number" readOnly value={camera?.width ?? ''} />
+                <div className="tf-row">
+                    <div className="tf">
+                        <span className="tf-cap">Разрешение</span>
+                        <input className="tf-in" readOnly value={camera ? `${camera.width}×${camera.height}` : '—'} />
                     </div>
-                    <div className="field-group">
-                        <label className="field-label">Высота</label>
-                        <input className="field-input" type="number" readOnly value={camera?.height ?? ''} />
+                    <div className="tf">
+                        <span className="tf-cap">Кадров/с</span>
+                        <input className="tf-in" readOnly value={camera ? String(camera.fps) : '—'} />
                     </div>
+                </div>
+
+                <div className="tf">
+                    <span className="tf-cap">Загружена конфигурация</span>
+                    <input
+                        className="tf-in"
+                        readOnly
+                        value={loadedKey ?? '—'}
+                        title={loadedKey ?? undefined}
+                        style={loadedKey ? { color: 'var(--ok)' } : undefined}
+                    />
+                </div>
+
+                <div className="brow">
+                    <button className="btn btn--sm" onClick={onToggleStream} disabled={pending || !wsReady}>
+                        {streamLabel}
+                    </button>
+                    <button className="btn btn--sm btn--ghost" onClick={onLoadConfiguration} disabled={!wsReady}>
+                        Загрузить конфигурацию
+                    </button>
                 </div>
             </div>
-
-            {loadedConfigName && (
-                <div className="camera-loaded-config" title={loadedConfigName}>
-                    <span className="camera-loaded-dot" />
-                    <span className="camera-loaded-name">Коррекция: {loadedConfigName}</span>
-                </div>
-            )}
-
-            <button
-                className={`btn btn-accent--load${streaming ? '' : ' collapsed'}`}
-                onClick={onLoadConfiguration}
-            >
-                <span>Загрузить конфигурацию</span>
-            </button>
-
-            <button
-                className={`btn btn-accent btn-stream${streaming ? ' streaming' : ''}`}
-                onClick={onToggleStream}
-                disabled={!canStream}
-            >
-                <span>{streaming ? '■ Закрыть стрим' : '▶ Запустить стрим'}</span>
-            </button>
-        </section>
+        </>
     );
 }

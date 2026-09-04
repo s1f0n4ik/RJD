@@ -1,20 +1,20 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { Switch } from '../../../../app/Modal';
 import type { Distortion } from './useDistortion';
-import { SLIDER_KEYS } from './useDistortion';
 import type { SliderKey } from '../../api/ws-types';
 
-/** Блок коррекции искажений. Порт correctionBlock и distortion.js. */
+// Блок «Коррекция»: ползунки, коэффициенты, панорама
 
 const LABELS: Record<SliderKey, string> = {
     alpha: 'Альфа',
     zoom: 'Приближение',
-    shift_x: 'Смещение по X',
-    shift_y: 'Смещение по Y',
+    shift_x: 'Смещение X',
+    shift_y: 'Смещение Y',
     k1: 'k1',
     k2: 'k2',
     k3: 'k3',
     k4: 'k4',
-    radius: 'Радиус панорамы',
+    radius: 'Радиус',
 };
 
 const STEPS: Record<SliderKey, number> = {
@@ -29,75 +29,60 @@ const STEPS: Record<SliderKey, number> = {
     radius: 1,
 };
 
+const RANGE_KEYS: SliderKey[] = ['alpha', 'zoom', 'shift_x', 'shift_y'];
+const COEF_KEYS: SliderKey[] = ['k1', 'k2', 'k3', 'k4'];
+
 interface DistortionPanelProps {
-    visible: boolean;
     distortion: Distortion;
+    rms: number | null;
 }
 
-export function DistortionPanel({ visible, distortion }: DistortionPanelProps) {
+export function DistortionPanel({ distortion, rms }: DistortionPanelProps) {
     return (
-        <section className={`panel-block panel-block--hidden${visible ? ' visible' : ''}`}>
-            <div className="block-header">
-                <span className="block-icon">⊛</span>
-                <span className="block-title">Коррекция искажений</span>
-            </div>
-
-            <div className={`distortion-body${distortion.visible ? ' visible' : ''}`}>
-                <details className="collapsible">
-                    <summary className="collapsible-header" style={{ fontSize: 11 }}>
-                        <span>Настройка</span>
-                        <span className="collapsible-arrow">›</span>
-                    </summary>
-                    {SLIDER_KEYS.map(key => (
-                        <DistortionSlider key={key} sliderKey={key} distortion={distortion} />
-                    ))}
-                </details>
-
-                <label className="toggle-row" style={{ padding: '6px 2px' }}>
-                    <span className="toggle-label">Отображать коррекцию</span>
-                    <input
-                        className="toggle-input"
-                        type="checkbox"
-                        checked={distortion.showUndistort}
-                        onChange={distortion.toggleShowUndistort}
-                    />
-                    <span className="toggle-track"><span className="toggle-thumb" /></span>
-                </label>
-
-                <label className="toggle-row" style={{ padding: '6px 2px' }}>
-                    <span className="toggle-label">Использовать панорамную развёртку</span>
-                    <input
-                        className="toggle-input"
-                        type="checkbox"
-                        checked={distortion.panorama}
-                        onChange={distortion.togglePanorama}
-                    />
-                    <span className="toggle-track"><span className="toggle-thumb" /></span>
-                </label>
-
-                {distortion.panorama && (
-                    <div className="collapsible-body" style={{ gap: 6, padding: '0 2px' }}>
-                        <DistortionSlider sliderKey="radius" distortion={distortion} />
-                    </div>
+        <>
+            <div className="blk-h">
+                <h3>Коррекция</h3>
+                {rms !== null && (
+                    <span className="pill ok spacer">
+                        <span className="dot" />
+                        RMS {rms.toFixed(2).replace('.', ',')} px
+                    </span>
                 )}
             </div>
-        </section>
+            <div className="blk-b pad">
+                {RANGE_KEYS.map(key => (
+                    <DistortionSlider key={key} sliderKey={key} distortion={distortion} />
+                ))}
+
+                <div className="sub-h">Коэффициенты</div>
+                <div className="tf-row">
+                    {COEF_KEYS.map(key => (
+                        <CoefField key={key} sliderKey={key} distortion={distortion} />
+                    ))}
+                </div>
+
+                <div className="sub-h">Панорама</div>
+                <Switch on={distortion.panorama} onToggle={() => distortion.togglePanorama()}>
+                    Панорамная развёртка
+                </Switch>
+                <DistortionSlider sliderKey="radius" distortion={distortion} off={!distortion.panorama} />
+            </div>
+        </>
     );
 }
 
 interface SliderProps {
     sliderKey: SliderKey;
     distortion: Distortion;
+    off?: boolean;
 }
 
-function DistortionSlider({ sliderKey, distortion }: SliderProps) {
+function DistortionSlider({ sliderKey, distortion, off }: SliderProps) {
     const ref = useRef<HTMLInputElement>(null);
     const cfg = distortion.configs[sliderKey];
     const value = distortion.values[sliderKey];
 
-    // Коммит вешаем нативным change: в React onChange у input[type=range]
-    // отображается на событие input и срабатывает на каждое движение ползунка,
-    // а undistort_compute на сервере тяжёлый — слать его на каждый пиксель нельзя.
+    // Коммит нативным change: React onChange у range срабатывает на каждое движение
     const commitRef = useRef(distortion.commit);
     commitRef.current = distortion.commit;
 
@@ -109,36 +94,78 @@ function DistortionSlider({ sliderKey, distortion }: SliderProps) {
         return () => el.removeEventListener('change', onCommit);
     }, [sliderKey]);
 
-    const fmt = (n: number) => Number(n).toFixed(cfg.decimals);
+    return (
+        <div className={`tf${off ? ' is-off' : ''}`}>
+            <span className="tf-cap">{LABELS[sliderKey]}</span>
+            <div className="tf-range">
+                <input
+                    ref={ref}
+                    type="range"
+                    min={cfg.min}
+                    max={cfg.max}
+                    step={STEPS[sliderKey]}
+                    value={value}
+                    onChange={e => distortion.setValue(sliderKey, Number(e.target.value))}
+                    onPointerDown={() => distortion.setHeld(sliderKey)}
+                    onPointerUp={() => distortion.setHeld(null)}
+                    onPointerCancel={() => distortion.setHeld(null)}
+                    onFocus={() => distortion.setHeld(sliderKey)}
+                    onBlur={() => distortion.setHeld(null)}
+                />
+                <span className="val">{Number(value).toFixed(cfg.decimals)}</span>
+            </div>
+        </div>
+    );
+}
+
+function CoefField({ sliderKey, distortion }: SliderProps) {
+    const cfg = distortion.configs[sliderKey];
+    const value = distortion.values[sliderKey];
+    const [draft, setDraft] = useState(() => Number(value).toFixed(cfg.decimals));
+
+    // Значение пришло с сервера или из ползунка
+    useEffect(() => {
+        setDraft(Number(value).toFixed(cfg.decimals));
+    }, [value, cfg.decimals]);
+
+    // Коммит уходит после того, как новое значение попало в состояние
+    const pendingRef = useRef(false);
+    useEffect(() => {
+        if (!pendingRef.current) return;
+        pendingRef.current = false;
+        distortion.commit(sliderKey);
+    }, [value]);
+
+    const commit = () => {
+        const parsed = Number(draft);
+        if (!Number.isFinite(parsed)) {
+            setDraft(Number(value).toFixed(cfg.decimals));
+            return;
+        }
+        if (parsed === value) return;
+        pendingRef.current = true;
+        distortion.setValue(sliderKey, parsed);
+    };
 
     return (
-        <div className="dist-slider-row">
-            <div className="dist-slider-head">
-                <label className="field-label">{LABELS[sliderKey]}</label>
-                <span className="field-label dist-slider-current">{fmt(value)}</span>
-            </div>
-
+        <div className="tf">
+            <span className="tf-cap">{LABELS[sliderKey]}</span>
             <input
-                ref={ref}
-                className="dist-slider"
-                type="range"
-                min={cfg.min}
-                max={cfg.max}
+                className="tf-in"
+                type="number"
                 step={STEPS[sliderKey]}
-                value={value}
-                onChange={e => distortion.setValue(sliderKey, Number(e.target.value))}
-                onPointerDown={() => distortion.setHeld(sliderKey)}
-                onPointerUp={() => distortion.setHeld(null)}
-                onPointerCancel={() => distortion.setHeld(null)}
+                value={draft}
+                onChange={e => setDraft(e.target.value)}
                 onFocus={() => distortion.setHeld(sliderKey)}
-                onBlur={() => distortion.setHeld(null)}
+                onBlur={() => {
+                    distortion.setHeld(null);
+                    commit();
+                }}
+                onWheel={e => e.currentTarget.blur()}
+                onKeyDown={e => {
+                    if (e.key === 'Enter') e.currentTarget.blur();
+                }}
             />
-
-            <div className="dist-slider-labels">
-                <span>{fmt(cfg.min)}</span>
-                <span>{fmt(cfg.mid)}</span>
-                <span>{fmt(cfg.max)}</span>
-            </div>
         </div>
     );
 }

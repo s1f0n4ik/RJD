@@ -1,12 +1,14 @@
-import { useBackdropClose } from '../../hooks/useBackdropClose';
+import { Modal } from '../../../../app/Modal';
 
-/** Модалка подтверждения в теме страницы. Разметка та же, что у остальных модалок. */
+/** Подтверждение действия на общей модалке оболочки */
 
 interface ConfirmModalProps {
     title: string;
     message: string;
     confirmText?: string;
     cancelText?: string;
+    /** Красная кнопка подтверждения: удаление и другие необратимые действия */
+    danger?: boolean;
     onConfirm: () => void;
     onCancel: () => void;
 }
@@ -16,27 +18,25 @@ export function ConfirmModal({
     message,
     confirmText = 'Подтвердить',
     cancelText = 'Отмена',
+    danger,
     onConfirm,
     onCancel,
 }: ConfirmModalProps) {
-    const backdrop = useBackdropClose(onCancel);
     return (
-        <div className="modal-backdrop" {...backdrop}>
-            <div className="modal-window" onClick={e => e.stopPropagation()}>
-                <div className="modal-header">
-                    <span className="modal-title">{title}</span>
-                    <button className="toast-close" onClick={onCancel}>✕</button>
-                </div>
-
-                <div className="modal-body">
-                    <p className="modal-text">{message}</p>
-                </div>
-
-                <div className="modal-footer">
-                    <button className="btn btn-ghost" onClick={onCancel}>{cancelText}</button>
-                    <button className="btn btn-primary" onClick={onConfirm}>{confirmText}</button>
-                </div>
+        <Modal
+            title={title}
+            onClose={onCancel}
+            className="modal--confirm"
+            footer={
+                <>
+                    <button className="btn btn--ghost spacer" onClick={onCancel}>{cancelText}</button>
+                    <button className={`btn ${danger ? 'btn--err' : 'btn--acc'}`} onClick={onConfirm}>{confirmText}</button>
+                </>
+            }
+        >
+            <div className="modal-b">
+                <p className="modal-text">{message}</p>
             </div>
-        </div>
+        </Modal>
     );
 }

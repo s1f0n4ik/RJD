@@ -1,7 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
+import { Icon } from '../../../../app/Icons';
+import type { IconName } from '../../../../app/Icons';
 import { confState, fmtM, getList, useConfStore } from '../../state/conf-store';
 import type { ConfSelection, ConfTool, ConfZone } from '../../types';
-import { attachConfCanvas, confDraw, fitFieldToView, zoneGaps } from './conf-canvas';
+import {
+    attachConfCanvas,
+    confDraw,
+    fitFieldToView,
+    zoneCameras,
+    zoneGaps,
+    zoneRotationFor,
+} from './conf-canvas';
 import { attachConfInteract } from './conf-interact';
 import { confSelectTool, confToggleCrosshair } from './conf-actions';
 import { ConfiguratorPanel } from './ConfiguratorPanel';
@@ -11,17 +20,33 @@ import { ElementModal } from './ElementModal';
 import { LoadPresetModal } from './LoadPresetModal';
 import { importPreset } from './conf-import';
 import { linkerPath } from '../../api/linker';
-import { confDraw as redraw } from './conf-canvas';
 import { useToast } from '../common/Toast';
+import '../../../../screens/surround/configurator.css';
 
-/** Экран «Конфигуратор». Порт page-4 из birdview.html. */
+// Экран «Конфигуратор»: холст с полем и постоянная панель справа
 
-const TOOLS: Array<{ id: ConfTool; icon: string; title: string }> = [
-    { id: 'select', icon: '⊹', title: 'Выделение: перетаскивание и размер' },
-    { id: 'camera', icon: '◱', title: 'Камера (Shift+Q): растяните область в пределах поля' },
-    { id: 'zone', icon: '▦', title: 'Разметка (Shift+W): клик ставит мат в точку поля' },
-    { id: 'gabarit', icon: '▭', title: 'Габарит: клик ставит его центром в точку' },
+const TOOLS: Array<{ id: ConfTool; icon: IconName; tip: string }> = [
+    { id: 'select', icon: 'cursor', tip: 'Выделение' },
+    { id: 'camera', icon: 'cam', tip: 'Камера · ⇧Q · растянуть область' },
+    { id: 'zone', icon: 'zone', tip: 'Разметка · ⇧W · поставить мат' },
+    { id: 'gabarit', icon: 'gab', tip: 'Габарит · поставить центром' },
 ];
+
+// Шаг кнопок масштаба — как у колеса в conf-interact
+const ZOOM_STEP = 1.12;
+
+const ITEM_LABEL: Record<ConfSelection['type'], string> = {
+    camera: 'камера',
+    zone: 'зона',
+    image: 'рисунок',
+    gabarit: 'габарит',
+};
+
+// Масштаб «вписать»: тот же расчёт, что в fitFieldToView
+function fitScale(area: HTMLElement): number {
+    const f = confState.field;
+    return Math.min(area.offsetWidth / f.w, area.offsetHeight / f.h) * 0.9;
+}
 
 interface ConfiguratorScreenProps {
     active: boolean;
@@ -31,11 +56,11 @@ export function ConfiguratorScreen({ active }: ConfiguratorScreenProps) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const cursorRef = useRef<HTMLSpanElement>(null);
     const cornerRef = useRef<HTMLSpanElement>(null);
-    const gapsRef = useRef<HTMLSpanElement>(null);
+    const rotRef = useRef<HTMLSpanElement>(null);
+    const zoomRef = useRef<HTMLSpanElement>(null);
     const activeRef = useRef(active);
     activeRef.current = active;
 
-    const [panelOpen, setPanelOpen] = useState(false);
     const [exportOpen, setExportOpen] = useState(false);
     const [loadOpen, setLoadOpen] = useState(false);
     const [addZoneOpen, setAddZoneOpen] = useState(false);
@@ -50,28 +75,72 @@ export function ConfiguratorScreen({ active }: ConfiguratorScreenProps) {
 
     const sel = confState.selected;
     const selected = sel ? getList(sel.type).find(i => i.id === sel.id) : undefined;
-    // Расчёт сам решает, есть ли до чего мерить: габарит или мат-ориентир
-    const showGaps =
-        sel?.type === 'zone' && selected !== undefined && zoneGaps(selected as ConfZone) !== null;
 
-    // Угол выделенного и зазоры меняются на каждый pointermove при драге и
-    // ресайзе, поэтому пишутся в DOM мимо React — как и позиция курсора
+    // Угол, зазоры и масштаб меняются на каждый pointermove и колесо,
+    // поэтому пишутся в DOM мимо React — как и позиция курсора
     const writeCorner = () => {
         const s = confState.selected;
         const item = s ? getList(s.type).find(i => i.id === s.id) : undefined;
 
         if (cornerRef.current) {
-            cornerRef.current.textContent = item
-                ? `⌈ X ${fmtM(item.x)} Y ${fmtM(item.y)}`
-                : '⌈ X — Y —';
+            if (!item || !s) {
+                cornerRef.current.textContent = '';
+            } else {
+                const name = 'name' in item && item.name ? item.name : ITEM_LABEL[s.type];
+                const gaps = s.type === 'zone' ? zoneGaps(item as ConfZone) : null;
+                if (gaps) {
+                    const link = confState.measureRef;
+                    const ref = link && link.fromId === item.id
+                        ? confState.zones.find(z => z.id === link.toId)
+                        : undefined;
+                    const target = ref ? ref.name : 'габарита';
+                    cornerRef.current.textContent =
+                        `${name} · до ${target} x ${fmtM(gaps.x)} · y ${fmtM(gaps.y)}`;
+                } else {
+                    cornerRef.current.textContent = `${name} · x ${fmtM(item.x)} · y ${fmtM(item.y)}`;
+                }
+            }
         }
 
-        if (gapsRef.current) {
-            const gaps = item && s?.type === 'zone' ? zoneGaps(item as ConfZone) : null;
-            gapsRef.current.textContent = gaps
-                ? `Δ X ${fmtM(gaps.x)} Y ${fmtM(gaps.y)}`
-                : 'Δ X — Y —';
+        if (rotRef.current) {
+            const zone = item && s?.type === 'zone' ? (item as ConfZone) : null;
+            const cams = zone ? zoneCameras(zone) : [];
+            rotRef.current.hidden = cams.length === 0;
+            if (zone && cams.length) {
+                const degs = Array.from(new Set(cams.map(cam => zoneRotationFor(cam, zone))));
+                rotRef.current.textContent = `поворот ${degs.map(d => `${d}°`).join(' / ')}`;
+            }
         }
+    };
+
+    const writeZoom = () => {
+        const el = zoomRef.current;
+        const area = canvasRef.current?.parentElement;
+        if (!el || !area || !area.offsetWidth || !area.offsetHeight) return;
+        el.textContent = `${Math.round((confState.view.scale / fitScale(area)) * 100)} %`;
+    };
+
+    // Масштаб вокруг центра холста с пределами колеса из conf-interact
+    const zoomBy = (factor: number) => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const v = confState.view;
+        const mx = canvas.clientWidth / 2;
+        const my = canvas.clientHeight / 2;
+        const prev = v.scale;
+        const side = Math.max(confState.field.w, confState.field.h);
+        v.scale = Math.min(20000 / side, Math.max(10 / side, prev * factor));
+        const ratio = v.scale / prev;
+        v.ox = mx - (mx - v.ox) * ratio;
+        v.oy = my - (my - v.oy) * ratio;
+        confDraw();
+        writeZoom();
+    };
+
+    const fitView = () => {
+        fitFieldToView();
+        confDraw();
+        writeZoom();
     };
 
     useEffect(() => {
@@ -80,11 +149,10 @@ export function ConfiguratorScreen({ active }: ConfiguratorScreenProps) {
 
         const detachCanvas = attachConfCanvas(canvas);
         const detachInteract = attachConfInteract(canvas, {
-            // Позиция курсора пишется в DOM напрямую: она меняется на каждый
-            // pointermove, через React это был бы ре-рендер на кадр.
+            // Позиция курсора пишется в DOM напрямую: она меняется на каждый pointermove
             onCursor: (wx, wy) => {
                 if (cursorRef.current) {
-                    cursorRef.current.textContent = `X: ${wx.toFixed(3)} Y: ${wy.toFixed(3)}`;
+                    cursorRef.current.textContent = `x ${wx.toFixed(3)} · y ${wy.toFixed(3)}`;
                 }
                 writeCorner();
             },
@@ -93,84 +161,98 @@ export function ConfiguratorScreen({ active }: ConfiguratorScreenProps) {
             onElementMenu: sel => menuRef.current(sel),
         });
 
+        // Слушатель зарегистрирован после обработчика колеса, поэтому видит уже новый масштаб
+        canvas.addEventListener('wheel', writeZoom, { passive: true });
+        const observer = new ResizeObserver(writeZoom);
+        if (canvas.parentElement) observer.observe(canvas.parentElement);
+
         return () => {
+            observer.disconnect();
+            canvas.removeEventListener('wheel', writeZoom);
             detachInteract();
             detachCanvas();
         };
     }, []);
 
-    // Догоняет правки без мыши: ввод чисел в панели, поворот по r, центровку по c
-    useEffect(writeCorner);
+    // Догоняет правки без мыши: ввод чисел в панели, центровку по c, смену поля
+    useEffect(() => {
+        writeCorner();
+        writeZoom();
+    });
 
     // Экран скрыт через display:none, поэтому при возврате на него холст мог
-    // остаться отрисованным на нулевом размере.
+    // остаться отрисованным на нулевом размере
     useEffect(() => {
-        if (active) confDraw();
+        if (active) {
+            confDraw();
+            writeZoom();
+        }
     }, [active]);
 
     const f = confState.field;
 
     return (
-        <main className={`main-layout conf-layout ${active ? '' : 'hidden'}`}>
-            <section className="conf-canvas-area">
-                <canvas ref={canvasRef} className="conf-canvas" />
-
-                <div className="conf-toolbar">
+        <div className={`sv sv-conf${active ? '' : ' is-hidden'}`}>
+            <div className="sv-main">
+                <div className="toolbar">
                     {TOOLS.map(tool => (
                         <button
                             key={tool.id}
-                            className={`conf-tool-btn ${confState.tool === tool.id ? 'active' : ''}`}
+                            className={`tool ic${confState.tool === tool.id ? ' is-on' : ''}`}
+                            data-tip={tool.tip}
                             onClick={() => confSelectTool(tool.id)}
-                            title={tool.title}
                         >
-                            {tool.icon}
+                            <Icon name={tool.icon} />
                         </button>
                     ))}
 
-                    {/* Загрузка и перекрестие не инструменты рисования, поэтому отделены чертой */}
-                    <span className="conf-tool-sep" />
-                    <button
-                        className="conf-tool-btn"
-                        onClick={() => setLoadOpen(true)}
-                        title="Загрузить сохранённую конфигурацию для правки"
-                    >
-                        ⭳
+                    <span className="tbar-sep" />
+                    <button className="btn btn--sm" onClick={() => setLoadOpen(true)}>
+                        <Icon name="arch" />
+                        Загрузить
                     </button>
                     <button
-                        className={`conf-tool-btn ${confState.showCrosshair ? 'active' : ''}`}
+                        className={`tool ic${confState.showCrosshair ? ' is-on' : ''}`}
+                        data-tip="Перекрестие по узлам сетки"
                         onClick={() => confToggleCrosshair(!confState.showCrosshair)}
-                        title="Перекрестие курсора по узлам шага привязки"
                     >
-                        ⌖
+                        <Icon name="plus" />
                     </button>
+
+                    <div className="zoom">
+                        <button data-tip="Отдалить" onClick={() => zoomBy(1 / ZOOM_STEP)}>−</button>
+                        <span ref={zoomRef} className="num">— %</span>
+                        <button data-tip="Приблизить" onClick={() => zoomBy(ZOOM_STEP)}>+</button>
+                        <button data-tip="Вписать поле" onClick={fitView}>
+                            <Icon name="full" size={15} className="" />
+                        </button>
+                    </div>
                 </div>
 
-                <div className="conf-status-bar">
-                    <span className="meta-tag">Поле: {fmtM(f.w)}×{fmtM(f.h)} м</span>
-                    <span className="meta-tag">Шаг: {fmtM(f.step)} м</span>
-                    <span className="meta-tag">{confState.pxPerM} px/м</span>
-                    <span ref={cursorRef} className="meta-tag">X: — Y: —</span>
+                <div className="canvas-wrap">
+                    <div className="plan">
+                        <div className="conf-area">
+                            <canvas ref={canvasRef} />
+                        </div>
+                    </div>
                 </div>
 
-                {/* Появляется только при выделении; уезжает влево от открытой панели */}
+                <div className="sv-status">
+                    <span className="pill num">поле {fmtM(f.w)} × {fmtM(f.h)} м</span>
+                    <span className="pill num">шаг {fmtM(f.step)} м</span>
+                    <span className="pill num">{confState.pxPerM} px/м</span>
+                    <span ref={cursorRef} className="pill num">x — · y —</span>
+                </div>
+
                 {selected && (
-                    <div className={`conf-corner-bar ${panelOpen ? 'shifted' : ''}`}>
-                        <span ref={cornerRef} className="meta-tag">⌈ X — Y —</span>
-                        {showGaps && <span ref={gapsRef} className="meta-tag">Δ X — Y —</span>}
+                    <div className="sv-corner">
+                        <span ref={cornerRef} className="pill num acc" />
+                        {sel?.type === 'zone' && <span ref={rotRef} className="pill num" hidden />}
                     </div>
                 )}
-            </section>
-
-            <button
-                className={`conf-panel-tab ${panelOpen ? 'open' : ''}`}
-                onClick={() => setPanelOpen(o => !o)}
-            >
-                <span className="conf-panel-tab-icon">⊞</span>
-                <span className="conf-panel-tab-label">Инструменты</span>
-            </button>
+            </div>
 
             <ConfiguratorPanel
-                open={panelOpen}
                 onOpenExport={() => setExportOpen(true)}
                 onOpenAddZone={() => setAddZoneOpen(true)}
             />
@@ -203,15 +285,13 @@ export function ConfiguratorScreen({ active }: ConfiguratorScreenProps) {
                             const data = json.data ?? json;
                             const result = await importPreset(data);
 
-                            // Запоминаем источник: экспорт предзаполнится им для перезаписи
+                            // Источник запоминается: экспорт предзаполнится им для перезаписи
                             confState.presetId = key;
                             confState.presetName = typeof data?.name === 'string' ? data.name : '';
 
                             setLoadOpen(false);
-                            // Поле пресета в метрах может отличаться от текущего
-                            // в разы, и старый масштаб вида к нему не подходит
-                            fitFieldToView();
-                            redraw();
+                            // Поле пресета может отличаться в разы, старый масштаб вида к нему не подходит
+                            fitView();
 
                             const parts = [
                                 `${result.cameras} камер`,
@@ -225,8 +305,6 @@ export function ConfiguratorScreen({ active }: ConfiguratorScreenProps) {
                                     (result.missingImages.length
                                         ? `. Не найдены на сервере: ${result.missingImages.join(', ')}`
                                         : ''),
-                                // Тост знает только ok, err и info: пропущенные
-                                // подложки — не отказ, но и не полный успех
                                 result.missingImages.length ? 'info' : 'ok',
                             );
                         } catch (e) {
@@ -239,6 +317,6 @@ export function ConfiguratorScreen({ active }: ConfiguratorScreenProps) {
                     }}
                 />
             )}
-        </main>
+        </div>
     );
 }

@@ -1,7 +1,8 @@
 import { useState } from 'react';
+import { Icon } from '../../../../app/Icons';
 import { useToast } from '../common/Toast';
 
-/** Параметры калибровки: паттерн, шахматка, снимки, запуск. Порт calibrationBlock. */
+// Блок «Шаблон и снимки»: размер шахматки, снимки, запуск расчёта
 
 export interface PatternInfo {
     width: number | string;
@@ -10,135 +11,116 @@ export interface PatternInfo {
 }
 
 interface CalibrationBlockProps {
-    visible: boolean;
-    /** Паттерн уже задан на сервере — блок сворачивается и получает отметку. */
+    // Шаблон уже задан на сервере: поля только для чтения
     patternSet: boolean;
     pattern: PatternInfo | null;
     onSavePattern: (p: { width: number; height: number; size: number }) => void;
-    chessboard: boolean;
-    onToggleChessboard: () => void;
     snapshotCount: number;
     onTakeSnapshot: () => void;
+    onClearSnapshots: () => void;
     onStartCalibration: () => void;
 }
 
 export function CalibrationBlock({
-    visible,
     patternSet,
     pattern,
     onSavePattern,
-    chessboard,
-    onToggleChessboard,
     snapshotCount,
     onTakeSnapshot,
+    onClearSnapshots,
     onStartCalibration,
 }: CalibrationBlockProps) {
     const [draft, setDraft] = useState({ width: '', height: '', size: '' });
     const showToast = useToast();
 
-    // Калибратор отвергает неполный паттерн молча, поэтому проверяем здесь
+    // Калибратор отвергает неполный шаблон молча, проверка здесь
     const handleSave = () => {
         const width = parseInt(draft.width, 10);
         const height = parseInt(draft.height, 10);
         const size = parseFloat(draft.size);
 
         const missing: string[] = [];
-        if (!Number.isFinite(width) || width <= 0) missing.push('ширина');
-        if (!Number.isFinite(height) || height <= 0) missing.push('длина');
-        if (!Number.isFinite(size) || size <= 0) missing.push('размер ячейки');
+        if (!Number.isFinite(width) || width <= 0) missing.push('столбцы');
+        if (!Number.isFinite(height) || height <= 0) missing.push('строки');
+        if (!Number.isFinite(size) || size <= 0) missing.push('клетка');
 
         if (missing.length) {
-            showToast('Паттерн не сохранён', `Заполните: ${missing.join(', ')}`, 'err');
+            showToast('Шаблон не задан', `Заполните: ${missing.join(', ')}`, 'err');
             return;
         }
 
         onSavePattern({ width, height, size });
     };
 
-    return (
-        <section className={`panel-block panel-block--hidden${visible ? ' visible' : ''}`}>
-            <div className="block-header">
-                <span className="block-icon">⊞</span>
-                <span className="block-title">Параметры калибровки</span>
-            </div>
+    const field = (key: keyof typeof draft, placeholder: string, step?: string) =>
+        patternSet ? (
+            <input className="tf-in" readOnly value={String(pattern?.[key] ?? '—')} />
+        ) : (
+            <input
+                className="tf-in"
+                type="number"
+                step={step}
+                placeholder={placeholder}
+                value={draft[key]}
+                onChange={e => setDraft(d => ({ ...d, [key]: e.target.value }))}
+                onKeyDown={e => {
+                    if (e.key === 'Enter') handleSave();
+                }}
+            />
+        );
 
-            <details className="collapsible" {...(patternSet ? { 'data-set': '' } : {})} open={!patternSet}>
-                <summary className="collapsible-header">
-                    <span>Паттерн{patternSet && pattern ? ` — ${pattern.width}×${pattern.height} · ${pattern.size} мм` : ''}</span>
-                    <span className="collapsible-arrow">›</span>
-                </summary>
-                <div className="collapsible-body">
-                    <div className="field-row">
-                        <div className="field-group">
-                            <label className="field-label">Ширина</label>
-                            <input
-                                className="field-input"
-                                type="number"
-                                placeholder="9"
-                                value={draft.width}
-                                onChange={e => setDraft(d => ({ ...d, width: e.target.value }))}
-                            />
-                        </div>
-                        <div className="field-group">
-                            <label className="field-label">Длина</label>
-                            <input
-                                className="field-input"
-                                type="number"
-                                placeholder="6"
-                                value={draft.height}
-                                onChange={e => setDraft(d => ({ ...d, height: e.target.value }))}
-                            />
-                        </div>
+    return (
+        <>
+            <div className="blk-h">
+                <h3>Шаблон и снимки</h3>
+                {patternSet && pattern && (
+                    <span className="eyebrow">{`${pattern.width}×${pattern.height} · ${pattern.size} мм`}</span>
+                )}
+                <span className={`pill spacer${snapshotCount > 0 ? ' ok' : ''}`}>
+                    <span className="dot" />
+                    снимков {snapshotCount}
+                </span>
+            </div>
+            <div className="blk-b pad">
+                <div className="tf-row">
+                    <div className="tf">
+                        <span className="tf-cap">Столбцов</span>
+                        {field('width', '9')}
                     </div>
-                    <div className="field-group">
-                        <label className="field-label">Размер ячейки (мм)</label>
-                        <input
-                            className="field-input"
-                            type="number"
-                            step="0.1"
-                            placeholder="25.0"
-                            value={draft.size}
-                            onChange={e => setDraft(d => ({ ...d, size: e.target.value }))}
-                        />
+                    <div className="tf">
+                        <span className="tf-cap">Строк</span>
+                        {field('height', '6')}
                     </div>
+                    <div className="tf tf-unit">
+                        <span className="tf-cap">Клетка</span>
+                        {field('size', '25', '0.1')}
+                        <span className="u">мм</span>
+                    </div>
+                </div>
+
+                {!patternSet && (
+                    <button className="btn btn--sm" onClick={handleSave}>
+                        Задать шаблон
+                    </button>
+                )}
+
+                <div className="brow">
+                    <button className="icon-btn ib-lg" data-tip="Снять кадр" onClick={onTakeSnapshot}>
+                        <Icon name="cam" size={17} />
+                    </button>
                     <button
-                        className="btn btn-ghost btn-sm"
-                        style={{ width: '100%', marginTop: 2 }}
-                        onClick={handleSave}
+                        className="icon-btn ib-lg"
+                        data-tip="Удалить все снимки"
+                        onClick={onClearSnapshots}
+                        disabled={snapshotCount === 0}
                     >
-                        ✓ Сохранить паттерн
+                        <Icon name="trash" size={16} />
+                    </button>
+                    <button className="btn btn--acc" style={{ flex: 1 }} onClick={onStartCalibration}>
+                        Рассчитать калибровку
                     </button>
                 </div>
-            </details>
-
-            <label className="toggle-row">
-                <span className="toggle-label">Обнаружение шахматки</span>
-                <input
-                    className="toggle-input"
-                    type="checkbox"
-                    checked={chessboard}
-                    onChange={onToggleChessboard}
-                />
-                <span className="toggle-track"><span className="toggle-thumb" /></span>
-            </label>
-
-            <div className="snapshot-row">
-                <button className="btn btn-accent" onClick={onTakeSnapshot} style={{ flex: 1 }}>
-                    <span>⊙ Сделать снимок</span>
-                </button>
-                <div className="snapshot-counter">
-                    <span className="counter-num">{snapshotCount}</span>
-                    <span className="counter-label">кадров</span>
-                </div>
             </div>
-
-            <button
-                className="btn btn-calibrate"
-                style={{ width: '100%', marginTop: 2 }}
-                onClick={onStartCalibration}
-            >
-                Начать калибровку
-            </button>
-        </section>
+        </>
     );
 }
