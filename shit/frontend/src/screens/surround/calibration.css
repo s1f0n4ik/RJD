@@ -74,8 +74,8 @@
 .sv-calib .jf.is-live{border-color:var(--acc-dim);box-shadow:0 0 0 2px rgba(var(--acc-rgb),.15)}
 .sv-calib .jf-scale{position:absolute;inset:0;border-radius:5px;overflow:hidden;pointer-events:none;display:none}
 .sv-calib .jf.is-live .jf-scale{display:block}
-.sv-calib .jf-scale .zero{position:absolute;top:0;bottom:0;left:50%;width:1px;background:var(--line-hi)}
-.sv-calib .jf-scale .bar{position:absolute;top:0;bottom:0;background:rgba(var(--acc-rgb),.2);border-left:1px solid rgba(var(--acc-rgb),.5);border-right:1px solid rgba(var(--acc-rgb),.5)}
+.sv-calib .jf-zero{position:absolute;top:0;bottom:0;left:50%;width:1px;background:var(--line-hi)}
+.sv-calib .jf-fill{position:absolute;top:0;bottom:0;height:auto;border-radius:0;background:rgba(var(--acc-rgb),.22);border-left:1px solid rgba(var(--acc-rgb),.6);border-right:1px solid rgba(var(--acc-rgb),.6)}
 .sv-calib .jf-in{position:relative;flex:1;min-width:0;height:100%;padding:0 4px 0 10px;background:none;border:none;outline:none;color:var(--fg);font-family:var(--mono);font-size:12px;font-variant-numeric:tabular-nums}
 .sv-calib .jf-dir{position:relative;font-family:var(--mono);font-size:9.5px;color:var(--acc);white-space:nowrap;padding-right:4px}
 .sv-calib .jf-grip{position:relative;flex:0 0 22px;width:22px;height:30px;display:grid;place-items:center;cursor:ns-resize;color:var(--fg-3);border-left:1px solid var(--line);touch-action:none;user-select:none}
@@ -125,3 +125,8 @@
 .sv-calib .snapmark{display:flex;align-items:center;gap:8px}
 .sv-calib .snapmark .btn--ok{background:rgba(87,214,154,.12)}
 .sv-calib .snapmark .btn--ok:hover{background:rgba(87,214,154,.2);border-color:var(--ok)}
+
+/* ── Выход из полного экрана: полоса с кнопками в него не попадает ── */
+.sv-calib .full-exit{background:rgba(18,20,26,.78);backdrop-filter:blur(4px);border-color:var(--line-hi);color:var(--fg)}
+.sv-calib .full-exit:hover{border-color:var(--acc-dim)}
+.sv-calib .full-exit[data-tip]:hover::after{left:auto;right:0;transform:none}

@@ -38,7 +38,10 @@
 
 .icon-btn{width:30px;height:30px;display:grid;place-items:center;border-radius:7px;border:1px solid var(--line);color:var(--fg-2);transition:.15s}
 
-.icon-btn:hover{border-color:var(--line-hi);color:var(--fg)}
+.icon-btn:hover:not([disabled]){border-color:var(--line-hi);color:var(--fg)}
+/* Гасим значок, а не кнопку: opacity на кнопке создаёт контекст наложения и топит подсказку */
+.icon-btn[disabled]{color:var(--fg-3);border-color:var(--line);cursor:not-allowed}
+.icon-btn[disabled] .ico,.icon-btn[disabled] svg{opacity:.4}
 
 /* ── Панели и карточки ──────────────────────────────────── */
 .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow)}
@@ -528,6 +531,8 @@ select.sel:disabled{opacity:.45;cursor:not-allowed}
 
 /* Подсказка у значка: коротко, что делает и горячая клавиша */
 [data-tip]{position:relative}
+/* Без подъёма подсказку перекрывает любой позиционированный сосед ниже по разметке */
+[data-tip]:hover{z-index:70}
 [data-tip]:hover::after{content:attr(data-tip);position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);white-space:nowrap;padding:5px 9px;border-radius:6px;background:var(--panel-2);border:1px solid var(--line-hi);color:var(--fg);font-family:var(--ui);font-size:11.5px;font-weight:500;letter-spacing:0;text-transform:none;z-index:60;box-shadow:var(--shadow);pointer-events:none}
 
 /* ── Рамка модуля: тело слева, панель разделов справа (общая для модулей, родом с КРСПС) ── */

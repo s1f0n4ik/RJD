@@ -110,6 +110,15 @@ export function CalibrationViewer({
         loadThumbs();
     }, [drawerOpen, tab, snapshots.items.length, loadThumbs]);
 
+    const [fullscreen, setFullscreen] = useState(false);
+
+    // Полный экран занимает только кадр: полоса с кнопками туда не попадает
+    useEffect(() => {
+        const onChange = () => setFullscreen(document.fullscreenElement === stageRef.current);
+        document.addEventListener('fullscreenchange', onChange);
+        return () => document.removeEventListener('fullscreenchange', onChange);
+    }, []);
+
     const toggleFullscreen = () => {
         const el = stageRef.current;
         if (!el) return;
@@ -245,14 +254,6 @@ export function CalibrationViewer({
                         Коррекция
                     </span>
                     <span className="tbar-sep" />
-                    <button
-                        className="icon-btn"
-                        data-tip="Вернуться к потоку"
-                        onClick={snapshots.resumeStream}
-                        disabled={!snapshots.frame}
-                    >
-                        <Icon name="play" size={15} />
-                    </button>
                     <button className="icon-btn" data-tip="Полный экран" onClick={toggleFullscreen}>
                         <Icon name="full" size={15} />
                     </button>
@@ -286,9 +287,18 @@ export function CalibrationViewer({
                             <span className="pill">{`${camera.width}×${camera.height}`}</span>
                         </div>
                     )}
-                    {streamId && (
+                    {(streamId || fullscreen) && (
                         <div className="stream-tag r">
-                            <span className="pill num">{streamId}</span>
+                            {streamId && <span className="pill num">{streamId}</span>}
+                            {fullscreen && (
+                                <button
+                                    className="icon-btn full-exit"
+                                    data-tip="Выйти из полного экрана"
+                                    onClick={() => document.exitFullscreen?.()}
+                                >
+                                    <Icon name="unfull" size={15} />
+                                </button>
+                            )}
                         </div>
                     )}
                     {snapshots.frame && (

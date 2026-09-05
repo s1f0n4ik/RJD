@@ -294,8 +294,11 @@ function CoefField({ sliderKey, distortion }: SliderProps) {
             <span className="tf-cap">{LABELS[sliderKey]}</span>
             <div className={`jf${live ? ' is-live' : ''}`}>
                 <span className="jf-scale">
-                    <i className="zero" />
-                    <i className="bar" style={{ width: `${width}%`, left: pull >= 0 ? '50%' : `${50 - width}%` }} />
+                    <i className="jf-zero" />
+                    <i
+                        className="jf-fill"
+                        style={{ width: `${width}%`, left: pull >= 0 ? '50%' : `${50 - width}%` }}
+                    />
                 </span>
                 <input
                     className="jf-in"
