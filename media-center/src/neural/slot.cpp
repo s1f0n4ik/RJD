@@ -212,13 +212,15 @@ namespace neural {
     }
 
     void USlot::stop() {
-        // Сначала останавливаем поток обработки — после этого
-        // internal_handle_image() гарантированно не вызывается
         if (is_running()) stop_handler_thread();
 
-        // Затем воркер кадров: новых задач уже не появится, оставшиеся дописываем,
-        // чтобы не терять записи журнала при остановке слота.
-        if (m_frame_running.exchange(false)) {
+        bool frame_was_running = false;
+        {
+            // Флаг меняется под мьютексом воркера
+            std::lock_guard<std::mutex> lk(m_frame_mutex);
+            frame_was_running = m_frame_running.exchange(false);
+        }
+        if (frame_was_running) {
             m_frame_cv.notify_all();
             if (m_frame_thread.joinable()) m_frame_thread.join();
         }

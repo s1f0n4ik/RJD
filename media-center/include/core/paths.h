@@ -18,6 +18,7 @@ namespace varan {
 	        presets/{presets.json, images/, models/}
 	        projection/
 	        linker/
+	    logs/
 
 	Журнал обнаружений задается отдельно на своём томе (/storage).
 */
@@ -48,6 +49,8 @@ struct FPaths {
 	std::filesystem::path journal;
 	// Индекс архивных записей: тоже свой том, отдельно от рабочего корня
 	std::filesystem::path archive;
+	// Файлы лога процесса
+	std::filesystem::path logs;
 };
 
 namespace detail {
@@ -93,6 +96,7 @@ inline void init_paths(
 
 	p.journal = journal_dir;
 	p.archive = archive_dir;
+	p.logs = varan_root / "logs";
 
 	detail::paths_initialized() = true;
 }
@@ -120,6 +124,7 @@ inline std::vector<std::filesystem::path> required_directories() {
 		p.surround.presets_models,
 		p.surround.projection_root,
 		p.surround.linker_state_root,
+		p.logs,
 	};
 }
 

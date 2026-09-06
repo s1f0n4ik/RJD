@@ -84,6 +84,14 @@ int main(int argc, char* argv[])
 		}
 	}
 
+	{
+		std::ostringstream banner;
+		banner << "=== media-center start === " << ULogger::timestamp();
+		for (int i = 0; i < argc; ++i) banner << ' ' << argv[i];
+		ULogger::set_log_dir(varan::paths().logs, banner.str());
+		main_logger.info("log files -> " + varan::paths().logs.string());
+	}
+
 	setenv("GST_GL_PLATFORM", "egl", 1);
 	setenv("GST_GL_API", "gles2", 1);
 	//setenv("GST_DEBUG", "*:4,rtph265depay:0,rtph264depay:0", 1);
@@ -249,6 +257,7 @@ int main(int argc, char* argv[])
 	// закрытия должны успеть лечь в базу
 	if (segment_writer) segment_writer->stop();
 
+	ULogger::shutdown();
 	return 0;
 }
 

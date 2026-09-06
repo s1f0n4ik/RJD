@@ -333,6 +333,9 @@ namespace neural {
 
     // Запуск всех ядер конфигураий сразу
     bool UNeuralLoader::start_loader() {
+        // Прошлые слоты гасятся до захвата m_loader_mutex
+        cleanup_after_failure();
+
         try {
             std::unique_lock<std::mutex> lock(m_loader_mutex);
 
@@ -360,7 +363,6 @@ namespace neural {
             }
 
             // Загружаем конфиги и создаём слоты
-            m_slots.clear();
             m_slots.reserve(m_active_descs.size());
 
             for (size_t i = 0; i < m_active_descs.size(); ++i) {
@@ -437,9 +439,14 @@ namespace neural {
     }
 
     void UNeuralLoader::cleanup_after_failure() {
-        std::lock_guard<std::mutex> lk(m_loader_mutex);
-        for (auto& s : m_slots) if (s) s->stop();
-        m_slots.clear();
+        // Слоты гасятся и разрушаются без m_loader_mutex
+        std::vector<std::unique_ptr<USlot>> slots;
+        {
+            std::lock_guard<std::mutex> lk(m_loader_mutex);
+            slots.swap(m_slots);
+        }
+        for (auto& s : slots) if (s) s->stop();
+        slots.clear();
     }
 
     // Фкнкции управления
@@ -453,7 +460,6 @@ namespace neural {
     void UNeuralLoader::stop_async_run() {
         if (!m_supervisor_running.exchange(false)) return;
         m_supervisor_cv.notify_all();
-        { std::lock_guard<std::mutex> lk(m_loader_mutex); for (auto& s : m_slots) if (s) s->stop(); }
         if (m_supervisor.joinable()) m_supervisor.join();
         cleanup_after_failure();
     }
@@ -468,7 +474,7 @@ namespace neural {
     bool UNeuralLoader::restart() {
         if (!m_supervisor_running.load()) return async_run();
         reload_from_state();
-        { std::lock_guard<std::mutex> lk(m_loader_mutex); for (auto& s : m_slots) if (s) s->stop(); m_slots.clear(); }
+        cleanup_after_failure();
         return true;
     }
 
