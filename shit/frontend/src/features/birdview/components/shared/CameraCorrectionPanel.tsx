@@ -1,4 +1,3 @@
-import { Switch } from '../../../../app/Modal';
 import { CustomSelect } from '../common/CustomSelect';
 import type { SelectOption } from '../common/CustomSelect';
 import type { Correction } from '../../hooks/useCorrection';
@@ -90,47 +89,22 @@ export function CameraCorrectionPanel({
                     />
                 </div>
 
-                <div className="cc-row">
-                    {/* Пока коррекция на сервере не готова, тумблер скрыт */}
-                    {correction.ready && (
-                        <>
-                            <Switch on={correction.enabled} disabled={disabled} onToggle={correction.setEnabled}>
-                                Коррекция
-                            </Switch>
-                            <span className="tbar-sep" />
-                        </>
-                    )}
-                    {stream.pending ? (
-                        <button className="btn btn--sm btn--ghost" disabled>Подключение…</button>
-                    ) : live ? (
-                        <>
+                {/* Тумблер коррекции живёт в полосе над кадром */}
+                {!live && (
+                    <div className="cc-row">
+                        {stream.pending ? (
+                            <button className="btn btn--sm btn--ghost" disabled>Подключение…</button>
+                        ) : (
                             <button
                                 className="btn btn--sm btn--ghost"
                                 disabled={disabled || !camera}
-                                title="Поднять поток заново"
-                                onClick={() => camera && stream.restart(camera)}
+                                onClick={() => camera && stream.open(camera)}
                             >
-                                Заново
+                                Запустить поток
                             </button>
-                            <button
-                                className="btn btn--sm btn--ghost"
-                                disabled={disabled}
-                                title="Закрыть поток"
-                                onClick={stream.close}
-                            >
-                                Стоп
-                            </button>
-                        </>
-                    ) : (
-                        <button
-                            className="btn btn--sm btn--ghost"
-                            disabled={disabled || !camera}
-                            onClick={() => camera && stream.open(camera)}
-                        >
-                            Запустить поток
-                        </button>
-                    )}
-                </div>
+                        )}
+                    </div>
+                )}
             </div>
         </>
     );

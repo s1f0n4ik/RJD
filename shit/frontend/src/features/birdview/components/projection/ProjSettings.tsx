@@ -1,3 +1,4 @@
+import { Icon } from '../../../../app/Icons';
 import { projState, useProjStore } from '../../state/proj-store';
 import { CustomSelect } from '../common/CustomSelect';
 import { CameraCorrectionPanel } from '../shared/CameraCorrectionPanel';
@@ -11,6 +12,8 @@ interface ProjSettingsProps {
     onOpenList: () => void;
     onSelectPreset: (configKey: string) => void;
     onSelectCamera: (key: string) => void;
+    // Возврат к разметке, пришедшей с конфигурацией
+    onRestorePlace: (key: string) => void;
     // Общий с калибровкой выбор камеры, коррекции и поток
     camera: CalibrationCamera | null;
     onSelectSourceCamera: (cam: CalibrationCamera) => void;
@@ -20,12 +23,15 @@ interface ProjSettingsProps {
     // Список камер грузит экран: он нужен и проходу «Применить все»
     sourceCams: CalibrationCamera[];
     sourceCamsError: boolean;
-    // Прогресс прохода по всем камерам; null — проход не идёт
-    busy: string | null;
-    applyAllCount: number;
+    // Проход по местам: идёт ли, какое место в работе и сколько пройдено
+    applying: boolean;
+    applyKey: string | null;
+    applyStep: { done: number; total: number } | null;
+    // Сколько мест уйдёт в проход при нажатии
+    applyCount: number;
     lutReady: boolean;
-    onToggleApply: () => void;
-    onApplyAll: () => void;
+    onApply: () => void;
+    onStopApply: () => void;
     onOpenLut: () => void;
 }
 
@@ -46,6 +52,7 @@ export function ProjSettings({
     onOpenList,
     onSelectPreset,
     onSelectCamera,
+    onRestorePlace,
     camera,
     onSelectSourceCamera,
     correction,
@@ -53,11 +60,13 @@ export function ProjSettings({
     wsReady,
     sourceCams,
     sourceCamsError,
-    busy,
-    applyAllCount,
+    applying,
+    applyKey,
+    applyStep,
+    applyCount,
     lutReady,
-    onToggleApply,
-    onApplyAll,
+    onApply,
+    onStopApply,
     onOpenLut,
 }: ProjSettingsProps) {
     useProjStore();
@@ -86,6 +95,8 @@ export function ProjSettings({
             full: max > 0 && count >= max,
             done: projState.doneSet.has(cam.key),
             missing,
+            unbound: !boundId,
+            saved: projState.savedPointsByCam[cam.key]?.length ?? 0,
         };
     });
 
@@ -134,34 +145,70 @@ export function ProjSettings({
                     <div className="empty"><b>Пресет не выбран</b></div>
                 ) : (
                     rows.map(r => (
-                        <button
+                        <div
                             key={r.cam.key}
                             className={`crow${r.isActive ? ' is-sel' : ''}`}
+                            role="button"
+                            tabIndex={0}
                             onClick={() => handlePlaceClick(r.cam.key)}
+                            onKeyDown={e => {
+                                if (e.key !== 'Enter' && e.key !== ' ') return;
+                                e.preventDefault();
+                                handlePlaceClick(r.cam.key);
+                            }}
                         >
                             <span
-                                className={`dot${r.done ? ' ok' : r.missing ? ' err' : r.full ? ' acc' : ''}`}
+                                className={`dot${r.done ? ' ok' : r.missing || r.unbound ? ' err' : r.full ? ' acc' : ''}`}
                             />
                             <span className="nm">{r.cam.name || r.cam.key}</span>
                             <span className="key">{r.cam.key}</span>
-                            <span className={`st${r.missing ? ' er' : r.count === 0 ? ' mu' : ''}`}>
-                                {r.missing ? 'нет потока' : r.count === 0 ? 'нет разметки' : pointsLabel(r.count)}
-                            </span>
-                        </button>
+                            {applyKey === r.cam.key ? (
+                                <span className="st"><span className="spin" />применяю</span>
+                            ) : (
+                                <span className={`st${r.missing || r.unbound ? ' er' : r.count === 0 ? ' mu' : ''}`}>
+                                    {r.unbound
+                                        ? 'нет камеры'
+                                        : r.missing
+                                          ? 'нет потока'
+                                          : r.count === 0
+                                            ? 'нет разметки'
+                                            : pointsLabel(r.count)}
+                                </span>
+                            )}
+                            {r.saved > 0 && (
+                                <button
+                                    className="icon-btn ib-row"
+                                    data-tip="Восстановить загруженную разметку"
+                                    onClick={e => {
+                                        e.stopPropagation();
+                                        onRestorePlace(r.cam.key);
+                                    }}
+                                >
+                                    <Icon name="down" size={13} />
+                                </button>
+                            )}
+                        </div>
                     ))
                 )}
             </div>
 
             <div className="sv-foot">
-                <button className="btn btn--acc btn--wide" disabled={busy !== null} onClick={onToggleApply}>
-                    {projState.applied ? 'Вернуть редактирование' : 'Применить warp'}
-                </button>
-                <div className="row">
-                    {/* Проход по всем местам с точками и привязками из пресета */}
-                    <button className="btn" disabled={busy !== null || applyAllCount === 0} onClick={onApplyAll}>
-                        {busy ? `Применяю ${busy}` : 'Применить все камеры'}
+                {/* Один проход по всем местам: готовые пропускаются, правка точек снимает готовность */}
+                {applying ? (
+                    <button className="btn btn--err btn--wide" onClick={onStopApply}>
+                        Остановить · {applyStep ? `${applyStep.done} из ${applyStep.total}` : '…'}
                     </button>
-                    <button className="btn btn--save" disabled={!lutReady || busy !== null} onClick={onOpenLut}>
+                ) : (
+                    <button
+                        className="btn btn--acc btn--wide"
+                        disabled={applyCount === 0}
+                        onClick={onApply}
+                    >
+                        Применить warp{applyCount > 0 ? ` · ${applyCount}` : ''}
+                    </button>
+                )}
+                <div className="row">
+                    <button className="btn btn--save btn--wide" disabled={!lutReady || applying} onClick={onOpenLut}>
                         Рассчитать LUT
                     </button>
                 </div>

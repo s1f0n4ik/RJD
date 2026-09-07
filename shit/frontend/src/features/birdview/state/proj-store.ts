@@ -126,6 +126,24 @@ export function restoreSavedPoints(): void {
     projState.applied = false;
 }
 
+// Загруженная с конфигурацией разметка одного места обратно в рабочий набор
+export function restorePlacePoints(key: string): void {
+    const saved = projState.savedPointsByCam[key];
+    if (!saved || saved.length === 0) return;
+
+    projState.pointsByCam[key] = saved.map(p => ({ ...p }));
+    if (projState.activeCam === key) projState.points = saved.map(p => ({ ...p }));
+    projState.doneSet.delete(key);
+}
+
+// Живая разметка активного места в общий набор; изменённые точки снимают готовый warp
+export function syncActivePoints(): void {
+    const key = projState.activeCam;
+    if (!key) return;
+    projState.pointsByCam[key] = projState.points.map(p => ({ ...p }));
+    projState.doneSet.delete(key);
+}
+
 /** Все камеры пресета получили warp — можно считать LUT. */
 export function allCamerasDone(): boolean {
     const cams = projState.activePreset?.cameras ?? [];

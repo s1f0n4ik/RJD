@@ -35,7 +35,8 @@
 /* ── Кадр и оверлеи ── */
 .sv-stage{flex:1;min-height:0;display:flex;flex-direction:column;padding:16px;gap:12px}
 .stream{flex:1;min-height:0;border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;background:#000;position:relative;box-shadow:var(--shadow)}
-.stream svg{display:block;width:100%;height:100%}
+/* Только прямой потомок: иначе растягиваются значки кнопок в оверлеях */
+.stream>svg{display:block;width:100%;height:100%}
 /* Узел плеера один на раздел и переезжает между экранами узлом DOM */
 .sv-player{position:absolute;inset:0;z-index:1}
 .sv-player video{display:block;width:100%;height:100%;object-fit:contain;background:#000}

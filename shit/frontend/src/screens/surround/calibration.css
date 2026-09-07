@@ -127,6 +127,7 @@
 .sv-calib .snapmark .btn--ok:hover{background:rgba(87,214,154,.2);border-color:var(--ok)}
 
 /* ── Выход из полного экрана: полоса с кнопками в него не попадает ── */
-.sv-calib .full-exit{background:rgba(18,20,26,.78);backdrop-filter:blur(4px);border-color:var(--line-hi);color:var(--fg)}
-.sv-calib .full-exit:hover{border-color:var(--acc-dim)}
+.sv-calib .full-exit{background:rgba(18,20,26,.78);backdrop-filter:blur(4px);border-color:var(--line-hi);color:var(--fg-2)}
+.sv-calib .full-exit .ico{width:15px;height:15px}
+.sv-calib .full-exit:hover{border-color:var(--acc-dim);color:var(--fg)}
 .sv-calib .full-exit[data-tip]:hover::after{left:auto;right:0;transform:none}

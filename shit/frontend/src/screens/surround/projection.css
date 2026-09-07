@@ -20,3 +20,16 @@
 .modal--lut .modal-b{display:flex;flex-direction:column;gap:14px}
 .modal--lut .cfg-rows{margin-top:8px}
 .modal--lut .tf-in.is-err:focus{border-color:var(--err)}
+
+/* ── Действия оверлеем снизу панели: канвас точек лежит на z-index 5 ── */
+.sv-proj .pj-acts{position:absolute;left:12px;bottom:12px;display:flex;gap:5px;z-index:6}
+.sv-proj .ib-over{width:26px;height:26px;flex:0 0 26px;border-radius:6px;background:rgba(18,20,26,.78);backdrop-filter:blur(4px);border-color:var(--line-hi);color:var(--fg-2)}
+.sv-proj .ib-over .ico{width:13px;height:13px}
+.sv-proj .ib-over:hover:not([disabled]){border-color:var(--acc-dim);color:var(--fg)}
+.sv-proj .ib-over[data-tip]:hover::after{top:auto;bottom:calc(100% + 8px)}
+
+/* ── Строка места: клик по строке, отдельный значок восстановления ── */
+.sv-proj .crow{cursor:pointer}
+.sv-proj .crow .ib-row{width:24px;height:24px;flex:0 0 24px;border-radius:5px;border-color:transparent;color:var(--fg-3)}
+.sv-proj .crow .ib-row:hover{border-color:var(--line-hi);color:var(--fg-2);background:var(--panel-2)}
+.sv-proj .crow .ib-row[data-tip]:hover::after{left:auto;right:0;transform:none}

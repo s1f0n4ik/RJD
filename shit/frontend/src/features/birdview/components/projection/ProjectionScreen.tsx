@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '../../../../app/Icons';
+import { Switch } from '../../../../app/Modal';
 import type { BirdviewWs } from '../../hooks/useBirdviewWs';
 import type { EventLog } from '../../hooks/useEventLog';
 import type { CalibrationCamera, WsMessage } from '../../api/ws-types';
@@ -18,9 +19,12 @@ import {
     MIN_SCALE,
     projState,
     resetPreset,
+    restorePlacePoints,
     restoreSavedPoints,
+    syncActivePoints,
     useProjStore,
 } from '../../state/proj-store';
+import type { ProjPoint } from '../../state/proj-store';
 import type { Correction } from '../../hooks/useCorrection';
 import type { StreamControl } from '../../hooks/useStreamControl';
 import { ConfirmModal } from '../common/ConfirmModal';
@@ -117,7 +121,10 @@ export function ProjectionScreen({
     }, []);
 
     // Прогресс прохода по всем камерам; null - проход не идёт
-    const [applyAllBusy, setApplyAllBusy] = useState<string | null>(null);
+    // Ход прохода: место в работе, счётчик и флаг остановки
+    const [applyKey, setApplyKey] = useState<string | null>(null);
+    const [applyStep, setApplyStep] = useState<{ done: number; total: number } | null>(null);
+    const abortRef = useRef(false);
     // Свежие пропсы для асинхронного прохода: замыкание их не видит
     const cameraRef = useRef(camera);
     cameraRef.current = camera;
@@ -240,6 +247,11 @@ export function ProjectionScreen({
                 const n = eventToNorm(e);
                 if (!n) return;
                 projState.points.push({ x: n.x, y: n.y, id: Date.now() });
+                syncActivePoints();
+                emitProjChange();
+            } else if (wasDrag) {
+                // Точку сдвинули: набор изменился, прежний warp места больше не годится
+                syncActivePoints();
                 emitProjChange();
             }
 
@@ -497,6 +509,20 @@ export function ProjectionScreen({
         sendSetPreset(key);
     };
 
+    // Выбор камеры в панели — это назначение её активному месту пресета
+    const assignCamera = (cam: CalibrationCamera) => {
+        if (projState.activeCam) projState.camId[projState.activeCam] = cam.id;
+        onSelectCamera(cam);
+    };
+
+    // Возврат к разметке, пришедшей с конфигурацией: сервер для этого не нужен
+    const restorePlace = (key: string) => {
+        restorePlacePoints(key);
+        emitProjChange();
+        projDraw();
+        log.log(`Разметка места <${key}> восстановлена из конфигурации`, 'ok');
+    };
+
     const selectCamera = (key: string) => {
         projState.activeCam = key;
         projState.applied = false;
@@ -507,57 +533,46 @@ export function ProjectionScreen({
 
     const removeLastPoint = () => {
         projState.points.pop();
+        syncActivePoints();
         emitProjChange();
         projDraw();
     };
 
     const clearPoints = () => {
         projState.points = [];
-        projState.applied = false;
+        syncActivePoints();
         emitProjChange();
         projDraw();
     };
 
-    const toggleApply = () => {
-        if (projState.applied) {
-            projState.applied = false;
-            emitProjChange();
-            projDraw();
-            return;
-        }
-
-        if (!projState.activeCam) {
-            toast('Камера не выбрана', 'Выберите камеру в списке пресета', 'err');
-            return;
-        }
-
-        const maxPts = currentMaxPoints();
-        if (projState.points.length < maxPts) {
-            toast('Недостаточно точек', `Необходимо ${maxPts} точки`, 'err');
-            return;
-        }
-
-        ws.sendMessage(PROJ_TYPE, {
-            method: PROJ_METHOD.APPLY_WARP,
-            key: projState.activeCam,
-            src_points: toWarpPoints(projState.points),
-        });
-    };
-
-    // Очередь прохода: места с полной разметкой и доступной привязанной камерой
-    const applyAllQueue = () => {
+    // План прохода: что применяем и что пропускаем, с причиной пропуска.
+    // Места с готовым warp не трогаем — правка точек снимает готовность сама
+    const applyPlan = () => {
         const preset = projState.activePreset;
-        if (!preset) return [];
-        return preset.cameras
-            .map(c => {
-                const pts = (projState.pointsByCam[c.key]?.length
-                    ? projState.pointsByCam[c.key]
-                    : projState.savedPointsByCam[c.key]) ?? [];
-                const maxPts = projState.maxPointsByCam[c.key] ?? 0;
-                const cam = sourceCams.find(sc => sc.id === projState.camId[c.key]) ?? null;
-                return { key: c.key, pts, maxPts, cam };
-            })
-            .filter(q => q.cam && q.maxPts > 0 && q.pts.length >= q.maxPts);
+        const queue: { key: string; pts: ProjPoint[]; cam: CalibrationCamera }[] = [];
+        const skipped: { key: string; why: string }[] = [];
+        if (!preset) return { queue, skipped };
+
+        for (const c of preset.cameras) {
+            if (projState.doneSet.has(c.key)) continue;
+
+            // Только рабочий набор: сохранённая разметка попадает в него
+            // через «Загрузить», и пустой набор значит «оператор стёр точки»
+            const pts = projState.pointsByCam[c.key] ?? [];
+            const maxPts = projState.maxPointsByCam[c.key] ?? 0;
+            const cam = sourceCams.find(sc => sc.id === projState.camId[c.key]) ?? null;
+
+            if (!cam) {
+                skipped.push({ key: c.key, why: projState.camId[c.key] ? 'камера не отвечает' : 'нет камеры' });
+                continue;
+            }
+            if (maxPts <= 0 || pts.length < maxPts) {
+                skipped.push({ key: c.key, why: `точек ${pts.length} из ${maxPts || '?'}` });
+                continue;
+            }
+            queue.push({ key: c.key, pts, cam });
+        }
+        return { queue, skipped };
     };
 
     // Ожидание условия опросом: пропсы в асинхронном цикле видны через refs
@@ -572,26 +587,40 @@ export function ProjectionScreen({
             tick();
         });
 
-    // Проход по всем местам с точками и привязками: честное переключение камеры, затем apply_warp;
+    const stopApply = () => {
+        abortRef.current = true;
+    };
+
+    // Проход по местам плана: честное переключение камеры, затем apply_warp;
     // первая ошибка останавливает проход, успевшее примениться остаётся
     const applyAll = async () => {
-        const queue = applyAllQueue();
-        if (queue.length === 0) return;
+        const { queue, skipped } = applyPlan();
+        if (queue.length === 0) {
+            if (skipped.length) {
+                toast('Применять нечего', skipped.map(s => `${placeName(s.key)} — ${s.why}`).join('; '), 'err');
+            }
+            return;
+        }
 
-        setApplyAllBusy(`0/${queue.length}`);
+        abortRef.current = false;
+        setApplyStep({ done: 0, total: queue.length });
         try {
             for (let i = 0; i < queue.length; i++) {
                 const q = queue[i];
-                setApplyAllBusy(`${i + 1}/${queue.length}`);
+                if (abortRef.current) throw new Error('Остановлено оператором');
+                setApplyStep({ done: i, total: queue.length });
+                setApplyKey(q.key);
 
                 if (cameraRef.current?.id !== q.cam!.id) {
                     onSelectCamera(q.cam!);
                     const up = await waitFor(
-                        () => cameraRef.current?.id === q.cam!.id
-                            && Boolean(streamRef.current.streamId)
-                            && !streamRef.current.pending,
+                        () => abortRef.current
+                            || (cameraRef.current?.id === q.cam!.id
+                                && Boolean(streamRef.current.streamId)
+                                && !streamRef.current.pending),
                         20_000,
                     );
+                    if (abortRef.current) throw new Error('Остановлено оператором');
                     if (!up) throw new Error(`Камера ${q.cam!.displayName} не поднялась`);
                 }
 
@@ -611,17 +640,25 @@ export function ProjectionScreen({
                     src_points: toWarpPoints(projState.points),
                 });
                 const done = await waitFor(
-                    () => projState.doneSet.has(q.key) || warpFailRef.current !== null,
+                    () => abortRef.current || projState.doneSet.has(q.key) || warpFailRef.current !== null,
                     15_000,
                 );
+                if (abortRef.current) throw new Error('Остановлено оператором');
                 if (!done) throw new Error(`Ответ по <${q.key}> не пришёл`);
                 if (warpFailRef.current) throw new Error(warpFailRef.current);
+                setApplyStep({ done: i + 1, total: queue.length });
             }
-            toast('Готово', 'Warp применён для всех камер', 'ok');
+
+            const tail = skipped.length
+                ? `Пропущены: ${skipped.map(s => `${placeName(s.key)} — ${s.why}`).join('; ')}`
+                : 'Все места пресета собраны';
+            toast('Готово', tail, skipped.length ? 'info' : 'ok');
         } catch (e) {
             toast('Проход остановлен', e instanceof Error ? e.message : String(e), 'err');
         } finally {
-            setApplyAllBusy(null);
+            setApplyKey(null);
+            setApplyStep(null);
+            abortRef.current = false;
         }
     };
 
@@ -661,6 +698,9 @@ export function ProjectionScreen({
 
     const streaming = playerState?.status === 'streaming';
 
+    // Камера, назначенная активному месту: без неё кадр в редакторе не показываем
+    const boundCamId = projState.activeCam ? projState.camId[projState.activeCam] ?? null : null;
+
     const streamCls = !streamId
         ? stream.pending ? ' warn' : ''
         : streaming
@@ -676,24 +716,13 @@ export function ProjectionScreen({
         <div className={`sv sv-proj${active ? '' : ' is-hidden'}`}>
             <div className="sv-main">
                 <div className="toolbar">
-                    <button
-                        className="btn btn--sm"
-                        disabled={projState.points.length === 0}
-                        onClick={removeLastPoint}
-                    >
-                        Удалить последнюю
-                    </button>
-                    <button className="btn btn--sm btn--ghost" onClick={clearPoints}>Очистить</button>
-                    {/* Сбрасывает печку и превью, точки и привязки остаются */}
-                    {projState.doneSet.size > 0 && (
-                        <button
-                            className="btn btn--sm btn--ghost"
-                            disabled={applyAllBusy !== null}
-                            onClick={resetWarp}
-                        >
-                            Сбросить warp
-                        </button>
+                    {/* Коррекция общая с калибровкой: тумблер там, где виден кадр */}
+                    {correction.ready && (
+                        <Switch on={correction.enabled} disabled={!wsReady} onToggle={correction.setEnabled}>
+                            Коррекция
+                        </Switch>
                     )}
+
                     <div className="pills">
                         <span className={`pill${pointsFull ? ' ok' : ''}`}>
                             <span className={`dot${pointsFull ? '' : ' acc'}`} />
@@ -718,6 +747,20 @@ export function ProjectionScreen({
                                 Результат{resultKey ? ` · ${placeName(resultKey)}` : ''}
                             </span>
                         </div>
+
+                        {/* Сбрасывает печку и превью, точки и привязки остаются */}
+                        {projState.doneSet.size > 0 && (
+                            <div className="pj-acts">
+                                <button
+                                    className="icon-btn ib-over"
+                                    data-tip="Сбросить warp"
+                                    disabled={applyKey !== null}
+                                    onClick={resetWarp}
+                                >
+                                    <Icon name="reset" size={13} />
+                                </button>
+                            </div>
+                        )}
                     </div>
 
                     <div className="sv-gutter" data-gutter onPointerDown={onGutterDown} onDoubleClick={resetGutter}>
@@ -726,7 +769,19 @@ export function ProjectionScreen({
 
                     <div ref={wrapperRef} className={`stream${projState.applied ? ' is-applied' : ''}`}>
                         <div ref={mediaRef} className="pj-media" style={{ aspectRatio: aspect }}>
-                            {streamId ? (
+                            {!projState.activeCam ? (
+                                <div className="empty">
+                                    <Icon name="cursor" className="ico" />
+                                    <b>Место не выбрано</b>
+                                    <p>Выберите место в списке камер справа</p>
+                                </div>
+                            ) : !boundCamId ? (
+                                <div className="empty">
+                                    <Icon name="cam" className="ico" />
+                                    <b>Камера не назначена</b>
+                                    <p>Назначьте камеру месту {placeName(projState.activeCam)} в блоке «Камера»</p>
+                                </div>
+                            ) : streamId ? (
                                 <div className="player" ref={onPlayerHost} />
                             ) : (
                                 <div className="empty">
@@ -749,14 +804,38 @@ export function ProjectionScreen({
                         </div>
 
                         <div className="stream-tag">
-                            <span className={`pill${streamId && streaming ? ' ok' : ''}`}>
+                            <span className={`pill${projState.activeCam ? ' ok' : ''}`}>
                                 <span className="dot" />
-                                {camera ? `${camera.displayName} · ${camera.id}` : 'Камера не выбрана'}
+                                {projState.activeCam ? placeName(projState.activeCam) : 'Место не выбрано'}
                             </span>
-                            {projState.activeCam && (
-                                <span className="pill">камера пресета {projState.activeCam}</span>
-                            )}
+                            <span className={`pill${boundCamId && streamId && streaming ? ' ok' : ''}`}>
+                                <span className="dot" />
+                                {boundCamId
+                                    ? camera && camera.id === boundCamId
+                                        ? `${camera.displayName} · ${camera.id}`
+                                        : boundCamId
+                                    : 'Камера не назначена'}
+                            </span>
                         </div>
+                        <div className="pj-acts">
+                            <button
+                                className="icon-btn ib-over"
+                                data-tip="Удалить последнюю точку"
+                                disabled={projState.points.length === 0}
+                                onClick={removeLastPoint}
+                            >
+                                <Icon name="undo" size={13} />
+                            </button>
+                            <button
+                                className="icon-btn ib-over"
+                                data-tip="Очистить точки"
+                                disabled={projState.points.length === 0}
+                                onClick={clearPoints}
+                            >
+                                <Icon name="eraser" size={13} />
+                            </button>
+                        </div>
+
                         <span className="scene-hint">shift+колесо · масштаб &nbsp; shift+drag · сдвиг</span>
                     </div>
                 </div>
@@ -766,18 +845,21 @@ export function ProjectionScreen({
                 onOpenList={() => ws.sendMessage(PROJ_TYPE, { method: PROJ_METHOD.GET_LIST })}
                 onSelectPreset={requestPreset}
                 onSelectCamera={selectCamera}
+                onRestorePlace={restorePlace}
                 camera={camera}
-                onSelectSourceCamera={onSelectCamera}
+                onSelectSourceCamera={assignCamera}
                 correction={correction}
                 stream={stream}
                 wsReady={wsReady}
                 sourceCams={sourceCams}
                 sourceCamsError={sourceCamsError}
-                busy={applyAllBusy}
-                applyAllCount={applyAllQueue().length}
+                applying={applyKey !== null}
+                applyKey={applyKey}
+                applyStep={applyStep}
+                applyCount={applyPlan().queue.length}
                 lutReady={allCamerasDone()}
-                onToggleApply={toggleApply}
-                onApplyAll={() => void applyAll()}
+                onApply={() => void applyAll()}
+                onStopApply={stopApply}
                 onOpenLut={() => setLutOpen(true)}
             />
 
