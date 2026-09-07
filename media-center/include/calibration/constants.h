@@ -156,6 +156,8 @@ namespace constants {
 	inline const std::string JSON_IS_PATTERN = "is_pattern";               // is_pattern
 	inline const std::string JSON_IS_CALIBRATION = "is_calibration";       // is_calibration
 	inline const std::string JSON_IS_UNDISTORTION = "is_undistortion";     // is_undistortion
+	// Живой пайплайн калибратора: клиент по нему подхватывает идущий поток
+	inline const std::string JSON_IS_STREAMING = "is_streaming";           // is_streaming
 
 	// Константы для Projection
 	// ===== Единые ключи камер по их положению на ТС =====

@@ -55,7 +55,9 @@ namespace birdview {
 		void apply_orbit_input(float dx, float dy, float dzoom);
 		void set_plate(bool visible);
 		// Размеры модели-бокса в метрах, 0 - размер габарита; alpha 0 скрывает
-		void set_model(float width, float height, float length, float alpha);
+		// scale - множитель равномерного вписывания, stretch - тянуть каждую сторону своей величиной
+		void set_model(float width, float height, float length, float alpha,
+			float scale, bool stretch);
 		// Загруженный .glb вместо параллелепипеда; зовётся из потока рендера
 		bool set_model_mesh(const FSurroundModel& model);
 		void clear_model_mesh();
@@ -138,6 +140,8 @@ namespace birdview {
 		float m_model_h = 0.0f;
 		float m_model_l = 0.0f;
 		float m_model_alpha = 1.0f;
+		float m_model_scale = 1.0f;
+		bool m_model_stretch = false;
 		bool m_wireframe = false;
 
 		// Позиция камеры на скруглённом контуре габарита, доля периметра [0..1)

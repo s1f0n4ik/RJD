@@ -116,8 +116,6 @@
 .cellv-canvas { position: absolute; inset: 0; pointer-events: none; }
 
 /* Жестовый слой 360 держится ровно по кадру — его ведёт RAF */
-.cellv-gesture { position: absolute; top: 0; left: 0; width: 0; height: 0; z-index: 10; touch-action: none; cursor: grab; }
-.cellv-gesture.is-drag { cursor: grabbing; }
 
 .cellv-time {
     position: absolute;

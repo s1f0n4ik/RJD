@@ -337,9 +337,11 @@ namespace birdview {
 
 	void USurroundRenderer::build_box() {
 		// Модель может отличаться от габарита, платформа всегда от габарита
-		const float x = (m_model_w > 0 ? m_model_w : m_box_w) * 0.5f;
-		const float y = m_model_h > 0 ? m_model_h : m_box_h;
-		const float z = (m_model_l > 0 ? m_model_l : m_box_l) * 0.5f;
+		// В равномерном режиме коробку тянет множитель, в раздельном стороны заданы сами
+		const float k = m_model_stretch ? 1.0f : m_model_scale;
+		const float x = (m_model_w > 0 ? m_model_w : m_box_w) * 0.5f * k;
+		const float y = (m_model_h > 0 ? m_model_h : m_box_h) * k;
+		const float z = (m_model_l > 0 ? m_model_l : m_box_l) * 0.5f * k;
 
 		std::vector<FVertex> v;
 		v.reserve(36);
@@ -499,11 +501,15 @@ namespace birdview {
 		}
 	}
 
-	void USurroundRenderer::set_model(float width, float height, float length, float alpha) {
+	void USurroundRenderer::set_model(float width, float height, float length, float alpha,
+		float scale, bool stretch)
+	{
 		m_model_w = width > 0 ? width : 0.0f;
 		m_model_h = height > 0 ? height : 0.0f;
 		m_model_l = length > 0 ? length : 0.0f;
 		m_model_alpha = std::clamp(alpha, 0.0f, 1.0f);
+		m_model_scale = scale > 0 ? scale : 1.0f;
+		m_model_stretch = stretch;
 
 		// Бокс лежит в своём VBO, пересборка не трогает чашу и печку
 		if (m_box_vao) {
@@ -667,13 +673,23 @@ namespace birdview {
 			const float tw = m_model_w > 0 ? m_model_w : m_box_w;
 			const float th = m_model_h > 0 ? m_model_h : m_box_h;
 			const float tl = m_model_l > 0 ? m_model_l : m_box_l;
-			float s = std::numeric_limits<float>::max();
-			if (size.x > 1e-6f) s = std::min(s, tw / size.x);
-			if (size.y > 1e-6f) s = std::min(s, th / size.y);
-			if (size.z > 1e-6f) s = std::min(s, tl / size.z);
-			if (s == std::numeric_limits<float>::max()) s = 1.0f;
+			// Раздельный режим тянет каждую ось своей величиной, равномерный вписывает по самой тесной
+			glm::vec3 axes(1.0f);
+			if (m_model_stretch) {
+				if (size.x > 1e-6f) axes.x = tw / size.x;
+				if (size.y > 1e-6f) axes.y = th / size.y;
+				if (size.z > 1e-6f) axes.z = tl / size.z;
+			}
+			else {
+				float s = std::numeric_limits<float>::max();
+				if (size.x > 1e-6f) s = std::min(s, tw / size.x);
+				if (size.y > 1e-6f) s = std::min(s, th / size.y);
+				if (size.z > 1e-6f) s = std::min(s, tl / size.z);
+				if (s == std::numeric_limits<float>::max()) s = 1.0f;
+				axes = glm::vec3(s * m_model_scale);
+			}
 			model_mat = glm::rotate(glm::mat4(1.0f), glm::radians(m_model_rot), glm::vec3(0, 1, 0))
-				* glm::scale(glm::mat4(1.0f), glm::vec3(s))
+				* glm::scale(glm::mat4(1.0f), axes)
 				* glm::translate(glm::mat4(1.0f),
 					glm::vec3(-center.x, -m_model_bbox_min.y, -center.z));
 		}

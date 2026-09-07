@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useWebRTCPlayer } from '../../../../components/webrtc/useWebRTCPlayer';
-import type { PlayerStats, PlayerStatus } from '../../../../components/webrtc/useWebRTCPlayer';
+import type { PlayerMessage, PlayerStats, PlayerStatus } from '../../../../components/webrtc/useWebRTCPlayer';
+import { useOrbitGesture } from '../../../../components/webrtc/useOrbitGesture';
 import type { ErrorInfo } from '../../../../components/webrtc/error-codes';
 
 // Плеер раздела «Система 360» поверх общего хука сигналинга
@@ -16,19 +17,47 @@ export interface StreamPlayerState {
     height: number | null;
 }
 
+/** Отправка своего сообщения в сигналинг; false — WS закрыт */
+export type StreamPlayerSend = (data: Record<string, unknown>) => boolean;
+
 interface StreamPlayerProps {
     cameraId: string;
     signalingUrl: string;
     collectStats?: boolean;
     onState?: (state: StreamPlayerState) => void;
+    /** Сообщения, которые хук сам не обрабатывает — надстройкам раздела */
+    onMessage?: (msg: PlayerMessage) => void;
+    /** Сюда кладётся отправка, пока плеер смонтирован */
+    sendRef?: React.MutableRefObject<StreamPlayerSend | null>;
+    /** Слой жестов орбиты поверх кадра */
+    gesture?: boolean;
 }
 
-export function StreamPlayer({ cameraId, signalingUrl, collectStats = true, onState }: StreamPlayerProps) {
-    const { status, errorInfo, attempt, videoRef, stats } = useWebRTCPlayer({
+export function StreamPlayer({
+    cameraId,
+    signalingUrl,
+    collectStats = true,
+    onState,
+    onMessage,
+    sendRef,
+    gesture = false,
+}: StreamPlayerProps) {
+    const { status, errorInfo, attempt, videoRef, stats, send } = useWebRTCPlayer({
         cameraId,
         signalingUrl,
         collectStats,
+        onMessage,
     });
+
+    const orbit = useOrbitGesture({ videoRef, send, enabled: gesture });
+
+    useEffect(() => {
+        if (!sendRef) return;
+        sendRef.current = send;
+        return () => {
+            sendRef.current = null;
+        };
+    }, [send, sendRef]);
 
     const [size, setSize] = useState<{ w: number; h: number } | null>(null);
 
@@ -67,6 +96,17 @@ export function StreamPlayer({ cameraId, signalingUrl, collectStats = true, onSt
     return (
         <>
             <video ref={videoRef} autoPlay muted playsInline />
+
+            {gesture && (
+                <div
+                    ref={orbit.layerRef}
+                    className={`orbit-gest${orbit.dragging ? ' is-drag' : ''}`}
+                    onPointerDown={orbit.onPointerDown}
+                    onPointerMove={orbit.onPointerMove}
+                    onPointerUp={orbit.onPointerUp}
+                    onPointerCancel={orbit.onPointerUp}
+                />
+            )}
 
             {status !== 'streaming' && (
                 <div className="empty">

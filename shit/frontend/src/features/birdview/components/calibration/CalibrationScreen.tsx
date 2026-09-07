@@ -63,6 +63,8 @@ export function CalibrationScreen({
     // Последний undistort_compute вернул ошибку
     const [undistortionErr, setUndistortionErr] = useState(false);
     const [saveEnabled, setSaveEnabled] = useState(false);
+    // Камера последней сессии калибратора: список камер живёт в панели, подставляет она
+    const [restoreCameraId, setRestoreCameraId] = useState<string | null>(null);
 
     const [configs, setConfigs] = useState<ConfigSummary[] | null>(null);
     const [selectedConfigId, setSelectedConfigId] = useState<string | null>(null);
@@ -99,6 +101,22 @@ export function CalibrationScreen({
         distortion,
         snapshots,
     });
+
+    // Обработчик статуса стабилен по ссылке, а свежие значения нужны — читаем их через ref
+    const liveRef = useRef({ camera, stream, snapshots });
+    liveRef.current = { camera, stream, snapshots };
+
+    // Состояние калибратора читаем сразу по сессии, а не после ручного запуска потока
+    const statusAskedRef = useRef(false);
+    useEffect(() => {
+        if (ws.status !== 'connected') {
+            statusAskedRef.current = false;
+            return;
+        }
+        if (statusAskedRef.current) return;
+        statusAskedRef.current = true;
+        ws.send({ type: 'status', client_id: clientId, meta: {} });
+    }, [ws.status, ws, clientId]);
 
     const streaming = playerState?.status === 'streaming';
 
@@ -232,6 +250,31 @@ export function CalibrationScreen({
             }
 
             setChessboard(Boolean(meta.show_chessboard));
+
+            // Прошлая сессия: заполняем только пустое, свой выбор оператора не трогаем
+            const { camera: liveCamera, stream: liveStream, snapshots: liveSnapshots } = liveRef.current;
+            const restored: string[] = [];
+
+            const cameraId = typeof meta.camera_id === 'string' ? meta.camera_id : '';
+            if (cameraId && !liveCamera) {
+                setRestoreCameraId(cameraId);
+                restored.push(`камера ${cameraId}`);
+            }
+
+            const count = Number(meta.count ?? 0);
+            if (count > 0 && liveSnapshots.items.length === 0) {
+                liveSnapshots.restore(count);
+                restored.push(`снимков ${count}`);
+            }
+
+            // Пайплайн жив: подхватываем идущий поток вместо перезапуска
+            if (meta.is_streaming && !liveStream.streamId) {
+                liveStream.settle(String(meta.id_stream ?? 'calibration_stream'));
+                restored.push('поток идёт');
+            }
+
+            if (hasCal) restored.push('калибровка есть');
+            if (restored.length > 0) log.log(`Состояние калибратора: ${restored.join(', ')}`);
         },
         [log, distortion],
     );
@@ -421,6 +464,7 @@ export function CalibrationScreen({
                     streamOpen={Boolean(stream.streamId)}
                     pending={stream.pending}
                     wsReady={ws.status === 'connected'}
+                    restoreId={restoreCameraId}
                     onToggleStream={toggleStream}
                     onLoadConfiguration={() => {
                         modalRequestRef.current = true;

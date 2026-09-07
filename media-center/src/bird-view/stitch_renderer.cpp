@@ -297,11 +297,15 @@ namespace birdview {
         m_scene_set = true;
     }
 
-    void UStitchRenderer::set_model(float width, float height, float length, float alpha) {
+    void UStitchRenderer::set_model(float width, float height, float length, float alpha,
+        float scale, bool stretch)
+    {
         m_model_w = width;
         m_model_h = height;
         m_model_l = length;
         m_model_alpha = alpha;
+        m_model_scale = scale > 0 ? scale : 1.0f;
+        m_model_stretch = stretch;
     }
 
     void UStitchRenderer::set_plate_size(float width_m, float length_m) {
@@ -498,14 +502,24 @@ namespace birdview {
                     const float tw = m_model_w > 0 ? m_model_w : m_machine_w;
                     const float th = m_model_h > 0 ? m_model_h : m_machine_h;
                     const float tl = m_model_l > 0 ? m_model_l : m_machine_l;
-                    float s = std::numeric_limits<float>::max();
-                    if (size.x > 1e-6f && tw > 0) s = std::min(s, tw / size.x);
-                    if (size.y > 1e-6f && th > 0) s = std::min(s, th / size.y);
-                    if (size.z > 1e-6f && tl > 0) s = std::min(s, tl / size.z);
-                    if (s == std::numeric_limits<float>::max()) s = 1.0f;
+                    // Раздельный режим тянет каждую ось своей величиной, равномерный вписывает по самой тесной
+                    glm::vec3 axes(1.0f);
+                    if (m_model_stretch) {
+                        if (size.x > 1e-6f && tw > 0) axes.x = tw / size.x;
+                        if (size.y > 1e-6f && th > 0) axes.y = th / size.y;
+                        if (size.z > 1e-6f && tl > 0) axes.z = tl / size.z;
+                    }
+                    else {
+                        float s = std::numeric_limits<float>::max();
+                        if (size.x > 1e-6f && tw > 0) s = std::min(s, tw / size.x);
+                        if (size.y > 1e-6f && th > 0) s = std::min(s, th / size.y);
+                        if (size.z > 1e-6f && tl > 0) s = std::min(s, tl / size.z);
+                        if (s == std::numeric_limits<float>::max()) s = 1.0f;
+                        axes = glm::vec3(s * m_model_scale);
+                    }
                     const glm::mat4 model_mat =
                         glm::rotate(identity, glm::radians(m_model_rot), glm::vec3(0, 1, 0))
-                        * glm::scale(identity, glm::vec3(s))
+                        * glm::scale(identity, axes)
                         * glm::translate(identity,
                             glm::vec3(-center.x, -m_model_bbox_min.y, -center.z));
                     glUniformMatrix4fv(u_model, 1, GL_FALSE, glm::value_ptr(model_mat));
@@ -529,9 +543,10 @@ namespace birdview {
                 }
                 else {
                     // Без .glb рисуется бокс габарита, как в surround
-                    const float bw = m_model_w > 0 ? m_model_w : m_machine_w;
-                    const float bh = m_model_h > 0 ? m_model_h : m_machine_h;
-                    const float bl = m_model_l > 0 ? m_model_l : m_machine_l;
+                    const float k = m_model_stretch ? 1.0f : m_model_scale;
+                    const float bw = (m_model_w > 0 ? m_model_w : m_machine_w) * k;
+                    const float bh = (m_model_h > 0 ? m_model_h : m_machine_h) * k;
+                    const float bl = (m_model_l > 0 ? m_model_l : m_machine_l) * k;
                     const glm::mat4 box =
                         glm::rotate(identity, glm::radians(m_model_rot), glm::vec3(0, 1, 0))
                         * glm::translate(identity, glm::vec3(0.0f, bh * 0.5f, 0.0f))

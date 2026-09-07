@@ -17,18 +17,15 @@ import {
     type PlayerStats,
     type PlayerStatus,
 } from '../../components/webrtc/useWebRTCPlayer';
-import { getVideoContentRect } from '../../components/webrtc/video-rect';
+import { useOrbitGesture } from '../../components/webrtc/useOrbitGesture';
 import { Icon } from '../../app/Icons';
 import { formatDeviceDate, formatDeviceTime } from '../../app/useDeviceClock';
 import { describeError } from '../../components/webrtc/error-codes';
 import { CellFlash, CellState, useFlash } from './CellOverlays';
 import type { Overlays } from './model';
 
-const SEND_INTERVAL_MS = 33;
-
 // Сколько ждём подтверждения смены режима вращения
 const ORBIT_TIMEOUT_MS = 5000;
-const WHEEL_ZOOM_STEP = 0.0008;
 
 interface SurroundCellProps {
     streamId: string;
@@ -64,17 +61,12 @@ export function SurroundCell({
     onStats,
 }: SurroundCellProps) {
     const boxRef = useRef<HTMLDivElement>(null);
-    const gestureRef = useRef<HTMLDivElement>(null);
 
-    const pointersRef = useRef(new Map<number, { x: number; y: number }>());
-    const pinchRef = useRef(0);
-    const accumRef = useRef({ dx: 0, dy: 0, dzoom: 0 });
     // Последнее подтверждённое устройством состояние: к нему откатываемся при отказе
     const confirmedRef = useRef(Boolean(initialManual));
     const initialAppliedRef = useRef(false);
 
     const [manual, setManual] = useState(Boolean(initialManual));
-    const [dragging, setDragging] = useState(false);
     // Ответ ещё не пришёл: кнопка ждёт устройство, а не гадает
     const [pending, setPending] = useState(false);
     const pendingTimerRef = useRef<number | null>(null);
@@ -135,52 +127,12 @@ export function SurroundCell({
         if (pendingTimerRef.current) window.clearTimeout(pendingTimerRef.current);
     }, []);
 
-    // Слой жестов держится точно по кадру: при contain по краям поля
-    useEffect(() => {
-        let frame = 0;
-        const sync = () => {
-            frame = requestAnimationFrame(sync);
-            const video = videoRef.current;
-            const layer = gestureRef.current;
-            if (!video || !layer) return;
-
-            const rect = getVideoContentRect(video);
-            if (!rect) return;
-
-            layer.style.left = `${rect.x}px`;
-            layer.style.top = `${rect.y}px`;
-            layer.style.width = `${rect.width}px`;
-            layer.style.height = `${rect.height}px`;
-        };
-        frame = requestAnimationFrame(sync);
-        return () => cancelAnimationFrame(frame);
-    }, [videoRef]);
-
-    // Накопленные дельты уходят пачкой, не чаще SEND_INTERVAL_MS
-    useEffect(() => {
-        const timer = window.setInterval(() => {
-            const acc = accumRef.current;
-            if (!acc.dx && !acc.dy && !acc.dzoom) return;
-
-            const pack = (value: number) => Number(Math.max(-1, Math.min(1, value)).toFixed(4));
-            send({ type: 'orbit', dx: pack(acc.dx), dy: pack(acc.dy), dzoom: pack(acc.dzoom) });
-            accumRef.current = { dx: 0, dy: 0, dzoom: 0 };
-        }, SEND_INTERVAL_MS);
-        return () => window.clearInterval(timer);
-    }, [send]);
-
-    // Колесо: preventDefault требует non-passive слушателя
-    useEffect(() => {
-        const layer = gestureRef.current;
-        if (!layer) return;
-        const onWheel = (event: WheelEvent) => {
-            event.preventDefault();
-            // Колесо вверх — приближение, устройство сужает орбиту
-            accumRef.current.dzoom += -event.deltaY * WHEEL_ZOOM_STEP;
-        };
-        layer.addEventListener('wheel', onWheel, { passive: false });
-        return () => layer.removeEventListener('wheel', onWheel);
-    }, []);
+    const gesture = useOrbitGesture({
+        videoRef,
+        send,
+        enabled: true,
+        onGestureLock,
+    });
 
     // Режим из сохранённого отображения применяется один раз, когда пошло видео
     useEffect(() => {
@@ -208,53 +160,6 @@ export function SurroundCell({
         }, ORBIT_TIMEOUT_MS);
     };
 
-    const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-        onGestureLock?.(true);
-        event.currentTarget.setPointerCapture(event.pointerId);
-        pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
-        if (pointersRef.current.size === 2) {
-            const [a, b] = [...pointersRef.current.values()];
-            pinchRef.current = Math.hypot(a.x - b.x, a.y - b.y);
-        }
-        setDragging(true);
-    };
-
-    const onPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-        const point = pointersRef.current.get(event.pointerId);
-        if (!point) return;
-
-        const rect = event.currentTarget.getBoundingClientRect();
-        const prevX = point.x;
-        const prevY = point.y;
-        point.x = event.clientX;
-        point.y = event.clientY;
-
-        if (pointersRef.current.size === 1) {
-            if (rect.width > 0) accumRef.current.dx += (point.x - prevX) / rect.width;
-            if (rect.height > 0) accumRef.current.dy += (point.y - prevY) / rect.height;
-            return;
-        }
-
-        // Щипок: пальцы врозь — приближение
-        if (pointersRef.current.size === 2) {
-            const [a, b] = [...pointersRef.current.values()];
-            const distance = Math.hypot(a.x - b.x, a.y - b.y);
-            if (pinchRef.current > 0 && rect.width > 0) {
-                accumRef.current.dzoom += (distance - pinchRef.current) / rect.width;
-            }
-            pinchRef.current = distance;
-        }
-    };
-
-    const onPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
-        pointersRef.current.delete(event.pointerId);
-        pinchRef.current = 0;
-        if (pointersRef.current.size === 0) {
-            setDragging(false);
-            onGestureLock?.(false);
-        }
-    };
-
     const live = status === 'streaming';
 
     return (
@@ -262,12 +167,12 @@ export function SurroundCell({
             <video ref={videoRef} autoPlay playsInline muted className="cellv-video" />
 
             <div
-                ref={gestureRef}
-                className={`cellv-gesture${dragging ? ' is-drag' : ''}`}
-                onPointerDown={onPointerDown}
-                onPointerMove={onPointerMove}
-                onPointerUp={onPointerUp}
-                onPointerCancel={onPointerUp}
+                ref={gesture.layerRef}
+                className={`orbit-gest${gesture.dragging ? ' is-drag' : ''}`}
+                onPointerDown={gesture.onPointerDown}
+                onPointerMove={gesture.onPointerMove}
+                onPointerUp={gesture.onPointerUp}
+                onPointerCancel={gesture.onPointerUp}
             />
 
             {(overlays.name || (live && overlays.stats)) && (

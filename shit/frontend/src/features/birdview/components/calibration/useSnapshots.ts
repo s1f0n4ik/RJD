@@ -35,6 +35,8 @@ export interface Snapshots {
     requestClear: () => void;
     resumeStream: () => void;
     clear: () => void;
+    /** Набор от прошлой сессии: сервер знает только их число, номера идут подряд */
+    restore: (count: number) => void;
     setUsed: (id: number, used: boolean) => void;
     handleAdd: (msg: WsMessage) => void;
     handleRemove: (msg: WsMessage) => void;
@@ -149,6 +151,11 @@ export function useSnapshots({ ws, clientId, log }: Options): Snapshots {
         dropThumbs();
     }, [revoke, dropThumbs]);
 
+    const restore = useCallback((count: number) => {
+        if (count <= 0) return;
+        setItems(Array.from({ length: count }, (_, i) => ({ id: i, used: false })));
+    }, []);
+
     const setUsed = useCallback((id: number, used: boolean) => {
         setItems(prev => prev.map(s => (s.id === id ? { ...s, used } : s)));
     }, []);
@@ -237,6 +244,7 @@ export function useSnapshots({ ws, clientId, log }: Options): Snapshots {
         requestClear,
         resumeStream,
         clear,
+        restore,
         setUsed,
         handleAdd,
         handleRemove,

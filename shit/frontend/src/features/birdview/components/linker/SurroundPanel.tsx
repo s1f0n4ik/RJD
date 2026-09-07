@@ -6,9 +6,11 @@ import { linkerApi } from '../../api/linker';
 import type {
     SurroundCameraPose,
     SurroundConfig,
+    SurroundModel,
     SurroundModelFile,
     SurroundPatch,
 } from '../../api/linker';
+import { JoystickField } from '../shared/JoystickField';
 
 // Настройки объёмного вида по вкладкам: stream — кадр и орбита, scene — габарит, подложка, чаша,
 // model — библиотека .glb, cameras — позы мест. Значения из GET /linker/surround, правки — POST мёржем
@@ -26,6 +28,18 @@ interface PosePayload {
     roll: number;
 }
 
+// Режим орбиты держит экран: команда идёт в сигналинг плеера, состояние приходит с устройства
+export interface OrbitControl {
+    manual: boolean;
+    // Команда отправлена, ответа ещё нет
+    pending: boolean;
+    // Плеер открыт, значит сигналинг есть
+    canSend: boolean;
+    // Меняется на каждом подъёме потока
+    sessionKey: string;
+    setMode: (manual: boolean) => boolean;
+}
+
 interface SurroundPanelProps {
     // Вывод этой конфигурации в эфире в объёмном режиме
     live: boolean;
@@ -36,6 +50,7 @@ interface SurroundPanelProps {
     onError: (title: string, e: unknown) => void;
     // Перезапуск вывода с новым разрешением: стоп, запись, старт делает экран
     onApplyResolution: (res: { width: number; height: number }) => Promise<boolean>;
+    orbit: OrbitControl;
 }
 
 // Числовое поле .tf с фиксацией по blur или Enter
@@ -126,12 +141,24 @@ export function Range({
         setDrag(null);
     };
 
+    const span = max - min;
+    const pct = span > 0 ? ((shown - min) / span) * 100 : 0;
+    const clamped = Math.max(0, Math.min(100, pct));
+
     return (
-        <div className="tf">
-            <span className="tf-cap">{label}</span>
+        <div className="rng">
+            <div className="rng-cap">
+                <span className="tf-cap">{label}</span>
+                <span className="rng-box">
+                    {fmt ? fmt(shown) : shown.toFixed(2).replace('.', ',')}
+                </span>
+            </div>
             <div className="tf-range">
+                <span className="track">
+                    <i style={{ width: `${clamped}%` }} />
+                    <b style={{ left: `${clamped}%` }} />
+                </span>
                 <input
-                    className="rng"
                     type="range"
                     min={min}
                     max={max}
@@ -141,7 +168,6 @@ export function Range({
                     onPointerUp={commit}
                     onBlur={commit}
                 />
-                <span className="val">{fmt ? fmt(shown) : shown.toFixed(2)}</span>
             </div>
         </div>
     );
@@ -157,19 +183,24 @@ export function RotSlider({ value, onCommit }: { value: number; onCommit: (v: nu
         setDrag(null);
     };
 
+    const pct = Math.max(0, Math.min(100, (shown / 360) * 100));
+
     return (
         <div className="tf-range">
-            <input
-                className="rng"
-                type="range"
-                min={0}
-                max={360}
-                step={5}
-                value={shown}
-                onChange={e => setDrag(Number(e.target.value))}
-                onPointerUp={commit}
-                onBlur={commit}
-            />
+            <span className="track">
+                <i style={{ width: `${pct}%` }} />
+                <b style={{ left: `${pct}%` }} />
+                <input
+                    type="range"
+                    min={0}
+                    max={360}
+                    step={5}
+                    value={shown}
+                    onChange={e => setDrag(Number(e.target.value))}
+                    onPointerUp={commit}
+                    onBlur={commit}
+                />
+            </span>
             <span className="val">{Math.round(shown)}°</span>
         </div>
     );
@@ -178,6 +209,90 @@ export function RotSlider({ value, onCommit }: { value: number; onCommit: (v: nu
 // Заголовок группы внутри вкладки
 export function Subhead({ children }: { children: React.ReactNode }) {
     return <div className="sub-h">{children}</div>;
+}
+
+// Пределы размеров модели: множитель к вписыванию и сторона в метрах
+const SCALE_MIN = 0.1;
+const SCALE_MAX = 5;
+const SIDE_MIN = 0.1;
+const SIDE_MAX = 20;
+
+// Размер модели: пропорционально одним множителем либо каждая сторона своей величиной
+export function ModelSize({
+    model,
+    machine,
+    onDraft,
+    onApply,
+}: {
+    model: SurroundModel;
+    // Габарит, от которого стороны стартуют при переходе к раздельному режиму
+    machine?: { length: number; width: number; height: number };
+    // Значение во время тяги: только в форму, без запроса
+    onDraft: (patch: Partial<SurroundModel>) => void;
+    onApply: (patch: Partial<SurroundModel>) => void;
+}) {
+    const side = (key: 'length' | 'width' | 'height') => model[key] || machine?.[key] || 0;
+
+    const sideField = (key: 'length' | 'width' | 'height', label: string) => (
+        <JoystickField
+            label={label}
+            value={side(key)}
+            min={SIDE_MIN}
+            max={SIDE_MAX}
+            decimals={2}
+            onChange={v => onDraft({ [key]: v })}
+            onLive={v => onApply({ [key]: v })}
+            onInput={v => onApply({ [key]: v })}
+        />
+    );
+
+    return (
+        <>
+            <div className="seg" role="group" aria-label="Размер модели">
+                <button
+                    type="button"
+                    className={model.stretch ? '' : 'is-on'}
+                    onClick={() => model.stretch && onApply({ stretch: false })}
+                >
+                    Пропорционально
+                </button>
+                <button
+                    type="button"
+                    className={model.stretch ? 'is-on' : ''}
+                    onClick={() =>
+                        !model.stretch &&
+                        onApply({
+                            stretch: true,
+                            length: side('length'),
+                            width: side('width'),
+                            height: side('height'),
+                        })
+                    }
+                >
+                    По сторонам
+                </button>
+            </div>
+
+            {model.stretch ? (
+                <>
+                    {sideField('length', 'Длина, м')}
+                    {sideField('width', 'Ширина, м')}
+                    {sideField('height', 'Высота, м')}
+                </>
+            ) : (
+                <JoystickField
+                    label="Размер, × к габариту"
+                    value={model.scale}
+                    min={SCALE_MIN}
+                    max={SCALE_MAX}
+                    decimals={2}
+                    onChange={v => onDraft({ scale: v })}
+                    onLive={v => onApply({ scale: v })}
+                    onInput={v => onApply({ scale: v })}
+                />
+            )}
+        </>
+    );
 }
 
 // Селект модели из библиотеки .glb
@@ -332,6 +447,7 @@ function PoseSlider({
     const [drag, setDrag] = useState<number | null>(null);
     const shown = drag ?? value;
     const changed = Math.abs(value - base) > 1e-6;
+    const posePct = max > min ? Math.max(0, Math.min(100, ((shown - min) / (max - min)) * 100)) : 0;
 
     const commit = () => {
         if (drag !== null && drag !== value) onCommit(drag);
@@ -342,17 +458,20 @@ function PoseSlider({
         <div className="tf">
             <span className="tf-cap">{label}</span>
             <div className="tf-range">
-                <input
-                    className="rng"
-                    type="range"
-                    min={min}
-                    max={max}
-                    step={0.5}
-                    value={shown}
-                    onChange={e => setDrag(Number(e.target.value))}
-                    onPointerUp={commit}
-                    onBlur={commit}
-                />
+                <span className="track">
+                    <i style={{ width: `${posePct}%` }} />
+                    <b style={{ left: `${posePct}%` }} />
+                    <input
+                        type="range"
+                        min={min}
+                        max={max}
+                        step={0.5}
+                        value={shown}
+                        onChange={e => setDrag(Number(e.target.value))}
+                        onPointerUp={commit}
+                        onBlur={commit}
+                    />
+                </span>
                 <span className="val" style={changed ? { color: 'var(--acc)' } : undefined}>
                     {shown.toFixed(1)}
                 </span>
@@ -377,6 +496,7 @@ export function SurroundPanel({
     placeNames,
     onError,
     onApplyResolution,
+    orbit,
 }: SurroundPanelProps) {
     const [cfg, setCfg] = useState<SurroundConfig | null>(null);
     const [place, setPlace] = useState<string | null>(null);
@@ -420,6 +540,18 @@ export function SurroundPanel({
         if (cfg && cfg.model.rotation % 90 !== 0) setFreeAngle(true);
     }, [cfg]);
 
+    // Линкер поднимает вывод всегда в автооблёте: сохранённый флаг досылается один раз на подъём
+    const orbitAppliedRef = useRef<string | null>(null);
+    useEffect(() => {
+        if (!cfg || !orbit.canSend) return;
+        if (orbitAppliedRef.current === orbit.sessionKey) return;
+        const firstSight = orbitAppliedRef.current === null;
+        orbitAppliedRef.current = orbit.sessionKey;
+        // Открытие раздела подъёмом не считается: живой режим устройства главнее сохранённого флага
+        if (firstSight) return;
+        if (cfg.orbit.interactive !== orbit.manual) orbit.setMode(cfg.orbit.interactive);
+    }, [cfg, orbit.canSend, orbit.sessionKey, orbit.manual, orbit.setMode]);
+
     // Перепечка идёт в цикле кадра: свежие позы забираются с задержкой
     const scheduleRefetch = useCallback(() => {
         window.clearTimeout(refreshTimer.current);
@@ -455,6 +587,11 @@ export function SurroundPanel({
         },
         [cfg, exportId, scheduleRefetch, refetch, onError],
     );
+
+    // Тяга джойстика: значение видно сразу, на сервер оно уходит отдельным apply раз в 100 мс
+    const draftModel = useCallback((patch: Partial<SurroundModel>) => {
+        setCfg(prev => (prev ? { ...prev, model: { ...prev.model, ...patch } } : prev));
+    }, []);
 
     // Отправка накопленной позы немедленно: смена места не должна её терять
     const flushPose = useCallback(() => {
@@ -597,10 +734,18 @@ export function SurroundPanel({
                     onCommit={v => apply({ orbit: { height: v } })} />
                 <Range label="Скорость облёта" value={cfg.orbit.speed} min={0} max={1} step={0.05}
                     onCommit={v => apply({ orbit: { speed: v } })} />
-                <Switch on={cfg.orbit.interactive}
-                    onToggle={v => apply({ orbit: { interactive: v } })}>
-                    Ручное вращение на отображении
-                </Switch>
+                <span data-tip={orbit.canSend ? undefined : 'Доступно при просмотре потока'}>
+                    <Switch
+                        on={orbit.manual}
+                        disabled={!orbit.canSend || orbit.pending}
+                        onToggle={v => {
+                            apply({ orbit: { interactive: v } });
+                            orbit.setMode(v);
+                        }}
+                    >
+                        Ручное вращение на отображении
+                    </Switch>
+                </span>
             </>
         );
     }
@@ -699,18 +844,13 @@ export function SurroundPanel({
                     onToggleFree={() => setFreeAngle(!freeAngle)}
                     onCommit={deg => apply({ model: { rotation: deg } })} />
 
-                <Subhead>Размеры, м</Subhead>
-                <div className="tf-row">
-                    <Num label="Длина" value={cfg.model.length || null}
-                        placeholder={m.length.toFixed(2)}
-                        onCommit={v => apply({ model: { length: Math.max(0, v) } })} />
-                    <Num label="Ширина" value={cfg.model.width || null}
-                        placeholder={m.width.toFixed(2)}
-                        onCommit={v => apply({ model: { width: Math.max(0, v) } })} />
-                    <Num label="Высота" value={cfg.model.height || null}
-                        placeholder={m.height.toFixed(2)}
-                        onCommit={v => apply({ model: { height: Math.max(0, v) } })} />
-                </div>
+                <Subhead>Размер</Subhead>
+                <ModelSize
+                    model={cfg.model}
+                    machine={m}
+                    onDraft={patch => draftModel(patch)}
+                    onApply={patch => apply({ model: patch })}
+                />
                 <Range label="Прозрачность" value={1 - cfg.model.alpha} min={0} max={1} step={0.05}
                     fmt={v => `${Math.round(v * 100)}%`}
                     onCommit={v => apply({ model: { alpha: Number((1 - v).toFixed(2)) } })} />

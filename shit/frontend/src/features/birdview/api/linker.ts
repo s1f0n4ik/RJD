@@ -89,6 +89,8 @@ export interface LinkerStatus {
      */
     width: number;
     height: number;
+    /** Орбита в ручном режиме прямо сейчас; при старте вывода всегда false */
+    orbitManual: boolean;
 }
 
 /** Привязка «ключ позиции → id камеры». */
@@ -139,6 +141,10 @@ export interface SurroundModel {
     rotation: number;
     /** Файл .glb из библиотеки моделей; пусто — параллелепипед. */
     source: string;
+    /** Множитель к вписыванию в габарит; работает в пропорциональном режиме. */
+    scale: number;
+    /** Каждая сторона тянется своей величиной, вписывание не равномерное. */
+    stretch: boolean;
 }
 
 /** Действующая поза камеры из печки: метры от центра габарита и градусы. */
@@ -384,6 +390,7 @@ export const linkerApi = {
             viewMode: normalizeViewMode(data.view_mode),
             width: Number(data.width) || 0,
             height: Number(data.height) || 0,
+            orbitManual: Boolean(data.orbit_manual),
         };
     },
 
@@ -528,6 +535,8 @@ export const linkerApi = {
                 alpha: num(model.alpha, 1),
                 rotation: num(model.rotation, 0),
                 source: typeof model.source === 'string' ? model.source : '',
+                scale: num(model.scale, 1) || 1,
+                stretch: model.stretch === true,
             },
             plate: d.plate !== false,
             plateLength: num(d.plate_length, 0),
@@ -613,6 +622,8 @@ export const linkerApi = {
                 alpha: num(model.alpha, 1),
                 rotation: num(model.rotation, 0),
                 source: typeof model.source === 'string' ? model.source : '',
+                scale: num(model.scale, 1) || 1,
+                stretch: model.stretch === true,
             },
             resolution: {
                 width: num(d.resolution?.width, 0),

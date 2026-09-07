@@ -18,6 +18,9 @@ import { SurroundPanel } from './SurroundPanel';
 import type { SurroundTab } from './SurroundPanel';
 import { TopPanel } from './TopPanel';
 import { StreamPlayer } from '../shared/StreamPlayer';
+import type { StreamPlayerSend } from '../shared/StreamPlayer';
+import type { PlayerMessage } from '../../../../components/webrtc/useWebRTCPlayer';
+import { describeError } from '../../../../components/webrtc/error-codes';
 import { wsUrl } from '../../constants';
 import { useToast } from '../common/Toast';
 import { ConfirmModal } from '../common/ConfirmModal';
@@ -33,6 +36,12 @@ const STATUS_POLL_MS = 5_000;
 const START_POLL_MS = 1_000;
 const START_TIMEOUT_MS = 20_000;
 
+// Сколько ждём подтверждения смены режима вращения
+const ORBIT_TIMEOUT_MS = 5_000;
+
+// Сколько после подтверждения опрос не правит тумблер: запрос статуса мог уйти до команды
+const ORBIT_SETTLE_MS = 1_500;
+
 // Идентификатор по умолчанию — тот же, с которым линкер стартовал всегда
 const DEFAULT_STREAM_ID = 'birdview_linker';
 
@@ -46,6 +55,7 @@ const EMPTY_STATUS: LinkerStatus = {
     viewMode: 'top',
     width: 0,
     height: 0,
+    orbitManual: false,
 };
 
 const DEFAULT_PARAMS: LinkerParams = {
@@ -99,6 +109,23 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
     const startingRef = useRef(starting);
     startingRef.current = starting;
 
+    // Автовыбор конфигурации — один раз за жизнь экрана, дальше выбор за оператором
+    const autoPickedRef = useRef(false);
+
+    // Режим орбиты живёт на устройстве: команда идёт в сигналинг плеера, ответ подтверждает
+    const orbitSendRef = useRef<StreamPlayerSend | null>(null);
+    const orbitTimerRef = useRef<number | null>(null);
+    const [orbitManual, setOrbitManual] = useState(false);
+    const [orbitPending, setOrbitPending] = useState(false);
+    // Флаги читаются в эффекте синхронизации, но не будят его: будит только новый ответ опроса
+    const orbitPendingRef = useRef(false);
+    orbitPendingRef.current = orbitPending;
+    const orbitSettledAtRef = useRef(0);
+    const statusSeenRef = useRef<LinkerStatus | null>(null);
+    // Номер подъёма вывода: по нему панель досылает сохранённый режим ровно один раз
+    const [orbitSession, setOrbitSession] = useState(0);
+    const runningRef = useRef(false);
+
     // fps правится черновиком: зажатие в 1..60 на каждое нажатие не даёт набрать «15»
     const [fpsDraft, setFpsDraft] = useState(String(DEFAULT_PARAMS.fps));
 
@@ -147,6 +174,14 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
                 setExports(exps);
                 setCameras(cams);
                 setStatus(st);
+
+                // Первое открытие подхватывает конфигурацию линкера: идёт вывод — поток, стоит — схема
+                if (autoPickedRef.current) return;
+                autoPickedRef.current = true;
+                const active = st.exportId ? exps.find(e => e.id === st.exportId) : undefined;
+                if (!active) return;
+                void selectExport(active);
+                if (st.running && st.streamId) setView('stream');
             })
             .catch((e: unknown) => {
                 if (alive) toastError('Не удалось загрузить', e);
@@ -182,6 +217,73 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
         const watchable = status.running && status.exportId === selected?.id && status.streamId;
         if (!watchable) setView('plan');
     }, [status.running, status.exportId, status.streamId, selected?.id, view, starting]);
+
+    const settleOrbit = useCallback(() => {
+        setOrbitPending(false);
+        orbitPendingRef.current = false;
+        orbitSettledAtRef.current = Date.now();
+        if (orbitTimerRef.current) {
+            window.clearTimeout(orbitTimerRef.current);
+            orbitTimerRef.current = null;
+        }
+    }, []);
+
+    useEffect(() => () => {
+        if (orbitTimerRef.current) window.clearTimeout(orbitTimerRef.current);
+    }, []);
+
+    // Опрос правит тумблер: чужое переключение и перезапуск вывода сбрасывают режим на устройстве
+    useEffect(() => {
+        // Смена собственных флагов эффект не будит: иначе ответ устройства затирается прежним опросом
+        if (statusSeenRef.current === status) return;
+        statusSeenRef.current = status;
+
+        if (orbitPendingRef.current) return;
+        if (Date.now() - orbitSettledAtRef.current < ORBIT_SETTLE_MS) return;
+        setOrbitManual(status.running ? status.orbitManual : false);
+    }, [status]);
+
+    // Вывод подняли не с этого экрана: подъём виден по переходу статуса
+    useEffect(() => {
+        if (status.running === runningRef.current) return;
+        runningRef.current = status.running;
+        if (status.running) setOrbitSession(n => n + 1);
+    }, [status.running]);
+
+    // Ответ приходит только на смену режима: успех фиксирует, отказ оставляет как было
+    const handlePlayerMessage = useCallback(
+        (msg: PlayerMessage) => {
+            if (msg.type !== 'orbit') return;
+            settleOrbit();
+
+            if (msg.ret === 'success') {
+                const description = String(msg.description ?? '');
+                if (description.startsWith('mode=')) setOrbitManual(description === 'mode=manual');
+                return;
+            }
+            const info = describeError(msg);
+            showToast('Режим вращения не применён', info.text, 'err');
+        },
+        [settleOrbit, showToast],
+    );
+
+    const setOrbitMode = useCallback(
+        (manual: boolean): boolean => {
+            const send = orbitSendRef.current;
+            if (!send || !send({ type: 'orbit', mode: manual ? 'manual' : 'auto' })) {
+                showToast('Режим вращения не применён', 'Нет связи с устройством', 'err');
+                return false;
+            }
+            setOrbitPending(true);
+            orbitTimerRef.current = window.setTimeout(() => {
+                orbitTimerRef.current = null;
+                setOrbitPending(false);
+                showToast('Режим вращения не применён', 'Устройство не ответило', 'err');
+            }, ORBIT_TIMEOUT_MS);
+            return true;
+        },
+        [showToast],
+    );
 
     const selectExport = async (exp: LinkerExport) => {
         setSelected(exp);
@@ -245,7 +347,10 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
         while (Date.now() < deadline) {
             try {
                 const st = await linkerApi.getStatus();
-                if (st.running && st.streamId) return st;
+                if (st.running && st.streamId) {
+                    setOrbitSession(n => n + 1);
+                    return st;
+                }
             } catch {
                 // Сеть моргнула — пробуем дальше до таймаута
             }
@@ -439,13 +544,19 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
     // Смотреть можно только конфигурацию в эфире: у остальных вкладка вела бы на чужую картинку
     const canWatch = isLive && Boolean(status.streamId);
 
-    const exportOptions = exports.map(exp => ({
-        value: exp.id,
-        label: exp.name || exp.id,
-        // Без ректа габарита и картинок мир не отмасштабировать
-        hint: exp.valid ? `${exp.cameras?.length ?? 0} мест · ${exp.id}` : 'нет габарита',
-        disabled: !exp.valid,
-    }));
+    const exportOptions = exports.map(exp => {
+        const onAir = status.running && status.exportId === exp.id;
+        return {
+            value: exp.id,
+            label: exp.name || exp.id,
+            // Без ректа габарита и картинок мир не отмасштабировать
+            hint: onAir
+                ? 'в эфире'
+                : exp.valid ? `${exp.cameras?.length ?? 0} мест · ${exp.id}` : 'нет габарита',
+            disabled: !exp.valid,
+            dot: onAir ? ('ok' as const) : undefined,
+        };
+    });
 
     const tabs = params.viewMode === 'surround' ? SURROUND_TABS : TOP_TABS;
     const fieldsLocked = !selected || isLive;
@@ -532,6 +643,9 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
                                         key={`linker-${status.streamId}-${status.viewMode}-${status.width}x${status.height}`}
                                         cameraId={status.streamId}
                                         signalingUrl={wsUrl(`/signaling/client/${status.streamId}`)}
+                                        onMessage={handlePlayerMessage}
+                                        sendRef={orbitSendRef}
+                                        gesture={status.viewMode === 'surround' && orbitManual}
                                     />
                                 </div>
                             )}
@@ -686,6 +800,14 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
                             placeNames={placeNames}
                             onError={toastError}
                             onApplyResolution={applyResolution}
+                            orbit={{
+                                manual: orbitManual,
+                                pending: orbitPending,
+                                // Команда уходит только через сигналинг открытого плеера
+                                canSend: view === 'stream' && Boolean(status.streamId),
+                                sessionKey: `${status.streamId ?? ''}-${orbitSession}`,
+                                setMode: setOrbitMode,
+                            }}
                         />
                     ) : params.viewMode === 'top' && selected ? (
                         <TopPanel

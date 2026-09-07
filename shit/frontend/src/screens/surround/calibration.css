@@ -60,37 +60,6 @@
 .sv-calib .snapbar .acts{margin-left:auto;display:flex;gap:6px}
 .sv-calib .snapbar .icon-btn{background:var(--panel);border-color:var(--line-hi)}
 
-/* ── Коррекция: значение в подписи, дорожка во всю ширину ── */
-.sv-calib .rng{display:flex;flex-direction:column;gap:5px}
-.sv-calib .rng.is-off{opacity:.4;pointer-events:none}
-.sv-calib .rng-cap{display:flex;align-items:center;gap:8px}
-.sv-calib .rng-box{margin-left:auto;flex:0 0 66px;width:66px;height:22px;display:flex;align-items:center;justify-content:flex-end;padding:0 7px;border:1px solid var(--line);border-radius:5px;background:var(--input);font-family:var(--mono);font-size:11px;color:var(--fg);font-variant-numeric:tabular-nums}
-.sv-calib .rng input[type=range]{width:100%;height:22px;margin:0;padding:0;background:transparent;accent-color:var(--acc);cursor:pointer}
-.sv-calib .rng input[type=range]:focus{outline:none}
-
-/* ── Коэффициент: поле с якорем-джойстиком ── */
-.sv-calib .jf{position:relative;display:flex;align-items:center;height:32px;background:var(--input);border:1px solid var(--line);border-radius:6px;transition:border-color .2s,box-shadow .2s}
-.sv-calib .jf:hover{border-color:var(--line-hi)}
-.sv-calib .jf.is-live{border-color:var(--acc-dim);box-shadow:0 0 0 2px rgba(var(--acc-rgb),.15)}
-.sv-calib .jf-scale{position:absolute;inset:0;border-radius:5px;overflow:hidden;pointer-events:none;display:none}
-.sv-calib .jf.is-live .jf-scale{display:block}
-.sv-calib .jf-zero{position:absolute;top:0;bottom:0;left:50%;width:1px;background:var(--line-hi)}
-.sv-calib .jf-fill{position:absolute;top:0;bottom:0;height:auto;border-radius:0;background:rgba(var(--acc-rgb),.22);border-left:1px solid rgba(var(--acc-rgb),.6);border-right:1px solid rgba(var(--acc-rgb),.6)}
-.sv-calib .jf-in{position:relative;flex:1;min-width:0;height:100%;padding:0 4px 0 10px;background:none;border:none;outline:none;color:var(--fg);font-family:var(--mono);font-size:12px;font-variant-numeric:tabular-nums}
-.sv-calib .jf-dir{position:relative;font-family:var(--mono);font-size:9.5px;color:var(--acc);white-space:nowrap;padding-right:4px}
-.sv-calib .jf-grip{position:relative;flex:0 0 22px;width:22px;height:30px;display:grid;place-items:center;cursor:ns-resize;color:var(--fg-3);border-left:1px solid var(--line);touch-action:none;user-select:none}
-.sv-calib .jf-grip:hover{color:var(--fg-2)}
-.sv-calib .jf.is-live .jf-grip{color:var(--acc)}
-.sv-calib .jf-grip .ico{width:13px;height:13px}
-
-/* ── Ползунок по разметке макета: дорожка с заливкой и ручкой ── */
-.sv-calib .rng .tf-range{position:relative;height:22px;gap:0}
-.sv-calib .rng .tf-range .track{flex:1}
-.sv-calib .rng .tf-range input[type=range]{position:absolute;inset:0;width:100%;height:100%;margin:0;padding:0;opacity:0;cursor:pointer}
-.sv-calib .rng .tf-range input[type=range]:focus-visible+.track,
-.sv-calib .rng .tf-range input[type=range]:focus-visible~.track{outline:none}
-.sv-calib .rng .tf-range:focus-within .track{border-color:var(--acc-dim);box-shadow:0 0 0 2px rgba(var(--acc-rgb),.15)}
-
 /* ── Подсказки правой панели: у края экрана центрирование уводит их за кромку ── */
 .mod-side [data-tip]:hover::after{left:auto;right:0;transform:none}
 

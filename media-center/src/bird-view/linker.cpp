@@ -457,6 +457,10 @@ namespace birdview {
 			{ "model", "alpha",    EFieldKind::NumAlpha,      SURROUND_DIRTY_VISUAL },
 			{ "model", "rotation", EFieldKind::NumAny,        SURROUND_DIRTY_VISUAL },
 			{ "model", "source",   EFieldKind::SourceName,    SURROUND_DIRTY_VISUAL },
+			// Множитель к вписыванию в габарит; работает, пока stretch выключен
+			{ "model", "scale",    EFieldKind::NumPositive,   SURROUND_DIRTY_VISUAL },
+			// Каждая сторона тянется своей величиной, вписывание не равномерное
+			{ "model", "stretch",  EFieldKind::Flag,          SURROUND_DIRTY_VISUAL },
 			{ nullptr, "plate",       EFieldKind::Flag,           SURROUND_DIRTY_VISUAL },
 			{ nullptr, "wireframe",   EFieldKind::Flag,           SURROUND_DIRTY_VISUAL },
 			{ nullptr, "photometric", EFieldKind::Flag,           SURROUND_DIRTY_VISUAL },
@@ -709,7 +713,8 @@ namespace birdview {
 		boost::json::object orbit{ {"distance", 3.4}, {"height", 2.0}, {"speed", 0.25},
 			{"interactive", false} };
 		boost::json::object model{ {"length", 0.0}, {"width", 0.0}, {"height", 0.0},
-			{"alpha", 1.0}, {"rotation", 0.0}, {"source", ""} };
+			{"alpha", 1.0}, {"rotation", 0.0}, {"source", ""},
+			{"scale", 1.0}, {"stretch", false} };
 		boost::json::object resolution{ {"width", constants::SURROUND_WIDTH},
 			{"height", constants::SURROUND_HEIGHT} };
 
@@ -787,6 +792,8 @@ namespace birdview {
 			{ "model", "alpha",    EFieldKind::NumAlpha,       TOP_DIRTY_VISUAL },
 			{ "model", "rotation", EFieldKind::NumAny,         TOP_DIRTY_VISUAL },
 			{ "model", "source",   EFieldKind::SourceName,     TOP_DIRTY_VISUAL },
+			{ "model", "scale",    EFieldKind::NumPositive,    TOP_DIRTY_VISUAL },
+			{ "model", "stretch",  EFieldKind::Flag,           TOP_DIRTY_VISUAL },
 			// Ширина шва применяется перепечкой весов, не dirty-флагом
 			{ nullptr, "blend",        EFieldKind::NumPositive,    0 },
 			{ nullptr, "photometric",  EFieldKind::Flag,           TOP_DIRTY_VISUAL },
@@ -1042,7 +1049,8 @@ namespace birdview {
 
 		// Дефолты совпадают с печкой и рендерером, поверх - сохранённое
 		boost::json::object model{ {"length", 0.0}, {"width", 0.0}, {"height", 0.0},
-			{"alpha", 1.0}, {"rotation", 0.0}, {"source", ""} };
+			{"alpha", 1.0}, {"rotation", 0.0}, {"source", ""},
+			{"scale", 1.0}, {"stretch", false} };
 		if (const auto* g = js::obj(cfg, "model")) {
 			for (const auto& kv : *g) model[kv.key()] = kv.value();
 		}

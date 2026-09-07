@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { Switch } from '../../../../app/Modal';
-import { Icon } from '../../../../app/Icons';
 import type { Distortion } from './useDistortion';
 import type { SliderKey } from '../../api/ws-types';
+import { JoystickField } from '../shared/JoystickField';
 
 // Блок «Коррекция»: ползунки и коэффициенты. Панорама — отдельный блок ниже
 
@@ -146,189 +146,56 @@ function DistortionSlider({ sliderKey, distortion, off }: SliderProps) {
     );
 }
 
-// Ход якоря до полного отклонения
-const MAX_PULL = 84;
-// За сколько секунд полностью отклонённый джойстик проходит весь диапазон
-const FULL_SWING_SEC = 6;
-// Как часто новое значение уходит на калибратор, пока идёт тяга
-const SEND_MS = 100;
 // Сколько держим защиту от эха после отпускания: ответы на команды тяги приходят с задержкой
 const SETTLE_MS = 600;
 
 function CoefField({ sliderKey, distortion }: SliderProps) {
     const cfg = distortion.configs[sliderKey];
-    const value = distortion.values[sliderKey];
-    const [draft, setDraft] = useState(() => Number(value).toFixed(cfg.decimals));
-    const [pull, setPull] = useState(0);
-    const [dragging, setDragging] = useState(false);
+    const value = Number(distortion.values[sliderKey]);
 
-    const gripRef = useRef<HTMLSpanElement>(null);
-    const rafRef = useRef(0);
     const settleRef = useRef<number | null>(null);
-    const pullRef = useRef(0);
-    const startYRef = useRef(0);
-    const lastTsRef = useRef(0);
-    const lastSentRef = useRef(0);
-    const valueRef = useRef(value);
-    valueRef.current = value;
-
-    const distortionRef = useRef(distortion);
-    distortionRef.current = distortion;
-
-    // Значение пришло с сервера, из ползунка или из джойстика
-    useEffect(() => {
-        setDraft(Number(value).toFixed(cfg.decimals));
-    }, [value, cfg.decimals]);
+    const pendingRef = useRef(false);
 
     // Коммит уходит после того, как новое значение попало в состояние
-    const pendingRef = useRef(false);
     useEffect(() => {
         if (!pendingRef.current) return;
         pendingRef.current = false;
         distortion.commit(sliderKey);
     }, [value]);
 
-    const commit = () => {
-        const parsed = Number(draft.replace(',', '.'));
-        if (!Number.isFinite(parsed)) {
-            setDraft(Number(value).toFixed(cfg.decimals));
-            return;
-        }
-        if (parsed === value) return;
-        pendingRef.current = true;
-        distortion.setValue(sliderKey, parsed);
-    };
-
-    // Джойстик: отклонение задаёт скорость, а не само значение
-    const tick = (now: number) => {
-        rafRef.current = requestAnimationFrame(tick);
-
-        const dt = Math.min(0.05, (now - lastTsRef.current) / 1000);
-        lastTsRef.current = now;
-
-        const t = Math.max(-1, Math.min(1, pullRef.current / MAX_PULL));
-        if (t !== 0) {
-            const span = (cfg.max - cfg.min) / FULL_SWING_SEC;
-            const next = valueRef.current + t * Math.abs(t) * span * dt;
-            const clamped = Math.max(cfg.min, Math.min(cfg.max, next));
-            if (clamped !== valueRef.current) distortionRef.current.setValue(sliderKey, clamped);
-        }
-
-        // Значение в валуе-рефе хука отстаёт на кадр, поэтому шлём по таймеру, а не следом за setValue
-        if (now - lastSentRef.current >= SEND_MS) {
-            lastSentRef.current = now;
-            distortionRef.current.commit(sliderKey);
-        }
-    };
-
-    const stopDrag = () => {
-        if (!rafRef.current) return;
-        cancelAnimationFrame(rafRef.current);
-        rafRef.current = 0;
-        pullRef.current = 0;
-        setPull(0);
-        setDragging(false);
-
-        // Кадром позже: к этому моменту последнее значение уже лежит в хуке
-        requestAnimationFrame(() => distortionRef.current.commit(sliderKey));
-
-        // Защиту снимаем не сразу: ответы на команды тяги ещё в пути и откатили бы значение
+    const holdOff = () => {
         if (settleRef.current) window.clearTimeout(settleRef.current);
         settleRef.current = window.setTimeout(() => {
             settleRef.current = null;
-            distortionRef.current.setHeld(null);
+            distortion.setHeld(null);
         }, SETTLE_MS);
     };
 
     useEffect(() => () => {
-        if (rafRef.current) cancelAnimationFrame(rafRef.current);
         if (settleRef.current) window.clearTimeout(settleRef.current);
     }, []);
 
-    // Курсор мог уйти мимо сценария: потеря захвата, отпускание вне окна, уход со вкладки
-    useEffect(() => {
-        if (!dragging) return;
-        const end = () => stopDragRef.current();
-        window.addEventListener('pointerup', end);
-        window.addEventListener('pointercancel', end);
-        window.addEventListener('blur', end);
-        return () => {
-            window.removeEventListener('pointerup', end);
-            window.removeEventListener('pointercancel', end);
-            window.removeEventListener('blur', end);
-        };
-    }, [dragging]);
-
-    const stopDragRef = useRef(stopDrag);
-    stopDragRef.current = stopDrag;
-
-    const onGripDown = (e: React.PointerEvent) => {
-        e.preventDefault();
-        gripRef.current?.setPointerCapture(e.pointerId);
-        startYRef.current = e.clientY;
-        pullRef.current = 0;
-        setPull(0);
-        setDragging(true);
-        if (settleRef.current) {
-            window.clearTimeout(settleRef.current);
-            settleRef.current = null;
-        }
-        distortion.setHeld(sliderKey);
-        lastTsRef.current = performance.now();
-        lastSentRef.current = performance.now();
-        rafRef.current = requestAnimationFrame(tick);
-    };
-
-    const onGripMove = (e: React.PointerEvent) => {
-        if (!rafRef.current) return;
-        pullRef.current = startYRef.current - e.clientY;
-        setPull(Math.max(-1, Math.min(1, pullRef.current / MAX_PULL)));
-    };
-
-    const live = dragging;
-    // Минимум 8%: при слабой тяге полоска иначе вырождается в нитку
-    const width = pull === 0 ? 0 : 8 + Math.abs(pull) * 42;
-
     return (
-        <div className="tf">
-            <span className="tf-cap">{LABELS[sliderKey]}</span>
-            <div className={`jf${live ? ' is-live' : ''}`}>
-                <span className="jf-scale">
-                    <i className="jf-zero" />
-                    <i
-                        className="jf-fill"
-                        style={{ width: `${width}%`, left: pull >= 0 ? '50%' : `${50 - width}%` }}
-                    />
-                </span>
-                <input
-                    className="jf-in"
-                    value={draft}
-                    onChange={e => setDraft(e.target.value)}
-                    onFocus={() => distortion.setHeld(sliderKey)}
-                    onBlur={() => {
-                        distortion.setHeld(null);
-                        commit();
-                    }}
-                    onKeyDown={e => {
-                        if (e.key === 'Enter') e.currentTarget.blur();
-                    }}
-                />
-                {pull !== 0 && (
-                    <span className="jf-dir">{`${pull > 0 ? '▲' : '▼'} ${Math.round(Math.abs(pull) * 100)}%`}</span>
-                )}
-                <span
-                    ref={gripRef}
-                    className="jf-grip"
-                    data-tip="Тяните вверх или вниз"
-                    onPointerDown={onGripDown}
-                    onPointerMove={onGripMove}
-                    onPointerUp={stopDrag}
-                    onPointerCancel={stopDrag}
-                    onLostPointerCapture={stopDrag}
-                >
-                    <Icon name="grip" size={13} className="ico" />
-                </span>
-            </div>
-        </div>
+        <JoystickField
+            label={LABELS[sliderKey]}
+            value={value}
+            min={cfg.min}
+            max={cfg.max}
+            decimals={cfg.decimals}
+            onChange={v => distortion.setValue(sliderKey, v)}
+            onLive={() => distortion.commit(sliderKey)}
+            onInput={v => {
+                pendingRef.current = true;
+                distortion.setValue(sliderKey, v);
+            }}
+            onGrab={() => {
+                if (settleRef.current) {
+                    window.clearTimeout(settleRef.current);
+                    settleRef.current = null;
+                }
+                distortion.setHeld(sliderKey);
+            }}
+            onRelease={holdOff}
+        />
     );
 }

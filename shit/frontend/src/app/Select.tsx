@@ -9,6 +9,8 @@ export interface SelectOption {
     disabled?: boolean;
     /** Выбирается, но помечен как неподходящий — приглушённый */
     muted?: boolean;
+    /** Цветная точка перед подписью: состояние варианта */
+    dot?: 'ok' | 'warn' | 'err' | 'acc';
 }
 
 interface SelectProps {
@@ -179,7 +181,10 @@ export function Select({ value, options, onChange, disabled, placeholder, emptyT
                             onMouseDown={e => e.preventDefault()}
                             onClick={() => pick(option)}
                         >
-                            <span className="lbl">{option.label}</span>
+                            <span className="lbl">
+                                {option.dot && <span className={`dot ${option.dot}`} />}
+                                <span className="lbl-t">{option.label}</span>
+                            </span>
                             {option.hint && <span className="hint-t">{option.hint}</span>}
                         </div>
                     ))}

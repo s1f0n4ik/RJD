@@ -434,7 +434,8 @@
 /* Подсказка под названием, а не рядом: в узком селекте она не сжималась
    и выдавливала имя в многоточие */
 .uisel-opt{display:flex;flex-direction:column;gap:1px;justify-content:center;min-height:32px;padding:5px 10px;border-radius:6px;font-size:12.5px;color:var(--fg-2);cursor:pointer}
-.uisel-opt .lbl{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.uisel-opt .lbl{display:flex;align-items:center;gap:7px;min-width:0}
+.uisel-opt .lbl-t{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .uisel-opt .hint-t{font-family:var(--mono);font-size:10.5px;color:var(--fg-3);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .uisel-opt.is-active{background:rgba(var(--acc-rgb),.14);color:var(--fg)}
 .uisel-opt.is-selected{color:var(--acc);font-weight:600}
@@ -569,3 +570,43 @@ select.sel:disabled{opacity:.45;cursor:not-allowed}
 .modal-text{font-size:13.5px;line-height:1.55;color:var(--fg-2)}
 .toast b{display:block;font-weight:600}
 .toast-desc{color:var(--fg-2);font-size:12.5px;margin-top:2px}
+
+/* Слой жестов орбиты 360: позицию и размер ведёт хук по прямоугольнику кадра */
+.orbit-gest{position:absolute;top:0;left:0;width:0;height:0;z-index:10;touch-action:none;cursor:grab}
+.orbit-gest.is-drag{cursor:grabbing}
+
+/* ── Ползунок и поле-джойстик: значение в подписи, дорожка во всю ширину (родом из калибровки 360) ── */
+/* ── Коррекция: значение в подписи, дорожка во всю ширину ── */
+.rng{display:flex;flex-direction:column;gap:5px}
+.rng.is-off{opacity:.4;pointer-events:none}
+.rng-cap{display:flex;align-items:center;gap:8px}
+.rng-box{margin-left:auto;flex:0 0 66px;width:66px;height:22px;display:flex;align-items:center;justify-content:flex-end;padding:0 7px;border:1px solid var(--line);border-radius:5px;background:var(--input);font-family:var(--mono);font-size:11px;color:var(--fg);font-variant-numeric:tabular-nums}
+.rng input[type=range]{width:100%;height:22px;margin:0;padding:0;background:transparent;accent-color:var(--acc);cursor:pointer}
+.rng input[type=range]:focus{outline:none}
+
+/* ── Коэффициент: поле с якорем-джойстиком ── */
+.jf{position:relative;display:flex;align-items:center;height:32px;background:var(--input);border:1px solid var(--line);border-radius:6px;transition:border-color .2s,box-shadow .2s}
+.jf:hover{border-color:var(--line-hi)}
+.jf.is-live{border-color:var(--acc-dim);box-shadow:0 0 0 2px rgba(var(--acc-rgb),.15)}
+.jf-scale{position:absolute;inset:0;border-radius:5px;overflow:hidden;pointer-events:none;display:none}
+.jf.is-live .jf-scale{display:block}
+.jf-zero{position:absolute;top:0;bottom:0;left:50%;width:1px;background:var(--line-hi)}
+.jf-fill{position:absolute;top:0;bottom:0;height:auto;border-radius:0;background:rgba(var(--acc-rgb),.22);border-left:1px solid rgba(var(--acc-rgb),.6);border-right:1px solid rgba(var(--acc-rgb),.6)}
+.jf-in{position:relative;flex:1;min-width:0;height:100%;padding:0 4px 0 10px;background:none;border:none;outline:none;color:var(--fg);font-family:var(--mono);font-size:12px;font-variant-numeric:tabular-nums}
+.jf-dir{position:relative;font-family:var(--mono);font-size:9.5px;color:var(--acc);white-space:nowrap;padding-right:4px}
+.jf-grip{position:relative;flex:0 0 22px;width:22px;height:30px;display:grid;place-items:center;cursor:ns-resize;color:var(--fg-3);border-left:1px solid var(--line);touch-action:none;user-select:none}
+.jf-grip:hover{color:var(--fg-2)}
+.jf.is-live .jf-grip{color:var(--acc)}
+.jf-grip .ico{width:13px;height:13px}
+
+/* ── Ползунок по разметке макета: дорожка с заливкой и ручкой ── */
+.rng .tf-range{position:relative;height:22px;gap:0}
+.rng .tf-range .track{flex:1}
+.rng .tf-range input[type=range]{position:absolute;inset:0;width:100%;height:100%;margin:0;padding:0;opacity:0;cursor:pointer}
+.rng .tf-range input[type=range]:focus-visible+.track,
+.rng .tf-range input[type=range]:focus-visible~.track{outline:none}
+.rng .tf-range:focus-within .track{border-color:var(--acc-dim);box-shadow:0 0 0 2px rgba(var(--acc-rgb),.15)}
+
+/* Ползунок в строке со значением: нативный вход лежит поверх дорожки прозрачным, зона захвата шире неё */
+.tf-range .track input[type=range]{position:absolute;left:0;top:-9px;width:100%;height:22px;margin:0;padding:0;opacity:0;cursor:pointer}
+.tf-range .track:focus-within{border-color:var(--acc-dim);box-shadow:0 0 0 2px rgba(var(--acc-rgb),.15)}

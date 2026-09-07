@@ -1469,6 +1469,12 @@ namespace calibration {
 			result[constants::META_K4] = m_calibration.distortion_coeffs.at<double>(3, 0);
 		}
 
+		// Чем жил калибратор до прихода клиента: камера, поток и набор снимков
+		result[constants::META_CAMERA_ID_FIELD] = m_camera_id;
+		result[constants::JSON_IS_STREAMING] = (m_streamer != nullptr);
+		result[constants::META_ID_STREAM] = constants::CALIBRATION_STREAM_ID;
+		result[constants::META_COUNT] = static_cast<int64_t>(m_calibration_images.size());
+
 		result[constants::META_SHOW_CHESSBOARD] = m_to_show_chessboard;
 		result[constants::META_SHOW_UNDISTORTION] = m_apply_undistort;
 		// Пустая строка — коррекция не из сохранённой конфигурации

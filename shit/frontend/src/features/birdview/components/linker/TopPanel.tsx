@@ -4,7 +4,7 @@ import { Select } from '../../../../app/Select';
 import { linkerApi } from '../../api/linker';
 import type { SurroundModelFile, TopConfig, TopPatch } from '../../api/linker';
 import type { SurroundTab } from './SurroundPanel';
-import { ModelSelect, Num, Range, RotRow, Subhead, clampSide } from './SurroundPanel';
+import { ModelSelect, ModelSize, Num, Range, RotRow, Subhead, clampSide } from './SurroundPanel';
 
 // Настройки плоской сшивки по вкладкам: stream — кадр, scene — версия карт, шов, подложка,
 // model — библиотека .glb, images — рисунки экспорта. Легаси-версия даёт только селект версии
@@ -356,18 +356,14 @@ export function TopPanel({
                 onToggleFree={() => setFreeAngle(!freeAngle)}
                 onCommit={deg => apply({ model: { rotation: deg } })} />
 
-            <Subhead>Размеры, м</Subhead>
-            <div className="tf-row">
-                <Num label="Длина" value={cfg.model.length || null}
-                    placeholder="габарит"
-                    onCommit={v => apply({ model: { length: Math.max(0, v) } })} />
-                <Num label="Ширина" value={cfg.model.width || null}
-                    placeholder="габарит"
-                    onCommit={v => apply({ model: { width: Math.max(0, v) } })} />
-                <Num label="Высота" value={cfg.model.height || null}
-                    placeholder="габарит"
-                    onCommit={v => apply({ model: { height: Math.max(0, v) } })} />
-            </div>
+            <Subhead>Размер</Subhead>
+            <ModelSize
+                model={cfg.model}
+                onDraft={patch =>
+                    setCfg(prev => (prev ? { ...prev, model: { ...prev.model, ...patch } } : prev))
+                }
+                onApply={patch => apply({ model: patch })}
+            />
             <Range label="Прозрачность" value={1 - cfg.model.alpha} min={0} max={1} step={0.05}
                 fmt={v => `${Math.round(v * 100)}%`}
                 onCommit={v => apply({ model: { alpha: Number((1 - v).toFixed(2)) } })} />

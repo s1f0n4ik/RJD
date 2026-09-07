@@ -15,6 +15,8 @@ interface CameraPanelProps {
     streamOpen: boolean;
     pending: boolean;
     wsReady: boolean;
+    // Камера прошлой сессии калибратора: подставляется, пока оператор не выбрал свою
+    restoreId: string | null;
     onToggleStream: () => void;
     onLoadConfiguration: () => void;
 }
@@ -27,6 +29,7 @@ export function CameraPanel({
     streamOpen,
     pending,
     wsReady,
+    restoreId,
     onToggleStream,
     onLoadConfiguration,
 }: CameraPanelProps) {
@@ -46,6 +49,13 @@ export function CameraPanel({
             alive = false;
         };
     }, []);
+
+    // Список приходит позже статуса, поэтому подстановка ждёт его здесь
+    useEffect(() => {
+        if (camera || !restoreId || cameras.length === 0) return;
+        const found = cameras.find(c => c.id === restoreId);
+        if (found) onSelectCamera(found);
+    }, [camera, restoreId, cameras, onSelectCamera]);
 
     const streamLabel = pending ? 'Подключение…' : streamOpen ? 'Остановить' : 'Запустить';
 

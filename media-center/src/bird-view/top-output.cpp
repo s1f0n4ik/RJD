@@ -37,7 +37,9 @@ namespace birdview {
 			static_cast<float>(js::num(model, "width", 0.0)),
 			static_cast<float>(js::num(model, "height", 0.0)),
 			static_cast<float>(js::num(model, "length", 0.0)),
-			static_cast<float>(js::num(model, "alpha", 1.0)));
+			static_cast<float>(js::num(model, "alpha", 1.0)),
+			static_cast<float>(js::num(model, "scale", 1.0)),
+			js::flag(model, "stretch", false));
 		m_renderer.set_model_rotation(static_cast<float>(js::num(model, "rotation", 0.0)));
 		m_renderer.set_plate(js::flag(cfg, "plate", true));
 		m_renderer.set_plate_size(

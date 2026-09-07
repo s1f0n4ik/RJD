@@ -92,7 +92,8 @@ namespace birdview {
 		void set_scene(const cv::Rect2f& machine_rect_px,
 			float machine_w_m, float machine_h_m, float machine_l_m,
 			float px_per_m);
-		void set_model(float width, float height, float length, float alpha);
+		void set_model(float width, float height, float length, float alpha,
+			float scale, bool stretch);
 		void set_model_rotation(float degrees) { m_model_rot = degrees; }
 		bool set_model_mesh(const FSurroundModel& model);
 		void clear_model_mesh();
@@ -219,6 +220,8 @@ namespace birdview {
 		float m_model_h = 0.0f;
 		float m_model_l = 0.0f;
 		float m_model_alpha = 1.0f;
+		float m_model_scale = 1.0f;
+		bool m_model_stretch = false;
 		float m_model_rot = 0.0f;
 		bool m_plate_visible = true;
 		// Свои размеры подложки в метрах; 0 - габарит с запасом

@@ -10,8 +10,6 @@
 .sv-link .blk-b .spin{margin:24px auto}
 .sv-link .sv-foot .spin{border-color:rgba(8,16,31,.3);border-top-color:#08101f}
 
-/* Нативный слайдер вместо трека макета */
-.sv-link .rng{flex:1;min-width:0;height:32px;margin:0;padding:0;accent-color:var(--acc);background:none;cursor:pointer}
 .sv-link .rot .tf-range{flex:1;height:28px}
 .sv-link .rot .chip{box-sizing:border-box}
 .sv-link .chip:disabled{opacity:.4;cursor:not-allowed}
