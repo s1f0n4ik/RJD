@@ -728,9 +728,11 @@ export function SurroundPanel({
                 </button>
 
                 <Subhead>Орбита</Subhead>
-                <Range label="Дистанция" value={cfg.orbit.distance} min={1} max={8} step={0.1}
+                <Range label="Дистанция · × вылета чаши" value={cfg.orbit.distance}
+                    min={0.2} max={4} step={0.05}
                     onCommit={v => apply({ orbit: { distance: v } })} />
-                <Range label="Высота" value={cfg.orbit.height} min={0.2} max={5} step={0.1}
+                <Range label="Высота · × стенки чаши" value={cfg.orbit.height}
+                    min={0.2} max={4} step={0.05}
                     onCommit={v => apply({ orbit: { height: v } })} />
                 <Range label="Скорость облёта" value={cfg.orbit.speed} min={0} max={1} step={0.05}
                     onCommit={v => apply({ orbit: { speed: v } })} />

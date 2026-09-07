@@ -710,7 +710,8 @@ namespace birdview {
 		boost::json::object machine{ {"length", 0.0}, {"width", 0.0}, {"height", 0.0} };
 		boost::json::object bowl{ {"floor", 0.9}, {"outer", 1.4}, {"wall", 0.9},
 			{"plate", 1.5}, {"blend", 0.3}, {"corner", 1.0} };
-		boost::json::object orbit{ {"distance", 3.4}, {"height", 2.0}, {"speed", 0.25},
+		// Доли вылета чаши и высоты её стенки, не метры и не доли габарита
+		boost::json::object orbit{ {"distance", 1.6}, {"height", 1.5}, {"speed", 0.25},
 			{"interactive", false} };
 		boost::json::object model{ {"length", 0.0}, {"width", 0.0}, {"height", 0.0},
 			{"alpha", 1.0}, {"rotation", 0.0}, {"source", ""},

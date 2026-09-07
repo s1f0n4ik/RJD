@@ -523,8 +523,8 @@ export const linkerApi = {
                 corner: num(bowl.corner, 1),
             },
             orbit: {
-                distance: num(orbit.distance, 3.4),
-                height: num(orbit.height, 2.0),
+                distance: num(orbit.distance, 1.6),
+                height: num(orbit.height, 1.5),
                 speed: num(orbit.speed, 0.25),
                 interactive: orbit.interactive === true,
             },

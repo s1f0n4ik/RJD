@@ -408,6 +408,16 @@ namespace birdview {
 		return true;
 	}
 
+	float USurroundRenderer::orbit_reach() const {
+		const float side = std::min(m_box_w, m_box_l);
+		return std::max(side * (m_floor_f + m_outer_f), side * 0.25f);
+	}
+
+	float USurroundRenderer::orbit_wall() const {
+		const float side = std::min(m_box_w, m_box_l);
+		return std::max(side * m_wall_f, side * 0.1f);
+	}
+
 	void USurroundRenderer::update(float dt) {
 		bool manual;
 		float dx, dy, dz;
@@ -444,11 +454,11 @@ namespace birdview {
 		// Пересчёт каждый кадр: отъезд зума расширяет угол и сам прижимает взгляд
 		{
 			const float side = std::min(m_box_w, m_box_l);
-			const float off = std::max(m_base * (m_dist_cur - 0.5f), m_base * 0.25f);
+			const float off = orbit_reach() * m_dist_cur;
 			const glm::vec2 pos = orbit_path_point(m_orbit_u,
 				m_box_w * 0.5f, m_box_l * 0.5f, off, m_corner_f);
 			const float d_eye = std::max(std::hypot(pos.x, pos.y), 1e-3f);
-			const float h_eye = m_base * m_orbit_height_f;
+			const float h_eye = orbit_wall() * m_orbit_height_f;
 			// Ближайшая кромка дальней стенки: короткая полуось плюс дно с выносом
 			const float d_rim = side * 0.5f + side * (m_floor_f + m_outer_f);
 			const float h_rim = side * m_wall_f;
@@ -625,12 +635,12 @@ namespace birdview {
 	}
 
 	void USurroundRenderer::render(float aspect) {
-		// Отступ пути от борта: на длинной оси дистанция равна прежнему радиусу
+		// Отступ пути от борта: доля вылета чаши, 1.0 - камера у её кромки
 		const float dist = m_dist_cur > 0.0f ? m_dist_cur : m_orbit_dist_f;
-		const float off = std::max(m_base * (dist - 0.5f), m_base * 0.25f);
+		const float off = orbit_reach() * dist;
 		const glm::vec2 pos = orbit_path_point(m_orbit_u,
 			m_box_w * 0.5f, m_box_l * 0.5f, off, m_corner_f);
-		const glm::vec3 eye{ pos.x, m_base * m_orbit_height_f, pos.y };
+		const glm::vec3 eye{ pos.x, orbit_wall() * m_orbit_height_f, pos.y };
 		const glm::vec3 target{ 0.0f, m_box_h * 0.4f, 0.0f };
 
 		glm::vec3 dir = glm::normalize(target - eye);
@@ -673,23 +683,32 @@ namespace birdview {
 			const float tw = m_model_w > 0 ? m_model_w : m_box_w;
 			const float th = m_model_h > 0 ? m_model_h : m_box_h;
 			const float tl = m_model_l > 0 ? m_model_l : m_box_l;
+			// Габарит после поворота: развёрнутая модель меряется той стороной машины, вдоль которой легла
+			const float rot = glm::radians(m_model_rot);
+			const float ca = std::abs(std::cos(rot));
+			const float sa = std::abs(std::sin(rot));
+			const glm::vec3 fit{
+				size.x * ca + size.z * sa,
+				size.y,
+				size.x * sa + size.z * ca };
 			// Раздельный режим тянет каждую ось своей величиной, равномерный вписывает по самой тесной
 			glm::vec3 axes(1.0f);
 			if (m_model_stretch) {
-				if (size.x > 1e-6f) axes.x = tw / size.x;
-				if (size.y > 1e-6f) axes.y = th / size.y;
-				if (size.z > 1e-6f) axes.z = tl / size.z;
+				if (fit.x > 1e-6f) axes.x = tw / fit.x;
+				if (fit.y > 1e-6f) axes.y = th / fit.y;
+				if (fit.z > 1e-6f) axes.z = tl / fit.z;
 			}
 			else {
 				float s = std::numeric_limits<float>::max();
-				if (size.x > 1e-6f) s = std::min(s, tw / size.x);
-				if (size.y > 1e-6f) s = std::min(s, th / size.y);
-				if (size.z > 1e-6f) s = std::min(s, tl / size.z);
+				if (fit.x > 1e-6f) s = std::min(s, tw / fit.x);
+				if (fit.y > 1e-6f) s = std::min(s, th / fit.y);
+				if (fit.z > 1e-6f) s = std::min(s, tl / fit.z);
 				if (s == std::numeric_limits<float>::max()) s = 1.0f;
 				axes = glm::vec3(s * m_model_scale);
 			}
-			model_mat = glm::rotate(glm::mat4(1.0f), glm::radians(m_model_rot), glm::vec3(0, 1, 0))
-				* glm::scale(glm::mat4(1.0f), axes)
+			// Масштаб идёт по мировым осям, поэтому стоит снаружи поворота
+			model_mat = glm::scale(glm::mat4(1.0f), axes)
+				* glm::rotate(glm::mat4(1.0f), rot, glm::vec3(0, 1, 0))
 				* glm::translate(glm::mat4(1.0f),
 					glm::vec3(-center.x, -m_model_bbox_min.y, -center.z));
 		}

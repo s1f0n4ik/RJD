@@ -502,24 +502,33 @@ namespace birdview {
                     const float tw = m_model_w > 0 ? m_model_w : m_machine_w;
                     const float th = m_model_h > 0 ? m_model_h : m_machine_h;
                     const float tl = m_model_l > 0 ? m_model_l : m_machine_l;
+                    // Габарит после поворота: развёрнутая модель меряется той стороной машины, вдоль которой легла
+                    const float rot = glm::radians(m_model_rot);
+                    const float ca = std::abs(std::cos(rot));
+                    const float sa = std::abs(std::sin(rot));
+                    const glm::vec3 fit{
+                        size.x * ca + size.z * sa,
+                        size.y,
+                        size.x * sa + size.z * ca };
                     // Раздельный режим тянет каждую ось своей величиной, равномерный вписывает по самой тесной
                     glm::vec3 axes(1.0f);
                     if (m_model_stretch) {
-                        if (size.x > 1e-6f && tw > 0) axes.x = tw / size.x;
-                        if (size.y > 1e-6f && th > 0) axes.y = th / size.y;
-                        if (size.z > 1e-6f && tl > 0) axes.z = tl / size.z;
+                        if (fit.x > 1e-6f && tw > 0) axes.x = tw / fit.x;
+                        if (fit.y > 1e-6f && th > 0) axes.y = th / fit.y;
+                        if (fit.z > 1e-6f && tl > 0) axes.z = tl / fit.z;
                     }
                     else {
                         float s = std::numeric_limits<float>::max();
-                        if (size.x > 1e-6f && tw > 0) s = std::min(s, tw / size.x);
-                        if (size.y > 1e-6f && th > 0) s = std::min(s, th / size.y);
-                        if (size.z > 1e-6f && tl > 0) s = std::min(s, tl / size.z);
+                        if (fit.x > 1e-6f && tw > 0) s = std::min(s, tw / fit.x);
+                        if (fit.y > 1e-6f && th > 0) s = std::min(s, th / fit.y);
+                        if (fit.z > 1e-6f && tl > 0) s = std::min(s, tl / fit.z);
                         if (s == std::numeric_limits<float>::max()) s = 1.0f;
                         axes = glm::vec3(s * m_model_scale);
                     }
+                    // Масштаб идёт по мировым осям, поэтому стоит снаружи поворота
                     const glm::mat4 model_mat =
-                        glm::rotate(identity, glm::radians(m_model_rot), glm::vec3(0, 1, 0))
-                        * glm::scale(identity, axes)
+                        glm::scale(identity, axes)
+                        * glm::rotate(identity, rot, glm::vec3(0, 1, 0))
                         * glm::translate(identity,
                             glm::vec3(-center.x, -m_model_bbox_min.y, -center.z));
                     glUniformMatrix4fv(u_model, 1, GL_FALSE, glm::value_ptr(model_mat));

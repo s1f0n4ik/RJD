@@ -51,6 +51,9 @@ namespace birdview {
 		// Ручное управление орбитой, зовётся из потока сокета камеры
 		// true - автооблёт стоит, камеру двигают дельты; false - облёт с текущей точки
 		void set_orbit_mode(bool manual);
+		// Вылет чаши от борта и высота её стенки: опора орбиты
+		float orbit_reach() const;
+		float orbit_wall() const;
 		// Нормированные дельты жеста: доли канваса по осям и шаг зума
 		void apply_orbit_input(float dx, float dy, float dzoom);
 		void set_plate(bool visible);
@@ -129,8 +132,9 @@ namespace birdview {
 		float m_box_l = 13.0f;
 
 		// Живые параметры сцены, правятся ручкой /linker/surround
-		float m_orbit_dist_f = 3.4f;
-		float m_orbit_height_f = 2.0f;
+		// Доли вылета чаши и высоты её стенки: 1.0 - камера у кромки, на уровне верха стенки
+		float m_orbit_dist_f = 1.6f;
+		float m_orbit_height_f = 1.5f;
 		float m_orbit_speed = 0.25f;
 		bool m_plate_visible = true;
 		// Свои размеры подложки в метрах; 0 - от габарита на m_plate_f
