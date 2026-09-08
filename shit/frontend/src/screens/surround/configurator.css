@@ -3,17 +3,33 @@
 .conf-area canvas{display:block;width:100%;height:100%;touch-action:none}
 .sv-conf .zoom .num{color:var(--fg-2)}
 .sv-conf .mod-side.is-dragging{opacity:.2}
-.sv-conf .blk-h .icon-btn.add{cursor:grab;touch-action:none}
-.sv-conf .blk-h .icon-btn.add:active{cursor:grabbing}
+/* Кнопки добавления выделены акцентом: это единственное действие в шапке блока */
+.sv-conf .blk-h .icon-btn.add{border-color:var(--acc-dim);color:var(--acc)}
+.sv-conf .blk-h .icon-btn.add:hover:not([disabled]){border-color:var(--acc);background:rgba(var(--acc-rgb),.12);color:var(--acc)}
+.sv-conf .blk-h .icon-btn.add.grab{cursor:grab;touch-action:none}
+.sv-conf .blk-h .icon-btn.add.grab:active{cursor:grabbing}
 .sv-conf .blk-b.list{padding-bottom:10px}
 .sv-conf .blk-b.list.is-empty{padding:0;border-bottom:none}
 .sv-conf .blk-b.pad.mat{padding-bottom:6px;border-bottom:none}
 .sv-conf .blk-b.pad.mat .tf{flex:none}
 .sv-conf .zrow{cursor:pointer}
 .sv-conf .zrow .key.is-warn{color:var(--warn)}
-.sv-conf .zrow-edit{padding:4px 10px 8px 42px}
-.sv-conf .zrow-edit .tf-in{height:28px;font-size:11.5px}
-.sv-conf .zrow-edit .tf-cap{font-size:9.5px}
+/* Карточка камеры: строка и поля — один блок, обведённый цветом самой камеры */
+.sv-conf .camrow{border:1px solid transparent;border-radius:var(--r);transition:border-color .18s ease,background .18s ease,box-shadow .18s ease}
+.sv-conf .camrow.is-open{border-color:var(--cam);background:var(--bg);box-shadow:0 8px 20px rgba(0,0,0,.35)}
+/* Обводит карточка целиком, поэтому строка внутри своих рамок и подложки не имеет */
+.sv-conf .camrow.is-open .zrow.is-sel{background:none;border-color:transparent}
+.sv-conf .camrow-edit{max-height:0;opacity:0;visibility:hidden;overflow:hidden;transform:translateY(-4px);transition:max-height .18s ease,opacity .16s ease,transform .18s ease,visibility 0s linear .18s}
+.sv-conf .camrow.is-open .camrow-edit{max-height:120px;opacity:1;visibility:visible;transform:none;transition:max-height .2s ease,opacity .18s ease .02s,transform .2s ease,visibility 0s}
+.sv-conf .camrow-edit-in{padding:0 10px 9px 42px}
+.sv-conf .camrow-edit .tf-in{height:28px;font-size:11.5px}
+.sv-conf .camrow-edit .tf-cap{font-size:9.5px}
+@media (prefers-reduced-motion: reduce){
+  .sv-conf .camrow,.sv-conf .camrow-edit{transition:none}
+}
+
+/* Плашка состояния габарита стоит вплотную к кнопке, а не посреди шапки */
+.sv-conf .blk-h .tag.spacer+.icon-btn.add{margin-left:-6px}
 .sv-conf .cam-icon.img{background:var(--panel-2);color:var(--fg-2)}
 .sv-conf .sv-foot .tf{flex:none}
 .sv-conf .sv-foot .tf-cap .spacer{color:var(--save)}
@@ -43,3 +59,12 @@
 .pp-zone{fill:rgba(87,214,154,.14);stroke:var(--ok);stroke-width:1.5}
 .pp-gab{fill:none;stroke:var(--save);stroke-width:2;stroke-dasharray:8 5}
 .pp-label{font-family:var(--mono);fill:var(--fg-2);pointer-events:none}
+
+/* Меню элемента по правой кнопке: узкая карточка в точке клика */
+.conf-menu{position:fixed;z-index:80;width:210px;display:flex;flex-direction:column;gap:7px;padding:9px;background:var(--panel-2);border:1px solid var(--line-hi);border-radius:var(--r);box-shadow:var(--shadow-lg)}
+.conf-menu-h{display:flex;align-items:center;gap:8px}
+.conf-menu-h .num{font-size:10.5px;color:var(--fg-3);text-align:right}
+.conf-menu .kv{display:flex;gap:8px;font-size:11.5px}
+.conf-menu .kv .k{color:var(--fg-3)}
+.conf-menu .kv .v{margin-left:auto;font-family:var(--mono);color:var(--fg-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.conf-menu-acts{display:flex;flex-direction:column;gap:6px;margin-top:1px}

@@ -15,6 +15,9 @@ export const CANVAS_COLORS = {
     base: '#12141a',
     // Плашка под подписью на поле конфигуратора — цвет панели
     panelBackdrop: 'rgba(35, 40, 51, 0.90)',
+    // Сетка поля: холодная штриховка от --fg-3, каждая пятая линия заметнее
+    gridLine: 'rgba(123, 134, 152, 0.13)',
+    gridMajor: 'rgba(123, 134, 152, 0.30)',
     shadow: 'rgba(0, 0, 0, 0.55)',
     labelBackdrop: 'rgba(0, 0, 0, 0.70)',
 } as const;

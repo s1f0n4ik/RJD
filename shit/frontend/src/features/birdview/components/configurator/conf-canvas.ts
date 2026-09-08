@@ -6,6 +6,11 @@ import { CANVAS_COLORS } from '../../styles/canvas-colors';
 // мутации confState, RAF-цикла нет, React в отрисовке не участвует.
 // Мировые координаты — метры, view.scale — экранных пикселей на метр.
 
+// Мельче этого клетка не рисуется: шаг сетки берётся кратным, сама сетка не пропадает
+const GRID_MIN_CELL_PX = 8;
+const GRID_MULTS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000];
+const GRID_MAJOR_EVERY = 5;
+
 // Габарит рисуется своим цветом, а не акцентным: он не часть выделения
 const GABARIT_COLOR = '#E8A33D';
 const GABARIT_FILL = 'rgba(232,163,61,0.08)';
@@ -432,23 +437,38 @@ function drawGrid(c: CanvasRenderingContext2D): void {
     c.fillStyle = CANVAS_COLORS.panelBackdrop;
     c.fillRect(tl.x, tl.y, fw, fh);
 
-    // Сетка
-    const stepPx = s * v.scale * dpr;
-    if (stepPx > 6) {
-        c.strokeStyle = 'rgba(37,37,48,0.6)';
-        c.lineWidth = 1;
-        c.beginPath();
-        for (let wx = s; wx < f.w; wx += s) {
-            const { x } = worldToCanvas(wx, 0);
-            c.moveTo(x, tl.y);
-            c.lineTo(x, br.y);
-        }
-        for (let wy = s; wy < f.h; wy += s) {
-            const { y } = worldToCanvas(0, wy);
-            c.moveTo(tl.x, y);
-            c.lineTo(br.x, y);
-        }
-        c.stroke();
+    // Сетка: мелкая клетка не гасит её, а огрубляет шаг до ближайшего кратного
+    const cellPx = s * v.scale * dpr;
+    let mult = 1;
+    if (cellPx > 0 && cellPx < GRID_MIN_CELL_PX) {
+        const need = GRID_MIN_CELL_PX / cellPx;
+        mult = GRID_MULTS.find(n => n >= need) ?? GRID_MULTS[GRID_MULTS.length - 1];
+    }
+    const gs = s * mult;
+    if (gs > 0) {
+        // Два прохода: тонкая штриховка и заметная линия каждые пять клеток — по ней считают шаги
+        const pass = (major: boolean) => {
+            c.strokeStyle = major ? CANVAS_COLORS.gridMajor : CANVAS_COLORS.gridLine;
+            c.lineWidth = major ? 1.4 * dpr : 1;
+            c.beginPath();
+            let n = 1;
+            for (let wx = gs; wx < f.w; wx += gs, n++) {
+                if ((n % GRID_MAJOR_EVERY === 0) !== major) continue;
+                const { x } = worldToCanvas(wx, 0);
+                c.moveTo(x, tl.y);
+                c.lineTo(x, br.y);
+            }
+            n = 1;
+            for (let wy = gs; wy < f.h; wy += gs, n++) {
+                if ((n % GRID_MAJOR_EVERY === 0) !== major) continue;
+                const { y } = worldToCanvas(0, wy);
+                c.moveTo(tl.x, y);
+                c.lineTo(br.x, y);
+            }
+            c.stroke();
+        };
+        pass(false);
+        pass(true);
     }
 
     // Рамка поля
@@ -597,9 +617,14 @@ function drawSelection(c: CanvasRenderingContext2D): void {
 
     const hs = HANDLE_SIZE * dpr;
 
+    // Выделение носит цвет самого элемента: на поле их различают по цвету, а не по рамке
+    const color = sel.type === 'gabarit'
+        ? GABARIT_COLOR
+        : 'color' in item && typeof item.color === 'string' ? item.color : CANVAS_COLORS.accent;
+
     // Рамка. Ручек у разметки нет вовсе: сторона квадрата общая и меняется
     // полем «Сторона мата» в панели, поворот считается на лету по камере
-    c.strokeStyle = CANVAS_COLORS.accent;
+    c.strokeStyle = color;
     c.lineWidth = 2 * dpr;
     c.setLineDash([6 * dpr, 3 * dpr]);
     c.strokeRect(tl.x, tl.y, w, h);
@@ -616,9 +641,13 @@ function drawSelection(c: CanvasRenderingContext2D): void {
             [tl.x + w / 2, br.y],
             [br.x, br.y],
         ];
-        c.fillStyle = CANVAS_COLORS.accent;
+        // Тёмный кант вокруг ручки: на заливке своего же цвета она иначе теряется
+        c.fillStyle = color;
+        c.strokeStyle = CANVAS_COLORS.base;
+        c.lineWidth = 1 * dpr;
         for (const [px, py] of handles) {
             c.fillRect(px - hs, py - hs, hs * 2, hs * 2);
+            c.strokeRect(px - hs, py - hs, hs * 2, hs * 2);
         }
     }
 
@@ -626,7 +655,7 @@ function drawSelection(c: CanvasRenderingContext2D): void {
     if (sel.type === 'gabarit') drawGabaritGaps(c, item);
 
     // Угол над верхней гранью
-    c.fillStyle = CANVAS_COLORS.accent;
+    c.fillStyle = color;
     c.font = `${10 * dpr}px monospace`;
     c.textAlign = 'left';
     c.textBaseline = 'bottom';
@@ -874,7 +903,7 @@ function drawCameraIcons(c: CanvasRenderingContext2D): void {
         c.strokeRect(0, -lensH / 2, lensL, lensH);
 
         if (isSelected) {
-            c.strokeStyle = CANVAS_COLORS.accent;
+            c.strokeStyle = cam.color;
             c.lineWidth = 1.5 * dpr;
             c.setLineDash([4 * dpr, 3 * dpr]);
             c.strokeRect(

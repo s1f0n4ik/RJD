@@ -16,7 +16,7 @@ import { confSelectTool, confToggleCrosshair } from './conf-actions';
 import { ConfiguratorPanel } from './ConfiguratorPanel';
 import { ExportModal } from './ExportModal';
 import { AddZoneModal } from './AddZoneModal';
-import { ElementModal } from './ElementModal';
+import { ElementMenu } from './ElementMenu';
 import { LoadPresetModal } from './LoadPresetModal';
 import { importPreset } from './conf-import';
 import { linkerPath } from '../../api/linker';
@@ -64,7 +64,10 @@ export function ConfiguratorScreen({ active }: ConfiguratorScreenProps) {
     const [exportOpen, setExportOpen] = useState(false);
     const [loadOpen, setLoadOpen] = useState(false);
     const [addZoneOpen, setAddZoneOpen] = useState(false);
-    const [elementMenu, setElementMenu] = useState<ConfSelection | null>(null);
+    // Меню элемента открывается в точке клика, поэтому вместе с ним живут координаты
+    const [elementMenu, setElementMenu] = useState<
+        { sel: ConfSelection; x: number; y: number } | null
+    >(null);
     const menuRef = useRef(setElementMenu);
     menuRef.current = setElementMenu;
     const showToast = useToast();
@@ -158,7 +161,7 @@ export function ConfiguratorScreen({ active }: ConfiguratorScreenProps) {
             },
             isActive: () => activeRef.current,
             onNotice: (title, desc, type) => toastRef.current(title, desc, type),
-            onElementMenu: sel => menuRef.current(sel),
+            onElementMenu: (sel, point) => menuRef.current({ sel, x: point.x, y: point.y }),
         });
 
         // Слушатель зарегистрирован после обработчика колеса, поэтому видит уже новый масштаб
@@ -206,17 +209,17 @@ export function ConfiguratorScreen({ active }: ConfiguratorScreenProps) {
                         </button>
                     ))}
 
-                    <span className="tbar-sep" />
-                    <button className="btn btn--sm" onClick={() => setLoadOpen(true)}>
-                        <Icon name="arch" />
-                        Загрузить
-                    </button>
                     <button
                         className={`tool ic${confState.showCrosshair ? ' is-on' : ''}`}
                         data-tip="Перекрестие по узлам сетки"
                         onClick={() => confToggleCrosshair(!confState.showCrosshair)}
                     >
                         <Icon name="plus" />
+                    </button>
+                    <span className="tbar-sep" />
+                    <button className="btn btn--sm" onClick={() => setLoadOpen(true)}>
+                        <Icon name="arch" />
+                        Загрузить
                     </button>
 
                     <div className="zoom">
@@ -262,9 +265,11 @@ export function ConfiguratorScreen({ active }: ConfiguratorScreenProps) {
             {addZoneOpen && <AddZoneModal onClose={() => setAddZoneOpen(false)} />}
 
             {elementMenu && (
-                <ElementModal
-                    type={elementMenu.type}
-                    id={elementMenu.id}
+                <ElementMenu
+                    type={elementMenu.sel.type}
+                    id={elementMenu.sel.id}
+                    x={elementMenu.x}
+                    y={elementMenu.y}
                     onClose={() => setElementMenu(null)}
                 />
             )}

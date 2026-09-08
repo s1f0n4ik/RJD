@@ -28,7 +28,7 @@ interface AttachOptions {
     /** Сообщение пользователю (toast). */
     onNotice: (title: string, desc: string, type: 'ok' | 'err' | 'info') => void;
     /** Правая кнопка по элементу: открыть его окно. */
-    onElementMenu: (sel: ConfSelection) => void;
+    onElementMenu: (sel: ConfSelection, point: { x: number; y: number }) => void;
 }
 
 type AnyItem = ConfCamera | ConfZone | ConfImage;
@@ -347,8 +347,8 @@ export function attachConfInteract(canvas: HTMLCanvasElement, opts: AttachOption
     }
 
     /**
-     * Правая кнопка открывает окно элемента и заодно выделяет его, чтобы окно
-     * правило то же, что подсвечено на холсте. Габарит окна не имеет.
+     * Правая кнопка открывает меню элемента в точке клика и заодно выделяет
+     * его, чтобы меню правило то же, что подсвечено на холсте.
      */
     // Обработка живёт здесь, а не в pointerdown: contextmenu приходит после
     // mousedown, и открой мы окно раньше — событие досталось бы backdrop'у
@@ -358,13 +358,13 @@ export function attachConfInteract(canvas: HTMLCanvasElement, opts: AttachOption
 
         const p = canvasToWorld(e.clientX, e.clientY);
         const hit = hitTest(p.x, p.y);
-        if (!hit || hit.type === 'gabarit') return;
+        if (!hit) return;
 
         confState.selected = hit;
         confState.measureRef = null;
         confDraw();
         emitConfChange();
-        opts.onElementMenu(hit);
+        opts.onElementMenu(hit, { x: e.clientX, y: e.clientY });
     }
 
     // Указатель ушёл с холста — превью и перекрестие за ним не тянутся

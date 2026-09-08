@@ -17,7 +17,12 @@ export function CameraList() {
                 const status = keys.status.get(cam.id) ?? 'ok';
                 const keyClass = status === 'error' ? ' is-err' : status === 'warn' ? ' is-warn' : '';
                 return (
-                    <div key={cam.id}>
+                    // Цвет камеры ведёт её опознание: тот же оттенок обводит карточку и элемент на поле
+                    <div
+                        key={cam.id}
+                        className={`camrow${isSelected ? ' is-open' : ''}`}
+                        style={{ '--cam': cam.color } as React.CSSProperties}
+                    >
                         <div
                             className={`zrow${isSelected ? ' is-sel' : ''}`}
                             onClick={() => confSelect({ type: 'camera', id: cam.id })}
@@ -38,8 +43,8 @@ export function CameraList() {
                             </button>
                         </div>
 
-                        {isSelected && (
-                            <div className="zrow-edit">
+                        <div className="camrow-edit">
+                            <div className="camrow-edit-in">
                                 <div className="tf-row">
                                     {/* Ключ — place_key: по нему линкер держит привязку и переносит src_points */}
                                     <div className="tf">
@@ -64,7 +69,7 @@ export function CameraList() {
                                     </div>
                                 </div>
                             </div>
-                        )}
+                        </div>
                     </div>
                 );
             })}

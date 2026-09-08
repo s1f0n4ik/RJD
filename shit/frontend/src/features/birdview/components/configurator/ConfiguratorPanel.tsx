@@ -163,12 +163,17 @@ export function ConfiguratorPanel({ onOpenExport, onOpenAddZone }: ConfiguratorP
             <div className="blk-h">
                 <h3>Габарит</h3>
                 <span className={`tag spacer${gab ? ' is-ok' : ''}`}>{gab ? 'задан' : 'не задан'}</span>
+                {/* Стороны прямоугольника и есть размеры машины */}
+                <button
+                    className="icon-btn add"
+                    data-tip={gab ? 'Обвести габарит заново' : 'Задать габарит'}
+                    aria-label={gab ? 'Обвести габарит заново' : 'Задать габарит'}
+                    onClick={confAddGabarit}
+                >
+                    <Icon name="plus" size={14} className="" />
+                </button>
             </div>
             <div className="blk-b pad">
-                {/* Стороны прямоугольника и есть размеры машины */}
-                <button className="btn btn--sm btn--ghost btn--wide" onClick={confAddGabarit}>
-                    {gab ? 'Выбрать габарит' : 'Задать габарит'}
-                </button>
                 <div className="tf-row">
                     <NumberField
                         label="Длина"
@@ -214,7 +219,7 @@ export function ConfiguratorPanel({ onOpenExport, onOpenAddZone }: ConfiguratorP
                         onCommit={v => confUpdateGabaritPos({ cy: v })}
                     />
                 </div>
-                <button className="btn btn--sm btn--ghost btn--wide" onClick={confCenterGabarit}>
+                <button className="btn btn--sm btn--wide" onClick={confCenterGabarit}>
                     Оцентровать
                 </button>
             </div>
@@ -223,7 +228,7 @@ export function ConfiguratorPanel({ onOpenExport, onOpenAddZone }: ConfiguratorP
                 <h3>Камеры</h3>
                 <span className="eyebrow spacer">{confState.cameras.length}</span>
                 <button
-                    className="icon-btn add"
+                    className="icon-btn add grab"
                     data-tip="Добавить камеру · клик или перетащить на поле"
                     {...cameraDrag}
                 >
@@ -241,7 +246,7 @@ export function ConfiguratorPanel({ onOpenExport, onOpenAddZone }: ConfiguratorP
                     {outside > 0 && ` · ${outside} вне камер`}
                 </span>
                 <button
-                    className="icon-btn add"
+                    className="icon-btn add grab"
                     data-tip="Добавить мат · клик или перетащить на поле"
                     {...zoneDrag}
                 >
