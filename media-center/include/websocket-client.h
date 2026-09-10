@@ -123,6 +123,14 @@ namespace varan {
                         if (self->m_stopping) {
                             return;
                         }
+
+                        // Вне состояния Connected сообщение не ставится в очередь
+                        if (self->m_state != EConnectionState::Connected) {
+                            self->m_logger.debug("dropped outgoing message, "
+                                + std::to_string(message.size()) + " bytes, no connection");
+                            return;
+                        }
+
                         bool write_in_progress = !self->m_send_queue.empty();
 
                         self->m_send_queue.push_back({ message, is_binary });
@@ -178,6 +186,10 @@ namespace varan {
                 }
 
                 m_state = EConnectionState::WaitingRetry;
+
+                // Очередь отправки не переживает обрыв
+                m_send_queue.clear();
+                m_sending = false;
 
                 const auto delay = next_delay();
 
@@ -281,6 +293,10 @@ namespace varan {
                 m_retry_attempts = 0;
 
                 do_read();
+
+                if (!m_send_queue.empty()) {
+                    do_write();
+                }
             }
 
             void do_read() {
