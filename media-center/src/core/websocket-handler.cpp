@@ -23,7 +23,7 @@ namespace varan {
 	void UWebSocketHandler::start_websocket_client(const std::string& url, const std::string& client_name)
 	{
 		if (!m_websocket_client) {
-			m_websocket_client = std::make_unique<neural::UWebSocketClient>(m_io_context, m_ip_adress, m_port, url, client_name);
+			m_websocket_client = std::make_unique<neural::UWebSocketClient>(m_io_context, m_ip_adress, m_port, url, client_name, m_logger.get_level());
 		}
 
 		m_websocket_client->set_message_callback(

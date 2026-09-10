@@ -209,7 +209,6 @@ namespace neural {
 
 		std::shared_ptr<UWebSocketClient> m_websocket_client;
 		boost::asio::io_context m_io_context;
-		//boost::asio::executor_work_guard<boost::asio::io_context::executor_type> m_work_guard;
 
 		std::thread m_websocket_thread;
 

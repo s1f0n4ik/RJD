@@ -3,15 +3,20 @@
 #include <boost/beast.hpp>
 #include <boost/asio.hpp>
 
-#include <iostream>
-#include <deque>
-#include <thread>
-#include <functional>
-#include <string>
-#include <memory>
+#include <algorithm>
+#include <array>
 #include <atomic>
+#include <chrono>
+#include <deque>
+#include <functional>
+#include <memory>
+#include <optional>
+#include <random>
+#include <string>
+#include <thread>
 
 #include "console_utility.h"
+#include "logger.h"
 
 namespace websocket = boost::beast::websocket;
 namespace asio = boost::asio;
@@ -23,6 +28,16 @@ namespace varan {
         class UWebSocketClient
             : public std::enable_shared_from_this<UWebSocketClient>
         {
+        private:
+
+            // Стадия подключения клиента к сигналингу
+            enum class EConnectionState {
+                Idle,
+                Connecting,
+                Connected,
+                WaitingRetry
+            };
+
         public:
             using MessageCallback = std::function<void(const std::string&)>;
 
@@ -33,17 +48,20 @@ namespace varan {
                 const std::string& host,
                 const std::string& port,
                 const std::string& target,
-                const std::string& camera_name
+                const std::string& camera_name,
+                ULogger::ELoggerLevel level = ULogger::ELoggerLevel::DEBUG
             )
 
                 : m_ioc(ioc)
                 , m_strand(asio::make_strand(ioc))
-                , m_resolver(m_strand)
                 , m_timer(m_strand)
+                , m_resolver(m_strand)
+                , m_rng(std::random_device{}())
                 , m_host(host)
                 , m_port(port)
                 , m_target(target)
                 , m_camera_name(camera_name)
+                , m_logger("WebSocket " + camera_name, level)
             {}
 
         public:
@@ -53,9 +71,14 @@ namespace varan {
             }
 
             void run() {
+                // Держит io_context живым, пока клиент не остановлен
+                m_work_guard.emplace(asio::make_work_guard(m_ioc));
+
                 recreate_ws();
 
-                log_connect("Starting connection...");
+                m_state = EConnectionState::Connecting;
+
+                m_logger.debug("connecting to " + m_host + ":" + m_port + m_target);
 
                 start_resolve();
             }
@@ -72,20 +95,23 @@ namespace varan {
                     m_strand,
                     [self = shared_from_this()]()
                     {
-                        boost::beast::error_code ec;
-
                         self->m_timer.cancel();
                         self->m_resolver.cancel();
                         self->m_send_queue.clear();
                         self->m_sending = false;
                         self->m_message_callback = nullptr;
+                        self->m_state = EConnectionState::Idle;
 
                         if (self->m_ws && self->m_ws->is_open()) {
                             self->m_ws->async_close(
                                 websocket::close_code::normal,
                                 [self](boost::beast::error_code) {
-                                    self->log_connect("WebSocket closed");
+                                    self->m_logger.debug("closed");
+                                    self->m_work_guard.reset();
                                 });
+                        }
+                        else {
+                            self->m_work_guard.reset();
                         }
                     });
             }
@@ -119,19 +145,46 @@ namespace varan {
 
         private:
 
-            void schedule_reconnect() {
+            // Задержки повторов в секундах, последняя действует дальше без роста
+            std::chrono::milliseconds next_delay() {
+                static constexpr std::array<int, 4> steps{ 2, 4, 8, 15 };
+
+                const std::size_t index = std::min(m_retry_attempts, steps.size() - 1);
+                ++m_retry_attempts;
+
+                // Разброс +-20% от базовой задержки
+                std::uniform_real_distribution<double> spread(0.8, 1.2);
+                const double seconds = steps[index] * spread(m_rng);
+
+                return std::chrono::milliseconds(static_cast<long long>(seconds * 1000.0));
+            }
+
+            void schedule_reconnect(const std::string& reason) {
                 if (m_stopping) {
                     return;
                 }
 
-                bool expected = false;
-
-                if (!m_reconnecting.compare_exchange_strong(expected, true)) {
+                // Таймер уже взведён другой веткой
+                if (m_state == EConnectionState::WaitingRetry) {
                     return;
                 }
 
-                log_error("Will retry connection in 10 seconds...");
-                m_timer.expires_after(std::chrono::seconds(10));
+                if (m_disconnected_at == std::chrono::steady_clock::time_point{}) {
+                    m_disconnected_at = std::chrono::steady_clock::now();
+                    m_logger.warn("signaling connection lost: " + reason);
+                }
+                else {
+                    m_logger.debug("attempt " + std::to_string(m_retry_attempts) + " failed: " + reason);
+                }
+
+                m_state = EConnectionState::WaitingRetry;
+
+                const auto delay = next_delay();
+
+                m_logger.debug("retry " + std::to_string(m_retry_attempts)
+                    + " in " + std::to_string(delay.count()) + " ms");
+
+                m_timer.expires_after(delay);
 
                 m_timer.async_wait(
                     [self = shared_from_this()]
@@ -144,7 +197,7 @@ namespace varan {
                             return;
                         }
 
-                        self->log_connect("Reconnecting...");
+                        self->m_state = EConnectionState::Connecting;
                         self->recreate_ws();
                         self->start_resolve();
                     });
@@ -159,9 +212,12 @@ namespace varan {
                     m_host,
                     m_port,
                     [self = shared_from_this()] (boost::beast::error_code ec, tcp::resolver::results_type results) {
+                        if (ec == asio::error::operation_aborted) {
+                            return;
+                        }
+
                         if (ec) {
-                            self->log_error("Resolve failed: " + ec.message());
-                            self->schedule_reconnect();
+                            self->schedule_reconnect("resolve failed: " + ec.message());
                             return;
                         }
 
@@ -175,17 +231,20 @@ namespace varan {
             }
 
             void on_connect(boost::beast::error_code ec) {
+                if (ec == asio::error::operation_aborted) {
+                    return;
+                }
+
                 if (m_stopping) {
                     return;
                 }
 
                 if (ec){
-                    log_error("Connect failed: " + ec.message());
-                    schedule_reconnect();
+                    schedule_reconnect("connect failed: " + ec.message());
                     return;
                 }
 
-                log_connect("Connected, performing handshake...");
+                m_logger.debug("connected, performing handshake");
 
                 m_ws->async_handshake(
                     m_host,
@@ -201,13 +260,26 @@ namespace varan {
                 }
 
                 if (ec) {
-                    log_error("Handshake failed: " + ec.message());
-                    schedule_reconnect();
+                    schedule_reconnect("handshake failed: " + ec.message());
                     return;
                 }
-                m_reconnecting = false;
 
-                log_connect("Handshake complete. Starting read loop...");
+                m_state = EConnectionState::Connected;
+
+                if (m_disconnected_at != std::chrono::steady_clock::time_point{}) {
+                    const auto downtime = std::chrono::duration_cast<std::chrono::seconds>(
+                        std::chrono::steady_clock::now() - m_disconnected_at).count();
+
+                    m_logger.info("signaling restored after " + std::to_string(downtime)
+                        + " s, attempts " + std::to_string(m_retry_attempts));
+                }
+                else {
+                    m_logger.info("connected to signaling");
+                }
+
+                m_disconnected_at = {};
+                m_retry_attempts = 0;
+
                 do_read();
             }
 
@@ -224,8 +296,7 @@ namespace varan {
                         }
 
                         if (ec) {
-                            self->log_error("Read failed: " + ec.message());
-                            self->schedule_reconnect();
+                            self->schedule_reconnect("read failed: " + ec.message());
                             return;
                         }
 
@@ -270,10 +341,9 @@ namespace varan {
                         }
 
                         if (ec) {
-                            self->log_error("Write failed: " + ec.message());
                             self->m_send_queue.clear();
                             self->m_sending = false;
-                            self->schedule_reconnect();
+                            self->schedule_reconnect("write failed: " + ec.message());
                             return;
                         }
 
@@ -286,44 +356,6 @@ namespace varan {
                             self->m_sending = false;
                         }
                     });
-            }
-
-        private:
-
-            void log_connect(const std::string& msg) {
-                std::cout
-                    << color::yellow
-                    << "[WebSocket " << m_camera_name << "] "
-                    << msg
-                    << color::reset
-                    << std::endl;
-            }
-
-            void log_recv(const std::string& msg) {
-                std::cout
-                    << color::cyan
-                    << "[WebSocket " << m_camera_name << "] "
-                    << msg
-                    << color::reset
-                    << std::endl;
-            }
-
-            void log_send(const std::string& msg) {
-                std::cout
-                    << color::magenta
-                    << "[WebSocket " << m_camera_name << "] "
-                    << msg
-                    << color::reset
-                    << std::endl;
-            }
-
-            void log_error(const std::string& msg) {
-                std::cout
-                    << color::red
-                    << "[WebSocket " << m_camera_name << "] "
-                    << msg
-                    << color::reset
-                    << std::endl;
             }
 
         private:
@@ -345,12 +377,23 @@ namespace varan {
             bool m_sending = false;
 
             std::atomic_bool m_stopping{ false };
-            std::atomic_bool m_reconnecting{ false };
+
+            EConnectionState m_state = EConnectionState::Idle;
+
+            std::size_t m_retry_attempts = 0;
+
+            std::chrono::steady_clock::time_point m_disconnected_at{};
+
+            std::optional<asio::executor_work_guard<asio::io_context::executor_type>> m_work_guard;
+
+            std::mt19937 m_rng;
 
             std::string m_host;
             std::string m_port;
             std::string m_target;
             std::string m_camera_name;
+
+            ULogger m_logger;
 
             MessageCallback m_message_callback;
         };

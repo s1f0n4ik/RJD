@@ -362,7 +362,7 @@ namespace neural {
 		m_io_context.restart();
 
 		if (!m_websocket_client) {
-			m_websocket_client = std::make_shared<UWebSocketClient>(m_io_context, m_socket_options.ip_adress, m_socket_options.port, url, m_options.id);
+			m_websocket_client = std::make_shared<UWebSocketClient>(m_io_context, m_socket_options.ip_adress, m_socket_options.port, url, m_options.id, m_logger.get_level());
 		}
 
 		m_websocket_client->set_message_callback(
