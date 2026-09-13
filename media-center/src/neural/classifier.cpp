@@ -2,109 +2,44 @@
 #include "neural/yolov8.h"
 #include "neural/image-utils.h"
 
-#include <cstring>
-#include <chrono>
-#include <stdexcept>
 #include <algorithm>
+#include <chrono>
 
 namespace varan {
     namespace neural {
-
-        static rknn_core_mask core_index_to_mask(int idx) {
-            switch (idx) {
-            case 0:  return RKNN_NPU_CORE_0;
-            case 1:  return RKNN_NPU_CORE_1;
-            case 2:  return RKNN_NPU_CORE_2;
-            default: return RKNN_NPU_CORE_0;
-            }
-        }
 
         Classifier::Classifier(
             const std::string& model_path,
             const std::vector<FClassInfo>& classes,
             float threshold_nms,
             float confidence_threshold,
-            const std::vector<int>& npu_cores,
+            int depth,
             ULogger* logger)
-            : m_classes(classes)
+            : m_handle(UNpuPool::instance().attach(model_path, std::max(depth, 1), logger))
+            , m_classes(classes)
             , m_threshold_nms(threshold_nms)
             , m_confidence_threshold(confidence_threshold)
             , m_logger(logger)
         {
-            // Дедупликация и валидация списка ядер.
-            std::vector<int> cores = npu_cores;
-            std::sort(cores.begin(), cores.end());
-            cores.erase(std::unique(cores.begin(), cores.end()), cores.end());
-            cores.erase(std::remove_if(cores.begin(), cores.end(),
-                [](int c) { return c < 0 || c > 2; }), cores.end());
+            if (!m_logger) return;
 
-            if (cores.empty()) {
-                cores = { 0, 1, 2 };
-            }
-            m_occupied_cores = cores;
+            const int model_classes = m_handle->master().model_class_count;
+            if (model_classes != static_cast<int>(m_classes.size()))
+                m_logger->warn("Classifier: model has " + std::to_string(model_classes) +
+                    " classes, configuration has " + std::to_string(m_classes.size()) +
+                    " — using first " + std::to_string(std::min<int>(model_classes, m_classes.size())));
 
-            // 1) Master контекст — RAII, при исключении автоматически освободится.
-            auto master = RknnContextGuard::create_master(model_path);
-            master.set_core_mask(core_index_to_mask(cores[0]));
-
-            // Сохраняем указатель на master для дублирования (до move!).
-            const rknn_app_context_t master_snapshot = *master.get();
-
-            m_contexts.reserve(cores.size());
-            m_contexts.push_back(std::move(master));
-
-            // 2) Дублируем для остальных ядер.
-            //    Если create_duplicate бросит исключение — уже созданные
-            //    контексты в m_contexts автоматически освободятся деструкторами.
-            for (size_t i = 1; i < cores.size(); ++i) {
-                try {
-                    auto dup = RknnContextGuard::create_duplicate(master_snapshot);
-                    dup.set_core_mask(core_index_to_mask(cores[i]));
-                    m_contexts.push_back(std::move(dup));
-                }
-                catch (const std::exception& e) {
-                    if (m_logger) m_logger->warn("Classifier: dup context #" +
-                        std::to_string(i) + " failed: " + e.what() +
-                        " — skipping core " + std::to_string(cores[i]));
+            // Номер канала тензора считается индексом класса, поэтому id обязаны идти 0..N-1
+            for (size_t i = 0; i < m_classes.size(); ++i) {
+                if (m_classes[i].id != static_cast<int>(i)) {
+                    m_logger->warn("Classifier: class ids are not dense (index " + std::to_string(i) +
+                        " has id " + std::to_string(m_classes[i].id) + "), channel order is used");
+                    break;
                 }
             }
 
-            // 3) Заполняем пул указателями на «сырые» контексты.
-            for (auto& guard : m_contexts) {
-                m_pool.push(guard.get());
-            }
-
-            if (m_logger) {
-                std::string cores_str;
-                for (int c : m_occupied_cores) cores_str += std::to_string(c) + ",";
-                if (!cores_str.empty()) cores_str.pop_back();
-
-                auto* ctx = m_contexts[0].get();
-                m_logger->info("Classifier: loaded " + model_path +
-                    " (input=" + std::to_string(ctx->model_width) + "x" +
-                    std::to_string(ctx->model_height) +
-                    ", cores=[" + cores_str + "]" +
-                    ", workers=" + std::to_string(m_contexts.size()) + ")");
-            }
-        }
-
-        // Деструктор = default: vector<RknnContextGuard> сам вызовет
-        // деструкторы каждого элемента в правильном порядке.
-
-        rknn_app_context_t* Classifier::acquire_context() {
-            std::unique_lock<std::mutex> lk(m_pool_mutex);
-            m_pool_cv.wait(lk, [this] { return !m_pool.empty(); });
-            auto* ctx = m_pool.front();
-            m_pool.pop();
-            return ctx;
-        }
-
-        void Classifier::release_context(rknn_app_context_t* ctx) {
-            {
-                std::lock_guard<std::mutex> lk(m_pool_mutex);
-                m_pool.push(ctx);
-            }
-            m_pool_cv.notify_one();
+            m_logger->info("Classifier: " + model_path + " depth=" + std::to_string(depth) +
+                " actual=" + std::to_string(depth_actual()));
         }
 
         yolo_inference_result_t Classifier::classify(const cv::Mat& frame,
@@ -126,7 +61,7 @@ namespace varan {
                 return result;
             }
 
-            auto* ctx = acquire_context();
+            auto* ctx = m_handle->acquire();
             const auto t0 = std::chrono::steady_clock::now();
 
             int ret = inference_yolo_rknn(
@@ -135,7 +70,7 @@ namespace varan {
                 result, m_logger);
 
             const auto t1 = std::chrono::steady_clock::now();
-            release_context(ctx);
+            m_handle->release(ctx, ret < 0);
 
             if (m_logger) {
                 const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();

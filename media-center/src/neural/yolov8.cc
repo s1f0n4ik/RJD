@@ -131,6 +131,10 @@ namespace neural {
         printf("model input height=%d, width=%d, channel=%d\n",
             app_ctx->model_height, app_ctx->model_width, app_ctx->model_channel);
 
+        app_ctx->layout = detect_output_layout(*app_ctx, app_ctx->model_class_count);
+        printf("output layout: %s, classes=%d\n",
+            output_layout_name(app_ctx->layout), app_ctx->model_class_count);
+
         return 0;
     }
 
@@ -223,41 +227,31 @@ namespace neural {
             return ret;
         }
 
-        // ── 6) Постпроцесс ──
+        // ── 6) Постпроцесс: декодер по раскладке, затем один NMS ──
         auto* lb = const_cast<letterbox_t*>(&letter_box);  // постпроцесс ждёт указатель
-        if (app_ctx->is_quant && app_ctx->io_num.n_output == 4) {
-            run_postprocess_int8_segmentation(
-                app_ctx->rknn_ctx, outputs, lb, &src_meta,
-                { src_meta.width, src_meta.height,
-                  model_w, model_h, 64, 32,
-                  threshold_nms, conf_threshold, classes },
-                result.detections, result.mask);
+        const input_parameters_t params{
+            src_meta.width, src_meta.height,
+            model_w, model_h, 64, 32,
+            static_cast<int>(classes.size()), conf_threshold };
+
+        switch (app_ctx->layout) {
+        case EOutputLayout::SEGMENTATION: {
+            segmentation_proto_t proto;
+            decode_int8_segmentation(*app_ctx, outputs, lb, params, result.detections, proto);
+            result.detections = apply_nms(result.detections, threshold_nms);
+            build_segmentation_mask(result.detections, proto, lb, params, result.mask);
+            break;
         }
-        else if (app_ctx->is_quant && app_ctx->io_num.n_output == 3) {
-            run_postprocess_int8_format_3(
-                app_ctx->rknn_ctx, outputs, lb, &src_meta,
-                { src_meta.width, src_meta.height,
-                  model_w, model_h, 64, 0,
-                  threshold_nms, conf_threshold, classes },
-                result.detections);
-        }
-        else if (!app_ctx->is_quant && app_ctx->io_num.n_output == 3) {
-            run_postprocess_float32_format_3(
-                *app_ctx, outputs, lb, &src_meta,
-                model_w, model_h, classes.size(),
-                threshold_nms, conf_threshold,
-                result.detections);
-        }
-        else if (!app_ctx->is_quant && app_ctx->io_num.n_output == 1) {
-            run_postprocess_fp_format_1(
-                app_ctx->rknn_ctx, outputs, lb,
-                { src_meta.width, src_meta.height,
-                  model_w, model_h, 64, 0,
-                  threshold_nms, conf_threshold, classes },
-                result.detections, logger);
-        }
-        else {
-            if (logger) logger->error("inference_yolo_rknn(): no matching postprocess branch");
+        case EOutputLayout::SPLIT_LEVELS:
+            decode_split_levels(*app_ctx, outputs, lb, params, result.detections);
+            result.detections = apply_nms(result.detections, threshold_nms);
+            break;
+        case EOutputLayout::SINGLE:
+            decode_single_output(*app_ctx, outputs, lb, params, result.detections);
+            result.detections = apply_nms(result.detections, threshold_nms);
+            break;
+        default:
+            if (logger) logger->error("inference_yolo_rknn(): unknown output layout");
         }
 
         rknn_outputs_release(app_ctx->rknn_ctx, app_ctx->io_num.n_output, outputs.data());

@@ -17,8 +17,6 @@ namespace neural {
 		{
 			"<config_id>": {
 				"name": "Имя",
-				"model_width": 1024,
-				"model_height": 1024,
 				"fps": 25,
 				"thresholds": { "nms": 0.45, "confidence": 0.5 },
 				"model_path": "path/to/model.rknn",
@@ -72,10 +70,7 @@ namespace neural {
 					info.name = v->as_string().c_str();
 				if (auto* v = obj.if_contains("model_path"); v && v->is_string())
 					info.model_path = v->as_string().c_str();
-				if (auto* v = obj.if_contains("model_width"); v && v->is_int64())
-					info.model_width = static_cast<int>(v->as_int64());
-				if (auto* v = obj.if_contains("model_height"); v && v->is_int64())
-					info.model_height = static_cast<int>(v->as_int64());
+				// Размер входа задаёт сама модель, из файла он больше не читается
 				if (auto* v = obj.if_contains("fps"); v && v->is_int64())
 					info.fps = static_cast<int>(v->as_int64());
 
@@ -159,7 +154,7 @@ namespace neural {
 
 		const std::unordered_set<std::string>& allowed_fields() const override {
 			static const std::unordered_set<std::string> fields = {
-				"name", "model_path", "model_width", "model_height", "fps",
+				"name", "model_path", "fps",
 				"thresholds", "classes", "superclasses", "tracker"
 			};
 			return fields;

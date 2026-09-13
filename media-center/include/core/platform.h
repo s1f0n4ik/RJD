@@ -9,16 +9,13 @@
 
 namespace varan {
 
-	// Тип вычислительной площадки и лимиты на число потоков.
+	// Тип вычислительной площадки.
 	//   platform: rk3566 | rk3588 | nvidia | unknown
-	//   mode:     single (1 поток) | cores (по NPU-ядрам) | unlimited
-	//   max_streams: -1 — без ограничений
+	//   npu_cores: только для показа и режима pinned; число слотов не ограничивает
 	struct FPlatformInfo {
 		std::string platform = "unknown";
 		std::string label = "Unknown";
 		int npu_cores = 0;
-		int max_streams = -1;
-		std::string mode = "unlimited";
 	};
 
 	// Определение площадки. Вызывается один раз в main, дальше значение
@@ -28,9 +25,9 @@ namespace varan {
 		// Явное переопределение для стендов/разработки.
 		if (const char* env = std::getenv("VARAN_PLATFORM")) {
 			std::string p = env;
-			if (p == "rk3566") return { "rk3566", "RK3566", 1, 1, "single" };
-			if (p == "rk3588") return { "rk3588", "RK3588", 3, 3, "cores" };
-			if (p == "nvidia") return { "nvidia", "NVIDIA", 0, -1, "unlimited" };
+			if (p == "rk3566") return { "rk3566", "RK3566", 1 };
+			if (p == "rk3588") return { "rk3588", "RK3588", 3 };
+			if (p == "nvidia") return { "nvidia", "NVIDIA", 0 };
 		}
 
 		// Строка совместимости из device-tree (null-разделённый список).
@@ -42,16 +39,15 @@ namespace varan {
 		}
 		auto has = [&](const char* s) { return compat.find(s) != std::string::npos; };
 
-		if (has("rk3588")) return { "rk3588", "RK3588", 3, 3, "cores" };
-		if (has("rk3566")) return { "rk3566", "RK3566", 1, 1, "single" };
-		if (has("nvidia") || has("tegra")) return { "nvidia", "NVIDIA", 0, -1, "unlimited" };
+		if (has("rk3588")) return { "rk3588", "RK3588", 3 };
+		if (has("rk3566")) return { "rk3566", "RK3566", 1 };
+		if (has("nvidia") || has("tegra")) return { "nvidia", "NVIDIA", 0 };
 
 		std::error_code ec;
 		if (std::filesystem::exists("/etc/nv_tegra_release", ec))
-			return { "nvidia", "NVIDIA", 0, -1, "unlimited" };
+			return { "nvidia", "NVIDIA", 0 };
 
-		// Неизвестная площадка — не ограничиваем.
-		return { "unknown", "Unknown", 0, -1, "unlimited" };
+		return { "unknown", "Unknown", 0 };
 	}
 
 } // namespace varan

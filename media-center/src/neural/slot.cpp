@@ -81,7 +81,8 @@ namespace neural {
         , m_config(config)
         , m_cameras(layout_to_matrix(core_config.camera_layout))
         , m_layout(core_config.camera_layout)
-        , m_npu_cores(core_config.npu_cores)
+        , m_depth(std::max(1, core_config.depth))
+        , m_fps_limit(std::max(1, core_config.fps))
         , m_sender(std::move(sender))
         , m_gateway_sender(std::move(gateway_sender))
         , m_time_provider(std::move(time_provider))
@@ -125,15 +126,46 @@ namespace neural {
                 m_config.classes,
                 m_config.thresholds.nms,
                 m_config.thresholds.confidence,
-                m_npu_cores,
+                m_depth,
                 &m_logger
             );
         }
+        catch (const FNeuralError& e) {
+            set_error(e.code, e.what());
+            return false;
+        }
         catch (const std::exception& e) {
-            m_logger.error("ensure_classifier(): " + std::string(e.what()));
+            set_error(signaling::CODE_NEURAL_INIT, e.what());
             return false;
         }
         return true;
+    }
+
+    void USlot::set_error(int code, const std::string& message) {
+        m_logger.error("slot " + m_config.id + ": [" + std::to_string(code) + "] " + message);
+        std::lock_guard<std::mutex> lk(m_error_mutex);
+        m_error_code.store(code);
+        m_error = message;
+    }
+
+    std::string USlot::error() const {
+        std::lock_guard<std::mutex> lk(m_error_mutex);
+        return m_error;
+    }
+
+    int USlot::depth_actual() const {
+        std::lock_guard<std::mutex> lk(m_resource_mutex);
+        return m_classifier ? m_classifier->depth_actual() : 0;
+    }
+
+    std::string USlot::model_layout() const {
+        std::lock_guard<std::mutex> lk(m_resource_mutex);
+        return m_classifier ? m_classifier->layout() : std::string();
+    }
+
+    const FModelInfo* USlot::model_info() const {
+        std::lock_guard<std::mutex> lk(m_resource_mutex);
+        return m_classifier ? &m_classifier->info() : nullptr;
     }
 
     bool USlot::ensure_streamer(int width, int height) {
@@ -166,7 +198,7 @@ namespace neural {
                 (m_stream_name.empty() ? "" : " name=" + m_stream_name));
         }
         catch (const std::exception& e) {
-            m_logger.error("ensure_streamer(): " + std::string(e.what()));
+            set_error(signaling::CODE_NEURAL_STREAMER, std::string("ensure_streamer(): ") + e.what());
             m_streamer.reset();
             return false;
         }
@@ -180,7 +212,7 @@ namespace neural {
         }
 
         if (m_cameras.empty() || m_cameras[0].empty()) {
-            m_logger.error("start(): no cameras");
+            set_error(signaling::CODE_NEURAL_CAMERA, "no cameras in layout");
             return false;
         }
 
@@ -194,25 +226,48 @@ namespace neural {
             m_frame_thread = std::thread(&USlot::frame_worker, this);
         }
 
+        m_infer_seq = 0;
+        m_next_seq = 1;
+        m_pending.clear();
+        m_fps_window = std::chrono::steady_clock::now();
+        m_fps_count = 0;
+        if (!m_infer_running.exchange(true)) {
+            for (int i = 0; i < m_depth; ++i)
+                m_infer_threads.emplace_back(&USlot::infer_worker, this);
+        }
+
         const std::string& camera_id = m_cameras[0][0];
-        if (!start_handler_thread(camera_id, 10, nullptr)) {
-            m_logger.error("start(): cannot start handler thread");
+        if (!start_handler_thread(camera_id, m_fps_limit, nullptr)) {
+            set_error(signaling::CODE_NEURAL_CAMERA, "cannot start handler thread for camera " + camera_id);
             return false;
         }
 
-        std::string cores_str;
-        for (int c : m_npu_cores) cores_str += std::to_string(c) + ",";
-        if (!cores_str.empty()) cores_str.pop_back();
+        // Камера могла появиться после неудачного старта — ошибка снята
+        {
+            std::lock_guard<std::mutex> lk(m_error_mutex);
+            m_error_code.store(0);
+            m_error.clear();
+        }
 
         m_logger.info("start(): slot=" + m_config.id +
             " camera=" + camera_id +
-            " cores=[" + cores_str + "]" +
+            " fps<=" + std::to_string(m_fps_limit) +
+            " depth=" + std::to_string(m_depth) + "/" + std::to_string(depth_actual()) +
+            " layout=" + model_layout() +
             " stream=" + m_stream_id);
         return true;
     }
 
     void USlot::stop() {
         if (is_running()) stop_handler_thread();
+
+        if (m_infer_running.exchange(false)) {
+            m_infer_cv.notify_all();
+            for (auto& t : m_infer_threads) if (t.joinable()) t.join();
+            m_infer_threads.clear();
+            std::lock_guard<std::mutex> lk(m_infer_mutex);
+            m_infer_queue.clear();
+        }
 
         bool frame_was_running = false;
         {
@@ -643,13 +698,75 @@ namespace neural {
     void USlot::internal_handle_image(cv::Mat rgb_pixels) {
         if (rgb_pixels.empty()) return;
 
-        // FIX: весь доступ к m_classifier и m_streamer под мьютексом.
-        // Это предотвращает гонку с stop(), который делает reset()
-        std::lock_guard<std::mutex> lk(m_resource_mutex);
-        if (!ensure_classifier()) return;
+        // Поток захвата не ждёт NPU: кадр либо встаёт в очередь, либо теряется
+        {
+            std::lock_guard<std::mutex> lk(m_infer_mutex);
+            if (static_cast<int>(m_infer_queue.size()) >= m_depth) {
+                m_dropped.fetch_add(1);
+                return;
+            }
+            m_infer_queue.push_back({ ++m_infer_seq, std::move(rgb_pixels), std::chrono::steady_clock::now() });
+        }
+        m_infer_cv.notify_one();
+    }
 
-        std::vector<uint8_t> mask;
-        auto result = m_classifier->classify(rgb_pixels, mask);
+    namespace {
+        // Экспоненциальное сглаживание метрик статуса
+        void ema(std::atomic<float>& value, float sample) {
+            const float old = value.load();
+            value.store(old == 0.f ? sample : old * 0.9f + sample * 0.1f);
+        }
+    }
+
+    void USlot::infer_worker() {
+        while (true) {
+            FInferJob job;
+            {
+                std::unique_lock<std::mutex> lk(m_infer_mutex);
+                m_infer_cv.wait(lk, [this] { return !m_infer_queue.empty() || !m_infer_running.load(); });
+                if (!m_infer_running.load()) break;
+                job = std::move(m_infer_queue.front());
+                m_infer_queue.pop_front();
+            }
+
+            const auto started = std::chrono::steady_clock::now();
+            ema(m_wait_ms, std::chrono::duration<float, std::milli>(started - job.enqueued).count());
+
+            FInferred inferred;
+            inferred.rgb = job.rgb;
+            inferred.result = m_classifier->classify(job.rgb, inferred.mask);
+
+            ema(m_infer_ms, std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - started).count());
+            ema(m_det_count, static_cast<float>(inferred.result.detections.size()));
+            deliver(job.seq, std::move(inferred));
+        }
+    }
+
+    void USlot::deliver(std::int64_t seq, FInferred inferred) {
+        std::lock_guard<std::mutex> lk(m_deliver_mutex);
+        m_pending.emplace(seq, std::move(inferred));
+
+        // Отдаём подряд всё, что уже досчиталось; дыра в номерах ждёт свой кадр
+        while (!m_pending.empty() && m_pending.begin()->first == m_next_seq) {
+            auto& ready = m_pending.begin()->second;
+            process_inferred(ready.rgb, ready);
+            m_pending.erase(m_pending.begin());
+            ++m_next_seq;
+
+            ++m_fps_count;
+            const auto now = std::chrono::steady_clock::now();
+            const float elapsed = std::chrono::duration<float>(now - m_fps_window).count();
+            if (elapsed >= 1.f) {
+                m_fps.store(m_fps_count / elapsed);
+                m_fps_count = 0;
+                m_fps_window = now;
+            }
+        }
+    }
+
+    void USlot::process_inferred(cv::Mat rgb_pixels, FInferred& inferred) {
+        auto& result = inferred.result;
+        auto& mask = inferred.mask;
 
         if (m_tracker) {
             auto update_result = m_tracker->update(result.detections, rgb_pixels.cols, rgb_pixels.rows);
@@ -665,6 +782,7 @@ namespace neural {
             }
 
             send_tracks(m_tracker->tracks(), cv::Size(rgb_pixels.cols, rgb_pixels.rows));
+            m_track_count.store(static_cast<int>(m_tracker->tracks().size()));
         }
         else {
             send_detections(result.detections, cv::Size(rgb_pixels.cols, rgb_pixels.rows));
@@ -689,6 +807,7 @@ namespace neural {
 
             draw_detections_grouped(rgb_pixels, draw_dets, mask, m_config.classes, m_config.superclasses);
 
+            std::lock_guard<std::mutex> lk(m_resource_mutex);
             if (ensure_streamer(rgb_pixels.cols, rgb_pixels.rows)) {
                 m_streamer->push_frame(std::move(rgb_pixels));
             }

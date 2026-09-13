@@ -154,9 +154,7 @@ int main(int argc, char* argv[])
 	const auto platform_info = varan::detect_platform();
 	main_logger.info((std::ostringstream()
 		<< "Platform: " << platform_info.label
-		<< " (" << platform_info.platform << "), mode=" << platform_info.mode
-		<< ", npu_cores=" << platform_info.npu_cores
-		<< ", max_streams=" << platform_info.max_streams).str());
+		<< " (" << platform_info.platform << "), npu_cores=" << platform_info.npu_cores).str());
 
 	auto socket_options = varan::nvr::FWebSocketOptions(config.signaling_ip, std::to_string(config.signaling_port));
 

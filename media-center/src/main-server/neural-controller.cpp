@@ -4,8 +4,10 @@
 
 #include "neural/constants.h"
 #include "neural/camera-layout-json.h"
+#include "neural/npu-pool.h"
 #include "neural/tracker/tracking-types.h"
 
+#include <algorithm>
 #include <boost/json.hpp>
 
 namespace http = boost::beast::http;
@@ -68,9 +70,8 @@ static boost::json::array serialize_descs(
         item["config_id"] = d.config_id;
         item["camera_layout"] = varan::neural::serialize_layout(d.camera_layout);
         item["camera_matrix"] = serialize_matrix(varan::neural::layout_to_matrix(d.camera_layout));
-        boost::json::array cores;
-        for (int c : d.npu_cores) cores.emplace_back(c);
-        item["cores"] = std::move(cores);
+        item["depth"] = d.depth;
+        item["fps"] = d.fps;
         if (d.streaming) {
             boost::json::object st;
             st["enabled"] = true;
@@ -184,10 +185,11 @@ UNeuralController::get_state(const http::request<http::string_body>& req) {
 }
 
 // ─── POST /neural/state ─────────────────────────────────────
-// {
-//     { "config_id": "railway", "camera_matrix": [["cam1"]], "cores": [0, 1] },
-//     { "config_id": "lpr",    "camera_matrix": [["cam2"]], "cores": [2] }
-// }
+// [
+//     { "config_id": "railway", "camera_layout": {...}, "depth": 2 },
+//     { "config_id": "lpr",     "camera_layout": {...} }
+// ]
+// depth — кадров слота в полёте одновременно (контекстов NPU), по умолчанию 1
 http::response<http::string_body>
 UNeuralController::post_state(const http::request<http::string_body>& req) {
     const std::string tag = "POST /neural/state";
@@ -244,12 +246,11 @@ UNeuralController::post_state(const http::request<http::string_body>& req) {
                 return json_error(m_logger, req, http::status::bad_request,
                     "'" + d.config_id + "': camera layout has no camera", tag);
 
-            // cores — опциональный массив (пустой допустим для платформ без NPU-ядер)
-            if (auto* c = eo.if_contains("cores"); c && c->is_array()) {
-                for (const auto& ci : c->as_array())
-                    if (ci.is_int64())
-                        d.npu_cores.push_back(static_cast<int>(ci.as_int64()));
-            }
+            if (auto* c = eo.if_contains("depth"); c && c->is_int64())
+                d.depth = std::max(1, static_cast<int>(c->as_int64()));
+            // fps — потолок кадров в секунду для слота
+            if (auto* c = eo.if_contains("fps"); c && c->is_int64())
+                d.fps = std::max(1, static_cast<int>(c->as_int64()));
 
             // streaming — { enabled, name }
             if (auto* s = eo.if_contains("streaming"); s && s->is_object()) {
@@ -277,46 +278,7 @@ UNeuralController::post_state(const http::request<http::string_body>& req) {
         return json_error(m_logger, req, http::status::bad_request, e.what(), tag);
     }
 
-    // Проверка на уникальность камер между потоками
-    {
-        std::set<std::string> seen_cameras;
-        for (const auto& d : active) {
-            for (const auto& cam : varan::neural::layout_cameras(d.camera_layout)) {
-                if (!seen_cameras.insert(cam).second) {
-                    return json_error(m_logger, req, http::status::bad_request,
-                        "camera '" + cam + "' used in multiple streams", tag);
-                }
-            }
-        }
-    }
-
-    // Ограничения по платформе
-    {
-        const auto& plat = m_loader->platform();
-        if (plat.mode == "single") {
-            if (active.size() > 1)
-                return json_error(m_logger, req, http::status::bad_request,
-                    plat.label + ": only one stream is allowed", tag);
-        }
-        else if (plat.mode == "cores") {
-            if (static_cast<int>(active.size()) > plat.npu_cores)
-                return json_error(m_logger, req, http::status::bad_request,
-                    plat.label + ": more streams than cores (" + std::to_string(plat.npu_cores) + ")", tag);
-            std::set<int> used;
-            for (const auto& d : active) {
-                for (int c : d.npu_cores) {
-                    if (c < 0 || c >= plat.npu_cores)
-                        return json_error(m_logger, req, http::status::bad_request,
-                            plat.label + ": core " + std::to_string(c) + " is out of range", tag);
-                    if (!used.insert(c).second)
-                        return json_error(m_logger, req, http::status::bad_request,
-                            plat.label + ": core " + std::to_string(c) + " is taken by several streams", tag);
-                }
-            }
-        }
-        // unlimited (nvidia/unknown) — без ограничений
-    }
-
+    // Одна камера в нескольких слотах допустима; дубль слота отсекает write_state
     if (!m_loader->write_state(active)) {
         return json_error(m_logger, req, http::status::bad_request, "invalid state", tag);
     }
@@ -341,9 +303,51 @@ UNeuralController::get_status(const http::request<http::string_body>& req) {
             item["running"] = s.running;
             item["camera_matrix"] = serialize_matrix(s.cameras);
             item["camera_layout"] = varan::neural::serialize_layout(s.camera_layout);
-            boost::json::array cores;
-            for (int c : s.npu_cores) cores.emplace_back(c);
-            item["cores"] = std::move(cores);
+            item["depth"] = s.depth;
+            item["depth_actual"] = s.depth_actual;
+            item["fps_limit"] = s.fps_limit;
+            item["layout"] = s.layout;
+            if (!s.model.path.empty()) {
+                auto tensors = [](const std::vector<varan::neural::FTensorInfo>& list) {
+                    boost::json::array arr;
+                    for (const auto& t : list) {
+                        boost::json::object o;
+                        o["name"] = t.name;
+                        boost::json::array dims;
+                        for (auto v : t.dims) dims.emplace_back(v);
+                        o["dims"] = std::move(dims);
+                        o["type"] = t.type;
+                        o["format"] = t.format;
+                        o["scale"] = t.scale;
+                        o["zp"] = t.zp;
+                        arr.push_back(std::move(o));
+                    }
+                    return arr;
+                };
+                const auto& m = s.model;
+                boost::json::object model;
+                model["path"] = m.path;
+                model["class_count"] = m.class_count;
+                model["input_width"] = m.input_width;
+                model["input_height"] = m.input_height;
+                model["input_channels"] = m.input_channels;
+                model["quantized"] = m.quantized;
+                model["inputs"] = tensors(m.inputs);
+                model["outputs"] = tensors(m.outputs);
+                model["api_version"] = m.api_version;
+                model["driver_version"] = m.driver_version;
+                model["weight_bytes"] = m.weight_bytes;
+                model["internal_bytes"] = m.internal_bytes;
+                item["model"] = std::move(model);
+            }
+            item["code"] = s.code;
+            item["error"] = s.error;
+            item["infer_ms"] = s.infer_ms;
+            item["wait_ms"] = s.wait_ms;
+            item["fps"] = s.fps;
+            item["detections"] = s.detections;
+            item["tracks"] = s.tracks;
+            item["dropped"] = s.dropped;
             result.push_back(std::move(item));
         }
         boost::json::object body;
@@ -496,10 +500,10 @@ UNeuralController::get_tracker_types(const http::request<http::string_body>& req
 }
 
 // ─── GET /neural/system ─────────────────────────────────────
-// Тип платформы и лимиты на число потоков.
+// Тип платформы и сводка пула NPU.
 //   platform: rk3566 | rk3588 | nvidia | unknown
-//   mode:     single (1 поток) | cores (по ядрам) | unlimited
-//   max_streams: -1 — без ограничений
+//   contexts: сколько контекстов NPU живёт сейчас
+//   core_mode: auto (ядро выбирает драйвер) | pinned (VARAN_NPU_CORE_MODE)
 http::response<http::string_body>
 UNeuralController::get_system(const http::request<http::string_body>& req) {
     const std::string tag = "GET /neural/system";
@@ -507,12 +511,13 @@ UNeuralController::get_system(const http::request<http::string_body>& req) {
 
     try {
         const auto& p = m_loader->platform();
+        auto& pool = varan::neural::UNpuPool::instance();
         boost::json::object data;
         data["platform"] = p.platform;
         data["label"] = p.label;
         data["npu_cores"] = p.npu_cores;
-        data["max_streams"] = p.max_streams;
-        data["mode"] = p.mode;
+        data["contexts"] = pool.context_count();
+        data["core_mode"] = pool.pinned() ? "pinned" : "auto";
         boost::json::object body;
         body["data"] = std::move(data);
         return json_ok(m_logger, req, body, tag);

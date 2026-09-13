@@ -183,9 +183,7 @@ json::object USystemController::collect() {
     json::object platform;
     platform["platform"] = m_platform.platform;
     platform["label"] = m_platform.label;
-    platform["mode"] = m_platform.mode;
     platform["npu_cores"] = m_platform.npu_cores;
-    platform["max_streams"] = m_platform.max_streams;
     info["platform"] = std::move(platform);
 
     {

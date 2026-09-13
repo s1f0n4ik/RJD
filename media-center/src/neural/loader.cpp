@@ -2,7 +2,9 @@
 #include "core/paths.h"
 #include "core/time-sync.h"
 #include "neural/camera-layout-json.h"
+#include "signaling_definers.h"
 
+#include <algorithm>
 #include <fstream>
 #include <sstream>
 #include <set>
@@ -121,10 +123,9 @@ namespace neural {
                     d.camera_layout = parse_layout(*c);
                 else if (auto* c = eo.if_contains("camera_matrix"); c)
                     d.camera_layout = layout_from_matrix(parse_camera_matrix(*c));
-                if (auto* c = eo.if_contains("cores"); c && c->is_array()) {
-                    for (const auto& ci : c->as_array())
-                        if (ci.is_int64()) d.npu_cores.push_back((int)ci.as_int64());
-                }
+                // Старое поле cores игнорируется: ядра раздаёт драйвер
+                if (auto* c = eo.if_contains("depth"); c && c->is_int64())
+                    d.depth = std::max(1, (int)c->as_int64());
 
                 // Доп параметры
                 if (auto* c = eo.if_contains("fps"); c && c->is_int64())
@@ -178,11 +179,18 @@ namespace neural {
             }
         }
 
-        {
-            std::string err;
-            if (!validate_no_core_conflicts(active, err)) {
-                m_logger.error("write_state(): " + err);
-                return false;
+        // Одна модель на одной камере — допустимо; та же модель на том же наборе камер дважды — нет
+        for (size_t i = 0; i < active.size(); ++i) {
+            auto cams_i = layout_cameras(active[i].camera_layout);
+            std::sort(cams_i.begin(), cams_i.end());
+            for (size_t j = i + 1; j < active.size(); ++j) {
+                if (active[i].config_id != active[j].config_id) continue;
+                auto cams_j = layout_cameras(active[j].camera_layout);
+                std::sort(cams_j.begin(), cams_j.end());
+                if (cams_i == cams_j) {
+                    m_logger.error("write_state(): duplicate slot '" + active[i].config_id + "' on the same cameras");
+                    return false;
+                }
             }
         }
 
@@ -192,9 +200,8 @@ namespace neural {
                 boost::json::object entry;
                 entry["config_id"] = d.config_id;
                 entry["camera_layout"] = serialize_layout(d.camera_layout);
-                boost::json::array cores;
-                for (int c : d.npu_cores) cores.emplace_back(c);
-                entry["cores"] = std::move(cores);
+                entry["depth"] = d.depth;
+                entry["fps"] = d.fps;
                 if (d.streaming) {
                     boost::json::object st;
                     st["enabled"] = true;
@@ -227,30 +234,6 @@ namespace neural {
             m_active_descs = active;
         }
         m_logger.info("write_state(): " + std::to_string(active.size()) + " entries");
-        return true;
-    }
-
-    // Обнаружение ошибок ядра (если ядро повторяется в разных контекстах)
-    bool UNeuralLoader::validate_no_core_conflicts(
-        const std::vector<FNeuralCoreConfig>& descs, std::string& err) const
-    {
-        std::map<int, std::string> core_owner;
-        for (const auto& d : descs) {
-            // Пустой список ядер — поток не резервирует конкретные NPU-ядра
-            // (например, GPU/NVIDIA без ограничения по ядрам). Пропускаем.
-            if (d.npu_cores.empty()) continue;
-
-            for (int c : d.npu_cores) {
-                if (c < 0) { err = "invalid core index " + std::to_string(c); return false; }
-                auto it = core_owner.find(c);
-                if (it != core_owner.end()) {
-                    err = "core " + std::to_string(c) + " claimed by '" +
-                        it->second + "' and '" + d.config_id + "'";
-                    return false;
-                }
-                core_owner[c] = d.config_id;
-            }
-        }
         return true;
     }
 
@@ -344,97 +327,101 @@ namespace neural {
             if (!m_json_configurator.read(m_config_path))
                 throw std::runtime_error("Cannot read " + m_config_path.string());
 
-            // Проверяем конфликты ядер до старта
-            std::string err;
-            if (!validate_no_core_conflicts(m_active_descs, err)) {
-                throw std::runtime_error("core conflict: " + err);
-            }
-
-            // Проверка на уникальность камер между слотами
-            {
-                std::set<std::string> seen_cameras;
-                for (const auto& d : m_active_descs) {
-                    for (const auto& cam : layout_cameras(d.camera_layout)) {
-                        if (!seen_cameras.insert(cam).second) {
-                            throw std::runtime_error("duplicate camera '" + cam + "' across slots");
-                        }
-                    }
-                }
-            }
-
-            // Загружаем конфиги и создаём слоты
-            m_slots.reserve(m_active_descs.size());
+            // Слот, который не поднялся, остаётся на своём месте с причиной; остальные работают
+            m_slots.clear();
+            m_failed.clear();
+            m_slots.resize(m_active_descs.size());
+            int started = 0;
 
             for (size_t i = 0; i < m_active_descs.size(); ++i) {
                 // Проверяем флаг остановки, чтобы не создавать лишние слоты при shutdown
                 if (!m_supervisor_running.load()) {
                     throw std::runtime_error("shutdown requested during start");
                 }
-
-                auto cfg = m_json_configurator.load_config(m_active_descs[i].config_id);
-                if (!cfg) throw std::runtime_error("No config: " + m_active_descs[i].config_id);
-
-                // Пер-стримовая маска событий переопределяет маску трекера конфигурации.
-                if (cfg->tracker_config && !m_active_descs[i].event_mask.empty()) {
-                    cfg->tracker_config->event_mask = event_mask_from_types(m_active_descs[i].event_mask);
+                try {
+                    m_slots[i] = make_slot(m_active_descs[i]);
+                    if (m_slots[i]->start()) ++started;
                 }
-
-                const std::string camera_id = layout_first_camera(m_active_descs[i].camera_layout);
-                if (camera_id.empty()) {
-                    throw std::runtime_error("No camera in layout, cannot start " + m_active_descs[i].config_id);
+                catch (const FNeuralError& e) {
+                    m_logger.error("slot " + m_active_descs[i].config_id + ": [" + std::to_string(e.code) + "] " + e.what());
+                    m_failed[i] = { e.code, e.what() };
                 }
-
-                // Стриминг: подставляем адрес сигналинг-сервера и генерируем
-                // stream_id, если они не заданы явно в дескрипторе.
-                if (m_active_descs[i].streaming) {
-                    auto& st = *m_active_descs[i].streaming;
-                    if (st.ip.empty())   st.ip = m_ip;
-                    if (st.port.empty()) st.port = m_port;
-                    if (st.id.empty())   st.id = make_stream_id(m_active_descs[i].config_id, camera_id);
-                }
-
-                FCameraMessageSender sender;
-                if (m_sender_provider) {
-                    sender = m_sender_provider(camera_id);
-                }
-
-                // Отправка в message-gateway идёт через общий клиент загрузчика;
-                // id камеры проставляет сам слот в теле сообщения.
-                gateway::FGatewayFrameSender gateway_sender;
-                gateway::FGatewayTimeProvider time_provider;
-                if (m_gateway) {
-                    auto gw = m_gateway;
-                    gateway_sender = [gw](gateway::FGatewayFrame frame) { gw->send(std::move(frame)); };
-                    time_provider = [this]() { return current_synced_time(); };
-                }
-
-                auto slot = std::make_unique<USlot>(
-                    cfg.value(),
-                    m_active_descs[i],
-                    m_context,
-                    m_storage,
-                    std::move(sender),
-                    std::move(gateway_sender),
-                    std::move(time_provider),
-                    m_journal ? m_journal->slot_journal() : journal::FSlotJournal{},
-                    m_level
-                );
-
-                m_logger.info("slot " + m_active_descs[i].config_id +
-                    ": journal=" + (m_journal ? "on" : "off"));
-
-                if (!slot->start())
-                    throw std::runtime_error("Cannot start slot: " + m_active_descs[i].config_id);
-
-                m_slots.push_back(std::move(slot));
             }
 
-            m_logger.info("start_loader(): " + std::to_string(m_slots.size()) + " slot(s)");
+            m_logger.info("start_loader(): " + std::to_string(started) + " of " +
+                std::to_string(m_active_descs.size()) + " slot(s) started");
             return true;
         }
         catch (const std::exception& e) {
             m_logger.error("start_loader(): " + std::string(e.what()));
             return false;
+        }
+    }
+
+    std::unique_ptr<USlot> UNeuralLoader::make_slot(FNeuralCoreConfig desc) {
+        auto cfg = m_json_configurator.load_config(desc.config_id);
+        if (!cfg) throw FNeuralError(signaling::CODE_NEURAL_NO_CONFIG, "no configuration: " + desc.config_id);
+
+        // Пер-стримовая маска событий переопределяет маску трекера конфигурации.
+        if (cfg->tracker_config && !desc.event_mask.empty()) {
+            cfg->tracker_config->event_mask = event_mask_from_types(desc.event_mask);
+        }
+
+        const std::string camera_id = layout_first_camera(desc.camera_layout);
+        if (camera_id.empty()) {
+            throw FNeuralError(signaling::CODE_NEURAL_CAMERA, "no camera in layout: " + desc.config_id);
+        }
+
+        // Стриминг: подставляем адрес сигналинг-сервера и генерируем
+        // stream_id, если они не заданы явно в дескрипторе.
+        if (desc.streaming) {
+            auto& st = *desc.streaming;
+            if (st.ip.empty())   st.ip = m_ip;
+            if (st.port.empty()) st.port = m_port;
+            if (st.id.empty())   st.id = make_stream_id(desc.config_id, camera_id);
+        }
+
+        FCameraMessageSender sender;
+        if (m_sender_provider) {
+            sender = m_sender_provider(camera_id);
+        }
+
+        // Отправка в message-gateway идёт через общий клиент загрузчика;
+        // id камеры проставляет сам слот в теле сообщения.
+        gateway::FGatewayFrameSender gateway_sender;
+        gateway::FGatewayTimeProvider time_provider;
+        if (m_gateway) {
+            auto gw = m_gateway;
+            gateway_sender = [gw](gateway::FGatewayFrame frame) { gw->send(std::move(frame)); };
+            time_provider = [this]() { return current_synced_time(); };
+        }
+
+        m_logger.info("slot " + desc.config_id + ": journal=" + (m_journal ? "on" : "off"));
+
+        return std::make_unique<USlot>(
+            cfg.value(),
+            desc,
+            m_context,
+            m_storage,
+            std::move(sender),
+            std::move(gateway_sender),
+            std::move(time_provider),
+            m_journal ? m_journal->slot_journal() : journal::FSlotJournal{},
+            m_level
+        );
+    }
+
+    void UNeuralLoader::restart_slot(size_t index) {
+        m_logger.warn("slot " + m_active_descs[index].config_id + " died, restarting");
+        if (m_slots[index]) m_slots[index]->stop();
+        m_slots[index].reset();
+        try {
+            m_slots[index] = make_slot(m_active_descs[index]);
+            m_slots[index]->start();
+        }
+        catch (const FNeuralError& e) {
+            m_logger.error("slot " + m_active_descs[index].config_id + ": [" + std::to_string(e.code) + "] " + e.what());
+            m_failed[index] = { e.code, e.what() };
         }
     }
 
@@ -474,7 +461,8 @@ namespace neural {
     bool UNeuralLoader::restart() {
         if (!m_supervisor_running.load()) return async_run();
         reload_from_state();
-        cleanup_after_failure();
+        m_reload.store(true);
+        m_supervisor_cv.notify_all();
         return true;
     }
 
@@ -497,9 +485,24 @@ namespace neural {
     std::vector<UNeuralLoader::FSlotStatus> UNeuralLoader::get_slots() const {
         std::lock_guard<std::mutex> lk(m_loader_mutex);
         std::vector<FSlotStatus> result;
-        for (const auto& s : m_slots) {
-            if (!s) continue;
+        for (size_t i = 0; i < m_slots.size(); ++i) {
+            const auto& s = m_slots[i];
             FSlotStatus status;
+            if (!s) {
+                // Слот не создан: строка из дескриптора и причина из m_failed
+                const auto& d = m_active_descs[i];
+                status.config_id = d.config_id;
+                status.cameras = layout_to_matrix(d.camera_layout);
+                status.camera_layout = d.camera_layout;
+                status.depth = d.depth;
+                status.fps_limit = d.fps;
+                if (auto it = m_failed.find(i); it != m_failed.end()) {
+                    status.code = it->second.first;
+                    status.error = it->second.second;
+                }
+                result.push_back(std::move(status));
+                continue;
+            }
             status.config_id = s->config_id();
             status.cameras = s->cameras();
             status.camera_layout = s->layout();
@@ -508,7 +511,19 @@ namespace neural {
             status.stream_width = s->stream_width();
             status.stream_height = s->stream_height();
             status.running = s->is_running();
-            status.npu_cores = s->cores();
+            status.depth = s->depth();
+            status.depth_actual = s->depth_actual();
+            status.fps_limit = s->fps_limit();
+            status.layout = s->model_layout();
+            if (const auto* info = s->model_info()) status.model = *info;
+            status.code = s->error_code();
+            status.error = s->error();
+            status.infer_ms = s->infer_ms();
+            status.wait_ms = s->wait_ms();
+            status.fps = s->fps();
+            status.detections = s->detections();
+            status.tracks = s->tracks();
+            status.dropped = s->dropped();
             result.push_back(std::move(status));
         }
         return result;
@@ -535,17 +550,33 @@ namespace neural {
             }
 
             backoff_ms = 1000;
-            while (m_supervisor_running) {
-                std::unique_lock<std::mutex> lk(m_supervisor_cv_mutex);
-                m_supervisor_cv.wait_for(lk, seconds(1));
+            m_reload.store(false);
+            int tick = 0;
+            while (m_supervisor_running && !m_reload.load()) {
+                {
+                    std::unique_lock<std::mutex> lk(m_supervisor_cv_mutex);
+                    m_supervisor_cv.wait_for(lk, seconds(1),
+                        [this] { return !m_supervisor_running.load() || m_reload.load(); });
+                }
+                if (!m_supervisor_running || m_reload.load()) break;
+                ++tick;
+
+                // Перезапускаем только слоты, которые работали и умерли на ходу;
+                // слот с ошибкой старта поднимать бессмысленно, его правит оператор.
+                // Исключение — камера (6006): она появляется в хранилище позже
+                // слота или после своего перезапуска, пробуем раз в 5 секунд
                 std::lock_guard<std::mutex> sl(m_loader_mutex);
-                bool alive = false;
-                for (auto& s : m_slots) if (s && s->is_running()) { alive = true; break; }
-                if (!alive) break;
+                for (size_t i = 0; i < m_slots.size(); ++i) {
+                    if (!m_slots[i] || m_slots[i]->is_running()) continue;
+                    if (m_slots[i]->error_code() == 0)
+                        restart_slot(i);
+                    else if (m_slots[i]->error_code() == signaling::CODE_NEURAL_CAMERA && tick % 5 == 0)
+                        m_slots[i]->start();
+                }
             }
 
             if (!m_supervisor_running) break;
-            m_logger.warn("supervisor: slots died, restarting");
+            m_logger.info("supervisor: state changed, rebuilding slots");
             cleanup_after_failure();
         }
         m_logger.info("supervisor: exiting");

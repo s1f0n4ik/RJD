@@ -18,8 +18,10 @@
 #include "journal/types.h"
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <deque>
+#include <map>
 #include <thread>
 #include <condition_variable>
 #include <vector>
@@ -48,6 +50,7 @@ namespace neural {
 
         ~USlot() override;
 
+        // false — причина в error_code()/error(); слот остаётся остановленным
         bool start();
         void stop();
 
@@ -62,7 +65,26 @@ namespace neural {
 
         const FCameraMatrix& cameras() const { return m_cameras; }
         const FCameraLayout& layout() const { return m_layout; }
-        const std::vector<int>& cores() const { return m_npu_cores; }
+
+        int depth() const { return m_depth; }
+        int depth_actual() const;
+        // Потолок кадров в секунду, с которым поток захвата кормит слот
+        int fps_limit() const { return m_fps_limit; }
+        std::string model_layout() const;
+        // nullptr — модель не загружена
+        const FModelInfo* model_info() const;
+
+        // 0 — ошибки нет
+        int error_code() const { return m_error_code.load(); }
+        std::string error() const;
+
+        float infer_ms() const { return m_infer_ms.load(); }
+        float wait_ms() const { return m_wait_ms.load(); }
+        float fps() const { return m_fps.load(); }
+        // Детекций на кадр после NMS (среднее) и треков сейчас
+        float detections() const { return m_det_count.load(); }
+        int tracks() const { return m_track_count.load(); }
+        std::int64_t dropped() const { return m_dropped.load(); }
 
     protected:
         void internal_handle_image(cv::Mat rgb_pixels) override;
@@ -70,6 +92,26 @@ namespace neural {
     private:
         bool ensure_classifier();
         bool ensure_streamer(int width, int height);
+        void set_error(int code, const std::string& message);
+
+        // Кадр, ждущий свободного контекста
+        struct FInferJob {
+            std::int64_t seq = 0;
+            cv::Mat rgb;
+            std::chrono::steady_clock::time_point enqueued;
+        };
+        // Кадр после инференса, ждёт своей очереди на доставку
+        struct FInferred {
+            cv::Mat rgb;
+            yolo_inference_result_t result;
+            std::vector<uint8_t> mask;
+        };
+
+        void infer_worker();
+        // Кладёт результат в буфер и доставляет всё, что идёт по порядку
+        void deliver(std::int64_t seq, FInferred inferred);
+        // Трекер, отправка, эфир — то, что раньше шло сразу за classify()
+        void process_inferred(cv::Mat rgb_pixels, FInferred& inferred);
 
         // Метод для отправки чистых детекций
         void send_detections(const std::vector<FDetection>& detections, const cv::Size& resolution);
@@ -122,7 +164,8 @@ namespace neural {
         FConfigInfo m_config;
         FCameraMatrix m_cameras;
         FCameraLayout m_layout;
-        std::vector<int> m_npu_cores;
+        int m_depth = 1;
+        int m_fps_limit = 10;
 
         // Стриминг аннотированного видео через виртуальную камеру.
         // Включается, если у дескриптора задан streaming.
@@ -152,14 +195,42 @@ namespace neural {
         std::string m_camera_id;
         std::atomic<std::int64_t> m_frame_seq{ 0 };
 
-        // FIX: мьютекс защищает m_classifier и m_streamer от гонки
-        // между internal_handle_image() (рабочий поток) и stop() (внешний поток).
+        // Мьютекс защищает m_classifier и m_streamer от гонки
+        // между рабочими потоками и stop() (внешний поток).
         mutable std::mutex m_resource_mutex;
 
         std::unique_ptr<Classifier> m_classifier;
         std::unique_ptr<UVirtualCamera> m_streamer;
 
         std::shared_ptr<IDetectionTracker> m_tracker;
+
+        // Очередь на инференс глубиной m_depth и её рабочие потоки. Поток захвата
+        // только кладёт кадр; полная очередь — кадр отброшен.
+        std::deque<FInferJob> m_infer_queue;
+        std::mutex m_infer_mutex;
+        std::condition_variable m_infer_cv;
+        std::vector<std::thread> m_infer_threads;
+        std::atomic<bool> m_infer_running{ false };
+        std::int64_t m_infer_seq = 0;
+
+        // Результаты приходят вразнобой, трекер получает их по seq
+        std::map<std::int64_t, FInferred> m_pending;
+        std::int64_t m_next_seq = 1;
+        std::mutex m_deliver_mutex;
+        // fps считается по окну в секунду: буфер переупорядочивания отдаёт кадры пачками
+        std::chrono::steady_clock::time_point m_fps_window;
+        int m_fps_count = 0;
+
+        std::atomic<float> m_infer_ms{ 0.f };
+        std::atomic<float> m_wait_ms{ 0.f };
+        std::atomic<float> m_fps{ 0.f };
+        std::atomic<float> m_det_count{ 0.f };
+        std::atomic<int> m_track_count{ 0 };
+        std::atomic<std::int64_t> m_dropped{ 0 };
+
+        std::atomic<int> m_error_code{ 0 };
+        std::string m_error;
+        mutable std::mutex m_error_mutex;
 
         // Фоновый воркер кадров: снимает с потока инференса кодирование JPEG,
         // запись файла журнала и отправку в шлюз. Глубина очереди ограничена —

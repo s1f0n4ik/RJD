@@ -52,8 +52,9 @@
 // Коды ошибок. Четыре цифры, тип читается по первой:
 //   2xxx — сессия WebRTC
 //   3xxx — поток камеры
-//   4xxx — надстройки: коррекция 360, орбита, нейронка
+//   4xxx — надстройки: коррекция 360, орбита
 //   5xxx — конфигурация и данные
+//   6xxx — нейронка: загрузка модели и старт слота
 // Описания живут в веб-интерфейсе; description остаётся служебным для логов.
 namespace varan {
 namespace signaling {
@@ -89,6 +90,15 @@ namespace signaling {
 	inline constexpr int CODE_STREAM_NOT_VIEWED  = 5003;  // у потока нет назначения view
 	inline constexpr int CODE_UNKNOWN_MESSAGE    = 5004;  // неизвестный тип сообщения
 	inline constexpr int CODE_MESSAGE_MALFORMED  = 5005;  // сообщение не разобралось
+
+	// 6xxx — нейронка
+	inline constexpr int CODE_NEURAL_NO_CONFIG      = 6001;  // config_id нет в конфигурации
+	inline constexpr int CODE_NEURAL_NO_MODEL       = 6002;  // файл модели не найден или не читается
+	inline constexpr int CODE_NEURAL_INIT           = 6003;  // rknn_init не прошёл
+	inline constexpr int CODE_NEURAL_LAYOUT         = 6004;  // раскладка выходов не опознана
+	inline constexpr int CODE_NEURAL_NO_CONTEXT     = 6005;  // ни одного контекста NPU не создано
+	inline constexpr int CODE_NEURAL_CAMERA         = 6006;  // камера слота не найдена
+	inline constexpr int CODE_NEURAL_STREAMER       = 6007;  // стример слота не поднялся
 
 	// Строковый код потока по числовому: пока живут оба формата
 	inline const char* legacy_stream_code(int code) {

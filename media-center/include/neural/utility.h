@@ -1,6 +1,7 @@
 #pragma once
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <filesystem>
 
@@ -13,7 +14,13 @@
 
 namespace varan {
 namespace neural {
-	
+
+	// Ошибка загрузки модели или старта слота с кодом 6xxx из signaling_definers.h
+	struct FNeuralError : std::runtime_error {
+		int code;
+		FNeuralError(int code, const std::string& message) : std::runtime_error(message), code(code) {}
+	};
+
 	struct FClassInfo {
 		int          id;          // ключ класса (0, 1, 2 ...)
 		std::string  name;        // отображаемое имя (RU)
@@ -49,8 +56,6 @@ namespace neural {
 	struct FConfigInfo {
 		std::string id;
 		std::string name;
-		int model_width = 640;
-		int model_height = 640;
 		int fps = 25;
 		bool enable_raw_stream = false;  // Флаг для включения прямого стриминга 
 		std::string stream_id;  // Название стрима для подключения 
@@ -61,11 +66,18 @@ namespace neural {
 		std::vector<FSuperclass> superclasses;   // группы для отрисовки
 	};
 
+	// Вход слота: как взаимодействовать с камерой — кроп, области, группировка.
+	// Пока пусто; camera_layout переедет сюда вместе с первым из этих полей
+	struct FSlotSource {
+	};
+
 	// Структура для описания активного потока (дескриптора)
 	struct FNeuralCoreConfig {
 		std::string   config_id;
 		FCameraLayout camera_layout;  // ← богатая раскладка камер (пока обрабатывается только single)
-		std::vector<int> npu_cores;   // ← теперь здесь, не в конфиге
+		FSlotSource   source;
+		// Кадров слота в полёте одновременно = контекстов NPU на слот
+		int depth = 1;
 
 		// Доп настройки для дескриптора
 		int fps = 10;  // Отвечает за фпс неронки, если включен и стрим, то и на него
