@@ -119,8 +119,10 @@ URestServer::URestServer(
 
     m_router->add_route(http::verb::get, "/neural/configurations",
         [neural_ctrl](const auto& r) { return neural_ctrl->get_configurations(r); });
-    m_router->add_route(http::verb::post, "/neural/configurations", 
+    m_router->add_route(http::verb::post, "/neural/configurations",
         [neural_ctrl](const auto& r) { return neural_ctrl->post_configurations(r); });
+    m_router->add_route(http::verb::delete_, "/neural/configurations",
+        [neural_ctrl](const auto& r) { return neural_ctrl->delete_configuration(r); });
     m_router->add_route(http::verb::get, "/neural/state", 
         [neural_ctrl](const auto& r) { return neural_ctrl->get_state(r); });
     m_router->add_route(http::verb::post, "/neural/state", 

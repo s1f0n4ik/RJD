@@ -1,36 +1,45 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Icon } from '../../../../app/Icons';
+import { Select } from '../../../../app/Select';
+import type { SelectOption } from '../../../../app/Select';
+import { useToast } from '../../../birdview/components/common/Toast';
+import { neuralApi } from '../../api/client';
+import type { ConfigSummary } from '../../api/types';
 import { journalApi } from '../../api/journal';
 import type { JournalDetection, JournalFilters, Verdict } from '../../api/journal-types';
 import { useClassResolver } from './useClassResolver';
 import { useCameraNames } from './useCameraNames';
-import { useImageBudget } from './useImageBudget';
 import { DetectionRow } from './DetectionRow';
-import { Filters, presetRange, DEFAULT_PRESET } from './Filters';
+import { FrameWithBoxes } from './FrameWithBoxes';
+import {
+  ClassPicker,
+  DEFAULT_PRESET,
+  PRESETS,
+  PresetSeg,
+  VERDICT_OPTIONS,
+  presetRange,
+} from './Filters';
 import type { PresetKey } from './Filters';
+import { DateRangePicker } from './DateRangePicker';
 import { JournalMap } from './JournalMap';
 import { FrameViewer } from './FrameViewer';
 import { StorageModal } from './StorageModal';
+import { fmtDate, fmtDateTime } from './format';
 import './journal.css';
 
-// Ширина, с которой карта встаёт рядом со списком. Уже — одна колонка:
-// фильтры сверху, список под ними, карта скрыта.
-const WIDE_PX = 1000;
 const PAGE_LIMIT = 300;
-// Сколько изображений одновременно живёт в памяти. Записи (лёгкий JSON) грузим
-// сотнями — от них зависят точки на карте, — а вот картинки держим по LRU:
-// иначе после прокрутки в DOM осели бы все PAGE_LIMIT кадров.
-const MAX_IMAGES = 50;
+// Потолок ручки списка на сервере
+const MAP_LIMIT_MAX = 10_000;
 // Интервал опроса лёгкой ручки head. Полный список тянем только при изменении.
 const POLL_MS = 2000;
+const SKELETON_ROWS = 8;
 
-const EMPTY_HINT =
-  'Записи появляются по событиям трекера. Проверьте, что у конфигурации включён ' +
-  'фильтр (трекер) и в маске событий потока отмечены нужные события.';
+const ALL_OPTION: SelectOption = { value: '', label: 'все' };
 
 export function JournalSection() {
+  const toast = useToast();
   const { resolve, classOptions } = useClassResolver();
-  const cameraName = useCameraNames();
-  const { allowed: allowedImages, request: requestImage } = useImageBudget(MAX_IMAGES);
+  const { cameraName, cameras } = useCameraNames();
 
   // Журнал открывается за сегодня — свежие записи нужны чаще, чем весь архив.
   const [preset, setPreset] = useState<PresetKey>(DEFAULT_PRESET);
@@ -38,6 +47,9 @@ export function JournalSection() {
   const [tTo, setTTo] = useState<number | undefined>(() => presetRange(DEFAULT_PRESET).to);
   const [verdict, setVerdict] = useState<Verdict | undefined>();
   const [cids, setCids] = useState<number[]>([]);
+  const [cameraId, setCameraId] = useState('');
+  const [configId, setConfigId] = useState('');
+  const [configs, setConfigs] = useState<ConfigSummary[]>([]);
 
   const [dets, setDets] = useState<JournalDetection[]>([]);
   const [total, setTotal] = useState(0);
@@ -49,6 +61,13 @@ export function JournalSection() {
   const [newCount, setNewCount] = useState(0);
   const [storageOpen, setStorageOpen] = useState(false);
 
+  // Поповеры фильтров: якорь — кнопка поля
+  const [periodOpen, setPeriodOpen] = useState(false);
+  const [classOpen, setClassOpen] = useState(false);
+  const periodRef = useRef<HTMLButtonElement>(null);
+  const classRef = useRef<HTMLButtonElement>(null);
+  const classPaneRef = useRef<HTMLButtonElement>(null);
+
   // Ползунок полноэкранной карты: сколько записей грузить для точек.
   // draft двигается вместе с ручкой, запрос уходит по отпусканию.
   const [mapLimit, setMapLimit] = useState(PAGE_LIMIT);
@@ -56,13 +75,37 @@ export function JournalSection() {
   const [mapDets, setMapDets] = useState<JournalDetection[] | null>(null);
   const [mapLoading, setMapLoading] = useState(false);
 
-  const [wide, setWide] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
+  // Заметка и вердикт выбранной записи
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+
   const listRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => {
+    let alive = true;
+    neuralApi
+      .listConfigurations()
+      .then((res) => {
+        if (alive) setConfigs(res.configurations);
+      })
+      .catch(() => {
+        /* список конфигураций останется пустым */
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   const filters = useMemo<JournalFilters>(
-    () => ({ tFrom, tTo, verdict, cids: cids.length ? cids : undefined }),
-    [tFrom, tTo, verdict, cids],
+    () => ({
+      tFrom,
+      tTo,
+      verdict,
+      cids: cids.length ? cids : undefined,
+      cameraId: cameraId || undefined,
+      configId: configId || undefined,
+    }),
+    [tFrom, tTo, verdict, cids, cameraId, configId],
   );
 
   const load = useCallback(
@@ -119,14 +162,6 @@ export function JournalSection() {
     };
   }, [filters, dets, total, load, viewerId]);
 
-  useEffect(() => {
-    const el = rootRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver((entries) => setWide(entries[0].contentRect.width >= WIDE_PX));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
   // Расширенная выборка для карты — снимок; в пределах базового лимита карта
   // живёт от общего списка и обновляется поллингом.
   useEffect(() => {
@@ -153,7 +188,10 @@ export function JournalSection() {
   }, [fullscreen, mapLimit, filters]);
 
   const selectedDet = useMemo(() => dets.find((d) => d.id === selectedId) ?? null, [dets, selectedId]);
-  const withGps = useMemo(() => (mapDets ?? dets).filter((d) => d.gps), [mapDets, dets]);
+  const mapList = mapDets ?? dets;
+  const withGps = useMemo(() => mapList.filter((d) => d.gps), [mapList]);
+
+  useEffect(() => setNote(selectedDet?.verdict_note ?? ''), [selectedDet?.id, selectedDet?.verdict_note]);
 
   // Запись из расширенной выборки карты может отсутствовать в основном
   // списке — просмотр листает тот массив, где запись нашлась.
@@ -184,113 +222,189 @@ export function JournalSection() {
     setTTo(to);
   }, []);
 
-  const filtersPanel = (
-    <div className="jr-panel jr-filters-panel">
-      <div className="jr-panel-head">
-        <span className="jr-sect-lbl">Фильтры</span>
-        <button
-          className="jr-icon-btn"
-          onClick={() => setStorageOpen(true)}
-          title="Хранилище журнала: лимиты и очистка"
-          aria-label="Хранилище журнала"
-        >
-          ⚙
-        </button>
-      </div>
-      <Filters
-        preset={preset}
-        tFrom={tFrom}
-        tTo={tTo}
-        verdict={verdict}
-        selectedCids={cids}
-        classOptions={classOptions}
-        onPreset={applyPreset}
-        onRange={applyRange}
-        onVerdict={setVerdict}
-        onCids={setCids}
+  // Повторное нажатие той же кнопки снимает отметку — возврат в «не проверено».
+  const setDetVerdict = async (det: JournalDetection, verdict: Verdict) => {
+    const next: Verdict = det.verdict === verdict ? 'unverified' : verdict;
+    setBusy(true);
+    try {
+      await journalApi.setVerdict(det.id, next, det.verdict_note ?? undefined);
+      patchDet({ ...det, verdict: next, verdict_at: Date.now() });
+    } catch (e) {
+      toast('Вердикт не сохранён', e instanceof Error ? e.message : String(e), 'err');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveNote = async (det: JournalDetection) => {
+    const value = note.trim();
+    if (value === (det.verdict_note ?? '')) return;
+    setBusy(true);
+    try {
+      await journalApi.setVerdict(det.id, det.verdict, value || undefined);
+      patchDet({ ...det, verdict_note: value || null });
+    } catch (e) {
+      toast('Заметка не сохранена', e instanceof Error ? e.message : String(e), 'err');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const cameraOptions = useMemo<SelectOption[]>(
+    () => [ALL_OPTION, ...cameras.map((c) => ({ value: c.id, label: c.name, hint: c.name !== c.id ? c.id : undefined }))],
+    [cameras],
+  );
+  const configOptions = useMemo<SelectOption[]>(
+    () => [ALL_OPTION, ...configs.map((c) => ({ value: c.id, label: c.name, hint: c.name !== c.id ? c.id : undefined }))],
+    [configs],
+  );
+
+  const periodLabel =
+    preset === 'custom' && tFrom != null
+      ? `${fmtDate(tFrom)} — ${tTo != null ? fmtDate(tTo) : '…'}`
+      : PRESETS.find((p) => p.key === preset)?.label.toLowerCase() ?? 'всё';
+  const classLabel = `${cids.length ? cids.length : 'все'} из ${classOptions.length}`;
+
+  const mapMax = Math.max(PAGE_LIMIT, Math.min(total, MAP_LIMIT_MAX));
+  const mapValue = Math.min(mapLimitDraft, mapMax);
+  const mapPct = mapMax > PAGE_LIMIT ? ((mapValue - PAGE_LIMIT) / (mapMax - PAGE_LIMIT)) * 100 : 0;
+
+  const verdictCounts = useMemo(() => {
+    const c = { true: 0, false: 0, unverified: 0 };
+    for (const d of withGps) c[d.verdict] += 1;
+    return c;
+  }, [withGps]);
+
+  const periodPopover = periodOpen && periodRef.current && (
+    <DateRangePicker
+      anchor={periodRef.current}
+      from={tFrom}
+      to={tTo}
+      onApply={applyRange}
+      onClose={() => setPeriodOpen(false)}
+      head={
+        <PresetSeg
+          preset={preset}
+          onPreset={(key) => {
+            applyPreset(key);
+            setPeriodOpen(false);
+          }}
+        />
+      }
+    />
+  );
+
+  const classPopover = (anchor: HTMLElement | null) =>
+    classOpen &&
+    anchor && (
+      <ClassPicker
+        anchor={anchor}
+        options={classOptions}
+        selected={cids}
+        onChange={setCids}
+        onClose={() => setClassOpen(false)}
       />
+    );
+
+  const fullMap = (
+    <div className="j-full">
+      <JournalMap
+        detections={withGps}
+        selectedId={selectedId}
+        mode="full"
+        resolve={resolve}
+        cameraName={cameraName}
+        onSelect={setSelectedId}
+        onOpenViewer={setViewerId}
+      />
+      <div className="pane">
+        <div className="blk-h">
+          <h3>Фильтры</h3>
+          <span className="tag is-acc spacer">{withGps.length} точек</span>
+        </div>
+        <div className="blk-b">
+          <PresetSeg preset={preset} onPreset={applyPreset} />
+          <div className="tf-row">
+            <div className="tf">
+              <span className="tf-cap">Камера</span>
+              <Select value={cameraId} options={cameraOptions} onChange={setCameraId} />
+            </div>
+            <div className="tf">
+              <span className="tf-cap">Конфигурация</span>
+              <Select value={configId} options={configOptions} onChange={setConfigId} />
+            </div>
+          </div>
+          <div className="tf-row">
+            <div className="tf">
+              <span className="tf-cap">Классы</span>
+              <button type="button" className="sel" ref={classPaneRef} onClick={() => setClassOpen((v) => !v)}>
+                {classLabel}
+              </button>
+            </div>
+            <div className="tf">
+              <span className="tf-cap">Вердикт</span>
+              <Select
+                value={verdict ?? ''}
+                options={VERDICT_OPTIONS}
+                onChange={(v) => setVerdict(v ? (v as Verdict) : undefined)}
+              />
+            </div>
+          </div>
+          {total > PAGE_LIMIT && (
+            <div className="rngl">
+              <span className="cap">
+                Записей точками
+                <b>
+                  {mapValue} из {total}
+                  {mapLoading ? ' …' : ''}
+                </b>
+              </span>
+              <div className="tf-range">
+                <div className="track">
+                  <i style={{ width: `${mapPct}%` }} />
+                  <b style={{ left: `${mapPct}%` }} />
+                  <input
+                    type="range"
+                    min={PAGE_LIMIT}
+                    max={mapMax}
+                    step={1}
+                    value={mapValue}
+                    onChange={(e) => setMapLimitDraft(Number(e.target.value))}
+                    onPointerUp={() => setMapLimit(mapLimitDraft)}
+                    onKeyUp={(e) => {
+                      if (e.key.startsWith('Arrow')) setMapLimit(mapLimitDraft);
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+      <button className="icon-btn close" data-tip="Свернуть карту" onClick={() => setFullscreen(false)}>
+        <Icon name="unfull" size={15} />
+      </button>
+      <div className="cnt">
+        <span className="tag is-ok">подтверждённые {verdictCounts.true}</span>
+        <span className="tag is-err">ложные {verdictCounts.false}</span>
+        <span className="tag">не проверено {verdictCounts.unverified}</span>
+        <span className="tag is-warn">без координат {mapList.length - withGps.length}</span>
+      </div>
+      {classPopover(classPaneRef.current)}
     </div>
   );
 
-  const listPanel = (
-    <div className="jr-panel jr-list-col">
-      <div className="jr-panel-head">
-        <span className="jr-sect-lbl">Обнаружения</span>
-        <span className="jr-count">{total}</span>
-        {/* В узком режиме карты рядом нет — даём выход в полноэкранную. */}
-        {!wide && (
-          <button
-            className="jr-icon-btn"
-            onClick={() => setFullscreen(true)}
-            title="Открыть карту со всеми обнаружениями"
-            aria-label="Открыть карту со всеми обнаружениями"
-          >
-            ⤢
-          </button>
-        )}
-      </div>
-
-      {newCount > 0 && (
-        <button className="jr-new-badge" onClick={() => load(false)}>
-          ↑ {newCount} новых — показать
-        </button>
-      )}
-
-      {loading && dets.length === 0 ? (
-        <div className="jr-placeholder">
-          <span className="jr-ph-icon">⋯</span>
-          <div className="jr-ph-title">Загрузка</div>
-        </div>
-      ) : err ? (
-        <div className="jr-placeholder">
-          <span className="jr-ph-icon err">⚠</span>
-          <div className="jr-ph-title err">Журнал недоступен</div>
-          <div className="jr-ph-text">{err}</div>
-        </div>
-      ) : dets.length === 0 ? (
-        <div className="jr-placeholder">
-          <span className="jr-ph-icon">∅</span>
-          <div className="jr-ph-title">Записей нет</div>
-          <div className="jr-ph-text">{EMPTY_HINT}</div>
-        </div>
-      ) : (
-        <div className="jr-list" ref={listRef}>
-          {dets.map((d) => (
-            <DetectionRow
-              key={d.id}
-              det={d}
-              selected={d.id === selectedId}
-              narrow={!wide}
-              resolve={resolve}
-              cameraName={cameraName}
-              imageAllowed={allowedImages.has(d.id)}
-              onSelect={setSelectedId}
-              onChange={patchDet}
-              onOpenViewer={setViewerId}
-              onImageVisible={requestImage}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-
-  const mapPanel = (
-    <div className="jr-panel jr-map-panel">
-      <div className="jr-panel-head">
-        <span className="jr-sect-lbl">Карта</span>
-        <button
-          className="jr-icon-btn"
-          onClick={() => setFullscreen(true)}
-          title="Открыть карту на весь экран"
-          aria-label="Открыть карту на весь экран"
-        >
-          ⤢
+  const side = selectedDet ? (
+    <>
+      <div className="j-frame">
+        <FrameWithBoxes det={selectedDet} resolve={resolve} />
+        <button className="icon-btn fs" data-tip="Открыть кадр целиком" onClick={() => setViewerId(selectedDet.id)}>
+          <Icon name="full" size={14} />
         </button>
       </div>
-      <div className="jr-map-wrap">
+      <div className="j-map">
         <JournalMap
-          detections={selectedDet && selectedDet.gps ? [selectedDet] : []}
+          detections={selectedDet.gps ? [selectedDet] : []}
           selectedId={selectedId}
           mode="single"
           resolve={resolve}
@@ -298,95 +412,176 @@ export function JournalSection() {
           onSelect={setSelectedId}
           onOpenViewer={setViewerId}
         />
-        {!selectedDet?.gps && (
-          <div className="jr-map-empty">
-            {selectedDet ? 'У записи нет координат' : 'Нет точек с координатами'}
-          </div>
-        )}
+        {!selectedDet.gps && <div className="j-map-none">Нет координат</div>}
+        <button className="icon-btn fs" data-tip="Карта на весь экран" onClick={() => setFullscreen(true)}>
+          <Icon name="full" size={14} />
+        </button>
       </div>
+      <div className="j-det">
+        <div>
+          <span className="eyebrow">Запись {selectedDet.id}</span>
+          <div className="kv"><span className="k">Время</span><span className="v">{fmtDateTime(selectedDet.ts)}</span></div>
+          <div className="kv"><span className="k">Камера</span><span className="v">{cameraName(selectedDet.camera_id)}</span></div>
+          <div className="kv"><span className="k">Конфигурация</span><span className="v">{selectedDet.config_id ?? '—'}</span></div>
+          <div className="kv">
+            <span className="k">Трек</span>
+            <span className="v">
+              {selectedDet.track_id != null ? `#${selectedDet.track_id}${selectedDet.event ? ' · ' + selectedDet.event : ''}` : '—'}
+            </span>
+          </div>
+          <div className="kv"><span className="k">Объекты</span><span className="v">{selectedDet.objects.length}</span></div>
+          {selectedDet.gps && (
+            <>
+              <div className="kv"><span className="k">Скорость</span><span className="v">{(selectedDet.gps.speed * 3.6).toFixed(1)} км/ч</span></div>
+              <div className="kv"><span className="k">Курс</span><span className="v">{selectedDet.gps.course.toFixed(1)}°</span></div>
+              <div className="kv"><span className="k">Высота</span><span className="v">{Math.round(selectedDet.gps.alt)} м</span></div>
+            </>
+          )}
+        </div>
+        <div className="j-verd">
+          <button
+            className={`btn btn--ok${selectedDet.verdict === 'true' ? ' is-on' : ''}`}
+            disabled={busy}
+            onClick={() => void setDetVerdict(selectedDet, 'true')}
+          >
+            Подтвердить
+          </button>
+          <button
+            className={`btn btn--err${selectedDet.verdict === 'false' ? ' is-on' : ''}`}
+            disabled={busy}
+            onClick={() => void setDetVerdict(selectedDet, 'false')}
+          >
+            Ложное
+          </button>
+        </div>
+        <div className="tf">
+          <span className="tf-cap">Заметка</span>
+          <input
+            className="tf-in"
+            value={note}
+            disabled={busy}
+            onChange={(e) => setNote(e.target.value)}
+            onBlur={() => void saveNote(selectedDet)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+            }}
+          />
+        </div>
+      </div>
+    </>
+  ) : (
+    <div className="empty">
+      <Icon name="empty" className="ico" />
+      <b>Запись не выбрана</b>
     </div>
   );
 
-  return (
-    <div className={`jr-root${wide ? ' wide' : ''}`} ref={rootRef}>
-      {wide ? (
-        <div className="jr-split">
-          {listPanel}
-          <div className="jr-right-col">
-            {filtersPanel}
-            {mapPanel}
-          </div>
+  const main = (
+    <>
+      <div className="filters">
+        <button type="button" className="fld fld--btn" ref={periodRef} onClick={() => setPeriodOpen((v) => !v)}>
+          <span className="k">Период</span>
+          <span className="v">{periodLabel}</span>
+          <Icon name="cal" className="ico" />
+        </button>
+        <div className="fld j-fld">
+          <span className="k">Камера</span>
+          <Select value={cameraId} options={cameraOptions} onChange={setCameraId} />
         </div>
-      ) : (
-        <div className="jr-stack">
-          {filtersPanel}
-          {listPanel}
+        <div className="fld j-fld">
+          <span className="k">Конфигурация</span>
+          <Select value={configId} options={configOptions} onChange={setConfigId} />
         </div>
-      )}
-
-      {fullscreen && (
-        <div className="jr-fs">
-          <JournalMap
-            detections={withGps}
-            selectedId={selectedId}
-            mode="full"
-            resolve={resolve}
-            cameraName={cameraName}
-            onSelect={setSelectedId}
-            onOpenViewer={setViewerId}
+        <button type="button" className="fld fld--btn" ref={classRef} onClick={() => setClassOpen((v) => !v)}>
+          <span className="k">Классы</span>
+          <span className="v">{classLabel}</span>
+          <Icon name="chev" className="ico j-chev" />
+        </button>
+        <div className="fld j-fld">
+          <span className="k">Вердикт</span>
+          <Select
+            value={verdict ?? ''}
+            options={VERDICT_OPTIONS}
+            onChange={(v) => setVerdict(v ? (v as Verdict) : undefined)}
           />
-          <div className="jr-fs-filters">
-            <div className="jr-sect-lbl">Фильтры</div>
-            <Filters
-              preset={preset}
-              tFrom={tFrom}
-              tTo={tTo}
-              verdict={verdict}
-              selectedCids={cids}
-              classOptions={classOptions}
-              onPreset={applyPreset}
-              onRange={applyRange}
-              onVerdict={setVerdict}
-              onCids={setCids}
-            />
-            <div className="jr-fs-count">
-              {withGps.length} из {total} с координатами
-            </div>
-            {total > PAGE_LIMIT && (
-              <div className="jr-fs-slider" title="Сколько последних записей показывать точками">
-                <input
-                  type="range"
-                  min={PAGE_LIMIT}
-                  // Потолок ручки списка на сервере — 10 000
-                  max={Math.max(PAGE_LIMIT, Math.min(total, 10_000))}
-                  step={1}
-                  value={Math.min(mapLimitDraft, Math.max(PAGE_LIMIT, Math.min(total, 10_000)))}
-                  onChange={(e) => setMapLimitDraft(Number(e.target.value))}
-                  onPointerUp={() => setMapLimit(mapLimitDraft)}
-                  onKeyUp={(e) => {
-                    if (e.key.startsWith('Arrow')) setMapLimit(mapLimitDraft);
-                  }}
-                />
-                <span className="jr-fs-slider-val">
-                  {mapLimitDraft}
-                  {mapLoading ? ' ⋯' : ''}
-                </span>
+        </div>
+        <div className="j-fright">
+          <span className="fld j-found">
+            <span className="k">Найдено</span>
+            <span className="v">{total}</span>
+          </span>
+          <button className="icon-btn" data-tip="Хранилище журнала" onClick={() => setStorageOpen(true)}>
+            <Icon name="box" size={15} />
+          </button>
+          <button className="icon-btn" data-tip="Карта обнаружений" onClick={() => setFullscreen(true)}>
+            <Icon name="map" size={15} />
+          </button>
+        </div>
+      </div>
+
+      <div className="nv">
+        <div className="j-list">
+          <div className="j-head">
+            <span>Время</span>
+            <span>Камера</span>
+            <span>Объекты</span>
+            <span>Трек</span>
+            <span>Вердикт</span>
+          </div>
+          <div className="j-rows" ref={listRef}>
+            {newCount > 0 && (
+              <button className="j-new" onClick={() => load(false)}>
+                <Icon name="chev" size={12} className="ico" />
+                {newCount} новых — показать
+              </button>
+            )}
+            {loading && dets.length === 0 ? (
+              Array.from({ length: SKELETON_ROWS }, (_, i) => (
+                <div className="j-row is-skel" key={i}>
+                  <span className="skel" />
+                  <span className="skel" />
+                  <span className="skel" />
+                  <span className="skel" />
+                  <span className="skel" />
+                </div>
+              ))
+            ) : err ? (
+              <div className="empty">
+                <Icon name="warn" className="ico" />
+                <b>Журнал недоступен</b>
+                <p>{err}</p>
               </div>
+            ) : dets.length === 0 ? (
+              <div className="empty">
+                <Icon name="empty" className="ico" />
+                <b>Записей нет</b>
+              </div>
+            ) : (
+              dets.map((d) => (
+                <DetectionRow
+                  key={d.id}
+                  det={d}
+                  selected={d.id === selectedId}
+                  resolve={resolve}
+                  cameraName={cameraName}
+                  onSelect={setSelectedId}
+                />
+              ))
             )}
           </div>
-          <button
-            className="jr-fs-close"
-            onClick={() => setFullscreen(false)}
-            title="Свернуть карту"
-            aria-label="Свернуть карту"
-          >
-            ⤡
-          </button>
-          {withGps.length === 0 && (
-            <div className="jr-fs-empty">Нет точек с координатами по текущим фильтрам</div>
-          )}
         </div>
-      )}
+
+        <aside className="j-side">{side}</aside>
+      </div>
+
+      {periodPopover}
+      {classPopover(classRef.current)}
+    </>
+  );
+
+  return (
+    <div className="nv-journal">
+      {fullscreen ? fullMap : main}
 
       {storageOpen && (
         <StorageModal onClose={() => setStorageOpen(false)} onPurged={() => load(true)} />

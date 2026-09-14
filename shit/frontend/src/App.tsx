@@ -14,7 +14,6 @@ import Header from './components/Header';
 import Dashboard from './components/Dashboard';
 // import LoaderSettings from './components/LoaderSettings';
 // import NeuralSettings from './components/NeuralSettings';
-const NeuralConfigApp = lazy(() => import('./features/neural/components/NeuralConfigApp'));
 import Login from './components/Login';
 // Трансляция тянет токены и общие классы макета — держим её ленивой, чтобы
 // эти стили не попадали в документ на страницах старого слоя
@@ -27,9 +26,6 @@ import Observation from './components/Observation';
 import RecordingsView from './components/RecordingsView';
 import DeviceSettings from './components/DeviceSettings';
 // Landing (развилка киоск/админка) умер: «/» решается редиректом ниже
-import { getDevices } from './services/devices';
-const NeuralUnavailable = lazy(() =>
-    import('./features/neural/components/ModuleUnavailable').then(m => ({ default: m.NeuralUnavailable })));
 import OnScreenKeyboard from './components/OnScreenKeyboard';
 // Переписываемая оболочка живёт на /new: грузится лениво, чтобы её стили
 // не попадали в документ на старых экранах
@@ -358,21 +354,10 @@ const AppContent: React.FC = () => {
     );
   }
 
-  // Модульные страницы доступны только при живом устройстве с нужным модулем
-  const hasModule = (m: string) =>
-    getDevices().some((d) => d.status === 'online' && d.modules.includes(m));
-
   if (isNeuralRoute) {
-    return (
-      <Suspense fallback={null}>
-        {!hasModule('neural') ? <NeuralUnavailable /> : (
-          <>
-            <NeuralConfigApp />
-            <OnScreenKeyboard />
-          </>
-        )}
-      </Suspense>
-    );
+    // Раздел переехал в новую оболочку
+    window.location.replace('/new/neural');
+    return null;
   }
   if (isKrspsRoute) {
     // Раздел переехал в новую оболочку

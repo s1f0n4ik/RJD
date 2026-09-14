@@ -314,6 +314,33 @@ namespace neural {
         return true;
     }
 
+    UNeuralLoader::EDeleteResult UNeuralLoader::delete_configuration(const std::string& id) {
+        {
+            std::lock_guard<std::mutex> lk(m_loader_mutex);
+            for (const auto& d : m_active_descs)
+                if (d.config_id == id) return EDeleteResult::IN_USE;
+        }
+        try {
+            if (!std::filesystem::exists(m_config_path)) return EDeleteResult::NOT_FOUND;
+            std::ifstream f(m_config_path);
+            std::stringstream ss; ss << f.rdbuf();
+            auto v = boost::json::parse(ss.str());
+            if (!v.is_object()) return EDeleteResult::NOT_FOUND;
+            auto& obj = v.as_object();
+            if (!obj.contains(id)) return EDeleteResult::NOT_FOUND;
+            obj.erase(id);
+
+            std::ofstream out(m_config_path);
+            out << boost::json::serialize(obj);
+            m_logger.info("delete_configuration(): '" + id + "' removed");
+            return EDeleteResult::OK;
+        }
+        catch (const std::exception& e) {
+            m_logger.error("delete_configuration(): " + std::string(e.what()));
+            return EDeleteResult::FAILED;
+        }
+    }
+
     // Запуск всех ядер конфигураий сразу
     bool UNeuralLoader::start_loader() {
         // Прошлые слоты гасятся до захвата m_loader_mutex

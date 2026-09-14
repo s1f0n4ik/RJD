@@ -11,6 +11,7 @@
 
     GET  /neural/configurations          список конфигов (id, name)
     POST /neural/configurations          импорт нового файла конфигураций body: { "mode": "merge"|"replace", "data": {...} }
+    DELETE /neural/configurations?id=    удалить конфигурацию; 409 — занята слотом state, 404 — нет такой
     GET  /neural/state                   текущий save-state { config_id, camera_id }
     POST /neural/state                   перезаписать save-state и (если работает) перезапуск body: { "config_id": "...", "camera_id": "..." }
     GET  /neural/status                  { running, config_id, camera_id, stream_id }
@@ -28,6 +29,9 @@ public:
 
     boost::beast::http::response<boost::beast::http::string_body>
         post_configurations(const boost::beast::http::request<boost::beast::http::string_body>& req);
+
+    boost::beast::http::response<boost::beast::http::string_body>
+        delete_configuration(const boost::beast::http::request<boost::beast::http::string_body>& req);
 
     boost::beast::http::response<boost::beast::http::string_body>
         get_state(const boost::beast::http::request<boost::beast::http::string_body>& req);

@@ -169,6 +169,29 @@ UNeuralController::post_configurations(const http::request<http::string_body>& r
     return json_ok(m_logger, req, boost::json::object{}, tag);
 }
 
+// ─── DELETE /neural/configurations?id= ───────────────────────
+http::response<http::string_body>
+UNeuralController::delete_configuration(const http::request<http::string_body>& req) {
+    const std::string tag = "DELETE /neural/configurations";
+    log_request(m_logger, req, tag);
+
+    const std::string id = extract_query_param(req.target(), "id");
+    if (id.empty())
+        return json_error(m_logger, req, http::status::bad_request, "id query param required", tag);
+
+    using R = varan::neural::UNeuralLoader::EDeleteResult;
+    switch (m_loader->delete_configuration(id)) {
+    case R::OK:
+        return json_ok(m_logger, req, boost::json::object{}, tag);
+    case R::IN_USE:
+        return json_error(m_logger, req, http::status::conflict, "configuration is used by a slot", tag);
+    case R::NOT_FOUND:
+        return json_error(m_logger, req, http::status::not_found, "configuration '" + id + "' not found", tag);
+    default:
+        return json_error(m_logger, req, http::status::internal_server_error, "delete failed", tag);
+    }
+}
+
 // ─── GET /neural/state ──────────────────────────────────────
 http::response<http::string_body>
 UNeuralController::get_state(const http::request<http::string_body>& req) {

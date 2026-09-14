@@ -1,6 +1,7 @@
 import type { IconName } from './Icons';
 import { sectionLabel } from '../screens/krsps/sections';
 import { SURROUND_SECTIONS, surroundSectionLabel } from '../screens/surround/sections';
+import { NEURAL_SECTIONS, neuralSectionLabel } from '../screens/neural/sections';
 
 /**
  * Разделы новой оболочки.
@@ -35,7 +36,10 @@ export const NAV: NavItem[] = [
     { to: '/archive',  label: 'Архив',               icon: 'arch',  ready: true,  desc: 'Записи, таймлайны и склейка' },
     { to: '/devices',  label: 'Устройства',          icon: 'dev',   ready: true,  desc: 'Одноплатники: состояние и маршрутизация' },
 
-    { to: '/neural',   label: 'Техническое зрение',  icon: 'eye',   ready: false, group: 'Модули' },
+    {
+        to: '/neural', label: 'Техническое зрение', icon: 'eye', ready: true, group: 'Модули', desc: 'Конфигурации, потоки, журнал обнаружений',
+        sub: NEURAL_SECTIONS.map((s, i) => ({ to: `/neural/${s.id}`, label: s.label, n: String(i + 1).padStart(2, '0') })),
+    },
     {
         to: '/surround', label: 'Система 360', icon: '360', ready: true, desc: 'Калибровка, сборка, конфигуратор',
         sub: SURROUND_SECTIONS.map((s, i) => ({ to: `/surround/${s.id}`, label: s.label, n: String(i + 1).padStart(2, '0') })),
@@ -60,5 +64,7 @@ export function crumbsFor(pathname: string): string[] {
     if (krsps) return krsps[1] ? ['АС КРСПС', sectionLabel(krsps[1], krsps[1])] : ['АС КРСПС'];
     const surround = /^\/surround(?:\/([^/]+))?$/.exec(pathname);
     if (surround) return surround[1] ? ['Система 360', surroundSectionLabel(surround[1])] : ['Система 360'];
+    const neural = /^\/neural(?:\/([^/]+))?$/.exec(pathname);
+    if (neural) return neural[1] ? ['Техническое зрение', neuralSectionLabel(neural[1])] : ['Техническое зрение'];
     return ['Главная'];
 }

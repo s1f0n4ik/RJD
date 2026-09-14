@@ -1,18 +1,19 @@
-import { useState } from 'react';
+import { useEffect, useMemo } from 'react';
+import type { ReactNode } from 'react';
+import { createPortal } from 'react-dom';
+import { elementAnchor, usePopover } from '../../../../app/popover';
+import type { SelectOption } from '../../../../app/Select';
 import type { Verdict } from '../../api/journal-types';
 import type { ClassOption } from './useClassResolver';
-import { DateRangePicker } from './DateRangePicker';
-import { fmtDate, fmtTime, wallNow } from './format';
+import { wallNow } from './format';
 
 // Журнал почти всегда смотрят «за последнее время», поэтому основной способ —
-// пресеты в один клик. Точный диапазон нужен реже и живёт за кнопкой «Период».
+// пресеты в один клик. Точный диапазон нужен реже и живёт в календаре.
 export type PresetKey = 'all' | 'today' | 'h24' | 'd7' | 'd30' | 'custom';
 
-// По возрастанию охвата: журнал открывается на «Сегодня», а «Всё» — крайний
-// случай, поэтому стоит последним.
-const PRESETS: { key: PresetKey; label: string }[] = [
+export const PRESETS: { key: PresetKey; label: string }[] = [
   { key: 'today', label: 'Сегодня' },
-  { key: 'h24', label: '24 часа' },
+  { key: 'h24', label: '24 ч' },
   { key: 'd7', label: '7 дней' },
   { key: 'd30', label: '30 дней' },
   { key: 'all', label: 'Всё' },
@@ -39,149 +40,143 @@ export function presetRange(key: PresetKey): { from?: number; to?: number } {
   }
 }
 
-const VERDICTS: { key: Verdict | 'all'; label: string }[] = [
-  { key: 'all', label: 'Все' },
-  { key: 'unverified', label: 'Непроверенные' },
-  { key: 'true', label: 'Верно' },
-  { key: 'false', label: 'Ложные' },
+export const VERDICT_LABEL: Record<Verdict, string> = {
+  unverified: 'не проверено',
+  true: 'подтверждено',
+  false: 'ложное',
+};
+
+// Модификатор .vd и точка .dot по вердикту
+export const VERDICT_CLASS: Record<Verdict, { vd: string; dot: string }> = {
+  unverified: { vd: 'u', dot: '' },
+  true: { vd: 't', dot: 'ok' },
+  false: { vd: 'f', dot: 'err' },
+};
+
+// Пустое значение — «все»
+export const VERDICT_OPTIONS: SelectOption[] = [
+  { value: '', label: 'все' },
+  { value: 'unverified', label: VERDICT_LABEL.unverified },
+  { value: 'true', label: VERDICT_LABEL.true, dot: 'ok' },
+  { value: 'false', label: VERDICT_LABEL.false, dot: 'err' },
 ];
 
-interface Props {
+interface PresetSegProps {
   preset: PresetKey;
-  tFrom?: number;
-  tTo?: number;
-  verdict?: Verdict;
-  selectedCids: number[];
-  classOptions: ClassOption[];
   onPreset: (key: PresetKey) => void;
-  onRange: (from?: number, to?: number) => void;
-  onVerdict: (v?: Verdict) => void;
-  onCids: (cids: number[]) => void;
 }
 
-export function Filters({
-  preset,
-  tFrom,
-  tTo,
-  verdict,
-  selectedCids,
-  classOptions,
-  onPreset,
-  onRange,
-  onVerdict,
-  onCids,
-}: Props) {
-  const [classOpen, setClassOpen] = useState(false);
-  const [calOpen, setCalOpen] = useState(false);
+export function PresetSeg({ preset, onPreset }: PresetSegProps) {
+  return (
+    <div className="seg">
+      {PRESETS.map((p) => (
+        <button
+          key={p.key}
+          type="button"
+          className={preset === p.key ? 'is-on' : ''}
+          onClick={() => onPreset(p.key)}
+        >
+          {p.label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
-  const toggleCid = (cid: number) => {
-    const set = new Set(selectedCids);
+interface PopoverProps {
+  anchor: HTMLElement;
+  onClose: () => void;
+  // Поверх модалки: z-index выше .overlay
+  over?: boolean;
+  className?: string;
+  children: ReactNode;
+}
+
+// Поповер под якорем: координаты ставит usePopover после отрисовки
+export function Popover({ anchor, onClose, over, className, children }: PopoverProps) {
+  const box = useMemo(() => elementAnchor(anchor), [anchor]);
+  const ref = usePopover<HTMLDivElement>(box, { side: 'bottom', align: 'start', gap: 6 });
+
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (anchor.contains(t) || ref.current?.contains(t)) return;
+      onClose();
+    };
+    // Esc перехватывается в фазе захвата: модалка под поповером не должна закрыться той же клавишей
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      onClose();
+    };
+    const close = () => onClose();
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey, true);
+    window.addEventListener('resize', close);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('resize', close);
+    };
+  }, [anchor, onClose, ref]);
+
+  return createPortal(
+    <div ref={ref} className={`j-pop${over ? ' is-over' : ''}${className ? ' ' + className : ''}`}>
+      {children}
+    </div>,
+    document.body,
+  );
+}
+
+interface ClassPickerProps {
+  anchor: HTMLElement;
+  options: ClassOption[];
+  selected: number[];
+  onChange: (cids: number[]) => void;
+  onClose: () => void;
+}
+
+// Список классов по суперклассам с чекбоксами
+export function ClassPicker({ anchor, options, selected, onChange, onClose }: ClassPickerProps) {
+  const groups = useMemo(() => {
+    const map = new Map<string, ClassOption[]>();
+    for (const c of options) {
+      const arr = map.get(c.superName) ?? [];
+      arr.push(c);
+      map.set(c.superName, arr);
+    }
+    return [...map.entries()];
+  }, [options]);
+
+  const toggle = (cid: number) => {
+    const set = new Set(selected);
     if (set.has(cid)) set.delete(cid);
     else set.add(cid);
-    onCids([...set]);
+    onChange([...set]);
   };
 
-  const groups = new Map<string, ClassOption[]>();
-  for (const c of classOptions) {
-    const arr = groups.get(c.superName) ?? [];
-    arr.push(c);
-    groups.set(c.superName, arr);
-  }
-
-  const classLabel = selectedCids.length ? `Класс · ${selectedCids.length}` : 'Класс: все';
-
-  const rangeLabel =
-    preset === 'custom' && tFrom != null
-      ? `${fmtDate(tFrom)} ${fmtTime(tFrom)} — ${tTo != null ? `${fmtDate(tTo)} ${fmtTime(tTo)}` : '…'}`
-      : 'Период';
-
   return (
-    <div className="jr-filters">
-      <div className="jr-seg jr-seg-presets">
-        {PRESETS.map((p) => (
-          <button
-            key={p.key}
-            className={preset === p.key ? 'on' : ''}
-            onClick={() => onPreset(p.key)}
-          >
-            {p.label}
+    <Popover anchor={anchor} onClose={onClose} className="j-cls">
+      {options.length === 0 && <div className="j-cls-empty">Классов нет</div>}
+      {groups.map(([sup, items]) => (
+        <div className="j-cls-grp" key={sup}>
+          {sup && <span className="eyebrow">{sup}</span>}
+          {items.map((c) => (
+            <label className="j-cls-item" key={`${c.cid}:${c.name}`}>
+              <input type="checkbox" checked={selected.includes(c.cid)} onChange={() => toggle(c.cid)} />
+              <i className="sw-col" style={{ background: c.color }} />
+              {c.name}
+            </label>
+          ))}
+        </div>
+      ))}
+      {selected.length > 0 && (
+        <div className="j-cls-foot">
+          <button type="button" className="btn btn--ghost btn--sm" onClick={() => onChange([])}>
+            Сбросить
           </button>
-        ))}
-      </div>
-
-      <div className="jr-class-wrap">
-        <button
-          className={`jr-fchip jr-click${preset === 'custom' ? ' act' : ''}`}
-          onClick={() => setCalOpen((v) => !v)}
-        >
-          {rangeLabel}
-        </button>
-        {calOpen && (
-          <>
-            <div className="jr-class-backdrop" onClick={() => setCalOpen(false)} />
-            <DateRangePicker
-              from={tFrom}
-              to={tTo}
-              onApply={onRange}
-              onClose={() => setCalOpen(false)}
-            />
-          </>
-        )}
-      </div>
-
-      <div className="jr-class-wrap">
-        <button
-          className={`jr-fchip jr-click${selectedCids.length ? ' act' : ''}`}
-          onClick={() => setClassOpen((v) => !v)}
-        >
-          {classLabel}
-          <span className="jr-caret">▾</span>
-        </button>
-        {classOpen && (
-          <>
-            <div className="jr-class-backdrop" onClick={() => setClassOpen(false)} />
-            <div className="jr-class-menu">
-              {classOptions.length === 0 && <div className="jr-class-empty">нет классов</div>}
-              {[...groups.entries()].map(([sup, items]) => (
-                <div className="jr-class-group" key={sup}>
-                  {sup && <div className="jr-class-sup">{sup}</div>}
-                  {items.map((c) => (
-                    <label className="jr-class-item" key={`${c.cid}:${c.name}`}>
-                      <input
-                        type="checkbox"
-                        checked={selectedCids.includes(c.cid)}
-                        onChange={() => toggleCid(c.cid)}
-                      />
-                      <span className="jr-cd" style={{ background: c.color }} />
-                      {c.name}
-                    </label>
-                  ))}
-                </div>
-              ))}
-              {selectedCids.length > 0 && (
-                <button className="jr-class-clear" onClick={() => onCids([])}>
-                  Сбросить
-                </button>
-              )}
-            </div>
-          </>
-        )}
-      </div>
-
-      <div className="jr-seg">
-        {VERDICTS.map((v) => {
-          const active = v.key === 'all' ? verdict == null : verdict === v.key;
-          return (
-            <button
-              key={v.key}
-              className={active ? 'on' : ''}
-              onClick={() => onVerdict(v.key === 'all' ? undefined : (v.key as Verdict))}
-            >
-              {v.label}
-            </button>
-          );
-        })}
-      </div>
-    </div>
+        </div>
+      )}
+    </Popover>
   );
 }

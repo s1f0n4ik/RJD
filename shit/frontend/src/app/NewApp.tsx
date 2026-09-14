@@ -14,6 +14,7 @@ import ArchiveScreen from '../screens/archive/ArchiveScreen';
 import { DevicesScreen } from '../screens/devices/DevicesScreen';
 import KrspsScreen from '../screens/krsps/KrspsScreen';
 import SurroundScreen from '../screens/surround/SurroundScreen';
+import NeuralScreen from '../screens/neural/NeuralScreen';
 import { LoginScreen } from '../screens/login/LoginScreen';
 import { readStoredToken } from '../utils/auth';
 
@@ -66,6 +67,8 @@ export default function NewApp() {
                         <Route path="krsps/:section" element={<KrspsScreen />} />
                         <Route path="surround" element={<SurroundScreen />} />
                         <Route path="surround/:section" element={<SurroundScreen />} />
+                        <Route path="neural" element={<NeuralScreen />} />
+                        <Route path="neural/:section" element={<NeuralScreen />} />
                         {/* Непереписанные разделы адресов ещё не имеют: любой другой путь ведёт на главную */}
                         <Route path="*" element={<Navigate to="/" replace />} />
                     </Route>

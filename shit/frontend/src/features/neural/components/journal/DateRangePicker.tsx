@@ -1,15 +1,19 @@
 import { useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
+import { Icon } from '../../../../app/Icons';
+import { Popover } from './Filters';
 
 // Свой календарь диапазона. Нативный datetime-local не подходит: его выпадающую
 // панель браузер рисует вне DOM, и под тему её не привести.
 
 const DOW = ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс'];
 const MONTHS = [
-  'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
-  'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь',
+  'январь', 'февраль', 'март', 'апрель', 'май', 'июнь',
+  'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь',
 ];
 
 interface Props {
+  anchor: HTMLElement;
   from?: number;
   to?: number;
   onApply: (from?: number, to?: number) => void;
@@ -17,6 +21,10 @@ interface Props {
   /** Одна дата вместо диапазона: второй клик переставляет выбор, время одно,
    *  onApply приходит только с from. Используется очисткой «старше даты». */
   single?: boolean;
+  // Поверх модалки
+  over?: boolean;
+  // Блок над календарём: пресеты периода
+  head?: ReactNode;
 }
 
 /** Порядковый номер дня — для сравнений без учёта времени. */
@@ -58,7 +66,7 @@ function fmtTimeInput(ms?: number, fallback = ''): string {
   return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
 }
 
-export function DateRangePicker({ from, to, onApply, onClose, single = false }: Props) {
+export function DateRangePicker({ anchor, from, to, onApply, onClose, single = false, over, head }: Props) {
   const initStart = from != null ? wallToDate(from) : null;
   const initEnd = to != null ? wallToDate(to) : null;
 
@@ -101,11 +109,10 @@ export function DateRangePicker({ from, to, onApply, onClose, single = false }: 
     const k = dayKey(d);
     const s = start ? dayKey(start) : null;
     const e = end ? dayKey(end) : null;
-    let cls = 'jr-cal-d';
-    if (!inMonth) cls += ' mute';
-    if (s != null && k === s) cls += ' start';
-    if (e != null && k === e) cls += ' end';
-    if (s != null && e != null && k > s && k < e) cls += ' in';
+    let cls = 'cal-d';
+    if (!inMonth) cls += ' is-out';
+    if ((s != null && k === s) || (e != null && k === e)) cls += ' is-on';
+    else if (s != null && e != null && k > s && k < e) cls += ' has';
     return cls;
   };
 
@@ -147,62 +154,61 @@ export function DateRangePicker({ from, to, onApply, onClose, single = false }: 
   };
 
   return (
-    <div className="jr-cal" onClick={(e) => e.stopPropagation()}>
-      <div className="jr-cal-head">
-        <span className="jr-cal-month">
-          {MONTHS[view.m]} {view.y}
-        </span>
-        <span className="jr-cal-nav">
-          <button type="button" onClick={() => shift(-1)} aria-label="Предыдущий месяц">←</button>
-          <button type="button" onClick={() => shift(1)} aria-label="Следующий месяц">→</button>
-        </span>
-      </div>
-
-      <div className="jr-cal-grid">
-        {DOW.map((d) => (
-          <span className="jr-cal-dow" key={d}>{d}</span>
-        ))}
-        {cells.map(({ date, inMonth }, i) => (
-          <button
-            type="button"
-            key={i}
-            className={cellClass(date, inMonth)}
-            onClick={() => pick(date)}
-          >
-            {date.getDate()}
-          </button>
-        ))}
-      </div>
-
-      <div className="jr-cal-times">
-        <label className="jr-cal-t">
-          <span className="jr-cal-tk">{single ? 'время' : 'с'}</span>
-          <input
-            value={startTime}
-            onChange={(e) => setStartTime(e.target.value)}
-            placeholder="00:00"
-            inputMode="numeric"
-            maxLength={5}
-          />
-        </label>
-        {!single && (
-          <label className="jr-cal-t">
-            <span className="jr-cal-tk">по</span>
+    <Popover anchor={anchor} onClose={onClose} over={over} className="j-cal-pop">
+      <div className="j-cal-body">
+        {head}
+        <div className="cal">
+          <div className="cal-h">
+            <button type="button" className="icon-btn" onClick={() => shift(-1)} aria-label="Предыдущий месяц">
+              <Icon name="chev" size={12} className="ico is-back" />
+            </button>
+            <b>{MONTHS[view.m]} {view.y}</b>
+            <button type="button" className="icon-btn" onClick={() => shift(1)} aria-label="Следующий месяц">
+              <Icon name="chev" size={12} />
+            </button>
+          </div>
+          <div className="cal-grid">
+            {DOW.map((d) => (
+              <span key={d}>{d}</span>
+            ))}
+            {cells.map(({ date, inMonth }, i) => (
+              <button type="button" key={i} className={cellClass(date, inMonth)} onClick={() => pick(date)}>
+                {date.getDate()}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="tf-row">
+          <div className="tf">
+            <span className="tf-cap">{single ? 'Время' : 'С'}</span>
             <input
-              value={endTime}
-              onChange={(e) => setEndTime(e.target.value)}
-              placeholder="23:59"
+              className="tf-in"
+              value={startTime}
+              onChange={(e) => setStartTime(e.target.value)}
+              placeholder="00:00"
               inputMode="numeric"
               maxLength={5}
             />
-          </label>
-        )}
+          </div>
+          {!single && (
+            <div className="tf">
+              <span className="tf-cap">По</span>
+              <input
+                className="tf-in"
+                value={endTime}
+                onChange={(e) => setEndTime(e.target.value)}
+                placeholder="23:59"
+                inputMode="numeric"
+                maxLength={5}
+              />
+            </div>
+          )}
+        </div>
       </div>
-
-      <div className="jr-cal-foot">
-        <button type="button" className="jr-cal-reset" onClick={reset}>Сбросить</button>
-        <button type="button" className="jr-cal-apply" onClick={apply}>Применить</button>
+      <div className="j-cal-foot">
+        <button type="button" className="btn btn--ghost" onClick={reset}>Сбросить</button>
+        <button type="button" className="btn btn--acc spacer" onClick={apply}>Применить</button>
       </div>
-    </div>
+    </Popover>
   );
 }

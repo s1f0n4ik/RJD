@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
+import { Modal } from '../../../../app/Modal';
+import { useToast } from '../../../birdview/components/common/Toast';
 import { journalApi } from '../../api/journal';
 import type { JournalStorageState } from '../../api/journal';
 import { DateRangePicker } from './DateRangePicker';
-import { fmtDateTime } from './format';
+import { fmtDate } from './format';
 
 interface Props {
   onClose: () => void;
@@ -12,10 +14,34 @@ interface Props {
 
 const GB = 1024 ** 3;
 
-function fmtBytes(bytes: number): string {
-  if (bytes >= GB) return `${(bytes / GB).toFixed(2)} ГБ`;
-  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} МБ`;
-  return `${Math.round(bytes / 1024)} КБ`;
+function fmtGb(bytes: number): string {
+  return (bytes / GB).toFixed(bytes >= GB ? 1 : 2).replace('.', ',');
+}
+
+interface DiskProps {
+  label: string;
+  used: number;
+  limitGb: number | null;
+}
+
+// Занятость: полоса только при заданном лимите, жёлтая от 90 %
+function Disk({ label, used, limitGb }: DiskProps) {
+  const limit = limitGb != null && limitGb > 0 ? limitGb * GB : 0;
+  const ratio = limit > 0 ? Math.min(1, used / limit) : 0;
+  return (
+    <div className="j-disk">
+      <div className="j-disk-h">
+        <b>{label}</b>
+        <span className="num">
+          {fmtGb(used)}
+          {limit > 0 ? ` / ${limitGb} ГБ` : ' ГБ'}
+        </span>
+      </div>
+      <div className="bar">
+        <i className={ratio >= 0.9 ? 'is-warn' : ''} style={{ width: `${Math.round(ratio * 100)}%` }} />
+      </div>
+    </div>
+  );
 }
 
 /**
@@ -25,21 +51,22 @@ function fmtBytes(bytes: number): string {
  * старейшие записи уходят вместе со своими изображениями.
  */
 export function StorageModal({ onClose, onPurged }: Props) {
+  const toast = useToast();
   const [state, setState] = useState<JournalStorageState | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   const [imagesDraft, setImagesDraft] = useState('');
   const [dbDraft, setDbDraft] = useState('');
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
 
   // Граница «старше даты» — настенное время шлюза, закодированное как UTC
+  const [purgeMode, setPurgeMode] = useState<'date' | 'all'>('date');
   const [purgeBefore, setPurgeBefore] = useState<number | undefined>();
   const [calOpen, setCalOpen] = useState(false);
-  const [confirm, setConfirm] = useState<'date' | 'all' | null>(null);
+  const [confirm, setConfirm] = useState(false);
   const [purging, setPurging] = useState(false);
-  const [purgeInfo, setPurgeInfo] = useState<string | null>(null);
 
+  const dateRef = useRef<HTMLButtonElement>(null);
   const confirmTimer = useRef<number | null>(null);
 
   useEffect(() => {
@@ -51,18 +78,10 @@ export function StorageModal({ onClose, onPurged }: Props) {
         setDbDraft(String(s.db_limit_gb));
       })
       .catch((e) => setErr(e instanceof Error ? e.message : String(e)));
-  }, []);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
     return () => {
-      window.removeEventListener('keydown', onKey);
       if (confirmTimer.current) clearTimeout(confirmTimer.current);
     };
-  }, [onClose]);
+  }, []);
 
   const parseLimit = (raw: string): number | null => {
     const n = Number(raw.replace(',', '.'));
@@ -84,8 +103,7 @@ export function StorageModal({ onClose, onPurged }: Props) {
       setState(s);
       setImagesDraft(String(s.images_limit_gb));
       setDbDraft(String(s.db_limit_gb));
-      setSaved(true);
-      window.setTimeout(() => setSaved(false), 2000);
+      toast('Лимиты сохранены', '', 'ok');
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -93,22 +111,26 @@ export function StorageModal({ onClose, onPurged }: Props) {
     }
   };
 
-  // Первый клик взводит красное подтверждение, второй — удаляет
-  const armConfirm = (kind: 'date' | 'all') => {
-    setConfirm(kind);
+  // Первый клик взводит подтверждение на 4 с, второй — удаляет
+  const handlePurgeClick = () => {
+    if (!confirm) {
+      setConfirm(true);
+      if (confirmTimer.current) clearTimeout(confirmTimer.current);
+      confirmTimer.current = window.setTimeout(() => setConfirm(false), 4000);
+      return;
+    }
     if (confirmTimer.current) clearTimeout(confirmTimer.current);
-    confirmTimer.current = window.setTimeout(() => setConfirm(null), 4000);
+    setConfirm(false);
+    void handlePurge(purgeMode === 'date' ? purgeBefore : undefined);
   };
 
   const handlePurge = async (beforeTs?: number) => {
-    setConfirm(null);
     setPurging(true);
     setErr(null);
-    setPurgeInfo(null);
     try {
       const res = await journalApi.purge(beforeTs);
       setState(res);
-      setPurgeInfo(`Удалено записей: ${res.deleted}, изображений: ${res.files_deleted}`);
+      toast('Очистка выполнена', `Записей: ${res.deleted}, кадров: ${res.files_deleted}`, 'ok');
       onPurged();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -117,152 +139,112 @@ export function StorageModal({ onClose, onPurged }: Props) {
     }
   };
 
-  const usageRow = (label: string, used: number, limitGb: number | null) => {
-    const limit = limitGb != null && limitGb > 0 ? limitGb * GB : 0;
-    const ratio = limit > 0 ? Math.min(1, used / limit) : 0;
-    return (
-      <div className="jr-storage-usage">
-        <span className="jr-storage-usage-text">
-          {label}: занято {fmtBytes(used)}
-          {limit > 0 ? ` из ${limitGb} ГБ` : ' · без ограничения'}
-        </span>
-        {limit > 0 && (
-          <span className="jr-storage-bar">
-            <span
-              className={`jr-storage-bar-fill${ratio >= 0.9 ? ' hot' : ''}`}
-              style={{ width: `${Math.round(ratio * 100)}%` }}
-            />
-          </span>
-        )}
-      </div>
-    );
-  };
+  const purgeDisabled = purging || (purgeMode === 'date' && purgeBefore == null);
 
   return (
-    <div className="modal-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="modal jr-storage-modal">
-        <div className="jr-storage-head">
-          <span className="modal-title">Хранилище журнала</span>
-          <button className="jr-icon-btn" onClick={onClose} title="Закрыть (Esc)" aria-label="Закрыть">
-            ✕
+    <Modal
+      title="Хранилище журнала"
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn--ghost spacer" onClick={onClose}>Закрыть</button>
+          <button
+            className="btn btn--acc"
+            onClick={() => void handleSave()}
+            disabled={saving || !dirty || imagesLimit == null || dbLimit == null}
+          >
+            Сохранить лимиты
           </button>
-        </div>
-
-        {err && <div className="error-box">{err}</div>}
-
-        {state == null && !err ? (
-          <div className="modal-body">Загрузка…</div>
-        ) : state != null && (
+        </>
+      }
+    >
+      <div className="modal-b">
+        {state == null && !err && (
+          <div className="j-skel-rows">
+            <span className="skel" />
+            <span className="skel" />
+            <span className="skel" />
+          </div>
+        )}
+        {state != null && (
           <>
-            <div className="jr-storage-block">
-              <div className="field-row">
-                <div className="field-group">
-                  <label className="field-label">Лимит изображений, ГБ</label>
-                  <input
-                    type="number"
-                    className={`field-input${imagesLimit == null ? ' invalid' : ''}`}
-                    min={0}
-                    step={0.5}
-                    value={imagesDraft}
-                    onChange={(e) => setImagesDraft(e.target.value)}
-                  />
-                  {usageRow('Кадры', state.frames_bytes, imagesLimit)}
-                </div>
-                <div className="field-group">
-                  <label className="field-label">Лимит базы записей, ГБ</label>
-                  <input
-                    type="number"
-                    className={`field-input${dbLimit == null ? ' invalid' : ''}`}
-                    min={0}
-                    step={0.1}
-                    value={dbDraft}
-                    onChange={(e) => setDbDraft(e.target.value)}
-                  />
-                  {usageRow('База', state.db_bytes, dbLimit)}
-                </div>
+            <Disk label="Кадры" used={state.frames_bytes} limitGb={imagesLimit} />
+            <Disk label="База записей" used={state.db_bytes} limitGb={dbLimit} />
+            <div className="tf-row j-mt">
+              <div className="tf">
+                <span className="tf-cap">Лимит кадров, ГБ</span>
+                <input
+                  type="number"
+                  className={`tf-in${imagesLimit == null ? ' is-err' : ''}`}
+                  min={0}
+                  step={0.5}
+                  value={imagesDraft}
+                  onChange={(e) => setImagesDraft(e.target.value)}
+                />
               </div>
-              <div className="jr-storage-hint">
-                0 — без ограничения. При переполнении удаляется самое старое: изображения — без
-                записей (в журнале останется отметка об удалённом кадре), база — записи вместе с
-                их изображениями.
-              </div>
-              <div className="modal-actions">
-                {saved && <span className="jr-storage-saved">Сохранено</span>}
-                <button
-                  className="btn btn-primary"
-                  onClick={() => void handleSave()}
-                  disabled={saving || !dirty || imagesLimit == null || dbLimit == null}
-                >
-                  {saving ? 'Сохранение…' : 'Сохранить лимиты'}
-                </button>
+              <div className="tf">
+                <span className="tf-cap">Лимит базы, ГБ</span>
+                <input
+                  type="number"
+                  className={`tf-in${dbLimit == null ? ' is-err' : ''}`}
+                  min={0}
+                  step={0.1}
+                  value={dbDraft}
+                  onChange={(e) => setDbDraft(e.target.value)}
+                />
               </div>
             </div>
-
-            <div className="jr-storage-block">
-              <span className="jr-sect-lbl">Очистка</span>
-              <div className="jr-storage-purge-row">
-                <div className="jr-class-wrap">
+            <div className="tf-row j-mt j-purge">
+              <div className="tf">
+                <span className="tf-cap">Очистить записи</span>
+                <div className="seg">
                   <button
-                    className="btn btn-ghost"
-                    disabled={purging}
-                    onClick={() => { setCalOpen((v) => !v); setConfirm(null); }}
+                    type="button"
+                    className={purgeMode === 'date' ? 'is-on' : ''}
+                    onClick={() => { setPurgeMode('date'); setConfirm(false); }}
                   >
-                    {purgeBefore != null ? `до ${fmtDateTime(purgeBefore)}` : 'Выбрать дату'}
+                    Старше даты
                   </button>
-                  {calOpen && (
-                    <>
-                      <div className="jr-class-backdrop" onClick={() => setCalOpen(false)} />
-                      <DateRangePicker
-                        single
-                        from={purgeBefore}
-                        onApply={(from) => setPurgeBefore(from)}
-                        onClose={() => setCalOpen(false)}
-                      />
-                    </>
-                  )}
+                  <button
+                    type="button"
+                    className={purgeMode === 'all' ? 'is-on' : ''}
+                    onClick={() => { setPurgeMode('all'); setConfirm(false); }}
+                  >
+                    Все
+                  </button>
                 </div>
-                {confirm === 'date' ? (
-                  <button
-                    className="btn btn-danger"
-                    disabled={purging}
-                    onClick={() => void handlePurge(purgeBefore)}
-                  >
-                    Точно удалить?
-                  </button>
-                ) : (
-                  <button
-                    className="btn btn-ghost"
-                    disabled={purging || purgeBefore == null}
-                    onClick={() => armConfirm('date')}
-                  >
-                    Удалить старше даты
-                  </button>
-                )}
               </div>
-              <div className="jr-storage-purge-row">
-                {confirm === 'all' ? (
-                  <button
-                    className="btn btn-danger"
-                    disabled={purging}
-                    onClick={() => void handlePurge()}
-                  >
-                    Точно удалить всё?
-                  </button>
-                ) : (
-                  <button className="btn btn-ghost" disabled={purging} onClick={() => armConfirm('all')}>
-                    Удалить всё
-                  </button>
-                )}
-                {purging && <span className="jr-storage-hint">Очистка…</span>}
+              <div className="tf j-purge-date">
+                <span className="tf-cap">Дата</span>
+                <button
+                  type="button"
+                  ref={dateRef}
+                  className="tf-in is-btn"
+                  disabled={purgeMode !== 'date'}
+                  onClick={() => { setCalOpen((v) => !v); setConfirm(false); }}
+                >
+                  {purgeBefore != null ? fmtDate(purgeBefore) : '—'}
+                </button>
               </div>
-              {purgeInfo && <div className="jr-storage-saved">{purgeInfo}</div>}
-              <div className="jr-storage-hint">
-                Записи удаляются вместе с изображениями. Действие необратимо.
-              </div>
+              <button className="btn btn--err" disabled={purgeDisabled} onClick={handlePurgeClick}>
+                {confirm ? 'Точно удалить?' : 'Очистить'}
+              </button>
             </div>
           </>
         )}
+        {err && <div className="hint is-err j-mt">{err}</div>}
       </div>
-    </div>
+
+      {calOpen && dateRef.current && (
+        <DateRangePicker
+          single
+          over
+          anchor={dateRef.current}
+          from={purgeBefore}
+          onApply={(from) => setPurgeBefore(from)}
+          onClose={() => setCalOpen(false)}
+        />
+      )}
+    </Modal>
   );
 }

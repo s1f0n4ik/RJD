@@ -1,166 +1,178 @@
-// ─────────────────────────────────────────────────────────────
-//  Типы, повторяющие контракт C++ сервера (neural-controller.cpp).
-// ─────────────────────────────────────────────────────────────
+// Типы, повторяющие контракт media-center (neural-controller.cpp)
 
 /** Краткая запись из GET /neural/configurations */
 export interface ConfigSummary {
-  id: string;
-  name: string;
+    id: string;
+    name: string;
 }
 
 export interface ThresholdConfig {
-  nms: number;
-  confidence: number;
+    nms: number;
+    confidence: number;
 }
 
 export interface SuperclassDef {
-  name: string;
-  color: string;
+    name: string;
+    color: string;
 }
 
 export interface ClassDef {
-  name: string;
-  server_id: string;
-  superclass: string;
-  color: string;
+    name: string;
+    server_id: string;
+    superclass: string;
+    color: string;
 }
 
-/** Конфиг трекера (в терминологии UI — «фильтр»). json-configurator читает type "iou". */
+/** Конфиг трекера; json-configurator читает type "iou" */
 export interface TrackerConfig {
-  type: string;
-  iou_threshold: number;
-  min_hits: number;
-  max_lost: number;
-  move_threshold: number;
+    type: string;
+    iou_threshold: number;
+    min_hits: number;
+    max_lost: number;
+    move_threshold: number;
 }
 
-/** Реализованный тип трекера (GET /neural/tracker-types). */
+/** Реализованный тип трекера (GET /neural/tracker-types) */
 export interface TrackerType {
-  type: string;
-  name: string;
+    type: string;
+    name: string;
 }
 
-/** Тип события трека (GET /neural/event-types) — только идентификатор.
- *  Человекочитаемые названия задаёт фронт (бэкенд отдаёт лишь id). */
+/** Тип события трека (GET /neural/event-types) — только идентификатор */
 export interface TrackEventType {
-  type: string;
+    type: string;
 }
 
-/** Полный JSON конфигурации (GET /neural/configurations?id=...) */
+/** Полный JSON конфигурации (GET /neural/configurations?id=...); размер входа задаёт модель */
 export interface NeuralConfig {
-  name: string;
-  model_path: string;
-  model_width: number;
-  model_height: number;
-  /** Ограничение частоты обработки кадров нейронкой (FConfigInfo.fps). */
-  fps?: number;
-  thresholds: ThresholdConfig;
-  /** Трекер / «фильтр»: наличие валидного объекта = включён, null/отсутствие = выключен. */
-  tracker?: TrackerConfig | null;
-  superclasses: Record<string, SuperclassDef>;
-  classes: Record<string, ClassDef>;
+    name: string;
+    model_path: string;
+    thresholds: ThresholdConfig;
+    /** null или отсутствие — трекер выключен */
+    tracker?: TrackerConfig | null;
+    superclasses: Record<string, SuperclassDef>;
+    classes: Record<string, ClassDef>;
 }
 
-/** Матрица камер: строки → камеры */
-export type CameraMatrix = string[][];
-
-// ── Богатая раскладка камер потока ────────────────────────────
-// Фронт редактирует сетку ячейками (regions), бэкенд переводит их в
-// нормализованные тайлы rect=[x,y,w,h] в долях кадра [0..1].
-
-/** Ячейка сетки-редактора (что отправляет фронт при mode='grid'). */
+/** Ячейка сетки-редактора (mode='grid') */
 export interface CameraRegion {
-  row: number;
-  col: number;
-  row_span: number;
-  col_span: number;
-  camera: string;
+    row: number;
+    col: number;
+    row_span: number;
+    col_span: number;
+    camera: string;
 }
 
-/** Нормализованный тайл камеры (что возвращает бэкенд для рендера). */
+/** Нормализованный тайл камеры, доли кадра [0..1] */
 export interface CameraTile {
-  camera: string;
-  /** [x, y, w, h] — доли кадра [0..1] */
-  rect: [number, number, number, number];
+    camera: string;
+    rect: [number, number, number, number];
 }
 
-/** Раскладка камер потока. Сейчас конвейер обрабатывает только single. */
+/** Раскладка камер слота; конвейер обрабатывает только single */
 export interface CameraLayout {
-  mode: 'single' | 'grid';
-  rows: number;
-  cols: number;
-  /** mode='single' */
-  single?: string;
-  /** отдаётся бэкендом (нормализованные тайлы) */
-  tiles?: CameraTile[];
-  /** отправляется фронтом при mode='grid' */
-  regions?: CameraRegion[];
+    mode: 'single' | 'grid';
+    rows: number;
+    cols: number;
+    single?: string;
+    tiles?: CameraTile[];
+    regions?: CameraRegion[];
 }
 
-/** Стриминг потока: имя отображается, если enabled. */
 export interface StreamingDesc {
-  enabled: boolean;
-  name: string;
+    enabled: boolean;
+    name: string;
 }
 
-/** Дескриптор активного потока — тело POST /neural/state */
+/** Дескриптор слота — элемент тела POST /neural/state */
 export interface ActiveDesc {
-  config_id: string;
-  /** старый формат — бэкенд всё ещё принимает как фоллбэк */
-  camera_matrix?: CameraMatrix;
-  /** новый богатый формат раскладки (предпочтителен) */
-  camera_layout?: CameraLayout;
-  cores: number[];
-  streaming?: StreamingDesc;
-  event_mask?: string[];
+    config_id: string;
+    camera_layout: CameraLayout;
+    /** Кадров в полёте = контекстов NPU на слот, ≥ 1 */
+    depth: number;
+    /** Потолок кадров в секунду, ≥ 1 */
+    fps: number;
+    streaming?: StreamingDesc;
+    event_mask?: string[];
+}
+
+export interface TensorInfo {
+    name: string;
+    dims: number[];
+    type: string;
+    format: string;
+    scale: number;
+    zp: number;
+}
+
+/** Сведения о модели, прочитанные при загрузке в NPU */
+export interface ModelInfo {
+    path: string;
+    class_count: number;
+    input_width: number;
+    input_height: number;
+    input_channels: number;
+    quantized: boolean;
+    inputs: TensorInfo[];
+    outputs: TensorInfo[];
+    api_version: string;
+    driver_version: string;
+    weight_bytes: number;
+    internal_bytes: number;
 }
 
 /** Запись из GET /neural/status */
 export interface SlotStatus {
-  config_id: string;
-  running: boolean;
-  camera_matrix: CameraMatrix;
-  camera_layout?: CameraLayout;
-  cores: number[];
+    config_id: string;
+    running: boolean;
+    camera_layout?: CameraLayout;
+    depth: number;
+    depth_actual: number;
+    fps_limit: number;
+    /** Раскладка выходов модели: SINGLE, SPLIT_LEVELS, SEGMENTATION, UNKNOWN */
+    layout: string;
+    model?: ModelInfo;
+    /** 0 — ошибки нет, иначе код 6xxx */
+    code: number;
+    error: string;
+    infer_ms: number;
+    wait_ms: number;
+    fps: number;
+    detections: number;
+    tracks: number;
+    dropped: number;
 }
 
-/** Тип платформы и лимиты из GET /neural/system */
+/** Платформа из GET /neural/system */
 export interface SystemInfo {
-  platform: 'rk3566' | 'rk3588' | 'nvidia' | 'unknown';
-  label: string;
-  npu_cores: number;
-  /** -1 — без ограничений */
-  max_streams: number;
-  mode: 'single' | 'cores' | 'unlimited';
+    platform: 'rk3566' | 'rk3588' | 'nvidia' | 'unknown';
+    label: string;
+    npu_cores: number;
 }
 
 /** Файл модели из GET /neural/models */
 export interface ModelFile {
-  filename: string;
-  size: number;
-  path: string;
+    filename: string;
+    size: number;
+    path: string;
 }
 
 export type ImportMode = 'merge' | 'replace';
 
-/** Ядра NPU — сервер допускает индексы 0..2 (validate_no_core_conflicts) */
-export const NPU_CORES = [0, 1, 2] as const;
-export type CoreId = (typeof NPU_CORES)[number];
-
-/** Поток камеры (controller.cpp make_pipeline_json) */
+/** Поток камеры из GET /api/cameras */
 export interface CameraStreamInfo {
-  width?: number;
-  height?: number;
-  sub_stream?: number;
-  type?: number;
-  name?: string;
+    width?: number;
+    height?: number;
+    sub_stream?: number;
+    purposes?: string[];
+    name?: string;
 }
 
-/** Камера из GET /camera (controller.cpp) */
+/** Камера из GET /api/cameras; type и camera_type читает таблица соответствий КРСПС */
 export interface CameraInfo {
-  display_name?: string;
-  type?: number;
-  camera_type?: number;
-  description?: string;
-  streams?: Record<string, CameraStreamInfo>;
+    display_name?: string;
+    description?: string;
+    type?: number;
+    camera_type?: number;
+    streams?: Record<string, CameraStreamInfo>;
 }

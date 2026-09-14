@@ -6,6 +6,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { journalApi } from '../../api/journal';
 import type { JournalDetection } from '../../api/journal-types';
 import type { ClassMeaning } from './useClassResolver';
+import { Icon } from '../../../../app/Icons';
 import { FrameWithBoxes } from './FrameWithBoxes';
 import { fmtDateTime, pluralRecords } from './format';
 
@@ -354,75 +355,75 @@ export function JournalMap({
   if (popup?.view === 'record') {
     const det = popup.recordId != null ? byId(popup.recordId) : undefined;
     content = (
-      <div className="jr-mpop jr-mpop-rec">
-        <div className="jr-mpop-head">
+      <div className="jm-pop jm-pop-rec">
+        <div className="jm-pop-head">
           {popup.ids.length > 1 && (
             <button
-              className="jr-mini"
-              title="К списку кластера"
+              className="icon-btn jm-pop-btn"
+              data-tip="К списку"
               onClick={() => setPopup({ ...popup, view: 'list', recordId: null })}
             >
-              ←
+              <Icon name="chev" size={12} className="ico is-back" />
             </button>
           )}
-          {det && <span className="jr-time">{fmtDateTime(det.ts)}</span>}
-          {det && <span className="jr-mpop-cam">{cameraName(det.camera_id)}</span>}
-          <button className="jr-mini jr-mpop-close" title="Закрыть" onClick={() => setPopup(null)}>
-            ✕
+          {det && <span className="j-ts">{fmtDateTime(det.ts)}</span>}
+          {det && <span className="jm-pop-cam">{cameraName(det.camera_id)}</span>}
+          <button className="icon-btn jm-pop-btn jm-pop-close" data-tip="Закрыть" onClick={() => setPopup(null)}>
+            <Icon name="x" size={12} />
           </button>
         </div>
         {det ? (
           <>
-            <div className="jr-chips">
+            <div className="j-obj">
               {aggClasses(det, resolve).map((c, i) => (
-                <span className="jr-chip" key={i}>
-                  <span className="jr-cd" style={{ background: classColor(c) }} />
+                <span className="otag" key={i}>
+                  <i className="sw-col" style={{ background: classColor(c) }} />
                   {c.name || '—'}
-                  <span className="jr-chip-n">×{c.count}</span>
+                  <span className="num">×{c.count}</span>
                 </span>
               ))}
             </div>
-            <button className="jr-thumb-btn" title="Открыть кадр" onClick={() => onOpenViewer(det.id)}>
-              <FrameWithBoxes det={det} resolve={resolve} className="jr-mpop-frame" />
+            <button className="jm-pop-thumb" data-tip="Открыть кадр" onClick={() => onOpenViewer(det.id)}>
+              <FrameWithBoxes det={det} resolve={resolve} className="jm-pop-frame" />
             </button>
           </>
         ) : (
-          <span className="jr-mpop-gone">Запись больше не в загруженном списке</span>
+          <span className="jm-pop-gone">Запись больше не в загруженном списке</span>
         )}
       </div>
     );
   } else if (popup?.view === 'list') {
     const dets = popup.ids.map(byId).filter((d): d is JournalDetection => !!d);
     content = (
-      <div className="jr-mpop jr-mpop-list">
-        <div className="jr-mpop-head">
-          <span className="jr-sect-lbl">{pluralRecords(dets.length)}</span>
-          <button className="jr-mini jr-mpop-close" title="Закрыть" onClick={() => setPopup(null)}>
-            ✕
+      <div className="jm-pop jm-pop-list">
+        <div className="jm-pop-head">
+          <span className="eyebrow">{pluralRecords(dets.length)}</span>
+          <button className="icon-btn jm-pop-btn jm-pop-close" data-tip="Закрыть" onClick={() => setPopup(null)}>
+            <Icon name="x" size={12} />
           </button>
         </div>
-        <div className="jr-mpop-scroll">
+        <div className="jm-pop-scroll">
           {dets.map((d) => (
-            <button key={d.id} className="jr-mpop-row" onClick={() => openRecord(d.id)}>
+            <button key={d.id} className="jm-pop-row" onClick={() => openRecord(d.id)}>
               <span
-                className="jr-mpop-mini-btn"
-                title="Открыть кадр"
+                className="jm-pop-mini-btn"
+                data-tip="Открыть кадр"
                 onClick={(e) => {
                   e.stopPropagation();
                   onOpenViewer(d.id);
                 }}
               >
-                <FrameWithBoxes det={d} resolve={resolve} compact className="jr-mpop-mini" />
+                <FrameWithBoxes det={d} resolve={resolve} compact className="jm-pop-mini" />
               </span>
-              <span className="jr-mpop-row-info">
-                <span className="jr-time">{fmtDateTime(d.ts)}</span>
-                <span className="jr-mpop-cam">{cameraName(d.camera_id)}</span>
-                <span className="jr-chips">
+              <span className="jm-pop-row-info">
+                <span className="j-ts">{fmtDateTime(d.ts)}</span>
+                <span className="jm-pop-cam">{cameraName(d.camera_id)}</span>
+                <span className="j-obj">
                   {aggClasses(d, resolve)
                     .slice(0, 3)
                     .map((c, i) => (
-                      <span className="jr-chip" key={i}>
-                        <span className="jr-cd" style={{ background: classColor(c) }} />
+                      <span className="otag" key={i}>
+                        <i className="sw-col" style={{ background: classColor(c) }} />
                         {c.name || '—'}
                       </span>
                     ))}
@@ -437,7 +438,7 @@ export function JournalMap({
 
   return (
     <>
-      <div className="jr-map" ref={boxRef} />
+      <div className="jm-map" ref={boxRef} />
       {createPortal(content, popupBoxRef.current)}
     </>
   );

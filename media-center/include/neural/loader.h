@@ -66,6 +66,9 @@ namespace neural {
 		// Полный JSON конкретного конфига (для GET ?id=...).
 		boost::json::value get_configuration_full(const std::string& id) const;
 		bool import_configurations(const boost::json::value& json, EImportMode mode);
+		enum class EDeleteResult { OK, NOT_FOUND, IN_USE, FAILED };
+		// Удаляет конфигурацию из файла; занятую слотом state не трогает
+		EDeleteResult delete_configuration(const std::string& id);
 
 		// State
 		bool write_state(const std::vector<FNeuralCoreConfig>& active);

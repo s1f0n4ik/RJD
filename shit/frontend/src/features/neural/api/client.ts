@@ -1,148 +1,98 @@
 import type {
-  ActiveDesc,
-  CameraInfo,
-  ClassDef,
-  ConfigSummary,
-  ImportMode,
-  ModelFile,
-  NeuralConfig,
-  SlotStatus,
-  SuperclassDef,
-  SystemInfo,
-  TrackEventType,
-  TrackerType,
+    ActiveDesc,
+    CameraInfo,
+    ClassDef,
+    ConfigSummary,
+    ImportMode,
+    ModelFile,
+    NeuralConfig,
+    SlotStatus,
+    SuperclassDef,
+    SystemInfo,
+    TrackEventType,
+    TrackerType,
 } from './types';
-
-// ═════════════════════════════════════════════════════════════
-//  ЕДИНАЯ ТОЧКА СМЕНЫ АДРЕСА БЭКЕНДА.
-//
-//  DEV  — хардкод IP оранжпи на время разработки (меняйте здесь).
-//  PROD — пустая строка: тот же origin, nginx проксирует /neural/.
-//
-//  Ручки совпадают с nginx (location /neural/ → media_center).
-// ═════════════════════════════════════════════════════════════
-// export const API_HOST = 'http://192.168.1.2';
-export const API_HOST = ''; // ← раскомментировать для prod-сборки
-
 import { modulePath } from '../../../services/devices';
+
+// Пустая строка — тот же origin, прокси бэкенда ведёт на устройство модуля
+export const API_HOST = '';
 
 // Ручки /neural/* переезжают на устройство, назначенное модулю neural
 const url = (path: string) =>
     path.startsWith('/neural/') ? `${API_HOST}${modulePath('neural', path)}` : `${API_HOST}${path}`;
 
-/** Снимает обёртку { data: ... } и кидает осмысленную ошибку на не-2xx. */
+// Снимает обёртку { data: ... } и кидает осмысленную ошибку на не-2xx
 async function unwrap<T>(res: Response): Promise<T> {
-  if (!res.ok) {
-    let detail = res.statusText;
-    try {
-      const body = await res.json();
-      detail = body?.error ?? body?.message ?? body?.detail ?? detail;
-    } catch {
-      /* тело не JSON — оставляем statusText */
+    if (!res.ok) {
+        let detail = res.statusText;
+        try {
+            const body = await res.json();
+            detail = body?.error ?? body?.message ?? body?.detail ?? detail;
+        } catch {
+            // тело не JSON — остаётся statusText
+        }
+        throw new Error(`${res.status} · ${detail}`);
     }
-    throw new Error(`${res.status} · ${detail}`);
-  }
-  const json = await res.json();
-  return (json?.data ?? json) as T;
+    const json = await res.json();
+    return (json?.data ?? json) as T;
 }
 
 const jsonHeaders = { 'Content-Type': 'application/json' };
 
+const get = <T,>(path: string): Promise<T> => fetch(url(path)).then(res => unwrap<T>(res));
+const send = <T,>(path: string, method: string, body?: unknown): Promise<T> =>
+    fetch(url(path), { method, headers: body === undefined ? undefined : jsonHeaders, body: body === undefined ? undefined : JSON.stringify(body) })
+        .then(res => unwrap<T>(res));
+
 export const neuralApi = {
-  // ── Конфигурации ───────────────────────────────────────────
-  listConfigurations(): Promise<{ configurations: ConfigSummary[] }> {
-    return fetch(url('/neural/configurations')).then(unwrap);
-  },
+    // ── Конфигурации ──
+    listConfigurations: () => get<{ configurations: ConfigSummary[] }>('/neural/configurations'),
 
-  getConfiguration(id: string): Promise<NeuralConfig> {
-    return fetch(url(`/neural/configurations?id=${encodeURIComponent(id)}`)).then(unwrap);
-  },
+    getConfiguration: (id: string) => get<NeuralConfig>(`/neural/configurations?id=${encodeURIComponent(id)}`),
 
-  /** POST /neural/configurations — { mode, data: { <id>: config } } */
-  importConfigurations(data: Record<string, NeuralConfig>, mode: ImportMode): Promise<unknown> {
-    return fetch(url('/neural/configurations'), {
-      method: 'POST',
-      headers: jsonHeaders,
-      body: JSON.stringify({ mode, data }),
-    }).then(unwrap);
-  },
+    /** POST /neural/configurations — { mode, data: { <id>: config } } */
+    importConfigurations: (data: Record<string, NeuralConfig>, mode: ImportMode) =>
+        send<unknown>('/neural/configurations', 'POST', { mode, data }),
 
-  // ── Состояние (state) ──────────────────────────────────────
-  getState(): Promise<ActiveDesc[]> {
-    return fetch(url('/neural/state')).then(unwrap);
-  },
+    /** DELETE /neural/configurations?id= — 409, если конфигурация занята слотом */
+    deleteConfiguration: (id: string) => send<unknown>(`/neural/configurations?id=${encodeURIComponent(id)}`, 'DELETE'),
 
-  /** POST /neural/state — тело это массив дескрипторов напрямую */
-  setState(descs: ActiveDesc[]): Promise<unknown> {
-    return fetch(url('/neural/state'), {
-      method: 'POST',
-      headers: jsonHeaders,
-      body: JSON.stringify(descs),
-    }).then(unwrap);
-  },
+    // ── Состояние слотов ──
+    getState: () => get<ActiveDesc[]>('/neural/state'),
 
-  // ── Статус слотов ──────────────────────────────────────────
-  getStatus(): Promise<SlotStatus[]> {
-    return fetch(url('/neural/status')).then(unwrap);
-  },
+    /** POST /neural/state — тело это массив дескрипторов напрямую */
+    setState: (descs: ActiveDesc[]) => send<unknown>('/neural/state', 'POST', descs),
 
-  // ── Управление супервизором ────────────────────────────────
-  start(): Promise<unknown> {
-    return fetch(url('/neural/start'), { method: 'POST' }).then(unwrap);
-  },
-  restart(): Promise<unknown> {
-    return fetch(url('/neural/restart'), { method: 'POST' }).then(unwrap);
-  },
-  stop(): Promise<unknown> {
-    return fetch(url('/neural/stop'), { method: 'POST' }).then(unwrap);
-  },
+    getStatus: () => get<SlotStatus[]>('/neural/status'),
 
-  // ── Классы / суперклассы конкретной конфигурации ───────────
-  getClasses(configId: string): Promise<{ config_id: string; classes: (ClassDef & { id: string })[] }> {
-    return fetch(url(`/neural/classes?config_id=${encodeURIComponent(configId)}`)).then(unwrap);
-  },
-  getSuperclasses(
-    configId: string,
-  ): Promise<{ config_id: string; superclasses: (SuperclassDef & { key: string })[] }> {
-    return fetch(url(`/neural/superclasses?config_id=${encodeURIComponent(configId)}`)).then(unwrap);
-  },
+    // ── Супервизор ──
+    start: () => send<unknown>('/neural/start', 'POST'),
+    restart: () => send<unknown>('/neural/restart', 'POST'),
+    stop: () => send<unknown>('/neural/stop', 'POST'),
 
-  // ── Типы трекеров («фильтров») ─────────────────────────────
-  getTrackerTypes(): Promise<{ types: TrackerType[] }> {
-    return fetch(url('/neural/tracker-types')).then(unwrap);
-  },
+    // ── Классы и суперклассы конфигурации ──
+    getClasses: (configId: string) =>
+        get<{ config_id: string; classes: (ClassDef & { id: string })[] }>(`/neural/classes?config_id=${encodeURIComponent(configId)}`),
+    getSuperclasses: (configId: string) =>
+        get<{ config_id: string; superclasses: (SuperclassDef & { key: string })[] }>(`/neural/superclasses?config_id=${encodeURIComponent(configId)}`),
 
-  // ── Тип платформы и лимиты потоков ─────────────────────────
-  getSystem(): Promise<SystemInfo> {
-    return fetch(url('/neural/system')).then(unwrap);
-  },
+    getTrackerTypes: () => get<{ types: TrackerType[] }>('/neural/tracker-types'),
 
-  // ── Возможные события трека (идентификаторы) ───────────────
-  getEventTypes(): Promise<{ events: TrackEventType[] }> {
-    return fetch(url('/neural/event-types')).then(unwrap);
-  },
+    getSystem: () => get<SystemInfo>('/neural/system'),
 
-  // ── Модели ─────────────────────────────────────────────────
-  listModels(): Promise<ModelFile[]> {
-    return fetch(url('/neural/models')).then(unwrap);
-  },
+    getEventTypes: () => get<{ events: TrackEventType[] }>('/neural/event-types'),
 
-  /** POST /neural/models?filename=*.rknn — тело это бинарь файла */
-  uploadModel(file: File): Promise<ModelFile> {
-    return fetch(url(`/neural/models?filename=${encodeURIComponent(file.name)}`), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/octet-stream' },
-      body: file,
-    }).then(unwrap);
-  },
+    // ── Модели ──
+    listModels: () => get<ModelFile[]>('/neural/models'),
 
-  // ── Поиск конфигурации по камере ───────────────────────────
-  findCameraConfig(cameraId: string): Promise<{ camera_id: string; config_id: string | null; found: boolean }> {
-    return fetch(url(`/neural/camera?camera_id=${encodeURIComponent(cameraId)}`)).then(unwrap);
-  },
+    /** POST /neural/models?filename=*.rknn — тело это бинарь файла */
+    uploadModel: (file: File) =>
+        fetch(url(`/neural/models?filename=${encodeURIComponent(file.name)}`), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/octet-stream' },
+            body: file,
+        }).then(res => unwrap<ModelFile>(res)),
 
-  // ── Список камер (GET /camera, controller.cpp) ─────────────
-  listCameras(): Promise<{ cameras: Record<string, CameraInfo> | null }> {
-    return fetch(url('/api/cameras')).then(unwrap<{ cameras: Record<string, CameraInfo> | null }>);
-  },
+    // ── Камеры всех устройств (GET /api/cameras) ──
+    listCameras: () => get<{ cameras: Record<string, CameraInfo> | null }>('/api/cameras'),
 };

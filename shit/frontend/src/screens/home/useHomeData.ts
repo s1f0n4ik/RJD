@@ -108,6 +108,40 @@ export function useGatewayStatus() {
     return summary;
 }
 
+/** Сводка слотов технического зрения для плитки: null — устройство модуля не ответило */
+export interface NeuralSummary {
+    slots: number;
+    running: number;
+    failed: number;
+}
+
+export function useNeuralStatus() {
+    const [summary, setSummary] = useState<NeuralSummary | null>(null);
+
+    useEffect(() => {
+        let alive = true;
+        (async () => {
+            try {
+                if (!moduleDeviceId('neural')) throw new Error('no device');
+                const res = await fetch(modulePath('neural', '/neural/status'));
+                if (!res.ok) throw new Error(String(res.status));
+                const json = await res.json() as { data?: Array<{ running?: boolean; code?: number }> };
+                const slots = json.data ?? [];
+                if (alive) setSummary({
+                    slots: slots.length,
+                    running: slots.filter(s => s.running).length,
+                    failed: slots.filter(s => (s.code ?? 0) !== 0).length,
+                });
+            } catch {
+                if (alive) setSummary(null);
+            }
+        })();
+        return () => { alive = false; };
+    }, []);
+
+    return summary;
+}
+
 /** Сводка вывода 360 для плитки: null — устройство модуля не ответило */
 export interface LinkerSummary {
     running: boolean;

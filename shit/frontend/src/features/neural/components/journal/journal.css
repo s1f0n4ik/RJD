@@ -1,791 +1,198 @@
-/* Журнал обнаружений (раздел 03). Токены берём из ../styles/theme.css.
+/* Журнал обнаружений: фильтры, список, боковая панель, карта на весь экран, модалки. Общие классы — в styles/ui.css */
+.nv-journal{flex:1;min-height:0;display:flex;flex-direction:column}
 
-   ВАЖНО: все селекторы префиксованы .neural-config-root намеренно. В теме есть
-   глобальный сброс `.neural-config-root * { margin: 0; padding: 0 }`, который в
-   собранном бандле идёт ПОСЛЕ этого файла. При равной специфичности он победил
-   бы и обнулил здесь все отступы, поэтому специфичность поднята префиксом. */
+/* ── Фильтры ── */
+.j-fld{padding-right:6px}
+.j-fld .uisel{width:auto}
+.j-fld .uisel-btn{width:auto;height:34px;padding:0 4px;background:transparent;border-color:transparent;font-family:var(--mono);font-size:12px;color:var(--fg)}
+.j-fld .uisel.is-open .uisel-btn,.j-fld .uisel-btn:focus-visible{box-shadow:none;border-color:transparent}
+.j-fld .uisel-car{color:var(--fg-3)}
+.j-chev{transform:rotate(90deg)}
+.j-fright{margin-left:auto;display:flex;align-items:center;gap:8px}
+.j-found{background:none;border-color:transparent}
 
-/* Раздел занимает всю высоту страницы: прокручивается только список внутри
-   себя, сама страница не скроллится. */
-.neural-config-root .jr-root {
-  width: 100%; height: 100%; min-height: 0;
-  display: flex; flex-direction: column;
-}
+/* ── Список ── */
+.j-list{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;border-right:1px solid var(--line)}
+.j-head{display:grid;grid-template-columns:96px 132px 1fr 112px 124px;gap:12px;padding:10px 18px;border-bottom:1px solid var(--line);background:var(--surface);font-size:10.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--fg-3);flex:0 0 auto}
+.j-rows{overflow-y:auto;flex:1;min-height:0;position:relative;display:flex;flex-direction:column}
+.j-rows .empty{flex:1}
+.j-row{flex:0 0 auto;display:grid;grid-template-columns:96px 132px 1fr 112px 124px;gap:12px;align-items:center;padding:8px 18px;min-height:48px;border-bottom:1px solid var(--line);width:100%;text-align:left;transition:.12s;color:var(--fg)}
+.j-row:hover{background:var(--surface)}
+.j-row:focus-visible{outline-offset:-2px}
+.j-row.is-sel{background:rgba(var(--acc-rgb),.14);box-shadow:inset 3px 0 0 var(--acc)}
+.j-row.is-skel{pointer-events:none}
+.j-row.is-skel .skel{height:12px;width:72%}
+.j-ts{font-family:var(--mono);font-size:12px;font-variant-numeric:tabular-nums}
+.j-cam{font-size:13px;color:var(--fg-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.j-obj{display:flex;gap:6px;flex-wrap:wrap;min-width:0}
+.otag{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border-radius:6px;background:var(--panel-2);border:1px solid var(--line);font-size:11.5px;color:var(--fg-2);white-space:nowrap}
+.otag .sw-col{width:8px;height:8px;border-radius:2px;flex:0 0 8px}
+.otag .num{font-size:10.5px;color:var(--fg-3)}
+.j-tr{font-family:var(--mono);font-size:11.5px;color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.j-tr b{color:var(--fg-2);font-weight:500}
+.vd{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;white-space:nowrap}
+.vd.t{color:var(--ok)}
+.vd.f{color:var(--err)}
+.vd.u{color:var(--fg-3)}
+.j-new{position:sticky;top:8px;margin:0 auto;flex:0 0 auto;display:flex;width:max-content;align-items:center;gap:7px;padding:5px 12px;border-radius:20px;background:var(--acc);color:#08101f;font-size:12px;font-weight:600;box-shadow:var(--shadow-lg);z-index:2}
+.j-new .ico{width:12px;height:12px;transform:rotate(-90deg)}
 
-.neural-config-root .jr-split {
-  flex: 1; min-height: 0;
-  display: grid;
-  grid-template-columns: minmax(360px, 460px) 1fr;
-  gap: 16px;
-  align-items: stretch;
-}
+/* ── Боковая панель ── */
+.j-side{width:412px;flex:0 0 412px;min-height:0;display:flex;flex-direction:column;overflow-y:auto;background:var(--surface)}
+.j-side .empty{flex:1}
+.j-frame{border-bottom:1px solid var(--line);background:#000;position:relative;flex:0 0 auto}
+.j-frame .fb{width:100%}
+.j-frame .fs,.j-map .fs{position:absolute;right:10px;top:10px;background:rgba(18,20,26,.8);z-index:3}
+.j-map{border-bottom:1px solid var(--line);position:relative;height:226px;flex:0 0 auto}
+.j-map .jm-map{position:absolute;inset:0}
+.j-map-none{position:absolute;inset:0;display:grid;place-items:center;font-size:12px;color:var(--fg-3);background:rgba(18,20,26,.55);pointer-events:none;z-index:2}
+.j-det{padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+.j-det .eyebrow{display:block;margin-bottom:4px}
+.j-det .kv{padding:7px 0}
+.j-det .kv .k{flex:0 0 112px}
+.j-det .kv .v{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.j-verd{display:flex;gap:8px}
+.j-verd .btn{flex:1}
+.nv-journal .btn--ok.is-on{background:rgba(87,214,154,.14)}
+.nv-journal .btn--err.is-on{background:rgba(255,107,128,.14)}
 
-/* Узкий экран: фильтры сверху, список под ними. */
-.neural-config-root .jr-stack {
-  flex: 1; min-height: 0;
-  display: flex; flex-direction: column; gap: 16px;
-}
+/* ── Карта на весь экран ── */
+.j-full{flex:1;min-height:0;position:relative;background:#171a21}
+.j-full .jm-map{position:absolute;inset:0}
+.j-full .pane{position:absolute;left:18px;top:18px;width:320px;z-index:5;background:var(--panel);border:1px solid var(--line-hi);border-radius:var(--r-lg);box-shadow:var(--shadow-lg);display:flex;flex-direction:column}
+.j-full .pane .blk-h{display:flex;align-items:center;gap:10px;height:44px;padding:0 16px;border-bottom:1px solid var(--line);background:var(--input);border-radius:var(--r-lg) var(--r-lg) 0 0}
+.j-full .pane .blk-h h3{font-size:13px;font-weight:600}
+.j-full .pane .blk-b{padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+.j-full .seg{width:100%}
+.j-full .seg button{flex:1;padding:0 6px;font-size:12px}
+.j-full .close{position:absolute;right:18px;top:18px;z-index:5;background:var(--panel)}
+.j-full .cnt{position:absolute;left:18px;bottom:18px;z-index:5;display:flex;gap:8px;flex-wrap:wrap}
+.j-full .maplibregl-ctrl-top-right{top:48px}
+.rngl{display:flex;flex-direction:column;gap:6px}
+.rngl .cap{display:flex;align-items:center;font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-3)}
+.rngl .cap b{margin-left:auto;font-weight:500;color:var(--fg);letter-spacing:0;font-size:11.5px}
+.rngl .tf-range{height:22px}
 
-/* ── Панели каркаса ─────────────────────────────────────────── */
-.neural-config-root .jr-panel {
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  box-shadow: var(--shadow-panel);
-  min-width: 0;
-}
-.neural-config-root .jr-panel-head {
-  display: flex; align-items: center; gap: 10px;
-  padding-bottom: 12px; border-bottom: 1px solid var(--border);
-}
-.neural-config-root .jr-sect-lbl {
-  font-size: 11px; font-weight: 600; letter-spacing: 0.12em;
-  text-transform: uppercase; color: var(--text-dim);
-}
-.neural-config-root .jr-count {
-  font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary);
-  background: var(--bg-input); border: 1px solid var(--border);
-  padding: 2px 9px; border-radius: 10px;
-}
+/* ── Поповеры: координаты ставит app/popover.ts после отрисовки ── */
+.j-pop{position:fixed;z-index:120;visibility:hidden;background:var(--panel);border:1px solid var(--line-hi);border-radius:var(--r-lg);box-shadow:var(--shadow-lg)}
+.j-pop.is-over{z-index:520}
 
-/* Иконочные кнопки: подпись не нужна, действие понятно по значку. */
-.neural-config-root .jr-icon-btn {
-  margin-left: auto; display: inline-flex; align-items: center; justify-content: center;
-  width: 30px; height: 30px; font-size: 14px; line-height: 1;
-  color: var(--text-secondary); background: var(--bg-input);
-  border: 1px solid var(--border-bright); border-radius: 8px; cursor: pointer;
-  transition: color .15s, border-color .15s, background .15s;
-}
-.neural-config-root .jr-icon-btn:hover {
-  color: var(--accent); border-color: var(--accent-dim); background: var(--accent-glow);
-}
-.neural-config-root .jr-icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Календарь */
+.j-cal-pop{width:320px}
+.j-cal-body{padding:14px;display:flex;flex-direction:column;gap:14px}
+.j-cal-body .seg button{flex:1;padding:0 6px;font-size:12px}
+.j-cal-foot{display:flex;align-items:center;gap:9px;padding:12px 14px;border-top:1px solid var(--line)}
+.cal{width:100%}
+.cal-h{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.cal-h b{font-size:13px;font-weight:600;flex:1;text-align:center}
+.cal-h .icon-btn{width:26px;height:26px}
+.cal-h .ico.is-back{transform:rotate(180deg)}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+.cal-grid span{text-align:center;font-size:10px;color:var(--fg-3);padding-bottom:4px;font-weight:600}
+.cal-d{height:30px;border-radius:6px;display:grid;place-items:center;font-family:var(--mono);font-size:11.5px;color:var(--fg-3);border:1px solid transparent;transition:background .12s,color .12s}
+.cal-d:hover{background:var(--panel-2);color:var(--fg)}
+.cal-d.has{background:rgba(var(--acc-rgb),.13);border-color:rgba(var(--acc-rgb),.22);color:var(--fg-2)}
+.cal-d.is-on,.cal-d.is-on:hover{background:var(--acc);color:#08101f;font-weight:700;border-color:var(--acc)}
+.cal-d.is-out{opacity:.28}
 
-/* Заглушки пустых состояний */
-.neural-config-root .jr-placeholder {
-  display: flex; flex-direction: column; align-items: center; gap: 10px;
-  padding: 44px 24px; text-align: center;
-  border: 1px dashed var(--border-bright); border-radius: var(--radius);
-  background: linear-gradient(180deg, rgba(255,255,255,0.015), transparent), var(--bg-input);
-}
-.neural-config-root .jr-ph-icon {
-  font-size: 20px; line-height: 1; color: var(--text-dim);
-  width: 46px; height: 46px; display: grid; place-items: center;
-  border: 1px solid var(--border); border-radius: 50%; background: var(--bg-panel);
-}
-.neural-config-root .jr-ph-icon.err { color: var(--err); border-color: rgba(236,95,118,0.35); }
-.neural-config-root .jr-ph-title {
-  font-size: 13.5px; font-weight: 600; color: var(--text-secondary); padding: 2px 0;
-}
-.neural-config-root .jr-ph-title.err { color: var(--err); }
-.neural-config-root .jr-ph-text {
-  font-size: 12px; color: var(--text-dim); line-height: 1.65;
-  max-width: 54ch; text-wrap: balance; padding: 0 8px;
-}
+/* Классы */
+.j-cls{min-width:240px;max-height:340px;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:6px}
+.j-cls-empty{padding:10px 12px;font-size:12.5px;color:var(--fg-3)}
+.j-cls-grp{display:flex;flex-direction:column;gap:1px}
+.j-cls-grp .eyebrow{padding:8px 8px 4px}
+.j-cls-item{display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--fg-2);padding:6px 8px;border-radius:6px;cursor:pointer}
+.j-cls-item:hover{background:var(--panel-2);color:var(--fg)}
+.j-cls-item .sw-col{width:9px;height:9px;border-radius:2px;flex:0 0 9px}
+.j-cls-item input[type=checkbox]{appearance:none;-webkit-appearance:none;width:15px;height:15px;flex:0 0 15px;margin:0;cursor:pointer;border:1px solid var(--line-hi);border-radius:4px;background:var(--input);position:relative;transition:background .12s,border-color .12s}
+.j-cls-item input[type=checkbox]:hover{border-color:var(--acc-dim)}
+.j-cls-item input[type=checkbox]:checked{background:var(--acc);border-color:var(--acc)}
+.j-cls-item input[type=checkbox]:checked::after{content:'';position:absolute;left:4px;top:1px;width:4px;height:8px;border:solid #08101f;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.j-cls-foot{padding:6px 4px 0;border-top:1px solid var(--line)}
 
-/* ── Список ─────────────────────────────────────────────────── */
-.neural-config-root .jr-list-col { min-width: 0; min-height: 0; overflow: hidden; }
-/* Прокручивается только сам список — панель и заголовок остаются на месте. */
-.neural-config-root .jr-list {
-  flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable;
-  display: flex; flex-direction: column; gap: 8px; padding-right: 4px;
-}
-.neural-config-root .jr-err { color: var(--err); font-size: 13px; padding: 8px 0; }
+/* ── Кадр с боксами: чистый кадр, рамки в процентах от его размеров ── */
+.fb{position:relative;display:block;line-height:0;overflow:hidden;background:var(--input)}
+.fb-img{display:block;width:100%;height:100%;object-fit:cover}
+.fb-missing{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:var(--fg-3);font-size:11px;line-height:1.4;text-align:center;padding:8px}
+.fb-missing .ico{width:18px;height:18px}
+.fb-box{position:absolute;border:1.5px solid var(--acc);border-radius:2px;pointer-events:none}
+.fb-box.tentative{border-style:dashed;opacity:.75}
+.fb-box.lost{border-style:dotted;opacity:.6}
+.fb-box-lbl{position:absolute;left:0;top:0;transform:translateY(-100%);font-family:var(--mono);font-size:9px;font-weight:600;color:#0a0c11;padding:2px 5px;border-radius:3px 3px 0 0;white-space:nowrap;line-height:1.4}
 
-.neural-config-root .jr-row {
-  display: flex; flex-direction: column; gap: 8px; padding: 10px; cursor: pointer;
-  background: var(--bg-panel-2); border: 1px solid var(--border);
-  border-radius: 10px; transition: border-color .15s, background .15s;
-}
-/* Запись — два столбца: слева кадр с камерой под ним, справа информация.
-   Выравнивание по верху: кадр прижат к верхнему краю, а не по центру. */
-.neural-config-root .jr-row-main { display: flex; gap: 14px; align-items: flex-start; }
+/* ── Просмотр кадра ── */
+.fv-modal .modal-h .tag{font-family:var(--mono);font-size:10.5px}
+.fv-body{padding:0;display:flex;overflow:hidden}
+.fv-stage{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;background:#000;min-height:240px}
+.fv-frame{position:relative;display:inline-block;line-height:0;max-width:100%}
+.fv-frame>img{display:block;max-width:100%;max-height:calc(88vh - 150px);object-fit:contain}
+.fv-missing{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;width:min(60vw,640px);aspect-ratio:16/9;color:var(--fg-3);font-size:13px;line-height:1.4}
+.fv-missing .ico{width:26px;height:26px}
+.fv-box{position:absolute;border:2px solid var(--acc);border-radius:2px;transition:box-shadow .12s,background .12s}
+.fv-box.tentative{border-style:dashed}
+.fv-box.lost{border-style:dotted;opacity:.7}
+.fv-box.is-hot{box-shadow:0 0 0 3px rgba(var(--acc-rgb),.35);background:rgba(var(--acc-rgb),.12)}
+.fv-box-lbl{position:absolute;left:-2px;top:0;transform:translateY(-100%);font-family:var(--mono);font-size:10px;font-weight:600;color:#0a0c11;padding:2px 6px;border-radius:4px 4px 0 0;white-space:nowrap;line-height:1.5}
+.fv-panel{position:absolute;z-index:4;min-width:200px;max-width:300px;display:flex;flex-direction:column;line-height:1.45;background:rgba(18,20,26,.8);backdrop-filter:blur(8px);border:1px solid var(--line-hi);border-radius:var(--r);opacity:.82;transition:opacity .15s}
+.fv-panel:hover{opacity:1}
+.fv-meta{top:12px;right:12px}
+.fv-objs{bottom:12px;left:12px;max-height:45%}
+.fv-panel-h{display:flex;align-items:center;gap:8px;padding:9px 11px;width:100%;text-align:left}
+.fv-panel-h .num{font-size:11px;color:var(--fg-3)}
+.fv-panel-h .ico{width:12px;height:12px;margin-left:auto;color:var(--fg-3);transform:rotate(-90deg)}
+.fv-panel.is-closed .fv-panel-h .ico{transform:rotate(90deg)}
+.fv-panel-b{display:flex;flex-direction:column;padding:0 11px 10px;overflow-y:auto;min-height:0}
+.fv-panel-b .kv{padding:5px 0}
+.fv-panel-b .kv .k{flex:0 0 78px}
+.fv-obj{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--fg-2);padding:5px 6px;border-radius:6px}
+.fv-obj.is-hot{background:rgba(var(--acc-rgb),.14);color:var(--fg)}
+.fv-obj .sw-col{width:9px;height:9px;border-radius:2px;flex:0 0 9px}
+.fv-obj .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fv-obj .tag{padding:0 5px;font-family:var(--mono);font-size:10px}
+.fv-obj .num{font-size:11px;color:var(--fg-3)}
 
-/* Столбец 1. Ширина плавающая: 128px — минимум, дальше кадр растёт вместе
-   со строкой (clamp по проценту от ширины записи). */
-.neural-config-root .jr-col-media {
-  flex: 0 0 clamp(128px, 24%, 260px);
-  display: flex; flex-direction: column; gap: 6px; min-width: 0;
-}
-/* Имя камеры показываем целиком: переносим по словам, за границы столбца
-   (то есть за кадр) текст не выходит. */
-.neural-config-root .jr-cam-under {
-  font-size: 10.5px; line-height: 1.35; color: var(--text-dim); text-align: center;
-  overflow-wrap: anywhere; word-break: break-word;
-}
+/* ── Хранилище ── */
+.j-disk+.j-disk{margin-top:16px}
+.j-disk-h{display:flex;align-items:baseline;gap:8px;margin-bottom:8px}
+.j-disk-h b{font-size:12.5px;font-weight:600}
+.j-disk-h .num{margin-left:auto;font-size:11.5px;color:var(--fg-2)}
+.j-mt{margin-top:16px}
+.j-skel-rows{display:flex;flex-direction:column;gap:12px}
+.j-purge{align-items:flex-end}
+.j-purge .seg{height:32px;padding:2px}
+.j-purge .seg button{flex:1;min-height:26px;padding:0 8px}
+.j-purge-date{flex:0 0 130px}
+.j-purge .tf-in.is-btn{cursor:pointer;line-height:30px}
+.j-purge .tf-in.is-btn:disabled{opacity:.45;cursor:not-allowed}
+.j-purge>.btn{min-height:32px;flex:0 0 auto}
 
-/* Столбец 2 — строки информации. Растягиваем на высоту кадра, иначе строка
-   вердикта не сможет прижаться к низу. */
-.neural-config-root .jr-col-info {
-  flex: 1; min-width: 0; align-self: stretch;
-  display: flex; flex-direction: column; gap: 8px;
-}
-.neural-config-root .jr-line-time {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-}
-/* Координаты — к правому краю первой строки. */
-.neural-config-root .jr-line-time .jr-gps { margin-left: auto; }
-.neural-config-root .jr-line-verdict {
-  display: flex; align-items: center; gap: 10px; margin-top: auto;
-}
-.neural-config-root .jr-line-verdict .jr-row-actions { margin-left: auto; }
-.neural-config-root .jr-row-actions { display: flex; gap: 5px; }
-.neural-config-root .jr-mini {
-  width: 26px; height: 26px; display: grid; place-items: center;
-  font-size: 12px; border-radius: 7px; cursor: pointer;
-  border: 1px solid var(--border); background: var(--bg-input); color: var(--text-dim);
-  transition: color .15s, border-color .15s, background .15s;
-}
-.neural-config-root .jr-mini:disabled { opacity: 0.5; cursor: default; }
-.neural-config-root .jr-mini.ok:hover, .neural-config-root .jr-mini.ok.on {
-  color: var(--ok); border-color: rgba(79,191,135,0.45); background: rgba(79,191,135,0.12);
-}
-.neural-config-root .jr-mini.err:hover, .neural-config-root .jr-mini.err.on {
-  color: var(--err); border-color: rgba(236,95,118,0.45); background: rgba(236,95,118,0.12);
-}
-.neural-config-root .jr-nogps { font-style: italic; opacity: 0.7; }
-.neural-config-root .jr-row:hover { border-color: var(--border-bright); }
-.neural-config-root .jr-row.sel {
-  border-color: var(--accent-dim);
-  box-shadow: 0 0 0 1px var(--accent-glow), 0 0 22px -8px var(--accent-glow);
-  background: linear-gradient(180deg, rgba(77,139,255,0.08), transparent), var(--bg-panel-2);
-}
-.neural-config-root .jr-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* ── Карта MapLibre: тёмная тема контролов и попапа ── */
+.jm-map{width:100%;height:100%;background:#0f1218}
+.jm-map .maplibregl-canvas-container canvas{outline:none}
+.jm-map .maplibregl-ctrl-group{background:var(--panel);border:1px solid var(--line);box-shadow:none}
+.jm-map .maplibregl-ctrl-group button+button{border-top-color:var(--line)}
+.jm-map .maplibregl-ctrl-group button span{filter:invert(.8)}
+.jm-map .maplibregl-ctrl-attrib{background:rgba(18,20,26,.7);color:var(--fg-3);font-size:10px;padding:2px 8px}
+.jm-map .maplibregl-ctrl-attrib a{color:var(--fg-2)}
+.jm-map .maplibregl-popup-content{background:var(--panel);color:var(--fg);border:1px solid var(--line-hi);border-radius:var(--r);padding:10px;box-shadow:var(--shadow-lg)}
+.jm-map .maplibregl-popup-tip{border-top-color:var(--panel);border-bottom-color:var(--panel)}
 
-.neural-config-root .jr-time {
-  font-family: var(--font-mono); font-size: 12px; color: var(--text-primary);
-  font-variant-numeric: tabular-nums;
-}
-.neural-config-root .jr-gps {
-  font-family: var(--font-mono); font-size: 10.5px; color: var(--text-dim);
-  font-variant-numeric: tabular-nums;
-}
-.neural-config-root .jr-chips { display: flex; gap: 6px; flex-wrap: wrap; }
-.neural-config-root .jr-chip {
-  display: inline-flex; align-items: center; gap: 6px; font-size: 11px;
-  color: var(--text-secondary); background: var(--bg-input); border: 1px solid var(--border);
-  padding: 3px 9px 3px 7px; border-radius: 20px;
-}
-.neural-config-root .jr-cd { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
-.neural-config-root .jr-cf { font-family: var(--font-mono); font-size: 9.5px; color: var(--text-dim); }
-
-/* Сколько объектов этого класса на кадре. */
-.neural-config-root .jr-chip-n {
-  font-family: var(--font-mono); font-size: 10px; font-weight: 700; color: var(--text-primary);
-}
-/* Свёрнутые классы: полный список раскрывается при выборе самой записи. */
-.neural-config-root .jr-chip.more {
-  font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--accent);
-  border-color: var(--accent-dim); background: var(--accent-glow); cursor: help;
-}
-.neural-config-root .jr-objects-total {
-  font-family: var(--font-mono); font-size: 10.5px; color: var(--text-dim); align-self: center;
-}
-
-/* ── Кадр с боксами ─────────────────────────────────────────── */
-/* В журнале лежит чистый кадр (годится для дообучения) — рамки накладываем
-   здесь, в процентах от размеров кадра. */
-.neural-config-root .jr-frame { position: relative; display: block; line-height: 0; }
-.neural-config-root .jr-frame-img { display: block; width: 100%; height: 100%; object-fit: cover; }
-/* Место кадра, который вышел за лимит одновременно загруженных изображений. */
-.neural-config-root .jr-frame-stub {
-  display: block; width: 100%; height: 100%;
-  background: repeating-linear-gradient(
-    45deg, var(--bg-input), var(--bg-input) 8px, var(--bg-panel-2) 8px, var(--bg-panel-2) 16px
-  );
-  opacity: 0.5;
-}
-.neural-config-root .jr-box {
-  position: absolute; border: 1.5px solid var(--accent); border-radius: 2px; pointer-events: none;
-}
-.neural-config-root .jr-box.tentative { border-style: dashed; opacity: 0.75; }
-.neural-config-root .jr-box.lost { border-style: dotted; opacity: 0.6; }
-.neural-config-root .jr-box-lbl {
-  position: absolute; left: 0; top: 0; transform: translateY(-100%);
-  font-family: var(--font-mono); font-size: 9px; font-weight: 600; color: #0a0c11;
-  padding: 2px 5px; border-radius: 3px 3px 0 0; white-space: nowrap; line-height: 1.4;
-}
-
-/* Кадр занимает всю ширину своего столбца и растёт вместе с ним. Соотношение
-   сторон приходит инлайном из реальных размеров кадра — здесь только запасное
-   значение на случай, если размеры в записи неизвестны. */
-.neural-config-root .jr-thumb {
-  width: 100%; aspect-ratio: 4 / 3; overflow: hidden;
-  border-radius: 8px; border: 1px solid var(--border); background: var(--bg-input);
-  transition: border-color .15s, box-shadow .15s;
-}
-.neural-config-root .jr-thumb-btn { width: 100%; display: block; }
-.neural-config-root .jr-thumb-btn:hover .jr-thumb {
-  border-color: var(--accent-dim);
-  box-shadow: 0 0 0 1px var(--accent-glow), 0 0 20px -6px var(--accent);
-}
-.neural-config-root .jr-thumb-btn:focus-visible .jr-thumb {
-  border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-glow);
-}
-
-/* ── Вердикт ────────────────────────────────────────────────── */
-.neural-config-root .jr-verdict {
-  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
-  font-size: 11px; font-weight: 600; padding: 5px 10px; border-radius: 20px;
-}
-.neural-config-root .jr-verdict .jr-d {
-  width: 7px; height: 7px; border-radius: 50%; background: currentColor; box-shadow: 0 0 7px currentColor;
-}
-.neural-config-root .jr-verdict.unverified { color: var(--text-dim); border: 1px solid var(--border); background: var(--bg-input); }
-.neural-config-root .jr-verdict.true { color: var(--ok); border: 1px solid rgba(79,191,135,0.35); background: rgba(79,191,135,0.08); }
-.neural-config-root .jr-verdict.false { color: var(--err); border: 1px solid rgba(236,95,118,0.35); background: rgba(236,95,118,0.08); }
-
-/* ── Правая колонка ─────────────────────────────────────────── */
-.neural-config-root .jr-right-col {
-  display: flex; flex-direction: column; gap: 16px; min-height: 0;
-}
-/* Фильтры по содержимому, карта забирает всю оставшуюся высоту. */
-.neural-config-root .jr-filters-panel { flex: 0 0 auto; }
-.neural-config-root .jr-map-panel { flex: 1; min-height: 0; }
-.neural-config-root .jr-map-wrap { position: relative; flex: 1; min-height: 0; }
-.neural-config-root .jr-map {
-  height: 100%; min-height: 200px; border-radius: var(--radius);
-  overflow: hidden; background: #0a0e15;
-}
-.neural-config-root .jr-map-empty {
-  position: absolute; inset: 0; display: grid; place-items: center;
-  font-size: 12px; color: var(--text-dim); pointer-events: none;
-  background: rgba(10,12,17,0.55); border-radius: var(--radius); padding: 12px;
-}
-
-/* Заметка о правдивости — появляется в выбранной строке списка. */
-.neural-config-root .jr-note {
-  width: 100%; background: var(--bg-input); border: 1px solid var(--border);
-  border-radius: var(--radius); color: var(--text-primary); font-family: var(--font-ui);
-  font-size: 12.5px; padding: 8px 10px;
-}
-.neural-config-root .jr-note:focus { outline: none; border-color: var(--accent-dim); }
-
-/* ── Фильтры ────────────────────────────────────────────────── */
-.neural-config-root .jr-filters { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.neural-config-root .jr-fchip {
-  display: inline-flex; align-items: center; gap: 8px; padding: 7px 12px;
-  background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;
-  font-size: 12px; color: var(--text-secondary); transition: border-color .15s, background .15s;
-}
-.neural-config-root .jr-fchip.jr-click { cursor: pointer; }
-.neural-config-root .jr-fchip.act { border-color: var(--accent-dim); color: var(--text-primary); background: var(--accent-glow); }
-.neural-config-root .jr-fchip:focus-within { border-color: var(--accent-dim); background: var(--accent-glow); }
-.neural-config-root .jr-fchip .jr-k {
-  color: var(--text-dim); font-family: var(--font-mono); font-size: 10px;
-  text-transform: uppercase; letter-spacing: 0.06em;
-}
-.neural-config-root .jr-caret { color: var(--text-dim); font-size: 10px; }
-
-/* Пресеты периода — основной способ выбора времени, поэтому занимают
-   отдельную строку во всю ширину панели. */
-.neural-config-root .jr-seg-presets { width: 100%; }
-
-/* ── Свой календарь диапазона ───────────────────────────────── */
-/* Нативный datetime-local заменён: его выпадающую панель рисует браузер вне
-   DOM, и под тему её привести невозможно. */
-.neural-config-root .jr-cal {
-  position: absolute; top: calc(100% + 6px); left: 0; z-index: 601; width: 290px;
-  display: flex; flex-direction: column; gap: 12px; padding: 14px;
-  background: var(--bg-panel); border: 1px solid var(--border-bright);
-  border-radius: var(--radius-lg); box-shadow: var(--shadow-panel);
-}
-.neural-config-root .jr-cal-head { display: flex; align-items: center; justify-content: space-between; }
-.neural-config-root .jr-cal-month { font-size: 13px; font-weight: 600; color: var(--text-primary); }
-.neural-config-root .jr-cal-nav { display: flex; gap: 6px; }
-.neural-config-root .jr-cal-nav button {
-  width: 26px; height: 26px; display: grid; place-items: center;
-  border: 1px solid var(--border); border-radius: 7px; cursor: pointer;
-  color: var(--text-secondary); font-size: 12px; background: var(--bg-input);
-}
-.neural-config-root .jr-cal-nav button:hover { color: var(--accent); border-color: var(--accent-dim); }
-
-.neural-config-root .jr-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
-.neural-config-root .jr-cal-dow {
-  font-family: var(--font-mono); font-size: 9.5px; text-transform: uppercase;
-  color: var(--text-dim); text-align: center; padding: 4px 0; letter-spacing: 0.04em;
-}
-.neural-config-root .jr-cal-d {
-  height: 30px; display: grid; place-items: center; cursor: pointer;
-  font-size: 12px; color: var(--text-secondary); border: none; background: transparent;
-  border-radius: 6px; font-variant-numeric: tabular-nums; transition: background .12s, color .12s;
-}
-.neural-config-root .jr-cal-d:hover { background: var(--bg-panel-2); color: var(--text-primary); }
-.neural-config-root .jr-cal-d.mute { color: var(--text-dim); opacity: 0.45; }
-/* Середина диапазона — сплошная полоса, поэтому скругления убираем. */
-.neural-config-root .jr-cal-d.in { background: var(--accent-glow); color: var(--text-primary); border-radius: 0; }
-.neural-config-root .jr-cal-d.start {
-  background: var(--accent); color: var(--bg-base); font-weight: 700; border-radius: 6px 0 0 6px;
-}
-.neural-config-root .jr-cal-d.end {
-  background: var(--accent); color: var(--bg-base); font-weight: 700; border-radius: 0 6px 6px 0;
-}
-.neural-config-root .jr-cal-d.start.end { border-radius: 6px; }
-
-.neural-config-root .jr-cal-times { display: flex; gap: 8px; }
-.neural-config-root .jr-cal-t {
-  flex: 1; display: flex; align-items: center; gap: 7px; padding: 7px 10px;
-  background: var(--bg-input); border: 1px solid var(--border); border-radius: 7px;
-}
-.neural-config-root .jr-cal-t:focus-within { border-color: var(--accent-dim); background: var(--accent-glow); }
-.neural-config-root .jr-cal-tk {
-  font-family: var(--font-mono); font-size: 9.5px; color: var(--text-dim); text-transform: uppercase;
-}
-.neural-config-root .jr-cal-t input {
-  width: 100%; min-width: 0; background: transparent; border: none; outline: none;
-  color: var(--text-primary); font-family: var(--font-mono); font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-
-.neural-config-root .jr-cal-foot {
-  display: flex; align-items: center; justify-content: space-between;
-  padding-top: 10px; border-top: 1px solid var(--border);
-}
-.neural-config-root .jr-cal-reset {
-  font-size: 12px; font-weight: 600; color: var(--text-secondary);
-  background: transparent; border: none; cursor: pointer; padding: 6px 2px;
-}
-.neural-config-root .jr-cal-reset:hover { color: var(--err); }
-.neural-config-root .jr-cal-apply {
-  font-size: 12px; font-weight: 600; padding: 7px 15px; border-radius: 7px;
-  background: var(--accent); color: var(--bg-base); border: none; cursor: pointer;
-}
-.neural-config-root .jr-cal-apply:hover { background: var(--accent-dim); }
-
-.neural-config-root .jr-class-wrap { position: relative; }
-.neural-config-root .jr-class-backdrop { position: fixed; inset: 0; z-index: 600; }
-.neural-config-root .jr-class-menu {
-  position: absolute; top: calc(100% + 6px); left: 0; z-index: 601; min-width: 230px; max-height: 320px;
-  overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding: 10px;
-  background: var(--bg-panel); border: 1px solid var(--border-bright); border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-panel);
-}
-.neural-config-root .jr-class-empty { color: var(--text-dim); font-size: 12px; padding: 8px; }
-.neural-config-root .jr-class-group { display: flex; flex-direction: column; gap: 2px; }
-.neural-config-root .jr-class-sup {
-  font-family: var(--font-mono); font-size: 9.5px; text-transform: uppercase;
-  letter-spacing: 0.06em; color: var(--text-dim); padding: 8px 8px 4px;
-}
-.neural-config-root .jr-class-item {
-  display: flex; align-items: center; gap: 9px; font-size: 12.5px;
-  color: var(--text-secondary); padding: 6px 8px; border-radius: 6px; cursor: pointer;
-}
-.neural-config-root .jr-class-item:hover { background: rgba(255,255,255,0.04); color: var(--text-primary); }
-.neural-config-root .jr-class-clear {
-  margin-top: 6px; background: var(--bg-input); border: 1px solid var(--border);
-  border-radius: 6px; color: var(--text-secondary); font-size: 12px; padding: 7px; cursor: pointer;
-}
-
-.neural-config-root .jr-seg {
-  display: flex; background: var(--bg-input); border: 1px solid var(--border);
-  border-radius: 8px; padding: 3px; flex-wrap: wrap; gap: 2px;
-}
-.neural-config-root .jr-seg > button {
-  padding: 6px 13px; border-radius: 6px; font-size: 12px; font-weight: 600;
-  color: var(--text-dim); background: transparent; border: none; cursor: pointer;
-}
-.neural-config-root .jr-seg > button.on { background: var(--accent-glow); color: var(--accent); }
-
-/* ── Полноэкранная карта ────────────────────────────────────── */
-.neural-config-root .jr-fs { position: fixed; inset: 0; z-index: 1000; background: var(--bg-base); }
-.neural-config-root .jr-fs .jr-map { height: 100%; border-radius: 0; }
-.neural-config-root .jr-fs-filters {
-  position: absolute; top: 14px; left: 14px; z-index: 500; width: 280px;
-  display: flex; flex-direction: column; gap: 12px; padding: 16px;
-  background: rgba(14,17,23,0.85); backdrop-filter: blur(12px);
-  border: 1px solid var(--border-bright); border-radius: var(--radius-lg); box-shadow: var(--shadow-panel);
-}
-.neural-config-root .jr-fs-filters .jr-filters { flex-direction: column; align-items: stretch; }
-.neural-config-root .jr-fs-count { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); }
-.neural-config-root .jr-fs-slider { display: flex; align-items: center; gap: 10px; }
-.neural-config-root .jr-fs-slider input[type="range"] {
-  flex: 1; min-width: 0; accent-color: var(--accent); cursor: pointer;
-}
-.neural-config-root .jr-fs-slider-val {
-  font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary);
-  font-variant-numeric: tabular-nums; min-width: 5ch; text-align: right;
-}
-.neural-config-root .jr-fs-close {
-  position: absolute; top: 14px; right: 14px; z-index: 500;
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 34px; height: 34px; font-size: 15px;
-  color: var(--text-secondary); background: rgba(10,12,17,0.75); backdrop-filter: blur(6px);
-  border: 1px solid var(--border-bright); border-radius: 8px; cursor: pointer;
-}
-.neural-config-root .jr-fs-close:hover { color: var(--accent); border-color: var(--accent-dim); }
-.neural-config-root .jr-fs-empty {
-  position: absolute; left: 50%; bottom: 32px; transform: translateX(-50%); z-index: 400;
-  font-size: 12px; color: var(--text-dim); pointer-events: none;
-  background: rgba(10,12,17,0.75); border: 1px solid var(--border);
-  padding: 8px 14px; border-radius: 8px;
-}
-
-/* ── MapLibre: тёмная тема ──────────────────────────────────── */
-.neural-config-root .jr-map .maplibregl-canvas-container canvas { outline: none; }
-.neural-config-root .jr-map .maplibregl-ctrl-group {
-  background: var(--bg-panel); border: 1px solid var(--border); box-shadow: none;
-}
-.neural-config-root .jr-map .maplibregl-ctrl-group button + button { border-top-color: var(--border); }
-.neural-config-root .jr-map .maplibregl-ctrl-group button span { filter: invert(0.8); }
-.neural-config-root .jr-map .maplibregl-ctrl-attrib {
-  background: rgba(10,12,17,0.7); color: var(--text-dim); font-size: 10px; padding: 2px 8px;
-}
-.neural-config-root .jr-map .maplibregl-ctrl-attrib a { color: var(--text-secondary); }
-.neural-config-root .jr-map .maplibregl-popup-content {
-  background: var(--bg-panel); color: var(--text-primary);
-  border: 1px solid var(--border-bright); border-radius: 10px; padding: 10px;
-}
-.neural-config-root .jr-map .maplibregl-popup-tip {
-  border-top-color: var(--bg-panel); border-bottom-color: var(--bg-panel);
-}
-
-/* ── Попапы карты: запись и список кластера ─────────────────── */
-.neural-config-root .jr-mpop { display: flex; flex-direction: column; gap: 10px; }
-.neural-config-root .jr-mpop-rec { width: min(440px, 72vw); }
-.neural-config-root .jr-mpop-list { width: min(400px, 72vw); }
-.neural-config-root .jr-mpop-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.neural-config-root .jr-mpop-close { margin-left: auto; flex-shrink: 0; }
-.neural-config-root .jr-mpop-cam {
-  font-size: 11px; color: var(--text-dim); min-width: 0;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.neural-config-root .jr-mpop-frame {
-  border-radius: 8px; overflow: hidden;
-  border: 1px solid var(--border); background: var(--bg-input);
-}
-.neural-config-root .jr-mpop-gone { font-size: 12px; color: var(--text-dim); padding: 6px 0; }
-
-.neural-config-root .jr-mpop-scroll {
-  display: flex; flex-direction: column; gap: 8px;
-  max-height: min(340px, 48vh); overflow-y: auto; padding-right: 4px;
-}
-.neural-config-root .jr-mpop-row {
-  display: flex; gap: 10px; align-items: flex-start; text-align: left; cursor: pointer;
-  padding: 8px; background: var(--bg-panel-2); border: 1px solid var(--border);
-  border-radius: 10px; transition: border-color .15s, background .15s;
-}
-.neural-config-root .jr-mpop-row:hover { border-color: var(--accent-dim); background: var(--accent-glow); }
-.neural-config-root .jr-mpop-mini-btn { flex: 0 0 96px; cursor: zoom-in; line-height: 0; }
-.neural-config-root .jr-mpop-mini {
-  border-radius: 6px; overflow: hidden;
-  border: 1px solid var(--border); background: var(--bg-input);
-  transition: border-color .15s;
-}
-.neural-config-root .jr-mpop-mini-btn:hover .jr-mpop-mini { border-color: var(--accent-dim); }
-.neural-config-root .jr-mpop-row-info {
-  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px;
-}
-
-/* Координаты в строке нужны и на узком экране — там это единственный вход
-   на карту, поэтому раньше скрывавшего их media-query больше нет. */
-
-/* ── Чекбоксы в фильтре классов ─────────────────────────────── */
-.neural-config-root .jr-class-item input[type="checkbox"] {
-  appearance: none; -webkit-appearance: none;
-  width: 15px; height: 15px; flex-shrink: 0; margin: 0; cursor: pointer;
-  border: 1px solid var(--border-bright); border-radius: 4px;
-  background: var(--bg-input); position: relative;
-  transition: background .12s, border-color .12s;
-}
-.neural-config-root .jr-class-item input[type="checkbox"]:hover { border-color: var(--accent-dim); }
-.neural-config-root .jr-class-item input[type="checkbox"]:checked {
-  background: var(--accent); border-color: var(--accent);
-}
-.neural-config-root .jr-class-item input[type="checkbox"]:checked::after {
-  content: ''; position: absolute; left: 4px; top: 1px;
-  width: 4px; height: 8px; border: solid var(--bg-base);
-  border-width: 0 2px 2px 0; transform: rotate(45deg);
-}
-.neural-config-root .jr-class-item input[type="checkbox"]:focus-visible {
-  outline: 2px solid var(--accent); outline-offset: 2px;
-}
-
-/* ── Плашка новых записей ───────────────────────────────────── */
-.neural-config-root .jr-new-badge {
-  display: block; width: 100%; padding: 8px 12px; cursor: pointer;
-  font-size: 12px; font-weight: 600; color: var(--accent);
-  background: var(--accent-glow); border: 1px solid var(--accent-dim); border-radius: 8px;
-}
-.neural-config-root .jr-new-badge:hover { background: rgba(77,139,255,0.26); }
-
-/* ── Превью как кнопка + координаты-кнопка + карта в строке ─── */
-.neural-config-root .jr-thumb-btn {
-  padding: 0; border: none; background: none; cursor: zoom-in; line-height: 0; flex-shrink: 0;
-}
-.neural-config-root .jr-gps-btn {
-  border: 1px solid var(--border); background: var(--bg-input); cursor: pointer;
-  padding: 3px 8px; border-radius: 6px; transition: color .15s, border-color .15s, background .15s;
-}
-.neural-config-root .jr-gps-btn:hover { color: var(--accent); border-color: var(--accent-dim); }
-.neural-config-root .jr-gps-btn.on {
-  color: var(--accent); border-color: var(--accent-dim); background: var(--accent-glow);
-}
-.neural-config-root .jr-row-map {
-  height: 220px; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border);
-}
-.neural-config-root .jr-row-map .jr-map { height: 100%; border-radius: 0; }
-
-/* ── Форма заметки ──────────────────────────────────────────── */
-.neural-config-root .jr-note-wrap { position: relative; }
-.neural-config-root .jr-mini.note.on { color: var(--accent); border-color: var(--accent-dim); background: var(--accent-glow); }
-.neural-config-root .jr-note-form {
-  position: absolute; top: calc(100% + 6px); right: 0; z-index: 601; width: 280px;
-  display: flex; flex-direction: column; gap: 10px; padding: 12px;
-  background: var(--bg-panel); border: 1px solid var(--border-bright);
-  border-radius: var(--radius-lg); box-shadow: var(--shadow-panel);
-}
-.neural-config-root .jr-note-area {
-  width: 100%; min-height: 84px; resize: vertical;
-  background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius);
-  color: var(--text-primary); font-family: var(--font-ui); font-size: 12.5px; padding: 8px 10px;
-}
-.neural-config-root .jr-note-area:focus { outline: none; border-color: var(--accent-dim); }
-.neural-config-root .jr-note-actions { display: flex; align-items: center; justify-content: space-between; }
-
-/* ── Полноэкранный просмотр кадра ───────────────────────────── */
-.neural-config-root .jr-viewer {
-  position: fixed; inset: 0; z-index: 1100; background: rgba(6,8,12,0.94);
-  display: grid; place-items: center; padding: 40px 72px;
-}
-.neural-config-root .jr-viewer-stage {
-  display: flex; flex-direction: column; gap: 14px; align-items: center;
-  max-width: 100%; max-height: 100%; min-height: 0;
-}
-/* Обёртка сжимается по картинке — иначе боксы в процентах разъедутся. */
-.neural-config-root .jr-viewer-frame {
-  position: relative; display: inline-block; line-height: 0; min-height: 0;
-  border: 1px solid var(--border-bright); border-radius: var(--radius-lg); overflow: hidden;
-}
-.neural-config-root .jr-viewer-frame img {
-  display: block; max-width: 100%; max-height: calc(100vh - 160px); object-fit: contain;
-}
-
-.neural-config-root .jr-vbox {
-  position: absolute; border: 2px solid var(--accent); border-radius: 2px;
-  transition: box-shadow .12s, background .12s;
-}
-.neural-config-root .jr-vbox.tentative { border-style: dashed; }
-.neural-config-root .jr-vbox.lost { border-style: dotted; opacity: 0.7; }
-.neural-config-root .jr-vbox.hot {
-  box-shadow: 0 0 0 3px rgba(77,139,255,0.35), 0 0 24px -4px currentColor;
-  background: rgba(77,139,255,0.12);
-}
-.neural-config-root .jr-vbox-lbl {
-  position: absolute; left: -2px; top: 0; transform: translateY(-100%);
-  font-family: var(--font-mono); font-size: 10px; font-weight: 600; color: #0a0c11;
-  padding: 2px 6px; border-radius: 4px 4px 0 0; white-space: nowrap; line-height: 1.5;
-}
-
-.neural-config-root .jr-viewer-close {
-  position: absolute; top: 18px; right: 18px; z-index: 5;
-  width: 36px; height: 36px; font-size: 15px; cursor: pointer;
-  color: var(--text-secondary); background: rgba(10,12,17,0.8);
-  border: 1px solid var(--border-bright); border-radius: 8px;
-}
-.neural-config-root .jr-viewer-close:hover { color: var(--accent); border-color: var(--accent-dim); }
-
-.neural-config-root .jr-viewer-arrow {
-  position: absolute; top: 50%; transform: translateY(-50%); z-index: 5;
-  width: 48px; height: 72px; font-size: 30px; line-height: 1; cursor: pointer;
-  color: var(--text-secondary); background: rgba(10,12,17,0.7);
-  border: 1px solid var(--border); border-radius: 10px;
-  transition: color .15s, border-color .15s, background .15s;
-}
-.neural-config-root .jr-viewer-arrow.left { left: 14px; }
-.neural-config-root .jr-viewer-arrow.right { right: 14px; }
-.neural-config-root .jr-viewer-arrow:hover:not(:disabled) {
-  color: var(--accent); border-color: var(--accent-dim); background: rgba(77,139,255,0.14);
-}
-.neural-config-root .jr-viewer-arrow:disabled { opacity: 0.25; cursor: default; }
-
-/* Панели поверх кадра: приглушены, проявляются при наведении. */
-.neural-config-root .jr-viewer-meta,
-.neural-config-root .jr-viewer-objects {
-  position: absolute; z-index: 4; min-width: 190px; max-width: 280px;
-  display: flex; flex-direction: column; line-height: 1.45;
-  background: rgba(10,12,17,0.72); backdrop-filter: blur(8px);
-  border: 1px solid var(--border-bright); border-radius: 10px;
-  opacity: 0.72; transition: opacity .15s;
-}
-.neural-config-root .jr-viewer-meta:hover,
-.neural-config-root .jr-viewer-objects:hover { opacity: 1; }
-.neural-config-root .jr-viewer-meta { top: 12px; right: 12px; }
-.neural-config-root .jr-viewer-objects { bottom: 12px; left: 12px; max-height: 45%; }
-
-.neural-config-root .jr-viewer-panel-head {
-  display: flex; align-items: center; gap: 8px; padding: 9px 11px; cursor: pointer;
-  background: transparent; border: none; width: 100%; text-align: left;
-}
-.neural-config-root .jr-viewer-panel-body {
-  display: flex; flex-direction: column; gap: 6px; padding: 0 11px 11px;
-  overflow-y: auto; min-height: 0;
-}
-.neural-config-root .jr-drow { display: flex; justify-content: space-between; gap: 14px; font-size: 12px; }
-.neural-config-root .jr-kk {
-  color: var(--text-dim); font-family: var(--font-mono); font-size: 10.5px;
-  text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap;
-}
-.neural-config-root .jr-vv {
-  color: var(--text-primary); font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums; text-align: right;
-}
-
-.neural-config-root .jr-vobj {
-  display: flex; align-items: center; gap: 8px; font-size: 12px;
-  color: var(--text-secondary); padding: 5px 6px; border-radius: 6px; cursor: default;
-}
-.neural-config-root .jr-vobj.hot { background: var(--accent-glow); color: var(--text-primary); }
-.neural-config-root .jr-vobj-name { flex: 1; min-width: 0; }
-.neural-config-root .jr-vobj-state {
-  font-family: var(--font-mono); font-size: 9.5px; color: var(--text-dim);
-  border: 1px solid var(--border); padding: 1px 5px; border-radius: 5px;
-}
-
-.neural-config-root .jr-viewer-verdict { display: flex; gap: 8px; flex-shrink: 0; }
-.neural-config-root .jr-vbtn {
-  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  font-size: 12.5px; font-weight: 600; padding: 9px 18px; border-radius: var(--radius);
-  border: 1px solid var(--border); background: var(--bg-panel); color: var(--text-secondary); cursor: pointer;
-}
-.neural-config-root .jr-vbtn:disabled { opacity: 0.6; cursor: default; }
-.neural-config-root .jr-vbtn.ok { color: var(--ok); }
-.neural-config-root .jr-vbtn.ok.on { background: rgba(79,191,135,0.16); border-color: rgba(79,191,135,0.45); }
-.neural-config-root .jr-vbtn.ok:hover:not(:disabled) {
-  background: rgba(79,191,135,0.24); border-color: rgba(79,191,135,0.6);
-}
-.neural-config-root .jr-vbtn.err { color: var(--err); }
-.neural-config-root .jr-vbtn.err.on { background: rgba(236,95,118,0.16); border-color: rgba(236,95,118,0.45); }
-.neural-config-root .jr-vbtn.err:hover:not(:disabled) {
-  background: rgba(236,95,118,0.24); border-color: rgba(236,95,118,0.6);
-}
-.neural-config-root .jr-vbtn.ghost { color: var(--text-dim); }
-.neural-config-root .jr-vbtn.ghost:hover:not(:disabled) {
-  color: var(--text-secondary); border-color: var(--border-bright);
-}
-
-/* Кнопки масштаба в полноэкранной карте не должны лезть под кнопку возврата:
-   сдвигаем контейнер контролов ниже неё (34px кнопка + 14px отступ + зазор). */
-.neural-config-root .jr-fs .maplibregl-ctrl-top-right { margin-top: 56px; }
-
-/* ── Хранилище журнала: лимиты и очистка ── */
-
-.neural-config-root .jr-storage-modal {
-  width: min(520px, calc(100vw - 32px));
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.neural-config-root .jr-storage-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.neural-config-root .jr-storage-block {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
-}
-.neural-config-root .jr-storage-block:first-of-type { border-top: none; padding-top: 0; }
-
-.neural-config-root .jr-storage-usage {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.neural-config-root .jr-storage-usage-text {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-secondary);
-}
-
-.neural-config-root .jr-storage-bar {
-  display: block;
-  height: 4px;
-  border-radius: 2px;
-  background: var(--bg-input);
-  border: 1px solid var(--border);
-  overflow: hidden;
-}
-
-.neural-config-root .jr-storage-bar-fill {
-  display: block;
-  height: 100%;
-  background: var(--accent);
-  transition: width 0.3s;
-}
-.neural-config-root .jr-storage-bar-fill.hot { background: var(--err); }
-
-.neural-config-root .jr-storage-hint {
-  font-family: var(--font-ui);
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--text-dim);
-}
-
-.neural-config-root .jr-storage-saved {
-  font-family: var(--font-ui);
-  font-size: 11px;
-  color: var(--ok);
-  align-self: center;
-  margin-right: auto;
-}
-
-.neural-config-root .jr-storage-purge-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.neural-config-root .jr-storage-purge-row .field-input { max-width: 180px; }
-.neural-config-root .jr-storage-purge-row .btn { flex: 0 0 auto; }
-
-.neural-config-root .field-input.invalid,
-.neural-config-root .field-input.invalid:focus {
-  border-color: var(--err);
-  box-shadow: 0 0 0 3px rgba(236, 95, 118, 0.15);
-}
-
-/* ── Заглушка удалённого кадра ── */
-
-.neural-config-root .jr-frame-missing {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  background: var(--bg-input);
-  color: var(--text-dim);
-  font-family: var(--font-ui);
-  font-size: 11px;
-  text-align: center;
-  padding: 8px;
-}
-.neural-config-root .jr-frame-missing .ico { font-size: 18px; opacity: 0.7; }
-
-.neural-config-root .jr-viewer-missing {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  width: min(60vw, 640px);
-  aspect-ratio: 16 / 9;
-  background: var(--bg-input);
-  border: 1px dashed var(--border-bright);
-  border-radius: var(--radius);
-  color: var(--text-dim);
-  font-family: var(--font-ui);
-  font-size: 13px;
-}
-.neural-config-root .jr-viewer-missing .ico { font-size: 26px; opacity: 0.7; }
+/* Попапы карты: запись и список кластера */
+.jm-pop{display:flex;flex-direction:column;gap:10px;line-height:1.45}
+.jm-pop-rec{width:min(440px,72vw)}
+.jm-pop-list{width:min(400px,72vw)}
+.jm-pop-head{display:flex;align-items:center;gap:10px;min-width:0}
+.jm-pop-btn{width:24px;height:24px;flex:0 0 24px}
+.jm-pop-btn .is-back{transform:rotate(180deg)}
+.jm-pop-close{margin-left:auto}
+.jm-pop-cam{font-size:11px;color:var(--fg-3);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.jm-pop-thumb{width:100%;display:block;line-height:0;cursor:zoom-in}
+.jm-pop-frame{border-radius:6px;overflow:hidden;border:1px solid var(--line)}
+.jm-pop-thumb:hover .jm-pop-frame{border-color:var(--acc-dim)}
+.jm-pop-gone{font-size:12px;color:var(--fg-3);padding:6px 0}
+.jm-pop-scroll{display:flex;flex-direction:column;gap:8px;max-height:min(340px,48vh);overflow-y:auto;padding-right:4px}
+.jm-pop-row{display:flex;gap:10px;align-items:flex-start;text-align:left;padding:8px;background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r);transition:border-color .15s,background .15s;color:var(--fg)}
+.jm-pop-row:hover{border-color:var(--acc-dim);background:rgba(var(--acc-rgb),.1)}
+.jm-pop-mini-btn{flex:0 0 96px;cursor:zoom-in;line-height:0}
+.jm-pop-mini{border-radius:6px;overflow:hidden;border:1px solid var(--line);transition:border-color .15s}
+.jm-pop-mini-btn:hover .jm-pop-mini{border-color:var(--acc-dim)}
+.jm-pop-row-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}

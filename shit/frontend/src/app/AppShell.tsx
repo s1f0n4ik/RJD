@@ -6,12 +6,15 @@ import { DownloadsPill } from './DownloadsPill';
 import { useSystem } from './SystemContext';
 import { formatDeviceTime, useDeviceClock } from './useDeviceClock';
 import { useSurroundStatus, type SurroundStatus } from './surroundStatus';
+import { useNeuralStatus, type NeuralStatus } from './neuralStatus';
 import './shell.css';
 
-// Точка состояния у подраздела 360: поток калибровки идёт, вывод в эфире
-function subDot(to: string, status: SurroundStatus) {
+// Точка состояния у подраздела: поток калибровки идёт, вывод в эфире, слоты нейронки работают или упали
+function subDot(to: string, status: SurroundStatus, neural: NeuralStatus) {
     if (to === '/surround/calibration' && status.streaming) return <span className="dot ok" />;
     if (to === '/surround/linker' && status.live) return <span className="dot ok" />;
+    if (to === '/neural/streams' && neural.failed) return <span className="dot err" />;
+    if (to === '/neural/streams' && neural.running) return <span className="dot ok" />;
     return null;
 }
 
@@ -27,6 +30,7 @@ export function AppShell({ username, role, onLogout }: AppShellProps) {
     const { connected, cameras, devices } = useSystem();
     const { pathname } = useLocation();
     const surround = useSurroundStatus();
+    const neural = useNeuralStatus();
 
     const offlineDevices = devices.filter(d => d.status !== 'online').length;
     const crumbs = crumbsFor(pathname);
@@ -71,7 +75,7 @@ export function AppShell({ username, role, onLogout }: AppShellProps) {
                                         <NavLink key={sub.to} to={sub.to} className={({ isActive }) => `rsub${isActive ? ' is-on' : ''}`}>
                                             <span className="n">{sub.n}</span>
                                             {sub.label}
-                                            {subDot(sub.to, surround)}
+                                            {subDot(sub.to, surround, neural)}
                                         </NavLink>
                                     ))}
                                 </div>

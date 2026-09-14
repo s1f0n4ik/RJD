@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Icon } from '../../app/Icons';
 import { NAV } from '../../app/nav';
 import { useSystem } from '../../app/SystemContext';
-import { useDisks, useGatewayStatus, useLastDetections, useLinkerStatus } from './useHomeData';
+import { useDisks, useGatewayStatus, useLastDetections, useLinkerStatus, useNeuralStatus } from './useHomeData';
 import { useLayouts } from '../../hooks/Layouts';
 import type { Device } from '../../services/devices';
 import './home.css';
@@ -36,6 +36,7 @@ export function HomeScreen() {
     const { items: detections, available: journalUp } = useLastDetections();
     const gateway = useGatewayStatus();
     const linker = useLinkerStatus();
+    const neural = useNeuralStatus();
 
     const online = devices.filter(d => d.status === 'online');
     const liveCameras = cameras.filter(isLive).length;
@@ -53,6 +54,12 @@ export function HomeScreen() {
 
     const linkerSummary = linker
         ? linker.running ? `вывод в эфире · ${linker.viewMode === 'surround' ? 'объём' : 'сверху'}` : 'вывод остановлен'
+        : 'модуль не отвечает';
+    const neuralSummary = neural
+        ? neural.slots === 0
+            ? 'потоков нет'
+            : `${neural.running} ${plural(neural.running, 'поток', 'потока', 'потоков')} в работе` +
+              (neural.failed > 0 ? ` · ${neural.failed} с ошибкой` : '')
         : 'модуль не отвечает';
     const gatewaySummary = gateway
         ? `${gateway.modules} ${plural(gateway.modules, 'модуль', 'модуля', 'модулей')} · ${gateway.connected} на связи`
@@ -110,7 +117,7 @@ export function HomeScreen() {
                     <div className="tiles">
                         {NAV.filter(item => item.to !== '/').map(item => (
                             item.ready ? (
-                                <Link key={item.to} to={item.to} className={`tile${(item.to === '/krsps' && !gateway) || (item.to === '/surround' && !linker) ? ' is-off' : ''}`}>
+                                <Link key={item.to} to={item.to} className={`tile${(item.to === '/krsps' && !gateway) || (item.to === '/surround' && !linker) || (item.to === '/neural' && !neural) ? ' is-off' : ''}`}>
                                     <Icon name={item.icon} size={22} />
                                     <b>{item.label}</b>
                                     {item.desc && <span>{item.desc}</span>}
@@ -119,6 +126,7 @@ export function HomeScreen() {
                                     {item.to === '/devices' && <span className="foot">{deviceSummary}</span>}
                                     {item.to === '/krsps' && <span className="foot">{gatewaySummary}</span>}
                                     {item.to === '/surround' && <span className="foot">{linkerSummary}</span>}
+                                    {item.to === '/neural' && <span className="foot">{neuralSummary}</span>}
                                 </Link>
                             ) : (
                                 <div key={item.to} className="tile is-off">
