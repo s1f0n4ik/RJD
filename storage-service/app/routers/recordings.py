@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from app.config import settings
 from app.services.jobs import JobStatus, jobs
+from app.services.journal import journal
 from app.services.merger import run_merge_job, run_archive_job
 from app.services.storage import storage
 from app.services.zipstream import stream_zip
@@ -56,6 +57,9 @@ async def disk_state():
 
     loop = asyncio.get_running_loop()
     records_bytes = await loop.run_in_executor(None, storage.total_size_bytes)
+    # Журнал нейронного модуля: фактический вес и зарезервированное под него место
+    journal_bytes = await loop.run_in_executor(None, journal.journal_bytes)
+    journal_reserve_bytes = await loop.run_in_executor(None, journal.reserve_bytes)
     used_percent = usage.used / usage.total * 100 if usage.total else 0.0
 
     return {
@@ -65,6 +69,8 @@ async def disk_state():
         "used_bytes": usage.used,
         "free_bytes": usage.free,
         "records_bytes": records_bytes,
+        "journal_bytes": journal_bytes,
+        "journal_reserve_bytes": journal_reserve_bytes,
         "total_gb": round(usage.total / 1024 ** 3, 2),
         "used_gb": round(usage.used / 1024 ** 3, 2),
         "free_gb": round(usage.free / 1024 ** 3, 2),

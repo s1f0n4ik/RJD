@@ -6,6 +6,7 @@ from pathlib import Path
 
 from app.config import settings
 from app.services import exports
+from app.services.journal import journal
 from app.services.segments import index
 from app.services.storage import storage
 
@@ -63,8 +64,15 @@ class StorageCleaner:
 
         # Результаты выгрузок живут под своей квотой и записи не вытесняют
         exported = await loop.run_in_executor(None, lambda: exports.dir_size(exports.root()))
-        used = max(0, usage.used - exported)
-        free = usage.free + exported
+
+        # Журналу держим место до его лимита: чего он ещё не занял, архиву всё
+        # равно не достанется. Перерасход сверх лимита давит на архив по факту.
+        reserve = await loop.run_in_executor(None, journal.reserve_bytes)
+        journal_used = await loop.run_in_executor(None, journal.journal_bytes) if reserve else 0
+        withheld = max(0, reserve - journal_used)
+
+        used = max(0, usage.used - exported) + withheld
+        free = max(0, usage.free + exported - withheld)
         used_percent = used / usage.total * 100 if usage.total else 0.0
 
         if used_percent <= settings.MAX_USED_PERCENT:

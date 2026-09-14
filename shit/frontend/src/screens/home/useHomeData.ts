@@ -6,6 +6,12 @@ import type { JournalDetection } from '../../features/neural/api/journal-types';
 /** Диск устройства как его отдаёт storage-service; null — служба не ответила. */
 export interface DiskState {
     path: string;
+    total_bytes: number;
+    used_bytes: number;
+    records_bytes: number;
+    /** Кадры и база журнала обнаружений; резерв — их лимиты, 0 без нейронного модуля */
+    journal_bytes: number;
+    journal_reserve_bytes: number;
     total_gb: number;
     used_gb: number;
     free_gb: number;

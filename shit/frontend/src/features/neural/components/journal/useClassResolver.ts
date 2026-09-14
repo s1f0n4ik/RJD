@@ -30,7 +30,7 @@ const UNKNOWN: ClassMeaning = {
   superColor: '#667089',
 };
 
-export function useClassResolver() {
+export function useClassResolver(configId?: string) {
   // config_id -> (cid -> meaning)
   const [byConfig, setByConfig] = useState<Record<string, Map<number, ClassMeaning>>>({});
   const [loading, setLoading] = useState(true);
@@ -86,11 +86,12 @@ export function useClassResolver() {
   );
 
   // Плоский список классов для фильтра (дедуп по cid+имя), сгруппированный по
-  // суперклассу вызывающим кодом.
+  // суперклассу вызывающим кодом. Выбрана конфигурация — только её классы.
   const classOptions = useMemo<ClassOption[]>(() => {
     const seen = new Set<string>();
     const out: ClassOption[] = [];
-    for (const map of Object.values(byConfig)) {
+    const maps = configId ? [byConfig[configId] ?? new Map()] : Object.values(byConfig);
+    for (const map of maps) {
       for (const [cid, m] of map) {
         const key = `${cid}:${m.name}`;
         if (seen.has(key)) continue;
@@ -100,7 +101,7 @@ export function useClassResolver() {
     }
     out.sort((a, b) => a.superName.localeCompare(b.superName) || a.name.localeCompare(b.name));
     return out;
-  }, [byConfig]);
+  }, [byConfig, configId]);
 
   return { resolve, classOptions, loading };
 }

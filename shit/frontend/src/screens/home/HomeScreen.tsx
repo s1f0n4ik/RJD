@@ -13,6 +13,8 @@ import './home.css';
 const isLive = (camera: { offline?: boolean; streams?: Record<string, { status?: number }> }) =>
     !camera.offline && Object.values(camera.streams ?? {}).some(s => s.status === 3);
 
+const toGb = (bytes: number) => bytes / 1024 ** 3;
+
 const formatGb = (gb: number) =>
     gb >= 1024 ? `${(gb / 1024).toFixed(2)} ТБ` : gb >= 10 ? `${Math.round(gb)} ГБ` : `${gb.toFixed(1)} ГБ`;
 
@@ -208,21 +210,42 @@ export function HomeScreen() {
                                 {devices.map(device => {
                                     const disk = disks[device.id];
                                     if (!disk) return null;
-                                    const warn = disk.used_percent >= disk.max_used_percent - 15;
-                                    const crit = disk.used_percent >= disk.max_used_percent;
+                                    // Незанятая часть резерва журнала архиву уже не достанется —
+                                    // тревога считается по ней же, что и у чистильщика
+                                    const withheld = Math.max(0, disk.journal_reserve_bytes - disk.journal_bytes);
+                                    const pressure = disk.total_bytes
+                                        ? (disk.used_bytes + withheld) / disk.total_bytes * 100
+                                        : 0;
+                                    const warn = pressure >= disk.max_used_percent - 15;
+                                    const crit = pressure >= disk.max_used_percent;
+                                    const share = (bytes: number) =>
+                                        disk.total_bytes ? Math.max(0, bytes / disk.total_bytes * 100) : 0;
+                                    const other = Math.max(0, disk.used_bytes - disk.records_bytes - disk.journal_bytes);
                                     return (
-                                        <div className="disk" key={device.id}>
+                                        <div className={`disk${crit ? ' is-err' : warn ? ' is-warn' : ''}`} key={device.id}>
                                             <div className="disk-h">
                                                 <b>{device.name}</b>
                                                 <span className="num">
                                                     {formatGb(disk.used_gb)} / {formatGb(disk.total_gb)}
                                                 </span>
                                             </div>
-                                            <div className="bar">
-                                                <i
-                                                    className={crit ? 'is-err' : warn ? 'is-warn' : ''}
-                                                    style={{ width: `${Math.min(100, disk.used_percent)}%` }}
-                                                />
+                                            <div className="bar bar--split">
+                                                <i className="dk-ar" style={{ width: `${share(disk.records_bytes)}%` }} />
+                                                <i className="dk-jr" style={{ width: `${share(disk.journal_bytes)}%` }} />
+                                                <i className="dk-ot" style={{ width: `${share(other)}%` }} />
+                                            </div>
+                                            <div className="disk-lg">
+                                                <span><i className="dk-ar" />Архив<span className="num">{formatGb(toGb(disk.records_bytes))}</span></span>
+                                                {disk.journal_reserve_bytes > 0 && (
+                                                    <span>
+                                                        <i className="dk-jr" />Журнал
+                                                        <span className="num">
+                                                            {formatGb(toGb(disk.journal_bytes))} из {formatGb(toGb(disk.journal_reserve_bytes))}
+                                                        </span>
+                                                    </span>
+                                                )}
+                                                <span><i className="dk-ot" />Прочее<span className="num">{formatGb(toGb(other))}</span></span>
+                                                <span><i className="dk-fr" />Свободно<span className="num">{formatGb(disk.free_gb)}</span></span>
                                             </div>
                                         </div>
                                     );

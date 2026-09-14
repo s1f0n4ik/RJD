@@ -38,7 +38,9 @@ const ALL_OPTION: SelectOption = { value: '', label: 'все' };
 
 export function JournalSection() {
   const toast = useToast();
-  const { resolve, classOptions } = useClassResolver();
+  const [configId, setConfigId] = useState('');
+  // классы фильтра — из выбранной конфигурации
+  const { resolve, classOptions } = useClassResolver(configId || undefined);
   const { cameraName, cameras } = useCameraNames();
 
   // Журнал открывается за сегодня — свежие записи нужны чаще, чем весь архив.
@@ -48,7 +50,6 @@ export function JournalSection() {
   const [verdict, setVerdict] = useState<Verdict | undefined>();
   const [cids, setCids] = useState<number[]>([]);
   const [cameraId, setCameraId] = useState('');
-  const [configId, setConfigId] = useState('');
   const [configs, setConfigs] = useState<ConfigSummary[]>([]);
 
   const [dets, setDets] = useState<JournalDetection[]>([]);
@@ -250,6 +251,8 @@ export function JournalSection() {
     }
   };
 
+  const selectConfig = (v: string) => { setConfigId(v); setCids([]); };
+
   const cameraOptions = useMemo<SelectOption[]>(
     () => [ALL_OPTION, ...cameras.map((c) => ({ value: c.id, label: c.name, hint: c.name !== c.id ? c.id : undefined }))],
     [cameras],
@@ -331,7 +334,7 @@ export function JournalSection() {
             </div>
             <div className="tf">
               <span className="tf-cap">Конфигурация</span>
-              <Select value={configId} options={configOptions} onChange={setConfigId} />
+              <Select value={configId} options={configOptions} onChange={selectConfig} />
             </div>
           </div>
           <div className="tf-row">
@@ -497,7 +500,7 @@ export function JournalSection() {
         </div>
         <div className="fld j-fld">
           <span className="k">Конфигурация</span>
-          <Select value={configId} options={configOptions} onChange={setConfigId} />
+          <Select value={configId} options={configOptions} onChange={selectConfig} />
         </div>
         <button type="button" className="fld fld--btn" ref={classRef} onClick={() => setClassOpen((v) => !v)}>
           <span className="k">Классы</span>

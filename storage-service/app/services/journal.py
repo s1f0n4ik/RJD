@@ -1,6 +1,7 @@
 import json
 import logging
 import sqlite3
+import time
 from pathlib import Path
 from typing import Any, Iterator, Optional
 
@@ -14,7 +15,12 @@ VERDICTS = {"unverified", "true", "false"}
 GB = 1024 ** 3
 
 # Дефолты лимитов хранилища журнала; 0 = ограничение выключено.
-DEFAULT_LIMITS = {"images_limit_gb": 10.0, "db_limit_gb": 1.0}
+DEFAULT_LIMITS = {"images_limit_gb": 25.0, "db_limit_gb": 1.0}
+
+# Меньший лимит базы старые устройства получали дефолтом; поднимается один раз при старте
+MIN_DB_LIMIT_GB = 1.0
+# Кадр без строки моложе этого возраста ещё может её получить — writer пишет асинхронно
+ORPHAN_MIN_AGE_SEC = 300
 
 
 class JournalService:
@@ -284,6 +290,71 @@ class JournalService:
                 continue
         return total
 
+    def journal_bytes(self) -> int:
+        """Фактический вес журнала: кадры плюс база. Тайлы карты сюда не входят."""
+        return self.frames_size_bytes() + self.db_size_bytes()
+
+    def reserve_bytes(self) -> int:
+        """Место, зарезервированное под журнал = его собственные лимиты.
+        Нет базы — нет нейронного модуля на устройстве, резервировать нечего."""
+        if not self.available():
+            return 0
+        limits = self.read_limits()
+        return int((limits["images_limit_gb"] + limits["db_limit_gb"]) * GB)
+
+    def startup_maintenance(self) -> None:
+        """Разовая уборка при запуске службы: лимит базы до минимума и кадры-сироты."""
+        if not self.available():
+            return
+        limits = self.read_limits()
+        if limits["db_limit_gb"] < MIN_DB_LIMIT_GB:
+            self.write_limits(limits["images_limit_gb"], MIN_DB_LIMIT_GB)
+            logger.info(
+                "journal db limit raised: %.2fGB -> %.2fGB",
+                limits["db_limit_gb"], MIN_DB_LIMIT_GB,
+            )
+        self._sweep_orphan_frames()
+
+    def _sweep_orphan_frames(self) -> None:
+        """JPEG без строки в базе не покажет никто — media-center пишет файл
+        раньше строки, и событие без объектов оставляет кадр сиротой навсегда."""
+        if not self.frames_dir.is_dir():
+            return
+        with self._connect() as conn:
+            known = {
+                row["image_path"]
+                for row in conn.execute(
+                    "SELECT image_path FROM detections WHERE image_path IS NOT NULL"
+                )
+            }
+
+        cutoff = time.time() - ORPHAN_MIN_AGE_SEC
+        deleted = 0
+        freed = 0
+        for path in self.frames_dir.rglob("*"):
+            try:
+                if not path.is_file():
+                    continue
+                rel = path.relative_to(self.frames_dir).as_posix()
+                if rel in known:
+                    continue
+                st = path.stat()
+                if st.st_mtime > cutoff:
+                    continue
+                path.unlink()
+            except OSError as e:
+                logger.warning("sweep_orphan_frames: %s: %s", path, e)
+                continue
+            deleted += 1
+            freed += st.st_size
+
+        self._remove_empty_day_dirs()
+        if deleted:
+            logger.info(
+                "sweep_orphan_frames: %d frames without a record deleted (%.2fGB)",
+                deleted, freed / GB,
+            )
+
     def storage_state(self) -> dict:
         return {
             **self.read_limits(),
@@ -379,7 +450,8 @@ class JournalService:
             conn = sqlite3.connect(self.db_path, timeout=10.0)
             try:
                 conn.execute("PRAGMA busy_timeout=3000")
-                conn.execute("PRAGMA incremental_vacuum")
+                # Прагма отдаёт по странице на шаг курсора: без вычитки освободится ровно одна
+                conn.execute("PRAGMA incremental_vacuum").fetchall()
                 conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
             finally:
                 conn.close()

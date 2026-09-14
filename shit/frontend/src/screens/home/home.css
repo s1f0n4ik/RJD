@@ -75,6 +75,35 @@
 
 .disk-h .num{margin-left:auto;font-size:11.5px;color:var(--fg-2)}
 
+/* Полоса по разделам: архив, журнал, прочее; хвост полосы — свободное место */
+.bar--split{display:flex}
+
+.bar--split i{border-radius:0}
+
+.bar--split i.dk-ar{background:var(--acc)}
+
+.bar--split i.dk-jr{background:var(--viol)}
+
+.bar--split i.dk-ot{background:var(--line-hi)}
+
+.disk-lg{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:8px;font-size:11px;color:var(--fg-3)}
+
+.disk-lg span{display:inline-flex;align-items:center;gap:6px}
+
+.disk-lg .num{font-family:var(--mono);font-size:11px;color:var(--fg-2)}
+
+.disk-lg i{width:8px;height:8px;border-radius:2px;flex:0 0 8px;background:var(--acc)}
+
+.disk-lg i.dk-jr{background:var(--viol)}
+
+.disk-lg i.dk-ot{background:var(--line-hi)}
+
+.disk-lg i.dk-fr{background:var(--input);box-shadow:inset 0 0 0 1px var(--line)}
+
+.disk.is-warn .bar--split i.dk-ar,.disk.is-warn .disk-lg i.dk-ar{background:var(--warn)}
+
+.disk.is-err .bar--split i.dk-ar,.disk.is-err .disk-lg i.dk-ar{background:var(--err)}
+
 /* Пусто в карточке: заголовок предупреждающим, под ним — что с этим делать */
 .card-none{display:flex;flex-direction:column;gap:4px;padding:6px 2px 4px}
 

@@ -105,7 +105,7 @@
 .nv-cat .row-item .ico{width:14px;height:14px;color:var(--fg-3);flex:0 0 14px}
 .nv-cat .row-item:hover .ico{color:var(--acc)}
 .nv-cat .hint{padding:8px 11px 0}
-.sl-card{display:flex;flex-direction:column;overflow:hidden;background:linear-gradient(165deg,rgba(var(--acc-rgb),.07),transparent 46%),var(--panel)}
+.sl-card{display:flex;flex-direction:column;background:linear-gradient(165deg,rgba(var(--acc-rgb),.07),transparent 46%),var(--panel)}
 .sl-card.is-err{border-color:rgba(255,107,128,.45);background:linear-gradient(165deg,rgba(255,107,128,.08),transparent 46%),var(--panel)}
 .sl-card.is-run{border-color:rgba(87,214,154,.35);background:linear-gradient(165deg,rgba(87,214,154,.08),transparent 46%),var(--panel)}
 .sl-card .card-h{gap:9px}
@@ -114,6 +114,7 @@
 .sl-card .card-h .icon-btn:hover{border-color:var(--line);color:var(--err)}
 .sl-card .card-h .icon-btn svg{width:13px;height:13px}
 .sl-card .card-b{display:flex;flex-direction:column;gap:12px}
+.sl-card>:last-child{border-radius:0 0 var(--r-lg) var(--r-lg);overflow:hidden}
 .sl-card .sw{font-size:13px;color:var(--fg)}
 .evs{display:flex;flex-wrap:wrap;gap:6px}
 .evs .tag{cursor:pointer;min-height:26px}
@@ -131,5 +132,9 @@
 .err-line{display:flex;align-items:flex-start;gap:9px;padding:10px 16px;border-top:1px solid rgba(255,107,128,.3);background:rgba(255,107,128,.07);color:var(--err);font-size:12.5px;line-height:1.45}
 .err-line .num{flex:0 0 auto;font-weight:600}
 .err-line .ico{width:14px;height:14px;flex:0 0 14px;margin-top:2px}
-.sl-add{border-style:dashed;box-shadow:none;background:transparent;min-height:280px;display:grid;place-items:center}
+.sl-add{border-style:dashed;box-shadow:none;background:transparent;min-height:280px;display:grid;place-items:center;cursor:pointer;font:inherit;color:inherit;text-align:center}
+.sl-add:hover:not(:disabled){border-color:var(--acc);background:rgba(var(--acc-rgb),.05)}
+.sl-add:hover:not(:disabled) .ico{color:var(--acc)}
+.sl-add:hover:not(:disabled) b{color:var(--fg)}
+.sl-add:disabled{cursor:not-allowed;opacity:.5}
 .sl-add .empty{padding:20px}

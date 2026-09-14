@@ -352,13 +352,12 @@ export function StreamsScreen({ status, onRefreshStatus }: StreamsScreenProps) {
                                 );
                             })}
 
-                            <div className="card sl-add">
+                            <button type="button" className="card sl-add" disabled={configs.length === 0} onClick={() => addStream()}>
                                 <div className="empty">
                                     <Icon name="plus" className="ico" />
                                     <b>Добавить поток</b>
-                                    <button className="btn btn--sm btn--acc" disabled={configs.length === 0} onClick={() => addStream()}>Добавить</button>
                                 </div>
-                            </div>
+                            </button>
                         </div>
                     </div>
                 </div>

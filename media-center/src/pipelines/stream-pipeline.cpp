@@ -579,7 +579,7 @@ bool UCameraStreamPipeline::create_record_branch(GstElement* tee)
 	}
 
 	auto usage = get_disk_usage(m_parameters.record_path, m_logger.get());
-	if (usage >= 95.0f) {
+	if (usage >= 99.0f) {
 		m_logger->error("create_record_branch(): Cannot create record branch at path=" + m_record_path.string() + "; disk usage=" + std::to_string(usage));
 		return false;
 	}
@@ -609,7 +609,7 @@ bool UCameraStreamPipeline::create_record_branch(GstElement* tee)
 			const auto& record_path = self->m_record_path;
 
 			float usage = self->get_disk_usage(record_path, self->m_logger.get());
-			if (usage >= 95.0f) {
+			if (usage >= 99.0f) {
 				self->m_logger->warn(
 					"format-location: disk usage " +
 					std::to_string(static_cast<int>(usage)) +
@@ -765,8 +765,8 @@ void UCameraStreamPipeline::set_timer_check_record_branch() {
 		}
 
 		auto usage = UCameraStreamPipeline::get_disk_usage(self->m_record_path, self->m_logger.get());
-		// Не восстанавливает, если заполненность диска больше 90 процентов
-		if (usage >= 90.0f) {
+		// Гистерезис к порогу сноса: ветка не мигает у самой границы
+		if (usage >= 97.0f) {
 			if (self->m_logger) self->m_logger->warn(
 				"timer_check_record_branch: disk still at " +
 				std::to_string(static_cast<int>(usage)) + "%, waiting, not recovering"
