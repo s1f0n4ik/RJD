@@ -1,15 +1,18 @@
 /* Камеры: список-грид, подтаблица потоков и шторка настроек справа */
 
 /* Список и шторка стоят рядом */
-.cams-body{flex:1;min-height:0;display:flex;overflow:hidden}
-/* Без scrollbar-gutter: список занимает всю ширину */
+.cams-body{--cam-cols:minmax(150px,1fr) minmax(190px,1.4fr) 130px 120px 76px minmax(160px,max-content);flex:1;min-height:0;display:flex;overflow:hidden}
+/* Шапка вне прокрутки, строки — внутри; у обеих один резерв желоба, поэтому колонки совпадают */
+.cams-list{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column}
 .cams-scroll{flex:1;min-width:0;min-height:0;overflow:auto}
 
 /* Список камер — грид, не таблица: один шаблон колонок у шапки и строк,
    выравнивание держится геометрией и не зависит от содержимого ячеек */
-.cam-grid{--cam-cols:minmax(150px,1fr) minmax(190px,1.4fr) 130px 120px 76px minmax(160px,1fr);min-width:840px}
+/* Состояние — по содержимому и у правого края, запас ширины уходит названию и назначениям */
+.cam-grid{min-width:840px}
 .cam-head,.cam-row{display:grid;grid-template-columns:var(--cam-cols);align-items:center}
-.cam-head{position:sticky;top:0;z-index:2;background:var(--surface);border-bottom:1px solid var(--line)}
+/* overflow:hidden + stable: желоб той же ширины, что у строк, фон шапки доходит до края */
+.cam-head{flex:0 0 auto;overflow:hidden;scrollbar-gutter:stable;background:var(--surface);border-bottom:1px solid var(--line)}
 .cam-head span{padding:9px 12px;font-size:10px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--fg-3);white-space:nowrap}
 .cam-row{min-height:46px;border-bottom:1px solid var(--line);cursor:pointer;transition:.12s}
 .cam-row:hover{background:var(--surface)}
@@ -68,7 +71,7 @@
 .drawer-h .sub{display:block;font-size:11px;color:var(--fg-3);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .drawer-who{min-width:0;display:flex;flex-direction:column;gap:2px}
 /* Блоки идут сверху вниз: превью, потоки, подключение */
-.drawer-b{flex:1;display:flex;flex-direction:column;gap:18px;padding:14px;min-height:0;overflow-y:auto;scrollbar-gutter:stable}
+.drawer-b{flex:1;display:flex;flex-direction:column;gap:18px;padding:14px;min-height:0;overflow-y:auto}
 .drawer-col{display:flex;flex-direction:column;min-width:0;width:100%}
 /* Прижатый подвал шторки */
 .drawer-f{display:flex;align-items:center;gap:8px;padding:10px 14px;border-top:1px solid var(--line);background:var(--surface)}
@@ -114,7 +117,7 @@
 .scan-kv{display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid rgba(51,59,74,.5);font-size:12px;color:var(--fg-2)}
 .scan-kv:last-child{border-bottom:none}
 .scan-kv b{font-family:var(--mono);font-weight:500;color:var(--fg)}
-.scan-list{flex:1;min-width:0;overflow-y:auto;scrollbar-gutter:stable}
+.scan-list{flex:1;min-width:0;overflow-y:auto}
 .scan-row{display:flex;align-items:center;gap:12px;min-height:52px;padding:6px 14px;border-bottom:1px solid rgba(51,59,74,.5)}
 .scan-row:last-child{border-bottom:none}
 .scan-row:hover{background:#1f2530}
@@ -197,8 +200,16 @@
 .probe-list{display:flex;flex-direction:column;gap:8px}
 .probe-row{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--input);transition:.12s}
 .probe-row:hover{border-color:rgba(var(--acc-rgb),.5);background:rgba(var(--acc-rgb),.08)}
+.probe-row{cursor:pointer}
+.probe-row input[type=checkbox]{flex:0 0 auto;accent-color:var(--acc);width:15px;height:15px;margin:0}
+.probe-row.is-on{border-color:rgba(var(--acc-rgb),.5)}
+/* Уже заведённый поток: в списке ради полноты картины, выбрать нельзя */
+.probe-row.is-added{cursor:default;opacity:.6}
+.probe-row.is-added:hover{border-color:var(--line);background:var(--input)}
 .probe-row .who{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
-.probe-row .who b{font-size:13px;font-weight:600;color:var(--fg)}
+.probe-row .who b{font-size:14px;font-weight:600;color:var(--fg);font-variant-numeric:tabular-nums}
+/* Приписка: пункты разведены отступом, без точек-разделителей */
+.probe-row .who .sub{display:flex;flex-wrap:wrap;gap:14px}
 .probe-row .who .sub{font-family:var(--mono);font-size:11.5px;color:var(--fg-3)}
 /* Кнопка внутри строки — оформление, клик ловит сама строка */
 .probe-row .btn{pointer-events:none}

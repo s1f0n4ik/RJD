@@ -53,7 +53,9 @@
 
 .rail-item .badge.is-err{background:rgba(255,107,128,.16);color:var(--err)}
 
-.shell.is-narrow .rail-item{justify-content:center;padding:0}
+/* Значок остаётся на своём x=12px: в узком пункте 44px он и так по центру, а без
+   переключения выравнивания не прыгает во время анимации ширины */
+.shell.is-narrow .rail-item{padding:0 12px}
 
 .shell.is-narrow .rail-item .lbl,.shell.is-narrow .rail-item .badge{display:none}
 
@@ -130,6 +132,14 @@
 .sub.is-on .n{color:var(--acc)}
 
 .top-right{margin-left:auto;display:flex;align-items:center;gap:7px;flex:0 0 auto}
+
+/* Кнопка эфира: в ряду скруглённых пилюль квадрат сам читается как действие */
+.top-live{width:28px;height:28px;flex:0 0 28px;background:var(--panel);border-color:var(--line-hi);color:var(--fg)}
+
+.top-live:hover{border-color:var(--acc);color:var(--acc);background:rgba(var(--acc-rgb),.12)}
+
+/* Кнопка прижата к краю планки: подсказку ведём от правого края, иначе уходит за окно */
+.top-live[data-tip]:hover::after{left:auto;right:0;transform:none}
 
 /* ── Сцена ──────────────────────────────────────────────── */
 .stage{flex:1;min-height:0;position:relative}

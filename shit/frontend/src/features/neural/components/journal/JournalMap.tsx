@@ -139,6 +139,9 @@ export function JournalMap({
   // Обработчики карты живут весь срок карты — колбэки читаем через ref.
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
+  // Попапы только на полном экране: на мини-карте панели им негде поместиться
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
 
   // Инициализация карты один раз. Стиль отдаётся со своего origin вместе с
   // глифами — карта полностью офлайн.
@@ -233,13 +236,14 @@ export function JournalMap({
         if (!f) return;
         const id = Number(f.properties?.id);
         onSelectRef.current(id);
+        if (modeRef.current !== 'full') return;
         setPopup({ lngLat: coordsOf(f.geometry), ids: [id], view: 'record', recordId: id });
       });
 
       // Клик по кластеру — список его записей, новые сверху.
       map.on('click', 'clusters', (e) => {
         const f = e.features?.[0];
-        if (!f) return;
+        if (!f || modeRef.current !== 'full') return;
         const src = map.getSource(SRC) as maplibregl.GeoJSONSource;
         const lngLat = coordsOf(f.geometry);
         src.getClusterLeaves(Number(f.properties?.cluster_id), 10000, 0).then((leaves) => {
@@ -297,6 +301,12 @@ export function JournalMap({
     if (!popupObjRef.current.isOpen()) popupObjRef.current.addTo(map);
   }, [popup]);
 
+  // Смена режима — камера подстраивается заново, один раз.
+  useEffect(() => {
+    fitKeyRef.current = '';
+    setPopup(null);
+  }, [mode]);
+
   // Обновление данных и позиционирования.
   useEffect(() => {
     const map = mapRef.current;
@@ -319,7 +329,12 @@ export function JournalMap({
       // камеру не трогает — перецентровка только при изменении набора точек.
       const key = data.features.map((f) => f.properties.id).join(',');
       if (key === fitKeyRef.current) return;
+      const first = fitKeyRef.current === '';
       fitKeyRef.current = key;
+
+      // На полном экране границы подгоняются только при входе: новая запись
+      // из опроса не должна сбивать зум, который выставил человек
+      if (mode === 'full' && !first) return;
 
       if (mode === 'single') {
         const sel =

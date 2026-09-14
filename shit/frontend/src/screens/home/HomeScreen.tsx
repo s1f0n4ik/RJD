@@ -101,7 +101,7 @@ export function HomeScreen() {
     const [dismissed, setDismissed] = useState<string | null>(null);
 
     return (
-        <section className="screen glow">
+        <section className="screen glow home">
             <div className="scroll">
 
                 <div className="hero">

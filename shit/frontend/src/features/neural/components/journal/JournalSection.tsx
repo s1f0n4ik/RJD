@@ -399,12 +399,10 @@ export function JournalSection() {
 
   const side = selectedDet ? (
     <>
-      <div className="j-frame">
+      {/* Кадр сам открывает просмотрщик — отдельная кнопка на нём лишняя */}
+      <button type="button" className="j-frame" title="Открыть кадр целиком" onClick={() => setViewerId(selectedDet.id)}>
         <FrameWithBoxes det={selectedDet} resolve={resolve} />
-        <button className="icon-btn fs" data-tip="Открыть кадр целиком" onClick={() => setViewerId(selectedDet.id)}>
-          <Icon name="full" size={14} />
-        </button>
-      </div>
+      </button>
       <div className="j-map">
         <JournalMap
           detections={selectedDet.gps ? [selectedDet] : []}
@@ -416,9 +414,6 @@ export function JournalSection() {
           onOpenViewer={setViewerId}
         />
         {!selectedDet.gps && <div className="j-map-none">Нет координат</div>}
-        <button className="icon-btn fs" data-tip="Карта на весь экран" onClick={() => setFullscreen(true)}>
-          <Icon name="full" size={14} />
-        </button>
       </div>
       <div className="j-det">
         <div>

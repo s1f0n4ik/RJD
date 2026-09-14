@@ -4,6 +4,9 @@ import { MediaCenterError } from '../../services/api';
 export type Camera = CPPCamera;
 
 /** Поток в форме: ключ неизменяем, остальное правит оператор. */
+// Длина сегмента записи по умолчанию — 10 минут; media-center считает в секундах
+export const DEFAULT_SEGMENT_SEC = 600;
+
 export interface StreamForm {
     key: string;
     channel: number;
@@ -92,7 +95,7 @@ export const makeStream = (key: string, substream: number, purposes: StreamPurpo
     use_udp: false,
     reconnect: 10,
     record_path: purposes.includes('record') ? RECORD_PATH : '',
-    segment: purposes.includes('record') ? 10 : 0,
+    segment: purposes.includes('record') ? DEFAULT_SEGMENT_SEC : 0,
 });
 
 /** Включение и выключение назначения потока. */
@@ -107,7 +110,7 @@ export const togglePurpose = (stream: StreamForm, purpose: StreamPurpose): Parti
     // Запись без пути и сегмента не поднимется
     if (!has && purpose === 'record') {
         if (!stream.record_path) patch.record_path = RECORD_PATH;
-        if (stream.segment <= 0) patch.segment = 10;
+        if (stream.segment <= 0) patch.segment = DEFAULT_SEGMENT_SEC;
     }
 
     return patch;

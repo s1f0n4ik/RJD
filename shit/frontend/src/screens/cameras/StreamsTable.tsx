@@ -42,9 +42,10 @@ export function StreamsTable({ camera, streams, selected, onSelect }: StreamsTab
                         <th style={{ width: 112 }}>Разрешение</th>
                         <th style={{ width: 70 }}>Кадров/с</th>
                         <th style={{ width: 74 }}>Кодек</th>
-                        <th style={{ width: 210 }}>Назначения</th>
+                        {/* Запас ширины у назначений: состояние и ссылка держатся у правого края */}
+                        <th>Назначения</th>
                         <th style={{ width: 118 }}>Состояние</th>
-                        <th>Ссылка на поток</th>
+                        <th style={{ width: 340 }}>Ссылка на поток</th>
                     </tr>
                 </thead>
                 <tbody>

@@ -6,6 +6,8 @@
  * (в кадре они только у виртуального потока нейронки).
  */
 
+import { getVideoContentRect } from './video-rect';
+
 export interface Detection {
     id:          number;
     name:        string;
@@ -49,7 +51,9 @@ export function colorForId(id: number): string {
 }
 
 /**
- * Рисует рамки поверх кадра. Канвас должен быть уже размечен под devicePixelRatio.
+ * Рисует рамки поверх кадра. Канвас должен быть уже размечен под devicePixelRatio
+ * и совпадать с элементом video. Координаты нормированы к кадру, а кадр при
+ * object-fit: contain занимает не весь элемент — рамки кладутся в его прямоугольник.
  * Ничего не рисует, пока в видео нет кадра: иначе рамки повисают на чёрном.
  */
 export function drawDetections(
@@ -66,19 +70,19 @@ export function drawDetections(
     if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || !video.videoWidth) return;
     if (detections.length === 0 && tracks.length === 0) return;
 
+    const frame = getVideoContentRect(video);
+    if (!frame) return;
+
     const dpr = window.devicePixelRatio || 1;
     ctx.save();
     ctx.scale(dpr, dpr);
-
-    const cssW = canvas.width / dpr;
-    const cssH = canvas.height / dpr;
 
     const toPx = (rect: Detection['rect']): [number, number, number, number] => {
         const [nx1, ny1, nx2, ny2] = Array.isArray(rect)
             ? rect
             : [rect.x, rect.y, rect.x + rect.w, rect.y + rect.h];
-        const x1 = nx1 * cssW, y1 = ny1 * cssH;
-        return [x1, y1, nx2 * cssW - x1, ny2 * cssH - y1];
+        const x1 = frame.x + nx1 * frame.width, y1 = frame.y + ny1 * frame.height;
+        return [x1, y1, (nx2 - nx1) * frame.width, (ny2 - ny1) * frame.height];
     };
 
     const drawBox = (x1: number, y1: number, bw: number, bh: number, color: string, dashed: boolean) => {

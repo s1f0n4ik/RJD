@@ -69,6 +69,13 @@ export function AppShell({ username, role, onLogout }: AppShellProps) {
                                     <span className="lbl">{item.label}</span>
                                 </NavLink>
                             ) : null}
+                            {/* Эфир открывается вне оболочки — обычная ссылка, не маршрут роутера */}
+                            {item.to === '/devices' && (
+                                <a className="rail-item" href="/translation">
+                                    <Icon name="play" />
+                                    <span className="lbl">Прямая трансляция</span>
+                                </a>
+                            )}
                             {item.ready && item.sub && (
                                 <div className="rail-sub">
                                     {item.sub.map(sub => (
@@ -136,6 +143,9 @@ export function AppShell({ username, role, onLogout }: AppShellProps) {
                         >
                             {formatDeviceTime(unixMs)}
                         </span>
+                        <a className="icon-btn top-live" href="/translation" data-tip="Прямая трансляция" aria-label="Прямая трансляция">
+                            <Icon name="play" size={13} />
+                        </a>
                     </div>
                 </header>
 

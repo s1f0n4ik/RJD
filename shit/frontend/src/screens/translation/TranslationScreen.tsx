@@ -93,6 +93,11 @@ export default function TranslationScreen() {
         )),
     ], [cameras, virtual]);
 
+    const sourceGroups: Array<[string, WallSource[]]> = [
+        ['Камеры', sources.filter(item => item.kind === 'camera')],
+        ['Собранные потоки', sources.filter(item => item.kind === 'virtual')],
+    ];
+
     const signalingUrlOf = useCallback((sourceId: string) => {
         const owner = sources.find(item => item.id === sourceId)?.deviceId;
         return owner ? signalingWsUrl(owner, `/client/${sourceId}`) : wsUrl(`/signaling/client/${sourceId}`);
@@ -151,6 +156,11 @@ export default function TranslationScreen() {
 
     const setDetections = useCallback((cameraId: string, value: boolean) => {
         setLayout(prev => ({ ...prev, detections: { ...prev.detections, [cameraId]: value } }));
+    }, []);
+
+    // Только сессия: после перезагрузки поток снова из сохранённой сетки
+    const setStream = useCallback((cameraId: string, streamKey: string) => {
+        setLayout(prev => ({ ...prev, streams: { ...prev.streams, [cameraId]: streamKey } }));
     }, []);
 
     const handleLiveCount = useCallback((live: number, total: number) => {
@@ -255,27 +265,29 @@ export default function TranslationScreen() {
                             </button>
                         ))}
 
-                        <div className="eyebrow tr-cap">Источники</div>
-                        {sources.map(item => (
-                            <button
-                                key={item.id}
-                                className="row-item"
-                                draggable
-                                onDragStart={event => event.dataTransfer.setData('text/plain', `source:${item.id}`)}
-                            >
-                                <span
-                                    className="chip-col"
-                                    style={{ background: item.offline || !item.active ? 'var(--err)' : 'var(--ok)' }}
-                                />
-                                <span className="nm">{item.name}</span>
-                                <span className="num">{cellOfSource(item.id) ?? '—'}</span>
-                            </button>
+                        {/* Камеры отдельно от потоков модулей (нейронка, 360) */}
+                        {sourceGroups.map(([caption, items]) => items.length > 0 && (
+                            <div key={caption} style={{ display: 'contents' }}>
+                                <div className="eyebrow tr-cap">{caption}</div>
+                                {items.map(item => (
+                                    <button
+                                        key={item.id}
+                                        className="row-item"
+                                        draggable
+                                        onDragStart={event => event.dataTransfer.setData('text/plain', `source:${item.id}`)}
+                                    >
+                                        <span
+                                            className="chip-col"
+                                            style={{ background: item.offline || !item.active ? 'var(--err)' : 'var(--ok)' }}
+                                        />
+                                        <span className="nm">{item.name}</span>
+                                        <span className="num">{cellOfSource(item.id) ?? '—'}</span>
+                                    </button>
+                                ))}
+                            </div>
                         ))}
 
-                        <p className="hint">
-                            Перестановки в трансляции держатся до перезагрузки страницы и в отображение не пишутся.
-                        </p>
-
+                        <span className="tr-fill" />
                         <button className="btn btn--sm btn--wide tr-collapse" onClick={() => setDrawerOpen(false)}>
                             Свернуть
                         </button>
@@ -294,6 +306,7 @@ export default function TranslationScreen() {
                     onSwap={swap}
                     onCorrectedChange={setCorrected}
                     onDetectionsChange={setDetections}
+                    onStreamChange={setStream}
                     onLiveCount={handleLiveCount}
                     correctionLinks={correctionLinks}
                 />

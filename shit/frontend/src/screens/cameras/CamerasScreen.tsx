@@ -226,18 +226,26 @@ export function CamerasScreen() {
             : prev);
 
     // Номер субпотока приходит из опроса камеры, а не назначается по порядку
-    const pickStream = (found: { substream: number }) => {
-        const substream = found.substream;
+    const pickStreams = (found: { substream: number }[]) => {
         setAddStreamOpen(false);
         setForm(prev => {
-            if (!prev) return prev;
-            const key = nextStreamKey(prev.streams);
-            // Новый поток заводится смотрибельным
-            const stream = makeStream(key, substream, ['view']);
-            setStreamKey(key);
-            return { ...prev, streams: [...prev.streams, stream] };
+            if (!prev || found.length === 0) return prev;
+            const streams = [...prev.streams];
+            for (const f of found) {
+                const key = nextStreamKey(streams);
+                // Новый поток заводится смотрибельным
+                streams.push(makeStream(key, f.substream, ['view']));
+                setStreamKey(key);
+            }
+            return { ...prev, streams };
         });
     };
+
+    // Уже заведённые потоки в модалке: разрешение из сохранённой камеры, у новых — только номер
+    const existingStreams = () => (form?.streams ?? []).map(s => {
+        const saved = selected ? Object.values(selected.streams ?? {}).find(st => st.substream === s.substream) : undefined;
+        return { substream: s.substream, width: saved?.width ?? 0, height: saved?.height ?? 0, codec: saved?.codec ?? '', fps: saved?.fps ?? 0 };
+    });
 
     const removeStream = (key: string) => setForm(prev => {
         if (!prev || prev.streams.length <= 1) return prev;
@@ -345,6 +353,18 @@ export function CamerasScreen() {
             </div>
 
             <div className="cams-body">
+                <div className="cams-list">
+                    {/* Шапка вне прокрутки: строки крутятся под ней */}
+                    {loaded && cameras.length > 0 && (
+                        <div className="cam-head">
+                            <span>Название</span>
+                            <span>Назначения</span>
+                            <span>IP-адрес</span>
+                            <span>Устройство</span>
+                            <span>Потоков</span>
+                            <span>Состояние</span>
+                        </div>
+                    )}
                 <div className="cams-scroll">
                     {!loaded ? (
                         <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -366,14 +386,6 @@ export function CamerasScreen() {
                         </div>
                     ) : (
                         <div className="cam-grid">
-                            <div className="cam-head">
-                                <span>Название</span>
-                                <span>Назначения</span>
-                                <span>IP-адрес</span>
-                                <span>Устройство</span>
-                                <span>Потоков</span>
-                                <span>Состояние</span>
-                            </div>
                             {visible.map(camera => {
                                 const status = cameraStatus(camera);
                                 const open = camera.id === selectedId;
@@ -421,6 +433,7 @@ export function CamerasScreen() {
                             })}
                         </div>
                     )}
+                </div>
                 </div>
 
                 {selected && form && (
@@ -504,6 +517,7 @@ export function CamerasScreen() {
                                     form={form}
                                     onChange={patchForm}
                                     editMode
+                                    withName
                                     autoName={selected.id}
                                     nameCheck={nameCheck}
                                     ipCheck={ipCheck}
@@ -562,8 +576,8 @@ export function CamerasScreen() {
                         password: form.password,
                         production: form.production,
                     }}
-                    used={form.streams.map(s => s.substream)}
-                    onPick={pickStream}
+                    existing={existingStreams()}
+                    onPick={pickStreams}
                     onClose={() => setAddStreamOpen(false)}
                 />
             )}

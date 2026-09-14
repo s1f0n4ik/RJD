@@ -1,4 +1,8 @@
 /* Сопоставление: таблица во всю ширину, библиотека калибровок справа */
+/* Шапка вне прокрутки: overflow:hidden + stable резервируют тот же желоб, что у map-wrap */
+.sv-map .map-head{flex:0 0 auto;overflow:hidden;scrollbar-gutter:stable;background:var(--surface)}
+.sv-map .map-head th{position:static}
+.sv-map .map-tab{table-layout:fixed}
 .sv-map .map-wrap{flex:1;min-height:0;overflow:auto}
 .sv-map .map-wrap .empty{height:100%}
 .sv-map .map-tab .tf{flex:none;width:280px}

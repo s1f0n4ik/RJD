@@ -290,7 +290,6 @@
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  scrollbar-gutter: stable;
 }
 
 .arch-side .kv .v.is-err { color: var(--err) }
@@ -436,6 +435,7 @@
 /* ── окно выгрузки ── */
 
 /* Список камер прокручивается внутри окна, отступы дают сами разделы */
+/* Тело модалки без своей прокрутки: резерв желоба не нужен */
 .dm-body { padding: 0; scrollbar-gutter: auto }
 
 /* Заголовок раздела и его контрол стоят одной строкой */

@@ -1,3 +1,7 @@
+/* Главная прокручивается без полосы: витрине она ни к чему */
+body.ui-new .home .scroll{scrollbar-width:none;scrollbar-gutter:auto}
+body.ui-new .home .scroll::-webkit-scrollbar{display:none}
+
 /* Главная: сводка, плитки разделов, службы и накопители */
 
 .hero{

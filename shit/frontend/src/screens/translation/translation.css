@@ -47,7 +47,9 @@
 
 .tr-cap { padding: 14px 1px 8px; }
 
-.tr-collapse { margin-top: 12px; }
+/* Распорка толкает кнопку в самый низ шторки, при длинном списке держит зазор 12px */
+.tr-fill { flex: 1 0 12px; }
+.tr-collapse { flex: 0 0 auto; }
 
 /* В эфире ячейки прижаты плотнее, чем в редакторе: экран отдан картинке */
 .tr .wall { gap: 4px; padding: 4px; background: #000; }

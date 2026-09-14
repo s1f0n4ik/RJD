@@ -16,9 +16,9 @@ export interface ProbeConnection {
 interface AddStreamModalProps {
     deviceId: string;
     connection: ProbeConnection;
-    /** Уже заведённые субпотоки: их не опрашиваем и не предлагаем */
-    used: number[];
-    onPick: (found: FoundStream) => void;
+    /** Уже заведённые субпотоки: показываются в списке отмеченными, не опрашиваются */
+    existing: FoundStream[];
+    onPick: (found: FoundStream[]) => void;
     onClose: () => void;
 }
 
@@ -41,9 +41,12 @@ const FATAL_TEXT: Partial<Record<ProbeReason, string>> = {
     unreachable: 'Камера не отвечает по этому адресу и порту — опрос остановлен',
 };
 
-/** Опрос камеры и выбор субпотока: последовательно по всем свободным номерам. */
-export function AddStreamModal({ deviceId, connection, used, onPick, onClose }: AddStreamModalProps) {
+const plural = (n: number) => (n % 10 === 1 && n % 100 !== 11 ? 'поток' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'потока' : 'потоков');
+
+/** Опрос камеры и выбор субпотоков: последовательно по всем свободным номерам, добавляются сразу несколько. */
+export function AddStreamModal({ deviceId, connection, existing, onPick, onClose }: AddStreamModalProps) {
     const [found, setFound] = useState<FoundStream[]>([]);
+    const [picked, setPicked] = useState<number[]>([]);
     const [current, setCurrent] = useState<number | null>(null);
     const [error, setError] = useState('');
     const [done, setDone] = useState(false);
@@ -51,6 +54,7 @@ export function AddStreamModal({ deviceId, connection, used, onPick, onClose }: 
     // Номер серии опроса; по нему чужая серия себя опознаёт
     const runRef = useRef(0);
 
+    const used = existing.map(s => s.substream);
     const targets: number[] = [];
     for (let n = MIN_SUBSTREAM; n <= MAX_SUBSTREAM; n++) {
         if (!used.includes(n)) targets.push(n);
@@ -62,6 +66,7 @@ export function AddStreamModal({ deviceId, connection, used, onPick, onClose }: 
         const alive = () => runRef.current === run;
 
         setFound([]);
+        setPicked([]);
         setError('');
         setDone(false);
 
@@ -80,7 +85,7 @@ export function AddStreamModal({ deviceId, connection, used, onPick, onClose }: 
                     if (!alive()) return;
 
                     if (result.result === 'success') {
-                        // Номер попадает в список только один раз
+                        // Номер попадает в список только один раз; найденное сразу отмечено
                         setFound(prev => prev.some(f => f.substream === substream)
                             ? prev
                             : [...prev, {
@@ -90,6 +95,7 @@ export function AddStreamModal({ deviceId, connection, used, onPick, onClose }: 
                                 codec: result.codec ?? '',
                                 fps: result.fps ?? 0,
                             }]);
+                        setPicked(prev => (prev.includes(substream) ? prev : [...prev, substream]));
                     }
                     else if (result.reason && FATAL_REASONS.includes(result.reason)) {
                         setError(FATAL_TEXT[result.reason] ?? result.details ?? 'Опрос остановлен');
@@ -123,10 +129,24 @@ export function AddStreamModal({ deviceId, connection, used, onPick, onClose }: 
         setDone(true);
     };
 
+    const toggle = (substream: number) =>
+        setPicked(prev => (prev.includes(substream) ? prev.filter(n => n !== substream) : [...prev, substream]));
+
+    const submit = () => {
+        const chosen = found.filter(f => picked.includes(f.substream));
+        if (chosen.length) onPick(chosen);
+    };
+
     const total = targets.length;
     const checked = current === null
         ? total
         : targets.indexOf(current) + 1;
+
+    // Заведённые и найденные — один список по номеру субпотока
+    const rows = [
+        ...existing.map(item => ({ item, added: true })),
+        ...found.map(item => ({ item, added: false })),
+    ].sort((a, b) => a.item.substream - b.item.substream);
 
     return (
         <Modal
@@ -139,6 +159,9 @@ export function AddStreamModal({ deviceId, connection, used, onPick, onClose }: 
                     {!done && (
                         <button className="btn" onClick={stop}>Остановить</button>
                     )}
+                    <button className="btn btn--acc" disabled={picked.length === 0} onClick={submit}>
+                        {picked.length ? `Добавить ${picked.length} ${plural(picked.length)}` : 'Добавить'}
+                    </button>
                 </>
             }
         >
@@ -147,7 +170,7 @@ export function AddStreamModal({ deviceId, connection, used, onPick, onClose }: 
                     {done ? (
                         <span className="hint" style={{ margin: 0 }}>
                             {found.length > 0
-                                ? `Опрос завершён, найдено субпотоков: ${found.length}`
+                                ? `Опрос завершён, найдено новых субпотоков: ${found.length}`
                                 : 'Опрос завершён, свободных субпотоков не нашлось'}
                         </span>
                     ) : (
@@ -165,25 +188,28 @@ export function AddStreamModal({ deviceId, connection, used, onPick, onClose }: 
                     </div>
                 )}
 
-                {found.length > 0 && (
+                {rows.length > 0 && (
                     <div className="probe-list">
-                        {found.map(item => (
-                            <button
+                        {rows.map(({ item, added }) => (
+                            <label
                                 key={item.substream}
-                                type="button"
-                                className="probe-row"
-                                onClick={() => onPick(item)}
+                                className={`probe-row${added ? ' is-added' : picked.includes(item.substream) ? ' is-on' : ''}`}
                             >
-                                <span className="chnum">{item.substream}</span>
+                                <input
+                                    type="checkbox"
+                                    checked={added || picked.includes(item.substream)}
+                                    disabled={added}
+                                    onChange={() => toggle(item.substream)}
+                                />
                                 <span className="who">
-                                    <b>{item.width > 0 ? `${item.width}×${item.height}` : 'разрешение неизвестно'}</b>
-                                    <span className="sub seps">
-                                        <span>{item.codec ? item.codec.toUpperCase() : '—'}</span>
-                                        {Boolean(item.fps) && <span>{item.fps} к/с</span>}
+                                    <b>Субпоток {item.substream} — {item.width > 0 ? `${item.width}×${item.height}` : 'разрешение неизвестно'}</b>
+                                    <span className="sub">
+                                        <span>Кодек {item.codec ? item.codec.toUpperCase() : 'не определён'}</span>
+                                        {Boolean(item.fps) && <span>{item.fps} кадров/с</span>}
+                                        {added && <span>уже в камере</span>}
                                     </span>
                                 </span>
-                                <span className="btn btn--sm btn--acc">Добавить</span>
-                            </button>
+                            </label>
                         ))}
                     </div>
                 )}
@@ -191,7 +217,6 @@ export function AddStreamModal({ deviceId, connection, used, onPick, onClose }: 
                 {found.length === 0 && !error && (
                     <p className="hint" style={{ marginTop: 12 }}>
                         Показываются только те субпотоки, с которых реально пошло видео.
-                        Уже заведённые в этой камере не опрашиваются.
                     </p>
                 )}
             </div>

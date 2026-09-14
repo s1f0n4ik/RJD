@@ -6,8 +6,9 @@
  * на размер кадра и уходят в сигналинг сообщениями type=orbit с троттлингом;
  * слушается ли ручное вращение — решает устройство.
  *
- * Кнопок режима вывода (сверху / круговой) здесь нет: это настройка модуля,
- * ей место на вкладке «Система 360».
+ * Режим вывода (сверху / объём) — настройка модуля: бадж дёргает ту же ручку,
+ * что сегмент в разделе «Система 360», вывод перезапускается для всех экранов.
+ * Текущий режим — из опроса статуса линкера, а не из ответа на клик.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -21,11 +22,17 @@ import { useOrbitGesture } from '../../components/webrtc/useOrbitGesture';
 import { Icon } from '../../app/Icons';
 import { formatDeviceDate, formatDeviceTime } from '../../app/useDeviceClock';
 import { describeError } from '../../components/webrtc/error-codes';
+import { linkerApi, type ViewMode } from '../../features/birdview/api/linker';
 import { CellFlash, CellState, useFlash } from './CellOverlays';
 import type { Overlays } from './model';
 
 // Сколько ждём подтверждения смены режима вращения
 const ORBIT_TIMEOUT_MS = 5000;
+// Опрос режима вывода; после клика — чаще, пока статус не подтвердит смену
+const VIEW_POLL_MS = 5000;
+const VIEW_POLL_FAST_MS = 1000;
+// Перезапуск вывода с другим размером кадра занимает секунды
+const VIEW_TIMEOUT_MS = 20000;
 
 interface SurroundCellProps {
     streamId: string;
@@ -72,6 +79,55 @@ export function SurroundCell({
     const pendingTimerRef = useRef<number | null>(null);
 
     const { flash, show: showFlash, hide: hideFlash } = useFlash();
+
+    // Режим вывода известен только устройству; null — статус ещё не получен
+    const [viewMode, setViewMode] = useState<ViewMode | null>(null);
+    const [viewTarget, setViewTarget] = useState<ViewMode | null>(null);
+    const viewTimerRef = useRef<number | null>(null);
+
+    useEffect(() => {
+        let alive = true;
+        const poll = async () => {
+            try {
+                const status = await linkerApi.getStatus();
+                if (alive) setViewMode(status.viewMode);
+            } catch {
+                /* модуль не ответил — бадж останется в прежнем состоянии */
+            }
+        };
+        poll();
+        const timer = window.setInterval(poll, viewTarget ? VIEW_POLL_FAST_MS : VIEW_POLL_MS);
+        return () => { alive = false; window.clearInterval(timer); };
+    }, [viewTarget]);
+
+    // Смена подтверждена статусом — ожидание снимается
+    useEffect(() => {
+        if (!viewTarget || viewMode !== viewTarget) return;
+        setViewTarget(null);
+        if (viewTimerRef.current) {
+            window.clearTimeout(viewTimerRef.current);
+            viewTimerRef.current = null;
+        }
+    }, [viewMode, viewTarget]);
+
+    const toggleViewMode = async () => {
+        if (viewTarget || !viewMode) return;
+        const target: ViewMode = viewMode === 'top' ? 'surround' : 'top';
+        setViewTarget(target);
+        viewTimerRef.current = window.setTimeout(() => {
+            viewTimerRef.current = null;
+            setViewTarget(null);
+            showFlash('Устройство не подтвердило смену режима вывода');
+        }, VIEW_TIMEOUT_MS);
+        try {
+            await linkerApi.setViewMode(target);
+        } catch (e) {
+            if (viewTimerRef.current) window.clearTimeout(viewTimerRef.current);
+            viewTimerRef.current = null;
+            setViewTarget(null);
+            showFlash(e instanceof Error ? e.message : 'Не удалось сменить режим вывода');
+        }
+    };
 
     const settleOrbit = useCallback(() => {
         setPending(false);
@@ -125,6 +181,7 @@ export function SurroundCell({
 
     useEffect(() => () => {
         if (pendingTimerRef.current) window.clearTimeout(pendingTimerRef.current);
+        if (viewTimerRef.current) window.clearTimeout(viewTimerRef.current);
     }, []);
 
     const gesture = useOrbitGesture({
@@ -198,14 +255,27 @@ export function SurroundCell({
             )}
 
             <div className="cellv-tools" onDoubleClick={event => event.stopPropagation()}>
-                <button
-                    className={`cellv-btn${manual ? ' is-on' : ''}`}
-                    title={manual ? 'Выключить ручное вращение' : 'Включить ручное вращение'}
-                    disabled={pending}
-                    onClick={event => { event.stopPropagation(); toggleManual(); }}
-                >
-                    <Icon name="360" />
-                </button>
+                {viewMode && (
+                    <button
+                        className={`cellv-btn${viewMode === 'top' ? ' is-on' : ''}`}
+                        title={viewMode === 'top' ? 'Объёмный вид' : 'Вид сверху'}
+                        disabled={Boolean(viewTarget)}
+                        onClick={event => { event.stopPropagation(); void toggleViewMode(); }}
+                    >
+                        <Icon name="map" />
+                    </button>
+                )}
+                {/* В режиме «сверху» орбиты нет — устройство отказывает */}
+                {viewMode !== 'top' && (
+                    <button
+                        className={`cellv-btn${manual ? ' is-on' : ''}`}
+                        title={manual ? 'Выключить ручное вращение' : 'Включить ручное вращение'}
+                        disabled={pending}
+                        onClick={event => { event.stopPropagation(); toggleManual(); }}
+                    >
+                        <Icon name="360" />
+                    </button>
+                )}
             </div>
         </div>
     );

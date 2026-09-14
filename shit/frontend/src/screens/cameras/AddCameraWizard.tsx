@@ -250,14 +250,19 @@ export function AddCameraWizard({ cameras, initial, onClose, onSaved }: AddCamer
         }));
 
     // Номер субпотока приходит из опроса камеры, а не назначается по порядку
-    const pickStream = (found: FoundStream) => {
+    const pickStreams = (found: FoundStream[]) => {
         setAddStreamOpen(false);
-        setProbed(prev => ({ ...prev, [found.substream]: found }));
-        setForm(prev => ({
-            ...prev,
-            streams: [...prev.streams, makeStream(nextStreamKey(prev.streams), found.substream, ['view'])],
-        }));
+        setProbed(prev => Object.fromEntries([...Object.entries(prev), ...found.map(f => [f.substream, f])]));
+        setForm(prev => {
+            const streams = [...prev.streams];
+            for (const f of found) streams.push(makeStream(nextStreamKey(streams), f.substream, ['view']));
+            return { ...prev, streams };
+        });
     };
+
+    // Уже заведённые потоки в модалке: что опрос узнал, иначе только номер
+    const existingStreams = (): FoundStream[] => form.streams.map(s =>
+        probed[s.substream] ?? { substream: s.substream, width: 0, height: 0, codec: '', fps: 0 });
 
     const removeStream = (key: string) =>
         setForm(prev => ({ ...prev, streams: prev.streams.filter(s => s.key !== key) }));
@@ -370,11 +375,6 @@ export function AddCameraWizard({ cameras, initial, onClose, onSaved }: AddCamer
                                 ? `потоков добавлено: ${form.streams.length}`
                                 : 'потоки не добавлены'}
                         </div>
-
-                        <p className="hint" style={{ marginTop: 'auto' }}>
-                            Превью открывает настоящую сессию к камере и заводит временную запись
-                            на устройстве — она убирается, как только просмотр остановлен.
-                        </p>
                     </aside>
 
                     <div className="add-pane">
@@ -503,8 +503,6 @@ export function AddCameraWizard({ cameras, initial, onClose, onSaved }: AddCamer
                                 {form.streams.length === 0 ? (
                                     <div className="add-empty">
                                         <b>Потоков нет</b>
-                                        Нажмите «Добавить поток» — media-center опросит камеру
-                                        и покажет, какие субпотоки она отдаёт
                                     </div>
                                 ) : (
                                     <div className="scards">
@@ -602,8 +600,8 @@ export function AddCameraWizard({ cameras, initial, onClose, onSaved }: AddCamer
                         password: form.password,
                         production: form.production,
                     }}
-                    used={form.streams.map(s => s.substream)}
-                    onPick={pickStream}
+                    existing={existingStreams()}
+                    onPick={pickStreams}
                     onClose={() => setAddStreamOpen(false)}
                 />
             )}

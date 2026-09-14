@@ -8,7 +8,7 @@
 .dev-screen .fcell .inp{width:100%;text-align:left}
 
 .dev-body{flex:1;min-height:0;display:flex;position:relative}
-.dev-list{flex:1;min-width:0;min-height:0;overflow-y:auto;padding:18px;scrollbar-gutter:stable}
+.dev-list{flex:1;min-width:0;min-height:0;overflow-y:auto;padding:18px}
 
 .dev-grid{display:grid;grid-template-columns:repeat(auto-fill,360px);gap:16px}
 .dev{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow);overflow:hidden}
@@ -54,7 +54,7 @@
 
 .dev-side{width:340px;flex:0 0 340px;min-height:0;display:flex;flex-direction:column;border-left:1px solid var(--line);background:var(--surface);transition:margin-right .22s ease,visibility 0s linear 0s}
 .dev-side.is-closed{margin-right:-340px;visibility:hidden;transition:margin-right .22s ease,visibility 0s linear .22s}
-.dev-side-b{flex:1;min-height:0;overflow-y:auto;padding:16px 18px;display:flex;flex-direction:column;gap:12px;scrollbar-gutter:stable}
+.dev-side-b{flex:1;min-height:0;overflow-y:auto;padding:16px 18px;display:flex;flex-direction:column;gap:12px}
 .dev-side-b .eyebrow{padding-top:4px}
 .dev-side-b .eyebrow:first-child{padding-top:0}
 

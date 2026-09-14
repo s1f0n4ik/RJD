@@ -96,7 +96,7 @@ interface ConnectionFieldsProps extends FieldsProps {
     nameCheck: Validation;
     ipCheck: Validation;
     portCheck: Validation;
-    /** В мастере имя задаётся, в панели правки его не трогают */
+    /** Имя камеры и отображаемое имя; в панели правки id заблокирован, отображаемое имя правится */
     withName?: boolean;
 }
 
@@ -325,10 +325,6 @@ export function StreamFields({
                             onValue={n => onPatch(stream.key, { segment: n })}
                         />
                     </div>
-                    <p className="hint" style={{ margin: 0 }}>
-                        Записи складываются на накопитель устройства-владельца, в свою папку каждого
-                        потока. Старые сегменты удаляются автоматически при заполнении диска.
-                    </p>
                 </>
             )}
         </div>

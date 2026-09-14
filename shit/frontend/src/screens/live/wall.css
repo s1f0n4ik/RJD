@@ -113,7 +113,9 @@
 
 .cellv-video { width: 100%; height: 100%; object-fit: contain; display: block; }
 
-.cellv-canvas { position: absolute; inset: 0; pointer-events: none; }
+/* Явные размеры обязательны: замещаемый элемент по inset:0 не растягивается и берёт
+   ширину из атрибута — clientWidth × dpr, при масштабе браузера ≠ 100% рамки уезжают от угла */
+.cellv-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 
 /* Жестовый слой 360 держится ровно по кадру — его ведёт RAF */
 

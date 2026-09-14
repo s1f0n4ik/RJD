@@ -45,6 +45,8 @@ export interface WallProps {
     onRemove?: (cellId: string) => void;
     onCorrectedChange?: (cameraId: string, value: boolean) => void;
     onDetectionsChange?: (cameraId: string, value: boolean) => void;
+    /** Смена потока просмотра баджем в ячейке */
+    onStreamChange?: (cameraId: string, streamKey: string) => void;
     onSurroundManualChange?: (value: boolean) => void;
     /** Сколько ячеек реально в эфире из занятых */
     onLiveCount?: (live: number, total: number) => void;
@@ -75,6 +77,7 @@ export function Wall({
     onRemove,
     onCorrectedChange,
     onDetectionsChange,
+    onStreamChange,
     onSurroundManualChange,
     onLiveCount,
     onCellStats,
@@ -348,6 +351,8 @@ export function Wall({
                 cameraName={source.name}
                 signalingUrl={signalingUrlOf(sourceId)}
                 streamKey={key}
+                streams={source.viewStreams}
+                onStreamChange={onStreamChange && (streamKey => onStreamChange(sourceId, streamKey))}
                 canDetect={source.hasNeural}
                 canCorrect={source.hasBirdview && Boolean(correctionLinks[sourceId])}
                 corrected={Boolean(layout.corrections[sourceId])}

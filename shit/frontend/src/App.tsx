@@ -60,6 +60,15 @@ const GlobalMergeJobPanel: React.FC = () => {
     );
 };
 
+// Тот же экран, что и сплэш в index.html: ленивый чанк грузится уже после того,
+// как Bootstrap снял #boot, и пустой fallback здесь давал белый кадр
+const bootVeil = (
+  <div className="boot" data-theme="dark">
+    <div className="boot-mark">Видеоаналитика</div>
+    <div className="boot-bar" />
+  </div>
+);
+
 const AppContent: React.FC = () => {
   const pathname = window.location.pathname;
   const isNewUiRoute = pathname.startsWith('/new');
@@ -296,7 +305,7 @@ const AppContent: React.FC = () => {
 
   if (isNewUiRoute) {
     return (
-      <Suspense fallback={null}>
+      <Suspense fallback={bootVeil}>
         <NewApp />
       </Suspense>
     );
@@ -327,7 +336,7 @@ const AppContent: React.FC = () => {
   // === РЕНДЕР ТРАНСЛЯЦИИ ===
   if (isTranslationRoute) {
     return (
-      <Suspense fallback={null}>
+      <Suspense fallback={bootVeil}>
         <TranslationScreen />
       </Suspense>
     );

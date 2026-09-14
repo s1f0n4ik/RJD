@@ -17,6 +17,17 @@ function matchOf(cam: CalibrationCamera, cfg: CalibrationConfigInfo | undefined)
 }
 
 /** Экран «Сопоставление»: камера 360 ↔ конфигурация коррекции и частота коррекционного потока. */
+// Ширины колонок таблицы сопоставления: одинаковые у шапки и у строк
+const mapCols = (
+    <colgroup>
+        <col />
+        <col style={{ width: 130 }} />
+        <col style={{ width: 304 }} />
+        <col style={{ width: 110 }} />
+        <col style={{ width: 220 }} />
+    </colgroup>
+);
+
 export function MappingScreen({ active }: { active: boolean }) {
     const showToast = useToast();
 
@@ -120,13 +131,12 @@ export function MappingScreen({ active }: { active: boolean }) {
                     </div>
                 </div>
 
-                <div className="tab-wrap map-wrap">
-                    {loading ? (
-                        <div className="empty"><span className="spin" /></div>
-                    ) : cameras.length === 0 ? (
-                        <div className="empty"><Icon name="empty" className="ico" /><b>Камер с назначением 360 нет</b></div>
-                    ) : (
+                {/* Шапка вне прокрутки с тем же резервом желоба, что у строк: фон до края,
+                    колонки совпадают за счёт table-layout:fixed и общего colgroup */}
+                {!loading && cameras.length > 0 && (
+                    <div className="map-head">
                         <table className="tab map-tab">
+                            {mapCols}
                             <thead>
                                 <tr>
                                     <th>Камера 360</th>
@@ -136,6 +146,17 @@ export function MappingScreen({ active }: { active: boolean }) {
                                     <th>Совпадение</th>
                                 </tr>
                             </thead>
+                        </table>
+                    </div>
+                )}
+                <div className="tab-wrap map-wrap">
+                    {loading ? (
+                        <div className="empty"><span className="spin" /></div>
+                    ) : cameras.length === 0 ? (
+                        <div className="empty"><Icon name="empty" className="ico" /><b>Камер с назначением 360 нет</b></div>
+                    ) : (
+                        <table className="tab map-tab">
+                            {mapCols}
                             <tbody>
                                 {cameras.map(cam => {
                                     const link = links[cam.id];

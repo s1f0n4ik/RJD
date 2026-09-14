@@ -16,6 +16,7 @@ import {
     type PlayerStatus,
 } from '../../components/webrtc/useWebRTCPlayer';
 import { drawDetections, type Detection, type Track } from '../../components/webrtc/detections';
+import type { ViewStream } from './sources';
 import { formatDeviceDate, formatDeviceTime } from '../../app/useDeviceClock';
 import { Icon } from '../../app/Icons';
 import { CellFlash, CellState, useFlash } from './CellOverlays';
@@ -36,6 +37,9 @@ interface CellPlayerProps {
     signalingUrl: string;
     /** Ключ обычного потока; пусто — сервер возьмёт первый смотрибельный */
     streamKey?: string;
+    /** Смотрибельные потоки камеры: бадж смены появляется, когда их больше одного */
+    streams?: ViewStream[];
+    onStreamChange?: (streamKey: string) => void;
     /** У камеры есть поток с назначением neural */
     canDetect: boolean;
     /** Коррекция применима: есть поток birdview и настроено сопоставление */
@@ -67,6 +71,8 @@ export function CellPlayer({
     cameraName,
     signalingUrl,
     streamKey,
+    streams = [],
+    onStreamChange,
     canDetect,
     canCorrect,
     corrected,
@@ -268,6 +274,11 @@ export function CellPlayer({
 
     const live = status === 'streaming';
 
+    // Клик листает потоки по кругу; с двумя потоками это обычный тумблер
+    const streamIndex = streams.findIndex(stream => stream.key === streamKey);
+    const nextStream = streams.length > 1 ? streams[(streamIndex + 1) % streams.length] : undefined;
+    const canSwitchStream = Boolean(nextStream && onStreamChange);
+
     return (
         <div className="cellv" ref={boxRef}>
             <video ref={videoRef} autoPlay playsInline muted className="cellv-video" />
@@ -295,8 +306,17 @@ export function CellPlayer({
                 </span>
             )}
 
-            {(canCorrect || (controls === 'all' && canDetect)) && controls !== 'none' && (
+            {(canCorrect || (controls === 'all' && (canDetect || canSwitchStream))) && controls !== 'none' && (
                 <div className="cellv-tools" onDoubleClick={event => event.stopPropagation()}>
+                    {controls === 'all' && canSwitchStream && (
+                        <button
+                            className="cellv-btn"
+                            title={`Поток → ${nextStream!.label}`}
+                            onClick={event => { event.stopPropagation(); onStreamChange!(nextStream!.key); }}
+                        >
+                            <Icon name="swap" />
+                        </button>
+                    )}
                     {controls === 'all' && canDetect && (
                         <button
                             className={`cellv-btn${showDetections ? ' is-on' : ''}`}
