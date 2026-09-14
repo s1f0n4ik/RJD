@@ -93,7 +93,10 @@ export function ImportModal({ existing, onClose, onImported }: ImportModalProps)
                         {entries.map(en => (
                             <div className="imp-row" key={en.id}>
                                 <span className="nm">{data?.[en.id]?.name || en.id}</span>
-                                <span className="key">{en.id} · {en.classes} кл.</span>
+                                <span className="key seps">
+                                    <span>{en.id}</span>
+                                    <span>{en.classes} кл.</span>
+                                </span>
                                 <span className={`tag ${en.replaces ? 'is-warn' : 'is-ok'}`}>{en.replaces ? 'заменит существующую' : 'новая'}</span>
                             </div>
                         ))}

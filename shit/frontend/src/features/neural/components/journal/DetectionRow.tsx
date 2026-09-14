@@ -56,9 +56,10 @@ function DetectionRowInner({ det, selected, resolve, cameraName, onSelect }: Pro
       </span>
       <span className="j-tr">
         {det.track_id != null ? (
-          <>
-            <b>#{det.track_id}</b> {det.event ?? ''}
-          </>
+          <span className="seps">
+            <b>#{det.track_id}</b>
+            {det.event ? <span>{det.event}</span> : null}
+          </span>
         ) : (
           '—'
         )}

@@ -592,11 +592,21 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
 
                     <span className={`pill has-tip${isLive ? ' ok' : status.running ? ' warn' : ''}`}>
                         <span className="dot" />
-                        {isLive ? 'в эфире' : status.running ? 'в эфире · другая конфигурация' : 'остановлен'}
+                        {isLive ? 'в эфире' : status.running ? (
+                            <span className="seps">
+                                <span>в эфире</span>
+                                <span>другая конфигурация</span>
+                            </span>
+                        ) : 'остановлен'}
                         <div className="tipbox" style={{ right: 'auto', left: 0 }}>
                             <div className="kv"><span className="k">Поток</span><span className="v">{status.streamId ?? '—'}</span></div>
                             <div className="kv"><span className="k">Режим</span><span className="v">{status.viewMode === 'surround' ? 'объём' : 'сверху'}</span></div>
-                            <div className="kv"><span className="k">Кадр</span><span className="v">{status.width && status.height ? `${status.width}×${status.height} · ${status.fps} fps` : '—'}</span></div>
+                            <div className="kv"><span className="k">Кадр</span><span className="v">{status.width && status.height ? (
+                                <span className="seps">
+                                    <span>{status.width}×{status.height}</span>
+                                    <span>{status.fps} fps</span>
+                                </span>
+                            ) : '—'}</span></div>
                             <div className="kv"><span className="k">Конфигурация</span><span className="v">{status.exportId ?? '—'}</span></div>
                             <div className="kv"><span className="k">Камер</span><span className="v">{places ? `${assigned} из ${places}` : '—'}</span></div>
                         </div>

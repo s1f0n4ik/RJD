@@ -207,7 +207,10 @@ export default function TranslationScreen() {
                     className={`pill num${source === 'can' ? '' : ' is-dim'}`}
                     title={source === 'can' ? 'Время изделия' : 'Время сервера, шина молчит'}
                 >
-                    {formatDeviceDate(unixMs)} · {formatDeviceTime(unixMs)}
+                    <span className="seps">
+                        <span>{formatDeviceDate(unixMs)}</span>
+                        <span>{formatDeviceTime(unixMs)}</span>
+                    </span>
                 </span>
 
                 <button className="icon-btn tr-plain" title="Обновить все потоки" onClick={reloadStreams}>

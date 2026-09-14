@@ -142,7 +142,12 @@ export function CalibrationViewer({
         wsState !== 'connected'
             ? 'Нет подключения'
             : rtcState === 'connected'
-              ? `Поток · ${fps ?? '—'} fps`
+              ? (
+                  <span className="seps">
+                      <span>Поток</span>
+                      <span>{fps ?? '—'} fps</span>
+                  </span>
+                )
               : rtcState === 'connecting'
                 ? 'Подключение…'
                 : 'Нет потока';
@@ -197,9 +202,11 @@ export function CalibrationViewer({
                             </div>
                             <div className="kv">
                                 <span className="k">Поток</span>
-                                <span className={`v ${STATE_CLASS[rtcState]}`}>
-                                    {playerState ? RTC_WORDS[playerState.status] : 'нет'}
-                                    {playerState && playerState.attempt > 0 && ` · попытка ${playerState.attempt + 1}`}
+                                <span className={`v ${STATE_CLASS[rtcState]} seps`}>
+                                    <span>{playerState ? RTC_WORDS[playerState.status] : 'нет'}</span>
+                                    {playerState && playerState.attempt > 0 && (
+                                        <span>попытка {playerState.attempt + 1}</span>
+                                    )}
                                 </span>
                             </div>
                             <div className="kv">
@@ -231,15 +238,22 @@ export function CalibrationViewer({
                             <div className="kv">
                                 <span className="k">Камера</span>
                                 <span className="v">
-                                    {camera ? `${camera.id} · ${camera.width}×${camera.height}` : '—'}
+                                    {camera ? (
+                                        <span className="seps">
+                                            <span>{camera.id}</span>
+                                            <span>{camera.width}×{camera.height}</span>
+                                        </span>
+                                    ) : '—'}
                                 </span>
                             </div>
                             {playerState?.error && (
                                 <div className="kv">
                                     <span className="k">Причина</span>
-                                    <span className="v err">
-                                        {playerState.error.text}
-                                        {playerState.error.code !== null && ` · ${playerState.error.code}`}
+                                    <span className="v err seps">
+                                        <span>{playerState.error.text}</span>
+                                        {playerState.error.code !== null && (
+                                            <span>{playerState.error.code}</span>
+                                        )}
                                     </span>
                                 </div>
                             )}

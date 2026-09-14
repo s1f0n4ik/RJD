@@ -147,8 +147,9 @@ const MessageBlock: React.FC<MsgProps> = ({ msg, summary, busy, onPatch, childre
         {msg.title}
         <span className="id">{msg.id}</span>
         {summary && (
-          <span className="cnt-s">
-            {formatInt(summary.count)} · {age(summary.age_ms)}
+          <span className="cnt-s seps">
+            <span>{formatInt(summary.count)}</span>
+            <span>{age(summary.age_ms)}</span>
           </span>
         )}
         <button
@@ -182,8 +183,14 @@ const MessageBlock: React.FC<MsgProps> = ({ msg, summary, busy, onPatch, childre
             <div className="fc auto">
               <span className="cap">Система счисления</span>
               <div className="seg">
-                <button type="button" className={base === 'hex' ? 'is-on' : ''} onClick={() => switchBase('hex')}>16 · HEX</button>
-                <button type="button" className={base === 'dec' ? 'is-on' : ''} onClick={() => switchBase('dec')}>10 · DEC</button>
+                <button type="button" className={`seps${base === 'hex' ? ' is-on' : ''}`} onClick={() => switchBase('hex')}>
+                  <span>16</span>
+                  <span>HEX</span>
+                </button>
+                <button type="button" className={`seps${base === 'dec' ? ' is-on' : ''}`} onClick={() => switchBase('dec')}>
+                  <span>10</span>
+                  <span>DEC</span>
+                </button>
               </div>
             </div>
             <div className="fc">
@@ -206,7 +213,12 @@ const MessageBlock: React.FC<MsgProps> = ({ msg, summary, busy, onPatch, childre
         {children}
 
         <div>
-          <span className="sub-h">Схема кадра · 8 байт</span>
+          <span className="sub-h">
+            <span className="seps">
+              <span>Схема кадра</span>
+              <span>8 байт</span>
+            </span>
+          </span>
           <CanMessageSpec spec={SPECS[msg.key]} data={summary?.data} />
         </div>
       </div>
@@ -285,7 +297,13 @@ const CanModulePanel: React.FC<Props> = ({ module, title, devices, busy, onSave,
       <div className="mod-title">
         <h2>{title}</h2>
         <Pill module={module} />
-        <span className="pill">J1939 · {conn.mode ?? 'socketcan'} · {conn.mode === 'slcan' ? conn.device ?? '—' : conn.iface ?? '—'}</span>
+        <span className="pill">
+          <span className="seps">
+            <span>J1939</span>
+            <span>{conn.mode ?? 'socketcan'}</span>
+            <span>{conn.mode === 'slcan' ? conn.device ?? '—' : conn.iface ?? '—'}</span>
+          </span>
+        </span>
         <button type="button" className="btn btn--ghost spacer" onClick={onDisconnect} disabled={busy}>Отключить</button>
         <button type="button" className="btn" onClick={onConnect} disabled={busy}>
           <Icon name="refresh" size={16} />Переподключить
@@ -385,8 +403,10 @@ const CanModulePanel: React.FC<Props> = ({ module, title, devices, busy, onSave,
                           <td className="m" style={{ color: 'var(--fg-2)' }}>{s.data || '—'}</td>
                           <td className="dim">{s.note || (s.enabled ? '—' : 'выключено')}</td>
                           <td className="m r">
-                            {formatInt(s.count)}
-                            {s.errors > 0 && <span style={{ color: 'var(--err)' }}> · {formatInt(s.errors)} ош.</span>}
+                            <span className="seps">
+                              <span>{formatInt(s.count)}</span>
+                              {s.errors > 0 && <span style={{ color: 'var(--err)' }}>{formatInt(s.errors)} ош.</span>}
+                            </span>
                           </td>
                           <td className="n r">{age(s.age_ms)}</td>
                         </tr>
@@ -402,7 +422,12 @@ const CanModulePanel: React.FC<Props> = ({ module, title, devices, busy, onSave,
             <div className="card">
               <div className="card-h">
                 <h3>Сообщения шины</h3>
-                <span className="meta">{txMessages.length} отпр. · {rxMessages.length} прин.</span>
+                <span className="meta">
+                  <span className="seps">
+                    <span>{txMessages.length} отпр.</span>
+                    <span>{rxMessages.length} прин.</span>
+                  </span>
+                </span>
               </div>
               <div className="card-b">
                 {txMessages.map((m) => (
@@ -480,7 +505,10 @@ const CanModulePanel: React.FC<Props> = ({ module, title, devices, busy, onSave,
                   ))}
                 </div>
                 <span className="meta">
-                  {shown.length} · чужих кадров {formatInt(module.rx_other ?? 0)}
+                  <span className="seps">
+                    <span>{shown.length}</span>
+                    <span>чужих кадров {formatInt(module.rx_other ?? 0)}</span>
+                  </span>
                 </span>
               </div>
               <div className="card-b">

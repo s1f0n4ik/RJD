@@ -179,8 +179,9 @@ export function SurroundCell({
                 <div className="cell-bar">
                     {overlays.name && <span className="nm">{name}</span>}
                     {live && overlays.stats && (
-                        <span className="num">
-                            {num(stats?.fps, 1)} fps · {num(stats?.mbits, 1)} Мбит/с
+                        <span className="num seps">
+                            <span>{num(stats?.fps, 1)} fps</span>
+                            <span>{num(stats?.mbits, 1)} Мбит/с</span>
                         </span>
                     )}
                 </div>
@@ -190,8 +191,9 @@ export function SurroundCell({
             {live && flash && <CellFlash flash={flash} onClose={hideFlash} />}
 
             {overlays.time && (
-                <span className="cellv-time">
-                    {formatDeviceDate(deviceTimeMs)} · {formatDeviceTime(deviceTimeMs)}
+                <span className="cellv-time seps">
+                    <span>{formatDeviceDate(deviceTimeMs)}</span>
+                    <span>{formatDeviceTime(deviceTimeMs)}</span>
                 </span>
             )}
 

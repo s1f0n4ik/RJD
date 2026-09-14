@@ -241,9 +241,9 @@ export function ConfiguratorPanel({ onOpenExport, onOpenAddZone }: ConfiguratorP
 
             <div className="blk-h">
                 <h3>Разметка</h3>
-                <span className="eyebrow spacer">
-                    {confState.zones.length}
-                    {outside > 0 && ` · ${outside} вне камер`}
+                <span className="eyebrow spacer seps">
+                    <span>{confState.zones.length}</span>
+                    {outside > 0 && <span>{outside} вне камер</span>}
                 </span>
                 <button
                     className="icon-btn add grab"

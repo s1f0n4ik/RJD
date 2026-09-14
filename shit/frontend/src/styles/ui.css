@@ -201,6 +201,13 @@
 
 .tbar-sep{width:1px;align-self:stretch;background:var(--line);margin:0 7px}
 
+/* Ряд значений: разделитель между соседями рисует css, в разметке символа нет.
+   Черта висит у правого края соседа, а зазор держит column-gap — при переносе
+   она остаётся в конце строки и не всплывает в начале следующей */
+.seps{display:inline-flex;align-items:center;flex-wrap:wrap;column-gap:19px;row-gap:4px;min-width:0}
+.seps>*:not(:last-child){position:relative}
+.seps>*:not(:last-child)::after{content:'';position:absolute;right:-10px;top:50%;width:1px;height:11px;margin-top:-5.5px;background:var(--line)}
+
 .zoom{margin-left:auto;display:flex;align-items:center;gap:5px}
 
 .zoom button{min-width:34px;height:34px;padding:0 8px;border-radius:var(--r);border:1px solid var(--line);color:var(--fg-2)}

@@ -278,8 +278,9 @@ export function CellPlayer({
                 <div className="cell-bar">
                     {overlays.name && <span className="nm">{cameraName}</span>}
                     {live && overlays.stats && (
-                        <span className="num">
-                            {num(stats?.fps, 1)} fps · {num(stats?.mbits, 1)} Мбит/с
+                        <span className="num seps">
+                            <span>{num(stats?.fps, 1)} fps</span>
+                            <span>{num(stats?.mbits, 1)} Мбит/с</span>
                         </span>
                     )}
                 </div>
@@ -288,8 +289,9 @@ export function CellPlayer({
             {!live && <CellState status={status} error={errorInfo} attempt={attempt} />}
 
             {overlays.time && (
-                <span className="cellv-time">
-                    {formatDeviceDate(deviceTimeMs)} · {formatDeviceTime(deviceTimeMs)}
+                <span className="cellv-time seps">
+                    <span>{formatDeviceDate(deviceTimeMs)}</span>
+                    <span>{formatDeviceTime(deviceTimeMs)}</span>
                 </span>
             )}
 

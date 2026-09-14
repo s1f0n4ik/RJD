@@ -744,7 +744,10 @@ export function ProjectionScreen({
                         <div className="stream-tag">
                             <span className={`pill${resultUrl ? ' ok' : ''}`}>
                                 <span className="dot" />
-                                Результат{resultKey ? ` · ${placeName(resultKey)}` : ''}
+                                <span className="seps">
+                                    <span>Результат</span>
+                                    {resultKey ? <span>{placeName(resultKey)}</span> : null}
+                                </span>
                             </span>
                         </div>
 
@@ -812,7 +815,12 @@ export function ProjectionScreen({
                                 <span className="dot" />
                                 {boundCamId
                                     ? camera && camera.id === boundCamId
-                                        ? `${camera.displayName} · ${camera.id}`
+                                        ? (
+                                            <span className="seps">
+                                                <span>{camera.displayName}</span>
+                                                <span>{camera.id}</span>
+                                            </span>
+                                          )
                                         : boundCamId
                                     : 'Камера не назначена'}
                             </span>
@@ -836,7 +844,11 @@ export function ProjectionScreen({
                             </button>
                         </div>
 
-                        <span className="scene-hint">shift+колесо · масштаб &nbsp; shift+drag · сдвиг</span>
+                        <span className="scene-hint">
+                            <span className="seps"><span>shift+колесо</span><span>масштаб</span></span>
+                            &nbsp;&nbsp;&nbsp;
+                            <span className="seps"><span>shift+drag</span><span>сдвиг</span></span>
+                        </span>
                     </div>
                 </div>
             </div>

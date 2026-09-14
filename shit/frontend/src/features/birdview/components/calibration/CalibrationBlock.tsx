@@ -105,7 +105,10 @@ export function CalibrationBlock({
             <div className="blk-h">
                 <h3>Шаблон и снимки</h3>
                 {patternSet && pattern && (
-                    <span className="eyebrow spacer">{`${pattern.width}×${pattern.height} · ${pattern.size} мм`}</span>
+                    <span className="eyebrow spacer seps">
+                        <span>{pattern.width}×{pattern.height}</span>
+                        <span>{pattern.size} мм</span>
+                    </span>
                 )}
             </div>
             <div className="blk-b pad">

@@ -49,26 +49,50 @@ export function HomeScreen() {
 
     const deviceSummary = devices.length === 0
         ? 'устройства не добавлены'
-        : `${devices.length} ${plural(devices.length, 'устройство', 'устройства', 'устройств')}` +
-          (offlineDevices > 0 ? ` · ${offlineDevices} не в сети` : ' · все в сети');
+        : (
+            <span className="seps">
+                <span>{devices.length} {plural(devices.length, 'устройство', 'устройства', 'устройств')}</span>
+                <span>{offlineDevices > 0 ? `${offlineDevices} не в сети` : 'все в сети'}</span>
+            </span>
+        );
 
     const linkerSummary = linker
-        ? linker.running ? `вывод в эфире · ${linker.viewMode === 'surround' ? 'объём' : 'сверху'}` : 'вывод остановлен'
+        ? linker.running
+            ? (
+                <span className="seps">
+                    <span>вывод в эфире</span>
+                    <span>{linker.viewMode === 'surround' ? 'объём' : 'сверху'}</span>
+                </span>
+            )
+            : 'вывод остановлен'
         : 'модуль не отвечает';
     const neuralSummary = neural
         ? neural.slots === 0
             ? 'потоков нет'
-            : `${neural.running} ${plural(neural.running, 'поток', 'потока', 'потоков')} в работе` +
-              (neural.failed > 0 ? ` · ${neural.failed} с ошибкой` : '')
+            : (
+                <span className="seps">
+                    <span>{neural.running} {plural(neural.running, 'поток', 'потока', 'потоков')} в работе</span>
+                    {neural.failed > 0 && <span>{neural.failed} с ошибкой</span>}
+                </span>
+            )
         : 'модуль не отвечает';
     const gatewaySummary = gateway
-        ? `${gateway.modules} ${plural(gateway.modules, 'модуль', 'модуля', 'модулей')} · ${gateway.connected} на связи`
+        ? (
+            <span className="seps">
+                <span>{gateway.modules} {plural(gateway.modules, 'модуль', 'модуля', 'модулей')}</span>
+                <span>{gateway.connected} на связи</span>
+            </span>
+        )
         : 'шлюз не отвечает';
 
     const cameraSummary = cameras.length === 0
         ? 'камеры не добавлены'
-        : `${cameras.length} ${plural(cameras.length, 'камера', 'камеры', 'камер')}` +
-          (deadCameras > 0 ? ` · ${deadCameras} без потока` : ' · все в работе');
+        : (
+            <span className="seps">
+                <span>{cameras.length} {plural(cameras.length, 'камера', 'камеры', 'камер')}</span>
+                <span>{deadCameras > 0 ? `${deadCameras} без потока` : 'все в работе'}</span>
+            </span>
+        );
 
     // Закрытие помнит состав офлайна: погаснет другое устройство — баннер вернётся
     const offlineNames = devices.filter(d => d.status !== 'online').map(d => d.name).join(', ');
@@ -162,13 +186,15 @@ export function HomeScreen() {
                                         cpu != null ? `${Math.round(cpu)} %` : null,
                                         temp != null ? `${Math.round(temp)} °C` : null,
                                         device.ping_ms != null ? `${device.ping_ms} мс` : null,
-                                    ].filter(Boolean).join(' · ');
+                                    ].filter((v): v is string => v !== null);
                                     return (
                                         <div key={device.id} className={`svc${offline ? ' is-err' : ''}`}>
                                             <span className={`dot ${offline ? 'err' : 'ok'}`} />
                                             <span className="nm">{device.name}</span>
-                                            <span className="val">
-                                                {offline ? 'не в сети' : details || 'в сети'}
+                                            <span className="val seps">
+                                                {offline || details.length === 0
+                                                    ? <span>{offline ? 'не в сети' : 'в сети'}</span>
+                                                    : details.map(d => <span key={d}>{d}</span>)}
                                             </span>
                                         </div>
                                     );
@@ -221,8 +247,9 @@ export function HomeScreen() {
                                             <span className="k num">
                                                 {new Date(item.ts).toLocaleTimeString('ru-RU')}
                                             </span>
-                                            <span className="v">
-                                                {item.camera_id} · объектов {item.objects.length}
+                                            <span className="v seps">
+                                                <span>{item.camera_id}</span>
+                                                <span>объектов {item.objects.length}</span>
                                             </span>
                                         </div>
                                     ))}

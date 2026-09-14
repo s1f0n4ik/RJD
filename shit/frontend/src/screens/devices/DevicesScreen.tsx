@@ -262,9 +262,12 @@ export function DevicesScreen() {
                                             <div className="dev-name">
                                                 <b>{device.name}</b>
                                                 <div className="host">
-                                                    {device.ip} · {offline
-                                                        ? `не в сети ${sinceLabel(device.last_seen)}`
-                                                        : `в работе ${uptimeLabel(device.telemetry?.uptime_sec)}`}
+                                                    <span className="seps">
+                                                        <span>{device.ip}</span>
+                                                        <span>{offline
+                                                            ? `не в сети ${sinceLabel(device.last_seen)}`
+                                                            : `в работе ${uptimeLabel(device.telemetry?.uptime_sec)}`}</span>
+                                                    </span>
                                                 </div>
                                             </div>
                                             {offline && (
@@ -294,7 +297,10 @@ export function DevicesScreen() {
                                             {offline && (
                                                 <div className="banner is-err">
                                                     <Icon name="warn" size={15} />
-                                                    Последний ответ {lastSeenTime(device.last_seen)} · данные из кэша
+                                                    <span className="seps">
+                                                        <span>Последний ответ {lastSeenTime(device.last_seen)}</span>
+                                                        <span>данные из кэша</span>
+                                                    </span>
                                                 </div>
                                             )}
 
@@ -307,7 +313,12 @@ export function DevicesScreen() {
                                                             style={{ width: `${metric.pct}%` }}
                                                         />
                                                     </span>
-                                                    <span className="v">{metric.value}</span>
+                                                    <span className="v">
+                                                        <span className="seps">
+                                                            <span>{metric.value}</span>
+                                                            {metric.note && <span>{metric.note}</span>}
+                                                        </span>
+                                                    </span>
                                                 </div>
                                             ))}
 
@@ -344,7 +355,10 @@ export function DevicesScreen() {
                                                     className={`tag tag-btn ${count?.offline ? 'is-err' : 'is-ok'}`}
                                                     onClick={() => navigate(`/cameras?device=${encodeURIComponent(device.id)}`)}
                                                 >
-                                                    камер: {count?.total ?? 0}{count?.offline ? ' · офлайн' : ''}
+                                                    <span className="seps">
+                                                        <span>камер: {count?.total ?? 0}</span>
+                                                        {Boolean(count?.offline) && <span>офлайн</span>}
+                                                    </span>
                                                 </button>
                                             </div>
                                         </div>

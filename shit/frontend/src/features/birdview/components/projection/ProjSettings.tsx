@@ -196,7 +196,10 @@ export function ProjSettings({
                 {/* Один проход по всем местам: готовые пропускаются, правка точек снимает готовность */}
                 {applying ? (
                     <button className="btn btn--err btn--wide" onClick={onStopApply}>
-                        Остановить · {applyStep ? `${applyStep.done} из ${applyStep.total}` : '…'}
+                        <span className="seps">
+                            <span>Остановить</span>
+                            <span>{applyStep ? `${applyStep.done} из ${applyStep.total}` : '…'}</span>
+                        </span>
                     </button>
                 ) : (
                     <button
@@ -204,7 +207,10 @@ export function ProjSettings({
                         disabled={applyCount === 0}
                         onClick={onApply}
                     >
-                        Применить warp{applyCount > 0 ? ` · ${applyCount}` : ''}
+                        <span className="seps">
+                            <span>Применить warp</span>
+                            {applyCount > 0 ? <span>{applyCount}</span> : null}
+                        </span>
                     </button>
                 )}
                 <div className="row">

@@ -558,13 +558,17 @@ export default function LiveScreen() {
                     </div>
 
                     <div className="sect">
-                        <span className="eyebrow">Источники · камеры</span>
+                        <span className="eyebrow">
+                            <span className="seps"><span>Источники</span><span>камеры</span></span>
+                        </span>
                         {cameraSources.map(renderSourceRow)}
                     </div>
 
                     {virtualSources.length > 0 && (
                         <div className="sect">
-                            <span className="eyebrow">Источники · собранные потоки</span>
+                            <span className="eyebrow">
+                                <span className="seps"><span>Источники</span><span>собранные потоки</span></span>
+                            </span>
                             {virtualSources.map(renderSourceRow)}
                         </div>
                     )}

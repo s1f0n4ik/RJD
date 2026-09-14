@@ -325,8 +325,11 @@ export function Timeline({
                                     <span className="tl-nm">
                                         <b>{name}</b>
                                         <span>
-                                            {track.camera_id} · {track.stream_key.replace('stream_', 'канал ')}
-                                            {deleted ? ' · удалена' : ''}
+                                            <span className="seps">
+                                                <span>{track.camera_id}</span>
+                                                <span>{track.stream_key.replace('stream_', 'канал ')}</span>
+                                                {deleted && <span>удалена</span>}
+                                            </span>
                                         </span>
                                     </span>
                                 </button>
@@ -387,10 +390,11 @@ export function Timeline({
                                                 />
                                                 {right - left > GAP_LABEL_MIN_PERCENT && (
                                                     <span
-                                                        className="tl-gap-lab"
+                                                        className="tl-gap-lab seps"
                                                         style={{ left: `${(left + right) / 2}%` }}
                                                     >
-                                                        разрыв · {fmtDuration(gap.end_ms - gap.start_ms)}
+                                                        <span>разрыв</span>
+                                                        <span>{fmtDuration(gap.end_ms - gap.start_ms)}</span>
                                                     </span>
                                                 )}
                                             </Fragment>

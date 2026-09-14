@@ -81,7 +81,12 @@ const WebSocketModulePanel: React.FC<Props> = ({ module, title, busy, onSave, on
       <div className="mod-title">
         <h2>{title}</h2>
         <Pill module={module} />
-        <span className="pill">{module.transport}{versions ? ` · ${versions}` : ''}</span>
+        <span className="pill">
+          <span className="seps">
+            <span>{module.transport}</span>
+            {versions ? <span>{versions}</span> : null}
+          </span>
+        </span>
         <button type="button" className="btn btn--ghost spacer" onClick={onDisconnect} disabled={busy}>Отключить</button>
         <button type="button" className="btn" onClick={onConnect} disabled={busy}>
           <Icon name="refresh" size={16} />Переподключить
@@ -151,7 +156,10 @@ const WebSocketModulePanel: React.FC<Props> = ({ module, title, busy, onSave, on
             {module.connection.error && (
               <div className="banner is-err" style={{ marginTop: 14 }}>
                 <Icon name="warn" size={15} />
-                Связь: {humanizeError(module.connection.error)}{module.connection.retrying ? ' · переподключение идёт' : ''}
+                <span className="seps">
+                  <span>Связь: {humanizeError(module.connection.error)}</span>
+                  {module.connection.retrying ? <span>переподключение идёт</span> : null}
+                </span>
               </div>
             )}
           </div>
@@ -160,7 +168,13 @@ const WebSocketModulePanel: React.FC<Props> = ({ module, title, busy, onSave, on
         <div className="card">
           <div className="card-h">
             <h3>Состояние</h3>
-            <span className="meta">за сеанс · отклонено {formatInt(stats.rejected)} · heartbeat {formatInt(stats.heartbeats)}</span>
+            <span className="meta">
+              <span className="seps">
+                <span>за сеанс</span>
+                <span>отклонено {formatInt(stats.rejected)}</span>
+                <span>heartbeat {formatInt(stats.heartbeats)}</span>
+              </span>
+            </span>
           </div>
           <div className="card-b">
             <div className="kpis">

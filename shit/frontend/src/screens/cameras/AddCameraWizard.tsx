@@ -292,14 +292,15 @@ export function AddCameraWizard({ cameras, initial, onClose, onSaved }: AddCamer
 
     const deviceName = devices.find(d => d.id === form.device_id)?.name;
 
-    const describe = (stream: StreamForm): string => {
+    // Куски подписи потока — разделитель между ними рисует css
+    const describe = (stream: StreamForm): string[] => {
         const info = probed[stream.substream];
-        if (!info || !info.width) return 'параметры неизвестны';
+        if (!info || !info.width) return ['параметры неизвестны'];
         return [
             `${info.width}×${info.height}`,
             info.codec ? info.codec.toUpperCase() : null,
             info.fps ? `${info.fps} к/с` : null,
-        ].filter(Boolean).join(' · ');
+        ].filter((v): v is string => v !== null);
     };
 
     return (
@@ -333,7 +334,12 @@ export function AddCameraWizard({ cameras, initial, onClose, onSaved }: AddCamer
                                         : previewError
                                             ? previewError
                                             : viewStream
-                                                ? `Субпоток ${viewStream.substream} · нажмите «Показать превью»`
+                                                ? (
+                                                    <span className="seps">
+                                                        <span>Субпоток {viewStream.substream}</span>
+                                                        <span>нажмите «Показать превью»</span>
+                                                    </span>
+                                                )
                                                 : 'Появится, когда у камеры будет поток с назначением «Просмотр»'}
                                 </div>
                             </div>
@@ -506,7 +512,11 @@ export function AddCameraWizard({ cameras, initial, onClose, onSaved }: AddCamer
                                             <div className="scard" key={stream.key}>
                                                 <span className="plate"><b>{stream.substream}</b><i>суб</i></span>
                                                 <span className="who">
-                                                    <span className="n">{describe(stream)}</span>
+                                                    <span className="n">
+                                                        <span className="seps">
+                                                            {describe(stream).map(part => <span key={part}>{part}</span>)}
+                                                        </span>
+                                                    </span>
                                                     <PurposePicker
                                                         purposes={stream.purposes}
                                                         modules={modules}

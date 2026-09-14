@@ -14,9 +14,6 @@ const IP_RE = /^(\d{1,3}\.){3}\d{1,3}$/;
 const passportName = (passport: DevicePassport): string =>
     passport.hostname?.trim() || passport.ip;
 
-const modulesLine = (modules: string[]): string =>
-    modules.length ? modules.map(m => MODULE_LABEL[m] ?? m).join(' · ') : 'только камеры';
-
 export function AddDeviceModal({ onClose, onAdded }: AddDeviceModalProps) {
     const [ip, setIp] = useState('');
     const [passport, setPassport] = useState<DevicePassport | null>(null);
@@ -179,7 +176,9 @@ export function AddDeviceModal({ onClose, onAdded }: AddDeviceModalProps) {
                         <div className="divider">или</div>
                         <button className="btn btn--wide" disabled={busy} onClick={scan}>
                             <Icon name="search" size={15} />
-                            {scanning ? 'Скан…' : 'Найти в сети · порт 7777'}
+                            {scanning ? 'Скан…' : (
+                                <span className="seps"><span>Найти в сети</span><span>порт 7777</span></span>
+                            )}
                         </button>
                         {scanning && <div className="probe-bar"><i /></div>}
                     </>
@@ -213,7 +212,14 @@ export function AddDeviceModal({ onClose, onAdded }: AddDeviceModalProps) {
                                             {item.hostname || item.ip}
                                             {item.known && <span className="tag tag--xs">в реестре</span>}
                                         </span>
-                                        <span className="sub">{item.ip} · {modulesLine(item.modules)}</span>
+                                        <span className="sub">
+                                            <span className="seps">
+                                                <span>{item.ip}</span>
+                                                {item.modules.length
+                                                    ? item.modules.map(m => <span key={m}>{MODULE_LABEL[m] ?? m}</span>)
+                                                    : <span>только камеры</span>}
+                                            </span>
+                                        </span>
                                     </span>
                                     <span className="fnd-right">
                                         <span className="tag">{item.version ?? '—'}</span>

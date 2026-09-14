@@ -179,8 +179,11 @@ export function LoadPresetModal({ dirty, onLoad, onClose }: LoadPresetModalProps
                                 <div className="t">
                                     <b>{p.name || p.key}</b>
                                     <span>
-                                        {p.key} · {p.canvas?.width ?? '—'}×{p.canvas?.height ?? '—'}
-                                        {p.cameras != null && ` · ${p.cameras} камер`}
+                                        <span className="seps">
+                                            <span>{p.key}</span>
+                                            <span>{p.canvas?.width ?? '—'}×{p.canvas?.height ?? '—'}</span>
+                                            {p.cameras != null && <span>{p.cameras} камер</span>}
+                                        </span>
                                     </span>
                                 </div>
                                 <button

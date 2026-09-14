@@ -113,7 +113,12 @@ export function SaveConfigModal({
                     <div className="kv">
                         <span className="k">Шаблон</span>
                         <span className="v num">
-                            {pattern ? `${pattern.width}×${pattern.height} · ${pattern.size} мм` : '—'}
+                            {pattern ? (
+                                <span className="seps">
+                                    <span>{pattern.width}×{pattern.height}</span>
+                                    <span>{pattern.size} мм</span>
+                                </span>
+                            ) : '—'}
                         </span>
                     </div>
                     <div className="kv">

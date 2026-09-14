@@ -496,7 +496,7 @@
 .dm-nm { min-width: 0 }
 .dm-nm b { display: block; font-size: 12.5px; font-weight: 500; color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .dm-trk.is-on .dm-nm b { color: var(--fg) }
-.dm-nm span { display: block; font-family: var(--mono); font-size: 9.5px; color: var(--fg-3); margin-top: 1px }
+.dm-nm > span { display: block; font-family: var(--mono); font-size: 9.5px; color: var(--fg-3); margin-top: 1px }
 
 .dm-num { font-family: var(--mono); font-size: 11px; color: var(--fg-3); white-space: nowrap; font-variant-numeric: tabular-nums }
 .dm-trk.is-on .dm-num { color: var(--fg-2) }

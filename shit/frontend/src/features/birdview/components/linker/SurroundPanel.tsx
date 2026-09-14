@@ -724,7 +724,12 @@ export function SurroundPanel({
                             .finally(() => setResApplying(false));
                     }}
                 >
-                    {resApplying ? 'Перезапуск вывода…' : 'Применить · перезапуск вывода'}
+                    {resApplying ? 'Перезапуск вывода…' : (
+                        <span className="seps">
+                            <span>Применить</span>
+                            <span>перезапуск вывода</span>
+                        </span>
+                    )}
                 </button>
 
                 <Subhead>Орбита</Subhead>
@@ -890,8 +895,11 @@ export function SurroundPanel({
             {p && (
                 <>
                     <div className="pnp">
-                        <b>{p.source === 'manual' ? 'ручная поза' : 'PnP'}</b>
-                        {`· h ${p.height.toFixed(3)} м · ${p.reprojectionError.toFixed(1)} px`}
+                        <span className="seps">
+                            <b>{p.source === 'manual' ? 'ручная поза' : 'PnP'}</b>
+                            <span>h {p.height.toFixed(3)} м</span>
+                            <span>{p.reprojectionError.toFixed(1)} px</span>
+                        </span>
                         {p.source === 'manual' && <span className="tag is-warn">оверрайд</span>}
                     </div>
 

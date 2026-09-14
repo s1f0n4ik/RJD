@@ -113,7 +113,7 @@
 .cfg-row.is-sel{background:rgba(var(--acc-rgb),.12);border-color:rgba(var(--acc-rgb),.38)}
 .cfg-row .t{flex:1;min-width:0}
 .cfg-row .t b{display:block;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.cfg-row .t span{display:block;font-family:var(--mono);font-size:10.5px;color:var(--fg-3);margin-top:1px}
+.cfg-row .t > span{display:block;font-family:var(--mono);font-size:10.5px;color:var(--fg-3);margin-top:1px}
 .cfg-row .icon-btn{width:26px;height:26px;border-color:transparent;color:var(--fg-3)}
 .cfg-row .icon-btn:hover{border-color:rgba(255,107,128,.5);color:var(--err)}
 .cfg-row.is-bad{opacity:.5}

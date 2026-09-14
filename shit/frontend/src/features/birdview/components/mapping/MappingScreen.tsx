@@ -99,10 +99,19 @@ export function MappingScreen({ active }: { active: boolean }) {
         <div className={`sv sv-map${active ? '' : ' is-hidden'}`}>
             <div className="sv-main">
                 <div className="toolbar">
-                    <span className="pill"><span className="dot acc" />камер 360 · {cameras.length}</span>
-                    <span className={`pill${withCorrection ? ' ok' : ''}`}><span className="dot" />с коррекцией · {withCorrection}</span>
+                    <span className="pill">
+                        <span className="dot acc" />
+                        <span className="seps"><span>камер 360</span><span>{cameras.length}</span></span>
+                    </span>
+                    <span className={`pill${withCorrection ? ' ok' : ''}`}>
+                        <span className="dot" />
+                        <span className="seps"><span>с коррекцией</span><span>{withCorrection}</span></span>
+                    </span>
                     {mismatched > 0 && (
-                        <span className="pill warn"><span className="dot" />разрешение не совпадает · {mismatched}</span>
+                        <span className="pill warn">
+                            <span className="dot" />
+                            <span className="seps"><span>разрешение не совпадает</span><span>{mismatched}</span></span>
+                        </span>
                     )}
                     <div className="pills">
                         <button className="btn btn--sm" onClick={() => void reload()} disabled={loading || saving}>

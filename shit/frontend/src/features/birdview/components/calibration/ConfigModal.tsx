@@ -83,7 +83,12 @@ export function ConfigModal({ configs, detail, selectedId, loadedKey, onSelect, 
                                     <span className={`dot${loaded ? ' ok' : ''}`} />
                                     <div className="t">
                                         <b title={cfg.name || undefined}>{key}</b>
-                                        <span>{`${cfg.id} · ${cfg.width ?? '—'}×${cfg.height ?? '—'}`}</span>
+                                        <span>
+                                            <span className="seps">
+                                                <span>{cfg.id}</span>
+                                                <span>{cfg.width ?? '—'}×{cfg.height ?? '—'}</span>
+                                            </span>
+                                        </span>
                                     </div>
                                     {loaded && <span className="tag is-ok">загружена</span>}
                                 </button>

@@ -224,7 +224,13 @@ export function ScanModal({ cameras, onClose, onPick, pickLabel = 'Добави�
                         </div>
                         <span className="num muted" style={{ fontSize: 11.5 }}>
                             {stage === 'onvif' && 'опрос ONVIF…'}
-                            {stage === 'ports' && `порты · ${progress.scanned} из ${progress.total}${currentSubnet ? ` · ${currentSubnet}` : ''}`}
+                            {stage === 'ports' && (
+                                <span className="seps">
+                                    <span>порты</span>
+                                    <span>{progress.scanned} из {progress.total}</span>
+                                    {currentSubnet && <span>{currentSubnet}</span>}
+                                </span>
+                            )}
                             {stage === 'done' && 'завершено'}
                         </span>
                     </div>

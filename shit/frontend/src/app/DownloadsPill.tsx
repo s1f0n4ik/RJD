@@ -60,7 +60,12 @@ export function DownloadsPill() {
             >
                 <i className="ring" style={{ ['--p' as string]: `${percent}%` }} />
                 {running.length
-                    ? `${running.length} ${plural(running.length)} · ${percent} %`
+                    ? (
+                        <span className="seps">
+                            <span>{running.length} {plural(running.length)}</span>
+                            <span>{percent} %</span>
+                        </span>
+                    )
                     : 'Готово к скачиванию'}
             </button>
 
@@ -104,7 +109,14 @@ function Row({ item, onCancel, onDismiss, onSave }: RowProps) {
             ? fmtBytes(item.bytes)
             : item.status === 'queued'
                 ? 'устройство занято'
-                : `${item.message ? `${item.message} · ` : ''}${percent} %`;
+                : item.message
+                    ? (
+                        <span className="seps">
+                            <span>{item.message}</span>
+                            <span>{percent} %</span>
+                        </span>
+                    )
+                    : `${percent} %`;
 
     return (
         <div className="dl-job">

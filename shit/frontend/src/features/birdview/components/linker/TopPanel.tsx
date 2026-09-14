@@ -157,7 +157,14 @@ export function TopPanel({
         <>
             <Subhead>
                 Версия карт
-                {legacy && <span className="tag is-warn">карты v{cfg.generation} · нужен пересчёт</span>}
+                {legacy && (
+                    <span className="tag is-warn">
+                        <span className="seps">
+                            <span>карты v{cfg.generation}</span>
+                            <span>нужен пересчёт</span>
+                        </span>
+                    </span>
+                )}
             </Subhead>
             <div className="tf">
                 <span className="tf-cap">Активная</span>
@@ -220,7 +227,12 @@ export function TopPanel({
                     {resApplying
                         ? 'Применение…'
                         : live
-                          ? 'Применить · перезапуск вывода'
+                          ? (
+                              <span className="seps">
+                                  <span>Применить</span>
+                                  <span>перезапуск вывода</span>
+                              </span>
+                            )
                           : 'Применить'}
                 </button>
             </>
@@ -303,7 +315,10 @@ export function TopPanel({
                                                 height: img.defaultHeight,
                                             })}
                                         >
-                                            Исходный размер · {img.defaultWidth}×{img.defaultHeight}
+                                            <span className="seps">
+                                                <span>Исходный размер</span>
+                                                <span>{img.defaultWidth}×{img.defaultHeight}</span>
+                                            </span>
                                         </button>
                                     )}
                                 </>

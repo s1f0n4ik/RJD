@@ -208,7 +208,7 @@ export const streamStatus = (stream: StreamInfo, offline: boolean): { label: str
 };
 
 /** Состояние камеры из состояний её потоков. */
-export const cameraStatus = (camera: Camera): { label: string; tone: StatusTone } => {
+export const cameraStatus = (camera: Camera): { label: string; detail?: string; tone: StatusTone } => {
     if (camera.offline) return { label: 'устройство молчит', tone: 'err' };
     const streams = streamsOf(camera);
     if (streams.length === 0) return { label: 'потоков нет', tone: 'dim' };
@@ -216,7 +216,7 @@ export const cameraStatus = (camera: Camera): { label: string; tone: StatusTone 
     const dead = streams.filter(s => !s.live);
     if (dead.length === 0) return { label: 'в работе', tone: 'ok' };
     if (dead.length === streams.length) return { label: 'нет потоков', tone: 'err' };
-    return { label: `частично · поток ${dead.map(s => s.number).join(', ')} молчит`, tone: 'warn' };
+    return { label: 'частично', detail: `поток ${dead.map(s => s.number).join(', ')} молчит`, tone: 'warn' };
 };
 
 export interface Validation {

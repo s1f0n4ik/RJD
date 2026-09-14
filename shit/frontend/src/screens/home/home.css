@@ -45,6 +45,9 @@
 
 .tile .foot{margin-top:auto;font-family:var(--mono);font-size:10.5px;color:var(--fg-2)}
 
+/* Значения внутри .seps — внуки, общее правило .tile span их перебивает */
+.tile .foot span{font-size:inherit;color:inherit;line-height:inherit}
+
 /* Плитка недоступного модуля: кликать нечего, причина написана прямо в ней */
 .tile.is-off{opacity:.5;filter:grayscale(.6);cursor:not-allowed}
 

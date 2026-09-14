@@ -182,8 +182,13 @@ export function ArchivePlayer({
     }, []);
 
     const stamp = current
-        ? `${track?.camera_id ?? ''} · ${fmtTime(current.start_ms)}`
-        : '';
+        ? (
+            <span className="seps">
+                <span>{track?.camera_id ?? ''}</span>
+                <span>{fmtTime(current.start_ms)}</span>
+            </span>
+        )
+        : null;
 
     // Записи под курсором нет — кадр гаснет, а не остаётся под надписью.
     // Куда прыгать, считаем по кускам: они есть у дорожки всегда, в отличие
@@ -232,7 +237,10 @@ export function ArchivePlayer({
             {failed && (
                 <div className="arch-empty">
                     <Icon name="warn" />
-                    <span>Фрагмент не открылся: {current?.file}{error ? ` · ${error}` : ''}</span>
+                    <span className="seps">
+                        <span>Фрагмент не открылся: {current?.file}</span>
+                        {error && <span>{error}</span>}
+                    </span>
                 </div>
             )}
         </div>

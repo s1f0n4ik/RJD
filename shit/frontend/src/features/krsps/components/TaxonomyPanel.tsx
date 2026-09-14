@@ -308,7 +308,13 @@ const TaxonomyPanel: React.FC<Props> = ({ taxonomy, busy, onSave }) => {
       <div className="mod-title">
         <h2>Таблица соответствий</h2>
         <span className="pill">{configs.length} {plural(configs.length, 'таблица', 'таблицы', 'таблиц')}</span>
-        <span className="pill">умолчания · тип {defaults.type} · опасность {defaults.danger}</span>
+        <span className="pill">
+          <span className="seps">
+            <span>умолчания</span>
+            <span>тип {defaults.type}</span>
+            <span>опасность {defaults.danger}</span>
+          </span>
+        </span>
         <div className="title-sel spacer">
           <span className="cap">Новая таблица</span>
           {free.length > 0 ? (
@@ -345,15 +351,27 @@ const TaxonomyPanel: React.FC<Props> = ({ taxonomy, busy, onSave }) => {
                 <h3>{c.title || c.id}</h3>
                 <span className="id">{c.id}</span>
                 <span className="meta">
-                  {c.classes.length} {plural(c.classes.length, 'класс', 'класса', 'классов')} · {c.superclasses.length}{' '}
-                  {plural(c.superclasses.length, 'суперкласс', 'суперкласса', 'суперклассов')}
+                  <span className="seps">
+                    <span>
+                      {c.classes.length} {plural(c.classes.length, 'класс', 'класса', 'классов')}
+                    </span>
+                    <span>
+                      {c.superclasses.length}{' '}
+                      {plural(c.superclasses.length, 'суперкласс', 'суперкласса', 'суперклассов')}
+                    </span>
+                  </span>
                 </span>
                 <button type="button" className="icon-btn" title="Удалить таблицу конфигурации" onClick={() => removeConfig(c.id)}>
                   <Icon name="trash" size={15} />
                 </button>
               </div>
               <div className="card-b">
-                <span className="eyebrow">Суперклассы · опасность на всю группу</span>
+                <span className="eyebrow">
+                  <span className="seps">
+                    <span>Суперклассы</span>
+                    <span>опасность на всю группу</span>
+                  </span>
+                </span>
                 <div className="gt">
                   <table className="spec">
                     <thead>
@@ -389,7 +407,12 @@ const TaxonomyPanel: React.FC<Props> = ({ taxonomy, busy, onSave }) => {
                   </table>
                 </div>
 
-                <span className="eyebrow">Классы · тип по id, опасность от группы</span>
+                <span className="eyebrow">
+                  <span className="seps">
+                    <span>Классы</span>
+                    <span>тип по id, опасность от группы</span>
+                  </span>
+                </span>
                 <div className="gt">
                   <table className="spec">
                     <thead>

@@ -105,24 +105,38 @@ export const RecordRow: React.FC<RecordRowProps> = ({ r, sentNote, showVer = tru
   const glyph = rejected ? '✕' : heartbeat ? '♥' : '✓';
 
   const title = heartbeat
-    ? 'heartbeat'
+    ? ['heartbeat']
     : rejected
-    ? `#${r.id} · отклонено`
-    : `#${r.id} · ${r.detections} ${detWord(r.detections)}`;
+    ? [`#${r.id}`, 'отклонено']
+    : [`#${r.id}`, `${r.detections} ${detWord(r.detections)}`];
 
-  const ver = showVer ? ` · v${r.ver}` : '';
-  const sub = rejected
-    ? `${formatClock(r.ts)}${ver} · ${r.error ? humanizeError(r.error) : 'отклонено'}`
+  const note = rejected
+    ? r.error
+      ? humanizeError(r.error)
+      : 'отклонено'
     : heartbeat
-    ? `${formatClock(r.ts)}${ver} · служебное`
-    : `${formatClock(r.ts)}${ver} · ${sentNote}`;
+    ? 'служебное'
+    : sentNote;
+  const sub = showVer ? [formatClock(r.ts), `v${r.ver}`, note] : [formatClock(r.ts), note];
 
   return (
     <div className="rec">
       <span className={`ic ${kind}`}>{glyph}</span>
       <div className="t">
-        <b>{title}</b>
-        <span>{sub}</span>
+        <b>
+          <span className="seps">
+            {title.map((p, i) => (
+              <span key={i}>{p}</span>
+            ))}
+          </span>
+        </b>
+        <span>
+          <span className="seps">
+            {sub.map((p, i) => (
+              <span key={i}>{p}</span>
+            ))}
+          </span>
+        </span>
       </div>
       <span className="sz">{rejected ? '—' : bytesShort(r.wire_size)}</span>
     </div>

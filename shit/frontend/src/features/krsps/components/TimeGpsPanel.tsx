@@ -106,14 +106,14 @@ const TimeGpsPanel: React.FC<Props> = ({ time, offsetMs, synced, onTimeUpdate })
         <div className="card fit time">
           <div className="card-h">
             <h3>Единое время ({tzLabel(time?.tz_offset_min)})</h3>
-            <span className="meta">источник · {sourceNote(time?.source.time)}</span>
+            <span className="meta"><span className="seps"><span>источник</span><span>{sourceNote(time?.source.time)}</span></span></span>
           </div>
           <div className="card-b">
             <div className="clock-wrap">
               <div className="clock">
                 {hh}:{mm}:{ss}<small>.{mmm}</small>
               </div>
-              <span className="date">{dateStr} · unix {formatInt(unixS)}</span>
+              <span className="date seps"><span>{dateStr}</span><span>unix {formatInt(unixS)}</span></span>
             </div>
           </div>
         </div>
@@ -121,7 +121,7 @@ const TimeGpsPanel: React.FC<Props> = ({ time, offsetMs, synced, onTimeUpdate })
         <div className="card gps" style={{ '--w': '420px' } as React.CSSProperties}>
           <div className="card-h">
             <h3>Координаты</h3>
-            <span className="meta">источник · {sourceNote(time?.source.gps)}</span>
+            <span className="meta"><span className="seps"><span>источник</span><span>{sourceNote(time?.source.gps)}</span></span></span>
           </div>
           <div className="card-b">
             <div className="kvs">

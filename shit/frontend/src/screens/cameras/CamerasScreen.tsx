@@ -399,7 +399,10 @@ export function CamerasScreen() {
                                             <span>
                                                 <span className={`st st-${status.tone}`}>
                                                     <span className={`dot ${status.tone === 'info' ? 'acc' : status.tone === 'dim' ? '' : status.tone}`} />
-                                                    {status.label}
+                                                    <span className="seps">
+                                                        <span>{status.label}</span>
+                                                        {status.detail && <span>{status.detail}</span>}
+                                                    </span>
                                                 </span>
                                             </span>
                                         </div>
@@ -430,12 +433,20 @@ export function CamerasScreen() {
                         <div className="drawer-h">
                             <div className="drawer-who">
                                 <h2>{selected.display_name || selected.id}</h2>
-                                <span className="sub">{selected.id} · {selected.device_name ?? '—'}</span>
+                                <span className="sub">
+                                    <span className="seps">
+                                        <span>{selected.id}</span>
+                                        <span>{selected.device_name ?? '—'}</span>
+                                    </span>
+                                </span>
                             </div>
                             <span className="spacer" />
                             <span className={`st st-${cameraStatus(selected).tone}`}>
                                 <span className={`dot ${cameraStatus(selected).tone === 'ok' ? 'ok' : 'err'}`} />
-                                {cameraStatus(selected).label}
+                                <span className="seps">
+                                    <span>{cameraStatus(selected).label}</span>
+                                    {cameraStatus(selected).detail && <span>{cameraStatus(selected).detail}</span>}
+                                </span>
                             </span>
                             <button
                                 className="icon-btn"

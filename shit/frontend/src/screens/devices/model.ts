@@ -6,6 +6,8 @@ export interface DeviceMetric {
     key: string;
     label: string;
     value: string;
+    // Уточнение справа от значения — рисуется отдельным куском через .seps
+    note?: string;
     // Заполнение полосы, 0…100
     pct: number;
     tone: Tone;
@@ -103,7 +105,8 @@ export function deviceMetrics(device: Device): DeviceMetric[] {
     metrics.push(cpu === undefined ? EMPTY_METRIC('cpu', 'Процессор') : {
         key: 'cpu',
         label: 'Процессор',
-        value: `${Math.round(cpu)} %${cores ? ` · ${cores} яд.` : ''}`,
+        value: `${Math.round(cpu)} %`,
+        note: cores ? `${cores} яд.` : undefined,
         pct: Math.min(100, cpu),
         tone: band(cpu, 70, 88),
     });

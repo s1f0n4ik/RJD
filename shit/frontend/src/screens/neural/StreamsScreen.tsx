@@ -328,13 +328,12 @@ export function StreamsScreen({ status, onRefreshStatus }: StreamsScreenProps) {
                                         )}
                                         {st?.model && (
                                             <div className="sl-model">
-                                                <span>{st.model.input_width}×{st.model.input_height}</span>
-                                                <span className="sep">·</span>
-                                                <span>{st.model.quantized ? 'int8' : 'fp16'}</span>
-                                                <span className="sep">·</span>
-                                                <span className="tag" data-tip={st.layout}>{layoutName(st.layout)}</span>
-                                                <span className="sep">·</span>
-                                                <span>{st.model.class_count} {plural(st.model.class_count, 'класс', 'класса', 'классов')}</span>
+                                                <span className="seps">
+                                                    <span>{st.model.input_width}×{st.model.input_height}</span>
+                                                    <span>{st.model.quantized ? 'int8' : 'fp16'}</span>
+                                                    <span className="tag" data-tip={st.layout}>{layoutName(st.layout)}</span>
+                                                    <span>{st.model.class_count} {plural(st.model.class_count, 'класс', 'класса', 'классов')}</span>
+                                                </span>
                                                 <span className="spacer" />
                                                 <span className="dim">{fmtMb(st.model.weight_bytes)}</span>
                                             </div>
@@ -343,7 +342,10 @@ export function StreamsScreen({ status, onRefreshStatus }: StreamsScreenProps) {
                                             <div className="err-line">
                                                 <Icon name="warn" className="ico" />
                                                 {error.code != null && <span className="num">{error.code}</span>}
-                                                <span>{error.text}{error.detail && error.text !== error.detail ? ` · ${error.detail}` : ''}</span>
+                                                <span className="seps">
+                                                    <span>{error.text}</span>
+                                                    {error.detail && error.text !== error.detail && <span>{error.detail}</span>}
+                                                </span>
                                             </div>
                                         )}
                                     </div>
@@ -370,7 +372,10 @@ export function StreamsScreen({ status, onRefreshStatus }: StreamsScreenProps) {
                                 <span className="chip-col" style={{ background: used ? 'var(--acc)' : 'var(--line-hi)' }} />
                                 <div className="t">
                                     <b>{c.name || c.id}</b>
-                                    <span>{classCount[c.id] ?? 0} {plural(classCount[c.id] ?? 0, 'класс', 'класса', 'классов')}{trackerBy[c.id] ? ' · трекер' : ''}</span>
+                                    <span className="seps">
+                                        <span>{classCount[c.id] ?? 0} {plural(classCount[c.id] ?? 0, 'класс', 'класса', 'классов')}</span>
+                                        {trackerBy[c.id] && <span>трекер</span>}
+                                    </span>
                                 </div>
                                 {used > 0 && <span className="tag is-acc">×{used}</span>}
                                 <Icon name="plus" className="ico" />

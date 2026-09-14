@@ -177,9 +177,9 @@ export function AddStreamModal({ deviceId, connection, used, onPick, onClose }: 
                                 <span className="chnum">{item.substream}</span>
                                 <span className="who">
                                     <b>{item.width > 0 ? `${item.width}×${item.height}` : 'разрешение неизвестно'}</b>
-                                    <span className="sub">
-                                        {item.codec ? item.codec.toUpperCase() : '—'}
-                                        {item.fps ? ` · ${item.fps} к/с` : ''}
+                                    <span className="sub seps">
+                                        <span>{item.codec ? item.codec.toUpperCase() : '—'}</span>
+                                        {Boolean(item.fps) && <span>{item.fps} к/с</span>}
                                     </span>
                                 </span>
                                 <span className="btn btn--sm btn--acc">Добавить</span>

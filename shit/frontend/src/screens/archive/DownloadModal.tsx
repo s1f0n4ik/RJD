@@ -301,12 +301,16 @@ export function DownloadModal({
                                 <span className="dm-nm">
                                     <b>{row.name}</b>
                                     <span>
-                                        {row.track.camera_id} · {row.track.stream_key.replace('stream_', 'канал ')}
-                                        {row.deleted ? ' · удалена' : ''}
+                                        <span className="seps">
+                                            <span>{row.track.camera_id}</span>
+                                            <span>{row.track.stream_key.replace('stream_', 'канал ')}</span>
+                                            {row.deleted && <span>удалена</span>}
+                                        </span>
                                     </span>
                                 </span>
-                                <span className="dm-num">
-                                    {row.recorded > 0 && `${fmtDuration(row.recorded)} · ≈ ${fmtBytes(row.bytes)}`}
+                                <span className="dm-num seps">
+                                    {row.recorded > 0 && <span>{fmtDuration(row.recorded)}</span>}
+                                    {row.recorded > 0 && <span>≈ {fmtBytes(row.bytes)}</span>}
                                 </span>
                             </span>
 

@@ -426,7 +426,14 @@ export function JournalSection() {
           <div className="kv">
             <span className="k">Трек</span>
             <span className="v">
-              {selectedDet.track_id != null ? `#${selectedDet.track_id}${selectedDet.event ? ' · ' + selectedDet.event : ''}` : '—'}
+              {selectedDet.track_id != null ? (
+                <span className="seps">
+                  <span>#{selectedDet.track_id}</span>
+                  {selectedDet.event ? <span>{selectedDet.event}</span> : null}
+                </span>
+              ) : (
+                '—'
+              )}
             </span>
           </div>
           <div className="kv"><span className="k">Объекты</span><span className="v">{selectedDet.objects.length}</span></div>
