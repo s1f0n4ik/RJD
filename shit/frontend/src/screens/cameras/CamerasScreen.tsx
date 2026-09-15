@@ -353,18 +353,6 @@ export function CamerasScreen() {
             </div>
 
             <div className="cams-body">
-                <div className="cams-list">
-                    {/* Шапка вне прокрутки: строки крутятся под ней */}
-                    {loaded && cameras.length > 0 && (
-                        <div className="cam-head">
-                            <span>Название</span>
-                            <span>Назначения</span>
-                            <span>IP-адрес</span>
-                            <span>Устройство</span>
-                            <span>Потоков</span>
-                            <span>Состояние</span>
-                        </div>
-                    )}
                 <div className="cams-scroll">
                     {!loaded ? (
                         <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -386,6 +374,14 @@ export function CamerasScreen() {
                         </div>
                     ) : (
                         <div className="cam-grid">
+                            <div className="cam-head">
+                                <span>Название</span>
+                                <span>Назначения</span>
+                                <span>IP-адрес</span>
+                                <span>Устройство</span>
+                                <span>Потоков</span>
+                                <span>Состояние</span>
+                            </div>
                             {visible.map(camera => {
                                 const status = cameraStatus(camera);
                                 const open = camera.id === selectedId;
@@ -433,7 +429,6 @@ export function CamerasScreen() {
                             })}
                         </div>
                     )}
-                </div>
                 </div>
 
                 {selected && form && (

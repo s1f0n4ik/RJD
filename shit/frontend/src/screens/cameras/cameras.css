@@ -1,18 +1,15 @@
 /* Камеры: список-грид, подтаблица потоков и шторка настроек справа */
 
 /* Список и шторка стоят рядом */
-.cams-body{--cam-cols:minmax(150px,1fr) minmax(190px,1.4fr) 130px 120px 76px minmax(160px,max-content);flex:1;min-height:0;display:flex;overflow:hidden}
-/* Шапка вне прокрутки, строки — внутри; у обеих один резерв желоба, поэтому колонки совпадают */
-.cams-list{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column}
+.cams-body{flex:1;min-height:0;display:flex;overflow:hidden}
 .cams-scroll{flex:1;min-width:0;min-height:0;overflow:auto}
 
 /* Список камер — грид, не таблица: один шаблон колонок у шапки и строк,
    выравнивание держится геометрией и не зависит от содержимого ячеек */
 /* Состояние — по содержимому и у правого края, запас ширины уходит названию и назначениям */
-.cam-grid{min-width:840px}
+.cam-grid{--cam-cols:minmax(150px,1fr) minmax(190px,1.4fr) 130px 120px 76px minmax(160px,max-content);min-width:840px}
 .cam-head,.cam-row{display:grid;grid-template-columns:var(--cam-cols);align-items:center}
-/* overflow:hidden + stable: желоб той же ширины, что у строк, фон шапки доходит до края */
-.cam-head{flex:0 0 auto;overflow:hidden;scrollbar-gutter:stable;background:var(--surface);border-bottom:1px solid var(--line)}
+.cam-head{position:sticky;top:0;z-index:2;background:var(--surface);border-bottom:1px solid var(--line)}
 .cam-head span{padding:9px 12px;font-size:10px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--fg-3);white-space:nowrap}
 .cam-row{min-height:46px;border-bottom:1px solid var(--line);cursor:pointer;transition:.12s}
 .cam-row:hover{background:var(--surface)}
@@ -71,7 +68,8 @@
 .drawer-h .sub{display:block;font-size:11px;color:var(--fg-3);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .drawer-who{min-width:0;display:flex;flex-direction:column;gap:2px}
 /* Блоки идут сверху вниз: превью, потоки, подключение */
-.drawer-b{flex:1;display:flex;flex-direction:column;gap:18px;padding:14px;min-height:0;overflow-y:auto}
+/* Единственное место с резервом желоба: поля формы не должны сдвигаться, когда шторка начинает прокручиваться */
+.drawer-b{flex:1;display:flex;flex-direction:column;gap:18px;padding:14px;min-height:0;overflow-y:auto;scrollbar-gutter:stable}
 .drawer-col{display:flex;flex-direction:column;min-width:0;width:100%}
 /* Прижатый подвал шторки */
 .drawer-f{display:flex;align-items:center;gap:8px;padding:10px 14px;border-top:1px solid var(--line);background:var(--surface)}
