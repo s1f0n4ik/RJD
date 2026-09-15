@@ -1,0 +1,6 @@
+/* Экранная клавиатура: прижата к низу, поверх шторок и модалок */
+.osk{position:fixed;left:0;right:0;bottom:0;z-index:400;padding:8px;background:var(--panel);border-top:1px solid var(--line);box-shadow:var(--shadow-lg)}
+.osk .osk-theme.hg-theme-default{background:transparent;padding:0}
+.osk .osk-theme .hg-row{margin-bottom:6px}
+.osk .osk-theme .hg-button{height:56px;font-size:18px;font-family:var(--ui);background:var(--panel-2);color:var(--fg);border:1px solid var(--line);border-radius:var(--r);box-shadow:none}
+.osk .osk-theme .hg-button:active{background:var(--acc);color:#fff}

@@ -56,11 +56,6 @@ export default function TranslationScreen() {
     const switchSeq = useRef(0);
     const initialized = useRef(false);
 
-    useEffect(() => {
-        document.body.classList.add('ui-new');
-        return () => document.body.classList.remove('ui-new');
-    }, []);
-
     // ─── Источники ──────────────────────────────────────────────
 
     useEffect(() => {

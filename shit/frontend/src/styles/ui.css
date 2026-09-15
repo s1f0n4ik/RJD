@@ -83,6 +83,8 @@
 .btn--acc{background:var(--acc);border-color:var(--acc);color:#08101f}
 
 .btn--acc:hover{background:#7cb4ff}
+.btn--acc-dim{background:rgba(var(--acc-rgb),.22);border-color:transparent;color:var(--acc)}
+.btn--acc-dim:hover{background:rgba(var(--acc-rgb),.32)}
 
 .btn--save{background:var(--save);border-color:var(--save);color:#1a0f04}
 

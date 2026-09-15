@@ -4,24 +4,25 @@ import { SURROUND_SECTIONS, surroundSectionLabel } from '../screens/surround/sec
 import { NEURAL_SECTIONS, neuralSectionLabel } from '../screens/neural/sections';
 
 /**
- * Разделы новой оболочки.
+ * Разделы оболочки.
  *
- * ready:false — раздел ещё не переписан: пункт виден, приглушён и помечен
- * «в работе», клик по нему ничего не открывает. Так структура будущего
- * приложения видна целиком, а незаконченное не притворяется работающим.
+ * admin:true — раздел (или подраздел) только для администратора: наблюдатель
+ * его не видит ни в рельсе, ни на главной, а прямой адрес уводит на главную.
+ * Фильтрация — в role.ts.
  */
 export interface NavSubItem {
     to: string;
     label: string;
     /** Номер шага: подразделы — реальная последовательность настройки */
     n: string;
+    admin?: boolean;
 }
 
 export interface NavItem {
     to: string;
     label: string;
     icon: IconName;
-    ready: boolean;
+    admin?: boolean;
     group?: string;
     /** Подпись на плитке главной, как в макете */
     desc?: string;
@@ -29,22 +30,27 @@ export interface NavItem {
     sub?: NavSubItem[];
 }
 
+// Подразделы техзрения: наблюдателю открыт только журнал обнаружений
+const NEURAL_VIEWER_SECTIONS = new Set(['journal']);
+
 export const NAV: NavItem[] = [
-    { to: '/',         label: 'Главная',             icon: 'home',  ready: true },
-    { to: '/cameras',  label: 'Камеры',              icon: 'cam',   ready: true,  desc: 'Источники, потоки, разрешение' },
-    { to: '/live',     label: 'Отображение',         icon: 'grid',  ready: true,  desc: 'Сетки просмотра и прямой эфир' },
-    { to: '/archive',  label: 'Архив',               icon: 'arch',  ready: true,  desc: 'Записи, таймлайны и склейка' },
-    { to: '/devices',  label: 'Устройства',          icon: 'dev',   ready: true,  desc: 'Одноплатники: состояние и маршрутизация' },
+    { to: '/',         label: 'Главная',             icon: 'home' },
+    { to: '/cameras',  label: 'Камеры',              icon: 'cam',   desc: 'Источники, потоки, разрешение' },
+    { to: '/live',     label: 'Отображение',         icon: 'grid',  desc: 'Сетки просмотра и прямой эфир', admin: true },
+    { to: '/archive',  label: 'Архив',               icon: 'arch',  desc: 'Записи, таймлайны и склейка' },
+    { to: '/devices',  label: 'Устройства',          icon: 'dev',   desc: 'Одноплатники: состояние и маршрутизация', admin: true },
 
     {
-        to: '/neural', label: 'Техническое зрение', icon: 'eye', ready: true, group: 'Модули', desc: 'Конфигурации, потоки, журнал обнаружений',
-        sub: NEURAL_SECTIONS.map((s, i) => ({ to: `/neural/${s.id}`, label: s.label, n: String(i + 1).padStart(2, '0') })),
+        to: '/neural', label: 'Техническое зрение', icon: 'eye', group: 'Модули', desc: 'Конфигурации, потоки, журнал обнаружений',
+        sub: NEURAL_SECTIONS.map((s, i) => ({
+            to: `/neural/${s.id}`, label: s.label, n: String(i + 1).padStart(2, '0'), admin: !NEURAL_VIEWER_SECTIONS.has(s.id),
+        })),
     },
     {
-        to: '/surround', label: 'Система 360', icon: '360', ready: true, desc: 'Калибровка, сборка, конфигуратор',
+        to: '/surround', label: 'Система 360', icon: '360', desc: 'Калибровка, сборка, конфигуратор', admin: true,
         sub: SURROUND_SECTIONS.map((s, i) => ({ to: `/surround/${s.id}`, label: s.label, n: String(i + 1).padStart(2, '0') })),
     },
-    { to: '/krsps',    label: 'АС КРСПС',            icon: 'gate',  ready: true,  desc: 'Шлюз сообщений и таблица соответствий' },
+    { to: '/krsps',    label: 'АС КРСПС',            icon: 'gate',  desc: 'Шлюз сообщений и таблица соответствий', admin: true },
 ];
 
 // Крошки верхней планки: раздел и, при необходимости, шаг внутри него

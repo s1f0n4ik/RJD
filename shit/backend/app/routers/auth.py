@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, status, Depends
 from app.models.user import LoginRequest, Token, UserResponse
-from app.services.auth import authenticate_user, create_access_token, get_current_user
+from app.services.auth import USERS_DB, authenticate_user, create_access_token, get_current_user
 
 router = APIRouter()
 
@@ -15,6 +15,20 @@ async def login(request: LoginRequest):
             detail="Incorrect username or password"
         )
 
+    access_token = create_access_token(data={"sub": user["username"], "role": user["role"]})
+
+    return Token(
+        access_token=access_token,
+        role=user["role"],
+        username=user["username"]
+    )
+
+
+# Viewer needs no credentials: the role only unlocks read access, so the
+# login form offers it as a single button
+@router.post("/viewer", response_model=Token)
+async def login_viewer():
+    user = next(u for u in USERS_DB.values() if u["role"] == "viewer")
     access_token = create_access_token(data={"sub": user["username"], "role": user["role"]})
 
     return Token(

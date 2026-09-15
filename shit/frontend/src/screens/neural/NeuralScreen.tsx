@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import { Icon } from '../../app/Icons';
 import { useSystem } from '../../app/SystemContext';
+import { navFor, useRole } from '../../app/role';
 import { setNeuralStatus } from '../../app/neuralStatus';
 import { getRouting } from '../../services/devices';
 import { ToastProvider } from '../../features/birdview/components/common/Toast';
@@ -22,6 +23,7 @@ const STATUS_POLL_MS = 3000;
 export default function NeuralScreen() {
     const { section = '' } = useParams();
     const navigate = useNavigate();
+    const role = useRole();
     const { devices } = useSystem();
 
     const deviceId = getRouting().neural;
@@ -44,8 +46,10 @@ export default function NeuralScreen() {
         );
     }
 
+    // Первый доступный роли подраздел: у наблюдателя это журнал
     if (!isNeuralSection(section)) {
-        return <Navigate to={`/neural/${NEURAL_SECTIONS[0].id}`} replace />;
+        const first = navFor(role).find(i => i.to === '/neural')?.sub?.[0]?.to ?? `/neural/${NEURAL_SECTIONS[0].id}`;
+        return <Navigate to={first} replace />;
     }
 
     return (

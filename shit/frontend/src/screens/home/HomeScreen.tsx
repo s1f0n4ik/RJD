@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Icon } from '../../app/Icons';
-import { NAV } from '../../app/nav';
+import { navFor, useRole } from '../../app/role';
 import { useSystem } from '../../app/SystemContext';
 import { useDisks, useGatewayStatus, useLastDetections, useLinkerStatus, useNeuralStatus } from './useHomeData';
 import { useLayouts } from '../../hooks/Layouts';
@@ -32,6 +32,7 @@ const maxTemp = (device: Device) => {
 };
 
 export function HomeScreen() {
+    const role = useRole();
     const { cameras, devices } = useSystem();
     const disks = useDisks(devices);
     const { layouts } = useLayouts();
@@ -141,26 +142,18 @@ export function HomeScreen() {
 
                 <div className="cols">
                     <div className="tiles">
-                        {NAV.filter(item => item.to !== '/').map(item => (
-                            item.ready ? (
-                                <Link key={item.to} to={item.to} className={`tile${(item.to === '/krsps' && !gateway) || (item.to === '/surround' && !linker) || (item.to === '/neural' && !neural) ? ' is-off' : ''}`}>
-                                    <Icon name={item.icon} size={22} />
-                                    <b>{item.label}</b>
-                                    {item.desc && <span>{item.desc}</span>}
-                                    {item.to === '/cameras' && <span className="foot">{cameraSummary}</span>}
-                                    {item.to === '/live' && <span className="foot">{layoutSummary}</span>}
-                                    {item.to === '/devices' && <span className="foot">{deviceSummary}</span>}
-                                    {item.to === '/krsps' && <span className="foot">{gatewaySummary}</span>}
-                                    {item.to === '/surround' && <span className="foot">{linkerSummary}</span>}
-                                    {item.to === '/neural' && <span className="foot">{neuralSummary}</span>}
-                                </Link>
-                            ) : (
-                                <div key={item.to} className="tile is-off">
-                                    <Icon name={item.icon} size={22} />
-                                    <b>{item.label}</b>
-                                    <span className="foot">в работе</span>
-                                </div>
-                            )
+                        {navFor(role).filter(item => item.to !== '/').map(item => (
+                            <Link key={item.to} to={item.to} className={`tile${(item.to === '/krsps' && !gateway) || (item.to === '/surround' && !linker) || (item.to === '/neural' && !neural) ? ' is-off' : ''}`}>
+                                <Icon name={item.icon} size={22} />
+                                <b>{item.label}</b>
+                                {item.desc && <span>{item.desc}</span>}
+                                {item.to === '/cameras' && <span className="foot">{cameraSummary}</span>}
+                                {item.to === '/live' && <span className="foot">{layoutSummary}</span>}
+                                {item.to === '/devices' && <span className="foot">{deviceSummary}</span>}
+                                {item.to === '/krsps' && <span className="foot">{gatewaySummary}</span>}
+                                {item.to === '/surround' && <span className="foot">{linkerSummary}</span>}
+                                {item.to === '/neural' && <span className="foot">{neuralSummary}</span>}
+                            </Link>
                         ))}
                     </div>
 

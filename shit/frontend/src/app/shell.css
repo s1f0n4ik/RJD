@@ -151,9 +151,6 @@
 .glow{background:radial-gradient(1100px 560px at 50% -240px,var(--acc-glow),transparent 70%),var(--bg)}
 
 /* Непереписанный раздел: виден, приглушён, ничего не открывает */
-.rail-item.is-pending{opacity:.45;cursor:default}
-.rail-item.is-pending:hover{background:none;color:var(--fg-2)}
-.rail-item.is-pending .badge{background:none;border:1px solid var(--line);color:var(--fg-3);font-family:var(--ui);font-size:10.5px}
 
 /* ── Подсписок раздела: виден только в активном разделе, в узкой рельсе скрыт ── */
 .rail-sub{display:none;flex-direction:column;gap:2px;padding:2px 0 6px;position:relative}

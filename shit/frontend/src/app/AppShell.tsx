@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { Navigate, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { Icon, IconSprite } from './Icons';
-import { NAV, crumbsFor } from './nav';
+import { crumbsFor } from './nav';
+import { canOpen, navFor } from './role';
 import { DownloadsPill } from './DownloadsPill';
 import { useSystem } from './SystemContext';
 import { formatDeviceTime, useDeviceClock } from './useDeviceClock';
@@ -36,6 +37,39 @@ export function AppShell({ username, role, onLogout }: AppShellProps) {
     const crumbs = crumbsFor(pathname);
     const initials = username.slice(0, 2).toUpperCase() || 'ОП';
 
+    // Закрытый для роли адрес — на главную; проверка одна на все экраны
+    if (!canOpen(pathname, role)) return <Navigate to="/" replace />;
+
+    // Подпись группы стоит у первого модуля, всё после него — та же группа
+    const nav = navFor(role);
+    const firstModule = nav.findIndex(item => item.group);
+    const mainItems = firstModule < 0 ? nav : nav.slice(0, firstModule);
+    const moduleItems = firstModule < 0 ? [] : nav.slice(firstModule);
+
+    const railItem = (item: (typeof nav)[number]) => (
+        <div key={item.to} style={{ display: 'contents' }}>
+            <NavLink
+                to={item.to}
+                end={item.to === '/'}
+                className={({ isActive }) => `rail-item${isActive ? ' is-active' : ''}`}
+            >
+                <Icon name={item.icon} />
+                <span className="lbl">{item.label}</span>
+            </NavLink>
+            {item.sub && (
+                <div className="rail-sub">
+                    {item.sub.map(sub => (
+                        <NavLink key={sub.to} to={sub.to} className={({ isActive }) => `rsub${isActive ? ' is-on' : ''}`}>
+                            <span className="n">{sub.n}</span>
+                            {sub.label}
+                            {subDot(sub.to, surround, neural)}
+                        </NavLink>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+
     return (
         <div className={`shell${narrow ? ' is-narrow' : ''}`}>
             <IconSprite />
@@ -56,46 +90,14 @@ export function AppShell({ username, role, onLogout }: AppShellProps) {
                 </div>
 
                 <div className="rail-nav">
-                    {NAV.map(item => (
-                        <div key={item.to} style={{ display: 'contents' }}>
-                            {item.group && <div className="rail-group">{item.group}</div>}
-                            {item.ready ? (
-                                <NavLink
-                                    to={item.to}
-                                    end={item.to === '/'}
-                                    className={({ isActive }) => `rail-item${isActive ? ' is-active' : ''}`}
-                                >
-                                    <Icon name={item.icon} />
-                                    <span className="lbl">{item.label}</span>
-                                </NavLink>
-                            ) : null}
-                            {/* Эфир открывается вне оболочки — обычная ссылка, не маршрут роутера */}
-                            {item.to === '/devices' && (
-                                <a className="rail-item" href="/translation">
-                                    <Icon name="play" />
-                                    <span className="lbl">Прямая трансляция</span>
-                                </a>
-                            )}
-                            {item.ready && item.sub && (
-                                <div className="rail-sub">
-                                    {item.sub.map(sub => (
-                                        <NavLink key={sub.to} to={sub.to} className={({ isActive }) => `rsub${isActive ? ' is-on' : ''}`}>
-                                            <span className="n">{sub.n}</span>
-                                            {sub.label}
-                                            {subDot(sub.to, surround, neural)}
-                                        </NavLink>
-                                    ))}
-                                </div>
-                            )}
-                            {!item.ready && (
-                                <div className="rail-item is-pending" aria-disabled="true">
-                                    <Icon name={item.icon} />
-                                    <span className="lbl">{item.label}</span>
-                                    <span className="badge">в работе</span>
-                                </div>
-                            )}
-                        </div>
-                    ))}
+                    {mainItems.map(railItem)}
+                    {/* Эфир открывается вне оболочки — обычная ссылка, не маршрут роутера */}
+                    <a className="rail-item" href="/translation">
+                        <Icon name="play" />
+                        <span className="lbl">Прямая трансляция</span>
+                    </a>
+                    {moduleItems.length > 0 && <div className="rail-group">{moduleItems[0].group}</div>}
+                    {moduleItems.map(railItem)}
                 </div>
 
                 <div className="rail-foot">

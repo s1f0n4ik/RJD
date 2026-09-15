@@ -1,11 +1,9 @@
-import { useEffect, useState } from 'react';
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
-// Токены и общие классы обязаны попасть в документ раньше стилей экранов:
-// иначе базовое .modal из ui.css перебивает экранные размеры модалок
-import '../styles/tokens.css';
-import '../styles/ui.css';
+import { useState } from 'react';
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { AppShell } from './AppShell';
 import { DownloadsProvider } from './DownloadsContext';
+import { OnScreenKeyboard } from './OnScreenKeyboard';
+import { RoleContext } from './role';
 import { SystemProvider } from './SystemContext';
 import { HomeScreen } from '../screens/home/HomeScreen';
 import { CamerasScreen } from '../screens/cameras/CamerasScreen';
@@ -18,21 +16,17 @@ import NeuralScreen from '../screens/neural/NeuralScreen';
 import { LoginScreen } from '../screens/login/LoginScreen';
 import { readStoredToken } from '../utils/auth';
 
-/**
- * Новая оболочка на /new. Живёт рядом со старым приложением на /app и
- * подключается лениво — пока сюда не зашли, её стили не попадают в документ
- * и не спорят с MUI-темой старых экранов.
- */
+// Прежний адрес модуля 360: остался в закладках и в документации
+function BirdviewRedirect() {
+    const { pathname } = useLocation();
+    return <Navigate to={pathname.replace(/^\/birdview/, '/surround')} replace />;
+}
+
+/** Оболочка приложения на /app: логин, разделы, права по роли. */
 export default function NewApp() {
     const [token, setToken] = useState<string | null>(readStoredToken());
     const [role, setRole] = useState<string>(localStorage.getItem('role') ?? 'viewer');
     const [username, setUsername] = useState<string>(localStorage.getItem('username') ?? '');
-
-    // Базовые правила макета прижаты к body.ui-new, иначе они задели бы /app
-    useEffect(() => {
-        document.body.classList.add('ui-new');
-        return () => document.body.classList.remove('ui-new');
-    }, []);
 
     const handleLogin = (newToken: string, newRole: string, newUsername: string) => {
         localStorage.setItem('token', newToken);
@@ -50,10 +44,18 @@ export default function NewApp() {
         setToken(null);
     };
 
-    if (!token) return <LoginScreen onLogin={handleLogin} />;
+    if (!token) {
+        return (
+            <>
+                <LoginScreen onLogin={handleLogin} />
+                <OnScreenKeyboard />
+            </>
+        );
+    }
 
     return (
-        <BrowserRouter basename="/new">
+        <BrowserRouter basename="/app">
+            <RoleContext.Provider value={role}>
             <SystemProvider>
                 <DownloadsProvider>
                 <Routes>
@@ -67,14 +69,16 @@ export default function NewApp() {
                         <Route path="krsps/:section" element={<KrspsScreen />} />
                         <Route path="surround" element={<SurroundScreen />} />
                         <Route path="surround/:section" element={<SurroundScreen />} />
+                        <Route path="birdview/*" element={<BirdviewRedirect />} />
                         <Route path="neural" element={<NeuralScreen />} />
                         <Route path="neural/:section" element={<NeuralScreen />} />
-                        {/* Непереписанные разделы адресов ещё не имеют: любой другой путь ведёт на главную */}
                         <Route path="*" element={<Navigate to="/" replace />} />
                     </Route>
                 </Routes>
                 </DownloadsProvider>
             </SystemProvider>
+            </RoleContext.Provider>
+            <OnScreenKeyboard />
         </BrowserRouter>
     );
 }

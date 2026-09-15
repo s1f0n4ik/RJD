@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Icon } from '../../app/Icons';
 import { Modal, isModalOpen } from '../../app/Modal';
+import { isAdmin, useRole } from '../../app/role';
 import { api } from '../../services/api';
 import { getDevices, loadDevices, signalingWsUrl } from '../../services/devices';
 import type { StreamPurpose } from '../../types';
@@ -68,6 +69,9 @@ export function CamerasScreen() {
     // Переход из раздела «Устройства»: ?device=<id> сужает список до его камер
     const [params, setParams] = useSearchParams();
     const deviceFilter = params.get('device');
+
+    // Наблюдатель видит список и потоки, шторка правки и добавление ему закрыты
+    const canEdit = isAdmin(useRole());
 
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [closing, setClosing] = useState(false);
@@ -339,17 +343,21 @@ export function CamerasScreen() {
                 </div>
 
                 <span className="spacer" />
-                <button className="btn" onClick={() => setScanOpen(true)}>
-                    <Icon name="search" size={16} />Сканировать сеть
-                </button>
-                <button
-                    className="btn btn--acc"
-                    disabled={!anyDeviceOnline}
-                    title={anyDeviceOnline ? undefined : 'Добавление камеры возможно только при живом устройстве'}
-                    onClick={() => openWizard()}
-                >
-                    <Icon name="plus" size={16} />Добавить камеру
-                </button>
+                {canEdit && (
+                    <>
+                        <button className="btn" onClick={() => setScanOpen(true)}>
+                            <Icon name="search" size={16} />Сканировать сеть
+                        </button>
+                        <button
+                            className="btn btn--acc"
+                            disabled={!anyDeviceOnline}
+                            title={anyDeviceOnline ? undefined : 'Добавление камеры возможно только при живом устройстве'}
+                            onClick={() => openWizard()}
+                        >
+                            <Icon name="plus" size={16} />Добавить камеру
+                        </button>
+                    </>
+                )}
             </div>
 
             <div className="cams-body">
@@ -364,13 +372,15 @@ export function CamerasScreen() {
                         <div className="empty" style={{ height: '100%' }}>
                             <Icon name="cam" size={34} />
                             <b>Камеры не добавлены</b>
-                            <p>Найдите камеру сканом сети или добавьте её вручную по адресу RTSP.</p>
-                            <div style={{ display: 'flex', gap: 9 }}>
-                                <button className="btn btn--sm" onClick={() => setScanOpen(true)}>Сканировать сеть</button>
-                                <button className="btn btn--sm btn--acc" disabled={!anyDeviceOnline} onClick={() => openWizard()}>
-                                    Добавить камеру
-                                </button>
-                            </div>
+                            <p>{canEdit ? 'Найдите камеру сканом сети или добавьте её вручную по адресу RTSP.' : 'Добавить камеру может администратор.'}</p>
+                            {canEdit && (
+                                <div style={{ display: 'flex', gap: 9 }}>
+                                    <button className="btn btn--sm" onClick={() => setScanOpen(true)}>Сканировать сеть</button>
+                                    <button className="btn btn--sm btn--acc" disabled={!anyDeviceOnline} onClick={() => openWizard()}>
+                                        Добавить камеру
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     ) : (
                         <div className="cam-grid">
@@ -431,7 +441,7 @@ export function CamerasScreen() {
                     )}
                 </div>
 
-                {selected && form && (
+                {canEdit && selected && form && (
                     <div
                         className={`drawer${closing ? ' is-closing' : ''}`}
                         onAnimationEnd={e => {

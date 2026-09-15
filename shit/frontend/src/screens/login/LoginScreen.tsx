@@ -12,25 +12,32 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
     const [error, setError] = useState('');
     const [busy, setBusy] = useState(false);
 
-    const submit = async (e: React.FormEvent) => {
-        e.preventDefault();
+    const login = async (path: string, body: object | null, failText: string) => {
         setBusy(true);
         setError('');
         try {
-            const res = await fetch('/auth/login', {
+            const res = await fetch(path, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password }),
+                body: body ? JSON.stringify(body) : undefined,
             });
-            if (!res.ok) throw new Error('Неверный логин или пароль');
+            if (!res.ok) throw new Error(failText);
             const data = await res.json();
-            onLogin(data.access_token ?? data.token, data.role, username);
+            onLogin(data.access_token ?? data.token, data.role, data.username ?? username);
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Не удалось войти');
         } finally {
             setBusy(false);
         }
     };
+
+    const submit = (e: React.FormEvent) => {
+        e.preventDefault();
+        void login('/auth/login', { username, password }, 'Неверный логин или пароль');
+    };
+
+    // Наблюдателю пароль знать не нужно: бэкенд выдаёт его токен по кнопке
+    const loginAsViewer = () => void login('/auth/viewer', null, 'Вход наблюдателя недоступен');
 
     return (
         <div className="login-wrap">
@@ -68,17 +75,16 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
                     {busy ? 'Проверяем…' : 'Войти'}
                 </button>
 
+                <button className="btn btn--acc-dim btn--wide" type="button" disabled={busy} onClick={loginAsViewer} style={{ marginTop: 8 }}>
+                    <Icon name="eye" size={14} />Войти как наблюдатель
+                </button>
+
                 {error && (
                     <div className="banner is-err" style={{ marginTop: 14 }}>
                         <Icon name="warn" size={15} />
                         {error}
                     </div>
                 )}
-
-                <p className="hint" style={{ marginTop: 14 }}>
-                    Наблюдателю доступны просмотр, архив и журнал. Камеры, устройства и модули требуют прав
-                    администратора.
-                </p>
             </form>
         </div>
     );

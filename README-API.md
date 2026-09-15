@@ -60,7 +60,8 @@
 
 | Метод | Путь через nginx | Назначение | Кто дёргает |
 |---|---|---|---|
-| POST | `/auth/login` | логин, отдаёт `access_token`, `role`, `username` | [Login.tsx:31](shit/frontend/src/components/Login.tsx#L31), [App.tsx:150](shit/frontend/src/App.tsx#L150) — там же проверка пароля админа |
+| POST | `/auth/login` | логин, отдаёт `access_token`, `role`, `username` | [LoginScreen.tsx:20](shit/frontend/src/screens/login/LoginScreen.tsx#L20) |
+| POST | `/auth/viewer` | токен наблюдателя без пароля — кнопка «Войти как наблюдатель» | [LoginScreen.tsx](shit/frontend/src/screens/login/LoginScreen.tsx) |
 | GET | `/auth/me` | текущий пользователь по токену | сервером отдаётся, фронтом не используется |
 
 Учётные записи захардкожены в `USERS_DB`
@@ -106,7 +107,7 @@ storage-service (8001), scanner (8002), message-gateway (9090) и signaling (876
 [cameras.ts](shit/frontend/src/features/birdview/api/cameras.ts),
 [linker.ts:324](shit/frontend/src/features/birdview/api/linker.ts#L324) (фильтр `type === 3`),
 [neural/api/client.ts:142](shit/frontend/src/features/neural/api/client.ts#L142),
-[CameraSettings.tsx:208](shit/frontend/src/components/CameraSettings.tsx#L208).
+[cameras/CamerasScreen.tsx](shit/frontend/src/screens/cameras/CamerasScreen.tsx).
 
 ## Media Center — линкер / birdview
 
@@ -144,7 +145,7 @@ storage-service (8001), scanner (8002), message-gateway (9090) и signaling (876
 их вместе с `POST /linker/exports`).
 
 `GET /linker/status`, `GET /linker/surround`, `POST /linker/view-mode` дублируются
-в плеере [SurroundWebRTCPlayer.tsx](shit/frontend/src/components/SurroundWebRTCPlayer.tsx).
+в плеере [StreamPlayer.tsx](shit/frontend/src/features/birdview/components/shared/StreamPlayer.tsx) через [useOrbitGesture.ts](shit/frontend/src/components/webrtc/useOrbitGesture.ts).
 
 ## Media Center — нейронка
 
@@ -172,7 +173,7 @@ storage-service (8001), scanner (8002), message-gateway (9090) и signaling (876
 | GET | `/neural/system` | платформа и лимиты потоков |
 | GET | `/neural/models` | список моделей |
 | POST | `/neural/models?filename=*.rknn` | загрузка модели, тело — бинарь (`application/octet-stream`) |
-| GET | `/neural/camera?camera_id=` | какая конфигурация обслуживает камеру — [NeuralWebRTCPlayer.tsx:73](shit/frontend/src/components/NeuralWebRTCPlayer.tsx#L73) |
+| GET | `/neural/camera?camera_id=` | какая конфигурация обслуживает камеру — фронтом больше не вызывается (плеер нейронки удалён вместе со старой оболочкой) |
 
 `/neural/classes` и `/neural/superclasses` дополнительно нужны странице КРСПС:
 она подставляет ключи в таблицу соответствий шлюза, чтобы не ловить опечатки.
@@ -184,13 +185,13 @@ storage-service (8001), scanner (8002), message-gateway (9090) и signaling (876
 
 | Метод | Путь | Назначение | Кто дёргает |
 |---|---|---|---|
-| GET | `/api/recordings` | все записи по камерам | [RecordingsView.tsx:88](shit/frontend/src/components/RecordingsView.tsx#L88), [Recordings.tsx:38](shit/frontend/src/components/Recordings.tsx#L38) |
-| GET | `/api/recordings/disk` | состояние диска: всего/занято/записи/лимит | [DiskUsage.tsx:46](shit/frontend/src/components/DiskUsage.tsx#L46) |
+| GET | `/api/recordings` | все записи по камерам | [archive/model.ts](shit/frontend/src/screens/archive/model.ts) |
+| GET | `/api/recordings/disk` | состояние диска: всего/занято/записи/лимит | [home/useHomeData.ts:39](shit/frontend/src/screens/home/useHomeData.ts#L39) |
 | GET | `/api/recordings/{camera}` | записи одной камеры | — |
-| GET | `/api/recordings/stream/{camera}/{file}` | просмотр файла с Range | [RecordingsPlayer.tsx:121](shit/frontend/src/components/RecordingsPlayer.tsx#L121), [RecordingsTimeline.tsx:476](shit/frontend/src/components/RecordingsTimeline.tsx#L476) |
-| GET | `/api/recordings/download/{camera}/{file}` | скачивание файла | [RecordingsFileList.tsx:121](shit/frontend/src/components/RecordingsFileList.tsx#L121), [Recordings.tsx:83](shit/frontend/src/components/Recordings.tsx#L83) |
-| POST | `/api/recordings/merge` | склейка диапазона, отдаёт `job_id` | [RecordingsView.tsx:214](shit/frontend/src/components/RecordingsView.tsx#L214) |
-| POST | `/api/recordings/archive` | архив за день или диапазон, отдаёт `job_id` | [RecordingsView.tsx:231](shit/frontend/src/components/RecordingsView.tsx#L231) |
+| GET | `/api/recordings/stream/{camera}/{file}` | просмотр файла с Range | [archive/model.ts:137](shit/frontend/src/screens/archive/model.ts#L137) |
+| GET | `/api/recordings/download/{camera}/{file}` | скачивание файла | [archive/model.ts:137](shit/frontend/src/screens/archive/model.ts#L137) |
+| POST | `/api/recordings/merge` | склейка диапазона, отдаёт `job_id` | [archive/model.ts](shit/frontend/src/screens/archive/model.ts) |
+| POST | `/api/recordings/archive` | архив за день или диапазон, отдаёт `job_id` | [archive/model.ts](shit/frontend/src/screens/archive/model.ts) |
 | GET | `/api/recordings/jobs` | активные задачи — восстановление после reload | [MergeJobsContext.tsx:68](shit/frontend/src/contexts/MergeJobsContext.tsx#L68) |
 | DELETE | `/api/recordings/jobs/{id}` | отменить/убрать задачу | [MergeJobsContext.tsx:145](shit/frontend/src/contexts/MergeJobsContext.tsx#L145) |
 | GET | `/api/recordings/jobs/{id}/download` | результат задачи, после отдачи job чистится | [MergeJobsContext.tsx:134](shit/frontend/src/contexts/MergeJobsContext.tsx#L134) через [downloadWithProgress.ts](shit/frontend/src/utils/downloadWithProgress.ts) |
@@ -231,7 +232,7 @@ storage-service (8001), scanner (8002), message-gateway (9090) и signaling (876
 | GET (SSE) | `/api/scan/stream` | ONVIF + порт-скан батчами. Параметры: `subnet` (пусто — **все** локальные подсети), `from`, `to`, `onvif_timeout` |
 
 SSE читается через `EventSource` в
-[CameraSettings.tsx](shit/frontend/src/components/CameraSettings.tsx).
+[cameras/ScanModal.tsx](shit/frontend/src/screens/cameras/ScanModal.tsx).
 Этапы событий: `onvif_start` → `onvif_done` → `ports_start` → `ports_progress`
 (многократно) → `done`. Для этого location в nginx выключена буферизация.
 
@@ -298,16 +299,16 @@ nginx срезает `/signaling/`, дальше брокер разбирает
 | `/signaling/cal-client/server` | `/cal-client/server` | основной сокет калибратора birdview: 18 типов сообщений, бинарные кадры `[uint32 BE длина JSON][JSON][JPEG]` |
 
 `/signaling/client/{id}` используют
-[WebRTCPlayerFactory.tsx:15](shit/frontend/src/components/WebRTCPlayerFactory.tsx#L15),
-[Observation.tsx](shit/frontend/src/components/Observation.tsx),
-[KioskView.tsx:302](shit/frontend/src/components/KioskView.tsx#L302),
-[CameraSettings.tsx:1212](shit/frontend/src/components/CameraSettings.tsx#L1212) (проба камеры),
+[useWebRTCPlayer.ts](shit/frontend/src/components/webrtc/useWebRTCPlayer.ts) через `signalingWsUrl`:
+[LiveScreen.tsx](shit/frontend/src/screens/live/LiveScreen.tsx),
+[TranslationScreen.tsx](shit/frontend/src/screens/translation/TranslationScreen.tsx),
+[CamerasScreen.tsx](shit/frontend/src/screens/cameras/CamerasScreen.tsx) и [AddCameraWizard.tsx](shit/frontend/src/screens/cameras/AddCameraWizard.tsx) (проба камеры),
 [StreamView.tsx](shit/frontend/src/features/birdview/components/linker/StreamView.tsx),
 [LinkerScreen.tsx:621](shit/frontend/src/features/birdview/components/linker/LinkerScreen.tsx#L621),
 [ProjectionScreen.tsx:673](shit/frontend/src/features/birdview/components/projection/ProjectionScreen.tsx#L673),
 [CalibrationViewer.tsx:72](shit/frontend/src/features/birdview/components/calibration/CalibrationViewer.tsx#L72).
-Калибраторский сокет поднимается один на страницу в
-[BirdviewApp.tsx:70](shit/frontend/src/features/birdview/components/BirdviewApp.tsx#L70),
+Калибраторский сокет поднимается один на раздел в
+[SurroundScreen.tsx:144](shit/frontend/src/screens/surround/SurroundScreen.tsx#L144),
 переподключения нет намеренно — слот у калибратора один.
 
 ## Сводка WebSocket и потоковых ручек
@@ -353,7 +354,7 @@ nginx срезает `/signaling/`, дальше брокер разбирает
 
 ```
 npm run build          # открытый просмотр: логин только на /app
-npm run build:secure   # логин на все маршруты, включая / и /kiosk
+npm run build:secure   # логин на все маршруты, включая / и /translation
 ```
 
 Значение берётся из `.env` (`false`) и переопределяется в `.env.secure` (`true`).
@@ -363,16 +364,18 @@ npm run build:secure   # логин на все маршруты, включая
 
 | | `build` | `build:secure` |
 |---|---|---|
-| `/` — [Landing.tsx](shit/frontend/src/components/Landing.tsx) | открыт | логин |
-| `/kiosk` — [KioskView.tsx](shit/frontend/src/components/KioskView.tsx) | открыт | логин |
-| `/app*` | логин | логин |
-| viewer → вкладка «Камеры» и `/app/{neural,krsps,birdview}` | отказ + ввод пароля админа | отказ |
-| переход в киоск с экрана логина | есть | скрыт |
+| `/` | редирект на `/translation` | логин, затем `/app` |
+| `/translation` — [TranslationScreen.tsx](shit/frontend/src/screens/translation/TranslationScreen.tsx) | открыт | логин |
+| `/app*` — [NewApp.tsx](shit/frontend/src/app/NewApp.tsx) | логин | логин |
 
-Гейт по ролям: `ADMIN_TABS` и `ADMIN_ROUTES`
-([App.tsx:31](shit/frontend/src/App.tsx#L31)). Временное повышение прав хранится
-в состоянии `elevated` ключами вида `tab:1` / `route:neural` и живёт до
-перезагрузки страницы. В защищённой сборке эскалации нет — решает роль из токена.
+Развилка по адресу — [main.tsx](shit/frontend/src/main.tsx); прежние `/new/*` и `/kiosk` — редиректы.
+
+Гейт по ролям: признак `admin` у разделов и подразделов в
+[nav.ts](shit/frontend/src/app/nav.ts), проверка адреса `canOpen` в
+[role.ts](shit/frontend/src/app/role.ts) внутри оболочки. Наблюдателю открыты
+главная, камеры (только просмотр), архив целиком и журнал обнаружений;
+остальное скрыто из рельсы и главной, прямой адрес уводит на главную.
+Временного повышения прав нет — решает роль из токена.
 
 Токен читается из `localStorage` при загрузке страницы, его `exp` проверяется
 там же ([utils/auth.ts](shit/frontend/src/utils/auth.ts)). Подпись не
