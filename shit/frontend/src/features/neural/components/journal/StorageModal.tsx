@@ -13,9 +13,14 @@ interface Props {
 }
 
 const GB = 1024 ** 3;
+const MB = 1024 ** 2;
 
-function fmtGb(bytes: number): string {
-  return (bytes / GB).toFixed(bytes >= GB ? 1 : 2).replace('.', ',');
+// Лимиты задаются в гигабайтах, а занято бывает и несколько мегабайт: в ГБ
+// такое округлялось в «0,00». Единицу выбираем по величине.
+function fmtSize(bytes: number): string {
+  if (bytes >= GB) return `${(bytes / GB).toFixed(1).replace('.', ',')} ГБ`;
+  if (bytes >= MB) return `${Math.round(bytes / MB)} МБ`;
+  return `${Math.round(bytes / 1024)} КБ`;
 }
 
 interface DiskProps {
@@ -33,8 +38,8 @@ function Disk({ label, used, limitGb }: DiskProps) {
       <div className="j-disk-h">
         <b>{label}</b>
         <span className="num">
-          {fmtGb(used)}
-          {limit > 0 ? ` / ${limitGb} ГБ` : ' ГБ'}
+          {fmtSize(used)}
+          {limit > 0 ? ` / ${limitGb} ГБ` : ''}
         </span>
       </div>
       <div className="bar">
