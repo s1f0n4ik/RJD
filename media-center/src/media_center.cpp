@@ -277,6 +277,8 @@ namespace neural {
     }
 
     std::shared_ptr<UCamera> UMediaCenter::get_camera(const std::string& id) {
+        // Читается из потоков инференса на каждый кадр, добавление и удаление идут под тем же мьютексом
+        std::lock_guard<std::mutex> lk(m_mutex);
         auto result = m_cameras.find(id);
         if (result == m_cameras.end()) {
             return nullptr;

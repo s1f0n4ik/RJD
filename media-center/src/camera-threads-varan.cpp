@@ -209,17 +209,10 @@ int main(int argc, char* argv[])
 		std::weak_ptr<varan::neural::UMediaCenter> weak_center = center;
 		loader->set_sender_provider(
 			[weak_center](const std::string& camera_id) -> varan::neural::FCameraMessageSender {
-				auto c = weak_center.lock();
-				if (!c) return {};
-
-				auto cam = c->get_camera(camera_id);
-				if (!cam) return {};
-
-				// weak_ptr на камеру — если камеру удалят пока слот жив,
-				// send станет no-op без UB
-				std::weak_ptr<varan::neural::UCamera> weak_cam = cam;
-				return [weak_cam](const std::string& msg) {
-					if (auto cam = weak_cam.lock()) {
+				return [weak_center, camera_id](const std::string& msg) {
+					auto c = weak_center.lock();
+					if (!c) return;
+					if (auto cam = c->get_camera(camera_id)) {
 						cam->send_message(msg);
 					}
 				};

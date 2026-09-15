@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Keyboard from 'react-simple-keyboard';
 import 'react-simple-keyboard/build/css/index.css';
 import { useTouchDevice } from '../utils/useTouchDevice';
@@ -75,18 +75,29 @@ export function OnScreenKeyboard() {
   const [visible, setVisible] = useState(false);
   const [layoutName, setLayoutName] = useState<'default' | 'shift'>('default');
   const [lang, setLang] = useState<Layout>('ru');
+  // Растёт при каждой смене поля: панорама пересчитывается и при открытой клавиатуре
+  const [focusTick, setFocusTick] = useState(0);
   const targetRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  const kbRef = useRef<HTMLDivElement>(null);
+  // На сколько приложение сдвинуто вверх, чтобы поле не пряталось под клавиатурой
+  const shiftRef = useRef(0);
 
   useEffect(() => {
     if (!isTouch) return;
 
-    const onFocusIn = (e: FocusEvent) => {
-      const el = e.target as Element;
-      if (isEditable(el)) {
-        targetRef.current = el;
-        setVisible(true);
-      }
+    const show = (el: Element | null) => {
+      if (!isEditable(el)) return;
+      targetRef.current = el;
+      setVisible(true);
+      setFocusTick(t => t + 1);
     };
+
+    // Поле с autoFocus получает фокус раньше, чем навешан слушатель
+    show(document.activeElement);
+
+    const onFocusIn = (e: FocusEvent) => show(e.target as Element);
+    // Тап по уже сфокусированному полю focusin не даёт — после «Скрыть» иначе не вернуть
+    const onPointerDown = (e: PointerEvent) => show(e.target as Element);
 
     const onFocusOut = (e: FocusEvent) => {
       // Клик по самой клавиатуре фокус не уводит
@@ -103,11 +114,36 @@ export function OnScreenKeyboard() {
 
     document.addEventListener('focusin', onFocusIn);
     document.addEventListener('focusout', onFocusOut);
+    document.addEventListener('pointerdown', onPointerDown);
     return () => {
       document.removeEventListener('focusin', onFocusIn);
       document.removeEventListener('focusout', onFocusOut);
+      document.removeEventListener('pointerdown', onPointerDown);
     };
   }, [isTouch]);
+
+  // Панорамирование: body сдвигается вверх ровно настолько, чтобы поле вышло
+  // из-под клавиатуры. html и body занимают весь экран, поэтому transform
+  // утягивает и position:fixed-слои (логин, модалки, шторки); сама клавиатура
+  // тоже внутри body — ей сдвиг компенсируется через bottom.
+  useLayoutEffect(() => {
+    const body = document.body;
+    const kb = kbRef.current;
+    const el = targetRef.current;
+    if (!visible || !kb || !el) {
+      shiftRef.current = 0;
+      body.style.transform = '';
+      body.style.transition = '';
+      return;
+    }
+    const limit = window.innerHeight - kb.offsetHeight - 16;
+    const hidden = el.getBoundingClientRect().bottom - limit;
+    const shift = Math.max(0, shiftRef.current + hidden);
+    shiftRef.current = shift;
+    body.style.transition = 'transform .18s ease';
+    body.style.transform = shift ? `translateY(-${shift}px)` : '';
+    kb.style.bottom = shift ? `-${shift}px` : '';
+  }, [visible, lang, layoutName, focusTick]);
 
   const insertText = useCallback((text: string) => {
     const el = targetRef.current;
@@ -148,7 +184,7 @@ export function OnScreenKeyboard() {
   if (!isTouch || !visible) return null;
 
   return (
-    <div className="osk" data-onscreen-keyboard onMouseDown={e => e.preventDefault()}>
+    <div ref={kbRef} className="osk" data-onscreen-keyboard onMouseDown={e => e.preventDefault()}>
       <Keyboard
         layout={LAYOUTS[lang]}
         layoutName={layoutName}
