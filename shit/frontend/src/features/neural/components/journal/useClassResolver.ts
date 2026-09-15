@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { neuralApi } from '../../api/client';
 
 // Журнал хранит только id класса (cid) и config_id. Смысл (имя, цвет, суперкласс)
@@ -87,21 +87,35 @@ export function useClassResolver(configId?: string) {
 
   // Плоский список классов для фильтра (дедуп по cid+имя), сгруппированный по
   // суперклассу вызывающим кодом. Выбрана конфигурация — только её классы.
-  const classOptions = useMemo<ClassOption[]>(() => {
-    const seen = new Set<string>();
-    const out: ClassOption[] = [];
-    const maps = configId ? [byConfig[configId] ?? new Map()] : Object.values(byConfig);
-    for (const map of maps) {
-      for (const [cid, m] of map) {
-        const key = `${cid}:${m.name}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push({ cid, ...m });
+  const optionsFor = useCallback(
+    (cfg?: string): ClassOption[] => {
+      const seen = new Set<string>();
+      const out: ClassOption[] = [];
+      const maps = cfg ? [byConfig[cfg] ?? new Map()] : Object.values(byConfig);
+      for (const map of maps) {
+        for (const [cid, m] of map) {
+          const key = `${cid}:${m.name}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          out.push({ cid, ...m });
+        }
       }
-    }
-    out.sort((a, b) => a.superName.localeCompare(b.superName) || a.name.localeCompare(b.name));
-    return out;
-  }, [byConfig, configId]);
+      out.sort((a, b) => a.superName.localeCompare(b.superName) || a.name.localeCompare(b.name));
+      return out;
+    },
+    [byConfig],
+  );
+  const classOptions = useMemo(() => optionsFor(configId), [optionsFor, configId]);
 
-  return { resolve, classOptions, loading };
+  // Имя и цвет по cid для подписей на сервере; без конфигурации — по всем известным
+  const legendFor = useCallback(
+    (cfg?: string): Record<string, { name: string; color: string }> => {
+      const out: Record<string, { name: string; color: string }> = {};
+      for (const c of optionsFor(cfg)) out[c.cid] ??= { name: c.name, color: c.color };
+      return out;
+    },
+    [optionsFor],
+  );
+
+  return { resolve, classOptions, optionsFor, legendFor, loading };
 }

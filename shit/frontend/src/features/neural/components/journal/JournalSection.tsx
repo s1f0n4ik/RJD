@@ -6,25 +6,18 @@ import { useToast } from '../../../birdview/components/common/Toast';
 import { neuralApi } from '../../api/client';
 import type { ConfigSummary } from '../../api/types';
 import { journalApi } from '../../api/journal';
-import type { JournalDetection, JournalFilters, Verdict } from '../../api/journal-types';
+import type { JournalDetection, Verdict } from '../../api/journal-types';
 import { useClassResolver } from './useClassResolver';
 import { useCameraNames } from './useCameraNames';
 import { DetectionRow } from './DetectionRow';
 import { FrameWithBoxes } from './FrameWithBoxes';
-import {
-  ClassPicker,
-  DEFAULT_PRESET,
-  PRESETS,
-  PresetSeg,
-  VERDICT_OPTIONS,
-  presetRange,
-} from './Filters';
-import type { PresetKey } from './Filters';
-import { DateRangePicker } from './DateRangePicker';
+import { ClassPicker, PresetSeg, VERDICT_OPTIONS } from './Filters';
+import { FilterFields, classLabel, useJournalFilters } from './JournalFilters';
+import { ExportModal } from './ExportModal';
 import { JournalMap } from './JournalMap';
 import { FrameViewer } from './FrameViewer';
 import { StorageModal } from './StorageModal';
-import { fmtDate, fmtDateTime } from './format';
+import { fmtDateTime } from './format';
 import './journal.css';
 
 const PAGE_LIMIT = 300;
@@ -38,18 +31,13 @@ const ALL_OPTION: SelectOption = { value: '', label: 'все' };
 
 export function JournalSection() {
   const toast = useToast();
-  const [configId, setConfigId] = useState('');
-  // классы фильтра — из выбранной конфигурации
-  const { resolve, classOptions } = useClassResolver(configId || undefined);
-  const { cameraName, cameras } = useCameraNames();
-
   // Журнал открывается за сегодня — свежие записи нужны чаще, чем весь архив.
-  const [preset, setPreset] = useState<PresetKey>(DEFAULT_PRESET);
-  const [tFrom, setTFrom] = useState<number | undefined>(() => presetRange(DEFAULT_PRESET).from);
-  const [tTo, setTTo] = useState<number | undefined>(() => presetRange(DEFAULT_PRESET).to);
-  const [verdict, setVerdict] = useState<Verdict | undefined>();
-  const [cids, setCids] = useState<number[]>([]);
-  const [cameraId, setCameraId] = useState('');
+  const fh = useJournalFilters();
+  const { state: fs, filters, patch, applyPreset, selectConfig } = fh;
+  const { verdict, cids, cameraId, configId } = fs;
+  // классы фильтра — из выбранной конфигурации
+  const { resolve, classOptions, optionsFor, legendFor } = useClassResolver(configId || undefined);
+  const { cameraName, cameras } = useCameraNames();
   const [configs, setConfigs] = useState<ConfigSummary[]>([]);
 
   const [dets, setDets] = useState<JournalDetection[]>([]);
@@ -61,12 +49,10 @@ export function JournalSection() {
   const [viewerId, setViewerId] = useState<number | null>(null);
   const [newCount, setNewCount] = useState(0);
   const [storageOpen, setStorageOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
 
-  // Поповеры фильтров: якорь — кнопка поля
-  const [periodOpen, setPeriodOpen] = useState(false);
+  // Поповер классов на панели карты: якорь — кнопка поля
   const [classOpen, setClassOpen] = useState(false);
-  const periodRef = useRef<HTMLButtonElement>(null);
-  const classRef = useRef<HTMLButtonElement>(null);
   const classPaneRef = useRef<HTMLButtonElement>(null);
 
   // Ползунок полноэкранной карты: сколько записей грузить для точек.
@@ -96,18 +82,6 @@ export function JournalSection() {
       alive = false;
     };
   }, []);
-
-  const filters = useMemo<JournalFilters>(
-    () => ({
-      tFrom,
-      tTo,
-      verdict,
-      cids: cids.length ? cids : undefined,
-      cameraId: cameraId || undefined,
-      configId: configId || undefined,
-    }),
-    [tFrom, tTo, verdict, cids, cameraId, configId],
-  );
 
   const load = useCallback(
     (showSpinner: boolean) => {
@@ -210,19 +184,6 @@ export function JournalSection() {
     setMapDets((list) => (list ? list.map((d) => (d.id === updated.id ? updated : d)) : list));
   }, []);
 
-  const applyPreset = useCallback((key: PresetKey) => {
-    setPreset(key);
-    const r = presetRange(key);
-    setTFrom(r.from);
-    setTTo(r.to);
-  }, []);
-
-  const applyRange = useCallback((from?: number, to?: number) => {
-    setPreset(from == null ? 'all' : 'custom');
-    setTFrom(from);
-    setTTo(to);
-  }, []);
-
   // Повторное нажатие той же кнопки снимает отметку — возврат в «не проверено».
   const setDetVerdict = async (det: JournalDetection, verdict: Verdict) => {
     const next: Verdict = det.verdict === verdict ? 'unverified' : verdict;
@@ -251,8 +212,6 @@ export function JournalSection() {
     }
   };
 
-  const selectConfig = (v: string) => { setConfigId(v); setCids([]); };
-
   const cameraOptions = useMemo<SelectOption[]>(
     () => [ALL_OPTION, ...cameras.map((c) => ({ value: c.id, label: c.name, hint: c.name !== c.id ? c.id : undefined }))],
     [cameras],
@@ -262,11 +221,7 @@ export function JournalSection() {
     [configs],
   );
 
-  const periodLabel =
-    preset === 'custom' && tFrom != null
-      ? `${fmtDate(tFrom)} — ${tTo != null ? fmtDate(tTo) : '…'}`
-      : PRESETS.find((p) => p.key === preset)?.label.toLowerCase() ?? 'всё';
-  const classLabel = `${cids.length ? cids.length : 'все'} из ${classOptions.length}`;
+  const classesText = classLabel(fs, classOptions);
 
   const mapMax = Math.max(PAGE_LIMIT, Math.min(total, MAP_LIMIT_MAX));
   const mapValue = Math.min(mapLimitDraft, mapMax);
@@ -278,25 +233,6 @@ export function JournalSection() {
     return c;
   }, [withGps]);
 
-  const periodPopover = periodOpen && periodRef.current && (
-    <DateRangePicker
-      anchor={periodRef.current}
-      from={tFrom}
-      to={tTo}
-      onApply={applyRange}
-      onClose={() => setPeriodOpen(false)}
-      head={
-        <PresetSeg
-          preset={preset}
-          onPreset={(key) => {
-            applyPreset(key);
-            setPeriodOpen(false);
-          }}
-        />
-      }
-    />
-  );
-
   const classPopover = (anchor: HTMLElement | null) =>
     classOpen &&
     anchor && (
@@ -304,7 +240,7 @@ export function JournalSection() {
         anchor={anchor}
         options={classOptions}
         selected={cids}
-        onChange={setCids}
+        onChange={(next) => patch({ cids: next })}
         onClose={() => setClassOpen(false)}
       />
     );
@@ -326,11 +262,11 @@ export function JournalSection() {
           <span className="tag is-acc spacer">{withGps.length} точек</span>
         </div>
         <div className="blk-b">
-          <PresetSeg preset={preset} onPreset={applyPreset} />
+          <PresetSeg preset={fs.preset} onPreset={applyPreset} />
           <div className="tf-row">
             <div className="tf">
               <span className="tf-cap">Камера</span>
-              <Select value={cameraId} options={cameraOptions} onChange={setCameraId} />
+              <Select value={cameraId} options={cameraOptions} onChange={(v) => patch({ cameraId: v })} />
             </div>
             <div className="tf">
               <span className="tf-cap">Конфигурация</span>
@@ -341,7 +277,7 @@ export function JournalSection() {
             <div className="tf">
               <span className="tf-cap">Классы</span>
               <button type="button" className="sel" ref={classPaneRef} onClick={() => setClassOpen((v) => !v)}>
-                {classLabel}
+                {classesText}
               </button>
             </div>
             <div className="tf">
@@ -349,7 +285,7 @@ export function JournalSection() {
               <Select
                 value={verdict ?? ''}
                 options={VERDICT_OPTIONS}
-                onChange={(v) => setVerdict(v ? (v as Verdict) : undefined)}
+                onChange={(v) => patch({ verdict: v ? (v as Verdict) : undefined })}
               />
             </div>
           </div>
@@ -484,37 +420,15 @@ export function JournalSection() {
   const main = (
     <>
       <div className="filters">
-        <button type="button" className="fld fld--btn" ref={periodRef} onClick={() => setPeriodOpen((v) => !v)}>
-          <span className="k">Период</span>
-          <span className="v">{periodLabel}</span>
-          <Icon name="cal" className="ico" />
-        </button>
-        <div className="fld j-fld">
-          <span className="k">Камера</span>
-          <Select value={cameraId} options={cameraOptions} onChange={setCameraId} />
-        </div>
-        <div className="fld j-fld">
-          <span className="k">Конфигурация</span>
-          <Select value={configId} options={configOptions} onChange={selectConfig} />
-        </div>
-        <button type="button" className="fld fld--btn" ref={classRef} onClick={() => setClassOpen((v) => !v)}>
-          <span className="k">Классы</span>
-          <span className="v">{classLabel}</span>
-          <Icon name="chev" className="ico j-chev" />
-        </button>
-        <div className="fld j-fld">
-          <span className="k">Вердикт</span>
-          <Select
-            value={verdict ?? ''}
-            options={VERDICT_OPTIONS}
-            onChange={(v) => setVerdict(v ? (v as Verdict) : undefined)}
-          />
-        </div>
+        <FilterFields f={fh} cameraOptions={cameraOptions} configOptions={configOptions} classOptions={classOptions} />
         <div className="j-fright">
           <span className="fld j-found">
             <span className="k">Найдено</span>
             <span className="v">{total}</span>
           </span>
+          <button className="icon-btn" data-tip="Скачать обнаружения" disabled={total === 0} onClick={() => setExportOpen(true)}>
+            <Icon name="down" size={15} />
+          </button>
           <button className="icon-btn" data-tip="Хранилище журнала" onClick={() => setStorageOpen(true)}>
             <Icon name="box" size={15} />
           </button>
@@ -578,9 +492,6 @@ export function JournalSection() {
 
         <aside className="j-side">{side}</aside>
       </div>
-
-      {periodPopover}
-      {classPopover(classRef.current)}
     </>
   );
 
@@ -590,6 +501,19 @@ export function JournalSection() {
 
       {storageOpen && (
         <StorageModal onClose={() => setStorageOpen(false)} onPurged={() => load(true)} />
+      )}
+
+      {exportOpen && (
+        <ExportModal
+          initial={fs}
+          cameraOptions={cameraOptions}
+          configOptions={configOptions}
+          optionsFor={optionsFor}
+          legendFor={legendFor}
+          resolve={resolve}
+          cameraName={cameraName}
+          onClose={() => setExportOpen(false)}
+        />
       )}
 
       {viewerIndex >= 0 && (

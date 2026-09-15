@@ -149,6 +149,33 @@ class JournalService:
             "offset": offset,
         }
 
+    def export_rows(self, **filters: Any) -> list[dict]:
+        """Все записи по фильтрам от старых к новым; frame — путь к JPEG или None.
+        Один запрос вместо постраничных: выгрузка идёт по всему набору сразу."""
+        if not self.available():
+            return []
+        clause, params = self._build_where(**filters)
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM detections {clause} ORDER BY ts ASC, id ASC", params
+            ).fetchall()
+        out = []
+        for row in rows:
+            item = self._row_to_dict(row)
+            item["frame"] = self._frame_path(row["image_path"])
+            out.append(item)
+        return out
+
+    def _frame_path(self, rel: Optional[str]) -> Optional[Path]:
+        if not rel:
+            return None
+        candidate = self.frames_dir / rel
+        try:
+            candidate.resolve().relative_to(self.frames_dir.resolve())
+        except (ValueError, OSError):
+            return None
+        return candidate
+
     def get_detection(self, det_id: int) -> Optional[dict]:
         if not self.available():
             return None
@@ -166,14 +193,8 @@ class JournalService:
             row = conn.execute(
                 "SELECT image_path FROM detections WHERE id = ?", [det_id]
             ).fetchone()
-        if not row or not row["image_path"]:
-            return None
-        candidate = self.frames_dir / row["image_path"]
-        try:
-            candidate.resolve().relative_to(self.frames_dir.resolve())
-        except (ValueError, OSError):
-            return None
-        return candidate if candidate.is_file() else None
+        candidate = self._frame_path(row["image_path"]) if row else None
+        return candidate if candidate is not None and candidate.is_file() else None
 
     # ── Запись ──
 

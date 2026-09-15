@@ -12,6 +12,7 @@ const STATUS: Record<string, string> = {
     pending: 'ожидание',
     parsing: 'подбор',
     merging: 'склейка',
+    archiving: 'упаковка',
     ready: 'готово',
     failed: 'ошибка',
     cancelled: 'отменено',

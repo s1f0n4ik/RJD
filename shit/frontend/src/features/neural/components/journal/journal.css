@@ -197,3 +197,22 @@
 .jm-pop-mini{border-radius:6px;overflow:hidden;border:1px solid var(--line);transition:border-color .15s}
 .jm-pop-mini-btn:hover .jm-pop-mini{border-color:var(--acc-dim)}
 .jm-pop-row-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
+
+/* ── Модалка выгрузки ── */
+.jx{display:flex;flex-direction:column;gap:16px}
+.jx-fields{display:flex;flex-direction:column;gap:8px}
+.jx-fields .fld{display:flex;width:100%}
+.jx-fields .fld--btn{text-align:left}
+.jx-fields .fld--btn .v{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.jx-fields .fld--btn .ico{margin-left:auto}
+.jx-fields .j-found{padding-left:12px}
+.jx-pick{display:grid;grid-template-columns:1fr 200px;gap:16px;align-items:start}
+.jx-opts{display:flex;flex-direction:column;gap:12px}
+.jx-opt{display:flex;flex-direction:column;gap:2px}
+.jx-opt .hint{margin:0 0 0 42px}
+.jx-frame{position:relative;border-radius:var(--r);overflow:hidden;border:1px solid var(--line);background:var(--input);line-height:0}
+.jx-frame.is-empty{aspect-ratio:4/3;display:grid;place-items:center;font-size:11.5px;color:var(--fg-3);line-height:1.4}
+.jx-frame .fb{width:100%}
+.jx-frame .fb-box-lbl{font-size:7px;padding:1px 3px}
+.jx-plate{position:absolute;left:4px;top:4px;padding:3px 5px;background:rgba(0,0,0,.8);color:#fff;font-family:var(--mono);font-size:7px;line-height:1.4;white-space:nowrap;pointer-events:none}
+.jx-cap{display:block;margin-top:5px;font-size:10.5px;color:var(--fg-3);text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

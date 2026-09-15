@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 from typing import Optional
@@ -6,7 +7,9 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
+from app.services.jobs import jobs
 from app.services.journal import journal, VERDICTS
+from app.services.journal_export import run_journal_export
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -15,6 +18,27 @@ router = APIRouter()
 class VerdictRequest(BaseModel):
     verdict: str
     note: Optional[str] = None
+
+
+class LegendEntry(BaseModel):
+    name: str = ""
+    color: str = ""
+
+
+class JournalExportRequest(BaseModel):
+    t_from: Optional[int] = None
+    t_to: Optional[int] = None
+    verdict: Optional[str] = None
+    camera_id: Optional[str] = None
+    config_id: Optional[str] = None
+    cids: Optional[list[int]] = None
+    # Что нанести на кадры: рамки с подписью класса и плашка времени/координат
+    boxes: bool = True
+    data: bool = True
+    # Имена и цвета классов по cid: журнал их не знает, их резолвит фронт
+    legend: dict[str, LegendEntry] = {}
+    title: str = ""
+    subtitle: str = ""
 
 
 def _now_ms() -> int:
@@ -155,6 +179,28 @@ def purge(req: PurgeRequest):
         raise HTTPException(status_code=503, detail="Journal database is not available")
     result = journal.purge(req.before_ts)
     return {**result, **journal.storage_state()}
+
+
+@router.post("/journal/export")
+async def export(req: JournalExportRequest):
+    """Архив кадров по фильтрам списка. Прогресс — по WS
+    /api/recordings/jobs/{id}/progress, результат — GET .../download."""
+    if not journal.available():
+        raise HTTPException(status_code=404, detail="Journal is not available")
+    filters = {
+        "t_from": req.t_from,
+        "t_to": req.t_to,
+        "verdict": req.verdict,
+        "camera_id": req.camera_id,
+        "config_id": req.config_id,
+        "cids": req.cids or None,
+    }
+    legend = {cid: entry.model_dump() for cid, entry in req.legend.items()}
+    job = await jobs.create(title=req.title, subtitle=req.subtitle)
+    asyncio.create_task(run_journal_export(
+        job, filters=filters, boxes=req.boxes, data=req.data, legend=legend,
+    ))
+    return {"job_id": job.id}
 
 
 @router.get("/journal/frame/{det_id}.jpg")

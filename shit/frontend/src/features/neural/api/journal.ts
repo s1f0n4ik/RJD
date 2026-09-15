@@ -32,6 +32,20 @@ export interface JournalPurgeResult extends JournalStorageState {
   files_deleted: number;
 }
 
+export interface JournalExportRequest {
+  t_from?: number;
+  t_to?: number;
+  verdict?: Verdict;
+  camera_id?: string;
+  config_id?: string;
+  cids?: number[];
+  boxes: boolean;
+  data: boolean;
+  legend: Record<string, { name: string; color: string }>;
+  title: string;
+  subtitle: string;
+}
+
 interface ListOpts {
   limit?: number;
   offset?: number;
@@ -69,6 +83,15 @@ export const journalApi = {
     if (filters.cameraId) q.set('camera_id', filters.cameraId);
     if (filters.configId) q.set('config_id', filters.configId);
     return fetch(url(`/api/journal/head?${q.toString()}`)).then(json<{ max_id: number; total: number }>);
+  },
+
+  /** Архив кадров по фильтрам как задача устройства; прогресс — в плашке загрузок. */
+  export(body: JournalExportRequest): Promise<{ job_id: string }> {
+    return fetch(url('/api/journal/export'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(json<{ job_id: string }>);
   },
 
   get(id: number): Promise<JournalDetection> {

@@ -134,10 +134,11 @@ interface ClassPickerProps {
   selected: number[];
   onChange: (cids: number[]) => void;
   onClose: () => void;
+  over?: boolean;
 }
 
 // Список классов по суперклассам с чекбоксами
-export function ClassPicker({ anchor, options, selected, onChange, onClose }: ClassPickerProps) {
+export function ClassPicker({ anchor, options, selected, onChange, onClose, over }: ClassPickerProps) {
   const groups = useMemo(() => {
     const map = new Map<string, ClassOption[]>();
     for (const c of options) {
@@ -156,7 +157,7 @@ export function ClassPicker({ anchor, options, selected, onChange, onClose }: Cl
   };
 
   return (
-    <Popover anchor={anchor} onClose={onClose} className="j-cls">
+    <Popover anchor={anchor} onClose={onClose} over={over} className="j-cls">
       {options.length === 0 && <div className="j-cls-empty">Классов нет</div>}
       {groups.map(([sup, items]) => (
         <div className="j-cls-grp" key={sup}>

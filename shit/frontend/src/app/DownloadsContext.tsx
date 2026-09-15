@@ -1,9 +1,9 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
 import { useSystem } from './SystemContext';
-import type { ExportRequest, JobProgress } from '../screens/archive/model';
+import type { JobProgress } from '../screens/archive/model';
 import {
-    browserDownload, fetchJobs, jobCancelUrl, jobDownloadUrl, jobProgressUrl, startCut,
+    browserDownload, fetchJobs, jobCancelUrl, jobDownloadUrl, jobProgressUrl,
 } from '../screens/archive/model';
 
 // Склейка, идущая на устройстве; результат скачивает сам браузер
@@ -26,7 +26,8 @@ interface DownloadsValue {
     items: Download[];
     // Доля от нуля до единицы по всем незавершённым задачам
     overall: number;
-    start: (deviceId: string, request: ExportRequest) => Promise<void>;
+    // Запуск любой задачи устройства: launch создаёт её и возвращает job_id
+    start: (deviceId: string, title: string, subtitle: string, launch: () => Promise<{ job_id: string }>) => Promise<void>;
     cancel: (id: string) => void;
     dismiss: (id: string) => void;
     save: (id: string) => void;
@@ -126,9 +127,11 @@ export function DownloadsProvider({ children }: { children: React.ReactNode }) {
         sockets.current.clear();
     }, []);
 
-    const start = useCallback(async (deviceId: string, request: ExportRequest) => {
-        const { job_id } = await startCut(deviceId, request);
-        setItems(list => [...list, blank(job_id, deviceId, request.title, request.subtitle)]);
+    const start = useCallback(async (
+        deviceId: string, title: string, subtitle: string, launch: () => Promise<{ job_id: string }>,
+    ) => {
+        const { job_id } = await launch();
+        setItems(list => [...list, blank(job_id, deviceId, title, subtitle)]);
         listen(job_id, deviceId);
     }, [listen]);
 
