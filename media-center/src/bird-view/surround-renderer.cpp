@@ -25,6 +25,8 @@ namespace birdview {
 		constexpr int BOWL_FLOOR_RINGS = 20;
 		constexpr int BOWL_ARC_RINGS = 10;
 		constexpr int BOWL_WALL_RINGS = 14;
+		// Радиус дуги стыка дна со стенкой - доля дна, от скругления плана не зависит
+		constexpr float BOWL_FILLET = 0.15f;
 
 		// Ручная орбита: полный проход экрана по X - полкруга, по Y - 90 градусов
 		constexpr float ORBIT_DX_LAPS = 0.5f;
@@ -197,16 +199,16 @@ namespace birdview {
 		const float total_off = floor_off + run_off;
 		const float wall_h = side * m_wall_f;
 
-		// Профиль: дно → дуга стыка радиуса corner*side → прямая стенка
-		// Наклон стенки задают вынос и высота; corner 0 с выносом 0 даёт
-		// вертикальные стенки - параллелепипед
+		// Профиль: дно → дуга стыка радиуса BOWL_FILLET*дно → прямая стенка
+		// Наклон стенки задают вынос и высота; вынос 0 даёт вертикальные стенки.
+		// Стенка проходит через точку floor_off, дуга съедает не больше 15% дна
 		std::vector<std::pair<float, float>> prof;
 		{
 			const float lw = std::hypot(run_off, wall_h);
 			const float theta = std::atan2(wall_h, run_off);
 			const float half_tan = std::tan(theta * 0.5f);
 			const float r_fit = std::min(floor_off, lw) * 0.95f / std::max(half_tan, 1e-4f);
-			const float R = std::clamp(m_corner_f * side, 0.0f, r_fit);
+			const float R = std::clamp(BOWL_FILLET * floor_off, 0.0f, r_fit);
 			const float t_tan = R * half_tan;
 			const float wx = run_off / lw;
 			const float wy = wall_h / lw;
@@ -413,11 +415,6 @@ namespace birdview {
 		return std::max(side * (m_floor_f + m_outer_f), side * 0.25f);
 	}
 
-	float USurroundRenderer::orbit_wall() const {
-		const float side = std::min(m_box_w, m_box_l);
-		return std::max(side * m_wall_f, side * 0.1f);
-	}
-
 	void USurroundRenderer::update(float dt) {
 		bool manual;
 		float dx, dy, dz;
@@ -440,8 +437,8 @@ namespace birdview {
 		else {
 			// Темп слайдера сохранён: оборот занимает 2*pi/speed секунд
 			m_orbit_u += dt * m_orbit_speed / (2.0f * PI);
-			// Возврат в авто: взгляд и зум плавно стекают к базе
-			m_pitch_off -= m_pitch_off * std::min(1.0f, dt * ORBIT_EASE);
+			// Возврат в авто: взгляд стекает к наклону из конфига, зум к единице
+			m_pitch_off += (m_orbit_pitch - m_pitch_off) * std::min(1.0f, dt * ORBIT_EASE);
 			m_zoom += (1.0f - m_zoom) * std::min(1.0f, dt * ORBIT_EASE);
 		}
 		m_orbit_u -= std::floor(m_orbit_u);
@@ -458,7 +455,7 @@ namespace birdview {
 			const glm::vec2 pos = orbit_path_point(m_orbit_u,
 				m_box_w * 0.5f, m_box_l * 0.5f, off, m_corner_f);
 			const float d_eye = std::max(std::hypot(pos.x, pos.y), 1e-3f);
-			const float h_eye = orbit_wall() * m_orbit_height_f;
+			const float h_eye = m_orbit_height_m;
 			// Ближайшая кромка дальней стенки: короткая полуось плюс дно с выносом
 			const float d_rim = side * 0.5f + side * (m_floor_f + m_outer_f);
 			const float h_rim = side * m_wall_f;
@@ -472,10 +469,11 @@ namespace birdview {
 		}
 	}
 
-	void USurroundRenderer::set_orbit(float dist_f, float height_f, float speed) {
+	void USurroundRenderer::set_orbit(float dist_f, float height_m, float speed, float pitch_deg) {
 		if (dist_f > 0) m_orbit_dist_f = dist_f;
-		if (height_f > 0) m_orbit_height_f = height_f;
+		if (height_m >= 0) m_orbit_height_m = height_m;
 		if (speed >= 0) m_orbit_speed = speed;
+		m_orbit_pitch = std::clamp(pitch_deg, -ORBIT_PITCH_MAX, ORBIT_PITCH_MAX);
 	}
 
 	void USurroundRenderer::set_orbit_mode(bool manual) {
@@ -640,7 +638,7 @@ namespace birdview {
 		const float off = orbit_reach() * dist;
 		const glm::vec2 pos = orbit_path_point(m_orbit_u,
 			m_box_w * 0.5f, m_box_l * 0.5f, off, m_corner_f);
-		const glm::vec3 eye{ pos.x, orbit_wall() * m_orbit_height_f, pos.y };
+		const glm::vec3 eye{ pos.x, m_orbit_height_m, pos.y };
 		const glm::vec3 target{ 0.0f, m_box_h * 0.4f, 0.0f };
 
 		glm::vec3 dir = glm::normalize(target - eye);

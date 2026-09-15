@@ -124,8 +124,12 @@ export interface SurroundBowl {
 }
 
 export interface SurroundOrbit {
+    /** Доля вылета чаши: 1 — камера у кромки. */
     distance: number;
+    /** Высота глаза, метры от пола. */
     height: number;
+    /** Постоянный наклон взгляда к центру габарита, градусы, плюс вниз. */
+    pitch: number;
     speed: number;
     /** Дефолт ручного вращения: с ним вывод стартует без автооблёта. */
     interactive: boolean;
@@ -525,6 +529,7 @@ export const linkerApi = {
             orbit: {
                 distance: num(orbit.distance, 1.6),
                 height: num(orbit.height, 1.5),
+                pitch: num(orbit.pitch, 0),
                 speed: num(orbit.speed, 0.25),
                 interactive: orbit.interactive === true,
             },

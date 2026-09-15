@@ -447,7 +447,9 @@ namespace birdview {
 			{ "bowl", "outer",     EFieldKind::NumNonNegative, SURROUND_DIRTY_BAKE },
 			{ "bowl", "corner",    EFieldKind::NumNonNegative, SURROUND_DIRTY_BAKE },
 			{ "orbit", "distance", EFieldKind::NumPositive,   SURROUND_DIRTY_VISUAL },
-			{ "orbit", "height",   EFieldKind::NumPositive,   SURROUND_DIRTY_VISUAL },
+			// Высота глаза в метрах, ноль - уровень пола; наклон в градусах, плюс вниз
+			{ "orbit", "height",   EFieldKind::NumNonNegative, SURROUND_DIRTY_VISUAL },
+			{ "orbit", "pitch",    EFieldKind::NumAny,        SURROUND_DIRTY_VISUAL },
 			{ "orbit", "speed",    EFieldKind::NumNonNegative, SURROUND_DIRTY_VISUAL },
 			// Дефолт ручного управления на отображении, применяется и живьём
 			{ "orbit", "interactive", EFieldKind::Flag,       SURROUND_DIRTY_VISUAL },
@@ -710,9 +712,9 @@ namespace birdview {
 		boost::json::object machine{ {"length", 0.0}, {"width", 0.0}, {"height", 0.0} };
 		boost::json::object bowl{ {"floor", 0.9}, {"outer", 1.4}, {"wall", 0.9},
 			{"plate", 1.5}, {"blend", 0.3}, {"corner", 1.0} };
-		// Доли вылета чаши и высоты её стенки, не метры и не доли габарита
-		boost::json::object orbit{ {"distance", 1.6}, {"height", 1.5}, {"speed", 0.25},
-			{"interactive", false} };
+		// Дистанция - доля вылета чаши, высота - метры, наклон - градусы (плюс вниз)
+		boost::json::object orbit{ {"distance", 1.6}, {"height", 1.5}, {"pitch", 0.0},
+			{"speed", 0.25}, {"interactive", false} };
 		boost::json::object model{ {"length", 0.0}, {"width", 0.0}, {"height", 0.0},
 			{"alpha", 1.0}, {"rotation", 0.0}, {"source", ""},
 			{"scale", 1.0}, {"stretch", false} };

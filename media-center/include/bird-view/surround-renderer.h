@@ -45,15 +45,15 @@ namespace birdview {
 		void set_photometric_pairs(const std::vector<FSurroundPhotoPair>& pairs);
 
 		// Живые параметры, применяются со следующего кадра без перепечки
-		void set_orbit(float dist_f, float height_f, float speed);
+		// Дистанция - доля вылета чаши, высота глаза в метрах, наклон в градусах (плюс вниз)
+		void set_orbit(float dist_f, float height_m, float speed, float pitch_deg);
 		// Размеры подложки в метрах; 0 - авто, габарит на фактор чаши
 		void set_plate_size(float width_m, float length_m);
 		// Ручное управление орбитой, зовётся из потока сокета камеры
 		// true - автооблёт стоит, камеру двигают дельты; false - облёт с текущей точки
 		void set_orbit_mode(bool manual);
-		// Вылет чаши от борта и высота её стенки: опора орбиты
+		// Вылет чаши от борта: опора дистанции орбиты
 		float orbit_reach() const;
-		float orbit_wall() const;
 		// Нормированные дельты жеста: доли канваса по осям и шаг зума
 		void apply_orbit_input(float dx, float dy, float dzoom);
 		void set_plate(bool visible);
@@ -125,16 +125,18 @@ namespace birdview {
 		float m_outer_f = 1.4f;
 		float m_wall_f = 0.9f;
 		float m_plate_f = 1.5f;
-		// Скругление углов плана и стыка дна со стенкой: 0 - параллелепипед
+		// Скругление углов плана: 0 - прямоугольник
 		float m_corner_f = 1.0f;
 		float m_box_w = 2.6f;
 		float m_box_h = 3.6f;
 		float m_box_l = 13.0f;
 
 		// Живые параметры сцены, правятся ручкой /linker/surround
-		// Доли вылета чаши и высоты её стенки: 1.0 - камера у кромки, на уровне верха стенки
+		// Дистанция - доля вылета чаши (1.0 - камера у кромки), высота - метры
 		float m_orbit_dist_f = 1.6f;
-		float m_orbit_height_f = 1.5f;
+		float m_orbit_height_m = 1.5f;
+		// Постоянный наклон взгляда к центру габарита, градусы, плюс вниз
+		float m_orbit_pitch = 0.0f;
 		float m_orbit_speed = 0.25f;
 		bool m_plate_visible = true;
 		// Свои размеры подложки в метрах; 0 - от габарита на m_plate_f

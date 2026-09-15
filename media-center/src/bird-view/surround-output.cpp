@@ -46,7 +46,8 @@ namespace birdview {
 		m_renderer.set_orbit(
 			static_cast<float>(js::num(orbit, "distance", 1.6)),
 			static_cast<float>(js::num(orbit, "height", 1.5)),
-			static_cast<float>(js::num(orbit, "speed", 0.25)));
+			static_cast<float>(js::num(orbit, "speed", 0.25)),
+			static_cast<float>(js::num(orbit, "pitch", 0.0)));
 		m_renderer.set_model(
 			static_cast<float>(js::num(model, "width", 0.0)),
 			static_cast<float>(js::num(model, "height", 0.0)),

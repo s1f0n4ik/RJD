@@ -677,6 +677,38 @@ export function SurroundPanel({
     }
 
     const m = cfg.machine;
+    // Пропорции чаши и дистанция орбиты хранятся долями меньшей стороны габарита,
+    // в окошках ползунков они показаны метрами
+    const side = Math.min(m.length, m.width);
+    const fmtM = (v: number) => `${v.toFixed(2).replace('.', ',')} м`;
+    const inSide = (v: number) => (side > 0 ? fmtM(v * side) : v.toFixed(2).replace('.', ','));
+
+    // Чаша по анализу швов: вертикальная стенка на минимаксной дистанции рабочего
+    // диапазона [0,5·H, 3·H] от средней высоты камер H, стенка до 2·H,
+    // шов прячет двойника на ближней границе диапазона при среднем шаге камер B
+    const autoBowl = () => {
+        const cams = cfg.cameras;
+        if (!cams.length || side <= 0) return;
+        const H = cams.reduce((s, c) => s + c.position[1], 0) / cams.length;
+        if (H <= 0) return;
+        const B = cams.length < 2 ? 0 : cams.reduce((s, c) => s + Math.min(
+            ...cams.filter(o => o !== c).map(o =>
+                Math.hypot(o.position[0] - c.position[0], o.position[2] - c.position[2])),
+        ), 0) / cams.length;
+        const dMin = 0.5 * H;
+        const dMax = 3 * H;
+        const dS = (2 * dMin * dMax) / (dMin + dMax);
+        const q = (v: number, lo: number, hi: number) =>
+            Math.min(hi, Math.max(lo, Math.round(v / 0.05) * 0.05));
+        apply({
+            bowl: {
+                floor: q(dS / side, 0.1, 6),
+                outer: 0,
+                wall: q((2 * H) / side, 0.1, 6),
+                blend: q((B * (dS / dMin - 1)) / side, 0.05, 1),
+            },
+        }, true);
+    };
     const selectedPose =
         cfg.cameras.find(c => c.placeKey === place) ?? cfg.cameras[0] ?? null;
 
@@ -733,12 +765,17 @@ export function SurroundPanel({
                 </button>
 
                 <Subhead>Орбита</Subhead>
-                <Range label="Дистанция · × вылета чаши" value={cfg.orbit.distance}
+                <Range label="Дистанция от борта" value={cfg.orbit.distance}
                     min={0.2} max={4} step={0.05}
+                    fmt={v => inSide(v * (cfg.bowl.floor + cfg.bowl.outer))}
                     onCommit={v => apply({ orbit: { distance: v } })} />
-                <Range label="Высота · × стенки чаши" value={cfg.orbit.height}
-                    min={0.2} max={4} step={0.05}
+                <Range label="Высота" value={cfg.orbit.height}
+                    min={0} max={8} step={0.05} fmt={fmtM}
                     onCommit={v => apply({ orbit: { height: v } })} />
+                <Range label="Наклон · плюс вниз" value={cfg.orbit.pitch}
+                    min={-45} max={45} step={1}
+                    fmt={v => `${v > 0 ? '+' : ''}${Math.round(v)}°`}
+                    onCommit={v => apply({ orbit: { pitch: v } })} />
                 <Range label="Скорость облёта" value={cfg.orbit.speed} min={0} max={1} step={0.05}
                     onCommit={v => apply({ orbit: { speed: v } })} />
                 <span data-tip={orbit.canSend ? undefined : 'Доступно при просмотре потока'}>
@@ -786,19 +823,34 @@ export function SurroundPanel({
                     </div>
                 )}
 
-                <Subhead>Чаша</Subhead>
+                <Subhead>
+                    Чаша
+                    <button
+                        type="button"
+                        className="btn btn--ghost btn--sm"
+                        style={{ order: 1 }}
+                        disabled={!cfg.cameras.length || side <= 0}
+                        data-tip="Вертикальная стенка на дистанции без сдвига копий, по высоте и шагу камер"
+                        onClick={autoBowl}
+                    >
+                        Авто
+                    </button>
+                </Subhead>
                 <Range label="Стенка · высота" value={cfg.bowl.wall} min={0.1} max={6} step={0.05}
+                    fmt={inSide}
                     onCommit={v => apply({ bowl: { wall: v } }, true)} />
                 {/* Дно сдвигает начало стенки, её вынос от дна не зависит */}
                 <Range label="Дно · до загиба" value={cfg.bowl.floor} min={0.1} max={6} step={0.05}
+                    fmt={inSide}
                     onCommit={v => apply({ bowl: { floor: v } }, true)} />
                 <Range label="Стенка · вынос" value={cfg.bowl.outer} min={0} max={6} step={0.05}
-                    fmt={v => (v === 0 ? 'вертикаль' : v.toFixed(2))}
+                    fmt={v => (v === 0 ? 'вертикаль' : inSide(v))}
                     onCommit={v => apply({ bowl: { outer: v } }, true)} />
                 <Range label="Скругление углов" value={cfg.bowl.corner} min={0} max={4} step={0.05}
                     fmt={v => (v === 0 ? 'прямые' : v.toFixed(2))}
                     onCommit={v => apply({ bowl: { corner: v } }, true)} />
                 <Range label="Ширина шва" value={cfg.bowl.blend} min={0.05} max={1} step={0.05}
+                    fmt={inSide}
                     onCommit={v => apply({ bowl: { blend: v } }, true)} />
                 <Switch on={cfg.photometric} onToggle={v => apply({ photometric: v })}>
                     Фотонормализация
