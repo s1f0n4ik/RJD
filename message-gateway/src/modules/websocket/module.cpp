@@ -60,17 +60,24 @@ namespace varan {
                 return result;
             }
 
+            // Доставить некому — кадр всё равно принимаем: молчание канала это
+            // дело шлюза, а не отправителя. Проверка стоит до кодирования: гнать
+            // кадр через кодек в никуда незачем.
+            if (!m_ws->connected()) {
+                const std::string reason = !m_ws->config().enabled
+                    ? "transmission disabled"
+                    : (m_ws->last_error().empty() ? "websocket not connected" : m_ws->last_error());
+                m_stats.on_frame_undelivered(msg.id, ts_recv, msg.ver, det_count, reason);
+
+                result.status = ESubmitStatus::Accepted;
+                result.transport = m_ws->name();
+                return result;
+            }
+
             auto encoded = codec->encode_frame(msg);
             if (!encoded.ok) {
                 result.status = ESubmitStatus::EncodeError;
                 result.error = encoded.error;
-                m_stats.on_frame_rejected(msg.id, ts_recv, msg.ver, det_count, result.error);
-                return result;
-            }
-
-            if (!m_ws->connected()) {
-                result.status = ESubmitStatus::NotConnected;
-                result.error = "websocket not connected";
                 m_stats.on_frame_rejected(msg.id, ts_recv, msg.ver, det_count, result.error);
                 return result;
             }

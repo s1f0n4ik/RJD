@@ -9,7 +9,7 @@ import type {
   GwModule,
 } from '../types';
 import { formatInt, formatClock } from '../utils/format';
-import { Pill } from './ModuleBits';
+import { Kpi, Pill, RecordRow } from './ModuleBits';
 import CanMessageSpec, { SPECS } from './CanMessageSpec';
 import { humanizeError } from '../utils/errors';
 
@@ -232,6 +232,7 @@ const CanModulePanel: React.FC<Props> = ({ module, title, devices, busy, onSave,
   const messages = module.messages ?? [];
   const summaries = module.summaries ?? [];
   const log = module.log ?? [];
+  const stats = module.stats;
 
   // Нет списка сообщений — шлюз собран до этих правок, показываем только подключение
   const stale = !module.messages;
@@ -386,6 +387,29 @@ const CanModulePanel: React.FC<Props> = ({ module, title, devices, busy, onSave,
 
         {!stale && (
           <>
+            <div className="card">
+              <div className="card-h">
+                <h3>Кадры от ядра</h3>
+                <span className="meta">за сеанс</span>
+              </div>
+              <div className="card-b">
+                <div className="kpis">
+                  <Kpi label="Принято" value={formatInt(stats.accepted ?? 0)} />
+                  <Kpi label="Обнаружений" value={formatInt(stats.detections)} />
+                  <Kpi label="Не доставлено" value={formatInt(stats.undelivered ?? 0)} />
+                </div>
+              </div>
+              <div className="card-b" style={{ paddingTop: 4, paddingBottom: 4 }}>
+                {stats.recent.length > 0 ? (
+                  stats.recent.map((r) => (
+                    <RecordRow key={r.seq} r={r} sentNote="учтено в нагрузке шины" showVer={false} />
+                  ))
+                ) : (
+                  <div className="empty"><b>Кадров пока не было</b></div>
+                )}
+              </div>
+            </div>
+
             <div className="card">
               <div className="card-h">
                 <h3>Состояние сообщений</h3>

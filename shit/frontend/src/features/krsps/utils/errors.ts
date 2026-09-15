@@ -38,6 +38,7 @@ const RULES: Array<[RegExp, string]> = [
   [/bad file descriptor/i, 'дескриптор закрыт'],
   [/unsupported (protocol )?version/i, 'версия протокола не поддерживается'],
   [/not connected/i, 'нет соединения'],
+  [/transmission disabled/i, 'передача выключена'],
   [/no delivery modules/i, 'нет модулей доставки'],
   [/name or service not known|host not found|temporary failure in name resolution/i, 'имя хоста не разрешается'],
   [/operation canceled|operation aborted/i, 'операция прервана'],

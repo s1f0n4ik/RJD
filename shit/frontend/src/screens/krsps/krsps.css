@@ -67,6 +67,7 @@
 .rec .ic.ok{background:rgba(87,214,154,.14);color:var(--ok)}
 .rec .ic.hb{background:var(--panel-2);color:var(--fg-3)}
 .rec .ic.err{background:rgba(255,107,128,.14);color:var(--err)}
+.rec .ic.wrn{background:rgba(240,189,87,.14);color:var(--warn)}
 .rec .t{flex:1;min-width:0}
 .rec .t b{display:block;font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .rec .t>span{display:block;font-family:var(--mono);font-size:10.5px;color:var(--fg-3)}

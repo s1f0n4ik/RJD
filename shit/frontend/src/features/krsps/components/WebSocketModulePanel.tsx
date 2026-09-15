@@ -171,6 +171,7 @@ const WebSocketModulePanel: React.FC<Props> = ({ module, title, busy, onSave, on
             <span className="meta">
               <span className="seps">
                 <span>за сеанс</span>
+                <span>не доставлено {formatInt(stats.undelivered)}</span>
                 <span>отклонено {formatInt(stats.rejected)}</span>
                 <span>heartbeat {formatInt(stats.heartbeats)}</span>
               </span>

@@ -133,7 +133,9 @@ export interface GwDevices {
 }
 
 export type GwRecordKind = 'frame' | 'heartbeat';
-export type GwRecordStatus = 'sent' | 'rejected';
+// undelivered — кадр принят шлюзом, но транспорт его не взял (нет связи,
+// передача выключена). Отказ (rejected) остаётся только за дефектом кадра.
+export type GwRecordStatus = 'sent' | 'rejected' | 'undelivered';
 
 export interface GwMessageRecord {
   seq: number;
@@ -145,9 +147,14 @@ export interface GwMessageRecord {
   kind: GwRecordKind;
   status: GwRecordStatus;
   error?: string;
+  // Сколько подряд идущих записей с одной причиной склеено в эту.
+  count?: number;
 }
 
 export interface GwStats {
+  // Принято от media-center: отправленные плюс недоставленные.
+  accepted: number;
+  undelivered: number;
   messages: number;
   detections: number;
   images: number;

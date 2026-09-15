@@ -268,10 +268,11 @@ namespace varan {
         FSubmitResult UGateway::submit_frame(const FFrameMessage& msg) {
             auto a = active();
             if (!a) {
+                // Отправителю отказывать не за что: статистику писать некуда,
+                // но выбранная конфигурация — забота шлюза, а не media-center.
                 FSubmitResult result;
                 result.ver = msg.ver;
-                result.status = ESubmitStatus::NotConnected;
-                result.error = "no active integration";
+                result.status = ESubmitStatus::Accepted;
                 return result;
             }
             return a->handle_frame(msg);

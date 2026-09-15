@@ -21,8 +21,9 @@ namespace varan {
             int detections = 0;           // число обнаружений в кадре
             std::int64_t wire_size = 0;   // размер отправленных байт
             std::string kind;             // "frame" | "heartbeat"
-            std::string status;           // "sent" | "rejected"
-            std::string error;            // текст ошибки при rejected
+            std::string status;           // "sent" | "rejected" | "undelivered"
+            std::string error;            // текст причины при rejected/undelivered
+            int count = 1;                // склеенные подряд записи с одной причиной
         };
 
         // Счётчики работы одной интеграции плюс кольцо последних сообщений.
@@ -36,6 +37,7 @@ namespace varan {
             // Кадр успешно закодирован и отдан в транспорт.
             void on_frame_sent(std::int64_t id, std::int64_t ts_recv_ms, int ver,
                 int detections, std::int64_t wire_size, bool had_image) {
+                m_accepted.fetch_add(1);
                 m_messages.fetch_add(1);
                 m_detections.fetch_add(detections);
                 m_bytes.fetch_add(wire_size);
@@ -67,7 +69,8 @@ namespace varan {
                     "heartbeat", "sent", "" });
             }
 
-            // Кадр отклонён (нет кодека, ошибка кодирования, нет соединения).
+            // Кадр отклонён: дефект самого сообщения (нет кодека, ошибка
+            // кодирования). Отправителю про это знать надо.
             void on_frame_rejected(std::int64_t id, std::int64_t ts_recv_ms, int ver,
                 int detections, const std::string& error) {
                 m_rejected.fetch_add(1);
@@ -76,8 +79,37 @@ namespace varan {
                     "frame", "rejected", error });
             }
 
+            // Кадр принят, но транспорт его не взял: нет связи или передача
+            // выключена. Это дело шлюза, а не отправителя, — кадр учтён как
+            // принятый. Подряд идущие записи с одной причиной склеиваются: при
+            // обрыве кадры идут потоком и иначе за пару секунд вытеснят из кольца
+            // всё осмысленное.
+            void on_frame_undelivered(std::int64_t id, std::int64_t ts_recv_ms, int ver,
+                int detections, const std::string& reason) {
+                m_accepted.fetch_add(1);
+                m_undelivered.fetch_add(1);
+
+                std::lock_guard<std::mutex> lock(m_mutex);
+                if (!m_ring.empty()) {
+                    FMessageRecord& last = m_ring.back();
+                    if (last.kind == "frame" && last.status == "undelivered" && last.error == reason) {
+                        last.id = id;
+                        last.ts_recv_ms = ts_recv_ms;
+                        last.ver = ver;
+                        last.detections = detections;
+                        ++last.count;
+                        return;
+                    }
+                }
+                push_locked(FMessageRecord{
+                    next_seq(), id, ts_recv_ms, ver, detections, 0,
+                    "frame", "undelivered", reason, 1 });
+            }
+
             boost::json::object to_json() const {
                 boost::json::object o;
+                o["accepted"] = m_accepted.load();
+                o["undelivered"] = m_undelivered.load();
                 o["messages"] = m_messages.load();
                 o["detections"] = m_detections.load();
                 o["images"] = m_images.load();
@@ -106,6 +138,10 @@ namespace varan {
 
             void push(FMessageRecord rec) {
                 std::lock_guard<std::mutex> lock(m_mutex);
+                push_locked(std::move(rec));
+            }
+
+            void push_locked(FMessageRecord rec) {
                 m_ring.push_back(std::move(rec));
                 if (m_ring.size() > m_capacity) {
                     m_ring.pop_front();
@@ -122,6 +158,7 @@ namespace varan {
                 o["wire_size"] = r.wire_size;
                 o["kind"] = r.kind;
                 o["status"] = r.status;
+                o["count"] = r.count;
                 if (!r.error.empty()) {
                     o["error"] = r.error;
                 }
@@ -131,6 +168,8 @@ namespace varan {
         private:
             std::size_t m_capacity;
 
+            std::atomic<std::int64_t> m_accepted{ 0 };
+            std::atomic<std::int64_t> m_undelivered{ 0 };
             std::atomic<std::int64_t> m_messages{ 0 };
             std::atomic<std::int64_t> m_detections{ 0 };
             std::atomic<std::int64_t> m_images{ 0 };

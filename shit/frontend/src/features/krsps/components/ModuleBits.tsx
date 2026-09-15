@@ -99,25 +99,28 @@ interface RecordRowProps {
 
 export const RecordRow: React.FC<RecordRowProps> = ({ r, sentNote, showVer = true }) => {
   const rejected = r.status === 'rejected';
+  const undelivered = r.status === 'undelivered';
   const heartbeat = r.kind === 'heartbeat';
+  // Склеенные подряд идущие кадры с одной причиной: показываем кратность.
+  const repeats = (r.count ?? 1) > 1 ? [`×${r.count}`] : [];
 
-  const kind = rejected ? 'err' : heartbeat ? 'hb' : 'ok';
-  const glyph = rejected ? '✕' : heartbeat ? '♥' : '✓';
+  const kind = rejected ? 'err' : undelivered ? 'wrn' : heartbeat ? 'hb' : 'ok';
+  const glyph = rejected ? '✕' : undelivered ? '!' : heartbeat ? '♥' : '✓';
 
   const title = heartbeat
     ? ['heartbeat']
     : rejected
     ? [`#${r.id}`, 'отклонено']
-    : [`#${r.id}`, `${r.detections} ${detWord(r.detections)}`];
+    : [`#${r.id}`, `${r.detections} ${detWord(r.detections)}`, ...repeats];
 
-  const note = rejected
-    ? r.error
-      ? humanizeError(r.error)
-      : 'отклонено'
-    : heartbeat
-    ? 'служебное'
-    : sentNote;
-  const sub = showVer ? [formatClock(r.ts), `v${r.ver}`, note] : [formatClock(r.ts), note];
+  const note = heartbeat
+    ? ['служебное']
+    : rejected
+    ? [r.error ? humanizeError(r.error) : 'отклонено']
+    : undelivered
+    ? ['не доставлено', humanizeError(r.error) || 'причина не указана']
+    : [sentNote];
+  const sub = [formatClock(r.ts), ...(showVer ? [`v${r.ver}`] : []), ...note];
 
   return (
     <div className="rec">
@@ -138,7 +141,7 @@ export const RecordRow: React.FC<RecordRowProps> = ({ r, sentNote, showVer = tru
           </span>
         </span>
       </div>
-      <span className="sz">{rejected ? '—' : bytesShort(r.wire_size)}</span>
+      <span className="sz">{rejected || undelivered ? '—' : bytesShort(r.wire_size)}</span>
     </div>
   );
 };

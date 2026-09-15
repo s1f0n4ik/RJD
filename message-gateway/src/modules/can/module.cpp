@@ -262,13 +262,6 @@ namespace varan {
                 m_unmapped_cameras.fetch_add(1);
             }
 
-            if (!connected()) {
-                result.status = ESubmitStatus::NotConnected;
-                result.error = "can bus not connected";
-                m_stats.on_frame_rejected(msg.id, ts_recv, msg.ver, det_count, result.error);
-                return result;
-            }
-
             {
                 std::lock_guard<std::mutex> lock(m_payload_mutex);
                 auto it = std::find_if(m_cameras.begin(), m_cameras.end(),
@@ -286,13 +279,35 @@ namespace varan {
                 it->mono = mono_ms();
             }
 
+            // Кадр принят в любом случае: состояние камер обновлено выше, и на
+            // шину оно уйдёт, как только она появится. Молчащая шина и снятый
+            // тумблер — дело шлюза, отправителю отказывать не за что.
+            std::shared_ptr<ICanBus> bus;
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                bus = m_bus;
+            }
+
+            result.status = ESubmitStatus::Accepted;
+
+            if (!cfg.tx_detections.enabled) {
+                m_stats.on_frame_undelivered(msg.id, ts_recv, msg.ver, det_count, "transmission disabled");
+                return result;
+            }
+            if (!bus || !bus->connected()) {
+                const std::string reason = (bus && !bus->last_error().empty())
+                    ? bus->last_error()
+                    : "can bus not connected";
+                m_stats.on_frame_undelivered(msg.id, ts_recv, msg.ver, det_count, reason);
+                return result;
+            }
+
             m_stats.on_frame_sent(msg.id, ts_recv, msg.ver, det_count, cfg.tx_dlc, !msg.image.empty());
 
             if (!cfg.tx_continuous) {
                 transmit(cfg, true);
             }
 
-            result.status = ESubmitStatus::Accepted;
             result.wire_size = cfg.tx_dlc;
             return result;
         }
