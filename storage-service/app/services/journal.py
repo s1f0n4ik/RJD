@@ -548,8 +548,9 @@ class JournalService:
         except (ValueError, TypeError):
             objects = []
 
+        # Шлюз может отдать «валидный» ноль-ноль: такой точке на карте не место
         gps = None
-        if row["gps_valid"]:
+        if row["gps_valid"] and (row["lat"] or row["lon"]):
             gps = {
                 "lat": row["lat"],
                 "lon": row["lon"],

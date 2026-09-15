@@ -17,7 +17,7 @@ import { ExportModal } from './ExportModal';
 import { JournalMap } from './JournalMap';
 import { FrameViewer } from './FrameViewer';
 import { StorageModal } from './StorageModal';
-import { fmtDateTime } from './format';
+import { fmtCoord, fmtDateTime } from './format';
 import './journal.css';
 
 const PAGE_LIMIT = 300;
@@ -358,16 +358,9 @@ export function JournalSection() {
           <div className="kv"><span className="k">Камера</span><span className="v">{cameraName(selectedDet.camera_id)}</span></div>
           <div className="kv"><span className="k">Конфигурация</span><span className="v">{selectedDet.config_id ?? '—'}</span></div>
           <div className="kv">
-            <span className="k">Трек</span>
+            <span className="k">Координаты</span>
             <span className="v">
-              {selectedDet.track_id != null ? (
-                <span className="seps">
-                  <span>#{selectedDet.track_id}</span>
-                  {selectedDet.event ? <span>{selectedDet.event}</span> : null}
-                </span>
-              ) : (
-                '—'
-              )}
+              {selectedDet.gps ? `${fmtCoord(selectedDet.gps.lat)}, ${fmtCoord(selectedDet.gps.lon)}` : '—'}
             </span>
           </div>
           <div className="kv"><span className="k">Объекты</span><span className="v">{selectedDet.objects.length}</span></div>
@@ -444,7 +437,7 @@ export function JournalSection() {
             <span>Время</span>
             <span>Камера</span>
             <span>Объекты</span>
-            <span>Трек</span>
+            <span>Координаты</span>
             <span>Вердикт</span>
           </div>
           <div className="j-rows" ref={listRef}>

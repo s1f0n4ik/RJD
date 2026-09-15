@@ -2,7 +2,7 @@ import { memo } from 'react';
 import type { JournalDetection } from '../../api/journal-types';
 import type { ClassMeaning } from './useClassResolver';
 import { VERDICT_CLASS, VERDICT_LABEL } from './Filters';
-import { fmtTime } from './format';
+import { fmtCoord, fmtTime } from './format';
 
 interface Props {
   det: JournalDetection;
@@ -55,14 +55,7 @@ function DetectionRowInner({ det, selected, resolve, cameraName, onSelect }: Pro
         ))}
       </span>
       <span className="j-tr">
-        {det.track_id != null ? (
-          <span className="seps">
-            <b>#{det.track_id}</b>
-            {det.event ? <span>{det.event}</span> : null}
-          </span>
-        ) : (
-          '—'
-        )}
+        {det.gps ? `${fmtCoord(det.gps.lat)}, ${fmtCoord(det.gps.lon)}` : '—'}
       </span>
       <span className={`vd ${vd.vd}`}>
         <span className={`dot${vd.dot ? ' ' + vd.dot : ''}`} />

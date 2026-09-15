@@ -68,8 +68,11 @@ export interface PlanGeometry {
  * широкие. Вписанный как есть, он даёт полосу шириной сотню пикселей, в
  * которую не ткнуть. Поэтому при вертикальном канвасе меняем оси местами.
  */
-function lay(rect: Rect, rotated: boolean): Rect {
-    return rotated ? { x: rect.y, y: rect.x, w: rect.h, h: rect.w } : { ...rect };
+// Поворот на 90°, а не перестановка осей: перестановка зеркалит схему, и левый борт оказывается справа
+function lay(rect: Rect, rotated: boolean, canvasWidth: number): Rect {
+    return rotated
+        ? { x: rect.y, y: canvasWidth - rect.x - rect.w, w: rect.h, h: rect.w }
+        : { ...rect };
 }
 
 function rectPoly(r: Rect): Pt[] {
@@ -210,8 +213,8 @@ export function buildGeometry(detail: LinkerExportDetail): PlanGeometry | null {
     const rotated = height > width;
     const view = rotated ? { width: height, height: width } : { width, height };
 
-    const rects = withRect.map(p => lay(p.rect, rotated));
-    const machine = detail.machineRect ? lay(detail.machineRect, rotated) : null;
+    const rects = withRect.map(p => lay(p.rect, rotated, width));
+    const machine = detail.machineRect ? lay(detail.machineRect, rotated, width) : null;
 
     // Ось «изнутри наружу» для выбора диагонали шва
     const anchor = machine ? rectCenter(machine) : { x: view.width / 2, y: view.height / 2 };
@@ -254,7 +257,7 @@ export function buildGeometry(detail: LinkerExportDetail): PlanGeometry | null {
         })),
         overlays: detail.images.map((img: LinkerOverlay) => ({
             name: img.name,
-            rect: lay(img.rect, rotated),
+            rect: lay(img.rect, rotated, width),
         })),
         machine,
         icons,

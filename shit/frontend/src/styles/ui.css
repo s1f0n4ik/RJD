@@ -207,6 +207,7 @@
 .seps{display:inline-flex;align-items:center;flex-wrap:wrap;column-gap:19px;row-gap:4px;min-width:0}
 .seps>*:not(:last-child){position:relative}
 .seps>*:not(:last-child)::after{content:'';position:absolute;right:-10px;top:50%;width:1px;height:11px;margin-top:-5.5px;background:var(--line)}
+.seps>[data-tip]:hover::after{right:auto;width:max-content;height:auto;margin-top:0}
 
 .zoom{margin-left:auto;display:flex;align-items:center;gap:5px}
 

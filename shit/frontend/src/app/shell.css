@@ -160,7 +160,8 @@
 .rail-sub::before{content:'';position:absolute;left:21px;top:2px;bottom:8px;width:1px;background:var(--line)}
 .rail-item.is-active+.rail-sub{display:flex}
 .shell.is-narrow .rail-sub{display:none}
-.rsub{display:flex;align-items:center;gap:9px;min-height:34px;padding:0 10px 0 40px;border-radius:8px;font-size:12.5px;color:var(--fg-2);width:100%;text-align:left;transition:.14s;position:relative}
+.rsub{display:flex;align-items:center;gap:8px;min-height:34px;padding:0 10px 0 30px;border-radius:8px;font-size:12.5px;color:var(--fg-2);width:100%;text-align:left;transition:.14s;position:relative;white-space:nowrap}
+.rsub:focus-visible{outline-offset:-2px}
 .rsub:hover{color:var(--fg);background:var(--panel)}
 .rsub .n{font-family:var(--mono);font-size:10px;color:var(--fg-3);width:16px;flex:0 0 16px}
 .rsub.is-on{color:var(--fg);font-weight:600;background:var(--panel)}

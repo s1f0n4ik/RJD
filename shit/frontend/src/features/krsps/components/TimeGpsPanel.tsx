@@ -39,7 +39,7 @@ function coord(v: number, pos: string, neg: string): string {
 const SOURCE_NOTE: Record<string, string> = {
   can: 'шина CAN',
   server: 'часы сервиса, шина молчит',
-  static: 'заглушка, шина молчит',
+  none: 'нет данных, шина молчит',
 };
 
 function sourceNote(kind?: string): string {
@@ -132,8 +132,8 @@ const TimeGpsPanel: React.FC<Props> = ({ time, offsetMs, synced, onTimeUpdate })
                 <span className="k">Данные</span>
                 {!gps ? (
                   <span className="v">—</span>
-                ) : time?.source.gps === 'static' ? (
-                  <span className="v warn">заглушка</span>
+                ) : time?.source.gps === 'none' ? (
+                  <span className="v warn">нет данных</span>
                 ) : (
                   <span className={`v${gps.valid ? ' ok' : ' err'}`}>{gps.valid ? 'актуальны' : 'устарели'}</span>
                 )}

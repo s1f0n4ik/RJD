@@ -84,15 +84,7 @@ namespace varan {
                     s.course = 0.0;
                     s.valid = (mono_ms() - m_gps_mono) <= GPS_STALE_MS;
                 }
-                else {
-                    s.lat = 55.7695;  // заглушка: район РЖД, Москва
-                    s.lon = 37.6626;
-                    s.alt = 150.0;
-                    s.valid = true;
-                    s.sats = 11;
-                    s.speed = 0.0;
-                    s.course = 0.0;
-                }
+                // Шина молчит: координат нет, valid=false, поля нулевые
                 return s;
             }
 
@@ -105,7 +97,7 @@ namespace varan {
                 std::int64_t gps_age = -1;
                 {
                     std::lock_guard<std::mutex> lock(m_mutex);
-                    gps_src = m_has_can_gps ? "can" : "static";
+                    gps_src = m_has_can_gps ? "can" : "none";
                     if (m_has_can_gps) {
                         gps_age = mono_ms() - m_gps_mono;
                     }

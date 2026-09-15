@@ -13,10 +13,10 @@
 
 /* ── Список ── */
 .j-list{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;border-right:1px solid var(--line)}
-.j-head{display:grid;grid-template-columns:96px 132px 1fr 132px 124px;gap:12px;padding:10px 18px;border-bottom:1px solid var(--line);background:var(--surface);font-size:10.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--fg-3);flex:0 0 auto}
+.j-head{display:grid;grid-template-columns:96px 132px 1fr 150px 124px;gap:12px;padding:10px 18px;border-bottom:1px solid var(--line);background:var(--surface);font-size:10.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--fg-3);flex:0 0 auto}
 .j-rows{overflow-y:auto;flex:1;min-height:0;position:relative;display:flex;flex-direction:column}
 .j-rows .empty{flex:1}
-.j-row{flex:0 0 auto;display:grid;grid-template-columns:96px 132px 1fr 132px 124px;gap:12px;align-items:center;padding:8px 18px;min-height:48px;border-bottom:1px solid var(--line);width:100%;text-align:left;transition:.12s;color:var(--fg)}
+.j-row{flex:0 0 auto;display:grid;grid-template-columns:96px 132px 1fr 150px 124px;gap:12px;align-items:center;padding:8px 18px;min-height:48px;border-bottom:1px solid var(--line);width:100%;text-align:left;transition:.12s;color:var(--fg)}
 .j-row:hover{background:var(--surface)}
 .j-row:focus-visible{outline-offset:-2px}
 .j-row.is-sel{background:rgba(var(--acc-rgb),.14);box-shadow:inset 3px 0 0 var(--acc)}
