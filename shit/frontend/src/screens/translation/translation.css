@@ -24,18 +24,24 @@
 
 .tr-name { font-size: 12.5px; color: var(--fg-2); }
 
+/* Быстрый выбор отображения прямо в планке */
+.tr-select { flex: 0 0 auto; width: 200px; }
+.tr-select .uisel-btn { height: 30px; }
+
 .tr-plain { border-color: transparent; }
 
 .tr-body { flex: 1; min-height: 0; position: relative; display: flex; }
 
-/* Шторка выезжает поверх сетки, ячейки под ней не перестраиваются */
+/* Шторка выезжает поверх сетки, ячейки под ней не перестраиваются.
+   z-index выше жестового слоя 360 (.orbit-gest = 10): иначе орбита ячейки
+   перехватывает нажатия по шторке и она становится некликабельной. */
 .tr-drawer {
     position: absolute;
     left: 0;
     top: 0;
     bottom: 0;
     width: 268px;
-    z-index: 6;
+    z-index: 30;
     background: var(--surface);
     border-right: 1px solid var(--line);
     padding: 12px 10px;
@@ -43,7 +49,20 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
+    transform: translateX(-100%);
+    transition: transform .22s ease, box-shadow .22s ease;
 }
+
+.tr-drawer.is-open {
+    transform: none;
+    box-shadow: 0 0 24px rgba(0, 0, 0, .45);
+}
+
+/* Свёрнутая шторка не ловит нажатия за краем экрана */
+.tr-drawer:not(.is-open) { pointer-events: none; }
+
+/* Выбран источник — подсветку ячеек держит wall.css, здесь только сам список */
+.tr .row-item.is-armed { border-color: var(--acc); box-shadow: 0 0 0 1px var(--acc); }
 
 .tr-cap { padding: 14px 1px 8px; }
 

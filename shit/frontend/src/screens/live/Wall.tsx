@@ -2,10 +2,8 @@
  * Стена ячеек — общая для редактора и трансляции.
  *
  * Chromium не тянет полтора десятка сессий разом, поэтому плееры монтируются
- * по одному: подъём видно (ячейка сама пишет «подключение…»), а разбор при
- * смене отображения скрыт плашкой с прогрессом — иначе ячейки гасли бы по
- * очереди на глазах. Уход со страницы разбирает всё разом: смотреть уже
- * некому.
+ * и разбираются по одному: и подъём, и разбор ячейка показывает сама. Уход со
+ * страницы разбирает всё разом: смотреть уже некому.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -41,6 +39,9 @@ export interface WallProps {
     editable?: boolean;
     selectedCell?: string | null;
     onSelectCell?: (cellId: string) => void;
+    /** Тач-раскладка: источник выбран в списке, нажатие по ячейке ставит его */
+    pickedSource?: string | null;
+    onPickPlace?: (cellId: string) => void;
     onAssign?: (cellId: string, sourceId: string) => void;
     onSwap?: (from: string, to: string) => void;
     onRemove?: (cellId: string) => void;
@@ -75,6 +76,8 @@ export function Wall({
     editable = false,
     selectedCell = null,
     onSelectCell,
+    pickedSource = null,
+    onPickPlace,
     onAssign,
     onSwap,
     onRemove,
@@ -91,7 +94,7 @@ export function Wall({
     onCorrectionBusy,
 }: WallProps) {
     const [mounted, setMounted] = useState<string[]>([]);
-    const [closing, setClosing] = useState<{ total: number; done: number } | null>(null);
+    const [closing, setClosing] = useState(false);
     const [expanded, setExpanded] = useState<string | null>(null);
     const [statuses, setStatuses] = useState<Record<string, PlayerStatus>>({});
     const [dragOver, setDragOver] = useState<string | null>(null);
@@ -184,19 +187,22 @@ export function Wall({
         if (switchRef.current === switchKey) return;
         switchRef.current = switchKey;
 
+        // Раскрытие принадлежит прежней сетке: ячейка с тем же id есть почти в
+        // каждой, и без сброса любое следующее отображение оставалось бы одной
+        // ячейкой на весь экран — на панели из этого не выйти без клавиатуры
+        setExpanded(null);
+
         const total = mountedRef.current.length;
         if (total === 0) return;
 
-        setClosing({ total, done: 0 });
+        setClosing(true);
         let done = 0;
         const timer = window.setInterval(() => {
             done += 1;
             setMounted(prev => prev.slice(0, Math.max(0, prev.length - 1)));
             if (done >= total) {
                 window.clearInterval(timer);
-                setClosing(null);
-            } else {
-                setClosing({ total, done });
+                setClosing(false);
             }
         }, CLOSE_STEP_MS);
 
@@ -384,7 +390,7 @@ export function Wall({
     return (
         <div className="wallwrap">
             <div
-                className={`wall${expanded ? ' is-expanded' : ''}`}
+                className={`wall${expanded ? ' is-expanded' : ''}${pickedSource ? ' is-picking' : ''}`}
                 ref={wallRef}
                 style={{
                     // minmax(0,1fr): иначе трек не уже своего содержимого — стена
@@ -412,6 +418,7 @@ export function Wall({
                                 'cell',
                                 empty ? 'is-off' : '',
                                 broken ? 'is-off is-err' : '',
+                                pickedSource ? (empty ? 'is-free' : 'is-busy') : '',
                                 selectedCell === cell.id ? 'is-sel' : '',
                                 dragOver === cell.id ? 'is-drop' : '',
                                 hidden ? 'is-hidden' : '',
@@ -447,10 +454,25 @@ export function Wall({
                                 setDragSource(null);
                                 if (editable) onDrop(event, cell.id);
                             }}
-                            onClick={() => onSelectCell?.(cell.id)}
+                            onClick={event => {
+                                // Выбран источник — нажатие ставит его в ячейку;
+                                // stopPropagation не даёт внешнему сбросу снять выбор
+                                if (pickedSource && onPickPlace) {
+                                    event.stopPropagation();
+                                    onPickPlace(cell.id);
+                                    return;
+                                }
+                                onSelectCell?.(cell.id);
+                            }}
                             onDoubleClick={() => setExpanded(prev => (prev === cell.id ? null : cell.id))}
                         >
                             {renderBody(cell.id)}
+
+                            {pickedSource && (
+                                <div className="cell-pick">
+                                    <span>{empty ? 'Поставить в эту ячейку' : 'Заменить эту ячейку'}</span>
+                                </div>
+                            )}
 
                             {dragOver === cell.id && dragSource !== cell.id && (
                                 <div className="cell-drop" />
@@ -483,16 +505,6 @@ export function Wall({
                     );
                 })}
             </div>
-
-            {closing && (
-                <div className="wall-mask">
-                    <span className="wall-mask-cap">Переключение отображения</span>
-                    <div className="wall-mask-bar">
-                        <i style={{ width: `${Math.round((closing.done / closing.total) * 100)}%` }} />
-                    </div>
-                    <span className="wall-mask-num">{closing.done} из {closing.total}</span>
-                </div>
-            )}
         </div>
     );
 }
