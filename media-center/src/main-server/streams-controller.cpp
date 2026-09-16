@@ -82,6 +82,21 @@ std::optional<boost::json::object> UStreamsController::collect_birdview() {
     item["width"] = static_cast<int64_t>(width);
     item["height"] = static_cast<int64_t>(height);
     item["running"] = m_linker->is_running();
+    item["view_mode"] = m_linker->resolve_view_mode();
+
+    // Второй поток той же конфигурации, стена держит оба в одной ячейке
+    const auto second = m_linker->get_secondary_output();
+    if (second.stream_id.empty()) {
+        item["secondary"] = nullptr;
+    }
+    else {
+        boost::json::object s;
+        s["stream_id"] = second.stream_id;
+        s["view_mode"] = second.view_mode;
+        s["width"] = static_cast<int64_t>(second.width);
+        s["height"] = static_cast<int64_t>(second.height);
+        item["secondary"] = std::move(s);
+    }
     put_source(item, "birdview", export_id, source_name, std::move(cameras));
 
     return item;

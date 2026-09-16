@@ -386,6 +386,9 @@ public:
 
 	void push_frame(cv::Mat frame);
 
+	// Кадр RGBA в dma-buf без копии; release зовётся, когда кодек отпустил буфер
+	void push_dmabuf(int fd, size_t size, int stride, std::function<void()> release);
+
 	void set_stream_size(int width, int height, int fps);
 
 	std::optional<cv::Mat> get_cached_frame();
@@ -413,6 +416,8 @@ protected:
 private:
 	GstElement* m_appsrc = nullptr;
 	std::mutex m_appsrc_mutex;
+	// Обёртка чужих дескрипторов dma-buf в GstMemory, создаётся при первом кадре
+	GstAllocator* m_dmabuf_allocator = nullptr;
 
 	guint64 m_frame_count = 0;
 

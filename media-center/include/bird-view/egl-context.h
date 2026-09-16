@@ -196,39 +196,62 @@ namespace birdview {
             return true;
         }
 
-        bool init_render_framebuffer(GLint width = 1024, GLint height = 1024, ULogger* logger = nullptr) {
-            if (m_render_buffer_initialized) {
-                if (logger) logger->warn("init_render_framebuffer(): render buffer reinitialization");
-            }
-            // Инициализация буфера для рисования кадров
-            glGenFramebuffers(1, &m_fbo);
-            glBindFramebuffer(GL_FRAMEBUFFER, m_fbo);
+        // Кадровый буфер одного выхода: цвет RGBA8 и глубина D16
+        struct FRenderTarget {
+            GLuint fbo = 0;
+            GLuint texture = 0;
+            GLuint depth = 0;
+            GLint width = 0;
+            GLint height = 0;
+        };
 
-            GLuint depth;
-            glGenRenderbuffers(1, &depth);
-            glBindRenderbuffer(GL_RENDERBUFFER, depth);
+        bool create_render_target(FRenderTarget& target, GLint width, GLint height, ULogger* logger = nullptr) {
+            glGenFramebuffers(1, &target.fbo);
+            glBindFramebuffer(GL_FRAMEBUFFER, target.fbo);
+
+            glGenRenderbuffers(1, &target.depth);
+            glBindRenderbuffer(GL_RENDERBUFFER, target.depth);
             glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT16, width, height);
-            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depth);
+            glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, target.depth);
 
-            glGenTextures(1, &m_fbo_texture);
-            glBindTexture(GL_TEXTURE_2D, m_fbo_texture);
+            glGenTextures(1, &target.texture);
+            glBindTexture(GL_TEXTURE_2D, target.texture);
             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_fbo_texture, 0);
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, target.texture, 0);
 
             if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-                if (logger) logger->error("FBO is not complete!");
+                if (logger) logger->error("create_render_target(): FBO is not complete");
                 glBindFramebuffer(GL_FRAMEBUFFER, 0);
+                destroy_render_target(target);
                 return false;
             }
 
-            // Отключаем FBO
-            //glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-            m_render_buffer_initialized = true;
+            target.width = width;
+            target.height = height;
             return true;
+        }
+
+        // Делает цель текущей для рендереров: они берут её через get_fbo()
+        void use_render_target(const FRenderTarget& target) {
+            m_fbo = target.fbo;
+            m_fbo_texture = target.texture;
+            glBindFramebuffer(GL_FRAMEBUFFER, target.fbo);
+            m_render_buffer_initialized = target.fbo != 0;
+        }
+
+        void destroy_render_target(FRenderTarget& target) {
+            if (m_fbo == target.fbo) {
+                m_fbo = 0;
+                m_fbo_texture = 0;
+                m_render_buffer_initialized = false;
+            }
+            if (target.texture) glDeleteTextures(1, &target.texture);
+            if (target.depth) glDeleteRenderbuffers(1, &target.depth);
+            if (target.fbo) glDeleteFramebuffers(1, &target.fbo);
+            target = FRenderTarget{};
         }
 
         void destroy() {

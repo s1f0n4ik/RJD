@@ -2,6 +2,7 @@
 
 #include <thread>
 #include <atomic>
+#include <memory>
 #include <mutex>
 #include <functional>
 #include <optional>
@@ -24,6 +25,8 @@ namespace nvr = varan::nvr;
 
 namespace varan {
 namespace birdview {
+
+	class IOutputMode;
 
 	class ULinker {
 		using NLinkSpace = std::vector<NPFrame>;
@@ -54,7 +57,22 @@ namespace birdview {
 			// Режим вывода: top - сшивка сверху, surround - объёмный вид
 			// Пусто - в состоянии не задан, работает top
 			std::string view_mode;
+			// Второй режим рядом с основным своим потоком; nullopt - в состоянии не задан
+			std::optional<bool> dual_output;
 		};
+
+		// Второй поток при включённом dual_output; пустой stream_id - его нет
+		struct FSecondaryOutput {
+			std::string stream_id;
+			std::string view_mode;
+			int width = 0;
+			int height = 0;
+		};
+
+		// Режим, противоположный данному
+		static std::string other_view_mode(const std::string& mode) {
+			return mode == "surround" ? "top" : "surround";
+		}
 
 		// Допустимые углы. Всё остальное ручка отвергает
 		static bool is_valid_rotation(int degrees) {
@@ -110,6 +128,12 @@ namespace birdview {
 		// Режим вывода конфигурации: из состояния, иначе top
 		std::string resolve_view_mode(const std::string& export_id = {}) const;
 
+		// Двойной вывод конфигурации: из состояния, иначе false
+		bool resolve_dual_output(const std::string& export_id = {}) const;
+
+		// Второй поток живого вывода; до старта - то, с чем он поднимется
+		FSecondaryOutput get_secondary_output() const;
+
 		/*
 			Размер кадра, который реально уходит в эфир. Больше канваса на
 			выравнивание сторон, поэтому его показывают отдельно: иначе при
@@ -143,6 +167,10 @@ namespace birdview {
 		// Смена режима вывода. Пустой export_id - активная конфигурация
 		// Живой вывод пересобирается: размер кадра у режимов разный
 		bool set_view_mode(const std::string& export_id, const std::string& mode, std::string& error);
+
+		// Тумблер двойного вывода. Пустой export_id - активная конфигурация
+		// Живой вывод пересобирается: второй поток поднимается вместе с первым
+		bool set_dual_output(const std::string& export_id, bool enabled, std::string& error);
 
 		// Ручной оверрайд позы камеры места в surround-блоке экспорта
 		// payload: {position:[x,y,z], yaw, pitch, roll} или {reset:true}
@@ -194,12 +222,17 @@ namespace birdview {
 		std::filesystem::path get_models_list_path();
 
 	private:
-		// Общий кадровый цикл: режим вывода собирается по view_mode
+		// Общий кадровый цикл: основной режим по view_mode, второй при dual_output
 		void processing_loop(uint32_t fps);
 
-		NLinkSpace create_linking_space();
+		// Режим вывода по имени; bindings нужны только surround
+		std::unique_ptr<IOutputMode> make_output_mode(const std::string& view_mode,
+			const std::string& export_id, NCamerasPurpose bindings);
 
-		void fill_linking_space(NLinkSpace& space);
+		// Режим конфигурации сейчас в эфире: основной или второй при dual_output
+		bool is_mode_live(const std::string& view_mode, const std::string& export_id) const;
+
+		void fill_linking_space(const std::vector<std::string>& keys, NLinkSpace& space);
 
 		bool apply_export(const std::string& export_id, NCamerasPurpose desired_bindings);
 
@@ -228,9 +261,10 @@ namespace birdview {
 		// Выровненный размер кадра, с которым создан текущий вывод
 		int m_out_width = 0;
 		int m_out_height = 0;
+		// Второй поток текущего вывода; пустой stream_id - его нет
+		FSecondaryOutput m_secondary;
 
 		nvr::FWebSocketOptions m_websocket;
-		std::unique_ptr<varan::neural::UVirtualCamera> m_streamer;
 		std::string m_stream_id;
 
 		// Живые изменения surround: цикл забирает флаги и перечитывает конфиг

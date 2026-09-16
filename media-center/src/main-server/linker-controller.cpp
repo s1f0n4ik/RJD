@@ -187,6 +187,9 @@ ULinkerController::post_state(const http::request<http::string_body>& req)
             }
             params.rotation = degrees;
         }
+        if (auto* d = obj.if_contains("dual_output"); d && d->is_bool()) {
+            params.dual_output = d->as_bool();
+        }
     }
     catch (const std::exception& e) {
         return json_error(m_logger, req, http::status::bad_request, e.what(), tag);
@@ -289,6 +292,53 @@ ULinkerController::post_view_mode(const http::request<http::string_body>& req)
 
     boost::json::object data;
     data["view_mode"] = mode;
+    data["export_id"] = export_id.empty() ? m_linker->get_active_export_id() : export_id;
+
+    boost::json::object body;
+    body["data"] = std::move(data);
+    return json_ok(m_logger, req, body, tag);
+}
+
+// ─── POST /linker/dual-output ───────────────────────────────
+http::response<http::string_body>
+ULinkerController::post_dual_output(const http::request<http::string_body>& req)
+{
+    const std::string tag = "POST /linker/dual-output";
+    log_request(m_logger, req, tag);
+
+    bool enabled = false;
+    std::string export_id;
+
+    try {
+        auto v = boost::json::parse(req.body());
+        if (!v.is_object()) {
+            return json_error(m_logger, req, http::status::bad_request, "body must be object", tag);
+        }
+        const auto& obj = v.as_object();
+
+        if (auto* d = obj.if_contains("dual_output"); d && d->is_bool()) {
+            enabled = d->as_bool();
+        }
+        else {
+            return json_error(m_logger, req, http::status::bad_request, "missing dual_output", tag);
+        }
+
+        // Без export_id правим активную конфигурацию
+        if (auto* e = obj.if_contains("export_id"); e && e->is_string()) {
+            export_id = e->as_string().c_str();
+        }
+    }
+    catch (const std::exception& e) {
+        return json_error(m_logger, req, http::status::bad_request, e.what(), tag);
+    }
+
+    std::string error;
+    if (!m_linker->set_dual_output(export_id, enabled, error)) {
+        return json_error(m_logger, req, http::status::bad_request, error, tag);
+    }
+
+    boost::json::object data;
+    data["dual_output"] = enabled;
     data["export_id"] = export_id.empty() ? m_linker->get_active_export_id() : export_id;
 
     boost::json::object body;
@@ -748,6 +798,21 @@ ULinkerController::get_status(const http::request<http::string_body>& req)
         const auto [out_w, out_h] = m_linker->get_output_size();
         data["width"] = static_cast<int64_t>(out_w);
         data["height"] = static_cast<int64_t>(out_h);
+
+        // Второй поток при включённом тумблере; null - вывод одиночный
+        data["dual_output"] = m_linker->resolve_dual_output();
+        const auto second = m_linker->get_secondary_output();
+        if (second.stream_id.empty()) {
+            data["secondary"] = nullptr;
+        }
+        else {
+            boost::json::object s;
+            s["stream_id"] = second.stream_id;
+            s["view_mode"] = second.view_mode;
+            s["width"] = static_cast<int64_t>(second.width);
+            s["height"] = static_cast<int64_t>(second.height);
+            data["secondary"] = std::move(s);
+        }
 
         boost::json::object body;
         body["data"] = std::move(data);

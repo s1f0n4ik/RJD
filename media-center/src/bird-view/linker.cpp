@@ -6,6 +6,7 @@
 #include "bird-view/surround-output.h"
 #include "bird-view/surround-camera.h"
 #include "bird-view/egl-context.h"
+#include "bird-view/dmabuf-ring.h"
 
 #include "calibration/constants.h"
 
@@ -93,6 +94,10 @@ namespace birdview {
 			m_logger.warn("reload_from_state(): bad view_mode " + mode);
 		}
 
+		if (auto* d = entry->if_contains("dual_output"); d && d->is_bool()) {
+			params.dual_output = d->as_bool();
+		}
+
 		{
 			std::lock_guard<std::mutex> lk(m_mutex);
 			m_params = params;
@@ -156,6 +161,41 @@ namespace birdview {
 
 		const std::string mode = js::str(*entry, "view_mode");
 		return is_valid_view_mode(mode) ? mode : "top";
+	}
+
+	bool ULinker::resolve_dual_output(const std::string& export_id) const {
+		std::string target = export_id;
+		{
+			std::lock_guard<std::mutex> lk(m_mutex);
+			if (target.empty()) target = m_export_id;
+			if (target == m_export_id && m_params.dual_output.has_value()) {
+				return *m_params.dual_output;
+			}
+		}
+		if (target.empty()) return false;
+
+		// Про неактивные конфигурации спрашивает статус, им читается состояние
+		auto root = m_store.read_state();
+		const auto* configs = js::obj(root, "configs");
+		const auto* entry = configs ? js::obj(*configs, target.c_str()) : nullptr;
+		if (!entry) return false;
+
+		auto* d = entry->if_contains("dual_output");
+		return d && d->is_bool() && d->as_bool();
+	}
+
+	ULinker::FSecondaryOutput ULinker::get_secondary_output() const {
+		if (m_running.load()) {
+			std::lock_guard<std::mutex> lk(m_mutex);
+			return m_secondary;
+		}
+		if (!resolve_dual_output()) return {};
+
+		// До старта размера нет, идентификатор и режим известны заранее
+		FSecondaryOutput out;
+		out.view_mode = other_view_mode(resolve_view_mode());
+		out.stream_id = get_stream_params().stream_id + "_" + out.view_mode;
+		return out;
 	}
 
 	std::pair<int, int> ULinker::get_output_size() const {
@@ -271,6 +311,7 @@ namespace birdview {
 				if (!params.stream_name.empty()) entry["stream_name"] = params.stream_name;
 				if (is_valid_rotation(params.rotation)) entry["rotation"] = params.rotation;
 				if (is_valid_view_mode(params.view_mode)) entry["view_mode"] = params.view_mode;
+				if (params.dual_output.has_value()) entry["dual_output"] = *params.dual_output;
 			}, true, error);
 		if (!ok) {
 			m_logger.error("write_state(): " + error);
@@ -360,6 +401,44 @@ namespace birdview {
 		return true;
 	}
 
+	bool ULinker::set_dual_output(const std::string& export_id, bool enabled, std::string& error) {
+		std::string target = export_id.empty() ? get_active_export_id() : export_id;
+		if (target.empty()) {
+			error = "no active configuration and no export_id given";
+			return false;
+		}
+
+		if (!m_store.mutate_state_entry(target,
+			[&](boost::json::object& entry) { entry["dual_output"] = enabled; },
+			false, error)) {
+			m_logger.error("set_dual_output(): " + error);
+			return false;
+		}
+
+		{
+			std::lock_guard<std::mutex> lk(m_mutex);
+			if (m_export_id == target) m_params.dual_output = enabled;
+		}
+
+		m_logger.info("set_dual_output(): <" + target + "> -> " + (enabled ? "on" : "off"));
+
+		// Второй стример и его кадр создаются на старте, живой вывод пересобирается
+		if (m_running.load() && get_active_export_id() == target) {
+			m_logger.info("set_dual_output(): restarting output");
+			if (!restart()) {
+				error = "dual_output saved, but output restart failed";
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	bool ULinker::is_mode_live(const std::string& view_mode, const std::string& export_id) const {
+		if (!m_running.load() || get_active_export_id() != export_id) return false;
+		return resolve_view_mode() == view_mode || resolve_dual_output();
+	}
+
 	bool ULinker::set_surround_camera(const std::string& export_id, const std::string& place_key,
 		const boost::json::object& payload, std::string& error)
 	{
@@ -408,8 +487,7 @@ namespace birdview {
 			+ (reset ? " reset" : " manual"));
 
 		// Живой вывод перепекает позы прямо в цикле, без рестарта
-		if (m_running.load() && get_active_export_id() == target
-			&& resolve_view_mode() == "surround") {
+		if (is_mode_live("surround", target)) {
 			m_surround_dirty.fetch_or(SURROUND_DIRTY_BAKE);
 		}
 		return true;
@@ -671,8 +749,7 @@ namespace birdview {
 
 		m_logger.info("set_surround(): <" + target + "> merged, dirty=" + std::to_string(dirty));
 
-		if (m_running.load() && get_active_export_id() == target
-			&& resolve_view_mode() == "surround") {
+		if (is_mode_live("surround", target)) {
 			m_surround_dirty.fetch_or(dirty);
 			// Тумблер ручного вращения действует сразу, кнопка плеера может перебить
 			if (auto* o = js::obj(payload, "orbit")) {
@@ -1017,8 +1094,7 @@ namespace birdview {
 
 		m_logger.info("set_top(): <" + target + "> merged, dirty=" + std::to_string(dirty));
 
-		if (m_running.load() && get_active_export_id() == target
-			&& resolve_view_mode() == "top") {
+		if (is_mode_live("top", target)) {
 			m_top_dirty.fetch_or(dirty);
 			// Размер кадра задан пайплайну при создании, живьём его не сменить
 			if (resolution_changed) {
@@ -1206,8 +1282,7 @@ namespace birdview {
 		m_logger.info("set_top_version(): <" + target + "> -> " + version);
 
 		// Карты грузятся при создании вывода, живой top пересобирается
-		if (m_running.load() && get_active_export_id() == target
-			&& resolve_view_mode() == "top") {
+		if (is_mode_live("top", target)) {
 			if (!restart()) {
 				error = "version saved, but output restart failed";
 				return false;
@@ -1252,8 +1327,7 @@ namespace birdview {
 		m_logger.info("recalc_top(): <" + target + "> done");
 
 		// Новая версия сразу активна, живой top подхватывает её рестартом
-		if (m_running.load() && get_active_export_id() == target
-			&& resolve_view_mode() == "top") {
+		if (is_mode_live("top", target)) {
 			if (!restart()) {
 				error = "recalculated, but output restart failed";
 				return false;
@@ -1325,16 +1399,11 @@ namespace birdview {
 		return true;
 	}
 
-	ULinker::NLinkSpace ULinker::create_linking_space() {
-		NLinkSpace space;
-		space.resize(m_camera_keys.size());
-		return space;
-	}
-
-	void ULinker::fill_linking_space(NLinkSpace& space) {
+	void ULinker::fill_linking_space(const std::vector<std::string>& keys, NLinkSpace& space) {
 		std::lock_guard<std::mutex> lk(m_mutex);
-		for (size_t i = 0; i < m_camera_keys.size(); ++i) {
-			const auto& key = m_camera_keys[i];
+		space.assign(keys.size(), nullptr);
+		for (size_t i = 0; i < keys.size(); ++i) {
+			const auto& key = keys[i];
 			auto it = m_cameras_purpose.find(key);
 			if (it == m_cameras_purpose.end() || !it->second.has_value()) {
 				space[i] = nullptr;
@@ -1411,6 +1480,33 @@ namespace birdview {
 		if (m_worker.joinable()) m_worker.join();
 	}
 
+	std::unique_ptr<IOutputMode> ULinker::make_output_mode(const std::string& view_mode,
+		const std::string& export_id, NCamerasPurpose bindings)
+	{
+		if (view_mode == "surround") {
+			return std::make_unique<USurroundOutput>(
+				m_context_manager, &m_store, export_id, std::move(bindings),
+				&m_surround_dirty, &m_surround_mode_request, &m_orbit_manual,
+				[this](std::vector<FSurroundBakedCamera> cams) {
+					std::lock_guard<std::mutex> lk(m_mutex);
+					m_surround_cameras = std::move(cams);
+				},
+				&m_logger);
+		}
+		return std::make_unique<UTopOutput>(
+			m_context_manager, &m_store, export_id,
+			resolve_rotation(), &m_top_dirty, &m_logger);
+	}
+
+	namespace {
+		// Кадр рисуется в dma-buf и уходит в кодек по дескриптору; при отказе - чтение через CPU
+		constexpr bool LINKER_ZERO_COPY = true;
+		// Буферов в кольце на выход: один рисуется, остальные у кодека
+		constexpr int LINKER_RING_DEPTH = 4;
+		// Предел ожидания GPU по fence кадра, нс
+		constexpr GLuint64 READBACK_WAIT_NS = 1000000000ull;
+	}
+
 	void ULinker::processing_loop(uint32_t fps) {
 		using clock = std::chrono::high_resolution_clock;
 
@@ -1432,48 +1528,6 @@ namespace birdview {
 			return;
 		}
 
-		// Режим вывода собирается по view_mode конфигурации
-		std::unique_ptr<IOutputMode> mode;
-		if (resolve_view_mode() == "surround") {
-			mode = std::make_unique<USurroundOutput>(
-				m_context_manager, &m_store, export_id_copy, std::move(bindings),
-				&m_surround_dirty, &m_surround_mode_request, &m_orbit_manual,
-				[this](std::vector<FSurroundBakedCamera> cams) {
-					std::lock_guard<std::mutex> lk(m_mutex);
-					m_surround_cameras = std::move(cams);
-				},
-				&m_logger);
-		}
-		else {
-			// В top орбиты нет — статус не должен показывать ручной режим
-			m_orbit_manual.store(false);
-			mode = std::make_unique<UTopOutput>(
-				m_context_manager, &m_store, export_id_copy,
-				resolve_rotation(), &m_top_dirty, &m_logger);
-		}
-
-		int outW = 0;
-		int outH = 0;
-		std::string mode_error;
-		if (!mode->prepare(outW, outH, mode_error)) {
-			m_logger.error("processing_loop(): " + mode_error);
-			m_context_manager->undone_current(&m_logger);
-			return;
-		}
-
-		{
-			std::lock_guard<std::mutex> lk(m_mutex);
-			m_out_width = outW;
-			m_out_height = outH;
-			m_camera_keys = mode->camera_keys();
-		}
-
-		if (!m_context_manager->init_render_framebuffer(outW, outH, &m_logger)) {
-			m_logger.error("processing_loop(): cannot init render FBO");
-			m_context_manager->undone_current(&m_logger);
-			return;
-		}
-
 		if (m_websocket.ip_adress.empty() || m_websocket.port.empty()) {
 			m_logger.error("processing_loop(): websocket is incorrect, aborted starting connection!");
 			m_context_manager->undone_current(&m_logger);
@@ -1486,67 +1540,200 @@ namespace birdview {
 		m_stream_id = params.stream_id;
 		fps = params.fps;
 
-		auto camera = std::make_unique<USurroundCamera>(m_stream_id, m_websocket);
-		mode->bind_camera(*camera);
-		m_streamer = std::move(camera);
-
-		// Отказ на старте сносит камеру сразу: её колбэки держат режим на стеке
-		auto drop_streamer = [this] {
-			m_streamer->stop();
-			m_streamer.reset();
+		// Один выход на режим: основной первым, второй при dual_output
+		struct FOutput {
+			std::string view_mode;
+			std::string stream_id;
+			std::unique_ptr<IOutputMode> mode;
+			UEGLContextManager::FRenderTarget target;
+			std::vector<std::string> keys;
+			NLinkSpace space;
+			std::vector<uint8_t> pixels;
+			std::unique_ptr<USurroundCamera> streamer;
+			int width = 0;
+			int height = 0;
+			// Кольцо dma-buf вместо FBO; без него кадр читается через CPU
+			std::unique_ptr<UDmabufRing> ring;
+			bool zero_copy = false;
+			// Накопители времени по секциям тика, мс; сбрасываются вместе со статистикой
+			double t_render = 0.0;
+			double t_read = 0.0;
+			double t_wait = 0.0;
+			double t_push = 0.0;
 		};
-		if (!m_streamer->set_parameters(outW, outH, fps)) {
-			m_logger.error("processing_loop(): streamer set_parameters failed");
-			drop_streamer();
-			m_context_manager->undone_current(&m_logger);
-			return;
+		auto ms_since = [](clock::time_point from) {
+			return std::chrono::duration<double, std::milli>(clock::now() - from).count();
+		};
+		auto fmt1 = [](double v) {
+			const int v10 = static_cast<int>(v * 10.0 + 0.5);
+			return std::to_string(v10 / 10) + "." + std::to_string(v10 % 10);
+		};
+		std::vector<FOutput> outputs;
+		const std::string primary_mode = resolve_view_mode();
+		outputs.push_back({ primary_mode, m_stream_id });
+		if (resolve_dual_output()) {
+			const std::string second = other_view_mode(primary_mode);
+			outputs.push_back({ second, m_stream_id + "_" + second });
 		}
-		if (!m_streamer->initialize()) {
-			m_logger.error("processing_loop(): streamer initialize failed");
-			drop_streamer();
-			m_context_manager->undone_current(&m_logger);
-			return;
-		}
-		if (!m_streamer->start()) {
-			m_logger.error("processing_loop(): streamer start failed");
-			drop_streamer();
-			m_context_manager->undone_current(&m_logger);
-			return;
-		}
-		m_logger.info("processing_loop(): streamer started, stream_id=" + m_stream_id);
 
-		std::vector<uint8_t> pixels(static_cast<size_t>(outW) * outH * 4);
+		// Без surround орбиты нет — статус не должен показывать ручной режим
+		if (primary_mode != "surround" && outputs.size() == 1) {
+			m_orbit_manual.store(false);
+		}
+
+		auto teardown = [&] {
+			for (auto& out : outputs) {
+				if (out.streamer) {
+					out.streamer->stop();
+					out.streamer.reset();
+				}
+				if (out.ring) out.ring->destroy();
+				m_context_manager->destroy_render_target(out.target);
+			}
+			{
+				std::lock_guard<std::mutex> lk(m_mutex);
+				m_secondary = {};
+			}
+			m_context_manager->undone_current(&m_logger);
+		};
+
+		for (auto& out : outputs) {
+			out.mode = make_output_mode(out.view_mode, export_id_copy, bindings);
+
+			int outW = 0;
+			int outH = 0;
+			std::string mode_error;
+			if (!out.mode->prepare(outW, outH, mode_error)) {
+				m_logger.error("processing_loop(): " + out.view_mode + ": " + mode_error);
+				teardown();
+				return;
+			}
+			out.keys = out.mode->camera_keys();
+			out.width = outW;
+			out.height = outH;
+
+			if (LINKER_ZERO_COPY) {
+				out.ring = std::make_unique<UDmabufRing>();
+				out.zero_copy = out.ring->init(m_context_manager, outW, outH, LINKER_RING_DEPTH, &m_logger);
+				if (!out.zero_copy) {
+					out.ring.reset();
+					m_logger.warn("processing_loop(): zero-copy unavailable for " + out.view_mode
+						+ ", falling back to CPU readback");
+				}
+			}
+
+			if (!out.zero_copy) {
+				out.pixels.resize(static_cast<size_t>(outW) * outH * 4);
+
+				if (!m_context_manager->create_render_target(out.target, outW, outH, &m_logger)) {
+					m_logger.error("processing_loop(): cannot init render FBO for " + out.view_mode);
+					teardown();
+					return;
+				}
+			}
+
+			// Отказ на старте сносит камеру сразу: её колбэки держат режим на стеке
+			out.streamer = std::make_unique<USurroundCamera>(out.stream_id, m_websocket);
+			out.mode->bind_camera(*out.streamer);
+			if (!out.streamer->set_parameters(outW, outH, fps)
+				|| !out.streamer->initialize()
+				|| !out.streamer->start()) {
+				m_logger.error("processing_loop(): streamer failed for " + out.view_mode
+					+ ", stream_id=" + out.stream_id);
+				teardown();
+				return;
+			}
+			m_logger.info("processing_loop(): streamer started, stream_id=" + out.stream_id
+				+ ", mode=" + out.view_mode + ", " + std::to_string(outW) + "x" + std::to_string(outH));
+
+			std::lock_guard<std::mutex> lk(m_mutex);
+			if (&out == &outputs.front()) {
+				m_out_width = outW;
+				m_out_height = outH;
+				m_camera_keys = out.keys;
+			}
+			else {
+				m_secondary = { out.stream_id, out.view_mode, outW, outH };
+			}
+		}
 
 		const auto frame_time = std::chrono::microseconds(1000000 / fps);
 		const float dt = 1.0f / static_cast<float>(fps);
 		auto next_frame = clock::now();
-		auto space = create_linking_space();
 
 		// Фактический темп и стоимость кадра, раз в пять секунд
 		auto stats_start = clock::now();
 		int stats_frames = 0;
 		double stats_work_ms = 0.0;
+		// Ожидание готовности прошлого кадра в PBO: ноль - GPU успевает за тик
+		double stats_wait_ms = 0.0;
+		int stats_late = 0;
+		// Тики без свободного слота кольца: кодек не отдал буферы вовремя
+		int stats_skipped = 0;
 
 		while (m_running) {
 			next_frame += frame_time;
 			const auto work_start = clock::now();
 
-			// Перепечка меняет состав камер — пространство пересоздаётся
-			if (mode->apply_live_changes()) {
-				{
-					std::lock_guard<std::mutex> lk(m_mutex);
-					m_camera_keys = mode->camera_keys();
+			for (auto& out : outputs) {
+				// Перепечка меняет состав камер — ключи перечитываются
+				if (out.mode->apply_live_changes()) {
+					out.keys = out.mode->camera_keys();
+					if (&out == &outputs.front()) {
+						std::lock_guard<std::mutex> lk(m_mutex);
+						m_camera_keys = out.keys;
+					}
 				}
-				space = create_linking_space();
+
+				auto t = clock::now();
+				fill_linking_space(out.keys, out.space);
+
+				if (out.zero_copy) {
+					const int slot = out.ring->acquire();
+					if (slot < 0) {
+						++stats_skipped;
+						continue;
+					}
+					m_context_manager->use_render_target(out.ring->target(slot));
+					out.mode->render_frame(out.space, dt, m_context_manager->get_display());
+					out.t_render += ms_since(t);
+
+					t = clock::now();
+					out.ring->mark_rendered(slot);
+					out.t_read += ms_since(t);
+
+					// Кадр уходит в кодек в этом же тике, как только GPU дорисовал
+					t = clock::now();
+					const bool ready = out.ring->wait_ready(slot, READBACK_WAIT_NS);
+					const double waited = ms_since(t);
+					stats_wait_ms += waited;
+					out.t_wait += waited;
+					if (!ready) {
+						++stats_late;
+						continue;
+					}
+
+					t = clock::now();
+					out.streamer->push_dmabuf(out.ring->fd(slot), out.ring->size(),
+						out.ring->stride(), out.ring->hand_over(slot));
+					out.t_push += ms_since(t);
+					continue;
+				}
+
+				m_context_manager->use_render_target(out.target);
+				out.mode->render_frame(out.space, dt, m_context_manager->get_display());
+				out.t_render += ms_since(t);
+
+				t = clock::now();
+				glReadPixels(0, 0, out.target.width, out.target.height,
+					GL_RGBA, GL_UNSIGNED_BYTE, out.pixels.data());
+				out.t_read += ms_since(t);
+
+				t = clock::now();
+				cv::Mat img(out.target.height, out.target.width, CV_8UC4, out.pixels.data());
+				out.streamer->push_frame(img);
+				out.t_push += ms_since(t);
 			}
-
-			fill_linking_space(space);
-			mode->render_frame(space, dt, m_context_manager->get_display());
-
-			glReadPixels(0, 0, outW, outH, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
-
-			cv::Mat img(outH, outW, CV_8UC4, pixels.data());
-			if (m_streamer) m_streamer->push_frame(img);
 
 			stats_work_ms += std::chrono::duration<double, std::milli>(clock::now() - work_start).count();
 			++stats_frames;
@@ -1555,24 +1742,38 @@ namespace birdview {
 			if (stats_elapsed >= 5.0 && stats_frames > 0) {
 				const int fps10 = static_cast<int>(stats_frames / stats_elapsed * 10.0 + 0.5);
 				const int work10 = static_cast<int>(stats_work_ms / stats_frames * 10.0 + 0.5);
+				const int wait10 = static_cast<int>(stats_wait_ms / stats_frames * 10.0 + 0.5);
 				m_logger.info("processing_loop(): fps=" + std::to_string(fps10 / 10) + "." + std::to_string(fps10 % 10)
 					+ ", frame work=" + std::to_string(work10 / 10) + "." + std::to_string(work10 % 10)
-					+ " ms of " + std::to_string(1000 / fps) + " ms budget");
+					+ " ms of " + std::to_string(1000 / fps) + " ms budget, outputs="
+					+ std::to_string(outputs.size())
+					+ ", gpu wait=" + std::to_string(wait10 / 10) + "." + std::to_string(wait10 % 10)
+					+ " ms, late=" + std::to_string(stats_late)
+					+ ", skipped=" + std::to_string(stats_skipped));
+				// Раскладка тика по секциям на каждый выход, средние за окно
+				for (auto& out : outputs) {
+					const double n = static_cast<double>(stats_frames);
+					const char* path = out.zero_copy ? "zero-copy" : "cpu";
+					m_logger.info("processing_loop():   " + out.view_mode + " "
+						+ std::to_string(out.width) + "x" + std::to_string(out.height)
+						+ " [" + path + "]: render=" + fmt1(out.t_render / n)
+						+ " read=" + fmt1(out.t_read / n)
+						+ " wait=" + fmt1(out.t_wait / n)
+						+ " push=" + fmt1(out.t_push / n) + " ms");
+					out.t_render = out.t_read = out.t_wait = out.t_push = 0.0;
+				}
 				stats_start = clock::now();
 				stats_frames = 0;
 				stats_work_ms = 0.0;
+				stats_wait_ms = 0.0;
+				stats_late = 0;
+				stats_skipped = 0;
 			}
 
 			std::this_thread::sleep_until(next_frame);
 		}
 
-		if (m_streamer) {
-			m_streamer->stop_websocket_client();
-			m_streamer->stop();
-			m_streamer.reset();
-		}
-
-		m_context_manager->undone_current(&m_logger);
+		teardown();
 	}
 
 	std::filesystem::path ULinker::get_configurations_path() {

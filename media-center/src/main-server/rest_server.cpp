@@ -102,6 +102,8 @@ URestServer::URestServer(
         [linker_ctrl](const auto& r) { return linker_ctrl->post_recalc(r); });
     m_router->add_route(http::verb::post, "/linker/view-mode",
         [linker_ctrl](const auto& r) { return linker_ctrl->post_view_mode(r); });
+    m_router->add_route(http::verb::post, "/linker/dual-output",
+        [linker_ctrl](const auto& r) { return linker_ctrl->post_dual_output(r); });
     m_router->add_route(http::verb::post, "/linker/rotation",
         [linker_ctrl](const auto& r) { return linker_ctrl->post_rotation(r); });
 

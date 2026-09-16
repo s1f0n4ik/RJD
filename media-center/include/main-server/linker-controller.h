@@ -26,6 +26,8 @@
 	                          Живую конфигурацию пересобирает сразу
 	POST   /linker/view-mode → режим вывода: top или surround.
 	                           Живую конфигурацию пересобирает сразу
+	POST   /linker/dual-output → второй режим рядом с основным своим потоком.
+	                             Живую конфигурацию пересобирает сразу
 	GET    /linker/surround  → surround-блок с дефолтами + печёные позы камер
 	POST   /linker/surround  → частичный мёрж surround-блока, живой вывод
 	                           применяет без рестарта
@@ -69,6 +71,9 @@ public:
 
 	boost::beast::http::response<boost::beast::http::string_body>
 		post_view_mode(const boost::beast::http::request<boost::beast::http::string_body>& req);
+
+	boost::beast::http::response<boost::beast::http::string_body>
+		post_dual_output(const boost::beast::http::request<boost::beast::http::string_body>& req);
 
 	boost::beast::http::response<boost::beast::http::string_body>
 		post_surround_camera(const boost::beast::http::request<boost::beast::http::string_body>& req);

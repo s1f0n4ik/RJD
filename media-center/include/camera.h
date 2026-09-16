@@ -237,6 +237,9 @@ namespace neural {
 
 			void push_frame(cv::Mat frame);
 
+			// Кадр RGBA в dma-buf без копии; release зовётся, когда кодек отпустил буфер
+			void push_dmabuf(int fd, size_t size, int stride, std::function<void()> release);
+
 			std::optional<cv::Mat> get_cached_frame();
 
 		protected:

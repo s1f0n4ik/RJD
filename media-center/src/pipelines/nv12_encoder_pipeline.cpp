@@ -1,10 +1,13 @@
 #include "video_pipeline.h"
 #include "signaling_definers.h"
 
+#include <gst/allocators/gstdmabuf.h>
+#include <unistd.h>
+
 #define VIRTUAL_TEE "virtual_tee"
 
 UNV12EncodingPipeline::~UNV12EncodingPipeline() {
-
+	if (m_dmabuf_allocator) gst_object_unref(m_dmabuf_allocator);
 }
 
 bool UNV12EncodingPipeline::initialize() {
@@ -30,7 +33,7 @@ bool UNV12EncodingPipeline::initialize() {
 
 	auto appsrc = gst_element_factory_make("appsrc", "appsrc");
 	auto src_queue = gst_element_factory_make("queue", "src_queue");
-	auto convert = gst_element_factory_make("videoconvert", "convert");
+	// RGBA кодек берёт сам и переводит через RGA, в том числе из dma-buf
 	auto encoder = gst_element_factory_make("mpph264enc", "encoder");
 	auto parse = gst_element_factory_make("h264parse", "parse");
 	auto pay = gst_element_factory_make("rtph264pay", "pay");
@@ -41,12 +44,12 @@ bool UNV12EncodingPipeline::initialize() {
 
 	auto clean_up = [&]() {
 		if (m_pipeline) { gst_object_unref(m_pipeline); m_pipeline = nullptr; }
-		for (auto* e : { appsrc, src_queue, convert, encoder,parse, pay, tee_queue, tee, fake_q, fakesink }) {
+		for (auto* e : { appsrc, src_queue, encoder, parse, pay, tee_queue, tee, fake_q, fakesink }) {
 			if (e) gst_object_unref(e);
 		}
 		};
 
-	if (!m_pipeline || !appsrc || !src_queue || !convert || !encoder
+	if (!m_pipeline || !appsrc || !src_queue || !encoder
 		|| !parse || !pay || !tee_queue || !tee || !fake_q || !fakesink) {
 		m_logger->error("initialize(): failed to create one or more GStreamer elements");
 		clean_up();
@@ -103,11 +106,11 @@ bool UNV12EncodingPipeline::initialize() {
 
 	g_object_set(fakesink, "sync", FALSE, nullptr);
 
-	gst_bin_add_many(GST_BIN(m_pipeline), appsrc, src_queue, convert, encoder,
+	gst_bin_add_many(GST_BIN(m_pipeline), appsrc, src_queue, encoder,
 		parse, pay, tee_queue, tee, fake_q, fakesink,
 		nullptr);
 
-	if (!gst_element_link_many(appsrc, src_queue, convert, encoder,
+	if (!gst_element_link_many(appsrc, src_queue, encoder,
 		parse, pay, tee_queue, tee, nullptr)) {
 		m_logger->error("initialize(): failed to link main chain");
 		clean_up();
@@ -310,6 +313,67 @@ void UNV12EncodingPipeline::push_frame(cv::Mat frame) {
 	{
 		std::unique_lock<std::mutex> lock(m_cached_mutex);
 		m_cached_frame = std::move(frame);
+	}
+}
+
+void UNV12EncodingPipeline::push_dmabuf(int fd, size_t size, int stride, std::function<void()> release) {
+	// Слот отпускается всегда: либо буфером кодека, либо здесь при отказе
+	auto give_back = [&] { if (release) release(); };
+
+	if (!m_appsrc || !m_is_playing) {
+		give_back();
+		return;
+	}
+
+	if (!m_dmabuf_allocator) m_dmabuf_allocator = gst_dmabuf_allocator_new();
+
+	// Аллокатор закрывает свой дескриптор сам, у кольца остаётся собственный
+	const int own_fd = dup(fd);
+	if (own_fd < 0) {
+		if (m_logger) m_logger->error("push_dmabuf(): dup failed");
+		give_back();
+		return;
+	}
+	GstMemory* mem = gst_dmabuf_allocator_alloc(m_dmabuf_allocator, own_fd, size);
+	if (!mem) {
+		close(own_fd);
+		if (m_logger) m_logger->error("push_dmabuf(): cannot wrap dma-buf fd");
+		give_back();
+		return;
+	}
+
+	GstBuffer* buffer = gst_buffer_new();
+	gst_buffer_append_memory(buffer, mem);
+
+	gsize offsets[1] = { 0 };
+	gint strides[1] = { stride };
+	gst_buffer_add_video_meta_full(
+		buffer,
+		GST_VIDEO_FRAME_FLAG_NONE,
+		GST_VIDEO_FORMAT_RGBA,
+		static_cast<guint>(m_width),
+		static_cast<guint>(m_height),
+		1, offsets, strides
+	);
+
+	// Колбэк освобождения срабатывает, когда буфер отпускают все элементы
+	if (release) {
+		static const GQuark quark = g_quark_from_static_string("varan-dmabuf-release");
+		auto* cb = new std::function<void()>(std::move(release));
+		gst_mini_object_set_qdata(GST_MINI_OBJECT_CAST(buffer), quark, cb,
+			[](gpointer p) {
+				auto* f = static_cast<std::function<void()>*>(p);
+				(*f)();
+				delete f;
+			});
+	}
+
+	const GstFlowReturn flow = gst_app_src_push_buffer(GST_APP_SRC(m_appsrc), buffer);
+	if (flow != GST_FLOW_OK) {
+		if (m_logger) m_logger->warn("push_dmabuf(): push_buffer failed, flow=" + std::to_string(flow));
+		if (flow == GST_FLOW_FLUSHING || flow == GST_FLOW_EOS) {
+			m_frame_count = 0;
+		}
 	}
 }
 

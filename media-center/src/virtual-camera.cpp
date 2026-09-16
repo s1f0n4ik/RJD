@@ -80,6 +80,15 @@ namespace neural {
         }
     }
 
+    void UVirtualCamera::push_dmabuf(int fd, size_t size, int stride, std::function<void()> release) {
+        if (m_nv12_pipeline) {
+            m_nv12_pipeline->push_dmabuf(fd, size, stride, std::move(release));
+        }
+        else if (release) {
+            release();
+        }
+    }
+
     std::optional<cv::Mat> UVirtualCamera::get_cached_frame() {
         if (m_nv12_pipeline) {
             return m_nv12_pipeline->get_cached_frame();
