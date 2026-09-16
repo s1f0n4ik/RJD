@@ -14,7 +14,10 @@ interface JoystickFieldProps {
     label: string;
     value: number;
     min: number;
+    /** Потолок значения; Infinity — потолка нет */
     max: number;
+    /** Ход полностью отклонённого якоря за FULL_SWING_SEC; по умолчанию весь диапазон */
+    swing?: number;
     decimals: number;
     /** Серый текст, когда поле пустое по смыслу */
     placeholder?: string;
@@ -33,6 +36,7 @@ export function JoystickField({
     value,
     min,
     max,
+    swing,
     decimals,
     placeholder,
     onChange,
@@ -88,7 +92,7 @@ export function JoystickField({
 
         const t = Math.max(-1, Math.min(1, pullRef.current / MAX_PULL));
         if (t !== 0) {
-            const span = (max - min) / FULL_SWING_SEC;
+            const span = (swing ?? max - min) / FULL_SWING_SEC;
             const next = valueRef.current + t * Math.abs(t) * span * dt;
             const clamped = Math.max(min, Math.min(max, next));
             if (clamped !== valueRef.current) {

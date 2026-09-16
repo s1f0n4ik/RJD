@@ -195,7 +195,13 @@ export async function importPreset(preset: PresetJson): Promise<ImportResult> {
             const shape = zoneFromCorners(quad);
             if (!shape) continue;
 
-            const quadKey = quad.map(p => `${Math.round(p[0])}:${Math.round(p[1])}`).join(';');
+            // Углы сортируются: порядок обхода свой у каждой камеры (он задан
+            // поворотом мата к её взгляду), и без сортировки один мат приезжал
+            // бы копией на каждую накрывшую камеру — ровно друг на друга
+            const quadKey = quad
+                .map(p => `${Math.round(p[0])}:${Math.round(p[1])}`)
+                .sort()
+                .join(';');
             if (seenQuads.has(quadKey)) continue;
             seenQuads.add(quadKey);
 

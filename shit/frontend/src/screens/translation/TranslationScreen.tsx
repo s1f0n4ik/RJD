@@ -13,6 +13,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Icon, IconSprite } from '../../app/Icons';
+import { Select } from '../../app/Select';
 import { formatDeviceDate, formatDeviceTime, useDeviceClock } from '../../app/useDeviceClock';
 import { useLayouts, type SavedLayout } from '../../hooks/Layouts';
 import { api } from '../../services/api';
@@ -52,6 +53,8 @@ export default function TranslationScreen() {
     const [fallback, setFallback] = useState(false);
     const [drawerOpen, setDrawerOpen] = useState(false);
     const [counts, setCounts] = useState({ live: 0, total: 0 });
+    // Тач: выбранный в списке источник ждёт нажатия по ячейке
+    const [armed, setArmed] = useState<string | null>(null);
 
     const switchSeq = useRef(0);
     const initialized = useRef(false);
@@ -104,8 +107,15 @@ export default function TranslationScreen() {
         switchSeq.current += 1;
         setLayout(layoutFromSaved(saved));
         setFallback(false);
+        setArmed(null);
         setSwitchKey(`${saved.name}#${switchSeq.current}`);
         window.history.replaceState(null, '', `/translation/${encodeURIComponent(saved.name)}`);
+    }, []);
+
+    // Свернуть шторку и снять выбор источника заодно
+    const closeDrawer = useCallback(() => {
+        setDrawerOpen(false);
+        setArmed(null);
     }, []);
 
     useEffect(() => {
@@ -186,7 +196,8 @@ export default function TranslationScreen() {
     };
 
     return (
-        <div className="tr">
+        // Нажатие мимо ячейки и мимо источника снимает выбор источника
+        <div className="tr" onClick={() => { if (armed) setArmed(null); }}>
             <IconSprite />
 
             <div className="tr-bar">
@@ -199,7 +210,21 @@ export default function TranslationScreen() {
                 </button>
 
                 <b className="tr-title">Трансляция</b>
-                <span className="tr-name">{fallback ? 'временная сетка' : layout.name}</span>
+                {layouts.length > 0 ? (
+                    <div className="tr-select" title="Отображение в эфире">
+                        <Select
+                            value={fallback ? '' : layout.name}
+                            placeholder="временная сетка"
+                            options={layouts.map(item => ({ value: item.name, label: item.name }))}
+                            onChange={value => {
+                                const next = layouts.find(item => item.name === value);
+                                if (next) applyLayout(next);
+                            }}
+                        />
+                    </div>
+                ) : (
+                    <span className="tr-name">{fallback ? 'временная сетка' : layout.name}</span>
+                )}
 
                 <span className={`pill${counts.live < counts.total ? ' warn' : ' ok'}`}>
                     <span className="dot" />
@@ -245,8 +270,7 @@ export default function TranslationScreen() {
             )}
 
             <div className="tr-body">
-                {drawerOpen && (
-                    <aside className="tr-drawer">
+                <aside className={`tr-drawer${drawerOpen ? ' is-open' : ''}`} aria-hidden={!drawerOpen}>
                         <div className="eyebrow tr-cap">Отображения</div>
                         {layouts.length === 0 && <p className="hint">Сохранённых отображений нет.</p>}
                         {layouts.map(item => (
@@ -267,9 +291,17 @@ export default function TranslationScreen() {
                                 {items.map(item => (
                                     <button
                                         key={item.id}
-                                        className="row-item"
+                                        className={`row-item${item.id === armed ? ' is-armed' : ''}`}
                                         draggable
-                                        onDragStart={event => event.dataTransfer.setData('text/plain', `source:${item.id}`)}
+                                        onDragStart={event => {
+                                            event.dataTransfer.setData('text/plain', `source:${item.id}`);
+                                            setArmed(item.id);
+                                        }}
+                                        onDragEnd={() => setArmed(null)}
+                                        onClick={event => {
+                                            event.stopPropagation();
+                                            setArmed(prev => (prev === item.id ? null : item.id));
+                                        }}
                                     >
                                         <span
                                             className="chip-col"
@@ -283,11 +315,10 @@ export default function TranslationScreen() {
                         ))}
 
                         <span className="tr-fill" />
-                        <button className="btn btn--sm btn--wide tr-collapse" onClick={() => setDrawerOpen(false)}>
+                        <button className="btn btn--sm btn--wide tr-collapse" onClick={closeDrawer}>
                             Свернуть
                         </button>
-                    </aside>
-                )}
+                </aside>
 
                 <Wall
                     grid={layout.grid}
@@ -297,6 +328,8 @@ export default function TranslationScreen() {
                     signalingUrlOf={signalingUrlOf}
                     deviceTimeMs={unixMs}
                     editable
+                    pickedSource={armed}
+                    onPickPlace={cellId => { if (armed) assign(cellId, armed); setArmed(null); }}
                     onAssign={assign}
                     onSwap={swap}
                     onCorrectedChange={setCorrected}

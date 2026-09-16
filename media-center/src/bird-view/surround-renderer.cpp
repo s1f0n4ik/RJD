@@ -34,8 +34,10 @@ namespace birdview {
 		constexpr float ORBIT_ZOOM_SENS = 1.0f;
 		constexpr float ORBIT_PITCH_MAX = 45.0f;
 		// Классический зум: кратность сужения поля зрения
-		constexpr float ORBIT_ZOOM_MIN = 1.0f;
 		constexpr float ORBIT_ZOOM_MAX = 4.0f;
+		// Отдаление уводит саму орбиту: кратность к дистанции из конфигурации.
+		// Выше 3 чаша висит объектом в пустоте — смотреть уже не на что
+		constexpr float ORBIT_DIST_MUL_MAX = 3.0f;
 		// Скорость стекания дистанции и наклона к целям, 1/с
 		constexpr float ORBIT_EASE = 4.0f;
 		// Нижний зажим радиуса углов пути, доля отступа: без изломов при corner 0
@@ -431,20 +433,28 @@ namespace birdview {
 			m_orbit_u += dx * ORBIT_DX_LAPS;
 			m_pitch_off = std::clamp(m_pitch_off + dy * ORBIT_DY_DEGREES,
 				-ORBIT_PITCH_MAX, ORBIT_PITCH_MAX);
-			m_zoom = std::clamp(m_zoom * std::exp(dz * ORBIT_ZOOM_SENS),
-				ORBIT_ZOOM_MIN, ORBIT_ZOOM_MAX);
+			m_zoom_t = std::clamp(m_zoom_t + dz * ORBIT_ZOOM_SENS,
+				-std::log(ORBIT_DIST_MUL_MAX), std::log(ORBIT_ZOOM_MAX));
 		}
 		else {
 			// Темп слайдера сохранён: оборот занимает 2*pi/speed секунд
 			m_orbit_u += dt * m_orbit_speed / (2.0f * PI);
-			// Возврат в авто: взгляд стекает к наклону из конфига, зум к единице
+			// Возврат в авто: взгляд стекает к наклону из конфига, приближение к нулю
 			m_pitch_off += (m_orbit_pitch - m_pitch_off) * std::min(1.0f, dt * ORBIT_EASE);
-			m_zoom += (1.0f - m_zoom) * std::min(1.0f, dt * ORBIT_EASE);
+			m_zoom_t += (0.0f - m_zoom_t) * std::min(1.0f, dt * ORBIT_EASE);
 		}
 		m_orbit_u -= std::floor(m_orbit_u);
 
-		// Дистанция всегда следует конфигу: слайдер панели живой в обоих режимах
-		m_dist_cur += (m_orbit_dist_f - m_dist_cur) * std::min(1.0f, dt * ORBIT_EASE);
+		// Приближение и отдаление — две половины одной оси. Плюс сужает поле
+		// зрения, минус отодвигает орбиту: объектив растягивает края, отъезд
+		// камеры нет, поэтому отдаление сперва возвращает зум к единице и
+		// только потом уводит камеру от машины
+		m_zoom = std::exp(std::max(0.0f, m_zoom_t));
+		const float dist_mul = std::exp(-std::min(0.0f, m_zoom_t));
+
+		// Дистанция следует конфигу: слайдер панели живой в обоих режимах,
+		// ручное отдаление лишь домножает его
+		m_dist_cur += (m_orbit_dist_f * dist_mul - m_dist_cur) * std::min(1.0f, dt * ORBIT_EASE);
 
 		// Потолок наклона вверх из геометрии: кромка дальней стенки не опускается
 		// ниже верхнего края кадра.

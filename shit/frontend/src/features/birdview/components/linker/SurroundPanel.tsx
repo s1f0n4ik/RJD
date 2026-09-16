@@ -211,11 +211,13 @@ export function Subhead({ children }: { children: React.ReactNode }) {
     return <div className="sub-h">{children}</div>;
 }
 
-// Пределы размеров модели: множитель к вписыванию и сторона в метрах
+// Размеры модели сверху не ограничены: у длинной техники стороны и множитель
+// выходят за любой разумный потолок. Обе константы задают только ход тяги —
+// сколько полностью отклонённый якорь проходит за свой полный размах
 const SCALE_MIN = 0.1;
-const SCALE_MAX = 5;
+const SCALE_SWING = 5;
 const SIDE_MIN = 0.1;
-const SIDE_MAX = 20;
+const SIDE_SWING = 20;
 
 // Размер модели: пропорционально одним множителем либо каждая сторона своей величиной
 export function ModelSize({
@@ -238,7 +240,8 @@ export function ModelSize({
             label={label}
             value={side(key)}
             min={SIDE_MIN}
-            max={SIDE_MAX}
+            max={Infinity}
+            swing={SIDE_SWING}
             decimals={2}
             onChange={v => onDraft({ [key]: v })}
             onLive={v => onApply({ [key]: v })}
@@ -284,7 +287,8 @@ export function ModelSize({
                     label="Размер, × к габариту"
                     value={model.scale}
                     min={SCALE_MIN}
-                    max={SCALE_MAX}
+                    max={Infinity}
+                    swing={SCALE_SWING}
                     decimals={2}
                     onChange={v => onDraft({ scale: v })}
                     onLive={v => onApply({ scale: v })}

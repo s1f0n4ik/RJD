@@ -22,7 +22,7 @@
     min-width: 0;
     min-height: 0;
     /* Выбор и снятие выбора идут одним переходом — рамка не мигает */
-    transition: border-color .16s ease, box-shadow .16s ease;
+    transition: border-color .16s ease, box-shadow .16s ease, background-color .16s ease;
 }
 
 .cell:hover { border-color: var(--line-hi); box-shadow: 0 0 0 1px rgba(var(--acc-rgb), .12); }
@@ -50,6 +50,89 @@
 
 .cell.is-off.is-err { border-color: var(--err); border-style: solid; }
 
+/* Подстановка источника: свободная ячейка зовёт зелёным, занятая предупреждает
+   жёлтым. Цвета приглушены — в эфире рамки не должны спорить с кадром. Драг и
+   нажатие идут одним путём, поэтому «наведение» — это :hover (мышь, тач) либо
+   .is-drop: при html5-драге :hover не обновляется. */
+.wall.is-picking .cell { cursor: pointer; }
+
+/* Затемняет накладка, второй слой был бы вдвое темнее */
+.wall.is-picking .cell-drop { display: none; }
+
+/* Свободная ячейка: своя надпись видна, пока не целятся именно в неё.
+   Фон непрозрачный (--input с зелёным подмесом): rgba перекрыл бы плашку
+   ячейки чернотой стены, а градиент не анимируется */
+.wall.is-picking .cell.is-free .cell-msg { transition: opacity .14s ease; }
+.cell.is-free:hover .cell-msg, .cell.is-free.is-drop .cell-msg { opacity: 0; }
+
+.cell.is-free {
+    background: #192025;
+    border-color: rgba(87, 214, 154, .5);
+    border-style: dashed;
+    animation: cell-free-pulse 2s ease-in-out infinite;
+}
+
+.cell.is-free:hover, .cell.is-free.is-drop {
+    background: #1c292b;
+    border-color: rgba(87, 214, 154, .8);
+    box-shadow: 0 0 0 1px rgba(87, 214, 154, .3);
+    animation: none;
+}
+
+.cell.is-busy { border-color: rgba(240, 189, 87, .42); }
+
+.cell.is-busy:hover, .cell.is-busy.is-drop {
+    border-color: rgba(240, 189, 87, .75);
+    box-shadow: 0 0 0 1px rgba(240, 189, 87, .26);
+}
+
+@keyframes cell-free-pulse {
+    0%, 100% { border-color: rgba(87, 214, 154, .28); }
+    50% { border-color: rgba(87, 214, 154, .6); }
+}
+
+/* Выше .cell-drop и кнопок кадра: ячейка целиком читается как цель */
+.cell-pick {
+    position: absolute;
+    inset: 0;
+    z-index: 16;
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px;
+    text-align: center;
+    opacity: 0;
+    background: rgba(8, 10, 14, .6);
+    transition: opacity .16s ease;
+}
+
+.cell-pick span {
+    padding: 7px 12px;
+    border-radius: var(--r);
+    background: rgba(240, 189, 87, .12);
+    color: rgba(240, 189, 87, .92);
+    font-size: 12.5px;
+    font-weight: 600;
+    line-height: 1.3;
+    transition: transform .16s ease;
+}
+
+/* Обе подсказки проявляются только под прицелом: кадр важнее текста */
+.cell.is-busy:hover .cell-pick, .cell.is-busy.is-drop .cell-pick,
+.cell.is-free:hover .cell-pick, .cell.is-free.is-drop .cell-pick { opacity: 1; }
+
+.cell.is-busy:hover .cell-pick span, .cell.is-busy.is-drop .cell-pick span,
+.cell.is-free:hover .cell-pick span, .cell.is-free.is-drop .cell-pick span { transform: scale(1.04); }
+
+/* У свободной затемнять нечего — заливку даёт сама ячейка */
+.cell.is-free .cell-pick { background: transparent; }
+.cell.is-free .cell-pick span { background: rgba(87, 214, 154, .14); color: rgba(87, 214, 154, .95); }
+
+@media (prefers-reduced-motion: reduce) {
+    .cell.is-free { animation: none; }
+}
+
 /* Раскрытие ячейки внутри страницы: соседи не разбираются, только скрыты */
 .wall.is-expanded .cell.is-hidden { display: none; }
 .wall.is-expanded .cell.is-solo { grid-area: 1 / 1 / -1 / -1 !important; }
@@ -65,7 +148,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 5px 9px;
+    padding: 8px 9px 5px;
     font-size: 11.5px;
     background: linear-gradient(180deg, rgba(18, 20, 26, .88), transparent);
     pointer-events: none;
@@ -203,21 +286,17 @@
 .cellv-note-x:hover { color: var(--fg); background: rgba(255, 255, 255, .06); }
 
 
-/* Плашка на разборе: ячейки гаснут под ней, а не на глазах */
-.wall-mask {
-    position: absolute;
-    inset: 0;
-    z-index: 20;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    background: var(--bg);
+/* На панели 1920×1080 кнопки кадра мелкие; на 1280×720 остаются как есть.
+   Наложения — имя, время, кадры и битрейт — сюда не входят: их размер один
+   на всех разрешениях, крупные цифры съедают кадр */
+@media (min-width: 1600px) {
+    .cell-tools, .cellv-tools { gap: 6px; }
+    .cell-tools { right: 10px; top: 10px; }
+    .cellv-tools { right: 10px; bottom: 10px; }
+
+    .cell-btn, .cellv-btn { width: 38px; height: 38px; border-radius: 8px; }
+    .cell-btn .ico, .cellv-btn .ico { width: 20px; height: 20px; }
+
+    .cell-code { font-size: 15px; }
+    .cellv-note { font-size: 16px; padding: 10px 14px; }
 }
-
-.wall-mask-cap { font-size: 13px; color: var(--fg-2); }
-.wall-mask-num { font-family: var(--mono); font-size: 11px; color: var(--fg-3); }
-
-.wall-mask-bar { width: 260px; height: 4px; border-radius: 2px; background: var(--input); overflow: hidden; }
-.wall-mask-bar i { display: block; height: 100%; background: var(--acc); transition: width .12s linear; }

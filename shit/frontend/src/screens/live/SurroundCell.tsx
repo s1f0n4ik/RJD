@@ -254,17 +254,9 @@ export function SurroundCell({
                 </span>
             )}
 
+            {/* Бадж смены вида — последним: остаётся крайним справа и не съезжает,
+                когда рядом появляется кнопка вращения в режиме объёма */}
             <div className="cellv-tools" onDoubleClick={event => event.stopPropagation()}>
-                {viewMode && (
-                    <button
-                        className={`cellv-btn${viewMode === 'top' ? ' is-on' : ''}`}
-                        title={viewMode === 'top' ? 'Объёмный вид' : 'Вид сверху'}
-                        disabled={Boolean(viewTarget)}
-                        onClick={event => { event.stopPropagation(); void toggleViewMode(); }}
-                    >
-                        <Icon name="map" />
-                    </button>
-                )}
                 {/* В режиме «сверху» орбиты нет — устройство отказывает */}
                 {viewMode !== 'top' && (
                     <button
@@ -274,6 +266,16 @@ export function SurroundCell({
                         onClick={event => { event.stopPropagation(); toggleManual(); }}
                     >
                         <Icon name="360" />
+                    </button>
+                )}
+                {viewMode && (
+                    <button
+                        className={`cellv-btn${viewMode === 'top' ? ' is-on' : ''}`}
+                        title={viewMode === 'top' ? 'Объёмный вид' : 'Вид сверху'}
+                        disabled={Boolean(viewTarget)}
+                        onClick={event => { event.stopPropagation(); void toggleViewMode(); }}
+                    >
+                        <Icon name="map" />
                     </button>
                 )}
             </div>
