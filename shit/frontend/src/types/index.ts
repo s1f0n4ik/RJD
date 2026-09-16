@@ -81,6 +81,9 @@ export interface VirtualStream {
     width: number;
     height: number;
     running: boolean;
+    // Только у birdview: режим основного потока и второй поток при двойном выводе
+    view_mode?: 'top' | 'surround';
+    secondary?: { stream_id: string; view_mode: 'top' | 'surround'; width: number; height: number } | null;
     // Устройство-владелец из агрегированного списка
     device_id?: string;
     device_name?: string;

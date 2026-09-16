@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '../../../../app/Icons';
 import { Select } from '../../../../app/Select';
+import { Switch } from '../../../../app/Modal';
 import { setSurroundStatus } from '../../../../app/surroundStatus';
 import { linkerApi, LinkerError } from '../../api/linker';
 import { ROTATIONS } from '../../api/linker';
@@ -56,6 +57,8 @@ const EMPTY_STATUS: LinkerStatus = {
     width: 0,
     height: 0,
     orbitManual: false,
+    dualOutput: false,
+    secondary: null,
 };
 
 const DEFAULT_PARAMS: LinkerParams = {
@@ -64,6 +67,7 @@ const DEFAULT_PARAMS: LinkerParams = {
     streamName: '',
     rotation: 0,
     viewMode: 'top',
+    dualOutput: false,
 };
 
 const SURROUND_TABS: Array<[SurroundTab, string]> = [
@@ -316,6 +320,7 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
                 // Сервер сам сообщает угол, с которым запустит конфигурацию
                 rotation: state.params.rotation ?? full.rotation,
                 viewMode: state.params.viewMode ?? 'top',
+                dualOutput: state.params.dualOutput ?? false,
             });
         } catch (e) {
             toastError('Не удалось открыть конфигурацию', e);
@@ -468,6 +473,34 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
         }
     };
 
+    // Второй поток поднимается только на старте: живой вывод сервер перезапускает
+    const applyDualOutput = async (enabled: boolean) => {
+        if (!selected || params.dualOutput === enabled) return;
+        setParams(p => ({ ...p, dualOutput: enabled }));
+
+        const live = status.running && status.exportId === selected.id;
+        try {
+            if (live) setStarting(true);
+            await linkerApi.setDualOutput(enabled, selected.id);
+            if (live) {
+                const ready = await waitForStream();
+                if (!ready) throw new Error('Вывод не поднялся после смены двойного вывода');
+                setStatus(ready);
+            }
+            showToast(
+                enabled ? 'Двойной вывод включён' : 'Двойной вывод выключен',
+                (enabled ? 'Второй поток идёт рядом с основным' : 'Остался только основной поток')
+                    + (live ? ' · вывод перезапущен' : ''),
+                'ok',
+            );
+        } catch (e) {
+            setParams(p => ({ ...p, dualOutput: !enabled }));
+            toastError('Двойной вывод не применён', e);
+        } finally {
+            if (live) setStarting(false);
+        }
+    };
+
     // Смена разрешения: стоп, запись в остановленную конфигурацию, старт, ожидание подъёма
     const applyResolution = async (res: { width: number; height: number }): Promise<boolean> => {
         if (!selected) return false;
@@ -601,6 +634,15 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
                         <div className="tipbox" style={{ right: 'auto', left: 0 }}>
                             <div className="kv"><span className="k">Поток</span><span className="v">{status.streamId ?? '—'}</span></div>
                             <div className="kv"><span className="k">Режим</span><span className="v">{status.viewMode === 'surround' ? 'объём' : 'сверху'}</span></div>
+                            {status.secondary && (
+                                <div className="kv"><span className="k">Второй поток</span><span className="v">
+                                    <span className="seps">
+                                        <span>{status.secondary.streamId}</span>
+                                        <span>{status.secondary.viewMode === 'surround' ? 'объём' : 'сверху'}</span>
+                                        {status.secondary.width > 0 && <span>{status.secondary.width}×{status.secondary.height}</span>}
+                                    </span>
+                                </span></div>
+                            )}
                             <div className="kv"><span className="k">Кадр</span><span className="v">{status.width && status.height ? (
                                 <span className="seps">
                                     <span>{status.width}×{status.height}</span>
@@ -759,7 +801,7 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
                             </div>
 
                             <div className="tf">
-                                <span className="tf-cap">Режим вывода</span>
+                                <span className="tf-cap">{params.dualOutput ? 'Основной поток' : 'Режим вывода'}</span>
                                 <div className="seg" role="group" aria-label="Режим вывода">
                                     <button
                                         type="button"
@@ -778,6 +820,14 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
                                         Объём
                                     </button>
                                 </div>
+                                {/* Второй режим идёт своим потоком; плеер стены переключает их без перезапуска */}
+                                <Switch
+                                    on={params.dualOutput}
+                                    disabled={!selected || starting}
+                                    onToggle={v => { void applyDualOutput(v); }}
+                                >
+                                    Оба вида одновременно
+                                </Switch>
                             </div>
 
                             {/* Поворот — свойство плоской сшивки, в объёме его нет */}

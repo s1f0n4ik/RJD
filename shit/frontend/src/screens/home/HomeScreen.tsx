@@ -64,7 +64,7 @@ export function HomeScreen() {
             ? (
                 <span className="seps">
                     <span>вывод в эфире</span>
-                    <span>{linker.viewMode === 'surround' ? 'объём' : 'сверху'}</span>
+                    <span>{linker.dualOutput ? 'оба вида' : linker.viewMode === 'surround' ? 'объём' : 'сверху'}</span>
                 </span>
             )
             : 'вывод остановлен'

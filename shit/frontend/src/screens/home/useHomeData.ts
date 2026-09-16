@@ -152,6 +152,8 @@ export function useNeuralStatus() {
 export interface LinkerSummary {
     running: boolean;
     viewMode: string;
+    /** Оба вида идут своими потоками */
+    dualOutput: boolean;
 }
 
 export function useLinkerStatus() {
@@ -163,9 +165,16 @@ export function useLinkerStatus() {
             try {
                 const res = await fetch(modulePath('birdview', '/linker/status'));
                 if (!res.ok) throw new Error(String(res.status));
-                const json = await res.json() as { data?: { running?: boolean; view_mode?: string }; running?: boolean; view_mode?: string };
+                type Raw = { running?: boolean; view_mode?: string; dual_output?: boolean };
+                const json = await res.json() as { data?: Raw } & Raw;
                 const data = json.data ?? json;
-                if (alive) setSummary({ running: Boolean(data.running), viewMode: data.view_mode ?? 'top' });
+                if (alive) {
+                    setSummary({
+                        running: Boolean(data.running),
+                        viewMode: data.view_mode ?? 'top',
+                        dualOutput: Boolean(data.dual_output),
+                    });
+                }
             } catch {
                 if (alive) setSummary(null);
             }

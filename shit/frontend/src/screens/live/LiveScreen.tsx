@@ -129,8 +129,9 @@ export default function LiveScreen() {
         )),
     ], [cameras, virtual]);
 
-    const signalingUrlOf = useCallback((sourceId: string) => {
-        const owner = sources.find(source => source.id === sourceId)?.deviceId;
+    // Владелец ищется по ownerId: второй поток 360 в списке источников не значится
+    const signalingUrlOf = useCallback((sourceId: string, ownerId: string = sourceId) => {
+        const owner = sources.find(source => source.id === ownerId)?.deviceId;
         return owner ? signalingWsUrl(owner, `/client/${sourceId}`) : wsUrl(`/signaling/client/${sourceId}`);
     }, [sources]);
 
@@ -300,6 +301,13 @@ export default function LiveScreen() {
         }));
     }, []);
 
+    const setSurroundViewMode = useCallback((value: 'top' | 'surround') => {
+        setLayout(prev => ({
+            ...prev,
+            surround: { viewMode: value, manual: prev.surround?.manual ?? false },
+        }));
+    }, []);
+
     const setCellStream = (cameraId: string, streamKey: string) => {
         setLayout(prev => ({ ...prev, streams: { ...prev.streams, [cameraId]: streamKey } }));
     };
@@ -463,6 +471,7 @@ export default function LiveScreen() {
                     onCorrectedChange={setCorrected}
                     onDetectionsChange={setDetections}
                     onSurroundManualChange={setSurroundManual}
+                    onSurroundViewModeChange={setSurroundViewMode}
                     onLiveCount={handleLiveCount}
                     onCellStats={setCellStats}
                     cellControls="correction"

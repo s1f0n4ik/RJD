@@ -55,6 +55,8 @@ interface UseWebRTCPlayerOptions {
     collectStats?: boolean;
     /** Сообщения, которые хук сам не обрабатывает — надстройкам плеера */
     onMessage?: (msg: PlayerMessage) => void;
+    /** false — соединение не поднимается; для второго видео ячейки без второго потока */
+    enabled?: boolean;
 }
 
 interface UseWebRTCPlayerResult {
@@ -101,6 +103,7 @@ export function useWebRTCPlayer({
                                     clientId: externalClientId,
                                     collectStats = false,
                                     onMessage,
+                                    enabled = true,
                                 }: UseWebRTCPlayerOptions): UseWebRTCPlayerResult {
     const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -308,6 +311,8 @@ export function useWebRTCPlayer({
     // ─── useEffect: создаём менеджеры ───────────────────────────────────────
 
     useEffect(() => {
+        if (!enabled) return;
+
         // Генерируем новый clientId при изменении cameraId/signalingUrl
         clientIdRef.current = externalClientId ?? makeClientId();
 
@@ -442,7 +447,7 @@ export function useWebRTCPlayer({
         };
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [cameraId, stream, signalingUrl]);
+    }, [cameraId, stream, signalingUrl, enabled]);
 
     // ─── Сторож кадров ──────────────────────────────────────────────────────
 

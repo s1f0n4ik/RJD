@@ -91,6 +91,28 @@ export interface LinkerStatus {
     height: number;
     /** Орбита в ручном режиме прямо сейчас; при старте вывода всегда false */
     orbitManual: boolean;
+    /** Второй режим идёт своим потоком рядом с основным */
+    dualOutput: boolean;
+    /** Второй поток; null — вывод одиночный */
+    secondary: SecondaryOutput | null;
+}
+
+/** Второй поток двойного вывода: противоположный режим тем же составом камер. */
+export interface SecondaryOutput {
+    streamId: string;
+    viewMode: ViewMode;
+    width: number;
+    height: number;
+}
+
+export function normalizeSecondary(raw: any): SecondaryOutput | null {
+    if (!raw || typeof raw !== 'object' || !raw.stream_id) return null;
+    return {
+        streamId: String(raw.stream_id),
+        viewMode: normalizeViewMode(raw.view_mode),
+        width: Number(raw.width) || 0,
+        height: Number(raw.height) || 0,
+    };
 }
 
 /** Привязка «ключ позиции → id камеры». */
@@ -276,6 +298,8 @@ export interface LinkerParams {
     rotation: Rotation;
     /** Режим вывода. Живой применяется через перезапуск своей ручкой. */
     viewMode: ViewMode;
+    /** Второй режим своим потоком; применяется через перезапуск своей ручкой. */
+    dualOutput: boolean;
 }
 
 /** Место камеры на канвасе: прямоугольник, посчитанный сервером при экспорте. */
@@ -395,6 +419,8 @@ export const linkerApi = {
             width: Number(data.width) || 0,
             height: Number(data.height) || 0,
             orbitManual: Boolean(data.orbit_manual),
+            dualOutput: Boolean(data.dual_output),
+            secondary: normalizeSecondary(data.secondary),
         };
     },
 
@@ -424,6 +450,7 @@ export const linkerApi = {
                     ...(entry.stream_name ? { streamName: String(entry.stream_name) } : {}),
                     ...(entry.rotation != null ? { rotation: normalizeRotation(entry.rotation) } : {}),
                     ...(entry.view_mode ? { viewMode: normalizeViewMode(entry.view_mode) } : {}),
+                    ...(entry.dual_output != null ? { dualOutput: Boolean(entry.dual_output) } : {}),
                 },
             };
         } catch {
@@ -444,6 +471,18 @@ export const linkerApi = {
             stream_id: params.streamId,
             stream_name: params.streamName,
             rotation: params.rotation,
+            dual_output: params.dualOutput,
+        });
+    },
+
+    /**
+     * Тумблер второго потока своей ручкой, как режим: сервер перезапускает
+     * живой вывод — второй стример создаётся только на старте.
+     */
+    async setDualOutput(enabled: boolean, exportId?: string): Promise<void> {
+        await fetchJson('POST', '/linker/dual-output', {
+            dual_output: enabled,
+            ...(exportId ? { export_id: exportId } : {}),
         });
     },
 

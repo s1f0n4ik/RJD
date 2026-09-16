@@ -93,8 +93,9 @@ export default function TranslationScreen() {
         ['Собранные потоки', sources.filter(item => item.kind === 'virtual')],
     ];
 
-    const signalingUrlOf = useCallback((sourceId: string) => {
-        const owner = sources.find(item => item.id === sourceId)?.deviceId;
+    // Владелец ищется по ownerId: второй поток 360 в списке источников не значится
+    const signalingUrlOf = useCallback((sourceId: string, ownerId: string = sourceId) => {
+        const owner = sources.find(item => item.id === ownerId)?.deviceId;
         return owner ? signalingWsUrl(owner, `/client/${sourceId}`) : wsUrl(`/signaling/client/${sourceId}`);
     }, [sources]);
 

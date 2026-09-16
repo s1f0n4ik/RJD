@@ -6,12 +6,13 @@
  * на размер кадра и уходят в сигналинг сообщениями type=orbit с троттлингом;
  * слушается ли ручное вращение — решает устройство.
  *
- * Режим вывода (сверху / объём) — настройка модуля: бадж дёргает ту же ручку,
- * что сегмент в разделе «Система 360», вывод перезапускается для всех экранов.
- * Текущий режим — из опроса статуса линкера, а не из ответа на клик.
+ * Режим вывода (сверху / объём). При одиночном выводе бадж дёргает ту же
+ * ручку, что сегмент в разделе «Система 360», и вывод перезапускается для
+ * всех экранов. При двойном выводе ячейка держит оба соединения, а бадж
+ * лишь меняет видимое видео — мгновенно и только у этого экрана.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import {
     useWebRTCPlayer,
     type PlayerMessage,
@@ -34,6 +35,13 @@ const VIEW_POLL_FAST_MS = 1000;
 // Перезапуск вывода с другим размером кадра занимает секунды
 const VIEW_TIMEOUT_MS = 20000;
 
+/** Второй поток той же конфигурации при двойном выводе */
+export interface SecondaryStream {
+    streamId: string;
+    viewMode: ViewMode;
+    signalingUrl: string;
+}
+
 interface SurroundCellProps {
     streamId: string;
     name: string;
@@ -41,6 +49,11 @@ interface SurroundCellProps {
     overlays: Overlays;
     deviceTimeMs: number | null;
     collectStats: boolean;
+    /** Второй поток; null — вывод одиночный, бадж перезапускает вывод */
+    secondary?: SecondaryStream | null;
+    /** Видимый режим из сохранённого отображения; только при двойном выводе */
+    initialViewMode?: ViewMode;
+    onViewModeChange?: (mode: ViewMode) => void;
     /** Режим орбиты из сохранённого отображения */
     initialManual?: boolean;
     onManualChange?: (manual: boolean) => void;
@@ -54,6 +67,10 @@ function num(value: number | null | undefined, digits: number): string {
     return value === null || value === undefined ? '—' : value.toFixed(digits).replace('.', ',');
 }
 
+function other(mode: ViewMode): ViewMode {
+    return mode === 'top' ? 'surround' : 'top';
+}
+
 export function SurroundCell({
     streamId,
     name,
@@ -61,6 +78,9 @@ export function SurroundCell({
     overlays,
     deviceTimeMs,
     collectStats,
+    secondary,
+    initialViewMode,
+    onViewModeChange,
     initialManual,
     onManualChange,
     onGestureLock,
@@ -68,6 +88,7 @@ export function SurroundCell({
     onStats,
 }: SurroundCellProps) {
     const boxRef = useRef<HTMLDivElement>(null);
+    const dual = Boolean(secondary);
 
     // Последнее подтверждённое устройством состояние: к нему откатываемся при отказе
     const confirmedRef = useRef(Boolean(initialManual));
@@ -80,10 +101,13 @@ export function SurroundCell({
 
     const { flash, show: showFlash, hide: hideFlash } = useFlash();
 
-    // Режим вывода известен только устройству; null — статус ещё не получен
+    // Режим основного потока известен только устройству; null — статус ещё не получен
     const [viewMode, setViewMode] = useState<ViewMode | null>(null);
     const [viewTarget, setViewTarget] = useState<ViewMode | null>(null);
     const viewTimerRef = useRef<number | null>(null);
+
+    // Видимое видео при двойном выводе — выбор этого экрана
+    const [shown, setShown] = useState<ViewMode | null>(initialViewMode ?? null);
 
     useEffect(() => {
         let alive = true;
@@ -110,7 +134,17 @@ export function SurroundCell({
         }
     }, [viewMode, viewTarget]);
 
+    // Режим основного соединения: при двойном выводе — противоположный второму
+    const primaryMode: ViewMode | null = secondary ? other(secondary.viewMode) : viewMode;
+    const visible: ViewMode | null = dual ? (shown ?? primaryMode) : viewMode;
+
     const toggleViewMode = async () => {
+        if (dual && secondary) {
+            const next = other(visible ?? primaryMode ?? 'top');
+            setShown(next);
+            onViewModeChange?.(next);
+            return;
+        }
         if (viewTarget || !viewMode) return;
         const target: ViewMode = viewMode === 'top' ? 'surround' : 'top';
         setViewTarget(target);
@@ -158,12 +192,26 @@ export function SurroundCell({
         showFlash(info.text, info.code);
     }, [onManualChange, settleOrbit, showFlash]);
 
-    const { status, errorInfo, attempt, videoRef, stats, send } = useWebRTCPlayer({
+    const primary = useWebRTCPlayer({
         cameraId: streamId,
         signalingUrl,
-        collectStats,
+        collectStats: collectStats && (!dual || visible === primaryMode),
         onMessage: handleMessage,
     });
+
+    // Второе соединение живёт только при двойном выводе
+    const second = useWebRTCPlayer({
+        cameraId: secondary?.streamId ?? '',
+        signalingUrl: secondary?.signalingUrl ?? '',
+        collectStats: collectStats && dual && visible === secondary?.viewMode,
+        onMessage: handleMessage,
+        enabled: dual,
+    });
+
+    // Орбита живёт на соединении объёма; без второго потока — на единственном
+    const surroundPlayer = secondary?.viewMode === 'surround' ? second : primary;
+    const shownPlayer = dual && visible === secondary?.viewMode ? second : primary;
+    const { status, errorInfo, attempt, stats } = shownPlayer;
 
     useEffect(() => {
         onStatus?.(status);
@@ -185,26 +233,26 @@ export function SurroundCell({
     }, []);
 
     const gesture = useOrbitGesture({
-        videoRef,
-        send,
-        enabled: true,
+        videoRef: surroundPlayer.videoRef,
+        send: surroundPlayer.send,
+        enabled: !dual || visible === 'surround',
         onGestureLock,
     });
 
-    // Режим из сохранённого отображения применяется один раз, когда пошло видео
+    // Режим из сохранённого отображения применяется один раз, когда пошло видео объёма
     useEffect(() => {
         if (initialManual === undefined || initialAppliedRef.current) return;
-        if (status !== 'streaming') return;
-        if (send({ type: 'orbit', mode: initialManual ? 'manual' : 'auto' })) {
+        if (surroundPlayer.status !== 'streaming') return;
+        if (surroundPlayer.send({ type: 'orbit', mode: initialManual ? 'manual' : 'auto' })) {
             initialAppliedRef.current = true;
         }
-    }, [initialManual, status, send]);
+    }, [initialManual, surroundPlayer.status, surroundPlayer.send]);
 
     // Состояние меняется только по ответу устройства
     const toggleManual = () => {
         if (pending) return;
 
-        if (!send({ type: 'orbit', mode: manual ? 'auto' : 'manual' })) {
+        if (!surroundPlayer.send({ type: 'orbit', mode: manual ? 'auto' : 'manual' })) {
             showFlash('Нет связи с устройством');
             return;
         }
@@ -218,10 +266,33 @@ export function SurroundCell({
     };
 
     const live = status === 'streaming';
+    const primaryHidden = dual && visible !== primaryMode;
+
+    // display:none останавливает декодирование, и сторож кадров хука рвёт сессию
+    const hiddenVideo: CSSProperties = {
+        position: 'absolute', inset: 0, opacity: 0, pointerEvents: 'none',
+    };
 
     return (
         <div className="cellv" ref={boxRef}>
-            <video ref={videoRef} autoPlay playsInline muted className="cellv-video" />
+            <video
+                ref={primary.videoRef}
+                autoPlay
+                playsInline
+                muted
+                className="cellv-video"
+                style={primaryHidden ? hiddenVideo : undefined}
+            />
+            {dual && (
+                <video
+                    ref={second.videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="cellv-video"
+                    style={primaryHidden ? undefined : hiddenVideo}
+                />
+            )}
 
             <div
                 ref={gesture.layerRef}
@@ -255,10 +326,10 @@ export function SurroundCell({
             )}
 
             <div className="cellv-tools" onDoubleClick={event => event.stopPropagation()}>
-                {viewMode && (
+                {visible && (
                     <button
-                        className={`cellv-btn${viewMode === 'top' ? ' is-on' : ''}`}
-                        title={viewMode === 'top' ? 'Объёмный вид' : 'Вид сверху'}
+                        className={`cellv-btn${visible === 'top' ? ' is-on' : ''}`}
+                        title={visible === 'top' ? 'Объёмный вид' : 'Вид сверху'}
                         disabled={Boolean(viewTarget)}
                         onClick={event => { event.stopPropagation(); void toggleViewMode(); }}
                     >
@@ -266,7 +337,7 @@ export function SurroundCell({
                     </button>
                 )}
                 {/* В режиме «сверху» орбиты нет — устройство отказывает */}
-                {viewMode !== 'top' && (
+                {visible !== 'top' && (
                     <button
                         className={`cellv-btn${manual ? ' is-on' : ''}`}
                         title={manual ? 'Выключить ручное вращение' : 'Включить ручное вращение'}

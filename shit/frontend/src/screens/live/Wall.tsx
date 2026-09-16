@@ -34,7 +34,8 @@ export interface WallProps {
     sources: WallSource[];
     /** Меняется, когда сменилось отображение целиком: повод разобрать стену */
     switchKey: string;
-    signalingUrlOf: (sourceId: string) => string;
+    /** ownerId — источник, чьё устройство держит поток; для второго потока 360 это основной */
+    signalingUrlOf: (sourceId: string, ownerId?: string) => string;
     deviceTimeMs: number | null;
     /** Редактор разрешает перетаскивание, выбор и очистку ячеек */
     editable?: boolean;
@@ -48,6 +49,8 @@ export interface WallProps {
     /** Смена потока просмотра баджем в ячейке */
     onStreamChange?: (cameraId: string, streamKey: string) => void;
     onSurroundManualChange?: (value: boolean) => void;
+    /** Видимый режим ячейки 360 при двойном выводе; уходит в раскладку */
+    onSurroundViewModeChange?: (value: 'top' | 'surround') => void;
     /** Сколько ячеек реально в эфире из занятых */
     onLiveCount?: (live: number, total: number) => void;
     /** Показатели выбранной ячейки; остальные ячейки родителя не дёргают */
@@ -79,6 +82,7 @@ export function Wall({
     onDetectionsChange,
     onStreamChange,
     onSurroundManualChange,
+    onSurroundViewModeChange,
     onLiveCount,
     onCellStats,
     cellControls = 'all',
@@ -333,6 +337,11 @@ export function Wall({
                     deviceTimeMs={deviceTimeMs}
                     collectStats={(!expanded || expanded === cellId)
                         && (layout.overlays.stats || cellId === selectedCell)}
+                    secondary={source.secondary
+                        ? { ...source.secondary, signalingUrl: signalingUrlOf(source.secondary.streamId, sourceId) }
+                        : null}
+                    initialViewMode={layout.surround?.viewMode}
+                    onViewModeChange={onSurroundViewModeChange}
                     initialManual={layout.surround?.manual}
                     onManualChange={onSurroundManualChange}
                     onGestureLock={locked => { gestureLockRef.current = locked; }}

@@ -30,6 +30,8 @@ export interface WallSource {
     /** Вторая строка списка: состав виртуального потока или адрес камеры */
     detail?: string;
     producer?: StreamProducer;
+    /** Второй поток birdview при двойном выводе: ячейка держит оба соединения */
+    secondary?: { streamId: string; viewMode: 'top' | 'surround' } | null;
     /** Смотрибельные потоки камеры */
     viewStreams: ViewStream[];
     hasNeural: boolean;
@@ -82,6 +84,9 @@ export function virtualToWallSource(stream: VirtualStream, nameOf: (id: string) 
         deviceId: stream.device_id,
         detail: stream.cameras.length ? `${PRODUCER_NAME[stream.producer]} · ${cameras}` : PRODUCER_NAME[stream.producer],
         producer: stream.producer,
+        secondary: stream.secondary
+            ? { streamId: stream.secondary.stream_id, viewMode: stream.secondary.view_mode }
+            : null,
         viewStreams: [],
         hasNeural: false,
         hasBirdview: false,

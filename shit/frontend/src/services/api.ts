@@ -208,6 +208,13 @@ class ApiClient {
             width: Number(raw?.width) || 0,
             height: Number(raw?.height) || 0,
             running: Boolean(raw?.running),
+            view_mode: raw?.view_mode === 'surround' ? 'surround' : raw?.view_mode === 'top' ? 'top' : undefined,
+            secondary: raw?.secondary?.stream_id ? {
+                stream_id: String(raw.secondary.stream_id),
+                view_mode: raw.secondary.view_mode === 'surround' ? 'surround' : 'top',
+                width: Number(raw.secondary.width) || 0,
+                height: Number(raw.secondary.height) || 0,
+            } : null,
             device_id: raw?.device_id ? String(raw.device_id) : undefined,
             device_name: raw?.device_name ? String(raw.device_name) : undefined,
             offline: raw?.offline === true ? true : undefined,
