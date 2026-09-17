@@ -21,7 +21,7 @@ function parseWsUrl(raw: string): { host: string; port: string; target: string }
   if (!s) return null;
   s = s.replace(/^wss?:\/\//i, '');
   const slash = s.indexOf('/');
-  const target = slash >= 0 ? s.slice(slash) : '/ws/frames';
+  const target = slash >= 0 ? s.slice(slash) : '/';
   const hostPort = slash >= 0 ? s.slice(0, slash) : s;
   const colon = hostPort.lastIndexOf(':');
   if (colon < 0) return null;
@@ -104,7 +104,7 @@ const WebSocketModulePanel: React.FC<Props> = ({ module, title, busy, onSave, on
                   className={`inp inp--text${urlError ? ' is-err' : dirty ? ' is-dirty' : ''}`}
                   value={url}
                   spellCheck={false}
-                  placeholder="ws://192.168.1.50:8080/ws/frames"
+                  placeholder="ws://192.168.1.50:8080"
                   onChange={(e) => setUrl(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && dirty) applyUrl();

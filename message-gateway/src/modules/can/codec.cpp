@@ -2,6 +2,8 @@
 
 #include <ctime>
 #include <cmath>
+#include <cstdio>
+#include <atomic>
 #include <algorithm>
 
 namespace varan {
@@ -24,6 +26,77 @@ namespace varan {
 #else
                 return ::timegm(&tm);
 #endif
+            }
+
+            // Окно правдоподобности года. Всё за его пределами — битый кадр или
+            // чужая раскладка: время отсюда уходит в имена файлов записи и в
+            // журнал, откуда его уже не вычистить.
+            constexpr int TIME_MIN_YEAR = 2025;
+            constexpr int TIME_MAX_YEAR = 2050;
+
+            struct FCalendar {
+                int year = 0;
+                int month = 0;
+                int day = 0;
+                int hour = 0;
+                int minute = 0;
+                int second = 0;
+            };
+
+            // Раскладка по описанию Садко: год двумя последними цифрами.
+            FCalendar read_direct(const FCanFrame& f) {
+                FCalendar c;
+                c.year = 2000 + f.data[0];
+                c.month = f.data[1];
+                c.day = f.data[2];
+                c.hour = f.data[3];
+                c.minute = f.data[4];
+                c.second = f.data[5];
+                return c;
+            }
+
+            // Раскладка J1939: секунды и сутки идут по 0.25 на бит, год от 1985.
+            FCalendar read_j1939(const FCanFrame& f) {
+                FCalendar c;
+                c.year = 1985 + f.data[5];
+                c.month = f.data[3];
+                c.day = f.data[4] / 4;
+                c.hour = f.data[2];
+                c.minute = f.data[1];
+                c.second = f.data[0] / 4;
+                return c;
+            }
+
+            bool calendar_valid(const FCalendar& c) {
+                return c.year >= TIME_MIN_YEAR && c.year <= TIME_MAX_YEAR
+                    && c.month >= 1 && c.month <= 12
+                    && c.day >= 1 && c.day <= 31
+                    && c.hour <= 23 && c.minute <= 59 && c.second <= 60;
+            }
+
+            std::string describe(const FCalendar& c) {
+                char buf[32];
+                std::snprintf(buf, sizeof(buf), "%02d.%02d.%04d %02d:%02d:%02d",
+                    c.day, c.month, c.year, c.hour, c.minute, c.second);
+                return buf;
+            }
+
+            bool to_unix_ms(const FCalendar& c, std::int64_t& out) {
+                std::tm tm{};
+                tm.tm_year = c.year - 1900;
+                tm.tm_mon = c.month - 1;
+                tm.tm_mday = c.day;
+                tm.tm_hour = c.hour;
+                tm.tm_min = c.minute;
+                tm.tm_sec = c.second;
+                tm.tm_isdst = 0;
+
+                const std::time_t t = to_utc(tm);
+                if (t == static_cast<std::time_t>(-1)) {
+                    return false;
+                }
+                out = static_cast<std::int64_t>(t) * 1000;
+                return true;
             }
 
         } // namespace
@@ -135,38 +208,44 @@ namespace varan {
                 return false;
             }
 
-            const int year = f.data[0];   // две последние цифры, пример: 25
-            const int month = f.data[1];
-            const int day = f.data[2];
-            const int hour = f.data[3];
-            const int minute = f.data[4];
-            const int second = f.data[5];
+            const FCalendar direct = read_direct(f);
+            const FCalendar j1939 = read_j1939(f);
+            const bool direct_ok = calendar_valid(direct);
+            const bool j1939_ok = calendar_valid(j1939);
 
-            if (month < 1 || month > 12 || day < 1 || day > 31 ||
-                hour > 23 || minute > 59 || second > 60 || year > 99) {
-                err = "time frame: invalid date/time "
-                    + std::to_string(day) + "." + std::to_string(month) + "." + std::to_string(year)
-                    + " " + std::to_string(hour) + ":" + std::to_string(minute) + ":" + std::to_string(second);
+            if (!direct_ok && !j1939_ok) {
+                err = "time frame: no layout fits (direct " + describe(direct)
+                    + ", j1939 " + describe(j1939) + ")";
                 return false;
             }
 
-            std::tm tm{};
-            tm.tm_year = 2000 + year - 1900;
-            tm.tm_mon = month - 1;
-            tm.tm_mday = day;
-            tm.tm_hour = hour;
-            tm.tm_min = minute;
-            tm.tm_sec = second;
-            tm.tm_isdst = 0;
+            // Раскладка у устройства одна и на ходу не меняется: первый
+            // однозначно опознанный кадр решает и за спорные, где годятся обе.
+            static std::atomic<int> known_layout{ -1 };
 
-            const std::time_t t = to_utc(tm);
-            if (t == static_cast<std::time_t>(-1)) {
-                err = "time frame: date is not representable";
+            ECanTimeLayout layout;
+            if (direct_ok != j1939_ok) {
+                layout = direct_ok ? ECanTimeLayout::DIRECT : ECanTimeLayout::J1939;
+                known_layout.store(static_cast<int>(layout));
+            }
+            else {
+                const int known = known_layout.load();
+                layout = known < 0
+                    ? ECanTimeLayout::DIRECT
+                    : static_cast<ECanTimeLayout>(known);
+            }
+
+            const FCalendar& c = layout == ECanTimeLayout::J1939 ? j1939 : direct;
+
+            std::int64_t unix_ms = 0;
+            if (!to_unix_ms(c, unix_ms)) {
+                err = "time frame: date is not representable: " + describe(c);
                 return false;
             }
 
-            out.unix_ms = static_cast<std::int64_t>(t) * 1000;
+            out.unix_ms = unix_ms;
             out.speed = read_u16_le(f, 6) * 0.01;  // 0.01 м/с на бит
+            out.layout = layout;
             return true;
         }
 

@@ -52,10 +52,21 @@ namespace varan {
         // противоречиво (оба бита или ни одного).
         bool decode_gps_frame(const FCanFrame& f, FCanGps& out, std::string& err);
 
+        // Раскладка байтов даты и времени в кадре Садко.
+        enum class ECanTimeLayout {
+            DIRECT,   // год, месяц, день, час, минута, секунда
+            J1939,    // секунды (0.25 с/бит), минуты, часы, месяц, день (0.25 сут/бит), год от 1985
+        };
+
+        inline const char* to_string(ECanTimeLayout layout) {
+            return layout == ECanTimeLayout::J1939 ? "j1939" : "direct";
+        }
+
         // Дата, время UTC и путевая скорость из сообщения Садко (PGN 0xFF01).
         struct FCanTime {
             std::int64_t unix_ms = 0;
             double speed = 0.0;   // м/с, в кадре 0.01 м/с на бит
+            ECanTimeLayout layout = ECanTimeLayout::DIRECT;
         };
 
         bool decode_time_frame(const FCanFrame& f, FCanTime& out, std::string& err);

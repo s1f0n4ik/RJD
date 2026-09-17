@@ -13,7 +13,7 @@ namespace varan {
         struct FWsConfig {
             std::string host = "127.0.0.1";
             std::string port = "8080";
-            std::string target = "/ws/frames";
+            std::string target = "/";
             bool enabled = true;
         };
 

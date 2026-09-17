@@ -174,9 +174,9 @@ namespace varan {
 #else
             gmtime_r(&tt, &tm);
 #endif
-            std::snprintf(buf, sizeof(buf), "%02d.%02d.%04d %02d:%02d:%02d UTC · %.2f м/с",
+            std::snprintf(buf, sizeof(buf), "%02d.%02d.%04d %02d:%02d:%02d UTC · %.2f м/с · %s",
                 tm.tm_mday, tm.tm_mon + 1, tm.tm_year + 1900,
-                tm.tm_hour, tm.tm_min, tm.tm_sec, t.speed);
+                tm.tm_hour, tm.tm_min, tm.tm_sec, t.speed, to_string(t.layout));
 
             {
                 std::lock_guard<std::mutex> lock(m_sum_mutex);
