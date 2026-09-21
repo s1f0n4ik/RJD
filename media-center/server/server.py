@@ -767,7 +767,8 @@ async def main() -> None:
         handle_destroy_request, "0.0.0.0", 8766
     )
 
-    async with serve(router, "0.0.0.0", 8765), http_server:
+    # Дефолт библиотеки 1 МиБ, канвас 360 в JPEG крупнее
+    async with serve(router, "0.0.0.0", 8765, max_size=64 * 1024 * 1024), http_server:
         log.info("Broker ready")
         await asyncio.Future()   # run forever
 

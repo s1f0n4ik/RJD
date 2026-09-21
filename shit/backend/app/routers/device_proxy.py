@@ -94,7 +94,8 @@ async def _bridge_websocket(websocket: WebSocket, device_id: str, port: int, pat
     uri = f"ws://{device['ip']}:{port}/{path}" + (f"?{query}" if query else "")
 
     try:
-        async with websockets.connect(uri) as upstream:
+        # Дефолт библиотеки 1 МиБ, канвас 360 в JPEG крупнее
+        async with websockets.connect(uri, max_size=64 * 1024 * 1024) as upstream:
 
             async def client_to_upstream():
                 while True:
