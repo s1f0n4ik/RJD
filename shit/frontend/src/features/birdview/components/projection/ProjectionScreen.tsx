@@ -130,6 +130,8 @@ export function ProjectionScreen({
     cameraRef.current = camera;
     const streamRef = useRef(stream);
     streamRef.current = stream;
+    const correctionRef = useRef(correction);
+    correctionRef.current = correction;
     // Ошибка apply_warp во время прохода; null - ответа ещё нет
     const warpFailRef = useRef<string | null>(null);
 
@@ -392,6 +394,8 @@ export function ProjectionScreen({
 
                     const saved = camerasWithSavedPoints();
                     if (saved.length > 0) setRestorable(saved);
+                    // Разрешения конфигураций нужны для сверки с камерами мест
+                    if (correctionRef.current.configs.length === 0) correctionRef.current.requestList();
                     return;
                 }
 
@@ -430,8 +434,10 @@ export function ProjectionScreen({
                     // Ключ коррекции зеркалит запись в пресет: warp без конфигурации стирает метку у места
                     if (typeof meta.calibration === 'string' && meta.calibration) {
                         projState.calibKey[key] = meta.calibration;
+                        projState.presetCalibKey[key] = meta.calibration;
                     } else {
                         delete projState.calibKey[key];
+                        delete projState.presetCalibKey[key];
                     }
 
                     emitProjChange();
@@ -509,10 +515,32 @@ export function ProjectionScreen({
         sendSetPreset(key);
     };
 
-    // Выбор камеры в панели — это назначение её активному месту пресета
-    const assignCamera = (cam: CalibrationCamera) => {
-        if (projState.activeCam) projState.camId[projState.activeCam] = cam.id;
+    // Камера — свойство места: другой кадр снимает готовый warp,
+    // ключ коррекции остаётся, пока подходит по разрешению
+    const assignCamera = (placeKey: string, cam: CalibrationCamera) => {
+        if (projState.camId[placeKey] === cam.id && camera?.id === cam.id) return;
+        projState.camId[placeKey] = cam.id;
+        projState.doneSet.delete(placeKey);
+
+        const cfg = correction.configs.find(c => (c.config_key ?? c.id) === projState.calibKey[placeKey]);
+        if (cfg && (cfg.width !== cam.width || cfg.height !== cam.height)) {
+            delete projState.calibKey[placeKey];
+            log.log(`Коррекция места <${placeKey}> снята: не подходит камере ${cam.width}×${cam.height}`, 'warn');
+        }
+
+        emitProjChange();
         onSelectCamera(cam);
+    };
+
+    // Выбор оператора или возврат к ключу пресета; загрузку делает эффект ниже.
+    // Точки размечены на исправленном кадре — готовый warp снимается
+    const setPlaceCorrection = (placeKey: string, key: string | null) => {
+        const next = key ?? projState.presetCalibKey[placeKey] ?? null;
+        if (next === (projState.calibKey[placeKey] ?? null)) return;
+        if (next) projState.calibKey[placeKey] = next;
+        else delete projState.calibKey[placeKey];
+        projState.doneSet.delete(placeKey);
+        emitProjChange();
     };
 
     // Возврат к разметке, пришедшей с конфигурацией: сервер для этого не нужен
@@ -544,6 +572,24 @@ export function ProjectionScreen({
         emitProjChange();
         projDraw();
     };
+
+    // Коррекция калибратора догоняет ключ активного места, когда его кадр на месте.
+    // Одна попытка на сочетание: отказ сервера не должен зациклить загрузку
+    const loadTriedRef = useRef('');
+    const activePlace = projState.activeCam;
+    const wantCorr = activePlace ? projState.calibKey[activePlace] ?? null : null;
+    const placeCamId = activePlace ? projState.camId[activePlace] ?? null : null;
+    useEffect(() => {
+        if (!active || applyKey !== null) return;
+        if (!wantCorr || wantCorr === correction.loadedKey) return;
+        if (!camera || camera.id !== placeCamId) return;
+        if (!streamId || stream.pending) return;
+
+        const stamp = `${activePlace}|${wantCorr}|${camera.id}|${stream.generation}`;
+        if (loadTriedRef.current === stamp) return;
+        loadTriedRef.current = stamp;
+        correction.select(wantCorr);
+    }, [active, applyKey, activePlace, wantCorr, placeCamId, camera, streamId, stream.pending, stream.generation, correction]);
 
     // План прохода: что применяем и что пропускаем, с причиной пропуска.
     // Места с готовым warp не трогаем — правка точек снимает готовность сама
@@ -624,6 +670,18 @@ export function ProjectionScreen({
                     if (!up) throw new Error(`Камера ${q.cam!.displayName} не поднялась`);
                 }
 
+                // Коррекция места: сервер строит warp и пишет ключ в пресет от загруженной
+                const wantKey = projState.calibKey[q.key];
+                if (wantKey && correctionRef.current.loadedKey !== wantKey) {
+                    correctionRef.current.select(wantKey);
+                    const loaded = await waitFor(
+                        () => abortRef.current || correctionRef.current.loadedKey === wantKey,
+                        15_000,
+                    );
+                    if (abortRef.current) throw new Error('Остановлено оператором');
+                    if (!loaded) throw new Error(`Коррекция ${wantKey} для <${q.key}> не загрузилась`);
+                }
+
                 // Место и его точки в рабочий набор, как при клике по списку
                 projState.activeCam = q.key;
                 projState.applied = false;
@@ -699,7 +757,13 @@ export function ProjectionScreen({
     const streaming = playerState?.status === 'streaming';
 
     // Камера, назначенная активному месту: без неё кадр в редакторе не показываем
-    const boundCamId = projState.activeCam ? projState.camId[projState.activeCam] ?? null : null;
+    const boundCamId = placeCamId;
+    const boundCam = sourceCams.find(c => c.id === boundCamId) ?? null;
+
+    // Коррекция активного места: свой ключ, без него — загруженная в калибраторе
+    const corrKey = wantCorr ?? correction.loadedKey;
+    const corrCfg = correction.configs.find(c => (c.config_key ?? c.id) === corrKey);
+    const corrLive = Boolean(corrKey) && correction.ready && correction.loadedKey === corrKey;
 
     const streamCls = !streamId
         ? stream.pending ? ' warn' : ''
@@ -782,7 +846,6 @@ export function ProjectionScreen({
                                 <div className="empty">
                                     <Icon name="cam" className="ico" />
                                     <b>Камера не назначена</b>
-                                    <p>Назначьте камеру месту {placeName(projState.activeCam)} в блоке «Камера»</p>
                                 </div>
                             ) : streamId ? (
                                 <div className="player" ref={onPlayerHost} />
@@ -797,6 +860,13 @@ export function ProjectionScreen({
                                         <>
                                             <Icon name="cam" className="ico" />
                                             <b>Нет сигнала</b>
+                                            <button
+                                                className="btn btn--sm"
+                                                disabled={!wsReady || !boundCam}
+                                                onClick={() => boundCam && onSelectCamera(boundCam)}
+                                            >
+                                                Запустить поток
+                                            </button>
                                         </>
                                     )}
                                 </div>
@@ -824,6 +894,12 @@ export function ProjectionScreen({
                                         : boundCamId
                                     : 'Камера не назначена'}
                             </span>
+                            {boundCamId && (
+                                <span className={`pill${corrLive ? ' ok' : ''}`}>
+                                    <span className="dot" />
+                                    {corrKey ? corrCfg?.name || corrKey : 'Без коррекции'}
+                                </span>
+                            )}
                         </div>
                         <div className="pj-acts">
                             <button
@@ -856,13 +932,14 @@ export function ProjectionScreen({
             <ProjSettings
                 onOpenList={() => ws.sendMessage(PROJ_TYPE, { method: PROJ_METHOD.GET_LIST })}
                 onSelectPreset={requestPreset}
-                onSelectCamera={selectCamera}
+                onSelectPlace={selectCamera}
                 onRestorePlace={restorePlace}
                 camera={camera}
-                onSelectSourceCamera={assignCamera}
+                onShowCamera={onSelectCamera}
+                onAssignCamera={assignCamera}
+                onSetCorrection={setPlaceCorrection}
                 correction={correction}
-                stream={stream}
-                wsReady={wsReady}
+                streamIdle={!streamId && !stream.pending}
                 sourceCams={sourceCams}
                 sourceCamsError={sourceCamsError}
                 applying={applyKey !== null}

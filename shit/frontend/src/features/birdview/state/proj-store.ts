@@ -58,8 +58,10 @@ export interface ProjState {
     maxPointsByCam: Record<string, number>;
     /** Привязка места к камере: из пресета при set_preset, из ответа apply_warp. */
     camId: Record<string, string>;
-    /** Ключ конфигурации коррекции места — источники те же. */
+    /** Ключ конфигурации коррекции места: из пресета, из ответа apply_warp или выбор оператора. */
     calibKey: Record<string, string>;
+    /** Тот же ключ, как он записан в пресете на сервере. */
+    presetCalibKey: Record<string, string>;
 
     applied: boolean;
 
@@ -86,6 +88,7 @@ export const projState: ProjState = {
     maxPointsByCam: {},
     camId: {},
     calibKey: {},
+    presetCalibKey: {},
 
     applied: false,
 
@@ -185,6 +188,7 @@ export function resetPreset(preset: ProjActivePreset): void {
     projState.maxPointsByCam = {};
     projState.camId = {};
     projState.calibKey = {};
+    projState.presetCalibKey = {};
     projState.applied = false;
 
     // doneSet заполняется только фактическими apply_warp в текущей сессии.
@@ -199,6 +203,9 @@ export function resetPreset(preset: ProjActivePreset): void {
         }));
         // Привязка из пресета видна сразу, до всякого warp в этой сессии
         if (cam.camera_id) projState.camId[cam.key] = cam.camera_id;
-        if (cam.calibration) projState.calibKey[cam.key] = cam.calibration;
+        if (cam.calibration) {
+            projState.calibKey[cam.key] = cam.calibration;
+            projState.presetCalibKey[cam.key] = cam.calibration;
+        }
     });
 }
