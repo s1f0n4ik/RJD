@@ -61,13 +61,15 @@ export function useDisks(devices: Device[]) {
 export function useLastDetections(limit = 4) {
     const [items, setItems] = useState<JournalDetection[]>([]);
     const [available, setAvailable] = useState(false);
+    // Первый ответ журнала получен, каким бы он ни был
+    const [loaded, setLoaded] = useState(false);
 
     useEffect(() => {
         let alive = true;
 
         const load = async () => {
             if (!moduleDeviceId('neural')) {
-                if (alive) { setAvailable(false); setItems([]); }
+                if (alive) { setAvailable(false); setItems([]); setLoaded(true); }
                 return;
             }
             try {
@@ -76,6 +78,7 @@ export function useLastDetections(limit = 4) {
             } catch {
                 if (alive) { setAvailable(false); setItems([]); }
             }
+            if (alive) setLoaded(true);
         };
 
         load();
@@ -83,7 +86,7 @@ export function useLastDetections(limit = 4) {
         return () => { alive = false; window.clearInterval(timer); };
     }, [limit]);
 
-    return { items, available };
+    return { items, available, loaded };
 }
 
 /** Сводка шлюза КРСПС для плитки: null — шлюз не ответил. */
@@ -122,7 +125,8 @@ export interface NeuralSummary {
 }
 
 export function useNeuralStatus() {
-    const [summary, setSummary] = useState<NeuralSummary | null>(null);
+    // undefined — ответа ещё не было, null — устройство модуля не ответило
+    const [summary, setSummary] = useState<NeuralSummary | null | undefined>(undefined);
 
     useEffect(() => {
         let alive = true;
@@ -157,7 +161,8 @@ export interface LinkerSummary {
 }
 
 export function useLinkerStatus() {
-    const [summary, setSummary] = useState<LinkerSummary | null>(null);
+    // undefined — ответа ещё не было, null — устройство модуля не ответило
+    const [summary, setSummary] = useState<LinkerSummary | null | undefined>(undefined);
 
     useEffect(() => {
         let alive = true;

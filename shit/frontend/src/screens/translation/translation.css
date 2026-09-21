@@ -72,3 +72,31 @@
 
 /* В эфире ячейки прижаты плотнее, чем в редакторе: экран отдан картинке */
 .tr .wall { gap: 4px; padding: 4px; background: #000; }
+
+/* Узкий экран: ячейки отображения столбиком во всю ширину, каждая играет свой поток */
+@media (max-width: 900px) {
+    .tr-bar { gap: 8px; }
+    .tr-bar .tr-plain, .tr-bar .pill:not(.num), .tr-bar .spacer { display: none; }
+    .tr-select { flex: 1; min-width: 0; width: auto; }
+    .tr-bar .pill.num .seps span:first-child { display: none; }
+    .tr .wallwrap { overflow-y: auto; }
+    .tr .wall {
+        display: flex;
+        flex-wrap: wrap;
+        align-content: flex-start;
+        gap: 2px;
+        padding: 0;
+        overflow: visible;
+    }
+    .tr .cell {
+        flex: 0 0 100%;
+        aspect-ratio: 16 / 9;
+        border: none;
+        border-radius: 0;
+    }
+    .tr .wall.is-expanded .cell.is-hidden { display: flex; }
+}
+
+@media (min-width: 700px) and (max-width: 900px) {
+    .tr .cell { flex-basis: calc(50% - 1px); }
+}

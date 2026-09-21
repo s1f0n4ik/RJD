@@ -52,24 +52,32 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
                 </div>
 
                 <label htmlFor="login-user">Пользователь</label>
-                <input
-                    id="login-user"
-                    className="inp"
-                    value={username}
-                    onChange={e => setUsername(e.target.value)}
-                    autoFocus
-                    autoComplete="username"
-                />
+                <div className="login-field">
+                    <Icon name="search" size={17} />
+                    <input
+                        id="login-user"
+                        className="inp"
+                        value={username}
+                        onChange={e => setUsername(e.target.value)}
+                        autoFocus
+                        autoComplete="username"
+                        placeholder="Пользователь"
+                    />
+                </div>
 
                 <label htmlFor="login-pass">Пароль</label>
-                <input
-                    id="login-pass"
-                    className="inp"
-                    type="password"
-                    value={password}
-                    onChange={e => setPassword(e.target.value)}
-                    autoComplete="current-password"
-                />
+                <div className="login-field">
+                    <Icon name="lock" size={17} />
+                    <input
+                        id="login-pass"
+                        className="inp"
+                        type="password"
+                        value={password}
+                        onChange={e => setPassword(e.target.value)}
+                        autoComplete="current-password"
+                        placeholder="Пароль"
+                    />
+                </div>
 
                 <button className="btn btn--acc btn--wide" type="submit" disabled={busy || !username || !password}>
                     {busy ? 'Проверяем…' : 'Войти'}

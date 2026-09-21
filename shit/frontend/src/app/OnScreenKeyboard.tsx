@@ -52,6 +52,10 @@ const DISPLAY = {
 
 const NON_TEXT = new Set(['checkbox', 'radio', 'range', 'color', 'file', 'submit', 'button', 'reset']);
 
+// Android и iOS поднимают свою клавиатуру; iPad в настольном режиме Safari представляется как Mac с сенсором
+const SYSTEM_KEYBOARD = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+  || (/Mac/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+
 const isEditable = (el: Element | null): el is HTMLInputElement | HTMLTextAreaElement => {
   if (!el) return false;
   if (el.tagName === 'TEXTAREA') return true;
@@ -71,7 +75,7 @@ const setValue = (el: HTMLInputElement | HTMLTextAreaElement, value: string, car
  * полем документа, на устройствах с мышью не существует.
  */
 export function OnScreenKeyboard() {
-  const isTouch = useTouchDevice();
+  const isTouch = useTouchDevice() && !SYSTEM_KEYBOARD;
   const [visible, setVisible] = useState(false);
   const [layoutName, setLayoutName] = useState<'default' | 'shift'>('default');
   const [lang, setLang] = useState<Layout>('ru');

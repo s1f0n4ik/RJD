@@ -15,6 +15,13 @@ import SurroundScreen from '../screens/surround/SurroundScreen';
 import NeuralScreen from '../screens/neural/NeuralScreen';
 import { LoginScreen } from '../screens/login/LoginScreen';
 import { readStoredToken } from '../utils/auth';
+import { MobileShell } from '../mobile/MobileShell';
+import { useIsMobile } from '../mobile/useIsMobile';
+import MobileHomeScreen from '../mobile/HomeScreen';
+import MobileCamerasScreen from '../mobile/CamerasScreen';
+import MobileArchiveScreen from '../mobile/ArchiveScreen';
+import MobileJournalScreen from '../mobile/JournalScreen';
+import MobileDevicesScreen from '../mobile/DevicesScreen';
 
 // Прежний адрес модуля 360: остался в закладках и в документации
 function BirdviewRedirect() {
@@ -27,6 +34,7 @@ export default function NewApp() {
     const [token, setToken] = useState<string | null>(readStoredToken());
     const [role, setRole] = useState<string>(localStorage.getItem('role') ?? 'viewer');
     const [username, setUsername] = useState<string>(localStorage.getItem('username') ?? '');
+    const mobile = useIsMobile();
 
     const handleLogin = (newToken: string, newRole: string, newUsername: string) => {
         localStorage.setItem('token', newToken);
@@ -59,6 +67,16 @@ export default function NewApp() {
             <SystemProvider>
                 <DownloadsProvider>
                 <Routes>
+                    {mobile ? (
+                    <Route element={<MobileShell username={username} role={role} onLogout={handleLogout} />}>
+                        <Route index element={<MobileHomeScreen />} />
+                        <Route path="cameras" element={<MobileCamerasScreen />} />
+                        <Route path="archive" element={<MobileArchiveScreen />} />
+                        <Route path="neural/journal" element={<MobileJournalScreen />} />
+                        <Route path="devices" element={<MobileDevicesScreen />} />
+                        <Route path="*" element={null} />
+                    </Route>
+                    ) : (
                     <Route element={<AppShell username={username} role={role} onLogout={handleLogout} />}>
                         <Route index element={<HomeScreen />} />
                         <Route path="cameras" element={<CamerasScreen />} />
@@ -74,6 +92,7 @@ export default function NewApp() {
                         <Route path="neural/:section" element={<NeuralScreen />} />
                         <Route path="*" element={<Navigate to="/" replace />} />
                     </Route>
+                    )}
                 </Routes>
                 </DownloadsProvider>
             </SystemProvider>
