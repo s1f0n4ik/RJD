@@ -332,7 +332,7 @@ export function Wall({
             );
         }
 
-        if (source.kind === 'virtual') {
+        if (source.producer === 'birdview') {
             return (
                 <SurroundCell
                     key={`${sourceId}-${switchKey}`}

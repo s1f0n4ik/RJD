@@ -425,6 +425,7 @@ export default function LiveScreen() {
                             <Switch on={layout.overlays.name} onToggle={value => setOverlay('name', value)}>Имя камеры поверх кадра</Switch>
                             <Switch on={layout.overlays.time} onToggle={value => setOverlay('time', value)}>Время и дата</Switch>
                             <Switch on={layout.overlays.stats} onToggle={value => setOverlay('stats', value)}>Кадры и битрейт</Switch>
+                            <Switch on={layout.overlays.sources} onToggle={value => setOverlay('sources', value)}>Легенда источников рамок</Switch>
                         </div>
                     )}
                 </div>

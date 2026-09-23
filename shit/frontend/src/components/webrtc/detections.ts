@@ -16,6 +16,8 @@ export interface Detection {
     confidence?: number;       // 0..1, опционально
     // rect: сервер шлёт либо массив [x1,y1,x2,y2], либо объект {x,y,w,h}
     rect: [number, number, number, number] | { x: number; y: number; w: number; h: number };
+    /** Цвет метки источника; ставит клиент, когда слотов на камере больше одного */
+    mark?: string;
 }
 
 export type TrackState = 'tentative' | 'confirmed' | 'lost';
@@ -32,6 +34,7 @@ export interface Track {
     age?:        number;
     lost_frames?: number;
     rect: [number, number, number, number] | { x: number; y: number; w: number; h: number };
+    mark?: string;
 }
 
 const FONT_SIZE    = 12;
@@ -40,6 +43,7 @@ const RECT_LINE_W  = 2;
 const LABEL_PAD_H  = 2;
 const LABEL_PAD_W  = 6;
 const LABEL_OFFSET = -2;
+const MARK_SIZE    = 6;
 
 const FALLBACK_COLORS = [
     '#f44336', '#e91e63', '#9c27b0', '#3f51b5',
@@ -48,6 +52,16 @@ const FALLBACK_COLORS = [
 
 export function colorForId(id: number): string {
     return FALLBACK_COLORS[id % FALLBACK_COLORS.length];
+}
+
+// Метки источников: насыщенные и светлые, чтобы читаться на плашке любого класса
+const SOURCE_MARKS = ['#ffffff', '#00e5ff', '#ffd400', '#ff4dd2', '#7cff4d', '#ff7a1a'];
+
+// Цвет из хеша id: одинаков на всех экранах и после перезагрузки
+export function markForSource(source: string): string {
+    let hash = 0;
+    for (let i = 0; i < source.length; i++) hash = (hash * 31 + source.charCodeAt(i)) | 0;
+    return SOURCE_MARKS[Math.abs(hash) % SOURCE_MARKS.length];
 }
 
 /**
@@ -96,17 +110,25 @@ export function drawDetections(
         ctx.setLineDash([]);
     };
 
-    const drawLabel = (x1: number, y1: number, label: string, color: string) => {
+    const drawLabel = (x1: number, y1: number, label: string, color: string, mark?: string) => {
         ctx.font = `bold ${FONT_SIZE}px ${FONT_FAMILY}`;
-        const lw = ctx.measureText(label).width + LABEL_PAD_W * 2;
+        const markW = mark ? MARK_SIZE + LABEL_PAD_W : 0;
+        const lw = ctx.measureText(label).width + LABEL_PAD_W * 2 + markW;
         const lh = FONT_SIZE + LABEL_PAD_H * 2;
         const labelY = y1 - LABEL_OFFSET >= lh ? y1 - LABEL_OFFSET - lh : y1 + LABEL_OFFSET;
         ctx.fillStyle = color;
         ctx.fillRect(x1, labelY, lw, lh);
+        if (mark) {
+            const my = labelY + (lh - MARK_SIZE) / 2;
+            ctx.fillStyle = 'rgba(0,0,0,0.6)';
+            ctx.fillRect(x1 + LABEL_PAD_W - 1, my - 1, MARK_SIZE + 2, MARK_SIZE + 2);
+            ctx.fillStyle = mark;
+            ctx.fillRect(x1 + LABEL_PAD_W, my, MARK_SIZE, MARK_SIZE);
+        }
         ctx.fillStyle = '#ffffff';
         ctx.textBaseline = 'top';
         ctx.textAlign = 'left';
-        ctx.fillText(label, x1 + LABEL_PAD_W, labelY + LABEL_PAD_H);
+        ctx.fillText(label, x1 + LABEL_PAD_W + markW, labelY + LABEL_PAD_H);
     };
 
     for (const det of detections) {
@@ -114,7 +136,7 @@ export function drawDetections(
         const color = det.color || colorForId(det.id);
         drawBox(x1, y1, bw, bh, color, false);
         const conf = det.confidence != null ? ` ${Math.round(det.confidence * 100)}%` : '';
-        drawLabel(x1, y1, (det.name || `class ${det.id}`) + conf, color);
+        drawLabel(x1, y1, (det.name || `class ${det.id}`) + conf, color, det.mark);
     }
 
     // tentative — пунктир без подписи, confirmed — сплошной с номером, lost — пунктир с меткой L
@@ -127,8 +149,8 @@ export function drawDetections(
         const hasCurrent = (t.lost_frames ?? 0) === 0;
         const conf = hasCurrent && t.confidence != null ? ` ${Math.round(t.confidence * 100)}%` : '';
 
-        if (t.state === 'confirmed') drawLabel(x1, y1, `${clsName} #${t.track_id}${conf}`, color);
-        else if (t.state === 'lost') drawLabel(x1, y1, `${clsName} L`, color);
+        if (t.state === 'confirmed') drawLabel(x1, y1, `${clsName} #${t.track_id}${conf}`, color, t.mark);
+        else if (t.state === 'lost') drawLabel(x1, y1, `${clsName} L`, color, t.mark);
     }
 
     ctx.restore();

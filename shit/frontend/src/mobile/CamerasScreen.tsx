@@ -21,7 +21,7 @@ const PURPOSE_TAG: Partial<Record<StreamPurpose, { label: string; cls: string }>
     record: { label: 'Запись', cls: '' },
 };
 
-const OVERLAYS = { name: false, time: false, stats: false };
+const OVERLAYS = { name: false, time: false, stats: false, sources: false };
 
 const num = (value: number | null | undefined, digits: number) =>
     (value === null || value === undefined ? '—' : value.toFixed(digits).replace('.', ','));
@@ -109,7 +109,7 @@ export default function CamerasScreen() {
 
     const renderPlayer = () => {
         if (!source || !playable) return null;
-        if (source.kind === 'virtual') {
+        if (source.producer === 'birdview') {
             return (
                 <SurroundCell
                     key={source.id}

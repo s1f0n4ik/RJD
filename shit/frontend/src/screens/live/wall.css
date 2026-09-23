@@ -212,6 +212,23 @@
     pointer-events: none;
 }
 
+/* Легенда слотов, чьи рамки на кадре; при включённом времени — над ним */
+.cellv-legend {
+    position: absolute;
+    left: 9px; bottom: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    max-width: calc(100% - 18px);
+    font-size: 11px;
+    color: var(--fg);
+    text-shadow: 0 1px 3px rgba(0, 0, 0, .9);
+    pointer-events: none;
+}
+.cellv-legend.is-raised { bottom: 26px; }
+.cellv-legend span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.cellv-legend i { width: 7px; height: 7px; box-shadow: 0 0 0 1px rgba(0, 0, 0, .6); }
+
 .cellv-tools {
     position: absolute;
     right: 6px; bottom: 6px;

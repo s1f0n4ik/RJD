@@ -33,6 +33,8 @@ export interface Overlays {
     time: boolean;
     /** fps и битрейт в подписи ячейки */
     stats: boolean;
+    /** Легенда слотов, чьи рамки на кадре; видна при двух и более источниках */
+    sources: boolean;
 }
 
 export interface LayoutState {
@@ -51,7 +53,7 @@ export interface LayoutState {
     surround?: SavedLayout['surround'];
 }
 
-export const DEFAULT_OVERLAYS: Overlays = { name: true, time: false, stats: true };
+export const DEFAULT_OVERLAYS: Overlays = { name: true, time: false, stats: true, sources: false };
 
 // ── Пресеты ────────────────────────────────────────────────────
 

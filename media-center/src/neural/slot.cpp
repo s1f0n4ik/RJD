@@ -400,6 +400,8 @@ namespace neural {
 
         boost::json::object meta;
         meta["detections"] = std::move(dets_arr);
+        meta["source"] = m_video.id;
+        meta["source_name"] = m_video.name;
 
         const std::string msg = make_socket_message("neural", true, nullptr, nullptr, &meta);
         sender(msg);
@@ -451,6 +453,8 @@ namespace neural {
 
         boost::json::object meta;
         meta["tracks"] = std::move(tracks_arr);
+        meta["source"] = m_video.id;
+        meta["source_name"] = m_video.name;
 
         const std::string msg = make_socket_message("neural_tracks", true, nullptr, nullptr, &meta);
         sender(msg);

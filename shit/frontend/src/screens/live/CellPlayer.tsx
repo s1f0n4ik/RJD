@@ -15,7 +15,7 @@ import {
     type PlayerStats,
     type PlayerStatus,
 } from '../../components/webrtc/useWebRTCPlayer';
-import { drawDetections, type Detection, type Track } from '../../components/webrtc/detections';
+import { drawDetections, markForSource, type Detection, type Track } from '../../components/webrtc/detections';
 import type { ViewStream } from './sources';
 import { formatDeviceDate, formatDeviceTime } from '../../app/useDeviceClock';
 import { Icon } from '../../app/Icons';
@@ -30,6 +30,23 @@ const CORRECTION_TIMEOUT_MS = 5000;
 
 // Камера отказала: коррекцию просили, а пайплайна нет
 const CODE_CORRECTION_MISSING = 4003;
+
+// Слот молчит дольше — его рамки гаснут; покрывает fps_limit 1 и порог замёрзшего тайла
+const SOURCE_TTL_MS = 3000;
+
+// Рамки одного слота: сообщение слота заменяет только их
+interface FSourceFrame {
+    name: string;
+    detections: Detection[];
+    tracks: Track[];
+    at: number;
+}
+
+interface FLegendItem {
+    id: string;
+    name: string;
+    color: string;
+}
 
 interface CellPlayerProps {
     cameraId: string;
@@ -92,8 +109,9 @@ export function CellPlayer({
     const boxRef = useRef<HTMLDivElement>(null);
 
     // Рамки живут в ref: перерисовка идёт по кадрам, а не по стейту
-    const detectionsRef = useRef<Detection[]>([]);
-    const tracksRef = useRef<Track[]>([]);
+    const sourcesRef = useRef(new Map<string, FSourceFrame>());
+    const [legend, setLegend] = useState<FLegendItem[]>([]);
+    const legendKeyRef = useRef('');
 
     const [switching, setSwitching] = useState(false);
 
@@ -113,21 +131,20 @@ export function CellPlayer({
     }, []);
 
     const handleMessage = useCallback((msg: PlayerMessage) => {
-        if (msg.type === 'neural') {
-            const meta = msg.meta as { detections?: Detection[] } | undefined;
-            if (Array.isArray(meta?.detections)) {
-                detectionsRef.current = meta.detections;
-                if (meta.detections.length) tracksRef.current = [];
-            }
-            return;
-        }
+        if (msg.type === 'neural' || msg.type === 'neural_tracks') {
+            const meta = msg.meta as {
+                detections?: Detection[];
+                tracks?: Track[];
+                source?: string;
+                source_name?: string;
+            } | undefined;
+            const detections = msg.type === 'neural' ? meta?.detections : [];
+            const tracks = msg.type === 'neural_tracks' ? meta?.tracks : [];
+            if (!Array.isArray(detections) || !Array.isArray(tracks)) return;
 
-        if (msg.type === 'neural_tracks') {
-            const meta = msg.meta as { tracks?: Track[] } | undefined;
-            if (Array.isArray(meta?.tracks)) {
-                tracksRef.current = meta.tracks;
-                if (meta.tracks.length) detectionsRef.current = [];
-            }
+            // Без source — прошивка до меток источника: все рамки одного слота
+            const id = meta?.source ?? '';
+            sourcesRef.current.set(id, { name: meta?.source_name || id, detections, tracks, at: performance.now() });
             return;
         }
 
@@ -198,6 +215,8 @@ export function CellPlayer({
         if (!detectionsOn) {
             const canvas = canvasRef.current;
             canvas?.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
+            legendKeyRef.current = '';
+            setLegend([]);
             return;
         }
 
@@ -218,7 +237,31 @@ export function CellPlayer({
                 canvas.height = height;
             }
 
-            drawDetections(canvas, videoRef.current, detectionsRef.current, tracksRef.current);
+            const now = performance.now();
+            const live: [string, FSourceFrame][] = [];
+            sourcesRef.current.forEach((frame, id) => {
+                if (now - frame.at < SOURCE_TTL_MS) live.push([id, frame]);
+                else sourcesRef.current.delete(id);
+            });
+
+            // Метки нужны, только когда слотов на камере больше одного
+            const marked = live.length > 1;
+            const detections = live.flatMap(([id, frame]) => (marked
+                ? frame.detections.map(d => ({ ...d, mark: markForSource(id) }))
+                : frame.detections));
+            const tracks = live.flatMap(([id, frame]) => (marked
+                ? frame.tracks.map(t => ({ ...t, mark: markForSource(id) }))
+                : frame.tracks));
+
+            drawDetections(canvas, videoRef.current, detections, tracks);
+
+            const legendKey = marked ? JSON.stringify(live.map(([id, frame]) => [id, frame.name])) : '';
+            if (legendKey !== legendKeyRef.current) {
+                legendKeyRef.current = legendKey;
+                setLegend(marked
+                    ? live.map(([id, frame]) => ({ id, name: frame.name, color: markForSource(id) }))
+                    : []);
+            }
         };
         frame = requestAnimationFrame(draw);
         return () => cancelAnimationFrame(frame);
@@ -298,6 +341,17 @@ export function CellPlayer({
             )}
 
             {!live && <CellState status={status} error={errorInfo} attempt={attempt} />}
+
+            {detectionsOn && overlays.sources && legend.length > 0 && (
+                <div className={`cellv-legend${overlays.time ? ' is-raised' : ''}`}>
+                    {legend.map(item => (
+                        <span key={item.id}>
+                            <i style={{ background: item.color }} />
+                            {item.name}
+                        </span>
+                    ))}
+                </div>
+            )}
 
             {overlays.time && (
                 <span className="cellv-time seps">
