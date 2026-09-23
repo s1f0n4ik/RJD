@@ -41,7 +41,7 @@ export const NAV: NavItem[] = [
     { to: '/devices',  label: 'Устройства',          icon: 'dev',   desc: 'Одноплатники: состояние и маршрутизация', admin: true },
 
     {
-        to: '/neural', label: 'Техническое зрение', icon: 'eye', group: 'Модули', desc: 'Конфигурации, потоки, журнал обнаружений',
+        to: '/neural', label: 'Техническое зрение', icon: 'eye', group: 'Модули', desc: 'Конфигурации, видеопотоки, инференс, журнал',
         sub: NEURAL_SECTIONS.map((s, i) => ({
             to: `/neural/${s.id}`, label: s.label, n: String(i + 1).padStart(2, '0'), admin: !NEURAL_VIEWER_SECTIONS.has(s.id),
         })),

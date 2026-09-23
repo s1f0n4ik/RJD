@@ -71,10 +71,10 @@ export function HomeScreen() {
         : 'модуль не отвечает';
     const neuralSummary = neural
         ? neural.slots === 0
-            ? 'потоков нет'
+            ? 'слотов нет'
             : (
                 <span className="seps">
-                    <span>{neural.running} {plural(neural.running, 'поток', 'потока', 'потоков')} в работе</span>
+                    <span>{neural.running} {plural(neural.running, 'слот', 'слота', 'слотов')} в работе</span>
                     {neural.failed > 0 && <span>{neural.failed} с ошибкой</span>}
                 </span>
             )

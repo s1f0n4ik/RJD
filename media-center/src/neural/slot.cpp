@@ -5,6 +5,7 @@
 
 #include "neural/tracker/iou-tracker.h"
 #include "neural/constants.h"
+#include "neural/postprocess.h"
 #include "neural/utility.h"
 
 #include <opencv2/imgcodecs.hpp>
@@ -70,38 +71,31 @@ namespace neural {
     USlot::USlot(
         const FConfigInfo& config,
         const FNeuralCoreConfig& core_config,
+        const FVideoStream& video,
         birdview::UEGLContextManager* context,
         FFrameStorage<IFrame>* storage,
-        FCameraMessageSender sender,
+        FCameraSenderProvider sender_provider,
         gateway::FGatewayFrameSender gateway_sender,
         gateway::FGatewayTimeProvider time_provider,
         journal::FSlotJournal journal,
         ULogger::ELoggerLevel level)
-        : UImageHandler(context, storage, level, "ImageHandler<Slot:" + config.id + ">")
-        , m_config(config)
-        , m_cameras(layout_to_matrix(core_config.camera_layout))
-        , m_layout(core_config.camera_layout)
+        : m_config(config)
+        , m_video(video)
         , m_depth(std::max(1, core_config.depth))
         , m_fps_limit(std::max(1, core_config.fps))
-        , m_sender(std::move(sender))
+        , m_context(context)
+        , m_storage(storage)
+        , m_level(level)
+        , m_logger("Slot:" + config.id + "/" + video.id, level)
+        , m_sender_provider(std::move(sender_provider))
         , m_gateway_sender(std::move(gateway_sender))
         , m_time_provider(std::move(time_provider))
         , m_journal(std::move(journal))
     {
-        // Камера-источник для тела сообщения шлюзу
-        if (!m_cameras.empty() && !m_cameras[0].empty()) {
-            m_camera_id = m_cameras[0][0];
-        }
-
-        // Загрузка шрифта
         m_text_renderer = std::make_unique<UTextRenderer>(constants::GATEWAY_DETECTION_FONT_HEIGHT, level);
 
-        if (auto tr_cfg = static_cast<FIoUTrackerConfig*>(config.tracker_config.get()); tr_cfg) {
-            m_tracker = std::make_shared<UIoUTracker>(UIoUTracker(*tr_cfg));
-        }
-        else {
-            m_tracker = nullptr;
-        }
+        for (const auto& cam : stream_cameras(m_video))
+            m_trackers[cam] = make_tracker();
 
         // Стриминг включается только если у дескриптора задан блок streaming
         if (core_config.streaming) {
@@ -115,6 +109,28 @@ namespace neural {
 
     USlot::~USlot() {
         stop();
+    }
+
+    std::shared_ptr<IDetectionTracker> USlot::make_tracker() const {
+        if (auto tr_cfg = static_cast<FIoUTrackerConfig*>(m_config.tracker_config.get()); tr_cfg)
+            return std::make_shared<UIoUTracker>(*tr_cfg);
+        return nullptr;
+    }
+
+    FCameraMessageSender& USlot::sender_for(const std::string& camera) {
+        std::lock_guard<std::mutex> lk(m_senders_mutex);
+        auto it = m_senders.find(camera);
+        if (it == m_senders.end())
+            it = m_senders.emplace(camera, m_sender_provider ? m_sender_provider(camera) : FCameraMessageSender{}).first;
+        return it->second;
+    }
+
+    bool USlot::is_running() const {
+        return m_composer && m_composer->is_running();
+    }
+
+    FCanvasInfo USlot::tiles() const {
+        return m_composer ? m_composer->tiles() : FCanvasInfo{};
     }
 
     bool USlot::ensure_classifier() {
@@ -211,14 +227,22 @@ namespace neural {
             if (!ensure_classifier()) return false;
         }
 
-        if (m_cameras.empty() || m_cameras[0].empty()) {
-            set_error(signaling::CODE_NEURAL_CAMERA, "no cameras in layout");
+        const auto cameras = stream_cameras(m_video);
+        if (cameras.empty()) {
+            set_error(signaling::CODE_NEURAL_CAMERA, "no cameras in stream " + m_video.id);
             return false;
         }
-
-        if (!is_single_camera(m_cameras)) {
-            m_logger.warn("start(): mosaic NOT YET implemented, using first camera");
+        std::string missing;
+        int present = 0;
+        for (const auto& cam : cameras) {
+            if (m_storage && m_storage->is_exists(cam)) ++present;
+            else missing += (missing.empty() ? "" : ", ") + cam;
         }
+        if (present == 0) {
+            set_error(signaling::CODE_NEURAL_CAMERA, "no cameras in storage: " + missing);
+            return false;
+        }
+        if (!missing.empty()) m_logger.warn("start(): cameras not in storage yet: " + missing);
 
         // Фоновый воркер кадров поднимаем до обработки: он снимает кодирование
         // JPEG и запись файлов с потока инференса.
@@ -236,9 +260,27 @@ namespace neural {
                 m_infer_threads.emplace_back(&USlot::infer_worker, this);
         }
 
-        const std::string& camera_id = m_cameras[0][0];
-        if (!start_handler_thread(camera_id, m_fps_limit, nullptr)) {
-            set_error(signaling::CODE_NEURAL_CAMERA, "cannot start handler thread for camera " + camera_id);
+        // Полотно ровно под вход модели: леттербокс в классификаторе вырождается в копию
+        int width = 640;
+        int height = 640;
+        {
+            std::lock_guard<std::mutex> lk(m_resource_mutex);
+            const auto& info = m_classifier->info();
+            if (info.input_width > 0 && info.input_height > 0) {
+                width = info.input_width;
+                height = info.input_height;
+            }
+        }
+        m_canvas_width.store(width);
+        m_canvas_height.store(height);
+
+        m_composer = std::make_unique<UCanvasComposer>(
+            m_context, m_storage, width, height, m_video,
+            [this](cv::Mat rgba, FCanvasInfo tiles) { on_canvas(std::move(rgba), std::move(tiles)); },
+            m_level, "Canvas<" + m_config.id + "/" + m_video.id + ">");
+        if (!m_composer->start(m_fps_limit)) {
+            m_composer.reset();
+            set_error(signaling::CODE_NEURAL_CANVAS, "canvas composer didn't start");
             return false;
         }
 
@@ -250,16 +292,21 @@ namespace neural {
         }
 
         m_logger.info("start(): slot=" + m_config.id +
-            " camera=" + camera_id +
+            " stream=" + m_video.id +
+            " canvas=" + std::to_string(width) + "x" + std::to_string(height) +
+            " tiles=" + std::to_string(m_video.tiles.size()) +
             " fps<=" + std::to_string(m_fps_limit) +
             " depth=" + std::to_string(m_depth) + "/" + std::to_string(depth_actual()) +
             " layout=" + model_layout() +
-            " stream=" + m_stream_id);
+            " output=" + m_stream_id);
         return true;
     }
 
     void USlot::stop() {
-        if (is_running()) stop_handler_thread();
+        if (m_composer) {
+            m_composer->stop();
+            m_composer.reset();
+        }
 
         if (m_infer_running.exchange(false)) {
             m_infer_cv.notify_all();
@@ -291,6 +338,10 @@ namespace neural {
             m_stream_height.store(0);
         }
         m_classifier.reset();
+
+        std::lock_guard<std::mutex> dl(m_deliver_mutex);
+        for (auto& [cam, tracker] : m_trackers) if (tracker) tracker->reset();
+        m_pending.clear();
     }
 
     inline std::string serialize_detection(const FDetection& d) {
@@ -308,8 +359,9 @@ namespace neural {
         return ss.str();
     }
 
-    void USlot::send_detections(const std::vector<FDetection>& detections, const cv::Size& resolution) {
-        if (!m_sender) return;
+    void USlot::send_detections(const std::string& camera, const std::vector<FDetection>& detections, const cv::Size& resolution) {
+        auto& sender = sender_for(camera);
+        if (!sender) return;
 
         const float img_w = static_cast<float>(resolution.width);
         const float img_h = static_cast<float>(resolution.height);
@@ -350,14 +402,14 @@ namespace neural {
         meta["detections"] = std::move(dets_arr);
 
         const std::string msg = make_socket_message("neural", true, nullptr, nullptr, &meta);
-        m_sender(msg);
+        sender(msg);
     }
 
-    // Отправка всех треков по WebSocket
-    void USlot::send_tracks(const std::vector<FTrack>& tracks,
+    void USlot::send_tracks(const std::string& camera, const std::vector<FTrack>& tracks,
         const cv::Size& resolution)
     {
-        if (!m_sender) return;
+        auto& sender = sender_for(camera);
+        if (!sender) return;
 
         const float img_w = static_cast<float>(resolution.width);
         const float img_h = static_cast<float>(resolution.height);
@@ -401,7 +453,7 @@ namespace neural {
         meta["tracks"] = std::move(tracks_arr);
 
         const std::string msg = make_socket_message("neural_tracks", true, nullptr, nullptr, &meta);
-        m_sender(msg);
+        sender(msg);
     }
 
     // Логирование событий, прошедших маску трекера filter_events
@@ -522,15 +574,14 @@ namespace neural {
         m_text_renderer->put_text(frame_bgr, gps_line, cv::Point(pad * 2, line_y), text_color, constants::GATEWAY_OVERLAY_FONT_HEIGHT);
     }
 
-    // Сбор задачи на потоке инференса: только метаданные и refcount-копия кадра.
-    // Никакого кодирования здесь нет — оно целиком уехало в фоновый воркер.
-    USlot::FFrameTask USlot::make_frame_task(const cv::Mat& rgb_pixels,
-        const std::vector<FTrackEventRecord>& events)
+    // Сбор задачи на потоке доставки: только метаданные, кадр камеры придёт снимком
+    USlot::FFrameTask USlot::make_frame_task(const std::string& camera, const cv::Size& resolution,
+        const IDetectionTracker& tracker, const std::vector<FTrackEventRecord>& events)
     {
         FFrameTask task;
-        task.rgb = rgb_pixels;   // refcount, пиксели не копируются
-        task.width = rgb_pixels.cols;
-        task.height = rgb_pixels.rows;
+        task.camera = camera;
+        task.width = resolution.width;
+        task.height = resolution.height;
         task.seq = ++m_frame_seq;
 
         // Синхронизированное время шлюза, иначе локальные часы как запасной вариант.
@@ -546,8 +597,8 @@ namespace neural {
             }
         }
 
-        if (m_tracker) {
-            for (const auto& t : m_tracker->tracks()) {
+        {
+            for (const auto& t : tracker.tracks()) {
                 const int x1 = static_cast<int>(std::lround(t.detection.x1_coord));
                 const int y1 = static_cast<int>(std::lround(t.detection.y1_coord));
                 const int x2 = static_cast<int>(std::lround(t.detection.x2_coord));
@@ -663,7 +714,7 @@ namespace neural {
             frame.width = task.width;
             frame.height = task.height;
             frame.format = "jpeg";
-            frame.camera_id = m_camera_id;
+            frame.camera_id = task.camera;
             frame.config_id = config_id();
             frame.image.assign(reinterpret_cast<const char*>(buf.data()), buf.size());
             frame.dets = task.gw_dets;
@@ -678,7 +729,7 @@ namespace neural {
 
         journal::FEntry entry;
         entry.ts = task.time_gps.unix_ms;
-        entry.camera_id = m_camera_id;
+        entry.camera_id = task.camera;
         entry.config_id = config_id();
         entry.gps_valid = task.time_gps.valid;
         entry.lat = task.time_gps.lat;
@@ -695,17 +746,17 @@ namespace neural {
         m_journal.sink(std::move(entry));
     }
 
-    void USlot::internal_handle_image(cv::Mat rgb_pixels) {
-        if (rgb_pixels.empty()) return;
+    void USlot::on_canvas(cv::Mat rgba, FCanvasInfo tiles) {
+        if (rgba.empty()) return;
 
-        // Поток захвата не ждёт NPU: кадр либо встаёт в очередь, либо теряется
+        // Сборщик не ждёт NPU: полотно либо встаёт в очередь, либо теряется
         {
             std::lock_guard<std::mutex> lk(m_infer_mutex);
             if (static_cast<int>(m_infer_queue.size()) >= m_depth) {
                 m_dropped.fetch_add(1);
                 return;
             }
-            m_infer_queue.push_back({ ++m_infer_seq, std::move(rgb_pixels), std::chrono::steady_clock::now() });
+            m_infer_queue.push_back({ ++m_infer_seq, std::move(rgba), std::move(tiles), std::chrono::steady_clock::now() });
         }
         m_infer_cv.notify_one();
     }
@@ -715,6 +766,19 @@ namespace neural {
         void ema(std::atomic<float>& value, float sample) {
             const float old = value.load();
             value.store(old == 0.f ? sample : old * 0.9f + sample * 0.1f);
+        }
+
+        bool has_area(const FDetection& d) {
+            return d.x2_coord > d.x1_coord && d.y2_coord > d.y1_coord;
+        }
+
+        // Рамка, вписанная в область тайла; false — рамка целиком за окном
+        bool clip_to(const cv::Rect& r, FDetection& d) {
+            d.x1_coord = std::clamp(d.x1_coord, r.x, r.x + r.width);
+            d.x2_coord = std::clamp(d.x2_coord, r.x, r.x + r.width);
+            d.y1_coord = std::clamp(d.y1_coord, r.y, r.y + r.height);
+            d.y2_coord = std::clamp(d.y2_coord, r.y, r.y + r.height);
+            return has_area(d);
         }
     }
 
@@ -734,6 +798,7 @@ namespace neural {
 
             FInferred inferred;
             inferred.rgb = job.rgb;
+            inferred.tiles = std::move(job.tiles);
             inferred.result = m_classifier->classify(job.rgb, inferred.mask);
 
             ema(m_infer_ms, std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - started).count());
@@ -767,39 +832,76 @@ namespace neural {
     void USlot::process_inferred(cv::Mat rgb_pixels, FInferred& inferred) {
         auto& result = inferred.result;
         auto& mask = inferred.mask;
+        static const std::vector<FTilePlacement> no_tiles;
+        const auto& tiles = inferred.tiles ? *inferred.tiles : no_tiles;
 
-        if (m_tracker) {
-            auto update_result = m_tracker->update(result.detections, rgb_pixels.cols, rgb_pixels.rows);
-            if (update_result.has_events()) {
-                log_events(update_result.events);
+        // Рамка полотна принадлежит тайлу по центру и переводится в кадр своей камеры
+        std::map<std::string, std::vector<FDetection>> by_camera;
+        std::map<std::string, cv::Size> resolution;
+        std::map<std::string, int> tile_count;
+        for (const auto& t : tiles) {
+            if (t.state != ETileState::OK) continue;
+            ++tile_count[t.camera];
+            resolution[t.camera] = cv::Size(t.cam_w, t.cam_h);
+            by_camera[t.camera];
+        }
+        for (const auto& d : result.detections) {
+            const int i = tile_of(tiles, d);
+            if (i < 0) continue;
+            FDetection cam = to_camera(tiles[i], d);
+            if (has_area(cam)) by_camera[tiles[i].camera].push_back(std::move(cam));
+        }
 
-                // Маска уже отсеяла лишние события. Всё, что прошло, уходит одной
-                // задачей в фоновый воркер: он кодирует чистый кадр для журнала и
-                // аннотированный для шлюза. Поток инференса тут не кодирует ничего.
-                if (m_journal.enabled() || m_gateway_sender) {
-                    enqueue_frame(make_frame_task(rgb_pixels, update_result.events));
+        int total_tracks = 0;
+        for (auto& [camera, dets] : by_camera) {
+            // Одна камера в нескольких тайлах даёт дубли в зоне перекрытия
+            if (tile_count[camera] > 1) dets = apply_nms(dets, m_config.thresholds.nms);
+            const cv::Size& size = resolution[camera];
+
+            auto& tracker = m_trackers[camera];
+            if (tracker) {
+                auto update_result = tracker->update(dets, size.width, size.height);
+                if (update_result.has_events()) {
+                    log_events(update_result.events);
+
+                    if ((m_journal.enabled() || m_gateway_sender) && m_composer) {
+                        auto task = make_frame_task(camera, size, *tracker, update_result.events);
+                        m_composer->request_snapshot(camera, [this, task = std::move(task)](cv::Mat shot) mutable {
+                            if (shot.empty()) {
+                                journal_row(task, std::string());
+                                return;
+                            }
+                            task.rgb = std::move(shot);
+                            task.width = task.rgb.cols;
+                            task.height = task.rgb.rows;
+                            enqueue_frame(std::move(task));
+                        });
+                    }
                 }
+
+                send_tracks(camera, tracker->tracks(), size);
+                total_tracks += static_cast<int>(tracker->tracks().size());
             }
-
-            send_tracks(m_tracker->tracks(), cv::Size(rgb_pixels.cols, rgb_pixels.rows));
-            m_track_count.store(static_cast<int>(m_tracker->tracks().size()));
+            else {
+                send_detections(camera, dets, size);
+            }
         }
-        else {
-            send_detections(result.detections, cv::Size(rgb_pixels.cols, rgb_pixels.rows));
-
-            // Нельзя отправлять каждый кадр, будет спам и просадка производительности
-            //if (m_gateway_sender) {
-            //    send_to_gateway(gateway_dets_from_detections(result.detections), rgb_pixels);
-            //}
-        }
+        m_track_count.store(total_tracks);
 
         if (m_streaming_enabled) {
             std::vector<FDetection> draw_dets;
 
-            if (m_tracker) {
-                for (const auto& t : m_tracker->tracks()) {
-                    if (t.state == ETrackState::CONFIRMED || t.state == ETrackState::LOST) {
-                        draw_dets.push_back(t.detection);
+            const bool with_tracker = !m_trackers.empty() && m_trackers.begin()->second;
+            if (with_tracker) {
+                // Треки живут в кадре камеры и рисуются в каждом её тайле
+                for (const auto& t : tiles) {
+                    if (t.state != ETileState::OK) continue;
+                    auto it = m_trackers.find(t.camera);
+                    if (it == m_trackers.end() || !it->second) continue;
+                    for (const auto& tr : it->second->tracks()) {
+                        if (tr.state != ETrackState::CONFIRMED && tr.state != ETrackState::LOST) continue;
+                        FDetection d = to_canvas(t, tr.detection);
+                        if (clip_to(t.dst, d)) draw_dets.push_back(std::move(d));
                     }
                 }
             }

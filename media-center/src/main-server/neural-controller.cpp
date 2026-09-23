@@ -3,7 +3,7 @@
 #include "main-server/helpers.h"
 
 #include "neural/constants.h"
-#include "neural/camera-layout-json.h"
+#include "neural/video-stream.h"
 #include "neural/npu-pool.h"
 #include "neural/tracker/tracking-types.h"
 
@@ -24,6 +24,32 @@ load_config_info(const std::string& config_id) {
     if (!configurator.read(varan::paths().neural.config))
         return std::nullopt;
     return configurator.load_config(config_id);
+}
+
+// Первая камера из старого тела дескриптора: camera_layout или camera_matrix
+static std::string legacy_camera(const boost::json::object& eo) {
+    if (auto* cl = eo.if_contains("camera_layout"); cl && cl->is_object()) {
+        const auto& o = cl->as_object();
+        if (auto* s = o.if_contains("single"); s && s->is_string() && !s->as_string().empty())
+            return s->as_string().c_str();
+        for (const char* key : { "tiles", "regions" }) {
+            auto* arr = o.if_contains(key);
+            if (!arr || !arr->is_array()) continue;
+            for (const auto& t : arr->as_array()) {
+                if (!t.is_object()) continue;
+                if (auto* c = t.as_object().if_contains("camera"); c && c->is_string() && !c->as_string().empty())
+                    return c->as_string().c_str();
+            }
+        }
+    }
+    if (auto* cm = eo.if_contains("camera_matrix"); cm && cm->is_array()) {
+        for (const auto& row : cm->as_array()) {
+            if (!row.is_array()) continue;
+            for (const auto& c : row.as_array())
+                if (c.is_string() && !c.as_string().empty()) return c.as_string().c_str();
+        }
+    }
+    return {};
 }
 
 // Хелпер: достать query-параметр из URL (?key=value)
@@ -47,29 +73,24 @@ static std::string extract_query_param(const std::string_view target, const std:
     return {};
 }
 
-// Сериализация матрицы камер
-static boost::json::array serialize_matrix(const varan::neural::FCameraMatrix& m) {
-    boost::json::array result;
-    for (const auto& row : m) {
-        boost::json::array row_arr;
-        for (const auto& c : row) row_arr.emplace_back(c);
-        result.push_back(std::move(row_arr));
-    }
-    return result;
+static boost::json::array rect_json(const cv::Rect& r) {
+    boost::json::array a;
+    a.emplace_back(r.x);
+    a.emplace_back(r.y);
+    a.emplace_back(r.width);
+    a.emplace_back(r.height);
+    return a;
 }
 
-// Сериализация списка дескрипторов потоков.
-// camera_layout — источник правды (нормализованные тайлы); camera_matrix
-// отдаём производным (первая камера) для обратной совместимости старого фронта.
+// Сериализация списка дескрипторов слотов; config_id — производный от видеопотока
 static boost::json::array serialize_descs(
     const std::vector<varan::neural::FNeuralCoreConfig>& descs)
 {
     boost::json::array arr;
     for (const auto& d : descs) {
         boost::json::object item;
+        item["stream_id"] = d.stream_id;
         item["config_id"] = d.config_id;
-        item["camera_layout"] = varan::neural::serialize_layout(d.camera_layout);
-        item["camera_matrix"] = serialize_matrix(varan::neural::layout_to_matrix(d.camera_layout));
         item["depth"] = d.depth;
         item["fps"] = d.fps;
         if (d.streaming) {
@@ -192,6 +213,95 @@ UNeuralController::delete_configuration(const http::request<http::string_body>& 
     }
 }
 
+// ─── GET /neural/streams ────────────────────────────────────
+// Без ?id → список видеопотоков; с ?id=xxx → один
+http::response<http::string_body>
+UNeuralController::get_streams(const http::request<http::string_body>& req) {
+    const std::string tag = "GET /neural/streams";
+    log_request(m_logger, req, tag);
+
+    try {
+        const std::string id = extract_query_param(req.target(), "id");
+        boost::json::object body;
+        if (!id.empty()) {
+            auto s = m_loader->get_stream(id);
+            if (!s)
+                return json_error(m_logger, req, http::status::not_found, "stream '" + id + "' not found", tag);
+            body["data"] = varan::neural::serialize_stream(*s);
+            return json_ok(m_logger, req, body, tag);
+        }
+        boost::json::array arr;
+        for (const auto& s : m_loader->list_streams()) arr.push_back(varan::neural::serialize_stream(s));
+        boost::json::object data;
+        data["streams"] = std::move(arr);
+        body["data"] = std::move(data);
+        return json_ok(m_logger, req, body, tag);
+    }
+    catch (const std::exception& e) {
+        return json_error(m_logger, req, http::status::internal_server_error, e.what(), tag);
+    }
+}
+
+// ─── POST /neural/streams ───────────────────────────────────
+// Тело — объект видеопотока с id; без width/height размер берётся у модели конфигурации
+http::response<http::string_body>
+UNeuralController::post_stream(const http::request<http::string_body>& req) {
+    const std::string tag = "POST /neural/streams";
+    log_request(m_logger, req, tag);
+
+    try {
+        auto v = boost::json::parse(req.body());
+        if (!v.is_object())
+            return json_error(m_logger, req, http::status::bad_request, "body must be object", tag);
+        auto stream = varan::neural::parse_stream(v);
+        if (stream.id.empty())
+            return json_error(m_logger, req, http::status::bad_request, "missing id", tag);
+
+        const auto& o = v.as_object();
+        if (!o.contains("width") || !o.contains("height")) {
+            int w = 0, h = 0;
+            if (m_loader->probe_model_size(stream.config_id, w, h)) {
+                stream.width = w;
+                stream.height = h;
+            }
+        }
+
+        std::string err;
+        if (!m_loader->save_stream(stream, &err))
+            return json_error(m_logger, req, http::status::bad_request, err, tag);
+
+        boost::json::object body;
+        body["data"] = varan::neural::serialize_stream(stream);
+        return json_ok(m_logger, req, body, tag);
+    }
+    catch (const std::exception& e) {
+        return json_error(m_logger, req, http::status::bad_request, e.what(), tag);
+    }
+}
+
+// ─── DELETE /neural/streams?id= ─────────────────────────────
+http::response<http::string_body>
+UNeuralController::delete_stream(const http::request<http::string_body>& req) {
+    const std::string tag = "DELETE /neural/streams";
+    log_request(m_logger, req, tag);
+
+    const std::string id = extract_query_param(req.target(), "id");
+    if (id.empty())
+        return json_error(m_logger, req, http::status::bad_request, "id query param required", tag);
+
+    using R = varan::neural::UNeuralLoader::EDeleteResult;
+    switch (m_loader->delete_stream(id)) {
+    case R::OK:
+        return json_ok(m_logger, req, boost::json::object{}, tag);
+    case R::IN_USE:
+        return json_error(m_logger, req, http::status::conflict, "stream is used by a slot", tag);
+    case R::NOT_FOUND:
+        return json_error(m_logger, req, http::status::not_found, "stream '" + id + "' not found", tag);
+    default:
+        return json_error(m_logger, req, http::status::internal_server_error, "delete failed", tag);
+    }
+}
+
 // ─── GET /neural/state ──────────────────────────────────────
 http::response<http::string_body>
 UNeuralController::get_state(const http::request<http::string_body>& req) {
@@ -209,10 +319,12 @@ UNeuralController::get_state(const http::request<http::string_body>& req) {
 
 // ─── POST /neural/state ─────────────────────────────────────
 // [
-//     { "config_id": "railway", "camera_layout": {...}, "depth": 2 },
-//     { "config_id": "lpr",     "camera_layout": {...} }
+//     { "stream_id": "railway_camera_1", "depth": 2 },
+//     { "stream_id": "lpr_gate" }
 // ]
-// depth — кадров слота в полёте одновременно (контекстов NPU), по умолчанию 1
+// depth — кадров слота в полёте одновременно (контекстов NPU), по умолчанию 1.
+// Старое тело { config_id, camera_layout | camera_matrix } принимается: поток
+// «камера как есть» создаётся с id <config>_<camera>
 http::response<http::string_body>
 UNeuralController::post_state(const http::request<http::string_body>& req) {
     const std::string tag = "POST /neural/state";
@@ -235,39 +347,20 @@ UNeuralController::post_state(const http::request<http::string_body>& req) {
             const auto& eo = entry.as_object();
             varan::neural::FNeuralCoreConfig d;
 
-            // config_id — обязательный
-            if (!eo.contains("config_id") || !eo.at("config_id").is_string())
-                return json_error(m_logger, req, http::status::bad_request,
-                    "missing config_id", tag);
-            d.config_id = eo.at("config_id").as_string().c_str();
+            if (auto* sid = eo.if_contains("stream_id"); sid && sid->is_string())
+                d.stream_id = sid->as_string().c_str();
 
-            // Раскладка камер: предпочтительно camera_layout (ячейки/тайлы),
-            // иначе фоллбэк на старый camera_matrix (первая камера как single).
-            if (auto* cl = eo.if_contains("camera_layout"); cl && cl->is_object()) {
-                d.camera_layout = varan::neural::parse_layout(*cl);
+            if (d.stream_id.empty()) {
+                if (!eo.contains("config_id") || !eo.at("config_id").is_string())
+                    return json_error(m_logger, req, http::status::bad_request,
+                        "missing stream_id", tag);
+                const std::string config_id = eo.at("config_id").as_string().c_str();
+                const std::string camera = legacy_camera(eo);
+                if (camera.empty())
+                    return json_error(m_logger, req, http::status::bad_request,
+                        "missing stream_id (legacy body has no camera)", tag);
+                d.stream_id = m_loader->ensure_camera_stream(config_id, camera);
             }
-            else if (auto* cm = eo.if_contains("camera_matrix"); cm && cm->is_array()) {
-                std::string first;
-                for (const auto& row_v : cm->as_array()) {
-                    if (row_v.is_array() && !row_v.as_array().empty() && row_v.as_array()[0].is_string()) {
-                        first = row_v.as_array()[0].as_string().c_str();
-                        break;
-                    }
-                }
-                if (!first.empty()) {
-                    d.camera_layout.mode = varan::neural::ECameraLayoutMode::SINGLE;
-                    d.camera_layout.tiles.push_back(
-                        varan::neural::FCameraTile{ first, 0.0f, 0.0f, 1.0f, 1.0f });
-                }
-            }
-            else {
-                return json_error(m_logger, req, http::status::bad_request,
-                    "missing camera_layout", tag);
-            }
-
-            if (varan::neural::layout_cameras(d.camera_layout).empty())
-                return json_error(m_logger, req, http::status::bad_request,
-                    "'" + d.config_id + "': camera layout has no camera", tag);
 
             if (auto* c = eo.if_contains("depth"); c && c->is_int64())
                 d.depth = std::max(1, static_cast<int>(c->as_int64()));
@@ -322,10 +415,27 @@ UNeuralController::get_status(const http::request<http::string_body>& req) {
         boost::json::array result;
         for (const auto& s : m_loader->get_slots()) {
             boost::json::object item;
+            item["stream_id"] = s.stream_id;
             item["config_id"] = s.config_id;
             item["running"] = s.running;
-            item["camera_matrix"] = serialize_matrix(s.cameras);
-            item["camera_layout"] = varan::neural::serialize_layout(s.camera_layout);
+            boost::json::object canvas;
+            canvas["width"] = s.canvas_width;
+            canvas["height"] = s.canvas_height;
+            item["canvas"] = std::move(canvas);
+            boost::json::array tiles;
+            if (s.tiles) {
+                for (const auto& t : *s.tiles) {
+                    boost::json::object to;
+                    to["camera"] = t.camera;
+                    to["state"] = varan::neural::tile_state_str(t.state);
+                    to["cell"] = rect_json(t.cell);
+                    to["rect"] = rect_json(t.dst);
+                    to["camera_width"] = t.cam_w;
+                    to["camera_height"] = t.cam_h;
+                    tiles.push_back(std::move(to));
+                }
+            }
+            item["tiles"] = std::move(tiles);
             item["depth"] = s.depth;
             item["depth_actual"] = s.depth_actual;
             item["fps_limit"] = s.fps_limit;

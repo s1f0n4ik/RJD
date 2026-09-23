@@ -125,7 +125,13 @@ URestServer::URestServer(
         [neural_ctrl](const auto& r) { return neural_ctrl->post_configurations(r); });
     m_router->add_route(http::verb::delete_, "/neural/configurations",
         [neural_ctrl](const auto& r) { return neural_ctrl->delete_configuration(r); });
-    m_router->add_route(http::verb::get, "/neural/state", 
+    m_router->add_route(http::verb::get, "/neural/streams",
+        [neural_ctrl](const auto& r) { return neural_ctrl->get_streams(r); });
+    m_router->add_route(http::verb::post, "/neural/streams",
+        [neural_ctrl](const auto& r) { return neural_ctrl->post_stream(r); });
+    m_router->add_route(http::verb::delete_, "/neural/streams",
+        [neural_ctrl](const auto& r) { return neural_ctrl->delete_stream(r); });
+    m_router->add_route(http::verb::get, "/neural/state",
         [neural_ctrl](const auto& r) { return neural_ctrl->get_state(r); });
     m_router->add_route(http::verb::post, "/neural/state", 
         [neural_ctrl](const auto& r) { return neural_ctrl->post_state(r); });

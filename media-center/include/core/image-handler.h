@@ -33,7 +33,7 @@ namespace varan {
 			std::function<void(const std::string& message)> send = nullptr
 		);
 
-		bool is_running();
+		bool is_running() const;
 
 		// false — shared-контекст не создался, обработка кадров невозможна
 		bool is_context_initialized() const { return m_initialized_context; }

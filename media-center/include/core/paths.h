@@ -12,7 +12,7 @@ namespace varan {
 
 	<varan_root>/
 	    nvr/configurations.json
-	    neural/{configurations.json, state.json, loader_state.json, models/}
+	    neural/{configurations.json, streams.json, state.json, loader_state.json, models/}
 	    surround_view/
 	        calibration/{calibration_settings.json, links.json, maps/}
 	        presets/{presets.json, images/, models/}
@@ -29,6 +29,7 @@ struct FPaths {
 
 	struct FNeural {
 		std::filesystem::path config;
+		std::filesystem::path streams;
 		std::filesystem::path state;
 		std::filesystem::path loader_state;
 		std::filesystem::path models;
@@ -79,6 +80,7 @@ inline void init_paths(
 
 	const std::filesystem::path neural_root = varan_root / "neural";
 	p.neural.config       = neural_root / "configurations.json";
+	p.neural.streams      = neural_root / "streams.json";
 	p.neural.state        = neural_root / "state.json";
 	p.neural.loader_state = neural_root / "loader_state.json";
 	p.neural.models       = neural_root / "models";

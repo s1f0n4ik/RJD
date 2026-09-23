@@ -97,7 +97,7 @@ namespace varan {
 		return m_storage_slot;
 	}
 
-	bool UImageHandler::is_running() {
+	bool UImageHandler::is_running() const {
 		return m_running_thread;
 	}
 

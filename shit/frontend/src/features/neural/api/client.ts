@@ -11,6 +11,7 @@ import type {
     SystemInfo,
     TrackEventType,
     TrackerType,
+    VideoStream,
 } from './types';
 import { modulePath } from '../../../services/devices';
 
@@ -56,6 +57,15 @@ export const neuralApi = {
 
     /** DELETE /neural/configurations?id= — 409, если конфигурация занята слотом */
     deleteConfiguration: (id: string) => send<unknown>(`/neural/configurations?id=${encodeURIComponent(id)}`, 'DELETE'),
+
+    // ── Видеопотоки ──
+    listStreams: () => get<{ streams: VideoStream[] }>('/neural/streams'),
+
+    /** POST /neural/streams — создать или заменить; без width/height размер берётся у модели конфигурации */
+    saveStream: (stream: Partial<VideoStream> & { id: string }) => send<VideoStream>('/neural/streams', 'POST', stream),
+
+    /** DELETE /neural/streams?id= — 409, если поток занят слотом */
+    deleteStream: (id: string) => send<unknown>(`/neural/streams?id=${encodeURIComponent(id)}`, 'DELETE'),
 
     // ── Состояние слотов ──
     getState: () => get<ActiveDesc[]>('/neural/state'),

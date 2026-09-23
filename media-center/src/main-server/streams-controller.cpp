@@ -119,25 +119,17 @@ boost::json::array UStreamsController::collect_neural() {
 
     for (const auto& slot : m_loader->get_slots()) {
         // Слот без трансляции потоком не является
-        if (slot.stream_id.empty()) continue;
+        if (slot.output_id.empty()) continue;
 
-        // Одна камера может стоять в нескольких клетках матрицы, повторы убираем
         boost::json::array cameras;
-        std::vector<std::string> seen;
-        for (const auto& row : slot.cameras) {
-            for (const auto& camera : row) {
-                if (camera.empty()) continue;
-                if (std::find(seen.begin(), seen.end(), camera) != seen.end()) continue;
-                seen.push_back(camera);
-                cameras.emplace_back(camera);
-            }
-        }
+        for (const auto& camera : varan::neural::stream_cameras(slot.video))
+            cameras.emplace_back(camera);
 
         const auto it = names.find(slot.config_id);
 
         boost::json::object item;
-        item["id"] = slot.stream_id;
-        item["name"] = slot.stream_name;
+        item["id"] = slot.output_id;
+        item["name"] = slot.output_name;
         item["width"] = static_cast<int64_t>(slot.stream_width);
         item["height"] = static_cast<int64_t>(slot.stream_height);
         item["running"] = slot.running;

@@ -10,7 +10,8 @@ import { neuralApi } from '../../features/neural/api/client';
 import type { SlotStatus } from '../../features/neural/api/types';
 import { JournalSection } from '../../features/neural/components/journal/JournalSection';
 import { ConfigsScreen } from './ConfigsScreen';
-import { StreamsScreen } from './StreamsScreen';
+import { InferenceScreen } from './InferenceScreen';
+import { VideoStreamsScreen } from './VideoStreamsScreen';
 import { NEURAL_SECTIONS, isNeuralSection } from './sections';
 import './neural.css';
 
@@ -18,7 +19,7 @@ const STATUS_POLL_MS = 3000;
 
 /**
  * Корень раздела «Техническое зрение» на /neural/<подраздел>.
- * Статус слотов опрашивается здесь: он нужен и потокам, и точке в рельсе.
+ * Статус слотов опрашивается здесь: он нужен и «Инференсу», и точке в рельсе.
  */
 export default function NeuralScreen() {
     const { section = '' } = useParams();
@@ -84,7 +85,8 @@ function NeuralContent({ section }: { section: string }) {
     return (
         <section className="screen nv-screen">
             {section === 'configs' && <ConfigsScreen />}
-            {section === 'streams' && <StreamsScreen status={status} onRefreshStatus={() => setTick(t => t + 1)} />}
+            {section === 'streams' && <VideoStreamsScreen />}
+            {section === 'inference' && <InferenceScreen status={status} onRefreshStatus={() => setTick(t => t + 1)} />}
             {section === 'journal' && <JournalSection />}
         </section>
     );

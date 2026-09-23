@@ -54,29 +54,45 @@ export interface NeuralConfig {
     classes: Record<string, ClassDef>;
 }
 
-/** Ячейка сетки-редактора (mode='grid') */
-export interface CameraRegion {
+export type TileFit = 'letterbox' | 'stretch';
+
+/** Тайл видеопотока: камера, место в сетке, окно кадра в долях [x, y, w, h] и вписывание */
+export interface StreamTile {
+    camera: string;
     row: number;
     col: number;
     row_span: number;
     col_span: number;
-    camera: string;
+    crop: [number, number, number, number];
+    fit: TileFit;
 }
 
-/** Нормализованный тайл камеры, доли кадра [0..1] */
-export interface CameraTile {
-    camera: string;
-    rect: [number, number, number, number];
-}
-
-/** Раскладка камер слота; конвейер обрабатывает только single */
-export interface CameraLayout {
-    mode: 'single' | 'grid';
+/** Видеопоток из GET /neural/streams: полотно размером с вход модели, собранное из тайлов */
+export interface VideoStream {
+    id: string;
+    name: string;
+    /** Пусто — конфигурация удалена, поток живёт под сохранённый размер */
+    config_id: string;
+    width: number;
+    height: number;
     rows: number;
     cols: number;
-    single?: string;
-    tiles?: CameraTile[];
-    regions?: CameraRegion[];
+    /** Веса дорожек; пусто — все по единице */
+    row_fr: number[];
+    col_fr: number[];
+    tiles: StreamTile[];
+}
+
+export type TileState = 'ok' | 'no_camera' | 'stalled';
+
+/** Размещение тайла на полотне за последний тик: ячейка и область картинки в пикселях полотна */
+export interface TilePlacement {
+    camera: string;
+    state: TileState;
+    cell: [number, number, number, number];
+    rect: [number, number, number, number];
+    camera_width: number;
+    camera_height: number;
 }
 
 export interface StreamingDesc {
@@ -84,10 +100,11 @@ export interface StreamingDesc {
     name: string;
 }
 
-/** Дескриптор слота — элемент тела POST /neural/state */
+/** Дескриптор слота — элемент тела POST /neural/state; конфигурация выводится из видеопотока */
 export interface ActiveDesc {
-    config_id: string;
-    camera_layout: CameraLayout;
+    stream_id: string;
+    /** Только в ответе GET /neural/state */
+    config_id?: string;
     /** Кадров в полёте = контекстов NPU на слот, ≥ 1 */
     depth: number;
     /** Потолок кадров в секунду, ≥ 1 */
@@ -123,9 +140,12 @@ export interface ModelInfo {
 
 /** Запись из GET /neural/status */
 export interface SlotStatus {
+    stream_id: string;
     config_id: string;
     running: boolean;
-    camera_layout?: CameraLayout;
+    canvas: { width: number; height: number };
+    /** Пусто — полотно ещё не собиралось */
+    tiles: TilePlacement[];
     depth: number;
     depth_actual: number;
     fps_limit: number;

@@ -1,7 +1,7 @@
 #include "neural/loader.h"
 #include "core/paths.h"
 #include "core/time-sync.h"
-#include "neural/camera-layout-json.h"
+#include "neural/npu-pool.h"
 #include "signaling_definers.h"
 
 #include <algorithm>
@@ -27,6 +27,7 @@ namespace neural {
         : m_ip(ip_address), m_port(port)
         , m_context(context), m_storage(storage), m_level(level)
         , m_config_path(std::move(config_path))
+        , m_streams_path(varan::paths().neural.streams)
         , m_state_path(std::move(state_path))
         , m_platform(std::move(platform))
         , m_gateway(std::move(gateway))
@@ -68,35 +69,153 @@ namespace neural {
         return time_sync::now();
     }
 
-    // Хелпер для парсинга матрицы камер
-    FCameraMatrix UNeuralLoader::parse_camera_matrix(const boost::json::value& v) {
-        FCameraMatrix result;
-        if (!v.is_array()) return result;
-        for (const auto& row_v : v.as_array()) {
-            if (!row_v.is_array()) return {};
-            std::vector<std::string> row;
-            for (const auto& cell : row_v.as_array()) {
-                if (!cell.is_string()) return {};
-                row.emplace_back(cell.as_string().c_str());
+    std::string UNeuralLoader::make_output_id(const std::string& config_id, const std::string& stream_id) const {
+        return "stream_" + config_id + "_" + stream_id;
+    }
+
+    // Первая камера из старых полей дескриптора: camera_layout (single / tiles / regions) или camera_matrix
+    static std::string legacy_first_camera(const boost::json::object& eo) {
+        if (auto* cl = eo.if_contains("camera_layout"); cl && cl->is_object()) {
+            const auto& o = cl->as_object();
+            if (auto* s = o.if_contains("single"); s && s->is_string() && !s->as_string().empty())
+                return s->as_string().c_str();
+            for (const char* key : { "tiles", "regions" }) {
+                auto* arr = o.if_contains(key);
+                if (!arr || !arr->is_array()) continue;
+                for (const auto& t : arr->as_array()) {
+                    if (!t.is_object()) continue;
+                    if (auto* c = t.as_object().if_contains("camera"); c && c->is_string() && !c->as_string().empty())
+                        return c->as_string().c_str();
+                }
             }
-            if (row.empty()) return {};
-            result.push_back(std::move(row));
         }
-        return result;
+        if (auto* cm = eo.if_contains("camera_matrix"); cm && cm->is_array()) {
+            for (const auto& row : cm->as_array()) {
+                if (!row.is_array()) continue;
+                for (const auto& c : row.as_array())
+                    if (c.is_string() && !c.as_string().empty()) return c.as_string().c_str();
+            }
+        }
+        return {};
     }
 
-    boost::json::array UNeuralLoader::serialize_camera_matrix(const FCameraMatrix& m) {
-        boost::json::array result;
-        for (const auto& row : m) {
-            boost::json::array row_arr;
-            for (const auto& c : row) row_arr.emplace_back(c);
-            result.push_back(std::move(row_arr));
+    std::map<std::string, FVideoStream> UNeuralLoader::read_streams() const {
+        std::map<std::string, FVideoStream> out;
+        try {
+            if (!std::filesystem::exists(m_streams_path)) return out;
+            std::ifstream f(m_streams_path);
+            std::stringstream ss; ss << f.rdbuf();
+            auto v = boost::json::parse(ss.str());
+            if (!v.is_object()) return out;
+            for (const auto& [id, val] : v.as_object())
+                out[std::string(id)] = parse_stream(val, std::string(id));
         }
-        return result;
+        catch (const std::exception& e) {
+            m_logger.error("read_streams(): " + std::string(e.what()));
+        }
+        return out;
     }
 
-    std::string UNeuralLoader::make_stream_id(const std::string& config_id, const std::string& camera_id) const {
-        return "stream_" + config_id + "_" + camera_id;
+    bool UNeuralLoader::write_streams(const std::map<std::string, FVideoStream>& streams) {
+        try {
+            boost::json::object obj;
+            for (const auto& [id, s] : streams) obj[id] = serialize_stream(s);
+            std::filesystem::create_directories(m_streams_path.parent_path());
+            std::ostringstream oss;
+            pretty_print(oss, obj);
+            std::ofstream f(m_streams_path);
+            f << oss.str();
+            return true;
+        }
+        catch (const std::exception& e) {
+            m_logger.error("write_streams(): " + std::string(e.what()));
+            return false;
+        }
+    }
+
+    std::string UNeuralLoader::ensure_camera_stream(const std::string& config_id, const std::string& camera) {
+        const std::string id = config_id + "_" + camera;
+        std::lock_guard<std::mutex> lk(m_streams_mutex);
+        auto streams = read_streams();
+        if (streams.count(id)) return id;
+        int width = 640, height = 640;
+        probe_model_size(config_id, width, height);
+        streams[id] = stream_from_camera(id, config_id, camera, width, height);
+        write_streams(streams);
+        m_logger.info("ensure_camera_stream(): created stream '" + id + "' for " + config_id + " on " + camera);
+        return id;
+    }
+
+    std::vector<FVideoStream> UNeuralLoader::list_streams() const {
+        std::lock_guard<std::mutex> lk(m_streams_mutex);
+        std::vector<FVideoStream> out;
+        for (auto& [id, s] : read_streams()) out.push_back(std::move(s));
+        return out;
+    }
+
+    std::optional<FVideoStream> UNeuralLoader::get_stream(const std::string& id) const {
+        std::lock_guard<std::mutex> lk(m_streams_mutex);
+        auto streams = read_streams();
+        auto it = streams.find(id);
+        if (it == streams.end()) return std::nullopt;
+        return it->second;
+    }
+
+    bool UNeuralLoader::save_stream(const FVideoStream& stream, std::string* err) {
+        if (!is_valid_stream(stream, err)) return false;
+        {
+            std::lock_guard<std::mutex> lk(m_streams_mutex);
+            auto streams = read_streams();
+            streams[stream.id] = stream;
+            if (!write_streams(streams)) {
+                if (err) *err = "cannot write " + m_streams_path.string();
+                return false;
+            }
+        }
+        // Слот на этом потоке пересобирается с новой раскладкой
+        bool used = false;
+        {
+            std::lock_guard<std::mutex> lk(m_loader_mutex);
+            for (auto& d : m_active_descs)
+                if (d.stream_id == stream.id) { d.config_id = stream.config_id; used = true; }
+        }
+        if (used && m_supervisor_running.load()) restart();
+        m_logger.info("save_stream(): '" + stream.id + "' saved" + (used ? ", slot restart requested" : ""));
+        return true;
+    }
+
+    UNeuralLoader::EDeleteResult UNeuralLoader::delete_stream(const std::string& id) {
+        {
+            std::lock_guard<std::mutex> lk(m_loader_mutex);
+            for (const auto& d : m_active_descs)
+                if (d.stream_id == id) return EDeleteResult::IN_USE;
+        }
+        std::lock_guard<std::mutex> lk(m_streams_mutex);
+        auto streams = read_streams();
+        if (!streams.erase(id)) return EDeleteResult::NOT_FOUND;
+        if (!write_streams(streams)) return EDeleteResult::FAILED;
+        m_logger.info("delete_stream(): '" + id + "' removed");
+        return EDeleteResult::OK;
+    }
+
+    bool UNeuralLoader::probe_model_size(const std::string& config_id, int& width, int& height) const {
+        UJsonNeuralConfiguration configurator;
+        if (!configurator.read(m_config_path)) return false;
+        auto cfg = configurator.load_config(config_id);
+        if (!cfg) return false;
+        try {
+            // Модель уже загруженного слота берётся из общей группы пула без нового rknn_init
+            auto handle = UNpuPool::instance().attach(cfg->model_path, 1, nullptr);
+            const auto& info = handle->info();
+            if (info.input_width <= 0 || info.input_height <= 0) return false;
+            width = info.input_width;
+            height = info.input_height;
+            return true;
+        }
+        catch (const std::exception& e) {
+            m_logger.warn("probe_model_size(): " + config_id + ": " + e.what());
+            return false;
+        }
     }
 
     // Загрузка текущего состояния с файла
@@ -109,20 +228,35 @@ namespace neural {
 
             if (!v.is_array()) return false;
 
+            const auto streams = [this] {
+                std::lock_guard<std::mutex> lk(m_streams_mutex);
+                return read_streams();
+            }();
+            bool migrated = false;
+
             std::vector<FNeuralCoreConfig> parsed;
             for (const auto& entry : v.as_array()) {
                 if (!entry.is_object()) continue;
                 const auto& eo = entry.as_object();
 
                 FNeuralCoreConfig d;
-                // Основные параметры слота
+                if (auto* c = eo.if_contains("stream_id"); c && c->is_string())
+                    d.stream_id = c->as_string().c_str();
                 if (auto* c = eo.if_contains("config_id"); c && c->is_string())
                     d.config_id = c->as_string().c_str();
-                // Раскладка камер: новый формат camera_layout, иначе фоллбэк на camera_matrix.
-                if (auto* c = eo.if_contains("camera_layout"); c && c->is_object())
-                    d.camera_layout = parse_layout(*c);
-                else if (auto* c = eo.if_contains("camera_matrix"); c)
-                    d.camera_layout = layout_from_matrix(parse_camera_matrix(*c));
+
+                // Старое состояние: конфигурация + камера → поток «камера как есть»
+                if (d.stream_id.empty() && !d.config_id.empty()) {
+                    const std::string camera = legacy_first_camera(eo);
+                    if (camera.empty()) continue;
+                    d.stream_id = ensure_camera_stream(d.config_id, camera);
+                    migrated = true;
+                }
+                else if (auto it = streams.find(d.stream_id); it != streams.end())
+                    d.config_id = it->second.config_id;
+                else
+                    m_logger.warn("load_state(): stream '" + d.stream_id + "' not found, slot will fail with 6008");
+
                 // Старое поле cores игнорируется: ядра раздаёт драйвер
                 if (auto* c = eo.if_contains("depth"); c && c->is_int64())
                     d.depth = std::max(1, (int)c->as_int64());
@@ -148,13 +282,19 @@ namespace neural {
                         if (ev.is_string()) d.event_mask.emplace_back(ev.as_string().c_str());
                 }
 
-                if (!d.config_id.empty() && !layout_cameras(d.camera_layout).empty())
+                if (!d.stream_id.empty())
                     parsed.push_back(std::move(d));
             }
 
-            std::lock_guard<std::mutex> lk(m_loader_mutex);
-            m_active_descs = std::move(parsed);
-            m_logger.info("load_state(): " + std::to_string(m_active_descs.size()) + " slot(s)");
+            {
+                std::lock_guard<std::mutex> lk(m_loader_mutex);
+                m_active_descs = parsed;
+                m_logger.info("load_state(): " + std::to_string(m_active_descs.size()) + " slot(s)");
+            }
+            if (migrated) {
+                m_logger.info("load_state(): legacy state migrated to stream_id, rewriting " + m_state_path.string());
+                write_state(parsed);
+            }
             return true;
         }
         catch (const std::exception& e) {
@@ -167,39 +307,41 @@ namespace neural {
 
     // Запись сохранения состояния в файл
     bool UNeuralLoader::write_state(const std::vector<FNeuralCoreConfig>& active) {
-        for (const auto& d : active) {
-            if (d.config_id.empty()) {
-                m_logger.error("write_state(): empty config_id");
+        const auto streams = [this] {
+            std::lock_guard<std::mutex> lk(m_streams_mutex);
+            return read_streams();
+        }();
+        std::vector<FNeuralCoreConfig> resolved = active;
+        for (auto& d : resolved) {
+            if (d.stream_id.empty()) {
+                m_logger.error("write_state(): empty stream_id");
                 return false;
             }
-            std::string err;
-            if (!is_valid_layout(d.camera_layout, &err)) {
-                m_logger.error("write_state(): " + d.config_id + ": " + err);
+            auto it = streams.find(d.stream_id);
+            if (it == streams.end()) {
+                m_logger.error("write_state(): stream '" + d.stream_id + "' not found");
+                return false;
+            }
+            d.config_id = it->second.config_id;
+            if (d.config_id.empty()) {
+                m_logger.error("write_state(): stream '" + d.stream_id + "' has no configuration");
                 return false;
             }
         }
 
-        // Одна модель на одной камере — допустимо; та же модель на том же наборе камер дважды — нет
-        for (size_t i = 0; i < active.size(); ++i) {
-            auto cams_i = layout_cameras(active[i].camera_layout);
-            std::sort(cams_i.begin(), cams_i.end());
-            for (size_t j = i + 1; j < active.size(); ++j) {
-                if (active[i].config_id != active[j].config_id) continue;
-                auto cams_j = layout_cameras(active[j].camera_layout);
-                std::sort(cams_j.begin(), cams_j.end());
-                if (cams_i == cams_j) {
-                    m_logger.error("write_state(): duplicate slot '" + active[i].config_id + "' on the same cameras");
+        // Видеопоток несёт и камеры, и конфигурацию: дважды один поток — дубль слота
+        for (size_t i = 0; i < resolved.size(); ++i)
+            for (size_t j = i + 1; j < resolved.size(); ++j)
+                if (resolved[i].stream_id == resolved[j].stream_id) {
+                    m_logger.error("write_state(): duplicate slot on stream '" + resolved[i].stream_id + "'");
                     return false;
                 }
-            }
-        }
 
         try {
             boost::json::array arr;
-            for (const auto& d : active) {
+            for (const auto& d : resolved) {
                 boost::json::object entry;
-                entry["config_id"] = d.config_id;
-                entry["camera_layout"] = serialize_layout(d.camera_layout);
+                entry["stream_id"] = d.stream_id;
                 entry["depth"] = d.depth;
                 entry["fps"] = d.fps;
                 if (d.streaming) {
@@ -231,9 +373,9 @@ namespace neural {
 
         {
             std::lock_guard<std::mutex> lk(m_loader_mutex);
-            m_active_descs = active;
+            m_active_descs = resolved;
         }
-        m_logger.info("write_state(): " + std::to_string(active.size()) + " entries");
+        m_logger.info("write_state(): " + std::to_string(resolved.size()) + " entries");
         return true;
     }
 
@@ -316,6 +458,7 @@ namespace neural {
 
     UNeuralLoader::EDeleteResult UNeuralLoader::delete_configuration(const std::string& id) {
         {
+            // Конфигурация занята, пока её видеопоток стоит в слоте
             std::lock_guard<std::mutex> lk(m_loader_mutex);
             for (const auto& d : m_active_descs)
                 if (d.config_id == id) return EDeleteResult::IN_USE;
@@ -386,6 +529,11 @@ namespace neural {
     }
 
     std::unique_ptr<USlot> UNeuralLoader::make_slot(FNeuralCoreConfig desc) {
+        auto video = get_stream(desc.stream_id);
+        if (!video) throw FNeuralError(signaling::CODE_NEURAL_NO_STREAM, "no stream: " + desc.stream_id);
+        desc.config_id = video->config_id;
+        if (desc.config_id.empty())
+            throw FNeuralError(signaling::CODE_NEURAL_NO_CONFIG, "stream has no configuration: " + desc.stream_id);
         auto cfg = m_json_configurator.load_config(desc.config_id);
         if (!cfg) throw FNeuralError(signaling::CODE_NEURAL_NO_CONFIG, "no configuration: " + desc.config_id);
 
@@ -394,23 +542,17 @@ namespace neural {
             cfg->tracker_config->event_mask = event_mask_from_types(desc.event_mask);
         }
 
-        const std::string camera_id = layout_first_camera(desc.camera_layout);
-        if (camera_id.empty()) {
-            throw FNeuralError(signaling::CODE_NEURAL_CAMERA, "no camera in layout: " + desc.config_id);
+        if (stream_cameras(*video).empty()) {
+            throw FNeuralError(signaling::CODE_NEURAL_CAMERA, "no cameras in stream: " + desc.stream_id);
         }
 
         // Стриминг: подставляем адрес сигналинг-сервера и генерируем
-        // stream_id, если они не заданы явно в дескрипторе.
+        // id вывода, если они не заданы явно в дескрипторе.
         if (desc.streaming) {
             auto& st = *desc.streaming;
             if (st.ip.empty())   st.ip = m_ip;
             if (st.port.empty()) st.port = m_port;
-            if (st.id.empty())   st.id = make_stream_id(desc.config_id, camera_id);
-        }
-
-        FCameraMessageSender sender;
-        if (m_sender_provider) {
-            sender = m_sender_provider(camera_id);
+            if (st.id.empty())   st.id = make_output_id(desc.config_id, desc.stream_id);
         }
 
         // Отправка в message-gateway идёт через общий клиент загрузчика;
@@ -428,9 +570,10 @@ namespace neural {
         return std::make_unique<USlot>(
             cfg.value(),
             desc,
+            *video,
             m_context,
             m_storage,
-            std::move(sender),
+            m_sender_provider,
             std::move(gateway_sender),
             std::move(time_provider),
             m_journal ? m_journal->slot_journal() : journal::FSlotJournal{},
@@ -494,12 +637,16 @@ namespace neural {
     }
 
     std::optional<std::string> UNeuralLoader::find_camera_config(const std::string& camera_id) const {
+        const auto streams = [this] {
+            std::lock_guard<std::mutex> lk(m_streams_mutex);
+            return read_streams();
+        }();
         std::lock_guard<std::mutex> lk(m_loader_mutex);
         for (const auto& desc : m_active_descs) {
-            for (const auto& cam : layout_cameras(desc.camera_layout)) {
-                if (cam == camera_id)
-                    return desc.config_id;
-            }
+            auto it = streams.find(desc.stream_id);
+            if (it == streams.end()) continue;
+            for (const auto& cam : stream_cameras(it->second))
+                if (cam == camera_id) return desc.config_id;
         }
         return std::nullopt;
     }
@@ -518,9 +665,8 @@ namespace neural {
             if (!s) {
                 // Слот не создан: строка из дескриптора и причина из m_failed
                 const auto& d = m_active_descs[i];
+                status.stream_id = d.stream_id;
                 status.config_id = d.config_id;
-                status.cameras = layout_to_matrix(d.camera_layout);
-                status.camera_layout = d.camera_layout;
                 status.depth = d.depth;
                 status.fps_limit = d.fps;
                 if (auto it = m_failed.find(i); it != m_failed.end()) {
@@ -530,11 +676,14 @@ namespace neural {
                 result.push_back(std::move(status));
                 continue;
             }
+            status.stream_id = s->video_id();
             status.config_id = s->config_id();
-            status.cameras = s->cameras();
-            status.camera_layout = s->layout();
-            status.stream_id = s->stream_id();
-            status.stream_name = s->stream_name();
+            status.video = s->video();
+            status.tiles = s->tiles();
+            status.canvas_width = s->canvas_width();
+            status.canvas_height = s->canvas_height();
+            status.output_id = s->stream_id();
+            status.output_name = s->stream_name();
             status.stream_width = s->stream_width();
             status.stream_height = s->stream_height();
             status.running = s->is_running();

@@ -9,7 +9,6 @@
 #include <opencv2/freetype.hpp>
 
 #include "tracker/tracking-types.h"
-#include "neural/matrix.h"
 #include "logger.h"
 
 namespace varan {
@@ -66,16 +65,11 @@ namespace neural {
 		std::vector<FSuperclass> superclasses;   // группы для отрисовки
 	};
 
-	// Вход слота: как взаимодействовать с камерой — кроп, области, группировка.
-	// Пока пусто; camera_layout переедет сюда вместе с первым из этих полей
-	struct FSlotSource {
-	};
-
-	// Структура для описания активного потока (дескриптора)
+	// Дескриптор слота: видеопоток задаёт и камеры, и конфигурацию
 	struct FNeuralCoreConfig {
+		std::string   stream_id;
+		// Конфигурация видеопотока; заполняется загрузчиком
 		std::string   config_id;
-		FCameraLayout camera_layout;  // ← богатая раскладка камер (пока обрабатывается только single)
-		FSlotSource   source;
 		// Кадров слота в полёте одновременно = контекстов NPU на слот
 		int depth = 1;
 

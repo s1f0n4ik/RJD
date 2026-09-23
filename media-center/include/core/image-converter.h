@@ -24,7 +24,8 @@ namespace varan {
 
 		void destroy_fbo();
 
-		bool render(USharedGLTextureWrapper* frame, ULogger* logger);
+		// uv — окно кадра источника в долях [0..1]; по умолчанию весь кадр
+		bool render(USharedGLTextureWrapper* frame, ULogger* logger, const cv::Rect2f& uv = { 0.f, 0.f, 1.f, 1.f });
 
 		bool bind_fbo();
 

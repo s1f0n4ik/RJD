@@ -138,3 +138,181 @@
 .sl-add:hover:not(:disabled) b{color:var(--fg)}
 .sl-add:disabled{cursor:not-allowed;opacity:.5}
 .sl-add .empty{padding:20px}
+
+/* ── Инференс: источник слота и каталог видеопотоков ── */
+.sl-src{display:flex;flex-direction:column;gap:6px;font-family:var(--mono);font-size:11px;color:var(--fg-3)}
+.sl-src .bad{color:var(--err)}
+.tl{display:flex;flex-wrap:wrap;gap:5px}
+.tl .t{display:inline-flex;align-items:center;gap:5px;padding:2px 7px;border-radius:5px;border:1px solid var(--line);background:var(--panel-2);font-size:10.5px;color:var(--fg-2)}
+.tl .t i{width:6px;height:6px;border-radius:50%;background:var(--ok)}
+.tl .t.is-idle i{background:var(--fg-3)}
+.tl .t.is-err{border-color:rgba(255,107,128,.4);color:var(--err)}
+.tl .t.is-err i{background:var(--err)}
+.nv-cat .sl-grp{display:flex;flex-direction:column;gap:3px}
+.nv-cat .grp-cap{padding:10px 11px 4px;font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-3)}
+.nv-cat .grp-cap.is-err{color:var(--err)}
+.nv-cat .row-item:disabled{opacity:.55;cursor:not-allowed}
+
+/* ── Видеопотоки: список карточек ── */
+.vl-wrap{flex:1;min-height:0;overflow-y:auto;padding:22px}
+.vl-top{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+.vl-top h2{font-size:18px;font-weight:700;letter-spacing:-.01em}
+.vl-top .num{font-family:var(--mono);font-size:12px;color:var(--fg-3)}
+.vl{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;align-items:start}
+.vcard{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel);cursor:pointer;text-align:left;transition:border-color .16s,transform .16s,box-shadow .16s}
+.vcard:not(.new):hover{border-color:var(--line-hi);transform:translateY(-2px);box-shadow:var(--shadow-lg)}
+.vcard:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.vcard .thumb{border-radius:var(--r-lg) var(--r-lg) 0 0;background:#0c0e13;padding:14px;display:grid;place-items:center;aspect-ratio:4/3;border-bottom:1px solid var(--line)}
+.vcard .thumb svg{max-width:100%;max-height:100%;display:block}
+.vcard .body{padding:11px 12px 12px;display:flex;flex-direction:column;gap:6px}
+.vcard .row{display:flex;align-items:center;gap:8px;min-width:0}
+.vcard b{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vcard .id{font-family:var(--mono);font-size:10.5px;color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vcard .meta{font-family:var(--mono);font-size:11px;color:var(--fg-2);display:flex;gap:6px;flex-wrap:wrap}
+.vcard .meta .sep{opacity:.45}
+.vcard .meta .bad{color:var(--err)}
+.vcard .row .icon-btn{margin-left:auto;width:28px;height:28px;flex:0 0 28px;border-color:transparent;color:var(--fg-3)}
+.vcard .row .icon-btn:hover:not([aria-disabled]){border-color:var(--line);color:var(--err)}
+.vcard .row .icon-btn[aria-disabled]{opacity:.4;cursor:not-allowed}
+.vcard .row [data-tip]:hover::after{left:auto;right:0;transform:none}
+.vcard.new{border-style:dashed;background:transparent;cursor:default}
+.vcard.new .thumb{background:transparent;border-bottom-style:dashed;color:var(--fg-3)}
+.vcard.new .body{gap:8px}
+.vcard.new .note{font-size:11.5px;color:var(--fg-3)}
+.sch-bg{fill:#2a2d35}
+.sch-cell{fill:rgba(var(--acc-rgb),.16);stroke:rgba(var(--acc-rgb),.55)}
+.sch-free{fill:none;stroke:rgba(255,255,255,.25)}
+.sch-n{fill:#e8eaf0;font-family:var(--mono)}
+.sch-cam{fill:#9aa3b3;font-family:var(--mono)}
+.vl-form{display:flex;flex-direction:column;gap:12px}
+
+/* ── Видеопотоки: редактор ── */
+.ve{flex:1;min-height:0;display:flex;flex-direction:column;padding:18px 22px;gap:14px}
+.ve-h{display:flex;align-items:center;gap:12px;min-height:40px;flex:0 0 auto;flex-wrap:wrap}
+.ve-back{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 12px 0 8px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel);font-size:12.5px;color:var(--fg-2)}
+.ve-back:hover{border-color:var(--line-hi);color:var(--fg)}
+.ve-back svg{transform:rotate(180deg)}
+.ve-name{min-width:120px;max-width:280px;height:36px;padding:0 8px;border:1px solid transparent;border-radius:var(--r);background:transparent;color:var(--fg);font:inherit;font-size:18px;font-weight:700;letter-spacing:-.01em;field-sizing:content}
+.ve-name:hover{border-color:var(--line)}
+.ve-name:focus{outline:none;border-color:var(--acc-dim);background:var(--input)}
+.ve-id{font-family:var(--mono);font-size:11.5px;color:var(--fg-3)}
+.ve-idin{width:170px;font-family:var(--mono)}
+.ve-meta{display:flex;align-items:center;gap:14px;font-family:var(--mono);font-size:11.5px;color:var(--fg-3);white-space:nowrap}
+.ve-cfg{min-width:190px}
+.ve-h .spacer{margin-left:auto}
+
+.ve-split{flex:1;min-height:0;display:flex}
+.ve-pane{flex:1 1 0;display:flex;flex-direction:column;min-width:0;min-height:0;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel)}
+.ve-pane:not(.is-cnv){flex:0 0 56%}
+.ve-pane>:first-child{border-radius:var(--r-lg) var(--r-lg) 0 0}
+.ve-pane>:last-child{border-radius:0 0 var(--r-lg) var(--r-lg)}
+.ve-pane-h{display:flex;align-items:center;gap:10px;min-height:46px;padding:6px 12px 6px 14px;border-bottom:1px solid var(--line);background:var(--input);flex:0 0 auto}
+.ve-pane-h .eyebrow{color:var(--fg-3)}
+.ve-pane-h>*{white-space:nowrap}
+.ve-pane-f{display:flex;align-items:center;gap:10px;min-height:46px;padding:6px 12px 6px 14px;border-top:1px solid var(--line);background:var(--surface);flex:0 0 auto;flex-wrap:wrap}
+.ve-cam{min-width:170px}
+.ve-cellcap{font-size:12.5px;color:var(--fg-2);display:inline-flex;gap:6px;align-items:baseline}
+.ve-cellcap b{color:var(--fg);font-weight:600}
+.ve-cellcap span{font-family:var(--mono);font-size:11px;color:var(--fg-3)}
+.ve-fit{margin-left:auto;padding:2px}
+.ve-fit button{min-height:26px;padding:0 10px;font-size:12px}
+.ve-view{display:flex;align-items:center;gap:8px;min-height:32px;padding:0 14px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:11px;color:var(--fg-3);flex:0 0 auto}
+.ve-view i{width:6px;height:6px;border-radius:50%;background:var(--ok);flex:0 0 6px}
+.ve-view b{font-weight:500;color:var(--fg-2)}
+.ve-view.warn{background:rgba(240,189,87,.09);color:var(--warn);border-bottom-color:rgba(240,189,87,.3);font-family:var(--ui);font-size:12px;line-height:1.4;padding:7px 14px}
+.ve-view.warn i{background:var(--warn)}
+.ve-view.warn b{color:var(--warn);font-weight:600}
+.ve-stage{flex:1;min-height:0;position:relative;display:flex;padding:16px;background:#0c0e13;overflow:hidden}
+.ve-stage:has(.ve-pick){overflow:auto}
+.ve-nocam{margin:auto;text-align:center;color:var(--fg-3);font-size:12.5px;line-height:1.6}
+.ve-crop{display:inline-flex;gap:4px;align-items:center;font-family:var(--mono);font-size:11px;color:var(--fg-3)}
+.ve-num{width:50px;height:28px;padding:0 4px;text-align:center;font-family:var(--mono);font-size:11.5px;background:var(--input);border:1px solid var(--line);border-radius:6px;color:var(--fg)}
+.ve-num:focus{outline:none;border-color:var(--acc-dim)}
+.ve-hint{font-size:11.5px;color:var(--fg-3);display:flex;gap:12px;flex-wrap:wrap}
+.ve-hint kbd{font-family:var(--mono);font-size:10px;padding:1px 5px;border:1px solid var(--line-hi);border-radius:4px;color:var(--fg-2);background:var(--panel);margin-right:4px}
+.ve-gutter{width:16px;flex:0 0 16px;cursor:col-resize;display:grid;place-items:center;touch-action:none}
+.ve-gutter i{width:4px;height:40px;border-radius:2px;background:var(--line-hi);transition:background .14s,height .14s}
+.ve-gutter:hover i,.ve-gutter.is-drag i{background:var(--acc);height:56px}
+.ve-grid{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:12px;color:var(--fg-2)}
+.ve-step{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:6px;background:var(--panel);overflow:hidden}
+.ve-step b{font-weight:500;min-width:20px;text-align:center;color:var(--fg)}
+.ve-step button{width:24px;height:26px;color:var(--fg-2);font-size:14px;line-height:1}
+.ve-step button:hover{background:var(--panel-2);color:var(--fg)}
+.ve-live{margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10.5px;color:var(--fg-3)}
+.ve-live i{width:7px;height:7px;border-radius:50%;background:var(--fg-3)}
+.ve-live.is-on i{background:var(--ok);box-shadow:0 0 6px var(--ok);animation:ve-blink 2s infinite}
+.ve-pane-h .ve-live[data-tip]:hover::after{left:auto;right:0;transform:none}
+@keyframes ve-blink{50%{opacity:.35}}
+.ve-session{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px;text-align:center;background:rgba(12,14,19,.82);color:var(--fg-2);font-size:12.5px}
+.ve-session b{color:var(--fg);font-size:13.5px}
+.ve-err{position:absolute;left:16px;right:16px;bottom:16px;padding:8px 12px;border-radius:var(--r);border:1px solid rgba(255,107,128,.4);background:rgba(40,16,22,.92);color:var(--err);font-size:12px}
+
+/* Видео, вписанное в сцену, и слой разметки поверх */
+.vbox-host{flex:1;min-width:0;min-height:0;display:grid;place-items:center}
+.vbox{position:relative;background:#000}
+.vbox video{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;display:block}
+.vbox-state{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--fg-3);font-size:12px}
+.vbox-state .why{font-size:11px;color:var(--err);max-width:80%;text-align:center}
+.ve-svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible;touch-action:none;user-select:none}
+
+/* Выбор камеры для пустой ячейки */
+.ve-pick{margin:0 auto;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;width:100%;max-width:560px;align-content:start}
+.ve-pick-t{grid-column:1/-1;font-size:13px;color:var(--fg-2);text-align:center;margin-bottom:4px}
+.ve-pick button{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:var(--panel);text-align:left;animation:ve-rise .26s ease-out backwards;animation-delay:calc(var(--i,0) * 45ms);transition:border-color .16s,transform .16s,box-shadow .16s}
+.ve-pick button:hover{border-color:var(--acc-dim);transform:translateY(-2px);box-shadow:var(--shadow-lg)}
+.ve-pick .thumb{aspect-ratio:4/3;display:flex;background:#000}
+.ve-pick .thumb .vbox-host{pointer-events:none}
+.ve-pick .nof{margin:auto;color:var(--fg-3);font-size:12px}
+.ve-pick button>span{padding:7px 10px;font-family:var(--mono);font-size:11px;color:var(--fg-2);display:flex;gap:6px;align-items:center}
+.ve-pick button>span i{width:6px;height:6px;border-radius:50%;background:var(--ok)}
+.ve-pick button>span em{font-style:normal;color:var(--fg-3)}
+@keyframes ve-rise{from{opacity:0;transform:translateY(8px)}}
+
+/* Разметка полотна и кадра */
+.ve-svg .hit-tile{fill:transparent;cursor:grab;transition:fill .16s}
+.ve-svg .hit-tile:hover{fill:rgba(255,255,255,.1)}
+.ve-svg .dark{fill:rgba(14,16,21,.86)}
+.ve-svg .lbl-t{fill:#f1f3f9;font-family:var(--ui)}
+.ve-svg .chip{fill:rgba(14,16,21,.78)}
+.ve-svg .chip-on{fill:var(--acc)}
+.ve-svg .chip-t{fill:#f1f3f9;font-family:var(--mono)}
+.ve-svg .chip-t-on{fill:#08101f;font-family:var(--mono)}
+.ve-svg .multi{fill:rgba(var(--acc-rgb),.12);stroke:var(--acc)}
+.ve-svg .fl-under{stroke:rgba(14,16,21,.86)}
+.ve-svg .fl-on{stroke:var(--acc)}
+.ve-svg .fl-off{stroke:#f1f3f9}
+.ve-svg .hit-border{fill:transparent}
+.ve-svg .hit-border.v{cursor:col-resize}
+.ve-svg .hit-border.h{cursor:row-resize}
+.ve-svg .border{stroke:rgba(241,243,249,.6);transition:stroke .16s}
+.ve-svg .hit-border:hover + .border,.ve-svg .border.is-on{stroke:var(--acc)}
+.ve-svg .empty{cursor:pointer}
+.ve-svg .empty .eb{fill:rgba(8,10,14,.6);transition:fill .18s}
+.ve-svg .empty .dash{stroke:rgba(var(--acc-rgb),.5);transition:stroke .18s}
+.ve-svg .empty .elbl{fill:#6f9fe8;font-family:var(--ui);transition:fill .18s}
+.ve-svg .empty:hover .eb,.ve-svg .empty.is-sel .eb{fill:rgba(var(--acc-rgb),.16)}
+.ve-svg .empty:hover .dash{stroke:#8fbcff;animation:ve-march 1s linear infinite}
+.ve-svg .empty:hover .elbl,.ve-svg .empty.is-sel .elbl{fill:#dbe8ff}
+.ve-svg .empty.is-sel .dash{stroke:var(--acc)}
+@keyframes ve-march{to{stroke-dashoffset:calc(var(--dash) * -1)}}
+.ve-svg .del{cursor:pointer}
+.ve-svg .del circle{fill:rgba(14,16,21,.86);stroke:rgba(241,243,249,.35);transition:fill .16s}
+.ve-svg .del use{color:#f1f3f9}
+.ve-svg .del:hover circle{fill:#e0485c}
+.ve-svg .mask{fill:rgba(8,10,14,.62)}
+.ve-svg .dim-fill{fill:rgba(8,10,14,.32)}
+.ve-svg .dim{opacity:.5}
+.ve-svg .hit-win{fill:transparent;cursor:move;transition:fill .16s}
+.ve-svg .hit-win:hover{fill:rgba(var(--acc-rgb),.1)}
+.ve-svg .side{fill:transparent;transition:fill .14s}
+.ve-svg .side:hover{fill:rgba(var(--acc-rgb),.35)}
+.ve-svg .hit-anc{fill:transparent}
+.ve-svg .anc rect{fill:var(--acc);stroke:#08101f;transform-box:fill-box;transform-origin:center;transition:transform .16s cubic-bezier(.2,.8,.3,1.3)}
+.ve-svg .hit-anc:hover + .anc rect{transform:scale(1.35)}
+.ve-svg .pop{transform-box:fill-box;transform-origin:center;animation:ve-pop .24s cubic-bezier(.2,.8,.3,1.3) backwards}
+.ve-svg .fade{animation:ve-fade .2s ease-out backwards}
+@keyframes ve-pop{from{opacity:0;transform:scale(.4)}}
+@keyframes ve-fade{from{opacity:0}}
+@media (prefers-reduced-motion:reduce){
+  .ve *,.vl *{animation:none!important;transition:none!important}
+}

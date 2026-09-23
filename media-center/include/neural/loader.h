@@ -17,7 +17,7 @@
 
 #include "neural/json-configurator.h"
 #include "neural/slot.h"
-#include "neural/matrix.h"
+#include "neural/video-stream.h"
 #include "gateway/client.h"
 #include "journal/writer.h"
 #include "core/platform.h"
@@ -32,13 +32,13 @@ namespace neural {
 
 	class UNeuralLoader {
 	public:
-		
+
 		enum class EImportMode {
 			MERGE,
 			REPLACE_ALL,
 		};
 
-		using FCameraSenderProvider = std::function<FCameraMessageSender(const std::string& camera_id)>;
+		enum class EDeleteResult { OK, NOT_FOUND, IN_USE, FAILED };
 
 	public:
 		UNeuralLoader() = delete;
@@ -66,9 +66,19 @@ namespace neural {
 		// Полный JSON конкретного конфига (для GET ?id=...).
 		boost::json::value get_configuration_full(const std::string& id) const;
 		bool import_configurations(const boost::json::value& json, EImportMode mode);
-		enum class EDeleteResult { OK, NOT_FOUND, IN_USE, FAILED };
-		// Удаляет конфигурацию из файла; занятую слотом state не трогает
+		// Удаляет конфигурацию из файла; IN_USE — её видеопоток занят слотом
 		EDeleteResult delete_configuration(const std::string& id);
+
+		// Видеопотоки
+		std::vector<FVideoStream> list_streams() const;
+		std::optional<FVideoStream> get_stream(const std::string& id) const;
+		// Создаёт или заменяет поток; false — причина в err
+		bool save_stream(const FVideoStream& stream, std::string* err = nullptr);
+		EDeleteResult delete_stream(const std::string& id);
+		// Размер входа модели конфигурации; false — конфигурации или модели нет
+		bool probe_model_size(const std::string& config_id, int& width, int& height) const;
+		// Поток «камера как есть» с id <config>_<camera>; создаётся, если его ещё нет
+		std::string ensure_camera_stream(const std::string& config_id, const std::string& camera);
 
 		// State
 		bool write_state(const std::vector<FNeuralCoreConfig>& active);
@@ -80,12 +90,15 @@ namespace neural {
 		// Геттеры
 		std::vector<FNeuralCoreConfig> get_active_descriptors() const;
 		struct FSlotStatus {
-			std::string config_id;
-			FCameraMatrix cameras;
-			FCameraLayout camera_layout;
 			std::string stream_id;
-			// Имя, под которым поток показывается на фронте
-			std::string stream_name;
+			std::string config_id;
+			FVideoStream video;
+			// Размещение тайлов последнего тика; пустой — полотно не собиралось
+			FCanvasInfo tiles;
+			int canvas_width = 0;
+			int canvas_height = 0;
+			std::string output_id;
+			std::string output_name;
 			// Размер кадра в эфире, нули — вывода ещё не было
 			int stream_width = 0;
 			int stream_height = 0;
@@ -122,11 +135,12 @@ namespace neural {
 		// пустой снимок, пока шлюз ни разу не ответил.
 		gateway::FGatewayTimeGps current_synced_time() const;
 
-		static FCameraMatrix parse_camera_matrix(const boost::json::value& v);
-		static boost::json::array serialize_camera_matrix(const FCameraMatrix& m);
-		std::string make_stream_id(const std::string& config_id, const std::string& camera_id) const;
+		std::string make_output_id(const std::string& config_id, const std::string& stream_id) const;
 
-		// Создаёт слот по дескриптору; FNeuralError 6001 — конфигурации нет.
+		std::map<std::string, FVideoStream> read_streams() const;
+		bool write_streams(const std::map<std::string, FVideoStream>& streams);
+
+		// Создаёт слот по дескриптору; FNeuralError 6001 — конфигурации нет, 6008 — потока нет.
 		// Вызывающий держит m_loader_mutex
 		std::unique_ptr<USlot> make_slot(FNeuralCoreConfig desc);
 		// Поднимает слот заново на его месте; вызывается супервизором, когда слот умер на ходу
@@ -142,6 +156,7 @@ namespace neural {
 		std::atomic<bool> m_reload{ false };
 
 		mutable std::mutex m_loader_mutex;
+		mutable std::mutex m_streams_mutex;
 		std::thread m_supervisor;
 		std::atomic<bool> m_supervisor_running{ false };
 		std::mutex m_supervisor_cv_mutex;
@@ -153,6 +168,7 @@ namespace neural {
 		FFrameStorage<IFrame>* m_storage;
 		ULogger::ELoggerLevel m_level;
 		std::filesystem::path m_config_path;
+		std::filesystem::path m_streams_path;
 		std::filesystem::path m_state_path;
 		FPlatformInfo m_platform;
 		ULogger m_logger;

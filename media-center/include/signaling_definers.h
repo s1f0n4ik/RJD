@@ -99,6 +99,8 @@ namespace signaling {
 	inline constexpr int CODE_NEURAL_NO_CONTEXT     = 6005;  // ни одного контекста NPU не создано
 	inline constexpr int CODE_NEURAL_CAMERA         = 6006;  // камера слота не найдена
 	inline constexpr int CODE_NEURAL_STREAMER       = 6007;  // стример слота не поднялся
+	inline constexpr int CODE_NEURAL_NO_STREAM      = 6008;  // stream_id нет в streams.json
+	inline constexpr int CODE_NEURAL_CANVAS         = 6009;  // сборщик полотна не поднялся
 
 	// Строковый код потока по числовому: пока живут оба формата
 	inline const char* legacy_stream_code(int code) {

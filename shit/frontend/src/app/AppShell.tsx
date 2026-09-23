@@ -14,8 +14,8 @@ import './shell.css';
 function subDot(to: string, status: SurroundStatus, neural: NeuralStatus) {
     if (to === '/surround/calibration' && status.streaming) return <span className="dot ok" />;
     if (to === '/surround/linker' && status.live) return <span className="dot ok" />;
-    if (to === '/neural/streams' && neural.failed) return <span className="dot err" />;
-    if (to === '/neural/streams' && neural.running) return <span className="dot ok" />;
+    if (to === '/neural/inference' && neural.failed) return <span className="dot err" />;
+    if (to === '/neural/inference' && neural.running) return <span className="dot ok" />;
     return null;
 }
 

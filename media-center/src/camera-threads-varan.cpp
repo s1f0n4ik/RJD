@@ -24,6 +24,7 @@
 #include "bird-view/linker.h"
 #include "bird-view/egl-context.h"
 #include "neural/loader.h"
+#include "neural/input-editor.h"
 #include "core/platform.h"
 
 #include "calibration/calibrator.h"
@@ -223,6 +224,14 @@ int main(int argc, char* argv[])
 		loader->async_run();
 	}
 
+	// Редактор видеопотоков нейронки: пара с фронтом через брокер, вывод neural_editor
+	std::shared_ptr<varan::neural::UInputEditor> input_editor;
+	if (loader) {
+		input_editor = std::make_shared<varan::neural::UInputEditor>(
+			socket_options.ip_adress, socket_options.port, main_context.get(), gl_storage.get(), loader);
+		input_editor->start_websocket_connection();
+	}
+
 	auto rest_server = URestServer{ config.rest_port, center, linker_360, loader, config.modules, platform_info };
 	rest_server.async_start();
 
@@ -237,6 +246,7 @@ int main(int argc, char* argv[])
 		std::this_thread::sleep_for(std::chrono::milliseconds(200));
 	}
 
+	if (input_editor) input_editor->stop_websocket_connection();
 	rest_server.stop();
 	center->run_eos();
 

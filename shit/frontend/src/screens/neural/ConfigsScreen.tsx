@@ -78,7 +78,8 @@ export function ConfigsScreen() {
         try {
             const descs = await neuralApi.getState();
             const map: Record<string, number> = {};
-            for (const d of descs) map[d.config_id] = (map[d.config_id] ?? 0) + 1;
+            // Конфигурация слота выводится из его видеопотока
+            for (const d of descs) if (d.config_id) map[d.config_id] = (map[d.config_id] ?? 0) + 1;
             setUsage(map);
         } catch {
             setUsage({});
@@ -212,7 +213,7 @@ export function ConfigsScreen() {
                                 <h2>{creating ? 'Новая конфигурация' : draft?.name || selectedId}</h2>
                                 {!creating && (
                                     used > 0
-                                        ? <span className="pill ok"><span className="dot" />в {used} {plural(used, 'потоке', 'потоках', 'потоках')}</span>
+                                        ? <span className="pill ok"><span className="dot" />в {used} {plural(used, 'слоте', 'слотах', 'слотах')}</span>
                                         : <span className="pill"><span className="dot" />не используется</span>
                                 )}
                                 {dirty && !creating && <span className="tag is-warn">есть несохранённые правки</span>}
@@ -283,7 +284,7 @@ export function ConfigsScreen() {
                             <button
                                 className="icon-btn"
                                 disabled={inUse}
-                                data-tip={inUse ? 'Используется в потоке' : 'Удалить'}
+                                data-tip={inUse ? 'Видеопоток конфигурации стоит в слоте' : 'Удалить'}
                                 onClick={e => { e.stopPropagation(); if (!inUse) setToDelete(c); }}
                             >
                                 <Icon name="trash" size={13} />

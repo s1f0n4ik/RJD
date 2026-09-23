@@ -127,7 +127,7 @@ namespace varan {
         return true;
     }
 
-    bool UImageConverter::render(USharedGLTextureWrapper* frame, ULogger* logger) {
+    bool UImageConverter::render(USharedGLTextureWrapper* frame, ULogger* logger, const cv::Rect2f& uv) {
         if (!frame || frame->format != "NV12" || frame->get_texure_count() != 2) {
             return false;
         }
@@ -150,6 +150,9 @@ namespace varan {
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(texUV.target, texUV.id);
         glUniform1i(glGetUniformLocation(m_shader.get_id(), "texUV"), 1);
+
+        glUniform2f(glGetUniformLocation(m_shader.get_id(), "uvOffset"), uv.x, uv.y);
+        glUniform2f(glGetUniformLocation(m_shader.get_id(), "uvScale"), uv.width, uv.height);
 
         if (m_with_remap) {
             glActiveTexture(GL_TEXTURE2);
