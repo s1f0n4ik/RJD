@@ -246,8 +246,26 @@ int main(int argc, char* argv[])
 		std::this_thread::sleep_for(std::chrono::milliseconds(200));
 	}
 
+	main_logger.info("shutdown: stopping neural editor");
 	if (input_editor) input_editor->stop_websocket_connection();
+	main_logger.info("shutdown: stopping rest server");
 	rest_server.stop();
+
+	// Потребители кадров гасятся до камер
+	if (loader) {
+		main_logger.info("shutdown: stopping neural loader");
+		loader->stop_async_run();
+	}
+	if (linker_360) {
+		main_logger.info("shutdown: stopping birdview linker");
+		linker_360->stop();
+	}
+	if (calibrator) {
+		main_logger.info("shutdown: stopping calibrator");
+		calibrator->stop_websocket_connection();
+	}
+
+	main_logger.info("shutdown: stopping cameras");
 	center->run_eos();
 
 	if (gateway_client) {
@@ -258,6 +276,7 @@ int main(int argc, char* argv[])
 	// закрытия должны успеть лечь в базу
 	if (segment_writer) segment_writer->stop();
 
+	main_logger.info("shutdown: done");
 	ULogger::shutdown();
 	return 0;
 }
