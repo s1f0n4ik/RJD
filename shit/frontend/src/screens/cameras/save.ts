@@ -62,7 +62,7 @@ export async function saveCamera(
             { ...form, password: form.password || original.password },
             cameraId,
         );
-        await api.createCamera(payload, migrationTarget);
+        await api.createCamera(payload, migrationTarget, `${ownerDevice}:${cameraId}`);
         try {
             await api.deleteCamera(cameraId, ownerDevice);
             return { message: `Камера ${cameraId} перенесена на другое устройство` };

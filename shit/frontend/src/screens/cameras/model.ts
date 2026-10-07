@@ -387,6 +387,12 @@ export const formToPayload = (form: CameraFormData, id: string): any => ({
 
 /** Единое место форматирования ошибок для UI. */
 export const formatError = (err: unknown): string => {
+    if (err instanceof MediaCenterError && err.code === 409 && err.message.startsWith('Camera id is taken')) {
+        return `Камера с таким id уже есть на устройстве «${err.details}»`;
+    }
+    if (err instanceof MediaCenterError && err.code === 409 && err.message.startsWith('Camera is already added')) {
+        return `Камера уже добавлена: ${err.details}`;
+    }
     if (err instanceof MediaCenterError) return err.message;
     if (err instanceof Error) return err.message;
     return String(err);

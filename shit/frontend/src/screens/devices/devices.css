@@ -102,6 +102,9 @@
 .pass-g .k{font-size:12px;color:var(--fg-3)}
 .pass-g .v{font-family:var(--mono);font-size:11.5px;color:var(--fg-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pass-name{padding:0 12px 12px}
+/* Камеры устройства с занятыми id и уже добавленные на других устройствах */
+.dup-ids{display:flex;flex-wrap:wrap;gap:5px}
+.dup-ids .tag{font-family:var(--mono)}
 .pass.is-skel .pass-h{background:var(--panel)}
 .pass.is-skel .skel{display:block}
 .pass.is-skel .pass-g .v .skel{width:70%}

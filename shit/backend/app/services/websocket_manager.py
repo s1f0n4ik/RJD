@@ -29,6 +29,9 @@ async def fetch_cameras() -> Dict[str, Any]:
             data = registry.cached_camera_data(device["id"])
 
         for camera_id, camera in (data.get("cameras") or {}).items():
+            # При совпадении id остаётся камера устройства, которое раньше в реестре
+            if camera_id in cameras:
+                continue
             cameras[camera_id] = {
                 **camera,
                 "device_id": device["id"],

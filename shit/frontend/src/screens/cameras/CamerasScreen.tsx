@@ -18,7 +18,9 @@ import {
     VENDOR_TO_PRODUCTION,
     cameraStatus,
     deviceOf,
+    findNextFreeCameraId,
     formFromCamera,
+    formToPayload,
     formatError,
     ipToNumber,
     makeStream,
@@ -62,8 +64,15 @@ const cameraPurposes = (camera: Camera): StreamPurpose[] => {
     return [...all];
 };
 
+const devicesLabel = (n: number): string => `${n} ${n < 5 ? 'устройства' : 'устройств'}`;
+
 export function CamerasScreen() {
     const [cameras, setCameras] = useState<Camera[]>([]);
+    // id камеры → устройства, на которых заведена камера с этим id
+    const [conflicts, setConflicts] = useState<Record<string, string[]>>({});
+    const [onlyConflicts, setOnlyConflicts] = useState(false);
+    const [copies, setCopies] = useState<Camera[]>([]);
+    const [copyBusy, setCopyBusy] = useState(false);
     const [loaded, setLoaded] = useState(false);
     const [purposeFilter, setPurposeFilter] = useState<PurposeFilter>('all');
     // Переход из раздела «Устройства»: ?device=<id> сужает список до его камер
@@ -98,8 +107,9 @@ export function CamerasScreen() {
     const load = useCallback(async (silent = false) => {
         try {
             await loadDevices().catch(() => {});
-            const { cameras: all } = await api.getSources();
+            const { cameras: all, conflicts: taken } = await api.getSources();
             setCameras(all.filter(c => !RESERVED_PREFIXES.some(p => c.id.startsWith(p))));
+            setConflicts(taken);
 
             // Брошенные пробные камеры убираем фоном
             const stale = staleProbes(all);
@@ -127,9 +137,13 @@ export function CamerasScreen() {
 
     const byDevice = deviceFilter ? sorted.filter(c => deviceOf(c) === deviceFilter) : sorted;
 
+    const conflictCount = byDevice.filter(c => conflicts[c.id]).length;
+    const showOnlyConflicts = onlyConflicts && conflictCount > 0;
+    const byConflict = showOnlyConflicts ? byDevice.filter(c => conflicts[c.id]) : byDevice;
+
     const visible = purposeFilter === 'all'
-        ? byDevice
-        : byDevice.filter(c => cameraPurposes(c).includes(purposeFilter));
+        ? byConflict
+        : byConflict.filter(c => cameraPurposes(c).includes(purposeFilter));
 
     const filterDeviceName = deviceFilter
         ? getDevices().find(d => d.id === deviceFilter)?.name ?? deviceFilter
@@ -141,6 +155,26 @@ export function CamerasScreen() {
     const selected = cameras.find(c => c.id === selectedId) ?? null;
     const selectedStreams = selected ? streamsOf(selected) : [];
     const selectedOffline = !!selected?.offline;
+
+    // Копии выбранной камеры с тем же id на других устройствах читаются с их устройств
+    const copyKey = selected
+        ? (conflicts[selected.id] ?? []).filter(d => d !== deviceOf(selected)).join(',')
+        : '';
+    useEffect(() => {
+        if (!selectedId || !copyKey) {
+            setCopies([]);
+            return;
+        }
+        let alive = true;
+        void Promise.all(copyKey.split(',').map(async (deviceId): Promise<Camera | null> => {
+            const copy = await api.getCamera(selectedId, deviceId).catch(() => null);
+            const name = getDevices().find(d => d.id === deviceId)?.name ?? deviceId;
+            return copy ? { ...copy, device_id: deviceId, device_name: name } : null;
+        })).then(list => {
+            if (alive) setCopies(list.filter((c): c is Camera => c !== null));
+        });
+        return () => { alive = false; };
+    }, [selectedId, copyKey]);
 
     // Закрытие отдаёт анимации доиграть: размонтирование — в finishClose
     const requestClose = () => {
@@ -275,14 +309,38 @@ export function CamerasScreen() {
         }
     };
 
+    // Копия пересоздаётся под свободным id на своём устройстве, прежняя удаляется
+    const changeCopyId = async (copy: Camera) => {
+        const device = deviceOf(copy);
+        const newId = findNextFreeCameraId(cameras);
+        setCopyBusy(true);
+        try {
+            await api.createCamera(formToPayload(formFromCamera(copy), newId), device, `${device}:${copy.id}`);
+            try {
+                await api.deleteCamera(copy.id, device);
+                showToast('ok', `${copy.id} на «${copy.device_name}» теперь ${newId}`);
+            } catch {
+                showToast('err', `${newId} создана, ${copy.id} на «${copy.device_name}» не удалена`);
+            }
+            await load(true);
+        } catch (err) {
+            showToast('err', formatError(err));
+        } finally {
+            setCopyBusy(false);
+        }
+    };
+
     const doDelete = async () => {
         const camera = confirmDelete;
         if (!camera) return;
         setConfirmDelete(null);
+        const isCopy = !!selected && camera.id === selected.id && deviceOf(camera) !== deviceOf(selected);
         try {
             await api.deleteCamera(camera.id, deviceOf(camera));
-            showToast('ok', `Камера ${camera.id} удалена`);
-            if (selectedId === camera.id) {
+            showToast('ok', isCopy
+                ? `Камера ${camera.id} удалена на «${camera.device_name}»`
+                : `Камера ${camera.id} удалена`);
+            if (selectedId === camera.id && !isCopy) {
                 setSelectedId(null);
                 setForm(null);
             }
@@ -315,6 +373,16 @@ export function CamerasScreen() {
                     <span className="k">С проблемами</span>
                     <span className={`v ${troubled > 0 ? 'st-err' : 'st-ok'}`}>{troubled}</span>
                 </span>
+                {conflictCount > 0 && (
+                    <button
+                        className={`fld fld--btn is-err${showOnlyConflicts ? ' is-on' : ''}`}
+                        aria-pressed={showOnlyConflicts}
+                        onClick={() => setOnlyConflicts(v => !v)}
+                    >
+                        <span className="k">Совпадает id</span>
+                        <span className="v st-err">{conflictCount}</span>
+                    </button>
+                )}
 
                 {filterDeviceName && (
                     <span className="fld">
@@ -406,6 +474,9 @@ export function CamerasScreen() {
                                                 <span className="cam-name">
                                                     <Icon name="chev" size={12} className="chev" />
                                                     <i>{camera.display_name || camera.id}</i>
+                                                    {conflicts[camera.id] && (
+                                                        <span className="tag is-err">{devicesLabel(conflicts[camera.id].length)}</span>
+                                                    )}
                                                 </span>
                                             </span>
                                             <span className="cell-purp"><PurposeChips purposes={cameraPurposes(camera)} /></span>
@@ -477,6 +548,51 @@ export function CamerasScreen() {
                         </div>
 
                         <div className="drawer-b">
+                            {copies.length > 0 && (
+                                <div className="dup">
+                                    <div className="dup-h">
+                                        <Icon name="warn" size={14} />
+                                        <span className="eyebrow">Тот же id</span>
+                                    </div>
+                                    {copies.map(copy => (
+                                        <div key={deviceOf(copy)} className="dup-item">
+                                            <div className="dup-card">
+                                                <div className="who">
+                                                    <b>{copy.display_name || copy.id}</b>
+                                                    <span className="sub">
+                                                        <span className="seps">
+                                                            <span>{copy.device_name}</span>
+                                                            <span>{copy.ip_adress}</span>
+                                                        </span>
+                                                    </span>
+                                                </div>
+                                                <PurposeChips purposes={cameraPurposes(copy)} />
+                                            </div>
+                                            <div className="dup-acts">
+                                                <button
+                                                    className="btn btn--sm btn--acc-dim"
+                                                    disabled={copyBusy}
+                                                    onClick={() => void changeCopyId(copy)}
+                                                >
+                                                    <Icon name="swap" size={14} />
+                                                    <span className="seps">
+                                                        <span>Сменить id</span>
+                                                        <span>{findNextFreeCameraId(cameras)}</span>
+                                                    </span>
+                                                </button>
+                                                <button
+                                                    className="btn btn--sm btn--err"
+                                                    disabled={copyBusy}
+                                                    onClick={() => setConfirmDelete(copy)}
+                                                >
+                                                    Удалить копию
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
                             {selectedOffline ? (
                                 <div className="cam-preview">
                                     <div className="state">

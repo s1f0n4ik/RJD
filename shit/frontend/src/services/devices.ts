@@ -145,12 +145,13 @@ export const devicesApi = {
         return fetch('/api/devices/scan', { method: 'POST' }).then(json<{ found: ScanResult[] }>);
     },
 
-    probe(ip: string): Promise<{ device: DevicePassport }> {
+    // conflicts — id камер устройства, занятые на других; duplicates — его камеры, уже добавленные на других
+    probe(ip: string): Promise<{ device: DevicePassport; conflicts?: string[]; duplicates?: string[] }> {
         return fetch('/api/devices/probe', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ ip }),
-        }).then(json<{ device: DevicePassport }>);
+        }).then(json<{ device: DevicePassport; conflicts?: string[]; duplicates?: string[] }>);
     },
 
     async poll(deviceId: string): Promise<Device> {

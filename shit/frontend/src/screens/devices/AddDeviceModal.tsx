@@ -23,6 +23,8 @@ export function AddDeviceModal({ onClose, onAdded }: AddDeviceModalProps) {
     const [found, setFound] = useState<ScanResult[] | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
+    // Камеры устройства с id, занятыми на других устройствах, и уже добавленные на других
+    const [taken, setTaken] = useState<{ ids: string[]; added: string[] }>({ ids: [], added: [] });
 
     const ipValid = IP_RE.test(ip.trim());
     const busy = probing || scanning || saving;
@@ -34,13 +36,15 @@ export function AddDeviceModal({ onClose, onAdded }: AddDeviceModalProps) {
         setError(null);
     };
 
-    const probe = async () => {
+    const probe = async (address = ip.trim()) => {
         setProbing(true);
         setError(null);
         setPassport(null);
+        setTaken({ ids: [], added: [] });
         try {
-            const { device } = await devicesApi.probe(ip.trim());
+            const { device, conflicts = [], duplicates = [] } = await devicesApi.probe(address);
             take(device);
+            setTaken({ ids: conflicts, added: duplicates });
         } catch (e) {
             setError(e instanceof Error ? e.message : 'Устройство не ответило');
         } finally {
@@ -107,7 +111,7 @@ export function AddDeviceModal({ onClose, onAdded }: AddDeviceModalProps) {
                             onChange={e => setIp(e.target.value)}
                             onKeyDown={e => { if (e.key === 'Enter' && ipValid && !busy) void probe(); }}
                         />
-                        <button className="btn" disabled={!ipValid || busy} onClick={probe}>
+                        <button className="btn" disabled={!ipValid || busy} onClick={() => void probe()}>
                             {probing ? 'Опрос…' : 'Проверить'}
                         </button>
                     </div>
@@ -154,6 +158,22 @@ export function AddDeviceModal({ onClose, onAdded }: AddDeviceModalProps) {
                                     ))
                                     : <span className="tag">только камеры</span>}
                             </span>
+                            {taken.ids.length > 0 && (
+                                <>
+                                    <span className="k">Совпадают id</span>
+                                    <span className="dup-ids">
+                                        {taken.ids.map(id => <span key={id} className="tag is-warn tag--xs">{id}</span>)}
+                                    </span>
+                                </>
+                            )}
+                            {taken.added.length > 0 && (
+                                <>
+                                    <span className="k">Уже добавлены</span>
+                                    <span className="dup-ids">
+                                        {taken.added.map(id => <span key={id} className="tag is-err tag--xs">{id}</span>)}
+                                    </span>
+                                </>
+                            )}
                         </div>
                         {!passport.known && (
                             <div className="pass-name">
@@ -205,7 +225,7 @@ export function AddDeviceModal({ onClose, onAdded }: AddDeviceModalProps) {
                                     key={item.id}
                                     className={`fnd-row${selected ? ' is-sel' : ''}${item.known ? ' is-known' : ''}`}
                                     disabled={item.known || busy}
-                                    onClick={() => take(item)}
+                                    onClick={() => void probe(item.ip)}
                                 >
                                     <span className="fnd-main">
                                         <span className="nm">

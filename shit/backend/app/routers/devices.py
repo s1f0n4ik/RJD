@@ -1,11 +1,13 @@
 """Устройства: discovery, реестр, таблица маршрутизации, агрегация камер."""
 
 import asyncio
+import json
 import logging
 from typing import Any, Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
 from app.config import settings
@@ -56,7 +58,8 @@ async def probe_device(body: DeviceProbeRequest):
     passport = await registry.probe_address(body.ip.strip())
     if not passport:
         raise HTTPException(status_code=502, detail="No media-center answered at this address")
-    return {"device": passport}
+    conflicts, duplicates = await _probe_conflicts(passport)
+    return {"device": passport, "conflicts": conflicts, "duplicates": duplicates}
 
 
 @router.post("/devices")
@@ -130,6 +133,7 @@ async def aggregate_cameras():
     results = await asyncio.gather(*(_fetch_data(d, "/camera") for d in devices))
 
     cameras: dict[str, dict] = {}
+    owners: dict[str, list[str]] = {}
     virtual_streams: list[dict] = []
     for device, data in results:
         offline = data is None
@@ -139,14 +143,107 @@ async def aggregate_cameras():
         device_cameras = data.get("cameras") or {}
         if isinstance(device_cameras, dict):
             for camera_id, camera in device_cameras.items():
+                owners.setdefault(camera_id, []).append(device["id"])
+                # При совпадении id остаётся камера устройства, которое раньше в реестре
                 if camera_id in cameras:
                     logger.warning(f"Duplicate camera id={camera_id} on {device['id']}")
+                    continue
                 cameras[camera_id] = _tag(camera, device, offline)
 
         for stream in data.get("virtual") or []:
             virtual_streams.append(_tag(stream, device, offline))
 
-    return {"data": {"cameras": cameras or None, "virtual": virtual_streams}}
+    conflicts = {camera_id: ids for camera_id, ids in owners.items() if len(ids) > 1}
+    return {"data": {"cameras": cameras or None, "virtual": virtual_streams, "conflicts": conflicts}}
+
+
+PROBE_PREFIX = "__probe_"
+
+
+# Камеры всех устройств по кэшу поллера без пробных: (устройство, id, камера)
+def _cached_cameras() -> list[tuple[str, str, dict]]:
+    result = []
+    for device in registry.snapshot():
+        for camera_id, camera in (registry.cached_camera_data(device["id"]).get("cameras") or {}).items():
+            if not camera_id.startswith(PROBE_PREFIX):
+                result.append((device["id"], camera_id, camera))
+    return result
+
+
+# Адрес камеры: IP и порт
+def _address(camera: dict) -> tuple[str, str]:
+    return str(camera.get("ip_adress") or "").strip(), str(camera.get("port") or "").strip()
+
+
+def _device_name(device_id: str) -> str:
+    device = registry.get(device_id)
+    return device["name"] if device else device_id
+
+
+def _conflict(message: str, details: str) -> JSONResponse:
+    return JSONResponse(status_code=409, content={
+        "data": None,
+        "meta": None,
+        "error": {"code": 409, "message": message, "details": details},
+    })
+
+
+# Камеры проверяемого устройства: с занятым id и с адресом, уже добавленным на других устройствах
+async def _probe_conflicts(passport: dict) -> tuple[list[str], list[str]]:
+    _, data = await _fetch_data(passport, "/camera")
+    cameras = {
+        camera_id: camera for camera_id, camera in ((data or {}).get("cameras") or {}).items()
+        if not camera_id.startswith(PROBE_PREFIX)
+    }
+    others = [c for c in _cached_cameras() if c[0] != passport["id"]]
+    taken_ids = {camera_id for _, camera_id, _ in others}
+    taken_addresses = {_address(camera) for _, _, camera in others}
+    conflicts = sorted(camera_id for camera_id in cameras if camera_id in taken_ids)
+    duplicates = sorted(camera_id for camera_id, camera in cameras.items() if _address(camera) in taken_addresses)
+    return conflicts, duplicates
+
+
+@router.post("/cameras")
+async def create_camera(request: Request, device: str, replaces: Optional[str] = None):
+    """Новая камера на устройстве; её id и адрес не должны быть заняты."""
+    target = registry.get(device)
+    if not target:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    body = await request.body()
+    try:
+        camera = json.loads(body)
+        camera_id = str(camera.get("id") or "")
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="Invalid camera payload")
+
+    # Заменяемая камера (перенос или смена id) в проверках не участвует
+    replaced = tuple(replaces.split(":", 1)) if replaces else None
+    others = [c for c in _cached_cameras() if (c[0], c[1]) != replaced]
+
+    taken = [owner for owner, other_id, _ in others if other_id == camera_id and owner != device]
+    if taken:
+        logger.warning(f"Camera id={camera_id} rejected for {device}: taken on {taken[0]}")
+        return _conflict("Camera id is taken on another device", _device_name(taken[0]))
+
+    same = [(owner, other_id) for owner, other_id, other in others if _address(other) == _address(camera)]
+    if same:
+        owner, other_id = same[0]
+        logger.warning(f"Camera {':'.join(_address(camera))} rejected for {device}: added as {other_id} on {owner}")
+        return _conflict("Camera is already added", f"{other_id} · {_device_name(owner)}")
+
+    url = f"http://{target['ip']}:{settings.DEVICE_MC_PORT}/camera"
+    try:
+        upstream = await registry.client.post(
+            url, content=body, headers={"Content-Type": "application/json"}, timeout=60.0
+        )
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"Device unreachable: {e}")
+    return Response(
+        content=upstream.content,
+        status_code=upstream.status_code,
+        media_type=upstream.headers.get("content-type"),
+    )
 
 
 @router.get("/recordings")

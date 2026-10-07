@@ -83,11 +83,12 @@ class ApiClient {
         return cameras;
     }
 
-    // Камеры и виртуальные потоки одним ответом
-    async getSources(): Promise<{ cameras: CPPCamera[]; virtual: VirtualStream[] }> {
+    // Камеры, виртуальные потоки и id камер, заведённые на нескольких устройствах
+    async getSources(): Promise<{ cameras: CPPCamera[]; virtual: VirtualStream[]; conflicts: Record<string, string[]> }> {
         const res = await this.fetch<{
             cameras: Record<string, any> | null;
             virtual?: any[] | null;
+            conflicts?: Record<string, string[]> | null;
         }>('/api/cameras');
 
         const camerasObj = res.cameras ?? {};
@@ -96,6 +97,7 @@ class ApiClient {
                 this.normalize({ id: raw.id ?? key, ...raw })
             ),
             virtual: (res.virtual ?? []).map(raw => this.normalizeStream(raw)),
+            conflicts: res.conflicts ?? {},
         };
     }
 
@@ -112,8 +114,11 @@ class ApiClient {
     }
 
     // Устройство-владелец выбирает оператор: выводить его больше не из чего
-    async createCamera(camera: CPPCamera, deviceId: string) {
-        return this.fetch(mcPath(deviceId, '/camera'), {
+    // replaces — «устройство:id» камеры, которую новая заменяет при переносе или смене id
+    async createCamera(camera: CPPCamera, deviceId: string, replaces?: string) {
+        const query = new URLSearchParams({ device: deviceId });
+        if (replaces) query.set('replaces', replaces);
+        return this.fetch(`/api/cameras?${query}`, {
             method: 'POST',
             body: JSON.stringify(camera),
         });
