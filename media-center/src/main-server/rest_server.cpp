@@ -15,7 +15,7 @@ URestServer::URestServer(
     std::shared_ptr<varan::birdview::ULinker> linker,
     std::shared_ptr<varan::neural::UNeuralLoader> loader,
     const varan::FModuleSet& modules,
-    const varan::FPlatformInfo& platform,
+    const varan::FDeviceInfo& device,
     ULogger::ELoggerLevel level
 )
     : m_port(port)
@@ -26,7 +26,7 @@ URestServer::URestServer(
     m_router = std::make_shared<URouter>();
 
     // Паспорт устройства: по этой ручке мастер находит и опрашивает устройство
-    auto system_ctrl = std::make_shared<USystemController>(modules, platform, &m_logger);
+    auto system_ctrl = std::make_shared<USystemController>(modules, device, &m_logger);
     m_router->add_route(http::verb::get, "/system/info",
         [system_ctrl](const auto& r) { return system_ctrl->get_info(r); });
 

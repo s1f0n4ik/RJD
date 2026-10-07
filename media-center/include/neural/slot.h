@@ -43,6 +43,7 @@ namespace neural {
             const FVideoStream& video,
             birdview::UEGLContextManager* context,
             FFrameStorage<IFrame>* storage,
+            std::atomic<std::int64_t>* track_ids,
             FCameraSenderProvider sender_provider,
             gateway::FGatewayFrameSender gateway_sender = {},
             gateway::FGatewayTimeProvider time_provider = {},
@@ -167,6 +168,8 @@ namespace neural {
 
         birdview::UEGLContextManager* m_context;
         FFrameStorage<IFrame>* m_storage;
+        // Счётчик номеров треков загрузчика
+        std::atomic<std::int64_t>* m_track_ids;
         ULogger::ELoggerLevel m_level;
         ULogger m_logger;
 

@@ -74,6 +74,7 @@ namespace neural {
         const FVideoStream& video,
         birdview::UEGLContextManager* context,
         FFrameStorage<IFrame>* storage,
+        std::atomic<std::int64_t>* track_ids,
         FCameraSenderProvider sender_provider,
         gateway::FGatewayFrameSender gateway_sender,
         gateway::FGatewayTimeProvider time_provider,
@@ -85,6 +86,7 @@ namespace neural {
         , m_fps_limit(std::max(1, core_config.fps))
         , m_context(context)
         , m_storage(storage)
+        , m_track_ids(track_ids)
         , m_level(level)
         , m_logger("Slot:" + config.id + "/" + video.id, level)
         , m_sender_provider(std::move(sender_provider))
@@ -113,7 +115,7 @@ namespace neural {
 
     std::shared_ptr<IDetectionTracker> USlot::make_tracker() const {
         if (auto tr_cfg = static_cast<FIoUTrackerConfig*>(m_config.tracker_config.get()); tr_cfg)
-            return std::make_shared<UIoUTracker>(*tr_cfg);
+            return std::make_shared<UIoUTracker>(*tr_cfg, m_track_ids);
         return nullptr;
     }
 

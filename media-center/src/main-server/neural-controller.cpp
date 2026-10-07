@@ -643,7 +643,7 @@ UNeuralController::get_system(const http::request<http::string_body>& req) {
     log_request(m_logger, req, tag);
 
     try {
-        const auto& p = m_loader->platform();
+        const auto& p = m_loader->device();
         auto& pool = varan::neural::UNpuPool::instance();
         boost::json::object data;
         data["platform"] = p.platform;

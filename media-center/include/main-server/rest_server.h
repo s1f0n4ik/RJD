@@ -22,7 +22,7 @@ public:
         std::shared_ptr<varan::birdview::ULinker> linker,
         std::shared_ptr<varan::neural::UNeuralLoader> loader,
         const varan::FModuleSet& modules,
-        const varan::FPlatformInfo& platform,
+        const varan::FDeviceInfo& device,
         ULogger::ELoggerLevel level = ULogger::ELoggerLevel::DEBUG
     );
 

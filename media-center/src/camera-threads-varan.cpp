@@ -151,11 +151,12 @@ int main(int argc, char* argv[])
 		gateway_client->start();
 	}
 
-	// Определение железа на устройстве
-	const auto platform_info = varan::detect_platform();
+	// Определение железа, идентификатора и сессии устройства
+	const auto device_info = varan::detect_device();
 	main_logger.info((std::ostringstream()
-		<< "Platform: " << platform_info.label
-		<< " (" << platform_info.platform << "), npu_cores=" << platform_info.npu_cores).str());
+		<< "Platform: " << device_info.label
+		<< " (" << device_info.platform << "), npu_cores=" << device_info.npu_cores
+		<< ", device=" << device_info.device_id << ", session=" << device_info.session_id).str());
 
 	auto socket_options = varan::nvr::FWebSocketOptions(config.signaling_ip, std::to_string(config.signaling_port));
 
@@ -183,7 +184,7 @@ int main(int argc, char* argv[])
 			gl_storage.get(),
 			varan::paths().neural.config,
 			varan::paths().neural.loader_state,
-			platform_info,
+			device_info,
 			gateway_client,
 			ULogger::ELoggerLevel::DEBUG
 		);
@@ -232,7 +233,7 @@ int main(int argc, char* argv[])
 		input_editor->start_websocket_connection();
 	}
 
-	auto rest_server = URestServer{ config.rest_port, center, linker_360, loader, config.modules, platform_info };
+	auto rest_server = URestServer{ config.rest_port, center, linker_360, loader, config.modules, device_info };
 	rest_server.async_start();
 
 	// Запуск Линкера

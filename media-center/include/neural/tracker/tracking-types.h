@@ -109,7 +109,7 @@ namespace neural {
 
     // Структура трекируемого объекта
     struct FTrack {
-        int id = -1;
+        std::int64_t id = -1; // номер из счётчика загрузчика; -1 — не подтверждён
         FDetection detection; // последняя известная позиция
         int class_id = -1;
         float confidence = 0.0f; 

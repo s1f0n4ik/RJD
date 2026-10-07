@@ -21,7 +21,7 @@ namespace neural {
         FFrameStorage<IFrame>* storage,
         std::filesystem::path config_path,
         std::filesystem::path state_path,
-        FPlatformInfo platform,
+        FDeviceInfo device,
         std::shared_ptr<gateway::UGatewayClient> gateway,
         ULogger::ELoggerLevel level)
         : m_ip(ip_address), m_port(port)
@@ -29,7 +29,7 @@ namespace neural {
         , m_config_path(std::move(config_path))
         , m_streams_path(varan::paths().neural.streams)
         , m_state_path(std::move(state_path))
-        , m_platform(std::move(platform))
+        , m_device(std::move(device))
         , m_gateway(std::move(gateway))
         , m_logger("NeuralLoader", level)
         , m_json_configurator(&m_logger)
@@ -573,6 +573,7 @@ namespace neural {
             *video,
             m_context,
             m_storage,
+            &m_track_ids,
             m_sender_provider,
             std::move(gateway_sender),
             std::move(time_provider),

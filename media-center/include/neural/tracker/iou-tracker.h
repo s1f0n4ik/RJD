@@ -3,7 +3,8 @@
 #include <vector>
 #include <algorithm>
 #include <cmath>
-#include <map>
+#include <atomic>
+#include <cstdint>
 
 #include "tracker-interface.h"
 
@@ -21,8 +22,9 @@ namespace neural {
     */
     class UIoUTracker : public IDetectionTracker {
     public:
-        explicit UIoUTracker(const FIoUTrackerConfig& config = {})
+        UIoUTracker(const FIoUTrackerConfig& config, std::atomic<std::int64_t>* track_ids)
             : m_config(config)
+            , m_track_ids(track_ids)
         {
             m_event_mask = config.event_mask;
         }
@@ -107,7 +109,7 @@ namespace neural {
                 if (track.state == ETrackState::TENTATIVE && track.hits >= m_config.min_hits)
                 {
                     track.state = ETrackState::CONFIRMED;
-                    track.id = m_next_id_by_class[track.class_id]++;
+                    track.id = m_track_ids->fetch_add(1);
                     events.push_back({ ETrackEvent::CONFIRMED, track });
                 }
 
@@ -179,7 +181,7 @@ namespace neural {
 
                 if (m_config.min_hits <= 1) {
                     track.state = ETrackState::CONFIRMED;
-                    track.id = m_next_id_by_class[track.class_id]++;
+                    track.id = m_track_ids->fetch_add(1);
                     events.push_back({ ETrackEvent::CONFIRMED, track });
                 }
                 else {
@@ -201,7 +203,6 @@ namespace neural {
 
         void reset() override {
             m_tracks.clear();
-            m_next_id_by_class.clear();
         }
 
     private:
@@ -231,7 +232,8 @@ namespace neural {
     private:
         FIoUTrackerConfig m_config;
         std::vector<FTrack> m_tracks;
-        std::map<int, int> m_next_id_by_class;
+        // Счётчик номеров треков загрузчика, общий для всех слотов
+        std::atomic<std::int64_t>* m_track_ids;
     };
 
 } // namespace neural

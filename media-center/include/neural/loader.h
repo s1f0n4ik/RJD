@@ -49,7 +49,7 @@ namespace neural {
 			FFrameStorage<IFrame>* storage,
 			std::filesystem::path config_path,
 			std::filesystem::path state_path,
-			FPlatformInfo platform,
+			FDeviceInfo device,
 			std::shared_ptr<gateway::UGatewayClient> gateway = nullptr,
 			ULogger::ELoggerLevel level = ULogger::ELoggerLevel::DEBUG
 		);
@@ -123,7 +123,7 @@ namespace neural {
 
 		std::optional<std::string> find_camera_config(const std::string& camera_id) const;
 
-		const FPlatformInfo& platform() const { return m_platform; }
+		const FDeviceInfo& device() const { return m_device; }
 
 	private:
 		bool start_loader();
@@ -149,6 +149,8 @@ namespace neural {
 	private:
 		UJsonNeuralConfiguration m_json_configurator;
 		std::vector<FNeuralCoreConfig> m_active_descs;
+		// Номера треков всех слотов, уникальны в сессии устройства
+		std::atomic<std::int64_t> m_track_ids{ 1 };
 		// m_slots[i] отвечает m_active_descs[i]; nullptr — слот не создан, причина в m_failed[i]
 		std::vector<std::unique_ptr<USlot>> m_slots;
 		std::map<size_t, std::pair<int, std::string>> m_failed;
@@ -170,7 +172,7 @@ namespace neural {
 		std::filesystem::path m_config_path;
 		std::filesystem::path m_streams_path;
 		std::filesystem::path m_state_path;
-		FPlatformInfo m_platform;
+		FDeviceInfo m_device;
 		ULogger m_logger;
 
 		FCameraSenderProvider m_sender_provider;

@@ -14,7 +14,7 @@ class USystemController {
 public:
     USystemController(
         const varan::FModuleSet& modules,
-        const varan::FPlatformInfo& platform,
+        const varan::FDeviceInfo& device,
         ULogger* logger = nullptr
     );
 
@@ -26,10 +26,7 @@ private:
 
 private:
     varan::FModuleSet m_modules;
-    varan::FPlatformInfo m_platform;
-
-    // machine-id стабилен между перезагрузками, читается один раз
-    std::string m_device_id;
+    varan::FDeviceInfo m_device;
 
     // Прошлый снимок /proc/stat: загрузка CPU считается по дельте между вызовами
     uint64_t m_prev_cpu_total = 0;

@@ -28,71 +28,15 @@ static std::string read_first_line(const std::filesystem::path& path) {
     return line;
 }
 
-/*
-    MAC адрес для замены machine_id, фикс совпадений по machine id
-*/
-static std::string first_physical_mac() {
-    namespace fs = std::filesystem;
-    const fs::path net_root = "/sys/class/net";
-
-    std::vector<std::string> names;
-    std::error_code ec;
-    for (const auto& entry : fs::directory_iterator(net_root, ec)) {
-        names.push_back(entry.path().filename().string());
-    }
-    std::sort(names.begin(), names.end());
-
-    auto mac_of = [&](const std::string& name) -> std::string {
-        std::string mac = read_first_line(net_root / name / "address");
-        mac.erase(std::remove(mac.begin(), mac.end(), ':'), mac.end());
-        if (mac.empty() || mac == std::string(mac.size(), '0')) return {};
-        return mac;
-    };
-
-    for (const auto& name : names) {
-        if (name == "lo") continue;
-        if (!fs::exists(net_root / name / "device", ec)) continue;
-        auto mac = mac_of(name);
-        if (!mac.empty()) return mac;
-    }
-
-    // Физических не нашлось (нестандартный sysfs) — берём любой не-loopback
-    for (const auto& name : names) {
-        if (name == "lo") continue;
-        auto mac = mac_of(name);
-        if (!mac.empty()) return mac;
-    }
-
-    return {};
-}
-
 USystemController::USystemController(
     const varan::FModuleSet& modules,
-    const varan::FPlatformInfo& platform,
+    const varan::FDeviceInfo& device,
     ULogger* logger
 )
     : m_modules(modules)
-    , m_platform(platform)
+    , m_device(device)
     , m_logger(logger)
 {
-    m_device_id = read_first_line("/etc/machine-id");
-    if (m_device_id.empty()) {
-        m_device_id = read_first_line("/var/lib/dbus/machine-id");
-    }
-
-    // machine-id клонированных образов одинаковый — примешиваем MAC платы
-    const std::string mac = first_physical_mac();
-    if (!m_device_id.empty() && !mac.empty()) {
-        m_device_id += "-" + mac;
-    }
-    else if (m_device_id.empty() && !mac.empty()) {
-        m_device_id = mac;
-        if (m_logger) m_logger->warn("USystemController: machine-id is not available, using MAC");
-    }
-    else if (m_device_id.empty()) {
-        m_device_id = "unknown";
-        if (m_logger) m_logger->warn("USystemController: machine-id and MAC are not available");
-    }
 }
 
 static json::object collect_disk(const std::string& label, const std::filesystem::path& path) {
@@ -166,7 +110,7 @@ static json::array collect_network() {
 json::object USystemController::collect() {
     json::object info;
 
-    info["device_id"] = m_device_id;
+    info["device_id"] = m_device.device_id;
 
     char hostname[256] = {};
     gethostname(hostname, sizeof(hostname) - 1);
@@ -181,9 +125,9 @@ json::object USystemController::collect() {
     info["modules"] = std::move(modules);
 
     json::object platform;
-    platform["platform"] = m_platform.platform;
-    platform["label"] = m_platform.label;
-    platform["npu_cores"] = m_platform.npu_cores;
+    platform["platform"] = m_device.platform;
+    platform["label"] = m_device.label;
+    platform["npu_cores"] = m_device.npu_cores;
     info["platform"] = std::move(platform);
 
     {
