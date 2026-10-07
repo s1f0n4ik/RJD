@@ -1,0 +1,79 @@
+syntax = "proto3";
+
+package varan.detection.rpc;
+
+// Приём треков и кадров с устройств мастером обнаружений
+service DetectionIngress {
+    // Устройство шлёт пакеты и изображения, мастер отвечает подтверждениями
+    rpc Stream(stream DeviceMessage) returns (stream Ack);
+}
+
+// События трекера media-center
+enum TrackEvent {
+    TRACK_EVENT_UNSPECIFIED = 0;
+    TRACK_EVENT_CREATED = 1;
+    TRACK_EVENT_CONFIRMED = 2;
+    TRACK_EVENT_UPDATED = 3;
+    TRACK_EVENT_LOST = 4;
+    TRACK_EVENT_RECOVERED = 5;
+    TRACK_EVENT_REMOVED = 6;
+}
+
+message Gps {
+    bool valid = 1;
+    double lat = 2;
+    double lon = 3;
+    double alt = 4;
+    int32 sats = 5;
+    double speed = 6;           // м/с
+    double course = 7;          // градусы
+}
+
+message TrackRecord {
+    uint64 track_id = 1;        // номер трека, уникален в сессии устройства
+    TrackEvent event = 2;
+    int32 class_id = 3;         // id класса внутри конфигурации
+    string class_name = 4;
+    string superclass = 5;      // пусто — у класса нет суперкласса
+    float confidence = 6;       // 0..1
+    repeated int32 box = 7;     // x, y, w, h в пикселях кадра камеры
+}
+
+// События треков одной камеры за один такт слота
+message Packet {
+    uint64 id = 1;              // уникален в сессии устройства
+    string device_id = 2;
+    int64 session = 3;          // время запуска media-center, unix мс
+    string video_id = 4;        // видеопоток слота
+    string config_id = 5;       // конфигурация слота
+    string camera_id = 6;
+    int64 ts = 7;               // время кадра, unix мс, как отдаёт шлюз
+    bool sadko_time = 8;        // время получено от Садко
+    Gps gps = 9;
+    int32 width = 10;           // размер кадра камеры
+    int32 height = 11;
+    repeated TrackRecord tracks = 12;
+    uint64 image_id = 13;       // 0 — снимок не брался
+}
+
+message Image {
+    uint64 id = 1;              // уникален в сессии устройства
+    string device_id = 2;
+    int64 session = 3;          // время запуска media-center, unix мс
+    bytes jpeg = 4;             // кадр камеры без рамок
+    int32 width = 5;
+    int32 height = 6;
+}
+
+message DeviceMessage {
+    oneof body {
+        Packet packet = 1;
+        Image image = 2;
+    }
+}
+
+// ID пакетов и изображений, записанных мастером
+message Ack {
+    repeated uint64 packet_ids = 1;
+    repeated uint64 image_ids = 2;
+}
