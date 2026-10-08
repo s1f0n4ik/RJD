@@ -110,7 +110,10 @@ export interface ActiveDesc {
     /** Потолок кадров в секунду, ≥ 1 */
     fps: number;
     streaming?: StreamingDesc;
-    event_mask?: string[];
+    // События, на которые берётся снимок кадра камеры
+    image_mask?: string[];
+    // События, на которые уходит пакет; снимок всегда идёт с пакетом
+    packet_mask?: string[];
 }
 
 export interface TensorInfo {

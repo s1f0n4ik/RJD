@@ -83,3 +83,65 @@ export function Switch({ on, onToggle, children, disabled }: SwitchProps) {
         </button>
     );
 }
+
+// Подсказки [data-tip]: один слой на body, под элементом или над ним, в пределах окна
+export function TipLayer() {
+    useEffect(() => {
+        const tip = document.createElement('div');
+        tip.className = 'tip-layer';
+        tip.hidden = true;
+        document.body.appendChild(tip);
+        let anchor: HTMLElement | null = null;
+        const gap = 8;
+
+        const hide = () => {
+            anchor = null;
+            tip.hidden = true;
+        };
+        const show = (el: HTMLElement) => {
+            anchor = el;
+            tip.textContent = el.dataset.tip ?? '';
+            tip.hidden = false;
+            const r = el.getBoundingClientRect();
+            const left = Math.min(Math.max(r.left + r.width / 2 - tip.offsetWidth / 2, gap), window.innerWidth - tip.offsetWidth - gap);
+            const below = r.bottom + gap;
+            const top = below + tip.offsetHeight > window.innerHeight - gap ? r.top - gap - tip.offsetHeight : below;
+            tip.style.transform = `translate(${Math.round(left)}px, ${Math.round(top)}px)`;
+        };
+        const tipOf = (target: EventTarget | null) =>
+            target instanceof Element ? target.closest<HTMLElement>('[data-tip]') : null;
+
+        const onOver = (e: PointerEvent) => {
+            const el = tipOf(e.target);
+            if (el === anchor) return;
+            if (el?.dataset.tip) show(el);
+            else hide();
+        };
+        const onOut = (e: PointerEvent) => {
+            if (!e.relatedTarget) hide();
+        };
+        const onFocus = (e: FocusEvent) => {
+            const el = tipOf(e.target);
+            if (el?.dataset.tip && (e.target as Element).matches(':focus-visible')) show(el);
+        };
+
+        document.addEventListener('pointerover', onOver);
+        document.addEventListener('pointerout', onOut);
+        document.addEventListener('focusin', onFocus);
+        document.addEventListener('focusout', hide);
+        document.addEventListener('pointerdown', hide, true);
+        window.addEventListener('scroll', hide, true);
+        window.addEventListener('resize', hide);
+        return () => {
+            document.removeEventListener('pointerover', onOver);
+            document.removeEventListener('pointerout', onOut);
+            document.removeEventListener('focusin', onFocus);
+            document.removeEventListener('focusout', hide);
+            document.removeEventListener('pointerdown', hide, true);
+            window.removeEventListener('scroll', hide, true);
+            window.removeEventListener('resize', hide);
+            tip.remove();
+        };
+    }, []);
+    return null;
+}

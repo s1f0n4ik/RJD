@@ -139,7 +139,6 @@
 .top-live:hover{border-color:var(--acc);color:var(--acc);background:rgba(var(--acc-rgb),.12)}
 
 /* Кнопка прижата к краю планки: подсказку ведём от правого края, иначе уходит за окно */
-.top-live[data-tip]:hover::after{left:auto;right:0;transform:none}
 
 /* ── Сцена ──────────────────────────────────────────────── */
 .stage{flex:1;min-height:0;position:relative}

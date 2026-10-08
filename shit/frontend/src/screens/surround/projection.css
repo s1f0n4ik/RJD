@@ -23,7 +23,6 @@
 .sv-proj .ib-over{width:26px;height:26px;flex:0 0 26px;border-radius:6px;background:rgba(18,20,26,.78);backdrop-filter:blur(4px);border-color:var(--line-hi);color:var(--fg-2)}
 .sv-proj .ib-over .ico{width:13px;height:13px}
 .sv-proj .ib-over:hover:not([disabled]){border-color:var(--acc-dim);color:var(--fg)}
-.sv-proj .ib-over[data-tip]:hover::after{top:auto;bottom:calc(100% + 8px)}
 
 /* ── Место: строка-заголовок, сводка у свёрнутого, карточка у активного ── */
 .sv-proj .pl{border:1px solid transparent;border-radius:var(--r);transition:.14s}
@@ -38,7 +37,6 @@
 .sv-proj .pl-h .st.ac{color:var(--acc)}
 .sv-proj .pl-h .ib-row{width:24px;height:24px;flex:0 0 24px;border-radius:5px;border-color:transparent;color:var(--fg-3)}
 .sv-proj .pl-h .ib-row:hover{border-color:var(--line-hi);color:var(--fg-2);background:var(--panel-2)}
-.sv-proj .pl-h .ib-row[data-tip]:hover::after{left:auto;right:0;transform:none}
 .sv-proj .pl-sum{display:flex;align-items:center;gap:8px;min-width:0;padding:0 10px 8px 26px;font-size:11.5px}
 .sv-proj .pl-sum .cam{color:var(--fg-2);white-space:nowrap}
 .sv-proj .pl-b{display:flex;flex-direction:column;gap:10px;padding:4px 10px 12px}
@@ -52,5 +50,4 @@
 .sv-proj .tf-line{display:flex;gap:6px;align-items:center;min-width:0}
 .sv-proj .tf-line .uisel{flex:1}
 .sv-proj .tf-line .icon-btn{width:32px;height:32px;flex:0 0 32px;border-radius:6px}
-.sv-proj .tf-line .icon-btn[data-tip]:hover::after{left:auto;right:0;transform:none}
 .sv-proj .tf.is-bad .uisel-btn{border-color:var(--err);box-shadow:0 0 0 2px rgba(255,107,128,.18)}

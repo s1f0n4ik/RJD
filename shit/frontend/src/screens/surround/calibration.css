@@ -61,7 +61,6 @@
 .sv-calib .snapbar .icon-btn{background:var(--panel);border-color:var(--line-hi)}
 
 /* ── Подсказки правой панели: у края экрана центрирование уводит их за кромку ── */
-.mod-side [data-tip]:hover::after{left:auto;right:0;transform:none}
 
 /* ── Шторка снимков: оверлей, выезжающий снизу поверх кадра ── */
 .sv-calib .snap-sheet{position:absolute;left:0;right:0;bottom:0;z-index:6;display:flex;flex-direction:column;pointer-events:none;transform:translateY(calc(100% - 24px));transition:transform .24s cubic-bezier(.32,.72,0,1)}
@@ -99,4 +98,3 @@
 .sv-calib .full-exit{background:rgba(18,20,26,.78);backdrop-filter:blur(4px);border-color:var(--line-hi);color:var(--fg-2)}
 .sv-calib .full-exit .ico{width:15px;height:15px}
 .sv-calib .full-exit:hover{border-color:var(--acc-dim);color:var(--fg)}
-.sv-calib .full-exit[data-tip]:hover::after{left:auto;right:0;transform:none}

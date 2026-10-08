@@ -14,8 +14,18 @@ interface Slot {
     depth: number;
     fps: number;
     streaming: StreamingDesc;
-    mask: string[];
+    // События пакета, как их отметили; события снимка уходят пакетом и без отметки
+    packet: string[];
+    // События снимка кадра камеры
+    image: string[];
 }
+
+// Умолчания масок, как в media-center
+const DEFAULT_PACKET = ['confirmed', 'updated', 'removed'];
+const DEFAULT_IMAGE = ['confirmed'];
+const LOCK_TIP = 'Пакет обязателен: на это событие берётся снимок';
+
+const toggle = (list: string[], item: string) => (list.includes(item) ? list.filter(x => x !== item) : [...list, item]);
 
 const DEFAULT_SYSTEM: SystemInfo = { platform: 'unknown', label: '—', npu_cores: 0 };
 
@@ -32,7 +42,7 @@ const TILE_STATE_TIP: Record<TileState, string> = {
     stalled: 'Кадр замёрз — тайл уходит в модель серым',
 };
 
-const clone = (s: Slot[]): Slot[] => s.map(x => ({ ...x, mask: [...x.mask], streaming: { ...x.streaming } }));
+const clone = (s: Slot[]): Slot[] => s.map(x => ({ ...x, packet: [...x.packet], image: [...x.image], streaming: { ...x.streaming } }));
 
 const plural = (n: number, one: string, few: string, many: string) => {
     const m10 = n % 10, m100 = n % 100;
@@ -82,7 +92,8 @@ export function InferenceScreen({ status, onRefreshStatus }: InferenceScreenProp
             depth: Math.max(1, d.depth ?? 1),
             fps: Math.max(1, d.fps ?? 10),
             streaming: d.streaming ?? { enabled: false, name: '' },
-            mask: d.event_mask ?? [],
+            packet: d.packet_mask ?? DEFAULT_PACKET,
+            image: d.image_mask ?? DEFAULT_IMAGE,
         }));
         setSlots(clone(list));
         setSaved(clone(list));
@@ -146,20 +157,18 @@ export function InferenceScreen({ status, onRefreshStatus }: InferenceScreenProp
         setSlots(list => list.map(s => (s.key === key ? { ...s, ...p } : s)));
 
     const addSlot = (streamId: string | null = null) =>
-        setSlots(list => [...list, { key: uid(), streamId, depth: 1, fps: 10, streaming: { enabled: false, name: '' }, mask: [] }]);
+        setSlots(list => [...list, { key: uid(), streamId, depth: 1, fps: 10, streaming: { enabled: false, name: '' }, packet: DEFAULT_PACKET, image: DEFAULT_IMAGE }]);
 
     const removeSlot = (key: string) => setSlots(list => list.filter(s => s.key !== key));
 
-    const toDesc = (s: Slot): ActiveDesc => {
-        const v = videoOf(s.streamId);
-        return {
-            stream_id: s.streamId ?? '',
-            depth: s.depth,
-            fps: s.fps,
-            streaming: { enabled: s.streaming.enabled, name: s.streaming.name },
-            event_mask: v && trackerBy[v.config_id] ? s.mask : [],
-        };
-    };
+    const toDesc = (s: Slot): ActiveDesc => ({
+        stream_id: s.streamId ?? '',
+        depth: s.depth,
+        fps: s.fps,
+        streaming: { enabled: s.streaming.enabled, name: s.streaming.name },
+        packet_mask: s.packet,
+        image_mask: s.image,
+    });
 
     const apply = async () => {
         if (problem) { setErr(problem); return; }
@@ -266,7 +275,7 @@ export function InferenceScreen({ status, onRefreshStatus }: InferenceScreenProp
                                                 <Select
                                                     value={s.streamId ?? ''}
                                                     options={videoOptions}
-                                                    onChange={id => patchSlot(s.key, { streamId: id, mask: trackerBy[videoOf(id)?.config_id ?? ''] ? s.mask : [] })}
+                                                    onChange={id => patchSlot(s.key, { streamId: id })}
                                                     placeholder="Не выбран"
                                                     emptyText="Видеопотоков нет — создайте их в разделе «Видеопотоки»"
                                                 />
@@ -302,23 +311,48 @@ export function InferenceScreen({ status, onRefreshStatus }: InferenceScreenProp
                                                 </div>
                                             )}
                                             {hasTracker && (
-                                                <div className="tf">
-                                                    <span className="tf-cap">События в журнал и шлюз</span>
-                                                    <div className="evs">
-                                                        {eventTypes.map(t => {
-                                                            const on = s.mask.includes(t);
-                                                            return (
-                                                                <span
-                                                                    key={t}
-                                                                    className={`tag${on ? ' is-acc' : ''}`}
-                                                                    role="checkbox"
-                                                                    aria-checked={on}
-                                                                    onClick={() => patchSlot(s.key, { mask: on ? s.mask.filter(x => x !== t) : [...s.mask, t] })}
-                                                                >
-                                                                    {EVENT_NAMES[t] ?? t}
-                                                                </span>
-                                                            );
-                                                        })}
+                                                <div className="sl-ev">
+                                                    <div className="tf">
+                                                        <span className="tf-cap">Пакет события</span>
+                                                        <div className="evs">
+                                                            {eventTypes.map(t => {
+                                                                const locked = s.image.includes(t);
+                                                                const on = locked || s.packet.includes(t);
+                                                                return (
+                                                                    <span
+                                                                        key={t}
+                                                                        className={`tag${on ? ' is-acc' : ''}${locked ? ' is-lock' : ''}`}
+                                                                        role="checkbox"
+                                                                        aria-checked={on}
+                                                                        aria-disabled={locked || undefined}
+                                                                        data-tip={locked ? LOCK_TIP : undefined}
+                                                                        onClick={locked ? undefined : () => patchSlot(s.key, { packet: toggle(s.packet, t) })}
+                                                                    >
+                                                                        {locked && <Icon name="lock" size={12} />}
+                                                                        {EVENT_NAMES[t] ?? t}
+                                                                    </span>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                    <div className="tf">
+                                                        <span className="tf-cap">Снимок к пакету</span>
+                                                        <div className="evs">
+                                                            {eventTypes.map(t => {
+                                                                const on = s.image.includes(t);
+                                                                return (
+                                                                    <span
+                                                                        key={t}
+                                                                        className={`tag${on ? ' is-acc' : ''}`}
+                                                                        role="checkbox"
+                                                                        aria-checked={on}
+                                                                        onClick={() => patchSlot(s.key, { image: toggle(s.image, t) })}
+                                                                    >
+                                                                        {EVENT_NAMES[t] ?? t}
+                                                                    </span>
+                                                                );
+                                                            })}
+                                                        </div>
                                                     </div>
                                                 </div>
                                             )}

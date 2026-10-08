@@ -119,6 +119,9 @@
 .evs{display:flex;flex-wrap:wrap;gap:6px}
 .evs .tag{cursor:pointer;min-height:26px}
 .evs .tag:hover{border-color:var(--line-hi)}
+.evs .tag.is-lock{cursor:default}
+.evs .tag.is-lock:hover{border-color:rgba(var(--acc-rgb),.32)}
+.sl-ev{display:flex;flex-direction:column;gap:12px}
 .sl-met{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border-top:1px solid var(--line)}
 .sl-met>div{background:var(--surface);padding:9px 12px;display:flex;flex-direction:column;gap:2px;min-width:0}
 .sl-met .k{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-3);white-space:nowrap}
@@ -174,7 +177,6 @@
 .vcard .row .icon-btn{margin-left:auto;width:28px;height:28px;flex:0 0 28px;border-color:transparent;color:var(--fg-3)}
 .vcard .row .icon-btn:hover:not([aria-disabled]){border-color:var(--line);color:var(--err)}
 .vcard .row .icon-btn[aria-disabled]{opacity:.4;cursor:not-allowed}
-.vcard .row [data-tip]:hover::after{left:auto;right:0;transform:none}
 .vcard.new{border-style:dashed;background:transparent;cursor:default}
 .vcard.new .thumb{background:transparent;border-bottom-style:dashed;color:var(--fg-3)}
 .vcard.new .body{gap:8px}
@@ -241,7 +243,6 @@
 .ve-live{margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10.5px;color:var(--fg-3)}
 .ve-live i{width:7px;height:7px;border-radius:50%;background:var(--fg-3)}
 .ve-live.is-on i{background:var(--ok);box-shadow:0 0 6px var(--ok);animation:ve-blink 2s infinite}
-.ve-pane-h .ve-live[data-tip]:hover::after{left:auto;right:0;transform:none}
 @keyframes ve-blink{50%{opacity:.35}}
 .ve-session{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px;text-align:center;background:rgba(12,14,19,.82);color:var(--fg-2);font-size:12.5px}
 .ve-session b{color:var(--fg);font-size:13.5px}
