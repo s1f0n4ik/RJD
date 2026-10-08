@@ -15,7 +15,7 @@
     GET  /neural/streams                 список видеопотоков; ?id= — один
     POST /neural/streams                 создать или заменить видеопоток body: { id, name, config_id, rows, cols, row_fr, col_fr, tiles }
     DELETE /neural/streams?id=           удалить видеопоток; 409 — занят слотом, 404 — нет такого
-    GET  /neural/state                   текущий save-state [{ stream_id, depth, fps, streaming, event_mask }]
+    GET  /neural/state                   текущий save-state [{ stream_id, depth, fps, streaming, image_mask, packet_mask }]
     POST /neural/state                   перезаписать save-state и (если работает) перезапуск
     GET  /neural/status                  [{ running, stream_id, config_id, canvas, tiles, ... }]
     POST /neural/start                   запустить supervisor (если не запущен)

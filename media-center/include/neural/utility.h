@@ -5,6 +5,7 @@
 #include <string>
 #include <filesystem>
 
+#include <boost/json.hpp>
 #include <opencv2/opencv.hpp>
 #include <opencv2/freetype.hpp>
 
@@ -76,8 +77,32 @@ namespace neural {
 		// Доп настройки для дескриптора
 		int fps = 10;  // Отвечает за фпс неронки, если включен и стрим, то и на него
 		std::optional<FStreamingDesc> streaming; // если есть стриминг, то он хранит в себе id и name
-		std::vector<std::string> event_mask;     // маска событий (пока просто прокидывается дальше)
+		// События трека, на которые берётся снимок кадра камеры
+		std::vector<std::string> image_mask{ "confirmed" };
+		// События трека, на которые уходит пакет; снимок всегда идёт с пакетом
+		std::vector<std::string> packet_mask{ "confirmed", "updated", "removed" };
 	};
+
+	// Строки JSON-массива; прочие элементы пропускаются
+	inline std::vector<std::string> json_strings(const boost::json::array& arr) {
+		std::vector<std::string> out;
+		for (const auto& v : arr)
+			if (v.is_string()) out.emplace_back(v.as_string().c_str());
+		return out;
+	}
+
+	// Маски снимка и пакета слота; нет ключа — остаётся умолчание
+	inline void read_event_masks(const boost::json::object& obj, FNeuralCoreConfig& desc) {
+		if (auto* v = obj.if_contains("image_mask"); v && v->is_array())
+			desc.image_mask = json_strings(v->as_array());
+		if (auto* v = obj.if_contains("packet_mask"); v && v->is_array())
+			desc.packet_mask = json_strings(v->as_array());
+	}
+
+	inline void write_event_masks(boost::json::object& obj, const FNeuralCoreConfig& desc) {
+		obj["image_mask"] = boost::json::value_from(desc.image_mask);
+		obj["packet_mask"] = boost::json::value_from(desc.packet_mask);
+	}
 
 	// Рендер текста с поддержкой кириллицы через cv::freetype (opencv_contrib).
 	// cv::putText кириллицу не рисует — только Hershey-шрифты (ASCII). Шрифт

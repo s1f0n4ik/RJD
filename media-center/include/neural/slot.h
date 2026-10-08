@@ -165,6 +165,8 @@ namespace neural {
         FVideoStream m_video;
         int m_depth = 1;
         int m_fps_limit = 10;
+        // События, на которые берётся снимок кадра камеры
+        uint32_t m_image_events = EVENT_NONE;
 
         birdview::UEGLContextManager* m_context;
         FFrameStorage<IFrame>* m_storage;

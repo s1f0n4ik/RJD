@@ -105,9 +105,7 @@ static boost::json::array serialize_descs(
             st["name"] = "";
             item["streaming"] = std::move(st);
         }
-        boost::json::array em;
-        for (const auto& e : d.event_mask) em.emplace_back(e);
-        item["event_mask"] = std::move(em);
+        varan::neural::write_event_masks(item, d);
         arr.push_back(std::move(item));
     }
     return arr;
@@ -381,11 +379,7 @@ UNeuralController::post_state(const http::request<http::string_body>& req) {
                 }
             }
 
-            // event_mask — массив строк (пока просто сохраняется)
-            if (auto* em = eo.if_contains("event_mask"); em && em->is_array()) {
-                for (const auto& ev : em->as_array())
-                    if (ev.is_string()) d.event_mask.emplace_back(ev.as_string().c_str());
-            }
+            varan::neural::read_event_masks(eo, d);
 
             active.push_back(std::move(d));
         }

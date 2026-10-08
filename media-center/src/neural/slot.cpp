@@ -84,6 +84,7 @@ namespace neural {
         , m_video(video)
         , m_depth(std::max(1, core_config.depth))
         , m_fps_limit(std::max(1, core_config.fps))
+        , m_image_events(event_mask_from_types(core_config.image_mask))
         , m_context(context)
         , m_storage(storage)
         , m_track_ids(track_ids)
@@ -870,7 +871,9 @@ namespace neural {
                 if (update_result.has_events()) {
                     log_events(update_result.events);
 
-                    if ((m_journal.enabled() || m_gateway_sender) && m_composer) {
+                    const bool shot = std::any_of(update_result.events.begin(), update_result.events.end(),
+                        [this](const FTrackEventRecord& e) { return event_matches_mask(e.event, m_image_events); });
+                    if (shot && (m_journal.enabled() || m_gateway_sender) && m_composer) {
                         auto task = make_frame_task(camera, size, *tracker, update_result.events);
                         m_composer->request_snapshot(camera, [this, task = std::move(task)](cv::Mat shot) mutable {
                             if (shot.empty()) {

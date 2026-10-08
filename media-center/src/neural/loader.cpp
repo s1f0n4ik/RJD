@@ -277,10 +277,12 @@ namespace neural {
                         d.streaming = std::move(stream_desc);
                     }
                 }
+                // Старая общая маска событий становится маской пакета
                 if (auto* c = eo.if_contains("event_mask"); c && c->is_array()) {
-                    for (const auto& ev : c->as_array())
-                        if (ev.is_string()) d.event_mask.emplace_back(ev.as_string().c_str());
+                    d.packet_mask = json_strings(c->as_array());
+                    migrated = true;
                 }
+                read_event_masks(eo, d);
 
                 if (!d.stream_id.empty())
                     parsed.push_back(std::move(d));
@@ -292,7 +294,7 @@ namespace neural {
                 m_logger.info("load_state(): " + std::to_string(m_active_descs.size()) + " slot(s)");
             }
             if (migrated) {
-                m_logger.info("load_state(): legacy state migrated to stream_id, rewriting " + m_state_path.string());
+                m_logger.info("load_state(): legacy state migrated, rewriting " + m_state_path.string());
                 write_state(parsed);
             }
             return true;
@@ -351,11 +353,7 @@ namespace neural {
                     if (!d.streaming->id.empty()) st["id"] = d.streaming->id;
                     entry["streaming"] = std::move(st);
                 }
-                if (!d.event_mask.empty()) {
-                    boost::json::array em;
-                    for (const auto& e : d.event_mask) em.emplace_back(e);
-                    entry["event_mask"] = std::move(em);
-                }
+                write_event_masks(entry, d);
                 arr.push_back(std::move(entry));
             }
 
@@ -537,9 +535,9 @@ namespace neural {
         auto cfg = m_json_configurator.load_config(desc.config_id);
         if (!cfg) throw FNeuralError(signaling::CODE_NEURAL_NO_CONFIG, "no configuration: " + desc.config_id);
 
-        // Пер-стримовая маска событий переопределяет маску трекера конфигурации.
-        if (cfg->tracker_config && !desc.event_mask.empty()) {
-            cfg->tracker_config->event_mask = event_mask_from_types(desc.event_mask);
+        // Трекер считает события по объединению масок снимка и пакета
+        if (cfg->tracker_config) {
+            cfg->tracker_config->event_mask = event_mask_from_types(desc.image_mask) | event_mask_from_types(desc.packet_mask);
         }
 
         if (stream_cameras(*video).empty()) {
