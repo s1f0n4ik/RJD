@@ -1,0 +1,28 @@
+from pydantic_settings import BaseSettings
+
+
+class Settings(BaseSettings):
+    APP_NAME: str = "detection-service"
+    # Порт приёма потока от устройств
+    GRPC_PORT: int = 50052
+
+    # Журнал: база, кадры, последняя известная конфигурация шлюза
+    JOURNAL_DIR: str = "/storage/journal"
+    # REST шлюза АС КРСПС: активная конфигурация
+    GATEWAY_URL: str = "http://127.0.0.1:9090"
+    GATEWAY_POLL_SEC: float = 5.0
+
+    # Пакет, пролежавший в очереди устройства дольше, — опоздавший: только в журнал
+    LATE_MS: int = 5000
+    # Связь с устройством не вернулась за это время — его открытые обнаружения закрываются
+    LINK_LOST_SEC: float = 10.0
+
+    # РСМ-2000: пауза между пропажей трека и появлением нового, который сшивается с ним
+    STITCH_GAP_MS: int = 2000
+    # РСМ-2000: допустимое смещение центра нового трека в диагоналях последней рамки прежнего
+    STITCH_DISTANCE: float = 1.0
+
+    CLEANUP_INTERVAL_SEC: int = 60
+
+
+settings = Settings()

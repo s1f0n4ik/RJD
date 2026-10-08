@@ -64,6 +64,7 @@ namespace detection {
             std::string jpeg;
             int width = 0;
             int height = 0;
+            std::chrono::steady_clock::time_point queued;
         };
 
         void push(FItem item);

@@ -27,8 +27,9 @@ namespace detection {
             return rpc::TRACK_EVENT_UNSPECIFIED;
         }
 
-        void fill_packet(rpc::Packet& out, std::uint64_t id, const FPacket& p, const FDeviceInfo& device) {
+        void fill_packet(rpc::Packet& out, std::uint64_t id, const FPacket& p, const FDeviceInfo& device, std::int64_t delay_ms) {
             out.set_id(id);
+            out.set_delay_ms(delay_ms);
             out.set_device_id(device.device_id);
             out.set_session(device.session_id);
             out.set_video_id(p.video_id);
@@ -109,6 +110,7 @@ namespace detection {
 
     void UDetectionClient::push(FItem item) {
         if (!m_running.load()) return;
+        item.queued = std::chrono::steady_clock::now();
         {
             std::lock_guard<std::mutex> lk(m_mutex);
             if (item.image) {
@@ -236,7 +238,9 @@ namespace detection {
                             image->set_height(item.height);
                         }
                         else {
-                            fill_packet(*msg.mutable_packet(), item.id, item.packet, m_device);
+                            const auto delay = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now() - item.queued).count();
+                            fill_packet(*msg.mutable_packet(), item.id, item.packet, m_device, delay);
                         }
                         ++m_unsent;
                         ++m_sent;

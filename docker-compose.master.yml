@@ -1,4 +1,4 @@
-# Мастер — веб-стек без media-center: frontend, FastAPI, сканер камер, шлюз.
+# Мастер — веб-стек без media-center: frontend, FastAPI, сканер камер, шлюз, мастер обнаружений.
 # Media-center'ы (свои и удалённые) подключаются как устройства-миньоны
 # через discovery по порту 7777; их состав описан в docker-compose.minion.yml.
 #
@@ -101,6 +101,30 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ========== Мастер обнаружений (треки устройств, журнал, АС КРСПС) ==========
+  # HTTP 8003, gRPC 50052; устройства ходят сюда через --detection-ip/--detection-port
+  detection-service:
+    image: varan/detection-service:${TAG:-latest}
+    build:
+      context: ./detection-service
+      dockerfile: Dockerfile
+    container_name: detection-service
+    network_mode: host
+    volumes:
+      - /storage:/storage
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8003/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     logging:
       driver: "json-file"
       options:

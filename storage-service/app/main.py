@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -9,8 +8,6 @@ from app.routers import recordings, journal, archive
 from app.services import exports
 from app.services.cleaner import cleaner
 from app.services.jobs import jobs
-from app.services.journal import journal as journal_service
-from app.services.journal_cleaner import journal_cleaner
 from app.services.reconciler import reconciler
 
 logging.basicConfig(
@@ -25,17 +22,13 @@ async def lifespan(app: FastAPI):
     logger.info("Starting %s", settings.APP_NAME)
     # После перезапуска задач нет, а их результаты на диске — есть
     exports.sweep()
-    # Кадры без строк в базе накопились, пока служба не работала
-    await asyncio.get_running_loop().run_in_executor(None, journal_service.startup_maintenance)
     await jobs.start()
     await cleaner.start()
-    await journal_cleaner.start()
     await reconciler.start()
     yield
     logger.info("Stopping background services")
     await jobs.stop()
     await cleaner.stop()
-    await journal_cleaner.stop()
     await reconciler.stop()
 
 

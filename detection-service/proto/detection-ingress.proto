@@ -54,6 +54,7 @@ message Packet {
     int32 height = 11;
     repeated TrackRecord tracks = 12;
     uint64 image_id = 13;       // 0 — снимок не брался
+    int64 delay_ms = 14;        // сколько пакет ждал в очереди устройства до отправки
 }
 
 message Image {
