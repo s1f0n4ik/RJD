@@ -16,8 +16,6 @@
 #include <algorithm>
 #include <ctime>
 #include <cstdio>
-#include <fstream>
-#include <filesystem>
 
 namespace {
     std::int64_t now_ms() {
@@ -44,20 +42,6 @@ namespace {
         return std::string(buf);
     }
 
-    // Дата UTC "YYYY-MM-DD" из unix-мс — для раскладки кадров журнала по дням.
-    std::string format_date(std::int64_t unix_ms) {
-        const std::time_t t = static_cast<std::time_t>(unix_ms / 1000);
-        std::tm tm{};
-#if defined(_WIN32)
-        gmtime_s(&tm, &t);
-#else
-        gmtime_r(&t, &tm);
-#endif
-        char buf[16];
-        std::strftime(buf, sizeof(buf), "%Y-%m-%d", &tm);
-        return std::string(buf);
-    }
-
     // HEX "#RRGGBB" -> cv::Scalar(B, G, R) — для BGR-кадра (см. hex_to_rgb в draw-detections.h).
     cv::Scalar hex_to_bgr(const std::string& hex) {
         const cv::Scalar rgb = varan::neural::hex_to_rgb(hex);
@@ -78,7 +62,7 @@ namespace neural {
         FCameraSenderProvider sender_provider,
         gateway::FGatewayFrameSender gateway_sender,
         gateway::FGatewayTimeProvider time_provider,
-        journal::FSlotJournal journal,
+        detection::UDetectionClient* master,
         ULogger::ELoggerLevel level)
         : m_config(config)
         , m_video(video)
@@ -93,7 +77,7 @@ namespace neural {
         , m_sender_provider(std::move(sender_provider))
         , m_gateway_sender(std::move(gateway_sender))
         , m_time_provider(std::move(time_provider))
-        , m_journal(std::move(journal))
+        , m_master(master)
     {
         m_text_renderer = std::make_unique<UTextRenderer>(constants::GATEWAY_DETECTION_FONT_HEIGHT, level);
 
@@ -583,72 +567,48 @@ namespace neural {
 
     // Сбор задачи на потоке доставки: только метаданные, кадр камеры придёт снимком
     USlot::FFrameTask USlot::make_frame_task(const std::string& camera, const cv::Size& resolution,
-        const IDetectionTracker& tracker, const std::vector<FTrackEventRecord>& events)
+        const IDetectionTracker& tracker, const gateway::FGatewayTimeGps& time_gps)
     {
         FFrameTask task;
         task.camera = camera;
         task.width = resolution.width;
         task.height = resolution.height;
         task.seq = ++m_frame_seq;
-
-        // Синхронизированное время шлюза, иначе локальные часы как запасной вариант.
-        task.time_gps = m_time_provider ? m_time_provider() : gateway::FGatewayTimeGps{};
-        if (task.time_gps.unix_ms == 0) task.time_gps.unix_ms = now_ms();
-
-        // Типы сработавших событий — в запись журнала, для контекста.
-        for (const auto& e : events) {
-            const std::string name = track_event_str(e.event);
-            if (task.events.find(name) == std::string::npos) {
-                if (!task.events.empty()) task.events += ",";
-                task.events += name;
-            }
-        }
-
-        {
-            for (const auto& t : tracker.tracks()) {
-                const int x1 = static_cast<int>(std::lround(t.detection.x1_coord));
-                const int y1 = static_cast<int>(std::lround(t.detection.y1_coord));
-                const int x2 = static_cast<int>(std::lround(t.detection.x2_coord));
-                const int y2 = static_cast<int>(std::lround(t.detection.y2_coord));
-
-                // Журнал: ВСЕ треки кадра со своим состоянием (временный/
-                // подтверждённый/потерянный) — маска событий уже отсеяла лишнее.
-                journal::FDetectionObject o;
-                o.cid = t.class_id;
-                o.cf = t.confidence;
-                o.box = { x1, y1, std::max(0, x2 - x1), std::max(0, y2 - y1) };
-                o.state = track_state_str(t.state);
-                task.objects.push_back(std::move(o));
-
-                // Шлюз: по протоколу только подтверждённые и недавно потерянные.
-                if (t.state == ETrackState::CONFIRMED || t.state == ETrackState::LOST) {
-                    task.gw_dets.push_back(make_gateway_detection(t.class_id, t.confidence, t.detection));
-                }
-            }
-        }
+        task.time_gps = time_gps;
+        task.gw_dets = gateway_dets_from_tracks(tracker.tracks());
         return task;
     }
 
+    // Пакет мастеру: события треков камеры за такт, рамки в пикселях кадра камеры
+    detection::FPacket USlot::make_packet(const std::string& camera, const cv::Size& resolution,
+        const std::vector<FTrackEventRecord>& events, const gateway::FGatewayTimeGps& time_gps) const
+    {
+        detection::FPacket packet;
+        packet.video_id = m_video.id;
+        packet.config_id = config_id();
+        packet.camera_id = camera;
+        packet.time_gps = time_gps;
+        packet.width = resolution.width;
+        packet.height = resolution.height;
+        for (const auto& e : events) {
+            packet.tracks.push_back({ std::max<std::int64_t>(e.track.id, 0), e.event,
+                make_gateway_detection(e.track.class_id, e.track.confidence, e.track.detection) });
+        }
+        return packet;
+    }
+
     void USlot::enqueue_frame(FFrameTask task) {
-        FFrameTask dropped;
-        bool has_dropped = false;
+        bool dropped = false;
         {
             std::lock_guard<std::mutex> lk(m_frame_mutex);
             if (m_frame_queue.size() >= kFrameQueue) {
-                dropped = std::move(m_frame_queue.front());
                 m_frame_queue.pop_front();
-                has_dropped = true;
+                dropped = true;
             }
             m_frame_queue.push_back(std::move(task));
         }
 
-        if (has_dropped) {
-            // Картинку теряем, а событие — нет: строку в журнал пишем всё равно,
-            // просто без изображения. Это дёшево, кодирования тут не происходит.
-            m_logger.warn("frame queue overflow: image dropped, row kept");
-            dropped.rgb.release();
-            journal_row(dropped, std::string());
-        }
+        if (dropped) m_logger.warn("frame queue overflow: oldest image dropped");
         m_frame_cv.notify_one();
     }
 
@@ -671,34 +631,15 @@ namespace neural {
         cv::Mat bgr;
         cv::cvtColor(task.rgb, bgr, cv::COLOR_RGB2BGR);
 
-        // 1) Журнал — ЧИСТЫЙ кадр: без боксов и без оверлея времени/GPS. Такие
-        // кадры пригодны для дообучения, а боксы фронт рисует поверх сам —
-        // координаты и id классов лежат в БД.
-        if (m_journal.enabled()) {
+        // 1) Мастеру — чистый кадр камеры без рамок и подписей
+        if (task.image_id && m_master) {
             std::vector<uchar> buf;
             const std::vector<int> params{ cv::IMWRITE_JPEG_QUALITY, 85 };
-            if (!cv::imencode(".jpg", bgr, buf, params)) {
-                m_logger.warn("journal: jpeg encode failed, row kept without image");
-                journal_row(task, std::string());
+            if (cv::imencode(".jpg", bgr, buf, params)) {
+                m_master->send_image(task.image_id, std::string(buf.begin(), buf.end()), task.width, task.height);
             }
             else {
-                const std::string date = format_date(task.time_gps.unix_ms);
-                const std::string name = std::to_string(task.time_gps.unix_ms) + "-" +
-                    std::to_string(task.seq) + ".jpg";
-                const std::filesystem::path abs = m_journal.frames_dir / date / name;
-
-                std::error_code ec;
-                std::filesystem::create_directories(abs.parent_path(), ec);
-                std::ofstream f(abs, std::ios::binary);
-                if (!f) {
-                    m_logger.warn("journal: cannot write " + abs.string() + ", row kept without image");
-                    journal_row(task, std::string());
-                }
-                else {
-                    f.write(reinterpret_cast<const char*>(buf.data()), static_cast<std::streamsize>(buf.size()));
-                    f.close();
-                    journal_row(task, date + "/" + name);
-                }
+                m_logger.warn("master: jpeg encode failed, image " + std::to_string(task.image_id) + " dropped");
             }
         }
 
@@ -728,29 +669,6 @@ namespace neural {
 
             m_gateway_sender(std::move(frame));
         }
-    }
-
-    void USlot::journal_row(const FFrameTask& task, const std::string& image_path) {
-        if (!m_journal.enabled()) return;
-        if (task.objects.empty()) return;
-
-        journal::FEntry entry;
-        entry.ts = task.time_gps.unix_ms;
-        entry.camera_id = task.camera;
-        entry.config_id = config_id();
-        entry.gps_valid = task.time_gps.valid;
-        entry.lat = task.time_gps.lat;
-        entry.lon = task.time_gps.lon;
-        entry.alt = task.time_gps.alt;
-        entry.speed = task.time_gps.speed;
-        entry.course = task.time_gps.course;
-        entry.width = task.width;
-        entry.height = task.height;
-        entry.image_path = image_path;
-        entry.event = task.events;
-        entry.objects = task.objects;
-
-        m_journal.sink(std::move(entry));
     }
 
     void USlot::on_canvas(cv::Mat rgba, FCanvasInfo tiles) {
@@ -871,15 +789,25 @@ namespace neural {
                 if (update_result.has_events()) {
                     log_events(update_result.events);
 
-                    const bool shot = std::any_of(update_result.events.begin(), update_result.events.end(),
+                    // Синхронизированное время шлюза, иначе локальные часы
+                    gateway::FGatewayTimeGps time_gps = m_time_provider ? m_time_provider() : gateway::FGatewayTimeGps{};
+                    if (time_gps.unix_ms == 0) time_gps.unix_ms = now_ms();
+
+                    const bool want_image = m_composer && std::any_of(update_result.events.begin(), update_result.events.end(),
                         [this](const FTrackEventRecord& e) { return event_matches_mask(e.event, m_image_events); });
-                    if (shot && (m_journal.enabled() || m_gateway_sender) && m_composer) {
-                        auto task = make_frame_task(camera, size, *tracker, update_result.events);
+
+                    std::uint64_t image_id = 0;
+                    if (m_master) {
+                        auto packet = make_packet(camera, size, update_result.events, time_gps);
+                        if (want_image) image_id = packet.image_id = m_master->reserve_image_id();
+                        m_master->send_packet(std::move(packet));
+                    }
+
+                    if (want_image && (image_id || m_gateway_sender)) {
+                        auto task = make_frame_task(camera, size, *tracker, time_gps);
+                        task.image_id = image_id;
                         m_composer->request_snapshot(camera, [this, task = std::move(task)](cv::Mat shot) mutable {
-                            if (shot.empty()) {
-                                journal_row(task, std::string());
-                                return;
-                            }
+                            if (shot.empty()) return;
                             task.rgb = std::move(shot);
                             task.width = task.rgb.cols;
                             task.height = task.rgb.rows;

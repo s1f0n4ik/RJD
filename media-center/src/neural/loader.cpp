@@ -23,6 +23,7 @@ namespace neural {
         std::filesystem::path state_path,
         FDeviceInfo device,
         std::shared_ptr<gateway::UGatewayClient> gateway,
+        std::shared_ptr<detection::UDetectionClient> master,
         ULogger::ELoggerLevel level)
         : m_ip(ip_address), m_port(port)
         , m_context(context), m_storage(storage), m_level(level)
@@ -31,30 +32,12 @@ namespace neural {
         , m_state_path(std::move(state_path))
         , m_device(std::move(device))
         , m_gateway(std::move(gateway))
+        , m_master(std::move(master))
         , m_logger("NeuralLoader", level)
         , m_json_configurator(&m_logger)
     {
         if (m_gateway) {
             m_logger.info("gateway ingress: using shared client");
-        }
-
-        // Журнал обнаружений: SQLite + JPEG на томе /storage. Общий writer для
-        // всех слотов; при ошибке БД остаётся nullptr, слоты пишут без журнала.
-        // Каталог задаётся флагом --journal-dir и разбирается в main.
-        {
-            const std::filesystem::path journal_dir = varan::paths().journal;
-
-            auto writer = std::make_unique<journal::UJournalWriter>(
-                journal_dir / "journal.db", journal_dir / "frames", level);
-            if (writer->start()) {
-                m_journal = std::move(writer);
-                m_logger.info("journal enabled -> " + journal_dir.string());
-            } else {
-                // Журнал не поднялся — это не повод ронять нейронку, но знать об
-                // этом надо: без него обнаружения никуда не запишутся.
-                m_logger.error("journal DISABLED: writer start failed at "
-                    + journal_dir.string() + " (check permissions and sqlite availability)");
-            }
         }
 
         load_state();
@@ -563,7 +546,7 @@ namespace neural {
             time_provider = [this]() { return current_synced_time(); };
         }
 
-        m_logger.info("slot " + desc.config_id + ": journal=" + (m_journal ? "on" : "off"));
+        m_logger.info("slot " + desc.config_id + ": master=" + (m_master ? "on" : "off"));
 
         return std::make_unique<USlot>(
             cfg.value(),
@@ -575,7 +558,7 @@ namespace neural {
             m_sender_provider,
             std::move(gateway_sender),
             std::move(time_provider),
-            m_journal ? m_journal->slot_journal() : journal::FSlotJournal{},
+            m_master.get(),
             m_level
         );
     }

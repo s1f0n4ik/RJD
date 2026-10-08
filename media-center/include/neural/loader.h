@@ -19,7 +19,7 @@
 #include "neural/slot.h"
 #include "neural/video-stream.h"
 #include "gateway/client.h"
-#include "journal/writer.h"
+#include "detection/client.h"
 #include "core/platform.h"
 
 #include "logger.h"
@@ -51,6 +51,7 @@ namespace neural {
 			std::filesystem::path state_path,
 			FDeviceInfo device,
 			std::shared_ptr<gateway::UGatewayClient> gateway = nullptr,
+			std::shared_ptr<detection::UDetectionClient> master = nullptr,
 			ULogger::ELoggerLevel level = ULogger::ELoggerLevel::DEBUG
 		);
 
@@ -181,9 +182,8 @@ namespace neural {
 		// загрузчик только шлёт через него кадры.
 		std::shared_ptr<gateway::UGatewayClient> m_gateway;
 
-		// Writer журнала обнаружений: один на загрузчик, общий для всех слотов.
-		// nullptr — журнал не поднялся (ошибка БД), слоты работают без записи.
-		std::unique_ptr<journal::UJournalWriter> m_journal;
+		// Клиент мастера обнаружений из main; nullptr — мастер не задан
+		std::shared_ptr<detection::UDetectionClient> m_master;
 
 	};
 

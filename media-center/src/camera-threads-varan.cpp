@@ -19,6 +19,7 @@
 #include "core/paths.h"
 #include "core/time-sync.h"
 #include "archive/segment-writer.h"
+#include "detection/client.h"
 #include "gateway/client.h"
 #include "main-server/rest_server.h"
 #include "bird-view/linker.h"
@@ -57,6 +58,10 @@ struct AppConfig {
 	bool gateway_enabled = false;
 	std::string gateway_ip;
 	std::string gateway_port;
+
+	// Опциональное подключение к мастеру обнаружений; пусто — мастер не задан
+	std::string detection_ip;
+	std::string detection_port;
 };
 
 void signal_handler(int signal);
@@ -114,6 +119,8 @@ int main(int argc, char* argv[])
 	main_logger.info((std::ostringstream() << "Signaling: " << config.signaling_ip << ":" << config.signaling_port).str());
 	main_logger.info((std::ostringstream() << "Gateway: "
 		<< (config.gateway_enabled ? config.gateway_ip + ":" + config.gateway_port : std::string("disabled"))).str());
+	main_logger.info("Detection master: "
+		+ (config.detection_ip.empty() ? std::string("disabled") : config.detection_ip + ":" + config.detection_port));
 	main_logger.info("Modules: " + config.modules.to_string());
 
 	// Клиент шлюза общий на процесс: время нужно всем сборкам (имена фрагментов
@@ -176,8 +183,14 @@ int main(int argc, char* argv[])
 	}
 
 	// Нейронный загрузчик - только при neural
+	std::shared_ptr<varan::detection::UDetectionClient> detection_client;
 	std::shared_ptr<varan::neural::UNeuralLoader> loader;
 	if (config.modules.neural) {
+		if (!config.detection_ip.empty()) {
+			detection_client = std::make_shared<varan::detection::UDetectionClient>(
+				config.detection_ip, config.detection_port, device_info);
+			detection_client->start();
+		}
 		loader = std::make_shared<varan::neural::UNeuralLoader>(
 			socket_options.ip_adress, socket_options.port,
 			main_context.get(),
@@ -186,6 +199,7 @@ int main(int argc, char* argv[])
 			varan::paths().neural.loader_state,
 			device_info,
 			gateway_client,
+			detection_client,
 			ULogger::ELoggerLevel::DEBUG
 		);
 	}
@@ -272,6 +286,9 @@ int main(int argc, char* argv[])
 	if (gateway_client) {
 		gateway_client->stop();
 	}
+	if (detection_client) {
+		detection_client->stop();
+	}
 
 	// Индекс закрываем последним: run_eos() дописывает хвосты фрагментов, и их
 	// закрытия должны успеть лечь в базу
@@ -339,13 +356,15 @@ static void print_usage(const char* exe, ULogger* logger) {
 		"    --varan-root=<dir> \\\n"
 		"    [--modules=birdview,neural] \\\n"
 		"    [--gateway-ip=<ip> --gateway-port=<port>] \\\n"
+		"    [--detection-ip=<ip> --detection-port=<port>] \\\n"
 		"    [--journal-dir=<dir>] [--archive-dir=<dir>]\n"
 		"\n"
 		"  --varan-root   working directory: nvr, neural, surround_view\n"
 		"  --modules      optional build modules; without the flag it is a pure NVR\n"
 		"  --journal-dir  detection journal; otherwise MC_JOURNAL_DIR, otherwise /storage/journal\n"
 		"  --archive-dir  recording index; otherwise MC_ARCHIVE_DIR, otherwise /storage/archive\n"
-		"  --gateway-*    connection to message-gateway; set both or none\n";
+		"  --gateway-*    connection to message-gateway; set both or none\n"
+		"  --detection-*  connection to the detection master (neural tracks); set both or none\n";
 
 	if (logger) logger->error(text);
 	else std::cerr << text;
@@ -366,6 +385,7 @@ static bool split_flag(const char* arg, std::string& name, std::string& value) {
 
 bool parse_arguments(int argc, char* argv[], AppConfig& config, ULogger* logger) {
 	std::string gateway_port_raw;
+	std::string detection_port_raw;
 
 	for (int i = 1; i < argc; ++i) {
 		std::string name, value;
@@ -404,6 +424,10 @@ bool parse_arguments(int argc, char* argv[], AppConfig& config, ULogger* logger)
 			config.gateway_ip = value;
 		} else if (name == "gateway-port") {
 			gateway_port_raw = value;
+		} else if (name == "detection-ip") {
+			config.detection_ip = value;
+		} else if (name == "detection-port") {
+			detection_port_raw = value;
 		} else {
 			if (logger) logger->error("Unknown flag: --" + name);
 			print_usage(argv[0], logger);
@@ -443,6 +467,25 @@ bool parse_arguments(int argc, char* argv[], AppConfig& config, ULogger* logger)
 		}
 		config.gateway_port = std::to_string(gateway_port);
 		config.gateway_enabled = true;
+	}
+
+	if (config.detection_ip.empty() != detection_port_raw.empty()) {
+		if (logger) logger->error("--detection-ip and --detection-port must be given together");
+		return false;
+	}
+
+	if (!config.detection_ip.empty()) {
+		if (!is_valid_ipv4(config.detection_ip)) {
+			if (logger) logger->error("Invalid --detection-ip: " + config.detection_ip);
+			return false;
+		}
+
+		uint16_t detection_port = 0;
+		if (!parse_port(detection_port_raw.c_str(), detection_port)) {
+			if (logger) logger->error("Invalid --detection-port: " + detection_port_raw);
+			return false;
+		}
+		config.detection_port = std::to_string(detection_port);
 	}
 
 	// Журнал: флаг важнее переменной, переменная важнее умолчания.

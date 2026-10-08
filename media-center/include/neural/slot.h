@@ -15,7 +15,7 @@
 #include "neural/utility.h"
 #include "neural/tracker/tracker-interface.h"
 #include "gateway/frame.h"
-#include "journal/types.h"
+#include "detection/client.h"
 
 #include <atomic>
 #include <chrono>
@@ -47,7 +47,7 @@ namespace neural {
             FCameraSenderProvider sender_provider,
             gateway::FGatewayFrameSender gateway_sender = {},
             gateway::FGatewayTimeProvider time_provider = {},
-            journal::FSlotJournal journal = {},
+            detection::UDetectionClient* master = nullptr,
             ULogger::ELoggerLevel level = ULogger::ELoggerLevel::DEBUG
         );
 
@@ -143,19 +143,18 @@ namespace neural {
             gateway::FGatewayTimeGps time_gps;
             // Для шлюза: подтверждённые и недавно потерянные
             std::vector<gateway::FGatewayDetection> gw_dets;
-            // Для журнала: все треки кадра со своим состоянием
-            std::vector<journal::FDetectionObject> objects;
-            std::string events;
+            // Снимок для мастера обнаружений; 0 — мастеру не нужен
+            std::uint64_t image_id = 0;
         };
 
         FFrameTask make_frame_task(const std::string& camera, const cv::Size& resolution,
-            const IDetectionTracker& tracker, const std::vector<FTrackEventRecord>& events);
-        // Постановка в очередь; при переполнении теряется картинка самой старой задачи, строка пишется
+            const IDetectionTracker& tracker, const gateway::FGatewayTimeGps& time_gps);
+        detection::FPacket make_packet(const std::string& camera, const cv::Size& resolution,
+            const std::vector<FTrackEventRecord>& events, const gateway::FGatewayTimeGps& time_gps) const;
+        // Постановка в очередь; при переполнении теряется картинка самой старой задачи
         void enqueue_frame(FFrameTask task);
         void frame_worker();
         void process_frame_task(const FFrameTask& task);
-        // Отдать метаданные журналу. image_path пуст — кадр потерян
-        void journal_row(const FFrameTask& task, const std::string& image_path);
 
         void draw_gateway_overlay(cv::Mat& frame_bgr, const std::vector<gateway::FGatewayDetection>& dets,
             const gateway::FGatewayTimeGps& time_gps);
@@ -195,7 +194,8 @@ namespace neural {
 
         gateway::FGatewayFrameSender m_gateway_sender;
         gateway::FGatewayTimeProvider m_time_provider;
-        journal::FSlotJournal m_journal;
+        // Клиент мастера обнаружений; nullptr — мастер не задан
+        detection::UDetectionClient* m_master;
 
         std::unique_ptr<UTextRenderer> m_text_renderer;
         std::atomic<std::int64_t> m_frame_seq{ 0 };
