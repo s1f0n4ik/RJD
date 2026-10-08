@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.config import settings
-from app.routers import recordings, journal, archive
+from app.routers import recordings, archive
 from app.services import exports
 from app.services.cleaner import cleaner
 from app.services.jobs import jobs
@@ -39,7 +39,6 @@ app = FastAPI(
 )
 
 app.include_router(recordings.router, prefix="/api", tags=["Recordings"])
-app.include_router(journal.router, prefix="/api", tags=["Journal"])
 app.include_router(archive.router, prefix="/api", tags=["Archive"])
 
 

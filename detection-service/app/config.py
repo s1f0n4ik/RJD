@@ -24,5 +24,14 @@ class Settings(BaseSettings):
 
     CLEANUP_INTERVAL_SEC: int = 60
 
+    # Карта журнала: офлайн-тайлы и стиль MapLibre
+    TILES_MBTILES: str = "/storage/journal/tiles/russia.mbtiles"
+    MAP_DIR: str = "/storage/journal/map"
+
+    # Выгрузки журнала: архив живёт до скачивания или до срока
+    EXPORTS_DIR: str = "/storage/journal/exports"
+    EXPORT_TTL_SEC: int = 6 * 3600
+    DOWNLOAD_CLEANUP_DELAY_SEC: int = 300
+
 
 settings = Settings()

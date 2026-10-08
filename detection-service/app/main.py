@@ -2,17 +2,16 @@ import asyncio
 import json
 import logging
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 import grpc
 from fastapi import FastAPI
 
 import detection_ingress_pb2_grpc as rpc
+from app.api import router as journal_router
 from app.config import settings
-from app.journal import Journal
-from app.master import Master
+from app.jobs import jobs
+from app.master import journal, master, run, worker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -26,15 +25,6 @@ GRPC_OPTIONS = [
     ("grpc.keepalive_permit_without_calls", 1),
     ("grpc.http2.max_pings_without_data", 0),
 ]
-
-# Журнал, правила и таймеры живут в одном потоке
-worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="master")
-journal = Journal(Path(settings.JOURNAL_DIR))
-master = Master(journal)
-
-
-async def run(fn, *args):
-    return await asyncio.get_running_loop().run_in_executor(worker, fn, *args)
 
 
 class Ingress(rpc.DetectionIngressServicer):
@@ -94,6 +84,7 @@ async def lifespan(app: FastAPI):
     server.add_insecure_port(f"0.0.0.0:{settings.GRPC_PORT}")
     await server.start()
     logger.info("gRPC listening on port %s", settings.GRPC_PORT)
+    await jobs.start()
 
     tasks = [
         asyncio.create_task(every(0.5, master.tick)),
@@ -104,11 +95,13 @@ async def lifespan(app: FastAPI):
     await server.stop(grace=2)
     for task in tasks:
         task.cancel()
+    await jobs.stop()
     await run(journal.close)
     logger.info("stopped")
 
 
 app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
+app.include_router(journal_router)
 
 
 @app.get("/health", tags=["Health"])

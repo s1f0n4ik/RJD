@@ -1,7 +1,10 @@
+import asyncio
 import logging
 import math
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
 
 import detection_ingress_pb2 as pb
@@ -279,3 +282,13 @@ class Master:
                 device.closed_for_loss = True
         self.rules.tick()
         self.journal.commit()
+
+
+# Журнал, правила, таймеры и правки из API живут в одном потоке
+worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="master")
+journal = Journal(Path(settings.JOURNAL_DIR))
+master = Master(journal)
+
+
+async def run(fn, *args):
+    return await asyncio.get_running_loop().run_in_executor(worker, fn, *args)

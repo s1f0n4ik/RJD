@@ -11,6 +11,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 COPY proto/ ./proto/
 RUN python -m grpc_tools.protoc -I proto --python_out=. --grpc_python_out=. proto/detection-ingress.proto
 
+COPY fonts/ ./fonts/
 COPY app/ ./app/
 
 EXPOSE 8003 50052

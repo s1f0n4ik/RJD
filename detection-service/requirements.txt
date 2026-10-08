@@ -3,3 +3,4 @@ uvicorn[standard]==0.32.0
 pydantic-settings==2.6.0
 grpcio==1.68.1
 grpcio-tools==1.68.1
+pillow==11.0.0

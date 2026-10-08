@@ -407,6 +407,70 @@ class Journal:
         self._remove_empty_day_dirs()
         return deleted, freed
 
+    # ── Правки из API ──
+
+    def set_verdict(self, detection_id: int, verdict: str, note: Optional[str], at_ms: int) -> bool:
+        cur = self.conn.execute(
+            "UPDATE detections SET verdict = ?, verdict_note = ?, verdict_at = ? WHERE id = ?",
+            [verdict, note, at_ms, detection_id],
+        )
+        self.conn.commit()
+        return cur.rowcount > 0
+
+    def write_limits(self, images_limit_gb: float, db_limit_gb: float) -> None:
+        self.conn.executemany(
+            "INSERT INTO journal_settings(key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [("images_limit_gb", max(0.0, images_limit_gb)), ("db_limit_gb", max(0.0, db_limit_gb))],
+        )
+        self.conn.commit()
+
+    def storage_state(self) -> dict:
+        return {**self.read_limits(), "frames_bytes": self.frames_bytes(), "db_bytes": self.db_bytes()}
+
+    # Закрытые обнаружения: все или начатые раньше before_ts; открытые живут в правилах
+    def purge(self, before_ts: Optional[int]) -> dict:
+        deleted = files = 0
+        while True:
+            if before_ts is None:
+                ids = [r[0] for r in self.conn.execute(
+                    "SELECT id FROM detections WHERE ended_at IS NOT NULL LIMIT 1000")]
+            else:
+                ids = [r[0] for r in self.conn.execute(
+                    "SELECT id FROM detections WHERE ended_at IS NOT NULL AND started_at < ? LIMIT 1000", [before_ts])]
+            if not ids:
+                break
+            rows, removed = self._delete_detections(ids)
+            deleted += rows
+            files += removed
+        # Снимки, на которые не ссылается ни одно событие
+        orphans = self.conn.execute(
+            "SELECT id, path FROM images WHERE NOT EXISTS (SELECT 1 FROM events e WHERE e.device_id = images.device_id "
+            "AND e.session = images.session AND e.image_ref = images.device_image_id)"
+            + ("" if before_ts is None else " AND received_at < ?"),
+            [] if before_ts is None else [before_ts],
+        ).fetchall()
+        if orphans:
+            self.conn.execute(
+                f"DELETE FROM images WHERE id IN ({','.join('?' for _ in orphans)})", [r[0] for r in orphans]
+            )
+            self.conn.commit()
+            files += self._unlink([r[1] for r in orphans])
+        self._compact()
+        logger.info("journal purge: %d detections, %d frames", deleted, files)
+        return {"deleted": deleted, "files_deleted": files}
+
+    def _unlink(self, paths: list[str]) -> int:
+        removed = 0
+        for rel in paths:
+            try:
+                (self.frames_dir / rel).unlink(missing_ok=True)
+                removed += 1
+            except OSError as e:
+                logger.warning("delete frame %s: %s", rel, e)
+        self._remove_empty_day_dirs()
+        return removed
+
     # Старейшие закрытые обнаружения вместе с треками, событиями и снимками
     def _delete_oldest_detections(self, batch: int = 500) -> tuple[int, int]:
         ids = [
@@ -415,6 +479,9 @@ class Journal:
                 "SELECT id FROM detections WHERE ended_at IS NOT NULL ORDER BY started_at LIMIT ?", [batch]
             )
         ]
+        return self._delete_detections(ids)
+
+    def _delete_detections(self, ids: list[int]) -> tuple[int, int]:
         if not ids:
             return 0, 0
         marks = ",".join("?" for _ in ids)
@@ -435,16 +502,7 @@ class Journal:
                 f"DELETE FROM images WHERE id IN ({','.join('?' for _ in images)})", [row[0] for row in images]
             )
         self.conn.commit()
-
-        files = 0
-        for row in images:
-            try:
-                (self.frames_dir / row[1]).unlink(missing_ok=True)
-                files += 1
-            except OSError as e:
-                logger.warning("delete frame %s: %s", row[1], e)
-        self._remove_empty_day_dirs()
-        return len(ids), files
+        return len(ids), self._unlink([row[1] for row in images])
 
     def _compact(self) -> None:
         try:
