@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { Icon } from '../../../../app/Icons';
 import { journalApi } from '../../api/journal';
 import type { JournalFilters, JournalSummary as Summary } from '../../api/journal-types';
@@ -18,6 +18,12 @@ interface Row {
   name: string;
   value: number;
   color?: string;
+  // Точка вместо квадрата — у классов
+  round?: boolean;
+  // Цвет полосы; нет — акцентный
+  bar?: string;
+  // Метка суперкласса слева от класса
+  mark?: string;
   top?: boolean;
   sub?: boolean;
 }
@@ -67,7 +73,16 @@ function Card({ title, aside, children }: { title: string; aside: string; childr
   );
 }
 
-function Rows({ head, rows, total }: { head: string; rows: Row[]; total: number }) {
+interface RowsProps {
+  head: string;
+  rows: Row[];
+  total: number;
+  // Строки — кнопки выбора; picked — выбранная
+  onPick?: (key: string) => void;
+  picked?: string | null;
+}
+
+function Rows({ head, rows, total, onPick, picked }: RowsProps) {
   const max = Math.max(1, ...rows.filter((r) => !r.top).map((r) => r.value));
   return (
     <div className="js-rows">
@@ -76,58 +91,69 @@ function Rows({ head, rows, total }: { head: string; rows: Row[]; total: number 
         <span className="wide">Обнаружений</span>
         <span>Доля</span>
       </div>
-      {rows.map((r) => (
-        <div className={`js-row${r.top ? ' top' : ''}`} key={r.key}>
-          <span className={`n${r.sub ? ' sub' : ''}`}>
-            {r.color && <i style={{ background: r.color }} />}
+      {rows.map((r) => {
+        const Tag = onPick ? 'button' : 'div';
+        return (
+        <Tag
+          className={`js-row${r.top ? ' top' : ''}${onPick ? ' js-pick' : ''}${picked === r.key ? ' is-on' : ''}`}
+          key={r.key}
+          type={onPick ? 'button' : undefined}
+          onClick={onPick ? () => onPick(r.key) : undefined}
+        >
+          <span
+            className={`n${r.sub ? ' js-sub' : ''}${r.mark ? ' mark' : ''}`}
+            style={r.mark ? ({ '--sc': r.mark } as CSSProperties) : undefined}
+          >
+            {r.color && <i className={r.round ? 'dot-c' : undefined} style={{ background: r.color }} />}
             {r.name}
           </span>
-          {r.top ? <span /> : <span className="js-bar"><i style={{ width: `${(r.value / max) * 100}%` }} /></span>}
+          {r.top ? <span /> : <span className="js-bar"><i style={{ width: `${(r.value / max) * 100}%`, background: r.bar }} /></span>}
           <span className="v">{fmt(r.value)}</span>
           <span className="p">{pct(r.value, total)}</span>
-        </div>
-      ))}
+        </Tag>
+        );
+      })}
     </div>
   );
 }
 
-interface ColumnsProps {
-  title: string;
-  aside: string;
-  values: number[];
-  labels: string[];
-  axis: string[];
+// Часы суток на всю свободную высоту колонки: пик — акцентом, нули — линией
+interface HoursProps {
+  hours: number[];
+  // Выбранный день; null — сумма за период
+  day: string | null;
+  onReset: () => void;
 }
 
-// Столбики 72 px: пик — акцентом, остальные приглушены, нули — линией
-function Columns({ title, aside, values, labels, axis }: ColumnsProps) {
-  const max = Math.max(1, ...values);
-  const peak = values.indexOf(Math.max(...values));
-  const w = 100 / values.length;
+function HoursChart({ hours, day, onReset }: HoursProps) {
+  const max = Math.max(1, ...hours);
+  const peak = hours.indexOf(Math.max(...hours));
   return (
-    <div className="js-cols">
+    <div className="js-hours">
       <div className="js-cols-h">
-        <span>{title}</span>
-        <b>{aside}</b>
+        <span className="seps">
+          <span>По времени суток</span>
+          {day && <span>{dayLabel(day)}</span>}
+        </span>
+        {day && (
+          <button type="button" className="js-reset" onClick={onReset}>
+            Все дни
+          </button>
+        )}
+        <b>пик {two(peak)}:00–{two((peak + 1) % 24)}:00</b>
       </div>
-      <svg viewBox="0 0 100 72" preserveAspectRatio="none" role="img" aria-label={title}>
-        {values.map((v, i) => {
-          const h = v ? Math.max(3, (v / max) * 70) : 2;
-          return (
-            <rect
-              key={i}
-              className={!v ? 'z' : i === peak ? 'pk' : ''}
-              x={i * w + w * 0.14}
-              y={72 - h}
-              width={w * 0.72}
-              height={h}
-              data-tip={`${labels[i]}: ${fmt(v)}`}
-            />
-          );
-        })}
-      </svg>
+      <div className="js-plot" role="img" aria-label="По времени суток">
+        {hours.map((v, i) => (
+          <i
+            key={i}
+            className={!v ? 'z' : i === peak ? 'pk' : undefined}
+            style={v ? { height: `${Math.max(3, (v / max) * 100)}%` } : undefined}
+            data-tip={`${two(i)}:00: ${fmt(v)}`}
+          />
+        ))}
+      </div>
       <div className="js-axis">
-        {axis.map((a, i) => <span key={i}>{a}</span>)}
+        {['00', '06', '12', '18', '23'].map((a) => <span key={a}>{a}</span>)}
       </div>
     </div>
   );
@@ -137,10 +163,13 @@ function Columns({ title, aside, values, labels, axis }: ColumnsProps) {
 export function JournalSummary({ filters, classOptions, superOf, cameraName, deviceName }: Props) {
   const [data, setData] = useState<Summary | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  // День, за который показаны часы; null — сумма за период
+  const [day, setDay] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
     setErr(null);
+    setDay(null);
     journalApi
       .summary(filters)
       .then((s) => {
@@ -199,26 +228,33 @@ export function JournalSummary({ filters, classOptions, superOf, cameraName, dev
     const key = c.superclass ?? '';
     groups.set(key, [...(groups.get(key) ?? []), c]);
   }
+  const supRows: Row[] = [...groups.entries()]
+    .filter(([key]) => superOf(key || null))
+    .map(([key, list]) => {
+      const sup = superOf(key)!;
+      return { key, name: sup.name, value: list.reduce((a, c) => a + c.count, 0), color: sup.color, bar: sup.color };
+    })
+    .sort((a, b) => b.value - a.value);
   const classColor = (cid: number | null, name: string | null) =>
     classOptions.find((o) => o.cid === cid && o.name === name)?.color ?? classOptions.find((o) => o.cid === cid)?.color;
-  const clsRows: Row[] = [...groups.entries()]
-    .map(([key, list]) => ({ key, list, sum: list.reduce((a, c) => a + c.count, 0) }))
-    .sort((a, b) => b.sum - a.sum)
-    .flatMap(({ key, list, sum }) => {
-      const sup = superOf(key || null);
-      const items = list.map((c) => ({
-        key: `${key}:${c.class_id}:${c.class_name}`,
-        name: c.class_name || String(c.class_id ?? '—'),
-        value: c.count,
-        sub: !!sup,
-        color: sup ? undefined : classColor(c.class_id, c.class_name),
-      }));
-      return sup ? [{ key: `s:${key}`, name: sup.name, value: sum, color: sup.color }, ...items] : items;
-    });
+  const clsRows: Row[] = data.classes.map((c) => {
+    const sup = superOf(c.superclass);
+    const color = classColor(c.class_id, c.class_name) ?? sup?.color ?? '#5b9dff';
+    return {
+      key: `${c.superclass}:${c.class_id}:${c.class_name}`,
+      name: c.class_name || String(c.class_id ?? '—'),
+      value: c.count,
+      color,
+      round: true,
+      bar: color,
+      mark: sup?.color,
+    };
+  });
   const classCount = data.classes.length;
 
-  const dayKeys = days.map((d) => d.day);
-  const mid = dayKeys[Math.floor(dayKeys.length / 2)];
+  const dayRows: Row[] = days.map((d) => ({ key: d.day, name: dayLabel(d.day), value: d.count }));
+  const pickedDay = days.length > 1 && days.some((d) => d.day === day) ? day : null;
+  const shownHours = days.find((d) => d.day === pickedDay)?.hours ?? hours;
 
   return (
     <div className="js-body">
@@ -273,22 +309,17 @@ export function JournalSummary({ filters, classOptions, superOf, cameraName, dev
           <Legend t={V.true} f={V.false} u={V.unverified} />
         </Card>
         <Card title="По классам" aside={`${classCount} ${plural(classCount, 'класс', 'класса', 'классов')}`}>
+          {supRows.length > 0 && <Rows head="Суперкласс" rows={supRows} total={total} />}
           <Rows head="Класс" rows={clsRows} total={total} />
         </Card>
         <Card title="По времени" aside={`${days.length} ${plural(days.length, 'день', 'дня', 'дней')}`}>
-          <Columns
-            title="По времени суток"
-            aside={`пик ${peakRange}`}
-            values={hours}
-            labels={hours.map((_, i) => `${two(i)}:00`)}
-            axis={['00', '06', '12', '18', '23']}
-          />
-          <Columns
-            title="По дням"
-            aside={`в среднем ${fmt(perDay)}`}
-            values={days.map((d) => d.count)}
-            labels={dayKeys.map(dayLabel)}
-            axis={dayKeys.length > 2 ? [dayLabel(dayKeys[0]), dayLabel(mid), dayLabel(dayKeys[dayKeys.length - 1])] : dayKeys.map(dayLabel)}
+          <HoursChart hours={shownHours} day={pickedDay} onReset={() => setDay(null)} />
+          <Rows
+            head="День"
+            rows={dayRows}
+            total={total}
+            onPick={days.length > 1 ? (key) => setDay((cur) => (cur === key ? null : key)) : undefined}
+            picked={pickedDay}
           />
         </Card>
       </div>

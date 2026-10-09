@@ -106,7 +106,8 @@ export interface JournalSummary {
   cameras: { device_id: string; camera_id: string; count: number; true: number; false: number; unverified: number }[];
   classes: { superclass: string | null; class_id: number | null; class_name: string | null; count: number }[];
   hours: number[];
-  days: { day: string; count: number }[];
+  // Часы суток — по каждому дню
+  days: { day: string; count: number; hours: number[] }[];
 }
 
 // Фильтры списка; cids — id классов выбранной конфигурации

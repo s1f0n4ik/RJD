@@ -22,9 +22,11 @@ export interface FilterState {
 }
 
 export function useJournalFilters(initial?: FilterState) {
-  const [state, setState] = useState<FilterState>(
-    () => initial ?? { preset: DEFAULT_PRESET, ...presetRange(DEFAULT_PRESET), cids: [], deviceId: '', cameraId: '', configId: '' },
-  );
+  const [state, setState] = useState<FilterState>(() => {
+    if (initial) return initial;
+    const r = presetRange(DEFAULT_PRESET);
+    return { preset: DEFAULT_PRESET, tFrom: r.from, tTo: r.to, cids: [], deviceId: '', cameraId: '', configId: '' };
+  });
   const patch = useCallback((p: Partial<FilterState>) => setState((s) => ({ ...s, ...p })), []);
 
   const applyPreset = useCallback((key: PresetKey) => {

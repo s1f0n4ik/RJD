@@ -291,16 +291,17 @@ def summary(f: Filters = Depends(query_filters)):
             for r in q("SELECT d.superclass, d.class_id, d.class_name, COUNT(*) FROM detections d {where} "
                        "GROUP BY 1, 2, 3 ORDER BY 4 DESC")
         ]
-        hours = [0] * 24
-        for r in q("SELECT CAST((d.started_at / 3600000) % 24 AS INTEGER), COUNT(*) FROM detections d {where} GROUP BY 1"):
-            hours[r[0]] = r[1]
-        by_day = {r[0]: r[1] for r in q(
-            "SELECT date(d.started_at / 1000, 'unixepoch'), COUNT(*) FROM detections d {where} GROUP BY 1")}
+        by_day: dict[str, list[int]] = {}
+        for r in q("SELECT date(d.started_at / 1000, 'unixepoch'), CAST((d.started_at / 3600000) % 24 AS INTEGER), "
+                   "COUNT(*) FROM detections d {where} GROUP BY 1, 2"):
+            by_day.setdefault(r[0], [0] * 24)[r[1]] = r[2]
+    hours = [sum(h[i] for h in by_day.values()) for i in range(24)]
     days = []
     if by_day:
         day, last = date.fromisoformat(min(by_day)), date.fromisoformat(max(by_day))
         while day <= last:
-            days.append({"day": day.isoformat(), "count": by_day.get(day.isoformat(), 0)})
+            day_hours = by_day.get(day.isoformat(), [0] * 24)
+            days.append({"day": day.isoformat(), "count": sum(day_hours), "hours": day_hours})
             day += timedelta(days=1)
     return {"total": total, "verdicts": verdicts, "devices": devices, "cameras": cameras,
             "classes": classes, "hours": hours, "days": days}
