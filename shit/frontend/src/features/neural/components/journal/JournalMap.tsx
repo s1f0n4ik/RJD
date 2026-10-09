@@ -7,7 +7,8 @@ import { journalApi } from '../../api/journal';
 import type { JournalDetection } from '../../api/journal-types';
 import type { ClassMeaning } from './useClassResolver';
 import { Icon } from '../../../../app/Icons';
-import { FrameWithBoxes } from './FrameWithBoxes';
+import { FrameWithBoxes, previewShot } from './FrameWithBoxes';
+import { DetTags, detClass } from './DetectionRow';
 import { fmtDateTime, pluralRecords } from './format';
 
 interface Props {
@@ -40,30 +41,9 @@ function coordsOf(geometry: unknown): [number, number] {
   return (geometry as { coordinates: [number, number] }).coordinates;
 }
 
-// Классы записи со счётчиком объектов — как в строке журнала.
-function aggClasses(det: JournalDetection, resolve: Props['resolve']) {
-  const agg = new Map<number, ClassMeaning & { count: number }>();
-  for (const o of det.objects) {
-    const prev = agg.get(o.cid);
-    if (prev) prev.count += 1;
-    else agg.set(o.cid, { ...resolve(det.config_id, o.cid), count: 1 });
-  }
-  return [...agg.values()].sort((a, b) => b.count - a.count);
-}
-
-function classColor(c: ClassMeaning): string {
-  return c.color || c.superColor || FALLBACK;
-}
-
-// Уникальные цвета классов записи — сектора пай-иконки, максимум 6.
+// Цвет класса обнаружения — единственный сектор пай-иконки
 function pieColors(det: JournalDetection, resolve: Props['resolve']): string[] {
-  const out: string[] = [];
-  for (const c of aggClasses(det, resolve)) {
-    const col = classColor(c);
-    if (!out.includes(col)) out.push(col);
-    if (out.length === 6) break;
-  }
-  return out.length ? out : [FALLBACK];
+  return [detClass(det, resolve).color];
 }
 
 // Иконка точки: круг из равных секторов по цветам классов, обводка под фон.
@@ -108,7 +88,7 @@ function toGeoJson(dets: JournalDetection[], resolve: Props['resolve']) {
         geometry: { type: 'Point' as const, coordinates: [d.gps!.lon, d.gps!.lat] },
         properties: {
           id: d.id,
-          ts: d.ts,
+          ts: d.started_at,
           icon: PIE + pieColors(d, resolve).join('|'),
         },
       })),
@@ -154,7 +134,7 @@ export function JournalMap({
       center: DEFAULT_CENTER,
       zoom: 4,
       attributionControl: false,
-      // Пути в style.json относительные — переписываем на storage-service устройства
+      // Пути в style.json относительные — делаем абсолютными для воркера
       transformRequest: (url) =>
         url.startsWith('/api/journal/') ? { url: journalApi.resourceUrl(url) } : undefined,
     });
@@ -360,6 +340,10 @@ export function JournalMap({
   }, [mode]);
 
   const byId = (id: number) => detections.find((d) => d.id === id);
+  const frameLabel = (d: JournalDetection) => {
+    const c = detClass(d, resolve);
+    return { color: c.color, name: c.name };
+  };
 
   const openRecord = (id: number) => {
     onSelect(id);
@@ -381,7 +365,7 @@ export function JournalMap({
               <Icon name="chev" size={12} className="ico is-back" />
             </button>
           )}
-          {det && <span className="j-ts">{fmtDateTime(det.ts)}</span>}
+          {det && <span className="j-ts">{fmtDateTime(det.started_at)}</span>}
           {det && <span className="jm-pop-cam">{cameraName(det.camera_id)}</span>}
           <button className="icon-btn jm-pop-btn jm-pop-close" data-tip="Закрыть" onClick={() => setPopup(null)}>
             <Icon name="x" size={12} />
@@ -390,16 +374,10 @@ export function JournalMap({
         {det ? (
           <>
             <div className="j-obj">
-              {aggClasses(det, resolve).map((c, i) => (
-                <span className="otag" key={i}>
-                  <i className="sw-col" style={{ background: classColor(c) }} />
-                  {c.name || '—'}
-                  <span className="num">×{c.count}</span>
-                </span>
-              ))}
+              <DetTags det={det} resolve={resolve} />
             </div>
             <button className="jm-pop-thumb" data-tip="Открыть кадр" onClick={() => onOpenViewer(det.id)}>
-              <FrameWithBoxes det={det} resolve={resolve} className="jm-pop-frame" />
+              <FrameWithBoxes shot={previewShot(det)} {...frameLabel(det)} className="jm-pop-frame" />
             </button>
           </>
         ) : (
@@ -428,20 +406,13 @@ export function JournalMap({
                   onOpenViewer(d.id);
                 }}
               >
-                <FrameWithBoxes det={d} resolve={resolve} compact className="jm-pop-mini" />
+                <FrameWithBoxes shot={previewShot(d)} {...frameLabel(d)} compact className="jm-pop-mini" />
               </span>
               <span className="jm-pop-row-info">
-                <span className="j-ts">{fmtDateTime(d.ts)}</span>
+                <span className="j-ts">{fmtDateTime(d.started_at)}</span>
                 <span className="jm-pop-cam">{cameraName(d.camera_id)}</span>
                 <span className="j-obj">
-                  {aggClasses(d, resolve)
-                    .slice(0, 3)
-                    .map((c, i) => (
-                      <span className="otag" key={i}>
-                        <i className="sw-col" style={{ background: classColor(c) }} />
-                        {c.name || '—'}
-                      </span>
-                    ))}
+                  <DetTags det={d} resolve={resolve} />
                 </span>
               </span>
             </button>

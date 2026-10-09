@@ -3,10 +3,11 @@
 #
 # Аргументы приложения именованные, порядок значения не имеет:
 #   --rest-port --signaling-ip --signaling-port --varan-root
-#   [--modules] [--gateway-ip --gateway-port] [--journal-dir]
+#   [--modules] [--gateway-ip --gateway-port] [--detection-ip --detection-port] [--journal-dir]
 # По умолчанию используются те же, что в systemd-сервисе устройства.
 # Значения можно переопределить аргументами или переменными окружения
 # MC_REST_PORT / MC_SIGNALING_IP / MC_SIGNALING_PORT / MC_VARAN_ROOT / MC_MODULES.
+# MC_DETECTION_IP / MC_DETECTION_PORT — мастер обнаружений, по умолчанию 127.0.0.1:50052.
 #
 # Mali EGL на устройстве собран под X11, поэтому нужен доступ к активной
 # графической сессии (DISPLAY=:0 + XAUTHORITY). Без этого eglInitialize падает.
@@ -17,6 +18,7 @@
 #   run.sh 7777 127.0.0.1 8765              запуск со своими параметрами
 #   run.sh 7777 127.0.0.1 8765 127.0.0.1 50051 birdview,neural
 #   MC_MODULES= run.sh                      чистый NVR без 360 и нейронки
+#   MC_DETECTION_IP= run.sh                 без отправки треков в мастер обнаружений
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
@@ -28,6 +30,12 @@ GATEWAY_PORT="${5:-${MC_GATEWAY_PORT:-50051}}"
 
 # Опциональные модули сборки; пустое значение — чистый NVR
 MODULES="${6:-${MC_MODULES-birdview,neural}}"
+
+# Мастер обнаружений (detection-service); пустой адрес — треки не отправляются
+DETECTION_IP="${MC_DETECTION_IP-127.0.0.1}"
+DETECTION_PORT="${MC_DETECTION_PORT:-50052}"
+DETECTION_ARGS=""
+[ -n "$DETECTION_IP" ] && DETECTION_ARGS="--detection-ip='$DETECTION_IP' --detection-port='$DETECTION_PORT'"
 
 # Окружение графической сессии для Mali EGL (X11)
 DISPLAY_ENV="${MC_DISPLAY:-:0}"
@@ -43,7 +51,7 @@ JOURNAL_DIR_ENV="${MC_JOURNAL_DIR:-/storage/journal}"
 # Обязателен для приложения — дефолта в коде нет.
 VARAN_ROOT_ENV="${MC_VARAN_ROOT:-/home/orangepi/varan}"
 
-log "Запуск media-center на $REMOTE: rest=$REST_PORT signaling=$SIGNALING_IP:$SIGNALING_PORT gateway_gRPC=$GATEWAY_IP:$GATEWAY_PORT varan_root=$VARAN_ROOT_ENV modules=${MODULES:-none} (DISPLAY=$DISPLAY_ENV)"
+log "Запуск media-center на $REMOTE: rest=$REST_PORT signaling=$SIGNALING_IP:$SIGNALING_PORT gateway_gRPC=$GATEWAY_IP:$GATEWAY_PORT detection_gRPC=${DETECTION_IP:+$DETECTION_IP:$DETECTION_PORT} varan_root=$VARAN_ROOT_ENV modules=${MODULES:-none} (DISPLAY=$DISPLAY_ENV)"
 
 # -t для интерактивного вывода и корректной обработки Ctrl-C
 ssh -t "$REMOTE" "source '$GST_ENV'; \
@@ -56,4 +64,5 @@ ssh -t "$REMOTE" "source '$GST_ENV'; \
         --modules='$MODULES' \
         --gateway-ip='$GATEWAY_IP' \
         --gateway-port='$GATEWAY_PORT' \
+        $DETECTION_ARGS \
         --journal-dir='$JOURNAL_DIR_ENV'"

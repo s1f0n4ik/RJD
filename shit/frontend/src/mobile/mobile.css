@@ -325,6 +325,8 @@
 
 .m-fv .fb{width:100%}
 
+.m-fv .jr-nav{width:44px;height:44px;margin-top:-22px}
+
 .m-fv-cap{padding:14px 16px 10px;display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;border-top:1px solid var(--line);background:var(--surface)}
 
 .m-fv-cap div{font-size:13.5px;min-width:0;overflow:hidden;text-overflow:ellipsis}

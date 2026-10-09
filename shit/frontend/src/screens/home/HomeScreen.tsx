@@ -5,6 +5,10 @@ import { navFor, useRole } from '../../app/role';
 import { useSystem } from '../../app/SystemContext';
 import { useDisks, useGatewayStatus, useLastDetections, useLinkerStatus, useNeuralStatus } from './useHomeData';
 import { useLayouts } from '../../hooks/Layouts';
+import { detClass } from '../../features/neural/components/journal/DetectionRow';
+import { fmtTime } from '../../features/neural/components/journal/format';
+import { useCameraNames } from '../../features/neural/components/journal/useCameraNames';
+import { useClassResolver } from '../../features/neural/components/journal/useClassResolver';
 import type { Device } from '../../services/devices';
 import './home.css';
 
@@ -37,6 +41,8 @@ export function HomeScreen() {
     const disks = useDisks(devices);
     const { layouts } = useLayouts();
     const { items: detections, available: journalUp } = useLastDetections();
+    const { resolve } = useClassResolver();
+    const { cameraName } = useCameraNames();
     const gateway = useGatewayStatus();
     const linker = useLinkerStatus();
     const neural = useNeuralStatus();
@@ -255,20 +261,21 @@ export function HomeScreen() {
                             <div className="card">
                                 <div className="card-h">
                                     <h3>Последние обнаружения</h3>
-                                    <span className="eyebrow">журнал</span>
+                                    <Link className="eyebrow home-lnk" to="/neural/journal">Журнал ›</Link>
                                 </div>
                                 <div className="card-b" style={{ paddingTop: 6 }}>
-                                    {detections.map(item => (
-                                        <div className="kv" key={item.id}>
-                                            <span className="k num">
-                                                {new Date(item.ts).toLocaleTimeString('ru-RU')}
-                                            </span>
-                                            <span className="v seps">
-                                                <span>{item.camera_id}</span>
-                                                <span>объектов {item.objects.length}</span>
-                                            </span>
-                                        </div>
-                                    ))}
+                                    {detections.map(item => {
+                                        const cls = detClass(item, resolve);
+                                        return (
+                                            <Link className="kv home-det" key={item.id} to="/neural/journal" state={{ open: item.id }}>
+                                                <span className="k num">{fmtTime(item.started_at)}</span>
+                                                <span className="v seps">
+                                                    <span>{cameraName(item.camera_id)}</span>
+                                                    <span className="tag"><i className="sw-col" style={{ background: cls.color }} />{cls.name}</span>
+                                                </span>
+                                            </Link>
+                                        );
+                                    })}
                                 </div>
                             </div>
                         )}

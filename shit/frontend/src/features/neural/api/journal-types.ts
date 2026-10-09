@@ -1,45 +1,89 @@
-// ─────────────────────────────────────────────────────────────
-//  Типы журнала обнаружений (storage-service, /api/journal).
-//  Журнал config-агностичен: объект несёт только id класса (cid),
-//  а имя/цвет/суперкласс резолвит фронт по config_id.
-// ─────────────────────────────────────────────────────────────
+// Типы журнала обнаружений мастера (detection-service, /api/journal)
 
 export type Verdict = 'unverified' | 'true' | 'false';
 
-/** Один объект на кадре: id класса + confidence + бокс [x,y,w,h] в пикселях.
- *  state — тип трека на момент кадра: tentative / confirmed / lost. */
-export interface JournalObject {
-  cid: number;
-  cf: number;
-  box: [number, number, number, number];
-  state?: string;
-}
+export type ClosedReason = 'removed' | 'device_restart' | 'link_lost' | 'config_changed' | 'master_restart';
 
-/** Снимок GPS в момент кадра (null — координат не было). */
+// Рамка [x, y, w, h] в пикселях кадра
+export type Box = [number, number, number, number];
+
+// GPS первого события обнаружения; скорость в м/с
 export interface JournalGps {
   lat: number;
   lon: number;
-  alt: number;
-  speed: number;
-  course: number;
+  alt: number | null;
+  speed: number | null;
+  course: number | null;
 }
 
-/** Одна запись журнала (строка detections + разобранный dets_json). */
+// Снимок обнаружения с рамкой трека
+export interface JournalShot {
+  image_id: number;
+  url: string;
+  box: Box | null;
+  frame_w: number | null;
+  frame_h: number | null;
+  confidence: number | null;
+  ts: number | null;
+  track_no: number | null;
+}
+
+export interface JournalPreview {
+  image_id: number;
+  box?: Box | null;
+  frame_w?: number | null;
+  frame_h?: number | null;
+  confidence?: number | null;
+  ts?: number | null;
+  track_no?: number | null;
+}
+
 export interface JournalDetection {
   id: number;
-  ts: number; // unix ms
+  device_id: string;
   camera_id: string;
   config_id: string | null;
+  class_id: number | null;
+  class_name: string | null;
+  superclass: string | null;
+  // Настенное время шлюза, закодированное как UTC
+  started_at: number;
+  ended_at: number | null;
+  closed_reason: ClosedReason | null;
+  late: boolean;
+  tracks: number;
+  images: number;
+  preview: JournalPreview | null;
   gps: JournalGps | null;
-  width: number;
-  height: number;
-  track_id: number | null;
-  event: string | null;
-  objects: JournalObject[];
   verdict: Verdict;
   verdict_note: string | null;
   verdict_at: number | null;
-  frame_url: string;
+  frame_url: string | null;
+}
+
+export interface JournalTrack {
+  track_no: number;
+  class_id: number | null;
+  class_name: string | null;
+  superclass: string | null;
+  first_ts: number;
+  last_ts: number;
+}
+
+export interface JournalImage {
+  image_id: number;
+  ts: number;
+  track_no: number;
+  box: Box | null;
+  frame_w: number | null;
+  frame_h: number | null;
+  confidence: number | null;
+  url: string;
+}
+
+export interface JournalDetectionFull extends JournalDetection {
+  track_list: JournalTrack[];
+  image_list: JournalImage[];
 }
 
 export interface JournalListResponse {
@@ -49,12 +93,29 @@ export interface JournalListResponse {
   offset: number;
 }
 
-/** Фильтры списка. cids — id классов (фронт разворачивает выбор по конфигурации). */
+export interface JournalHead {
+  max_id: number;
+  total: number;
+  open: number;
+}
+
+export interface JournalSummary {
+  total: number;
+  verdicts: Record<Verdict, number>;
+  devices: { device_id: string; count: number }[];
+  cameras: { device_id: string; camera_id: string; count: number; true: number; false: number; unverified: number }[];
+  classes: { superclass: string | null; class_id: number | null; class_name: string | null; count: number }[];
+  hours: number[];
+  days: { day: string; count: number }[];
+}
+
+// Фильтры списка; cids — id классов выбранной конфигурации
 export interface JournalFilters {
   tFrom?: number;
   tTo?: number;
   verdict?: Verdict;
   cids?: number[];
+  deviceId?: string;
   cameraId?: string;
   configId?: string;
 }

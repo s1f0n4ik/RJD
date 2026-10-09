@@ -16,13 +16,14 @@ export interface FilterState {
   tTo?: number;
   verdict?: Verdict;
   cids: number[];
+  deviceId: string;
   cameraId: string;
   configId: string;
 }
 
 export function useJournalFilters(initial?: FilterState) {
   const [state, setState] = useState<FilterState>(
-    () => initial ?? { preset: DEFAULT_PRESET, ...presetRange(DEFAULT_PRESET), cids: [], cameraId: '', configId: '' },
+    () => initial ?? { preset: DEFAULT_PRESET, ...presetRange(DEFAULT_PRESET), cids: [], deviceId: '', cameraId: '', configId: '' },
   );
   const patch = useCallback((p: Partial<FilterState>) => setState((s) => ({ ...s, ...p })), []);
 
@@ -38,19 +39,23 @@ export function useJournalFilters(initial?: FilterState) {
   // Смена конфигурации сбрасывает классы: их набор зависит от неё
   const selectConfig = useCallback((configId: string) => patch({ configId, cids: [] }), [patch]);
 
+  // Смена устройства сбрасывает камеру: камеры у каждого устройства свои
+  const selectDevice = useCallback((deviceId: string) => patch({ deviceId, cameraId: '' }), [patch]);
+
   const filters = useMemo<JournalFilters>(
     () => ({
       tFrom: state.tFrom,
       tTo: state.tTo,
       verdict: state.verdict,
       cids: state.cids.length ? state.cids : undefined,
+      deviceId: state.deviceId || undefined,
       cameraId: state.cameraId || undefined,
       configId: state.configId || undefined,
     }),
     [state],
   );
 
-  return { state, patch, applyPreset, applyRange, selectConfig, filters };
+  return { state, patch, applyPreset, applyRange, selectConfig, selectDevice, filters };
 }
 
 export type JournalFilterHandle = ReturnType<typeof useJournalFilters>;
@@ -65,6 +70,7 @@ export const classLabel = (s: FilterState, options: ClassOption[]) =>
 
 interface FieldsProps {
   f: JournalFilterHandle;
+  deviceOptions: SelectOption[];
   cameraOptions: SelectOption[];
   configOptions: SelectOption[];
   classOptions: ClassOption[];
@@ -72,9 +78,9 @@ interface FieldsProps {
   over?: boolean;
 }
 
-/** Пять полей фильтра с поповерами периода и классов. */
-export function FilterFields({ f, cameraOptions, configOptions, classOptions, over }: FieldsProps) {
-  const { state, patch, applyPreset, applyRange, selectConfig } = f;
+/** Поля фильтра с поповерами периода и классов. */
+export function FilterFields({ f, deviceOptions, cameraOptions, configOptions, classOptions, over }: FieldsProps) {
+  const { state, patch, applyPreset, applyRange, selectConfig, selectDevice } = f;
   const [periodOpen, setPeriodOpen] = useState(false);
   const [classOpen, setClassOpen] = useState(false);
   const periodRef = useRef<HTMLButtonElement>(null);
@@ -87,6 +93,10 @@ export function FilterFields({ f, cameraOptions, configOptions, classOptions, ov
         <span className="v">{periodLabel(state)}</span>
         <Icon name="cal" className="ico" />
       </button>
+      <div className="fld j-fld">
+        <span className="k">Устройство</span>
+        <Select value={state.deviceId} options={deviceOptions} onChange={selectDevice} />
+      </div>
       <div className="fld j-fld">
         <span className="k">Камера</span>
         <Select value={state.cameraId} options={cameraOptions} onChange={(cameraId) => patch({ cameraId })} />

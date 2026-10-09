@@ -3,10 +3,10 @@ import { Modal, Switch } from '../../../../app/Modal';
 import type { SelectOption } from '../../../../app/Select';
 import { useDownloads } from '../../../../app/DownloadsContext';
 import { useToast } from '../../../birdview/components/common/Toast';
-import { moduleDeviceId } from '../../../../services/devices';
-import { journalApi } from '../../api/journal';
+import { JOURNAL_JOBS, exportFilters, journalApi } from '../../api/journal';
 import type { JournalDetection } from '../../api/journal-types';
-import { FrameWithBoxes } from './FrameWithBoxes';
+import { detClass } from './DetectionRow';
+import { FrameWithBoxes, previewShot } from './FrameWithBoxes';
 import { FilterFields, periodLabel, useJournalFilters } from './JournalFilters';
 import type { FilterState } from './JournalFilters';
 import type { ClassMeaning, ClassOption } from './useClassResolver';
@@ -15,6 +15,7 @@ import { fmtDateTime } from './format';
 interface Props {
   /** Фильтры журнала на момент открытия; дальше модалка живёт своими */
   initial: FilterState;
+  deviceOptions: SelectOption[];
   cameraOptions: SelectOption[];
   configOptions: SelectOption[];
   optionsFor: (configId?: string) => ClassOption[];
@@ -28,7 +29,7 @@ const plural = (n: number) =>
   n % 10 === 1 && n % 100 !== 11 ? 'кадр' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'кадра' : 'кадров';
 
 /** Архив кадров по фильтрам: задача устройства, прогресс — в плашке загрузок. */
-export function ExportModal({ initial, cameraOptions, configOptions, optionsFor, legendFor, resolve, cameraName, onClose }: Props) {
+export function ExportModal({ initial, deviceOptions, cameraOptions, configOptions, optionsFor, legendFor, resolve, cameraName, onClose }: Props) {
   const toast = useToast();
   const { start } = useDownloads();
   const fh = useJournalFilters(initial);
@@ -60,6 +61,9 @@ export function ExportModal({ initial, cameraOptions, configOptions, optionsFor,
     };
   }, [filters]);
 
+  const sampleShot = sample ? previewShot(sample) : null;
+  const sampleClass = sample ? detClass(sample, resolve) : null;
+
   const submit = async () => {
     if (!total) return;
     setBusy(true);
@@ -67,19 +71,14 @@ export function ExportModal({ initial, cameraOptions, configOptions, optionsFor,
       const title = `Обнаружения · ${total} ${plural(total)}`;
       const subtitle = periodLabel(state);
       const body = {
-        t_from: filters.tFrom,
-        t_to: filters.tTo,
-        verdict: filters.verdict,
-        camera_id: filters.cameraId,
-        config_id: filters.configId,
-        cids: filters.cids,
+        ...exportFilters(filters),
         boxes,
         data,
         legend: legendFor(state.configId || undefined),
         title,
         subtitle,
       };
-      await start(moduleDeviceId('neural'), title, subtitle, () => journalApi.export(body));
+      await start(JOURNAL_JOBS, title, subtitle, () => journalApi.export(body));
       onClose();
     } catch (e) {
       toast('Выгрузка не запущена', e instanceof Error ? e.message : String(e), 'err');
@@ -103,7 +102,7 @@ export function ExportModal({ initial, cameraOptions, configOptions, optionsFor,
     >
       <div className="modal-b jx">
         <div className="jx-fields">
-          <FilterFields f={fh} cameraOptions={cameraOptions} configOptions={configOptions} classOptions={classOptions} over />
+          <FilterFields f={fh} deviceOptions={deviceOptions} cameraOptions={cameraOptions} configOptions={configOptions} classOptions={classOptions} over />
           <span className="fld j-found">
             <span className="k">Найдено</span>
             <span className="v">{total ?? '…'}</span>
@@ -126,10 +125,14 @@ export function ExportModal({ initial, cameraOptions, configOptions, optionsFor,
             {sample ? (
               <>
                 <div className="jx-frame">
-                  <FrameWithBoxes det={boxes ? sample : { ...sample, objects: [] }} resolve={resolve} />
+                  <FrameWithBoxes
+                    shot={sampleShot && (boxes ? sampleShot : { ...sampleShot, box: null })}
+                    color={sampleClass!.color}
+                    name={sampleClass!.name}
+                  />
                   {data && (
                     <span className="jx-plate">
-                      Время: {fmtDateTime(sample.ts)}
+                      Время: {fmtDateTime(sample.started_at)}
                       <br />
                       GPS: {sample.gps ? `${sample.gps.lat.toFixed(5)}, ${sample.gps.lon.toFixed(5)}` : 'нет данных'}
                     </span>

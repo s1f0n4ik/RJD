@@ -2,61 +2,62 @@ import { memo } from 'react';
 import type { JournalDetection } from '../../api/journal-types';
 import type { ClassMeaning } from './useClassResolver';
 import { VERDICT_CLASS, VERDICT_LABEL } from './Filters';
-import { fmtCoord, fmtTime } from './format';
+import { fmtCoord, fmtTime, reasonTag } from './format';
+
+type Resolve = (configId: string | null, cid: number) => ClassMeaning;
 
 interface Props {
   det: JournalDetection;
   selected: boolean;
-  resolve: (configId: string | null, cid: number) => ClassMeaning;
+  resolve: Resolve;
   cameraName: (id: string) => string;
   onSelect: (id: number) => void;
 }
 
-export interface ClassAgg extends ClassMeaning {
-  count: number;
-  cf: number;
+export interface DetClass {
+  name: string;
+  color: string;
+  superName: string;
 }
 
-// Классы кадра: сколько объектов класса и лучшая уверенность среди них
-export function aggClasses(det: JournalDetection, resolve: Props['resolve']): ClassAgg[] {
-  const agg = new Map<number, ClassAgg>();
-  for (const o of det.objects) {
-    const prev = agg.get(o.cid);
-    if (prev) {
-      prev.count += 1;
-      prev.cf = Math.max(prev.cf, o.cf);
-    } else {
-      agg.set(o.cid, { ...resolve(det.config_id, o.cid), count: 1, cf: o.cf });
-    }
-  }
-  return [...agg.values()].sort((a, b) => b.count - a.count || b.cf - a.cf);
+// Имя класса — из журнала, цвет и суперкласс — из конфигурации обнаружения
+export function detClass(det: JournalDetection, resolve: Resolve): DetClass {
+  const m = det.class_id != null ? resolve(det.config_id, det.class_id) : null;
+  return {
+    name: det.class_name || m?.name || '—',
+    color: m?.color || m?.superColor || '#5b9dff',
+    superName: m?.superName || det.superclass || '',
+  };
 }
 
-export function classColor(c: ClassMeaning): string {
-  return c.color || c.superColor || '#5b9dff';
+// Класс с числом треков и метки опоздания и причины закрытия
+export function DetTags({ det, resolve }: { det: JournalDetection; resolve: Resolve }) {
+  const c = detClass(det, resolve);
+  const reason = reasonTag(det.closed_reason);
+  return (
+    <>
+      <span className="otag">
+        <i className="sw-col" style={{ background: c.color }} />
+        {c.name}
+        {det.tracks > 1 && <span className="num">×{det.tracks} тр.</span>}
+      </span>
+      {det.late && <span className="tag is-warn">опоздало</span>}
+      {reason && <span className="tag">{reason}</span>}
+    </>
+  );
 }
 
 function DetectionRowInner({ det, selected, resolve, cameraName, onSelect }: Props) {
-  const classes = aggClasses(det, resolve);
   const vd = VERDICT_CLASS[det.verdict];
 
   return (
     <button type="button" className={`j-row${selected ? ' is-sel' : ''}`} onClick={() => onSelect(det.id)}>
-      <span className="j-ts">{fmtTime(det.ts)}</span>
+      <span className="j-ts">{fmtTime(det.started_at)}</span>
       <span className="j-cam">{cameraName(det.camera_id)}</span>
       <span className="j-obj">
-        {classes.map((c, i) => (
-          <span className="otag" key={i}>
-            <i className="sw-col" style={{ background: classColor(c) }} />
-            {c.name || '—'}
-            {c.count > 1 && <span className="num">×{c.count}</span>}
-            <span className="num">{c.cf.toFixed(2)}</span>
-          </span>
-        ))}
+        <DetTags det={det} resolve={resolve} />
       </span>
-      <span className="j-tr">
-        {det.gps ? `${fmtCoord(det.gps.lat)}, ${fmtCoord(det.gps.lon)}` : '—'}
-      </span>
+      <span className="j-tr">{det.gps ? `${fmtCoord(det.gps.lat)}, ${fmtCoord(det.gps.lon)}` : '—'}</span>
       <span className={`vd ${vd.vd}`}>
         <span className={`dot${vd.dot ? ' ' + vd.dot : ''}`} />
         {VERDICT_LABEL[det.verdict]}

@@ -1,6 +1,8 @@
 import logging
+import shutil
 import sqlite3
 from contextlib import closing
+from datetime import datetime
 from pathlib import Path
 
 from app.config import settings
@@ -21,6 +23,37 @@ class JournalService:
 
     def available(self) -> bool:
         return self.db_path.exists()
+
+    # Старая база media-center с её кадрами уходит в legacy-<дата>, как у мастера обнаружений
+    def move_legacy(self) -> None:
+        if not self.available():
+            return
+        try:
+            with closing(sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True, timeout=5.0)) as conn:
+                legacy = conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'detection_objects'"
+                ).fetchone() is not None
+        except sqlite3.Error as e:
+            logger.warning("journal schema check failed: %s", e)
+            return
+        if not legacy:
+            return
+        root = self.db_path.parent
+        stamp = datetime.now()
+        dest = root / f"legacy-{stamp:%Y-%m-%d}"
+        if dest.exists():
+            dest = root / f"legacy-{stamp:%Y-%m-%d-%H%M%S}"
+        names = (self.db_path.name, f"{self.db_path.name}-wal", f"{self.db_path.name}-shm", self.frames_dir.name)
+        try:
+            dest.mkdir(parents=True)
+            for name in names:
+                src = root / name
+                if src.exists():
+                    shutil.move(str(src), str(dest / name))
+        except OSError as e:
+            logger.warning("legacy journal move failed: %s", e)
+            return
+        logger.warning("legacy journal moved to %s", dest)
 
     def read_limits(self) -> dict:
         limits = dict(DEFAULT_LIMITS)

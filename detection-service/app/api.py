@@ -161,11 +161,14 @@ SELECT_DETECTIONS = (
 
 @router.get("/head")
 def head(f: Filters = Depends(query_filters)):
-    """Максимальный id и число записей по фильтрам списка — для опроса новых."""
+    """Максимальный id, число записей и открытых по фильтрам списка — для опроса изменений."""
     clause, params = _where(f)
     with closing(_db()) as conn:
-        row = conn.execute(f"SELECT COALESCE(MAX(d.id), 0), COUNT(*) FROM detections d {clause}", params).fetchone()
-    return {"max_id": row[0], "total": row[1]}
+        row = conn.execute(
+            f"SELECT COALESCE(MAX(d.id), 0), COUNT(*), COALESCE(SUM(d.ended_at IS NULL), 0) FROM detections d {clause}",
+            params,
+        ).fetchone()
+    return {"max_id": row[0], "total": row[1], "open": row[2]}
 
 
 @router.get("/detections")

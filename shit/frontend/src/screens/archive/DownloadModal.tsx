@@ -9,7 +9,7 @@ import { Calendar } from './Calendar';
 import type { Track, ZoomLevel } from './model';
 import {
     DAY_MS, ZOOMS, browserDownload, buildTicks, dateKey, dayStartMs, estimateBytes, fmtBytes,
-    fmtDate, fmtDuration, fmtTick, fmtTime, gapsWithin, percentIn, recordedWithin, startCut, trackKey,
+    fmtDate, fmtDuration, fmtTick, fmtTime, gapsWithin, percentIn, recordedWithin, recordingJobs, startCut, trackKey,
     zipUrl,
 } from './model';
 
@@ -181,7 +181,7 @@ export function DownloadModal({
                 }
 
                 const title = `Склейка · ${list.length === 1 ? list[0].name : `${list.length} камеры`}`;
-                await start(deviceId, title, subtitle, () => startCut(deviceId, {
+                await start(recordingJobs(deviceId), title, subtitle, () => startCut(deviceId, {
                     tracks,
                     from_ms: Math.round(range.from),
                     to_ms: Math.round(range.to),

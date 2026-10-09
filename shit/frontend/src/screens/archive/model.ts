@@ -335,23 +335,21 @@ export function browserDownload(url: string): void {
     link.remove();
 }
 
-// Активные задачи устройства — ими восстанавливается список после перезагрузки
-export const fetchJobs = (deviceId: string) =>
-    getJson<{ jobs: Array<JobProgress & { id: string }> }>(
-        storagePath(deviceId, '/api/recordings/jobs'),
-    );
+// Корень задач склейки на устройстве
+export const recordingJobs = (deviceId: string) => storagePath(deviceId, '/api/recordings/jobs');
 
-export function jobProgressUrl(deviceId: string, jobId: string): string {
+// Активные задачи по корню — ими восстанавливается список после перезагрузки
+export const fetchJobs = (root: string) =>
+    getJson<{ jobs: Array<JobProgress & { id: string }> }>(root);
+
+export function jobProgressUrl(root: string, jobId: string): string {
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const path = storagePath(deviceId, `/api/recordings/jobs/${jobId}/progress`);
-    return `${proto}//${window.location.host}${path}`;
+    return `${proto}//${window.location.host}${root}/${jobId}/progress`;
 }
 
-export const jobDownloadUrl = (deviceId: string, jobId: string) =>
-    storagePath(deviceId, `/api/recordings/jobs/${jobId}/download`);
+export const jobDownloadUrl = (root: string, jobId: string) => `${root}/${jobId}/download`;
 
-export const jobCancelUrl = (deviceId: string, jobId: string) =>
-    storagePath(deviceId, `/api/recordings/jobs/${jobId}`);
+export const jobCancelUrl = (root: string, jobId: string) => `${root}/${jobId}`;
 
 // ── масштаб таймлайна ──
 

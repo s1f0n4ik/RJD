@@ -117,5 +117,16 @@ export function useClassResolver(configId?: string) {
     [optionsFor],
   );
 
-  return { resolve, classOptions, optionsFor, legendFor, loading };
+  // Подпись и цвет суперкласса по ключу из любой конфигурации
+  const superOf = useMemo(() => {
+    const map = new Map<string, { name: string; color: string }>();
+    for (const cfg of Object.values(byConfig)) {
+      for (const m of cfg.values()) {
+        if (m.superKey && !map.has(m.superKey)) map.set(m.superKey, { name: m.superName, color: m.superColor });
+      }
+    }
+    return (key: string | null) => (key ? map.get(key) ?? { name: key, color: UNKNOWN.color } : null);
+  }, [byConfig]);
+
+  return { resolve, classOptions, optionsFor, legendFor, superOf, loading };
 }

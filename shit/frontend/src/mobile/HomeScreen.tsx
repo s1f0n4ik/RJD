@@ -9,10 +9,10 @@ import {
 } from '../screens/home/useHomeData';
 import { CAMERA_STATUS } from '../utils/constants';
 import { isProbeCamera } from '../utils/probeFilter';
-import { aggClasses, classColor } from '../features/neural/components/journal/DetectionRow';
+import { detClass } from '../features/neural/components/journal/DetectionRow';
 import { useClassResolver } from '../features/neural/components/journal/useClassResolver';
 import { useCameraNames } from '../features/neural/components/journal/useCameraNames';
-import { fmtTime } from '../features/neural/components/journal/format';
+import { durationLabel, fmtTime } from '../features/neural/components/journal/format';
 import type { ShellContext } from './MobileShell';
 
 const GB = 1024 ** 3;
@@ -171,21 +171,19 @@ export default function HomeScreen() {
                         </div>
                         {!journalLoaded && <><SkRow /><SkRow /><SkRow /></>}
                         {journalLoaded && lastDetections.map(det => {
-                            const classes = aggClasses(det, resolve);
+                            const cls = detClass(det, resolve);
                             return (
                                 <Link className="m-li" key={det.id} to="/neural/journal" state={{ open: det.id }}>
                                     <div className="t">
                                         <b className="num" style={{ fontSize: 14 }}>
-                                            {fmtTime(det.ts)} <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>{cameraName(det.camera_id)}</span>
+                                            {fmtTime(det.started_at)} <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>{cameraName(det.camera_id)}</span>
                                         </b>
                                         <span className="seps">
-                                            {classes.map((c, i) => <span key={i}>{c.name || '—'} {c.cf.toFixed(2).replace('.', ',')}</span>)}
-                                            {classes.length === 0 && <span>без объектов</span>}
+                                            <span>{det.tracks} тр.</span>
+                                            <span>{durationLabel(det)}</span>
                                         </span>
                                     </div>
-                                    {classes[0] && (
-                                        <span className="tag"><i className="sw-col" style={{ background: classColor(classes[0]) }} />{classes[0].name || '—'}</span>
-                                    )}
+                                    <span className="tag"><i className="sw-col" style={{ background: cls.color }} />{cls.name}</span>
                                 </Link>
                             );
                         })}

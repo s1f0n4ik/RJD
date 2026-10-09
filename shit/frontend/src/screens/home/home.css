@@ -114,3 +114,8 @@ body.ui-new .home .scroll::-webkit-scrollbar{display:none}
 .card-none b{font-size:13px;font-weight:600;color:var(--warn)}
 
 .card-none span{font-size:12px;line-height:1.4;color:var(--fg-3)}
+
+/* Последние обнаружения: строка ведёт в журнал */
+.home-det{margin:0 -8px;padding:8px;border-radius:6px;transition:background .12s}
+.home-det:hover{background:var(--panel-2)}
+.home-lnk:hover{color:var(--acc)}

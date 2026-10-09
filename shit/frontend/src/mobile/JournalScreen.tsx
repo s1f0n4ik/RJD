@@ -2,14 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Icon } from '../app/Icons';
 import { Select } from '../app/Select';
-import { moduleDeviceId } from '../services/devices';
 import { journalApi } from '../features/neural/api/journal';
 import type { JournalDetection, Verdict } from '../features/neural/api/journal-types';
-import { aggClasses, classColor } from '../features/neural/components/journal/DetectionRow';
+import { DetTags, detClass } from '../features/neural/components/journal/DetectionRow';
 import { PRESETS, VERDICT_CLASS, VERDICT_LABEL, presetRange, type PresetKey } from '../features/neural/components/journal/Filters';
-import { FrameWithBoxes } from '../features/neural/components/journal/FrameWithBoxes';
+import { FrameWithBoxes, previewShot, useDetectionShots } from '../features/neural/components/journal/FrameWithBoxes';
 import { JournalMap } from '../features/neural/components/journal/JournalMap';
-import { fmtCoord, fmtDate, fmtTime, pluralRecords } from '../features/neural/components/journal/format';
+import { REASON_LABEL, durationLabel, fmtCoord, fmtDate, fmtTime, pluralRecords } from '../features/neural/components/journal/format';
 import { useCameraNames } from '../features/neural/components/journal/useCameraNames';
 import { useClassResolver } from '../features/neural/components/journal/useClassResolver';
 import '../features/neural/components/journal/journal.css';
@@ -22,7 +21,7 @@ type Mode = 'list' | 'map';
 export default function JournalScreen() {
     const { state } = useLocation();
     const { resolve } = useClassResolver();
-    const { cameraName, cameras } = useCameraNames();
+    const { cameraName, deviceName, cameras } = useCameraNames();
 
     const [preset, setPreset] = useState<PresetKey>('today');
     const [cameraId, setCameraId] = useState('');
@@ -48,16 +47,15 @@ export default function JournalScreen() {
         .catch(e => setErr(String(e)))
         .finally(() => { setLoading(false); setRefreshing(false); }), [filters]);
 
-    // Список перечитывается только когда лёгкая ручка head показала изменение
+    // Список перечитывается, когда head показал новое или закрытое обнаружение
     useEffect(() => {
-        if (!moduleDeviceId('neural')) { setLoading(false); return; }
         head.current = '';
         setRefreshing(true);
         load();
         const timer = window.setInterval(() => {
             journalApi.head(filters)
                 .then(h => {
-                    const key = `${h.max_id}/${h.total}`;
+                    const key = `${h.max_id}/${h.total}/${h.open}`;
                     if (head.current && head.current !== key) load();
                     head.current = key;
                 })
@@ -68,48 +66,48 @@ export default function JournalScreen() {
 
     const open = openId === null ? null : dets.find(d => d.id === openId) ?? null;
     const openIndex = open ? dets.indexOf(open) : -1;
-
-    if (!moduleDeviceId('neural')) {
-        return (
-            <section className="m-screen">
-                <div className="empty">
-                    <Icon name="eye" />
-                    <b>Модуль технического зрения не поднят</b>
-                    <p>Журнал появится, когда модуль будет назначен на устройство. Назначение делается с рабочего места.</p>
-                </div>
-            </section>
-        );
-    }
+    const { shots, index: shotIndex, shot, setIndex: setShotIndex } = useDetectionShots(open);
 
     if (open) {
-        const classes = aggClasses(open, resolve);
+        const cls = detClass(open, resolve);
         const vd = VERDICT_CLASS[open.verdict];
+        const gps = open.gps;
         return (
             <section className="m-screen">
                 <div className="m-sub">
                     <button className="m-back" aria-label="Назад к списку" onClick={() => setOpenId(null)}><Icon name="chev" /></button>
-                    <h2 className="num">{fmtTime(open.ts)}</h2>
+                    <h2 className="num">{fmtTime(open.started_at)}</h2>
                     <span className="pill">{openIndex + 1} из {dets.length}</span>
                 </div>
                 <div className="m-scroll">
-                    <div className="m-fv"><FrameWithBoxes det={open} resolve={resolve} /></div>
+                    <div className="m-fv">
+                        <FrameWithBoxes shot={shot} color={cls.color} name={cls.name} />
+                        {shots.length > 1 && (
+                            <>
+                                <button className="jr-nav l" aria-label="Предыдущий снимок" disabled={shotIndex === 0} onClick={() => setShotIndex(shotIndex - 1)}>
+                                    <Icon name="chev" size={18} />
+                                </button>
+                                <button className="jr-nav r" aria-label="Следующий снимок" disabled={shotIndex === shots.length - 1} onClick={() => setShotIndex(shotIndex + 1)}>
+                                    <Icon name="chev" size={18} />
+                                </button>
+                                <span className="jr-count num">{shotIndex + 1} / {shots.length}</span>
+                            </>
+                        )}
+                    </div>
                     <div className="m-fv-cap">
                         <div><small>Камера</small>{cameraName(open.camera_id)}</div>
                         <div><small>Вердикт</small><span className={`vd ${vd.vd}`}><span className={`dot${vd.dot ? ' ' + vd.dot : ''}`} />{VERDICT_LABEL[open.verdict]}</span></div>
-                        <div><small>Дата</small><span className="num">{fmtDate(open.ts)}</span></div>
-                        <div><small>Трек</small><span className="num seps"><span>{open.track_id ?? '—'}</span>{open.event && <span>{open.event}</span>}</span></div>
-                        <div><small>Координаты</small><span className="num">{open.gps ? `${fmtCoord(open.gps.lat)} ${fmtCoord(open.gps.lon)}` : '—'}</span></div>
-                        <div><small>Скорость</small><span className="num seps">{open.gps ? <><span>{Math.round(open.gps.speed)} км/ч</span><span>курс {Math.round(open.gps.course)}°</span></> : <span>—</span>}</span></div>
+                        <div><small>Дата</small><span className="num">{fmtDate(open.started_at)}</span></div>
+                        <div><small>Длительность</small><span className="num">{durationLabel(open)}</span></div>
+                        <div><small>Устройство</small>{deviceName(open.device_id)}</div>
+                        <div><small>Треки</small><span className="num">{open.tracks}</span></div>
+                        <div><small>Закрыто</small>{open.closed_reason ? REASON_LABEL[open.closed_reason] ?? open.closed_reason : '—'}</div>
+                        <div><small>Координаты</small><span className="num">{gps ? `${fmtCoord(gps.lat)} ${fmtCoord(gps.lon)}` : '—'}</span></div>
+                        <div><small>Скорость</small><span className="num seps">{gps?.speed != null ? <><span>{Math.round(gps.speed * 3.6)} км/ч</span>{gps.course != null && <span>курс {Math.round(gps.course)}°</span>}</> : <span>—</span>}</span></div>
                         <div style={{ gridColumn: '1 / -1' }}>
-                            <small>Объекты</small>
+                            <small>Класс</small>
                             <span className="m-tags" style={{ marginTop: 2 }}>
-                                {classes.map((c, i) => (
-                                    <span className="otag" key={i}>
-                                        <i className="sw-col" style={{ background: classColor(c) }} />
-                                        {c.name || '—'}{c.count > 1 && <span className="num">×{c.count}</span>}<span className="num">{c.cf.toFixed(2)}</span>
-                                    </span>
-                                ))}
-                                {classes.length === 0 && <span className="muted">нет</span>}
+                                <DetTags det={open} resolve={resolve} />
                             </span>
                         </div>
                         {open.verdict_note && <div style={{ gridColumn: '1 / -1' }}><small>Заметка</small>{open.verdict_note}</div>}
@@ -128,21 +126,16 @@ export default function JournalScreen() {
     }
 
     const row = (det: JournalDetection) => {
-        const classes = aggClasses(det, resolve);
+        const cls = detClass(det, resolve);
         const vd = VERDICT_CLASS[det.verdict];
         return (
             <button key={det.id} className="m-jl" onClick={() => setOpenId(det.id)}>
-                <div className="thb"><FrameWithBoxes det={det} resolve={resolve} compact /></div>
+                <div className="thb"><FrameWithBoxes shot={previewShot(det)} color={cls.color} name={cls.name} compact /></div>
                 <div className="t">
-                    <div className="tm">{fmtTime(det.ts)}{preset !== 'today' && <small>{fmtDate(det.ts)}</small>}</div>
-                    <div className="cm seps"><span>{cameraName(det.camera_id)}</span>{det.track_id !== null && <span>трек {det.track_id}</span>}</div>
+                    <div className="tm">{fmtTime(det.started_at)}{preset !== 'today' && <small>{fmtDate(det.started_at)}</small>}</div>
+                    <div className="cm seps"><span>{cameraName(det.camera_id)}</span><span>{durationLabel(det)}</span></div>
                     <div className="m-tags">
-                        {classes.map((c, i) => (
-                            <span className="otag" key={i}>
-                                <i className="sw-col" style={{ background: classColor(c) }} />
-                                {c.name || '—'}{c.count > 1 && <span className="num">×{c.count}</span>}<span className="num">{c.cf.toFixed(2)}</span>
-                            </span>
-                        ))}
+                        <DetTags det={det} resolve={resolve} />
                     </div>
                 </div>
                 <div className="vd">
@@ -201,11 +194,10 @@ export default function JournalScreen() {
                         </div>
                     ))}
                     {dets.map(row)}
-                    {!loading && dets.length === 0 && (
+                    {!loading && !err && dets.length === 0 && (
                         <div className="empty">
                             <Icon name="empty" />
                             <b>Обнаружений нет</b>
-                            <p>За выбранный период по этим фильтрам записей не было.</p>
                         </div>
                     )}
                 </div>

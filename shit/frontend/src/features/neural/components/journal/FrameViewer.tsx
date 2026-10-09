@@ -4,11 +4,15 @@ import { Modal } from '../../../../app/Modal';
 import { journalApi } from '../../api/journal';
 import type { JournalDetection, Verdict } from '../../api/journal-types';
 import type { ClassMeaning } from './useClassResolver';
+import { detClass } from './DetectionRow';
 import { VERDICT_CLASS, VERDICT_LABEL } from './Filters';
-import { fmtCoord, fmtDateTime } from './format';
+import { useDetectionShots } from './FrameWithBoxes';
+import { fmtCoord, fmtDateTime, fmtTime } from './format';
 
 interface Props {
   det: JournalDetection;
+  // Снимок, на котором открыть; null — превью
+  initialShot: number | null;
   resolve: (configId: string | null, cid: number) => ClassMeaning;
   cameraName: (id: string) => string;
   hasPrev: boolean;
@@ -19,10 +23,10 @@ interface Props {
   onChange: (updated: JournalDetection) => void;
 }
 
-/** Просмотр кадра: боксы поверх чистого изображения, мета и
- *  список объектов — сворачиваемыми панелями поверх кадра. */
+/** Кадр целиком: рамка трека поверх снимка, панели снимка и треков, лента снимков. */
 export function FrameViewer({
   det,
+  initialShot,
   resolve,
   cameraName,
   hasPrev,
@@ -32,16 +36,16 @@ export function FrameViewer({
   onClose,
   onChange,
 }: Props) {
-  const [hovered, setHovered] = useState<number | null>(null);
+  const { shots, index, shot, tracks, setIndex } = useDetectionShots(det, initialShot);
   const [metaOpen, setMetaOpen] = useState(true);
-  const [objectsOpen, setObjectsOpen] = useState(true);
+  const [tracksOpen, setTracksOpen] = useState(true);
   const [busy, setBusy] = useState(false);
 
-  // Кадр мог быть удалён чистильщиком лимита изображений; листание сбрасывает
+  // Снимок мог удалить чистильщик лимита изображений
   const [missing, setMissing] = useState(false);
-  useEffect(() => setMissing(false), [det.id]);
+  useEffect(() => setMissing(false), [shot?.url]);
 
-  // Стрелки листают — просмотр рассчитан на разбор с клавиатуры; Esc закрывает Modal
+  // Стрелки листают обнаружения; снимки — только мышью по ленте; Esc закрывает Modal
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'ArrowLeft' && hasPrev) onPrev();
@@ -51,7 +55,7 @@ export function FrameViewer({
     return () => window.removeEventListener('keydown', onKey);
   }, [onPrev, onNext, hasPrev, hasNext]);
 
-  // Повторное нажатие той же кнопки снимает отметку — как и в списке.
+  // Повторное нажатие той же кнопки снимает отметку — как и в списке
   const setVerdict = async (verdict: Verdict) => {
     const next: Verdict = det.verdict === verdict ? 'unverified' : verdict;
     setBusy(true);
@@ -65,16 +69,18 @@ export function FrameViewer({
     }
   };
 
-  const w = det.width || 0;
-  const h = det.height || 0;
-  const canDraw = w > 0 && h > 0;
+  const cls = detClass(det, resolve);
   const vd = VERDICT_CLASS[det.verdict];
+  const w = shot?.frame_w || 0;
+  const h = shot?.frame_h || 0;
+  const box = w > 0 && h > 0 ? shot?.box : null;
+  const gps = det.gps;
 
   return (
     <Modal
       size="wide"
       className="fv-modal"
-      title={`Запись ${det.id} · ${fmtDateTime(det.ts)}`}
+      title={`Обнаружение ${det.id} · ${fmtDateTime(det.started_at)}`}
       onClose={onClose}
       head={
         <>
@@ -86,10 +92,10 @@ export function FrameViewer({
         <>
           <button className="btn btn--sm" disabled={!hasPrev} onClick={onPrev}>
             <Icon name="prev" className="ico" />
-            Предыдущая
+            Предыдущее
           </button>
           <button className="btn btn--sm" disabled={!hasNext} onClick={onNext}>
-            Следующая
+            Следующее
             <Icon name="next" className="ico" />
           </button>
           <span className={`vd ${vd.vd} spacer`}>
@@ -115,98 +121,99 @@ export function FrameViewer({
     >
       <div className="modal-b fv-body">
         <div className="fv-stage">
-          <div className="fv-frame">
-            {missing ? (
-              <div className="fv-missing">
-                <Icon name="img" className="ico" />
-                Кадр удалён
-              </div>
-            ) : (
-              <img src={journalApi.frameUrl(det.id)} alt="Кадр обнаружения" onError={() => setMissing(true)} />
-            )}
+          {!shot || missing ? (
+            <div className="fv-missing">
+              <Icon name="img" className="ico" />
+              {shot ? 'Снимок удалён' : 'Снимков нет'}
+            </div>
+          ) : (
+            <div className="fv-frame">
+              <img src={shot.url} alt="Снимок обнаружения" onError={() => setMissing(true)} />
 
-            {!missing &&
-              canDraw &&
-              det.objects.map((o, i) => {
-                const m = resolve(det.config_id, o.cid);
-                const color = m.color || m.superColor || '#5b9dff';
-                return (
-                  <span
-                    key={i}
-                    className={`fv-box${o.state ? ' ' + o.state : ''}${hovered === i ? ' is-hot' : ''}`}
-                    style={{
-                      left: `${(o.box[0] / w) * 100}%`,
-                      top: `${(o.box[1] / h) * 100}%`,
-                      width: `${(o.box[2] / w) * 100}%`,
-                      height: `${(o.box[3] / h) * 100}%`,
-                      borderColor: color,
-                    }}
-                    onMouseEnter={() => setHovered(i)}
-                    onMouseLeave={() => setHovered(null)}
-                  >
-                    <span className="fv-box-lbl" style={{ background: color }}>
-                      {m.name || '—'} {o.cf.toFixed(2)}
-                    </span>
+              {box && (
+                <span
+                  className="fv-box"
+                  style={{
+                    left: `${(box[0] / w) * 100}%`,
+                    top: `${(box[1] / h) * 100}%`,
+                    width: `${(box[2] / w) * 100}%`,
+                    height: `${(box[3] / h) * 100}%`,
+                    borderColor: cls.color,
+                  }}
+                >
+                  <span className="fv-box-lbl" style={{ background: cls.color }}>
+                    {cls.name} {shot.confidence != null ? shot.confidence.toFixed(2) : ''}
                   </span>
-                );
-              })}
+                </span>
+              )}
 
-            <div className={`fv-panel fv-meta${metaOpen ? '' : ' is-closed'}`}>
-              <button className="fv-panel-h" onClick={() => setMetaOpen((v) => !v)}>
-                <span className="eyebrow">Данные кадра</span>
-                <Icon name="chev" size={12} className="ico" />
-              </button>
-              {metaOpen && (
-                <div className="fv-panel-b">
-                  <div className="kv"><span className="k">Время</span><span className="v">{fmtDateTime(det.ts)}</span></div>
-                  <div className="kv"><span className="k">Unix</span><span className="v">{det.ts}</span></div>
-                  {canDraw && (
-                    <div className="kv"><span className="k">Размер</span><span className="v">{w}×{h}</span></div>
-                  )}
-                  <div className="kv">
-                    <span className="k">GPS</span>
-                    <span className="v">{det.gps ? `${fmtCoord(det.gps.lat)}, ${fmtCoord(det.gps.lon)}` : '—'}</span>
+              <div className={`fv-panel fv-meta${metaOpen ? '' : ' is-closed'}`}>
+                <button className="fv-panel-h" onClick={() => setMetaOpen((v) => !v)}>
+                  <span className="eyebrow">Снимок</span>
+                  <Icon name="chev" size={12} className="ico" />
+                </button>
+                {metaOpen && (
+                  <div className="fv-panel-b">
+                    <div className="kv"><span className="k">Время</span><span className="v">{shot.ts != null ? fmtTime(shot.ts) : '—'}</span></div>
+                    <div className="kv"><span className="k">Трек</span><span className="v">{shot.track_no != null ? `#${shot.track_no}` : '—'}</span></div>
+                    <div className="kv"><span className="k">Уверенность</span><span className="v">{shot.confidence != null ? shot.confidence.toFixed(2) : '—'}</span></div>
+                    {w > 0 && h > 0 && (
+                      <div className="kv"><span className="k">Размер</span><span className="v">{w}×{h}</span></div>
+                    )}
+                    <div className="kv">
+                      <span className="k">Координаты</span>
+                      <span className="v">{gps ? `${fmtCoord(gps.lat)}, ${fmtCoord(gps.lon)}` : '—'}</span>
+                    </div>
+                    {gps?.speed != null && (
+                      <div className="kv"><span className="k">Скорость</span><span className="v">{(gps.speed * 3.6).toFixed(1)} км/ч</span></div>
+                    )}
+                    {gps?.course != null && (
+                      <div className="kv"><span className="k">Курс</span><span className="v">{gps.course.toFixed(1)}°</span></div>
+                    )}
                   </div>
-                  {det.gps && (
-                    <>
-                      <div className="kv"><span className="k">Скорость</span><span className="v">{(det.gps.speed * 3.6).toFixed(1)} км/ч</span></div>
-                      <div className="kv"><span className="k">Курс</span><span className="v">{det.gps.course.toFixed(1)}°</span></div>
-                      <div className="kv"><span className="k">Высота</span><span className="v">{Math.round(det.gps.alt)} м</span></div>
-                    </>
+                )}
+              </div>
+
+              {tracks.length > 0 && (
+                <div className={`fv-panel fv-objs${tracksOpen ? '' : ' is-closed'}`}>
+                  <button className="fv-panel-h" onClick={() => setTracksOpen((v) => !v)}>
+                    <span className="eyebrow">Треки</span>
+                    <span className="num">{tracks.length}</span>
+                    <Icon name="chev" size={12} className="ico" />
+                  </button>
+                  {tracksOpen && (
+                    <div className="fv-panel-b">
+                      {tracks.map((t) => (
+                        <div key={t.track_no} className={`fv-trk${t.track_no === shot.track_no ? ' is-hot' : ''}`}>
+                          <span className="num">#{t.track_no}</span>
+                          <span className="t">{t.class_name || cls.name}</span>
+                          <span className="num">{fmtTime(t.first_ts)}</span>
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
               )}
             </div>
-
-            <div className={`fv-panel fv-objs${objectsOpen ? '' : ' is-closed'}`}>
-              <button className="fv-panel-h" onClick={() => setObjectsOpen((v) => !v)}>
-                <span className="eyebrow">Объекты</span>
-                <span className="num">{det.objects.length}</span>
-                <Icon name="chev" size={12} className="ico" />
-              </button>
-              {objectsOpen && (
-                <div className="fv-panel-b">
-                  {det.objects.map((o, i) => {
-                    const m = resolve(det.config_id, o.cid);
-                    return (
-                      <div
-                        key={i}
-                        className={`fv-obj${hovered === i ? ' is-hot' : ''}`}
-                        onMouseEnter={() => setHovered(i)}
-                        onMouseLeave={() => setHovered(null)}
-                      >
-                        <i className="sw-col" style={{ background: m.color || m.superColor || '#5b9dff' }} />
-                        <span className="t">{m.name || '—'}</span>
-                        {o.state && <span className="tag">{o.state}</span>}
-                        <span className="num">{o.cf.toFixed(2)}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
+          )}
         </div>
+
+        {shots.length > 1 && (
+          <div className="fv-strip">
+            <span className="num">{index + 1} / {shots.length}</span>
+            {shots.map((s, i) => (
+              <button
+                key={s.image_id}
+                type="button"
+                className={i === index ? 'is-on' : ''}
+                data-tip={[s.track_no != null ? `#${s.track_no}` : '', s.ts != null ? fmtTime(s.ts) : ''].filter(Boolean).join(' · ')}
+                onClick={() => setIndex(i)}
+              >
+                <img src={s.url} alt="" loading="lazy" />
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </Modal>
   );

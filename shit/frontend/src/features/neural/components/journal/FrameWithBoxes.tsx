@@ -1,71 +1,127 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '../../../../app/Icons';
 import { journalApi } from '../../api/journal';
-import type { JournalDetection } from '../../api/journal-types';
-import type { ClassMeaning } from './useClassResolver';
+import type { JournalDetection, JournalDetectionFull, JournalShot } from '../../api/journal-types';
 
 interface Props {
-  det: JournalDetection;
-  resolve: (configId: string | null, cid: number) => ClassMeaning;
-  /** Компактный режим (превью в списке): только рамки, без подписей. */
+  shot: JournalShot | null;
+  color: string;
+  name: string;
+  /** Компактный режим (превью в списке): только рамка, без подписи. */
   compact?: boolean;
   className?: string;
 }
 
-// В журнале лежит ЧИСТЫЙ кадр без нарисованных боксов — так он пригоден для
-// дообучения. Рамки рисуем здесь, поверх изображения, по координатам из БД:
-// box = [x, y, w, h] в пикселях кадра, поэтому переводим их в проценты и
-// позиционируем абсолютно — тогда наложение не зависит от размера на экране.
-export function FrameWithBoxes({ det, resolve, compact = false, className }: Props) {
-  const w = det.width || 0;
-  const h = det.height || 0;
-  const canDraw = w > 0 && h > 0;
+// Превью обнаружения тем же адресом, что у снимка в карточке, — браузер берёт его из кэша
+export function previewShot(det: JournalDetection): JournalShot | null {
+  const p = det.preview;
+  if (!p || !det.frame_url) return null;
+  return {
+    image_id: p.image_id,
+    url: `/api/journal/image/${p.image_id}.jpg`,
+    box: p.box ?? null,
+    frame_w: p.frame_w ?? null,
+    frame_h: p.frame_h ?? null,
+    confidence: p.confidence ?? null,
+    ts: p.ts ?? null,
+    track_no: p.track_no ?? null,
+  };
+}
 
-  // Кадр мог быть удалён чистильщиком лимита изображений — запись остаётся
+// Снимки обнаружения: до ответа карточки — одно превью; начальный снимок — initial или превью
+export function useDetectionShots(det: JournalDetection | null, initial: number | null = null) {
+  const [full, setFull] = useState<JournalDetectionFull | null>(null);
+  const [shotId, setShotId] = useState<number | null>(initial);
+  const id = det?.id ?? null;
+  const version = det ? `${det.images}/${det.tracks}/${det.ended_at}` : '';
+
+  const lastId = useRef(id);
+  useEffect(() => {
+    if (lastId.current === id) return;
+    lastId.current = id;
+    setShotId(null);
+  }, [id]);
+
+  useEffect(() => {
+    if (id == null) return;
+    let alive = true;
+    journalApi
+      .get(id)
+      .then((f) => {
+        if (alive) setFull(f);
+      })
+      .catch(() => {
+        /* останется превью */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [id, version]);
+
+  const own = full && full.id === id ? full : null;
+  const shots = useMemo<JournalShot[]>(() => {
+    if (own) return own.image_list;
+    const p = det ? previewShot(det) : null;
+    return p ? [p] : [];
+  }, [own, det]);
+
+  const wanted = shotId ?? det?.preview?.image_id ?? null;
+  const found = shots.findIndex((s) => s.image_id === wanted);
+  const index = found >= 0 ? found : 0;
+
+  return {
+    shots,
+    index,
+    shot: shots[index] ?? null,
+    tracks: own?.track_list ?? [],
+    setIndex: (i: number) => {
+      const s = shots[i];
+      if (s) setShotId(s.image_id);
+    },
+  };
+}
+
+// Рамка трека рисуется поверх чистого снимка в процентах от размеров кадра
+export function FrameWithBoxes({ shot, color, name, compact = false, className }: Props) {
+  const w = shot?.frame_w || 0;
+  const h = shot?.frame_h || 0;
+  const box = w > 0 && h > 0 ? shot?.box : null;
+
+  // Снимок мог удалить чистильщик лимита изображений — обнаружение остаётся
   const [missing, setMissing] = useState(false);
-  useEffect(() => setMissing(false), [det.id]);
+  useEffect(() => setMissing(false), [shot?.url]);
 
   return (
     <div
       className={`fb${compact ? ' is-compact' : ''}${className ? ' ' + className : ''}`}
-      style={canDraw ? { aspectRatio: `${w} / ${h}` } : undefined}
+      style={{ aspectRatio: w > 0 && h > 0 ? `${w} / ${h}` : '16 / 9' }}
     >
-      {missing ? (
+      {!shot || missing ? (
         <span className="fb-missing">
           <Icon name="img" className="ico" />
-          {!compact && 'Кадр удалён'}
+          {!compact && (shot ? 'Снимок удалён' : 'Снимков нет')}
         </span>
       ) : (
-        <img
-          className="fb-img"
-          src={journalApi.frameUrl(det.id)}
-          alt=""
-          loading="lazy"
-          onError={() => setMissing(true)}
-        />
+        <img className="fb-img" src={shot.url} alt="" loading="lazy" onError={() => setMissing(true)} />
       )}
-      {!missing &&
-        canDraw &&
-        det.objects.map((o, i) => {
-          const m = resolve(det.config_id, o.cid);
-          const color = m.color || m.superColor || '#5b9dff';
-          const style = {
-            left: `${(o.box[0] / w) * 100}%`,
-            top: `${(o.box[1] / h) * 100}%`,
-            width: `${(o.box[2] / w) * 100}%`,
-            height: `${(o.box[3] / h) * 100}%`,
+      {!missing && box && (
+        <span
+          className="fb-box"
+          style={{
+            left: `${(box[0] / w) * 100}%`,
+            top: `${(box[1] / h) * 100}%`,
+            width: `${(box[2] / w) * 100}%`,
+            height: `${(box[3] / h) * 100}%`,
             borderColor: color,
-          };
-          return (
-            <span key={i} className={`fb-box${o.state ? ' ' + o.state : ''}`} style={style}>
-              {!compact && (
-                <span className="fb-box-lbl" style={{ background: color }}>
-                  {m.name || '—'} {o.cf.toFixed(2)}
-                </span>
-              )}
+          }}
+        >
+          {!compact && (
+            <span className="fb-box-lbl" style={{ background: color }}>
+              {name} {shot?.confidence != null ? shot.confidence.toFixed(2) : ''}
             </span>
-          );
-        })}
+          )}
+        </span>
+      )}
     </div>
   );
 }

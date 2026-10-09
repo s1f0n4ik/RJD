@@ -198,4 +198,7 @@ export interface CameraInfo {
     type?: number;
     camera_type?: number;
     streams?: Record<string, CameraStreamInfo>;
+    // Устройство-владелец из агрегированного списка бэкенда
+    device_id?: string;
+    device_name?: string;
 }

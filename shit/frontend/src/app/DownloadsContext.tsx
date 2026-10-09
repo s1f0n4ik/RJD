@@ -3,13 +3,15 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import { useSystem } from './SystemContext';
 import type { JobProgress } from '../screens/archive/model';
 import {
-    browserDownload, fetchJobs, jobCancelUrl, jobDownloadUrl, jobProgressUrl,
+    browserDownload, fetchJobs, jobCancelUrl, jobDownloadUrl, jobProgressUrl, recordingJobs,
 } from '../screens/archive/model';
+import { JOURNAL_JOBS } from '../features/neural/api/journal';
 
-// Склейка, идущая на устройстве; результат скачивает сам браузер
+// Задача склейки устройства или выгрузки журнала; результат скачивает сам браузер
 export interface Download {
     id: string;
-    deviceId: string;
+    // Корень задач: склейки устройства или журнал мастера
+    root: string;
     title: string;
     subtitle: string;
     status: string;
@@ -26,8 +28,8 @@ interface DownloadsValue {
     items: Download[];
     // Доля от нуля до единицы по всем незавершённым задачам
     overall: number;
-    // Запуск любой задачи устройства: launch создаёт её и возвращает job_id
-    start: (deviceId: string, title: string, subtitle: string, launch: () => Promise<{ job_id: string }>) => Promise<void>;
+    // Запуск задачи: launch создаёт её и возвращает job_id
+    start: (root: string, title: string, subtitle: string, launch: () => Promise<{ job_id: string }>) => Promise<void>;
     cancel: (id: string) => void;
     dismiss: (id: string) => void;
     save: (id: string) => void;
@@ -48,9 +50,9 @@ const DONE = ['ready', 'failed', 'cancelled'];
 
 export const isFinished = (item: Download) => DONE.includes(item.status);
 
-function blank(id: string, deviceId: string, title: string, subtitle: string): Download {
+function blank(id: string, root: string, title: string, subtitle: string): Download {
     return {
-        id, deviceId, title, subtitle,
+        id, root, title, subtitle,
         status: 'queued', progress: 0, message: '',
         filesTotal: 0, filesDone: 0, bytes: 0, filename: '',
     };
@@ -79,10 +81,10 @@ export function DownloadsProvider({ children }: { children: React.ReactNode }) {
         });
     }, [patch]);
 
-    const listen = useCallback((id: string, deviceId: string) => {
+    const listen = useCallback((id: string, root: string) => {
         if (sockets.current.has(id)) return;
 
-        const socket = new WebSocket(jobProgressUrl(deviceId, id));
+        const socket = new WebSocket(jobProgressUrl(root, id));
         sockets.current.set(id, socket);
 
         socket.onmessage = event => apply(id, JSON.parse(event.data) as JobProgress);
@@ -97,15 +99,16 @@ export function DownloadsProvider({ children }: { children: React.ReactNode }) {
 
         let alive = true;
 
-        Promise.all(devices.map(device =>
-            fetchJobs(device.id)
-                .then(data => data.jobs.map(job => ({ device: device.id, job })))
+        const roots = [...devices.map(device => recordingJobs(device.id)), JOURNAL_JOBS];
+        Promise.all(roots.map(root =>
+            fetchJobs(root)
+                .then(data => data.jobs.map(job => ({ root, job })))
                 .catch(() => []),
         )).then(found => {
             if (!alive) return;
 
-            const list = found.flat().map(({ device, job }) => ({
-                ...blank(job.id, device, job.title || 'Выгрузка', job.subtitle || ''),
+            const list = found.flat().map(({ root, job }) => ({
+                ...blank(job.id, root, job.title || 'Выгрузка', job.subtitle || ''),
                 status: job.status,
                 progress: job.progress ?? 0,
                 message: job.message ?? '',
@@ -116,7 +119,7 @@ export function DownloadsProvider({ children }: { children: React.ReactNode }) {
             }));
 
             setItems(list);
-            list.forEach(item => listen(item.id, item.deviceId));
+            list.forEach(item => listen(item.id, item.root));
         });
 
         return () => { alive = false; };
@@ -128,11 +131,11 @@ export function DownloadsProvider({ children }: { children: React.ReactNode }) {
     }, []);
 
     const start = useCallback(async (
-        deviceId: string, title: string, subtitle: string, launch: () => Promise<{ job_id: string }>,
+        root: string, title: string, subtitle: string, launch: () => Promise<{ job_id: string }>,
     ) => {
         const { job_id } = await launch();
-        setItems(list => [...list, blank(job_id, deviceId, title, subtitle)]);
-        listen(job_id, deviceId);
+        setItems(list => [...list, blank(job_id, root, title, subtitle)]);
+        listen(job_id, root);
     }, [listen]);
 
     const dismiss = useCallback((id: string) => {
@@ -143,7 +146,7 @@ export function DownloadsProvider({ children }: { children: React.ReactNode }) {
 
     const cancel = useCallback((id: string) => {
         const item = items.find(value => value.id === id);
-        if (item) fetch(jobCancelUrl(item.deviceId, id), { method: 'DELETE' }).catch(() => undefined);
+        if (item) fetch(jobCancelUrl(item.root, id), { method: 'DELETE' }).catch(() => undefined);
         dismiss(id);
     }, [dismiss, items]);
 
@@ -151,7 +154,7 @@ export function DownloadsProvider({ children }: { children: React.ReactNode }) {
     const save = useCallback((id: string) => {
         const item = items.find(value => value.id === id);
         if (!item) return;
-        browserDownload(jobDownloadUrl(item.deviceId, id));
+        browserDownload(jobDownloadUrl(item.root, id));
         dismiss(id);
     }, [dismiss, items]);
 

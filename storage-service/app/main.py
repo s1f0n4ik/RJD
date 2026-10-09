@@ -8,6 +8,7 @@ from app.routers import recordings, archive
 from app.services import exports
 from app.services.cleaner import cleaner
 from app.services.jobs import jobs
+from app.services.journal import journal
 from app.services.reconciler import reconciler
 
 logging.basicConfig(
@@ -22,6 +23,7 @@ async def lifespan(app: FastAPI):
     logger.info("Starting %s", settings.APP_NAME)
     # После перезапуска задач нет, а их результаты на диске — есть
     exports.sweep()
+    journal.move_legacy()
     await jobs.start()
     await cleaner.start()
     await reconciler.start()

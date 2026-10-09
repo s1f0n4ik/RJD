@@ -54,10 +54,7 @@ export function useDisks(devices: Device[]) {
     return disks;
 }
 
-/**
- * Последние обнаружения. Модуль технического зрения может быть не поднят —
- * тогда список пуст и блок на экран не попадает.
- */
+// Последние обнаружения журнала мастера; мастер не ответил — блок на экран не попадает
 export function useLastDetections(limit = 4) {
     const [items, setItems] = useState<JournalDetection[]>([]);
     const [available, setAvailable] = useState(false);
@@ -68,10 +65,6 @@ export function useLastDetections(limit = 4) {
         let alive = true;
 
         const load = async () => {
-            if (!moduleDeviceId('neural')) {
-                if (alive) { setAvailable(false); setItems([]); setLoaded(true); }
-                return;
-            }
             try {
                 const res = await journalApi.list({}, { limit });
                 if (alive) { setItems(res.detections ?? []); setAvailable(true); }
