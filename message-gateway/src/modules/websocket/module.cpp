@@ -48,6 +48,13 @@ namespace varan {
             FSubmitResult result;
             result.ver = msg.ver;
 
+            // Не «Подтверждён» или без картинки — принято без отправки и без учёта
+            if (msg.event != ETrackEvent::Confirmed || msg.image.empty()) {
+                result.status = ESubmitStatus::Accepted;
+                result.transport = m_ws->name();
+                return result;
+            }
+
             const std::int64_t ts_recv = now_ms();
             const int det_count = static_cast<int>(msg.dets.size());
 

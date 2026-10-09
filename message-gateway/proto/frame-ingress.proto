@@ -6,8 +6,7 @@ package varan.gateway.rpc;
 // кодирует под протокол и шлёт в транспорт. gRPC вместо HTTP POST, т.к. кадры
 // с изображением идут часто и тяжёлые.
 service FrameIngress {
-    // Потоковая отправка: одно соединение, много кадров, подтверждение на каждый.
-    // Предпочтительный путь для видеопотока.
+    // Мастер обнаружений шлёт события обнаружений, подтверждение на каждое сообщение
     rpc StreamFrames(stream FrameRequest) returns (stream FrameReply);
 
     // Одиночная отправка для редких/простых вызовов.
@@ -18,17 +17,29 @@ service FrameIngress {
     rpc GetTime(TimeRequest) returns (TimeReply);
 }
 
+// Событие трека, на котором мастер записал обнаружение; номера как в detection-ingress.proto
+enum TrackEvent {
+    TRACK_EVENT_UNSPECIFIED = 0;
+    TRACK_EVENT_CREATED = 1;
+    TRACK_EVENT_CONFIRMED = 2;
+    TRACK_EVENT_UPDATED = 3;
+    TRACK_EVENT_LOST = 4;
+    TRACK_EVENT_RECOVERED = 5;
+    TRACK_EVENT_REMOVED = 6;
+}
+
 message Detection {
     int32 cid = 1;            // числовой id класса
     string cls = 2;           // имя класса
     double cf = 3;            // confidence 0..1
     repeated int32 box = 4;   // x, y, w, h
     string scls = 5;          // подкатегория (info/warning/danger), опционально
+    uint64 detection_id = 6;  // ID обнаружения у мастера, наружу не уходит
 }
 
 message FrameRequest {
     int32 ver = 1;            // версия протокола, запрошенная клиентом
-    int64 id = 2;
+    int64 id = 2;             // номер сообщения в сессии мастера
     int64 ts = 3;
     int32 width = 4;
     int32 height = 5;
@@ -40,6 +51,8 @@ message FrameRequest {
     // осмысленны только внутри своей конфигурации, поэтому шлюз выбирает по
     // этому id таблицу соответствий. Пусто — таблица не ищется.
     string config_id = 10;
+    int64 session = 11;       // время запуска мастера, unix мс
+    TrackEvent event = 12;    // одно на сообщение; шлюз разбирает CONFIRMED и REMOVED, прочие пропускает
 }
 
 message FrameReply {

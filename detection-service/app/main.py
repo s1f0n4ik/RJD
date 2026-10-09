@@ -10,6 +10,7 @@ from fastapi import FastAPI
 import detection_ingress_pb2_grpc as rpc
 from app.api import router as journal_router
 from app.config import settings
+from app.gateway import link
 from app.jobs import jobs
 from app.master import journal, master, run, worker
 
@@ -90,6 +91,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(every(0.5, master.tick)),
         asyncio.create_task(every(settings.CLEANUP_INTERVAL_SEC, journal.cleanup)),
         asyncio.create_task(poll_gateway()),
+        asyncio.create_task(link.run()),
     ]
     yield
     await server.stop(grace=2)

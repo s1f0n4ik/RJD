@@ -1,45 +1,28 @@
 import asyncio
-import io
 import json
 import logging
 import re
 import shutil
 import zipfile
 from datetime import datetime, timezone
-from functools import lru_cache
 from pathlib import Path
 from typing import Callable
 
-from PIL import Image, ImageDraw, ImageFont
-
 from app.config import settings
 from app.jobs import Job, jobs
+from app.overlay import ACC, Box, render
 
 logger = logging.getLogger(__name__)
 
-FONT_PATH = Path(__file__).resolve().parents[1] / "fonts" / "PTSans-Regular.ttf"
-DEFAULT_COLOR = "#5b9dff"
-LABEL_TEXT = "#08101f"
-PLATE_TEXT = "#ffffff"
-JPEG_QUALITY = 90
 # Кадров за заход: между заходами обновляется прогресс и проверяется отмена
 CHUNK = 20
 
 _SAFE = re.compile(r"[^A-Za-z0-9_-]+")
 
 
-@lru_cache(maxsize=8)
-def _font(size: int) -> ImageFont.FreeTypeFont:
-    return ImageFont.truetype(str(FONT_PATH), size)
-
-
 # Время в журнале уже настенное: форматируется как UTC
 def _stamp(ts_ms: int) -> str:
     return datetime.fromtimestamp(ts_ms / 1000, timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
-
-
-def _wall(ts_ms: int) -> str:
-    return datetime.fromtimestamp(ts_ms / 1000, timezone.utc).strftime("%d.%m.%Y %H:%M:%S")
 
 
 def _entry_name(row: dict) -> str:
@@ -48,42 +31,14 @@ def _entry_name(row: dict) -> str:
 
 
 def _draw(row: dict, *, boxes: bool, data: bool, legend: dict) -> bytes:
-    with Image.open(row["frame"]) as src:
-        img = src.convert("RGB")
-    draw = ImageDraw.Draw(img)
-    scale = max(img.height, 480) / 720
-    stroke = max(2, round(2 * scale))
-    font = _font(max(12, round(18 * scale)))
-    pad = max(2, round(4 * scale))
-
+    drawn = []
     preview = row.get("preview")
     if boxes and preview and preview.get("box"):
-        x, y, w, h = preview["box"]
         meta = legend.get(str(row["class_id"])) or {}
-        color = meta.get("color") or DEFAULT_COLOR
-        draw.rectangle([x, y, x + w, y + h], outline=color, width=stroke)
-        text = f"{meta.get('name') or row['class_name'] or 'cid ' + str(row['class_id'])} {preview.get('confidence') or 0:.2f}"
-        tw = draw.textlength(text, font=font)
-        th = font.size + pad * 2
-        ty = y - th if y - th >= 0 else y
-        draw.rectangle([x, ty, x + tw + pad * 2, ty + th], fill=color)
-        draw.text((x + pad, ty + pad), text, fill=LABEL_TEXT, font=font)
-
-    if data:
-        gps = row.get("gps")
-        lines = [
-            f"Время: {_wall(row['started_at'])}",
-            f"GPS: {gps['lat']:.5f}, {gps['lon']:.5f}" if gps else "GPS: нет данных",
-        ]
-        tw = max(draw.textlength(t, font=font) for t in lines)
-        lh = font.size + pad
-        draw.rectangle([pad, pad, pad + tw + pad * 4, pad + lh * len(lines) + pad * 2], fill="#000000")
-        for i, text in enumerate(lines):
-            draw.text((pad * 3, pad * 2 + i * lh), text, fill=PLATE_TEXT, font=font)
-
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=JPEG_QUALITY)
-    return buf.getvalue()
+        name = meta.get("name") or row["class_name"] or f"cid {row['class_id']}"
+        drawn.append(Box(*preview["box"], f"{name} {preview.get('confidence') or 0:.2f}", meta.get("color") or ACC))
+    gps = row.get("gps")
+    return render(Path(row["frame"]), drawn, row["started_at"] if data else None, (gps["lat"], gps["lon"]) if gps else None)
 
 
 def _pack(zf: zipfile.ZipFile, rows: list[dict], *, boxes: bool, data: bool, legend: dict) -> int:

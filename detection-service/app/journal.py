@@ -286,6 +286,13 @@ class Journal:
         ).fetchone()
         return row[0] if row else None
 
+    def image_path(self, device_id: str, session: int, device_image_id: int) -> Optional[Path]:
+        row = self.conn.execute(
+            "SELECT path FROM images WHERE device_id = ? AND session = ? AND device_image_id = ?",
+            [device_id, session, device_image_id],
+        ).fetchone()
+        return self.frames_dir / row[0] if row and row[0] else None
+
     def detections_for_image(self, device_id: str, session: int, device_image_id: int) -> list[int]:
         return [
             row[0]

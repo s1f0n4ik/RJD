@@ -42,6 +42,10 @@ namespace varan {
                 return out;
             }
 
+            bool same_payload(const FCanDetectionPayload& a, const FCanDetectionPayload& b) {
+                return a.count == b.count && a.type == b.type && a.danger == b.danger && a.camera_mask == b.camera_mask;
+            }
+
         } // namespace
 
         UCanModule::UCanModule(boost::asio::io_context& ioc, FCanConfig config,
@@ -190,105 +194,107 @@ namespace varan {
             m_log.push(frame, false, ts, buf, "");
         }
 
-        void UCanModule::expire_cameras_locked(const FCanConfig& cfg) {
-            // Ограничение жизни выключено — вклады камер держатся до нового кадра,
-            // сколько бы ни прошло: на шину уходит последнее полученное состояние.
-            if (!cfg.payload_ttl_enabled) {
-                return;
-            }
-            const std::int64_t now = mono_ms();
-            for (auto& c : m_cameras) {
-                if (c.mono != 0 && (now - c.mono) > cfg.payload_ttl_ms) {
-                    // Камера замолчала: гасим её вклад, но саму запись оставляем —
-                    // страница должна показывать, что камера известна и молчит.
-                    c.count = 0;
-                    c.type = 0;
-                    c.danger = 0;
-                    c.mono = 0;
-                }
-            }
+        bool UCanModule::alive(const FDetectionState& d, const FCanConfig& cfg, std::int64_t now) {
+            return !cfg.payload_ttl_enabled || now - d.mono <= cfg.payload_ttl_ms;
         }
 
-        FCanDetectionPayload UCanModule::build_payload_locked(const FCanConfig&) const {
+        FCanDetectionPayload UCanModule::build_payload_locked(const FCanConfig& cfg) const {
             FCanDetectionPayload p;
-            for (const auto& c : m_cameras) {
-                if (c.mono == 0 || c.count == 0) {
+            const std::int64_t now = mono_ms();
+            for (const auto& d : m_detections) {
+                if (!alive(d, cfg, now)) {
                     continue;
                 }
-                p.count += c.count;
-                if (c.bit >= 1 && c.bit <= 8) {
-                    p.camera_mask |= (1 << (c.bit - 1));
+                p.count++;
+                if (d.bit >= 1 && d.bit <= 8) {
+                    p.camera_mask |= (1 << (d.bit - 1));
                 }
                 // Тип отдаём у обнаружения с самым высоким классом опасности: в
                 // четыре байта помещается только одно, и это должно быть самое
                 // опасное — по всем камерам сразу.
-                if (c.danger > p.danger) {
-                    p.danger = c.danger;
-                    p.type = c.type;
+                if (d.danger > p.danger) {
+                    p.danger = d.danger;
+                    p.type = d.type;
                 }
             }
             return p;
         }
 
-        // Кадр от media-center обновляет вклад своей камеры. Отправку делает
-        // таймер, а при выключенной постоянной передаче — этот же вызов.
+        // Сообщение мастера правит список обнаружений. Отправку делает таймер,
+        // а при выключенной постоянной передаче — этот же вызов.
         FSubmitResult UCanModule::handle_frame(const FFrameMessage& msg) {
             FSubmitResult result;
             result.ver = msg.ver;
             result.transport = "can";
+            result.status = ESubmitStatus::Accepted;
+
+            // Список ведут «Подтверждён» без картинки и «Удалён» мастера; картинка — для ЦПУ, остальное молча пропускается
+            const bool confirmed = msg.event == ETrackEvent::Confirmed;
+            if ((!confirmed && msg.event != ETrackEvent::Removed) || msg.session == 0 || !msg.image.empty()) {
+                return result;
+            }
 
             const std::int64_t ts_recv = now_ms();
             const int det_count = static_cast<int>(msg.dets.size());
             const FCanConfig cfg = config();
 
-            int type = 0, danger = 0;
-            bool passthrough = false;
-            for (const auto& d : msg.dets) {
-                const auto r = m_taxonomy.resolve(msg.config_id, d);
-                passthrough = passthrough || r.passthrough;
-                if (r.danger > danger) {
-                    danger = r.danger;
-                    type = r.type;
+            std::vector<FDetectionState> added;
+            if (confirmed) {
+                const int bit = m_taxonomy.camera_bit(msg.camera_id);
+                if (bit == 0 && det_count > 0) {
+                    // Камеры нет в таблице — бит ставить некуда. Обнаружения попадут
+                    // в счётчик кадра, но какая камера сработала, приёмник не узнает.
+                    m_unmapped_cameras.fetch_add(1);
                 }
-            }
-            if (passthrough) {
-                m_passthrough_frames.fetch_add(1);
-            }
-
-            const int bit = m_taxonomy.camera_bit(msg.camera_id);
-            if (bit == 0 && det_count > 0) {
-                // Камеры нет в таблице — бит ставить некуда. Обнаружения попадут
-                // в счётчик кадра, но какая камера сработала, приёмник не узнает.
-                m_unmapped_cameras.fetch_add(1);
+                bool passthrough = false;
+                for (const auto& d : msg.dets) {
+                    const auto r = m_taxonomy.resolve(msg.config_id, d);
+                    passthrough = passthrough || r.passthrough;
+                    added.push_back(FDetectionState{ d.detection_id, msg.camera_id, bit, r.type, r.danger, mono_ms() });
+                }
+                if (passthrough) {
+                    m_passthrough_frames.fetch_add(1);
+                }
             }
 
             {
                 std::lock_guard<std::mutex> lock(m_payload_mutex);
-                auto it = std::find_if(m_cameras.begin(), m_cameras.end(),
-                    [&](const FCameraState& c) { return c.key == msg.camera_id; });
-                if (it == m_cameras.end()) {
-                    m_cameras.push_back(FCameraState{ msg.camera_id, bit, 0, 0, 0, 0 });
-                    it = std::prev(m_cameras.end());
+                if (msg.session != m_session) {
+                    if (!m_detections.empty()) {
+                        ULog::info(TAG, "Master session changed, detection list cleared (" +
+                            std::to_string(m_detections.size()) + ")");
+                    }
+                    m_detections.clear();
+                    m_session = msg.session;
                 }
-                // Бит перечитываем каждый раз: таблицу могли поправить по REST
-                // уже после того, как камера впервые дала о себе знать.
-                it->bit = bit;
-                it->count = det_count;
-                it->type = type;
-                it->danger = danger;
-                it->mono = mono_ms();
+                for (std::size_t i = 0; i < msg.dets.size(); ++i) {
+                    const std::uint64_t id = msg.dets[i].detection_id;
+                    if (id == 0) {
+                        continue;
+                    }
+                    auto it = std::find_if(m_detections.begin(), m_detections.end(),
+                        [&](const FDetectionState& s) { return s.id == id; });
+                    if (!confirmed) {
+                        if (it != m_detections.end()) {
+                            m_detections.erase(it);
+                        }
+                        continue;
+                    }
+                    // Повтор ID, в том числе погашенного по сроку, не добавляется
+                    if (it == m_detections.end()) {
+                        m_detections.push_back(added[i]);
+                    }
+                }
             }
 
-            // Кадр принят в любом случае: состояние камер обновлено выше, и на
-            // шину оно уйдёт, как только она появится. Молчащая шина и снятый
+            // Сообщение принято в любом случае: список обновлён выше, и на
+            // шину он уйдёт, как только она появится. Молчащая шина и снятый
             // тумблер — дело шлюза, отправителю отказывать не за что.
             std::shared_ptr<ICanBus> bus;
             {
                 std::lock_guard<std::mutex> lock(m_mutex);
                 bus = m_bus;
             }
-
-            result.status = ESubmitStatus::Accepted;
 
             if (!cfg.tx_detections.enabled) {
                 m_stats.on_frame_undelivered(msg.id, ts_recv, msg.ver, det_count, "transmission disabled");
@@ -312,7 +318,7 @@ namespace varan {
             return result;
         }
 
-        void UCanModule::transmit(const FCanConfig& cfg, bool) {
+        void UCanModule::transmit(const FCanConfig& cfg, bool only_changed) {
             if (!cfg.tx_detections.enabled) {
                 return;
             }
@@ -331,8 +337,10 @@ namespace varan {
             FCanDetectionPayload payload;
             {
                 std::lock_guard<std::mutex> lock(m_payload_mutex);
-                expire_cameras_locked(cfg);
                 payload = build_payload_locked(cfg);
+                if (only_changed && same_payload(payload, m_last_payload)) {
+                    return;
+                }
             }
 
             const FCanFrame frame = encode_detection_frame(
@@ -346,6 +354,10 @@ namespace varan {
                 m_log.push(frame, true, ts, "",
                     bus->last_error().empty() ? "can write failed" : bus->last_error());
                 return;
+            }
+            {
+                std::lock_guard<std::mutex> lock(m_payload_mutex);
+                m_last_payload = payload;
             }
 
             std::string note;
@@ -420,15 +432,8 @@ namespace varan {
                     return;
                 }
                 const FCanConfig cfg = config();
-                // Без постоянной передачи таймер только гасит протухшие камеры;
-                // сам кадр уходит из handle_frame по приходу обнаружений.
-                if (cfg.tx_continuous) {
-                    transmit(cfg, false);
-                }
-                else {
-                    std::lock_guard<std::mutex> lock(m_payload_mutex);
-                    expire_cameras_locked(cfg);
-                }
+                // Без постоянной передачи кадр уходит, только когда нагрузка изменилась, в том числе по сроку
+                transmit(cfg, !cfg.tx_continuous);
                 heartbeat();
                 start_tx();
             });
@@ -513,21 +518,25 @@ namespace varan {
             tx["ttl_enabled"] = cfg.payload_ttl_enabled;
             tx["payload_ttl_ms"] = cfg.payload_ttl_ms;
 
-            // Текущая нагрузка — то, что прямо сейчас уходит на шину, вместе с
-            // вкладом каждой камеры: по нему видно, чей бит поднят и почему.
+            // Текущая нагрузка и список обнаружений, из которого она собрана
             FCanDetectionPayload payload;
-            json::array cams;
+            json::array dets;
+            std::int64_t session = 0;
             {
                 std::lock_guard<std::mutex> lock(m_payload_mutex);
                 payload = build_payload_locked(cfg);
-                for (const auto& c : m_cameras) {
+                session = m_session;
+                const std::int64_t now = mono_ms();
+                for (const auto& d : m_detections) {
                     json::object o;
-                    o["key"] = c.key;
-                    o["bit"] = c.bit;
-                    o["count"] = c.count;
-                    o["active"] = c.mono != 0 && c.count > 0;
-                    o["age_ms"] = c.mono ? (mono_ms() - c.mono) : -1;
-                    cams.push_back(std::move(o));
+                    o["id"] = d.id;
+                    o["camera"] = d.camera;
+                    o["bit"] = d.bit;
+                    o["type"] = d.type;
+                    o["danger"] = d.danger;
+                    o["age_ms"] = now - d.mono;
+                    o["active"] = alive(d, cfg, now);
+                    dets.push_back(std::move(o));
                 }
             }
 
@@ -539,7 +548,8 @@ namespace varan {
             pj["camera_bits"] = mask_note(payload.camera_mask);
             pj["type_title"] = payload.type ? UTaxonomy::type_title(payload.type) : std::string("—");
             pj["danger_title"] = payload.danger ? UTaxonomy::danger_title(payload.danger) : std::string("—");
-            pj["cameras"] = std::move(cams);
+            pj["detections"] = std::move(dets);
+            pj["session"] = session;
             pj["unmapped_cameras"] = m_unmapped_cameras.load();
             pj["passthrough_frames"] = m_passthrough_frames.load();
 

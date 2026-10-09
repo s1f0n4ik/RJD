@@ -28,14 +28,13 @@ namespace varan {
         // UTimeSource, откуда время и GPS забирают остальные сервисы.
         //
         // Передача: кадр обнаружений (PGN 0xEF00, SA 0x71) уходит на шину по
-        // таймеру раз в tx_period_ms. Кадр от media-center не вызывает отправку, а
+        // таймеру раз в tx_period_ms. Сообщение мастера не вызывает отправку, а
         // только обновляет нагрузку — так период на шине ровный и не зависит от
         // частоты работы нейросети.
         //
-        // Нагрузка копится по камерам: у каждой камеры свой поток кадров и свой
-        // бит в байте камер, поэтому в одном кадре видно сразу несколько камер,
-        // поймавших обнаружение. Вклад камеры живёт payload_ttl_ms — молчащая
-        // камера гаснет сама, не утаскивая за собой остальные.
+        // Нагрузка — список обнаружений мастера по ID: «Подтверждён» без картинки добавляет, «Удалён» вычитает
+        // Смена сессии мастера очищает список
+        // С жизнью нагрузки запись гаснет через payload_ttl_ms после добавления и ждёт «Удалён» погашенной
         class UCanModule : public IModule {
         public:
             UCanModule(boost::asio::io_context& ioc, FCanConfig config,
@@ -60,26 +59,25 @@ namespace varan {
             bool apply_config(const boost::json::object& patch, std::string& err) override;
 
         private:
-            // Вклад одной камеры в общую нагрузку.
-            struct FCameraState {
-                std::string key;      // camera_id от media-center
+            // Обнаружение в нагрузке шины
+            struct FDetectionState {
+                std::uint64_t id = 0;
+                std::string camera;   // camera_id
                 int bit = 0;          // 0 — камеры нет в таблице соответствий
-                int count = 0;
                 int type = 0;
                 int danger = 0;
-                std::int64_t mono = 0; // монотонный момент последнего кадра
+                std::int64_t mono = 0; // монотонный момент «Подтверждён»
             };
 
             void start_tx();
             void heartbeat();
             void on_bus_frame(const FCanFrame& frame);
-            // Собирает кадр из живых вкладов камер и шлёт его. Зовётся таймером,
-            // а при выключенной постоянной передаче — на каждый кадр gRPC.
-            void transmit(const FCanConfig& cfg, bool from_grpc);
+            // Собирает кадр из живых записей и шлёт; only_changed — только если нагрузка изменилась
+            void transmit(const FCanConfig& cfg, bool only_changed);
 
-            // Сводит вклады камер в одну нагрузку, попутно отбрасывая протухшие.
+            // Запись входит в нагрузку
+            static bool alive(const FDetectionState& d, const FCanConfig& cfg, std::int64_t now);
             FCanDetectionPayload build_payload_locked(const FCanConfig& cfg) const;
-            void expire_cameras_locked(const FCanConfig& cfg);
 
             void rebuild_bus_locked();
             FCanConfig config() const;
@@ -102,9 +100,11 @@ namespace varan {
             // (таймер передачи), поэтому без атомарности.
             std::int64_t m_last_hb_mono = 0;
 
-            // Вклады камер. Пишет поток gRPC, читает поток шины.
+            // Список обнаружений. Пишет поток gRPC, читает поток шины.
             mutable std::mutex m_payload_mutex;
-            std::vector<FCameraState> m_cameras;
+            std::vector<FDetectionState> m_detections;
+            std::int64_t m_session = 0;               // сессия мастера, по которой ведётся список
+            FCanDetectionPayload m_last_payload;      // последняя ушедшая на шину нагрузка
             // Кадры, которым не нашлось камеры в таблице: бит поставить некуда,
             // но обнаружения терять нельзя — считаем и показываем на странице.
             std::atomic<std::int64_t> m_unmapped_cameras{ 0 };

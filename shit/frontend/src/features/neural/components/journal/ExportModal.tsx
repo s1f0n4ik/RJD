@@ -132,9 +132,13 @@ export function ExportModal({ initial, deviceOptions, cameraOptions, configOptio
                   />
                   {data && (
                     <span className="jx-plate">
-                      Время: {fmtDateTime(sample.started_at)}
-                      <br />
-                      GPS: {sample.gps ? `${sample.gps.lat.toFixed(5)}, ${sample.gps.lon.toFixed(5)}` : 'нет данных'}
+                      <i>Время</i>
+                      <b>{fmtDateTime(sample.started_at)}</b>
+                      <i>GPS</i>
+                      <b className={sample.gps ? 'is-on' : 'is-off'}>
+                        <em />
+                        {sample.gps ? `${sample.gps.lat.toFixed(5)}, ${sample.gps.lon.toFixed(5)}` : 'нет данных'}
+                      </b>
                     </span>
                   )}
                 </div>

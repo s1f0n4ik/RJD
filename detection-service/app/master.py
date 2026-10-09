@@ -5,9 +5,10 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import detection_ingress_pb2 as pb
+import frame_ingress_pb2 as gw
 
 from app.config import settings
 from app.journal import Journal, now_ms
@@ -38,6 +39,16 @@ class Detection:
     removed_ts: Optional[int] = None
     removed_box: Box = (0, 0, 0, 0)
     deadline: float = 0.0
+    config_id: str = ""
+    class_id: int = 0
+    class_name: str = ""
+    superclass: str = ""
+    # Ушло в шлюз; опоздавшее — только в журнал
+    sent: bool = False
+    # Первый снимок уже назначен в шлюз
+    imaged: bool = False
+    # Монотонный момент открытия: снимок позже LATE_MS в шлюз не уходит
+    opened: float = 0.0
 
 
 @dataclass
@@ -46,13 +57,48 @@ class Track:
     detection: Detection
 
 
+@dataclass
+class Outgoing:
+    request: "gw.FrameRequest"
+    # Кадр под рамки и плашку: байты или файл журнала
+    jpeg: Optional[bytes] = None
+    path: Optional[Path] = None
+    gps: Optional[tuple[float, float]] = None
+
+
+@dataclass
+class Shot:
+    request: "gw.FrameRequest"
+    gps: Optional[tuple[float, float]]
+    opened: float
+
+
+class Outbox:
+    # Сообщения мастера в шлюз; отправку подставляет main
+    def __init__(self):
+        self.session = now_ms()
+        self.send: Callable[[Outgoing], None] = lambda message: None
+
+
+def gw_detection(detection: Detection, track=None) -> "gw.Detection":
+    d = gw.Detection(detection_id=detection.id, cid=detection.class_id, cls=detection.class_name, scls=detection.superclass)
+    if track is not None:
+        d.cid, d.cls, d.scls, d.cf = track.class_id, track.class_name, track.superclass, track.confidence
+        if len(track.box) == 4:
+            d.box.extend(track.box)
+    return d
+
+
 class RsmRules:
     # РСМ-2000: каждая камера — свои обнаружения, обрывки трека на камере сшиваются
-    def __init__(self, journal: Journal):
+    def __init__(self, journal: Journal, outbox: Outbox):
         self.journal = journal
+        self.outbox = outbox
         self.tracks: dict[tuple, Track] = {}
         # Открытые обнаружения, в том числе ждущие закрытия
         self.detections: dict[int, Detection] = {}
+        # Снимки для шлюза, ждущие свой кадр: (устройство, сессия, id снимка)
+        self.shots: dict[tuple, Shot] = {}
 
     def on_packet(self, packet, received_at: int, late: bool) -> None:
         self._flush_camera(packet.device_id, packet.camera_id, packet.ts)
@@ -61,6 +107,55 @@ class RsmRules:
             if track.track_id == 0:
                 continue
             self._on_event(packet, track, received_at, late)
+        if packet.image_id:
+            self._shot(packet)
+
+    def _request(self, event: int, ts: int, camera_id: str, config_id: str, dets: list) -> "gw.FrameRequest":
+        return gw.FrameRequest(ver=1, ts=ts, camera_id=camera_id, config_id=config_id,
+                               session=self.outbox.session, event=event, dets=dets)
+
+    # Первый снимок новых обнаружений — в шлюз со всеми отправленными целями пакета
+    def _shot(self, packet) -> None:
+        visible, fresh = [], []
+        for track in packet.tracks:
+            state = self.tracks.get((packet.device_id, packet.session, track.track_id))
+            if track.track_id == 0 or track.event == pb.TRACK_EVENT_REMOVED or state is None or not state.detection.sent:
+                continue
+            visible.append(gw_detection(state.detection, track))
+            if not state.detection.imaged:
+                fresh.append(state.detection)
+        if not fresh:
+            return
+        for detection in fresh:
+            detection.imaged = True
+        request = self._request(gw.TRACK_EVENT_CONFIRMED, packet.ts, packet.camera_id, packet.config_id, visible)
+        request.width, request.height = packet.width, packet.height
+        gps = (packet.gps.lat, packet.gps.lon) if packet.gps.valid else None
+        shot = Shot(request, gps, max(d.opened for d in fresh))
+        path = self.journal.image_path(packet.device_id, packet.session, packet.image_id)
+        if path is None:
+            self.shots[(packet.device_id, packet.session, packet.image_id)] = shot
+        else:
+            self._send_shot(shot, path=path)
+
+    def on_image(self, image) -> None:
+        shot = self.shots.pop((image.device_id, image.session, image.id), None)
+        if shot is not None:
+            self._send_shot(shot, jpeg=image.jpeg)
+
+    def _send_shot(self, shot: Shot, jpeg: Optional[bytes] = None, path: Optional[Path] = None) -> None:
+        if time.monotonic() - shot.opened > settings.LATE_MS / 1000:
+            logger.info("image for detection(s) %s came late, journal only", [d.detection_id for d in shot.request.dets])
+            return
+        self.outbox.send(Outgoing(shot.request, jpeg=jpeg, path=path, gps=shot.gps))
+
+    # Открытые отправленные — заново в шлюз после подключения
+    def resend(self) -> int:
+        sent = [d for d in self.detections.values() if d.sent]
+        for detection in sent:
+            self.outbox.send(Outgoing(self._request(
+                gw.TRACK_EVENT_CONFIRMED, detection.last_ts, detection.camera_id, detection.config_id, [gw_detection(detection)])))
+        return len(sent)
 
     def _on_event(self, packet, track, received_at: int, late: bool) -> None:
         key = (packet.device_id, packet.session, track.track_id)
@@ -94,12 +189,19 @@ class RsmRules:
         detection = self._stitch(packet, cls, box)
         if detection is None:
             detection_id = self.journal.add_detection(packet, track, late)
-            detection = Detection(detection_id, packet.device_id, packet.session, packet.camera_id, cls, packet.ts)
+            detection = Detection(
+                detection_id, packet.device_id, packet.session, packet.camera_id, cls, packet.ts,
+                config_id=packet.config_id, class_id=track.class_id, class_name=track.class_name,
+                superclass=track.superclass, sent=not late, opened=time.monotonic(),
+            )
             self.detections[detection_id] = detection
             logger.info(
                 "detection %d opened: %s %s %s track #%d%s",
                 detection_id, packet.device_id[:8], packet.camera_id, cls, track.track_id, " (late)" if late else "",
             )
+            if detection.sent:
+                self.outbox.send(Outgoing(self._request(
+                    gw.TRACK_EVENT_CONFIRMED, packet.ts, packet.camera_id, packet.config_id, [gw_detection(detection, track)])))
         else:
             logger.info("detection %d continues with track #%d", detection.id, track.track_id)
             detection.removed_ts = None
@@ -149,6 +251,9 @@ class RsmRules:
         for detection in list(self.detections.values()):
             if detection.removed_ts is not None and detection.deadline <= now:
                 self._close(detection, detection.removed_ts, "removed")
+        for key, shot in list(self.shots.items()):
+            if now - shot.opened > settings.LATE_MS / 1000:
+                del self.shots[key]
 
     def close_device(self, device_id: str, session: int, reason: str) -> None:
         for detection in list(self.detections.values()):
@@ -165,6 +270,9 @@ class RsmRules:
             self.tracks.pop(key, None)
         del self.detections[detection.id]
         logger.info("detection %d closed: %s", detection.id, reason)
+        if detection.sent:
+            self.outbox.send(Outgoing(self._request(
+                gw.TRACK_EVENT_REMOVED, ended_at, detection.camera_id, detection.config_id, [gw_detection(detection)])))
 
 
 # Правила по id конфигурации шлюза
@@ -186,7 +294,8 @@ class Master:
         self.journal = journal
         self.devices: dict[str, Device] = {}
         self.active: Optional[str] = None
-        self.rules = RsmRules(journal)
+        self.outbox = Outbox()
+        self.rules = RsmRules(journal, self.outbox)
 
     def start(self) -> None:
         closed = self.journal.close_all_open("master_restart")
@@ -202,7 +311,7 @@ class Master:
             if active is not None:
                 logger.warning("no rules for gateway configuration %r, using rsm-2000", active)
             rules = RsmRules
-        return rules(self.journal)
+        return rules(self.journal, self.outbox)
 
     def set_active(self, active: str) -> None:
         if active == self.active:
@@ -235,10 +344,15 @@ class Master:
             if image_id is not None:
                 for detection_id in self.journal.detections_for_image(image.device_id, image.session, image.id):
                     self.journal.set_detection_image(detection_id, image_id)
+                self.rules.on_image(image)
             ack.image_ids.append(image.id)
             device_id = image.device_id
         self.journal.commit()
         return device_id, ack
+
+    # Шлюз подключился: открытые отправленные — заново
+    def resend_open(self) -> int:
+        return self.rules.resend()
 
     def _session(self, device_id: str, session: int) -> None:
         device = self.devices.get(device_id)

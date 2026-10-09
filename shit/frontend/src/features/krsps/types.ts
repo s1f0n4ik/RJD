@@ -79,12 +79,15 @@ export interface GwCanTx {
 }
 
 // Вклад одной камеры в общую нагрузку.
-export interface GwCanPayloadCamera {
-  key: string;       // camera_id от media-center
+// Обнаружение мастера в списке CAN
+export interface GwCanPayloadDetection {
+  id: number;
+  camera: string;
   bit: number;       // 0 — камеры нет в таблице соответствий
-  count: number;
-  active: boolean;
-  age_ms: number;    // -1 — кадров от этой камеры ещё не было
+  type: number;
+  danger: number;
+  age_ms: number;    // с «Подтверждён»
+  active: boolean;   // false — погасло по сроку, ждёт «Удалён»
 }
 
 // Нагрузка, которая прямо сейчас уходит на шину.
@@ -96,7 +99,8 @@ export interface GwCanPayload {
   camera_bits: string;   // поднятые биты как "1, 2"
   type_title: string;
   danger_title: string;
-  cameras: GwCanPayloadCamera[];
+  detections: GwCanPayloadDetection[];
+  session: number;            // сессия мастера, 0 — сообщений ещё не было
   unmapped_cameras: number;   // кадры с камерой не из таблицы
   passthrough_frames: number; // кадры из конфигураций без таблицы
 }

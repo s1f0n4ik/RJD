@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     # REST шлюза АС КРСПС: активная конфигурация
     GATEWAY_URL: str = "http://127.0.0.1:9090"
     GATEWAY_POLL_SEC: float = 5.0
+    # gRPC шлюза: обнаружения в АС КРСПС
+    GATEWAY_GRPC: str = "127.0.0.1:50051"
+    GATEWAY_RETRY_SEC: float = 2.0
 
     # Пакет, пролежавший в очереди устройства дольше, — опоздавший: только в журнал
     LATE_MS: int = 5000

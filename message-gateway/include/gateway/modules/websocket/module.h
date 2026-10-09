@@ -19,6 +19,7 @@ namespace varan {
         // Модуль доставки кадров по WebSocket (КАУС): кодек протокола + транспорт +
         // heartbeat при простое канала. Логика та же, что была в РСМ-2000 до
         // появления второго модуля, — переехала за IModule без изменений.
+        // В КАУС уходит только «Подтверждён» с картинкой, остальное молча пропускается.
         class UWsModule : public IModule {
         public:
             UWsModule(boost::asio::io_context& ioc, FWsConfig config, int heartbeat_sec);

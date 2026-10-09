@@ -9,6 +9,17 @@
 namespace varan {
     namespace gateway {
 
+        // Событие трека, на котором мастер записал обнаружение; номера как в proto
+        enum class ETrackEvent {
+            Unspecified = 0,
+            Created = 1,
+            Confirmed = 2,
+            Updated = 3,
+            Lost = 4,
+            Recovered = 5,
+            Removed = 6
+        };
+
         // Одно обнаружение нейросети. Семантика, а не байты конкретного протокола.
         struct FDetection {
             int cid = 0;                      // числовой id класса
@@ -16,6 +27,7 @@ namespace varan {
             double cf = 0.0;                  // confidence 0..1
             std::array<int, 4> box{ 0, 0, 0, 0 }; // x, y, w, h
             std::optional<std::string> scls;  // подкатегория (info/warning/danger)
+            std::uint64_t detection_id = 0;   // ID обнаружения у мастера
         };
 
         // Семантическое сообщение кадра от media-center. Кодек превращает его в
@@ -34,6 +46,8 @@ namespace varan {
             // осмысленны только внутри своей конфигурации, поэтому таблица
             // соответствий выбирается по этому id. Пусто — таблица не ищется.
             std::string config_id;
+            std::int64_t session = 0;         // время запуска мастера, unix мс
+            ETrackEvent event = ETrackEvent::Unspecified;
         };
 
         // Точный снимок времени + GPS шлюза. Единый источник для REST (/time,
