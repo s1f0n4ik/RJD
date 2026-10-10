@@ -18,7 +18,7 @@
 #include "neural/json-configurator.h"
 #include "neural/slot.h"
 #include "neural/video-stream.h"
-#include "gateway/client.h"
+#include "gateway/frame.h"
 #include "detection/client.h"
 #include "core/platform.h"
 
@@ -50,7 +50,6 @@ namespace neural {
 			std::filesystem::path config_path,
 			std::filesystem::path state_path,
 			FDeviceInfo device,
-			std::shared_ptr<gateway::UGatewayClient> gateway = nullptr,
 			std::shared_ptr<detection::UDetectionClient> master = nullptr,
 			ULogger::ELoggerLevel level = ULogger::ELoggerLevel::DEBUG
 		);
@@ -177,10 +176,6 @@ namespace neural {
 		ULogger m_logger;
 
 		FCameraSenderProvider m_sender_provider;
-
-		// Общий клиент message-gateway процесса: создаётся и живёт в main,
-		// загрузчик только шлёт через него кадры.
-		std::shared_ptr<gateway::UGatewayClient> m_gateway;
 
 		// Клиент мастера обнаружений из main; nullptr — мастер не задан
 		std::shared_ptr<detection::UDetectionClient> m_master;

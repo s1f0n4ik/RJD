@@ -4,7 +4,6 @@
 #include "signaling_definers.h"
 
 #include "neural/tracker/iou-tracker.h"
-#include "neural/constants.h"
 #include "neural/postprocess.h"
 #include "neural/utility.h"
 
@@ -14,38 +13,11 @@
 #include <chrono>
 #include <cmath>
 #include <algorithm>
-#include <ctime>
-#include <cstdio>
 
 namespace {
     std::int64_t now_ms() {
         return std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
-    }
-
-    std::string format_utc(std::int64_t unix_ms) {
-        const std::time_t t = static_cast<std::time_t>(unix_ms / 1000);
-        std::tm tm{};
-#if defined(_WIN32)
-        gmtime_s(&tm, &t);
-#else
-        gmtime_r(&t, &tm);
-#endif
-        char buf[32];
-        std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &tm);
-        return std::string(buf);
-    }
-
-    std::string format_coord(double v) {
-        char buf[32];
-        std::snprintf(buf, sizeof(buf), "%.5f", v);
-        return std::string(buf);
-    }
-
-    // HEX "#RRGGBB" -> cv::Scalar(B, G, R) — для BGR-кадра (см. hex_to_rgb в draw-detections.h).
-    cv::Scalar hex_to_bgr(const std::string& hex) {
-        const cv::Scalar rgb = varan::neural::hex_to_rgb(hex);
-        return cv::Scalar(rgb[2], rgb[1], rgb[0]);
     }
 }
 
@@ -60,7 +32,6 @@ namespace neural {
         FFrameStorage<IFrame>* storage,
         std::atomic<std::int64_t>* track_ids,
         FCameraSenderProvider sender_provider,
-        gateway::FGatewayFrameSender gateway_sender,
         gateway::FGatewayTimeProvider time_provider,
         detection::UDetectionClient* master,
         ULogger::ELoggerLevel level)
@@ -75,12 +46,9 @@ namespace neural {
         , m_level(level)
         , m_logger("Slot:" + config.id + "/" + video.id, level)
         , m_sender_provider(std::move(sender_provider))
-        , m_gateway_sender(std::move(gateway_sender))
         , m_time_provider(std::move(time_provider))
         , m_master(master)
     {
-        m_text_renderer = std::make_unique<UTextRenderer>(constants::GATEWAY_DETECTION_FONT_HEIGHT, level);
-
         for (const auto& cam : stream_cameras(m_video))
             m_trackers[cam] = make_tracker();
 
@@ -486,99 +454,6 @@ namespace neural {
         return g;
     }
 
-    std::vector<gateway::FGatewayDetection> USlot::gateway_dets_from_detections(const std::vector<FDetection>& dets) const {
-        std::vector<gateway::FGatewayDetection> result;
-        result.reserve(dets.size());
-        for (const auto& d : dets) {
-            result.push_back(make_gateway_detection(d.class_id, d.confidence, d));
-        }
-        return result;
-    }
-
-    std::vector<gateway::FGatewayDetection> USlot::gateway_dets_from_tracks(const std::vector<FTrack>& tracks) const {
-        std::vector<gateway::FGatewayDetection> result;
-        result.reserve(tracks.size());
-        for (const auto& t : tracks) {
-            // В шлюз идут подтверждённые объекты и недавно потерянные
-            if (t.state != ETrackState::CONFIRMED && t.state != ETrackState::LOST) continue;
-            result.push_back(make_gateway_detection(t.class_id, t.confidence, t.detection));
-        }
-        return result;
-    }
-
-    // Отрисовка на кадре, уходящем в message-gateway: бокс (цвет — по классу,
-    // см. m_config.classes) + название класса (кириллица через m_text_renderer)
-    // и время/GPS в левом верхнем углу.
-    void USlot::draw_gateway_overlay(cv::Mat& frame_bgr, const std::vector<gateway::FGatewayDetection>& dets,
-        const gateway::FGatewayTimeGps& time_gps)
-    {
-        if (frame_bgr.empty() || !m_text_renderer || !m_text_renderer->available()) return;
-
-        const cv::Scalar fallback_color(0, 200, 0);
-        const cv::Scalar text_color(255, 255, 255);
-
-        // FreeType2::putText(..., bottomLeftOrigin=false) берёт org как ВЕРХНИЙ левый
-        // угол текста, а не нижний — поэтому ниже везде считаем от верха вниз, а не
-        // прибавляем ts.height к origin (это и была причина съезжающего текста).
-        for (const auto& d : dets) {
-            if (d.cls.empty()) continue;
-
-            cv::Scalar box_color = fallback_color;
-            for (const auto& c : m_config.classes) {
-                if (c.id == d.cid) {
-                    box_color = hex_to_bgr(c.color);
-                    break;
-                }
-            }
-
-            const cv::Rect r(d.box[0], d.box[1], d.box[2], d.box[3]);
-            cv::rectangle(frame_bgr, r, box_color, 2);
-
-            const int label_pad = 4;
-            int baseline = 0;
-            const cv::Size ts = m_text_renderer->text_size(d.cls, &baseline, constants::GATEWAY_DETECTION_FONT_HEIGHT);
-            const int label_h = ts.height + baseline + label_pad * 2;
-            const int ty = std::max(0, r.y - label_h);
-            cv::rectangle(frame_bgr, cv::Rect(r.x, ty, ts.width + label_pad * 2, label_h), box_color, cv::FILLED);
-            m_text_renderer->put_text(frame_bgr, d.cls, cv::Point(r.x + label_pad, ty + label_pad), text_color, constants::GATEWAY_DETECTION_FONT_HEIGHT);
-        }
-
-        const std::string time_line = "Время: " + format_utc(time_gps.unix_ms) + " UTC";
-        const std::string gps_line = time_gps.valid
-            ? ("GPS: " + format_coord(time_gps.lat) + ", " + format_coord(time_gps.lon))
-            : std::string("GPS: нет данных");
-
-        int baseline1 = 0, baseline2 = 0;
-        const cv::Size ts1 = m_text_renderer->text_size(time_line, &baseline1, constants::GATEWAY_OVERLAY_FONT_HEIGHT);
-        const cv::Size ts2 = m_text_renderer->text_size(gps_line, &baseline2, constants::GATEWAY_OVERLAY_FONT_HEIGHT);
-        const int pad = 8;
-        const int line1_h = ts1.height + baseline1;
-        const int line2_h = ts2.height + baseline2;
-        const int box_w = std::max(ts1.width, ts2.width) + pad * 2;
-        const int box_h = pad * 3 + line1_h + line2_h; // верх + line1 + зазор + line2 + низ
-
-        cv::rectangle(frame_bgr, cv::Rect(pad, pad, box_w, box_h), cv::Scalar(0, 0, 0), cv::FILLED);
-
-        int line_y = pad + pad;
-        m_text_renderer->put_text(frame_bgr, time_line, cv::Point(pad * 2, line_y), text_color, constants::GATEWAY_OVERLAY_FONT_HEIGHT);
-        line_y += line1_h + pad;
-        m_text_renderer->put_text(frame_bgr, gps_line, cv::Point(pad * 2, line_y), text_color, constants::GATEWAY_OVERLAY_FONT_HEIGHT);
-    }
-
-    // Сбор задачи на потоке доставки: только метаданные, кадр камеры придёт снимком
-    USlot::FFrameTask USlot::make_frame_task(const std::string& camera, const cv::Size& resolution,
-        const IDetectionTracker& tracker, const gateway::FGatewayTimeGps& time_gps)
-    {
-        FFrameTask task;
-        task.camera = camera;
-        task.width = resolution.width;
-        task.height = resolution.height;
-        task.seq = ++m_frame_seq;
-        task.time_gps = time_gps;
-        task.gw_dets = gateway_dets_from_tracks(tracker.tracks());
-        return task;
-    }
-
     // Пакет мастеру: события треков камеры за такт, рамки в пикселях кадра камеры
     detection::FPacket USlot::make_packet(const std::string& camera, const cv::Size& resolution,
         const std::vector<FTrackEventRecord>& events, const gateway::FGatewayTimeGps& time_gps) const
@@ -631,7 +506,7 @@ namespace neural {
         cv::Mat bgr;
         cv::cvtColor(task.rgb, bgr, cv::COLOR_RGB2BGR);
 
-        // 1) Мастеру — чистый кадр камеры без рамок и подписей
+        // Мастеру — чистый кадр камеры без рамок и подписей
         if (task.image_id && m_master) {
             std::vector<uchar> buf;
             const std::vector<int> params{ cv::IMWRITE_JPEG_QUALITY, 85 };
@@ -641,33 +516,6 @@ namespace neural {
             else {
                 m_logger.warn("master: jpeg encode failed, image " + std::to_string(task.image_id) + " dropped");
             }
-        }
-
-        // 2) Шлюз — аннотированный кадр (боксы + время/GPS), как требует протокол.
-        if (m_gateway_sender) {
-            cv::Mat annotated = bgr.clone();
-            draw_gateway_overlay(annotated, task.gw_dets, task.time_gps);
-
-            std::vector<uchar> buf;
-            const std::vector<int> params{ cv::IMWRITE_JPEG_QUALITY, 80 };
-            if (!cv::imencode(".jpg", annotated, buf, params)) {
-                m_logger.warn("gateway: jpeg encode failed");
-                return;
-            }
-
-            gateway::FGatewayFrame frame;
-            frame.ver = 1;
-            frame.id = task.seq;
-            frame.ts = task.time_gps.unix_ms;
-            frame.width = task.width;
-            frame.height = task.height;
-            frame.format = "jpeg";
-            frame.camera_id = task.camera;
-            frame.config_id = config_id();
-            frame.image.assign(reinterpret_cast<const char*>(buf.data()), buf.size());
-            frame.dets = task.gw_dets;
-
-            m_gateway_sender(std::move(frame));
         }
     }
 
@@ -803,8 +651,9 @@ namespace neural {
                         m_master->send_packet(std::move(packet));
                     }
 
-                    if (want_image && (image_id || m_gateway_sender)) {
-                        auto task = make_frame_task(camera, size, *tracker, time_gps);
+                    if (image_id) {
+                        FFrameTask task;
+                        task.camera = camera;
                         task.image_id = image_id;
                         m_composer->request_snapshot(camera, [this, task = std::move(task)](cv::Mat shot) mutable {
                             if (shot.empty()) return;

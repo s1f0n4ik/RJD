@@ -21,7 +21,6 @@ ITEMS=(
     src
     include
     shaders
-    fonts
     proto
     server
 )

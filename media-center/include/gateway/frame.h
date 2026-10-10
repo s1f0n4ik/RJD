@@ -1,7 +1,6 @@
 #pragma once
 
 #include <string>
-#include <vector>
 #include <array>
 #include <optional>
 #include <functional>
@@ -10,7 +9,7 @@
 namespace varan {
 namespace gateway {
 
-    // Семантика кадра для отправки в message-gateway
+    // Обнаружение трека в пакете мастеру
     struct FGatewayDetection {
         int cid = 0;                        // числовой id класса
         std::string cls;                    // имя класса
@@ -18,25 +17,6 @@ namespace gateway {
         std::array<int, 4> box{ 0, 0, 0, 0 }; // x, y, w, h в пикселях
         std::optional<std::string> scls;    // подкатегория (superclass)
     };
-
-    struct FGatewayFrame {
-        int ver = 1;                        // версия протокола
-        std::int64_t id = 0;
-        std::int64_t ts = 0;                // unix-время, мс
-        int width = 0;
-        int height = 0;
-        std::string format;                 // jpeg / png / webp
-        std::string camera_id;              // источник кадра
-        // Конфигурация нейросети, которой получены обнаружения. 
-        // ID классов осмысленны только внутри своей конфигурации, поэтому шлюз
-        // по id конфигурации выбирает таблицу соответствий
-        std::string config_id;
-        std::string image;                  // закодированные байты изображения
-        std::vector<FGatewayDetection> dets;   // Список обнаружений
-    };
-
-    // Неблокирующая отправка кадра в шлюз (перемещаемый, т.к. несёт изображение).
-    using FGatewayFrameSender = std::function<void(FGatewayFrame)>;
 
     // Точное время + GPS шлюза
     struct FGatewayTimeGps {

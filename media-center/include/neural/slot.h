@@ -45,7 +45,6 @@ namespace neural {
             FFrameStorage<IFrame>* storage,
             std::atomic<std::int64_t>* track_ids,
             FCameraSenderProvider sender_provider,
-            gateway::FGatewayFrameSender gateway_sender = {},
             gateway::FGatewayTimeProvider time_provider = {},
             detection::UDetectionClient* master = nullptr,
             ULogger::ELoggerLevel level = ULogger::ELoggerLevel::DEBUG
@@ -130,34 +129,22 @@ namespace neural {
         void log_events(const std::vector<FTrackEventRecord>& events);
 
         gateway::FGatewayDetection make_gateway_detection(int class_id, double confidence, const FDetection& box) const;
-        std::vector<gateway::FGatewayDetection> gateway_dets_from_detections(const std::vector<FDetection>& dets) const;
-        std::vector<gateway::FGatewayDetection> gateway_dets_from_tracks(const std::vector<FTrack>& tracks) const;
 
-        // Задача фонового воркера: метаданные собираются при событии, кадр камеры приходит снимком на тик позже
+        // Снимок для мастера: кадр камеры приходит на тик позже события
         struct FFrameTask {
             std::string camera;
             cv::Mat rgb;
             int width = 0;
             int height = 0;
-            std::int64_t seq = 0;
-            gateway::FGatewayTimeGps time_gps;
-            // Для шлюза: подтверждённые и недавно потерянные
-            std::vector<gateway::FGatewayDetection> gw_dets;
-            // Снимок для мастера обнаружений; 0 — мастеру не нужен
             std::uint64_t image_id = 0;
         };
 
-        FFrameTask make_frame_task(const std::string& camera, const cv::Size& resolution,
-            const IDetectionTracker& tracker, const gateway::FGatewayTimeGps& time_gps);
         detection::FPacket make_packet(const std::string& camera, const cv::Size& resolution,
             const std::vector<FTrackEventRecord>& events, const gateway::FGatewayTimeGps& time_gps) const;
         // Постановка в очередь; при переполнении теряется картинка самой старой задачи
         void enqueue_frame(FFrameTask task);
         void frame_worker();
         void process_frame_task(const FFrameTask& task);
-
-        void draw_gateway_overlay(cv::Mat& frame_bgr, const std::vector<gateway::FGatewayDetection>& dets,
-            const gateway::FGatewayTimeGps& time_gps);
 
     private:
         FConfigInfo m_config;
@@ -192,13 +179,10 @@ namespace neural {
         std::map<std::string, FCameraMessageSender> m_senders;
         std::mutex m_senders_mutex;
 
-        gateway::FGatewayFrameSender m_gateway_sender;
         gateway::FGatewayTimeProvider m_time_provider;
         // Клиент мастера обнаружений; nullptr — мастер не задан
         detection::UDetectionClient* m_master;
 
-        std::unique_ptr<UTextRenderer> m_text_renderer;
-        std::atomic<std::int64_t> m_frame_seq{ 0 };
 
         // Мьютекс защищает m_classifier и m_streamer от гонки между рабочими потоками и stop()
         mutable std::mutex m_resource_mutex;

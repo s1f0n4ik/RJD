@@ -198,7 +198,6 @@ int main(int argc, char* argv[])
 			varan::paths().neural.config,
 			varan::paths().neural.loader_state,
 			device_info,
-			gateway_client,
 			detection_client,
 			ULogger::ELoggerLevel::DEBUG
 		);

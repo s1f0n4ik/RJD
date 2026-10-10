@@ -22,7 +22,6 @@ namespace neural {
         std::filesystem::path config_path,
         std::filesystem::path state_path,
         FDeviceInfo device,
-        std::shared_ptr<gateway::UGatewayClient> gateway,
         std::shared_ptr<detection::UDetectionClient> master,
         ULogger::ELoggerLevel level)
         : m_ip(ip_address), m_port(port)
@@ -31,15 +30,10 @@ namespace neural {
         , m_streams_path(varan::paths().neural.streams)
         , m_state_path(std::move(state_path))
         , m_device(std::move(device))
-        , m_gateway(std::move(gateway))
         , m_master(std::move(master))
         , m_logger("NeuralLoader", level)
         , m_json_configurator(&m_logger)
     {
-        if (m_gateway) {
-            m_logger.info("gateway ingress: using shared client");
-        }
-
         load_state();
     }
 
@@ -536,15 +530,7 @@ namespace neural {
             if (st.id.empty())   st.id = make_output_id(desc.config_id, desc.stream_id);
         }
 
-        // Отправка в message-gateway идёт через общий клиент загрузчика;
-        // id камеры проставляет сам слот в теле сообщения.
-        gateway::FGatewayFrameSender gateway_sender;
-        gateway::FGatewayTimeProvider time_provider;
-        if (m_gateway) {
-            auto gw = m_gateway;
-            gateway_sender = [gw](gateway::FGatewayFrame frame) { gw->send(std::move(frame)); };
-            time_provider = [this]() { return current_synced_time(); };
-        }
+        gateway::FGatewayTimeProvider time_provider = [this]() { return current_synced_time(); };
 
         m_logger.info("slot " + desc.config_id + ": master=" + (m_master ? "on" : "off"));
 
@@ -556,7 +542,6 @@ namespace neural {
             m_storage,
             &m_track_ids,
             m_sender_provider,
-            std::move(gateway_sender),
             std::move(time_provider),
             m_master.get(),
             m_level
