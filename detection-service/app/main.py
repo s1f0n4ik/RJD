@@ -106,6 +106,12 @@ app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
 app.include_router(journal_router)
 
 
+@app.get("/rules", tags=["Rules"])
+async def rules():
+    """Конфигурация шлюза, которую видит мастер, и правила, по которым он работает; читает бэкенд."""
+    return await run(master.rules_state)
+
+
 @app.get("/health", tags=["Health"])
 async def health():
     """Живость сервиса для healthcheck контейнера."""

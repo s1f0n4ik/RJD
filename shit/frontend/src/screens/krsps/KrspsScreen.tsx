@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import { Icon } from '../../app/Icons';
-import { Modal } from '../../app/Modal';
 import { krspsApi } from '../../features/krsps/api/client';
 import type {
     GwCanConfigPatch,
     GwDevices,
-    GwIntegrationItem,
     GwIntegrations,
     GwStatus,
     GwTaxonomy,
@@ -47,7 +45,6 @@ export default function KrspsScreen() {
     const [offsetMs, setOffsetMs] = useState(0);
     const [synced, setSynced] = useState(false);
     const [busy, setBusy] = useState(false);
-    const [pending, setPending] = useState<GwIntegrationItem | null>(null);
     const [toast, setToast] = useState<ToastState | null>(null);
     const toastTimer = useRef<number | null>(null);
 
@@ -166,12 +163,6 @@ export default function KrspsScreen() {
         [refreshIntegrations, showToast],
     );
 
-    const confirmSelect = () => {
-        if (!pending) return;
-        const id = pending.id;
-        setPending(null);
-        run(() => krspsApi.selectIntegration(id), 'Конфигурация переключена');
-    };
     const handleSaveWs = (patch: GwWsConfigPatch) => run(() => krspsApi.updateWsConfig(patch), 'Настройки сохранены');
     const handleSaveCan = (patch: GwCanConfigPatch) => run(() => krspsApi.updateCanConfig(patch), 'Настройки сохранены');
     const handleSaveTaxonomy = (patch: GwTaxonomyPatch) =>
@@ -210,8 +201,8 @@ export default function KrspsScreen() {
     }
 
     const selectedModule = status.modules.find(m => m.id === section) ?? null;
-    const items = integrations?.items ?? [];
-    const active = integrations?.active ?? status.id;
+    const activeId = integrations?.active ?? status.id;
+    const activeItem = integrations?.items.find(i => i.id === activeId);
 
     return (
         <section className="screen mod-screen">
@@ -255,35 +246,11 @@ export default function KrspsScreen() {
                 </div>
 
                 <aside className="mod-side">
-                    <div className="blk-h">
-                        <h3>Конфигурация</h3>
-                        <span className="eyebrow spacer">{items.length ? `${items.findIndex(i => i.id === active) + 1} из ${items.length}` : '—'}</span>
-                    </div>
-                    <div className="cfg-list">
-                        {items.map(item => {
-                            const isActive = item.id === active;
-                            return (
-                                <button
-                                    key={item.id}
-                                    type="button"
-                                    className={`cfg${isActive ? ' is-active' : ''}`}
-                                    disabled={busy}
-                                    onClick={() => !isActive && setPending(item)}
-                                >
-                                    <div className="cfg-t">
-                                        <b>{item.title}</b>
-                                        <span className="id">{item.id}</span>
-                                        <span className={`tag${isActive ? ' is-ok' : ''}`}>{isActive ? 'Активна' : 'Доступна'}</span>
-                                    </div>
-                                    <div className="cfg-m">
-                                        {item.modules.length ? item.modules.map(m => (
-                                            <span key={m.id} className="tag">{m.title}</span>
-                                        )) : <span className="tag">без модулей</span>}
-                                    </div>
-                                </button>
-                            );
-                        })}
-                        {items.length === 0 && <div className="cfg-empty">Нет доступных конфигураций</div>}
+                    <div className="blk-h"><h3>Конфигурация</h3></div>
+                    <div className="kr-now">
+                        <span className="dot acc" />
+                        <b>{activeItem?.title ?? activeId}</b>
+                        <span className="id">{activeId}</span>
                     </div>
 
                     <div className="blk-h"><h3>Модули конфигурации</h3></div>
@@ -326,32 +293,6 @@ export default function KrspsScreen() {
                     </div>
                 </aside>
             </div>
-
-            {pending && (
-                <Modal
-                    title="Сделать активной конфигурацию?"
-                    className="krsps-confirm"
-                    onClose={() => setPending(null)}
-                    footer={
-                        <>
-                            <button className="btn btn--ghost spacer" onClick={() => setPending(null)}>Отмена</button>
-                            <button className="btn btn--acc" disabled={busy} onClick={confirmSelect}>Сделать активной</button>
-                        </>
-                    }
-                >
-                    <div className="modal-b">
-                        <div className="kv"><span className="k">Конфигурация</span><span className="v">{pending.title}</span></div>
-                        <div className="kv"><span className="k">id</span><span className="v">{pending.id}</span></div>
-                        <div className="kv">
-                            <span className="k">Модули</span>
-                            <span className="v" style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                                {pending.modules.map(m => <span key={m.id} className="tag">{m.title}</span>)}
-                            </span>
-                        </div>
-                        <div className="kv"><span className="k">Сейчас активна</span><span className="v">{items.find(i => i.id === active)?.title ?? '—'}</span></div>
-                    </div>
-                </Modal>
-            )}
 
             {toast && (
                 <div className="toast">

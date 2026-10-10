@@ -39,9 +39,10 @@ export const NAV: NavItem[] = [
     { to: '/live',     label: 'Отображение',         icon: 'grid',  desc: 'Сетки просмотра и прямой эфир', admin: true },
     { to: '/archive',  label: 'Архив',               icon: 'arch',  desc: 'Записи, таймлайны и склейка' },
     { to: '/devices',  label: 'Устройства',          icon: 'dev',   desc: 'Одноплатники: состояние и маршрутизация', admin: true },
+    { to: '/configurations', label: 'Конфигурации',  icon: 'kit',   desc: 'Конфигурация изделия: АС КРСПС и фильтр обнаружений', admin: true },
 
     {
-        to: '/neural', label: 'Техническое зрение', icon: 'eye', group: 'Модули', desc: 'Конфигурации, видеопотоки, инференс, журнал',
+        to: '/neural', label: 'Техническое зрение', icon: 'eye', group: 'Модули', desc: 'Нейросети, видеопотоки, инференс, журнал',
         sub: NEURAL_SECTIONS.map((s, i) => ({
             to: `/neural/${s.id}`, label: s.label, n: String(i + 1).padStart(2, '0'), admin: !NEURAL_VIEWER_SECTIONS.has(s.id),
         })),
@@ -60,6 +61,7 @@ export const CRUMBS: Record<string, string[]> = {
     '/live': ['Отображение', 'Редактор сеток'],
     '/archive': ['Архив'],
     '/devices': ['Устройства'],
+    '/configurations': ['Конфигурации'],
 };
 
 // Крошки для путей с разделами внутри: /krsps/<модуль>, /surround/<подраздел>

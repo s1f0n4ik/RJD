@@ -41,15 +41,6 @@ export const krspsApi = {
     return unwrap<GwIntegrations>(await fetch(url('/integrations')));
   },
 
-  async selectIntegration(id: string): Promise<GwStatus> {
-    return unwrap<GwStatus>(
-      await fetch(url('/integrations/select'), {
-        method: 'POST',
-        headers: jsonHeaders,
-        body: JSON.stringify({ id }),
-      }),
-    );
-  },
 
   async getStatus(): Promise<GwStatus> {
     return unwrap<GwStatus>(await fetch(url('/status')));

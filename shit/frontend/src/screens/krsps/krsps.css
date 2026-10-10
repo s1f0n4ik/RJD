@@ -1,13 +1,8 @@
-/* Карточка конфигурации в панели: кликабельна целиком, активная не реагирует */
-.cfg-list{padding:10px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--line)}
-.cfg{display:flex;flex-direction:column;gap:8px;padding:11px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel);cursor:pointer;text-align:left;width:100%;transition:.14s}
-.cfg:hover{border-color:var(--line-hi)}
-.cfg.is-active{border-color:rgba(var(--acc-rgb),.4);background:rgba(var(--acc-rgb),.08);cursor:default}
-.cfg-t{display:flex;align-items:center;gap:8px;min-width:0}
-.cfg-t b{font-size:13px;font-weight:600;white-space:nowrap}
-.cfg-t .id{font-family:var(--mono);font-size:10.5px;color:var(--fg-3);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
-.cfg-m{display:flex;gap:5px;flex-wrap:wrap}
+/* Пустые списки панели и название активной конфигурации */
 .cfg-empty{padding:4px 2px;font-size:12.5px;color:var(--fg-3)}
+.kr-now{display:flex;align-items:center;gap:8px;padding:14px 18px;border-bottom:1px solid var(--line)}
+.kr-now b{font-size:13.5px;font-weight:600}
+.kr-now .id{font-family:var(--mono);font-size:10.5px;color:var(--fg-3)}
 
 /* Размеры контролов считаются по внешней рамке: ширина ячейки и высота ряда сходятся вне зависимости от сброса */
 .mod-screen .fc,.mod-screen .inp,.mod-screen .sel,.mod-screen .seg,.mod-screen .seg button,.mod-screen .btn,.mod-screen .sw i{box-sizing:border-box}

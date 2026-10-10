@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     # Шлюз CAN/WS: источник единого времени изделия, живёт на хосте мастера
     GATEWAY_URL: str = "http://127.0.0.1:9090"
     GATEWAY_TIMEOUT: float = 3.0
+    # Мастер обнаружений: правила, по которым он работает
+    DETECTION_URL: str = "http://127.0.0.1:8003"
 
     # Видеосетки фронта — на том же томе настроек, что devices.json
     LAYOUTS_FILE: str = "/data/layouts.json"

@@ -1,0 +1,43 @@
+/* Конфигурации изделия: состав выбранной слева, список справа */
+.cf-screen .cf-body{padding:24px 28px;display:flex;flex-direction:column;gap:18px}
+.cf-screen .cf-sect{display:flex;flex-direction:column;gap:10px}
+
+.cf-screen .cf-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:0}
+.cf-screen .cf-head h3{font-size:16px;font-weight:650;letter-spacing:-.01em}
+.cf-screen .cf-head .id{font-family:var(--mono);font-size:11px;color:var(--fg-3)}
+.cf-screen .cf-head .btn{margin-left:auto}
+.cf-screen .cf-desc{font-size:12.5px;line-height:1.55;color:var(--fg-2);max-width:78ch}
+
+/* Схема состава: фильтр мастера → шлюз → модули */
+.cf-screen .cf-flow{display:grid;grid-template-columns:minmax(0,1.25fr) 34px minmax(0,.8fr) 34px minmax(0,1.1fr);align-items:stretch}
+.cf-screen .cf-node{display:flex;flex-direction:column;gap:6px;padding:12px 14px;border:1px solid var(--line);border-radius:var(--r);background:var(--input);min-width:0}
+.cf-screen .cf-node b{font-size:14px;font-weight:600}
+.cf-screen .cf-node p{font-size:12px;line-height:1.5;color:var(--fg-2)}
+.cf-screen .cf-node .seps{font-family:var(--mono);font-size:11px;color:var(--fg-3)}
+.cf-screen .cf-node.is-warn{border-color:rgba(240,189,87,.45)}
+.cf-screen .cf-gw{justify-content:center;align-items:flex-start}
+.cf-screen .cf-wire{position:relative}
+.cf-screen .cf-wire::before{content:'';position:absolute;left:0;right:0;top:50%;height:1px;background:var(--line-hi)}
+.cf-screen .cf-wire::after{content:'';position:absolute;right:0;top:50%;width:6px;height:6px;margin-top:-3px;border-top:1px solid var(--line-hi);border-right:1px solid var(--line-hi);transform:rotate(45deg)}
+.cf-screen .cf-wire.is-live::before{background:rgba(var(--acc-rgb),.55)}
+.cf-screen .cf-wire.is-live::after{border-color:rgba(var(--acc-rgb),.75)}
+.cf-screen .cf-outs{display:flex;flex-direction:column;gap:8px;justify-content:center}
+.cf-screen .cf-out{display:grid;grid-template-columns:10px auto minmax(0,1fr);align-items:center;column-gap:8px;padding:9px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--input);min-width:0}
+.cf-screen .cf-out b{font-size:13px;font-weight:600}
+.cf-screen .cf-out span{font-family:var(--mono);font-size:11px;color:var(--fg-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right}
+.cf-screen .cf-out.is-off{opacity:.7}
+
+/* Список конфигураций */
+.cf-screen .cf-list{padding:10px;display:flex;flex-direction:column;gap:8px}
+.cf-screen .cf-pick{display:flex;flex-direction:column;gap:8px;padding:11px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel);text-align:left;width:100%;transition:border-color .14s}
+.cf-screen .cf-pick:hover{border-color:var(--line-hi)}
+.cf-screen .cf-pick.is-sel{border-color:rgba(var(--acc-rgb),.5);box-shadow:inset 3px 0 0 var(--acc)}
+.cf-screen .cf-pick-t{display:flex;align-items:center;gap:8px;min-width:0}
+.cf-screen .cf-pick-t b{font-size:13px;font-weight:600}
+.cf-screen .cf-pick-t .id{font-family:var(--mono);font-size:10.5px;color:var(--fg-3);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.cf-screen .cf-pick-m{display:flex;gap:5px;flex-wrap:wrap}
+
+/* Окно смены рисуется вне экрана */
+.modal.cf-confirm{--modal-w:460px}
+.cf-confirm .cf-arrow{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
+.cf-confirm .cf-arrow .to{color:var(--acc)}

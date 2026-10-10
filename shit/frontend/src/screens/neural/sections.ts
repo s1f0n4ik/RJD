@@ -1,6 +1,6 @@
 // Подразделы «Технического зрения» в порядке настройки; id — сегмент маршрута /neural/<id>
 export const NEURAL_SECTIONS = [
-    { id: 'configs', label: 'Конфигурации' },
+    { id: 'configs', label: 'Нейросети' },
     { id: 'streams', label: 'Видеопотоки' },
     { id: 'inference', label: 'Инференс' },
     { id: 'journal', label: 'Журнал обнаружений' },

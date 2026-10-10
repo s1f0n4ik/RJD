@@ -91,6 +91,16 @@ def gw_detection(detection: Detection, track=None) -> "gw.Detection":
 
 class RsmRules:
     # РСМ-2000: каждая камера — свои обнаружения, обрывки трека на камере сшиваются
+    id = "rsm-2000"
+    title = "РСМ-2000"
+
+    @staticmethod
+    def description() -> str:
+        return (
+            "Каждая камера — свои обнаружения. Обрывки трека на той же камере сшиваются: "
+            f"тот же суперкласс, пауза до {settings.STITCH_GAP_MS / 1000:g} с, рядом с прежней рамкой."
+        )
+
     def __init__(self, journal: Journal, outbox: Outbox):
         self.journal = journal
         self.outbox = outbox
@@ -353,6 +363,18 @@ class Master:
     # Шлюз подключился: открытые отправленные — заново
     def resend_open(self) -> int:
         return self.rules.resend()
+
+    # Какую конфигурацию шлюза видит мастер и по каким правилам работает
+    def rules_state(self) -> dict:
+        return {
+            "active": self.active,
+            "rules": self.rules.id,
+            "title": self.rules.title,
+            "description": self.rules.description(),
+            "open": len(self.rules.detections),
+            "devices": sum(1 for d in self.devices.values() if d.streams > 0),
+            "available": [{"id": r.id, "title": r.title, "description": r.description()} for r in RULES.values()],
+        }
 
     def _session(self, device_id: str, session: int) -> None:
         device = self.devices.get(device_id)
