@@ -184,12 +184,10 @@ export interface CameraStreamInfo {
     name?: string;
 }
 
-/** Камера из GET /api/cameras; type и camera_type читает таблица соответствий КРСПС */
+/** Камера из GET /api/cameras */
 export interface CameraInfo {
     display_name?: string;
     description?: string;
-    type?: number;
-    camera_type?: number;
     streams?: Record<string, CameraStreamInfo>;
     // Устройство-владелец из агрегированного списка бэкенда
     device_id?: string;

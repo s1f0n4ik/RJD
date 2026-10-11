@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { Select } from '../../../app/Select';
 import { krspsApi } from '../api/client';
 import type { GwTime } from '../types';
 import { formatInt } from '../utils/format';
@@ -89,16 +90,12 @@ const TimeGpsPanel: React.FC<Props> = ({ time, offsetMs, synced, onTimeUpdate })
         <span className={`pill ${syncTone}`}><span className="dot" />{syncLabel}</span>
         <div className="title-sel spacer">
           <span className="cap">Часовой пояс</span>
-          <select
-            className="sel"
-            value={time?.tz_offset_min ?? 180}
+          <Select
+            value={String(time?.tz_offset_min ?? 180)}
             disabled={tzBusy || !synced}
-            onChange={(e) => void handleTzChange(Number(e.target.value))}
-          >
-            {TZ_OPTIONS.map((o) => (
-              <option key={o.minutes} value={o.minutes}>{o.label}</option>
-            ))}
-          </select>
+            options={TZ_OPTIONS.map((o) => ({ value: String(o.minutes), label: o.label }))}
+            onChange={(v) => void handleTzChange(Number(v))}
+          />
         </div>
       </div>
 

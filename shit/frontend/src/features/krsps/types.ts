@@ -78,16 +78,16 @@ export interface GwCanTx {
   payload_ttl_ms: number;
 }
 
-// Вклад одной камеры в общую нагрузку.
 // Обнаружение мастера в списке CAN
 export interface GwCanPayloadDetection {
   id: number;
   camera: string;
-  bit: number;       // 0 — камеры нет в таблице соответствий
+  camera_no: number;    // 0 — камеры нет в таблице соответствий
   type: number;
   danger: number;
-  age_ms: number;    // с «Подтверждён»
-  active: boolean;   // false — погасло по сроку, ждёт «Удалён»
+  age_ms: number;       // с «Подтверждён»
+  active: boolean;      // false — погасло по сроку, ждёт «Удалён»
+  passthrough: boolean; // таблицы конфигурации нет, тип — id класса + 1
 }
 
 // Нагрузка, которая прямо сейчас уходит на шину.
@@ -95,14 +95,11 @@ export interface GwCanPayload {
   count: number;
   type: number;
   danger: number;
-  camera_mask: number;
-  camera_bits: string;   // поднятые биты как "1, 2"
+  camera_no: number;     // байт 4 — номер камеры самого опасного, 0 — без номера
   type_title: string;
   danger_title: string;
   detections: GwCanPayloadDetection[];
   session: number;            // сессия мастера, 0 — сообщений ещё не было
-  unmapped_cameras: number;   // кадры с камерой не из таблицы
-  passthrough_frames: number; // кадры из конфигураций без таблицы
 }
 
 // Текущее состояние одного типа сообщения — сводка над лентой.
@@ -287,8 +284,7 @@ export interface GwTaxonomyConfig {
 export interface GwTaxonomyCamera {
   key: string;    // camera_id, каким его шлёт media-center
   title: string;
-  bit: number;    // номер бита в байте камер, 1..8
-  mask?: number;  // 1 << (bit - 1) — считает шлюз
+  bit: number;    // номер камеры в байте 4, 1..8
 }
 
 export interface GwTaxonomy {

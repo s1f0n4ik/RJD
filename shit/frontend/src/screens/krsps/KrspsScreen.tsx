@@ -227,10 +227,12 @@ export default function KrspsScreen() {
                                 module={selectedModule}
                                 title={MODULE_LABEL[selectedModule.id] ?? selectedModule.title}
                                 devices={devices}
+                                taxonomy={taxonomy}
                                 busy={busy}
                                 onSave={handleSaveCan}
                                 onConnect={handleConnect}
                                 onDisconnect={handleDisconnect}
+                                onOpenTaxonomy={() => navigate('/krsps/taxonomy')}
                             />
                         ) : selectedModule ? (
                             <WebSocketModulePanel

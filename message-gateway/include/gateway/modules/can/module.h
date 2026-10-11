@@ -63,10 +63,11 @@ namespace varan {
             struct FDetectionState {
                 std::uint64_t id = 0;
                 std::string camera;   // camera_id
-                int bit = 0;          // 0 — камеры нет в таблице соответствий
+                int camera_no = 0;    // номер из таблицы соответствий, 0 — камеры там нет
                 int type = 0;
                 int danger = 0;
                 std::int64_t mono = 0; // монотонный момент «Подтверждён»
+                bool passthrough = false; // таблицы конфигурации нет, тип — id класса + 1
             };
 
             void start_tx();
@@ -105,11 +106,6 @@ namespace varan {
             std::vector<FDetectionState> m_detections;
             std::int64_t m_session = 0;               // сессия мастера, по которой ведётся список
             FCanDetectionPayload m_last_payload;      // последняя ушедшая на шину нагрузка
-            // Кадры, которым не нашлось камеры в таблице: бит поставить некуда,
-            // но обнаружения терять нельзя — считаем и показываем на странице.
-            std::atomic<std::int64_t> m_unmapped_cameras{ 0 };
-            // Обнаружения из конфигураций без таблицы: числа ушли как есть.
-            std::atomic<std::int64_t> m_passthrough_frames{ 0 };
 
             // Состояние каждого типа сообщения — сводка над лентой.
             mutable std::mutex m_sum_mutex;

@@ -67,7 +67,7 @@ export const SPECS: Record<string, MessageSpec> = {
       { name: 'Количество обнаружений', fmt: 'Uint8 · по всем камерам', span: 1, tone: 'f1' },
       { name: 'Тип обнаружения', fmt: 'Uint8 · 1–8', span: 1, tone: 'f2' },
       { name: 'Класс опасности', fmt: 'Uint8 · 1–4', span: 1, tone: 'f4' },
-      { name: 'Камеры', fmt: 'бит на камеру', span: 1, tone: 'f3' },
+      { name: 'Номер камеры', fmt: 'Uint8 · 1–8', span: 1, tone: 'f3' },
       { name: 'Не используются', fmt: '0xFF', span: 4, tone: 'off' },
     ],
   },

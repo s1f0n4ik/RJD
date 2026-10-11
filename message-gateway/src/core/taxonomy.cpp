@@ -99,11 +99,10 @@ namespace varan {
             const FConfigTable* cfg = find_config(config_id);
 
             if (!cfg) {
-                // Таблицы нет — переводить имена нечем. Берём то, что пришло по
-                // gRPC: числовой id класса как тип. Опасность модель не отдаёт,
-                // поэтому она из умолчаний.
+                // Таблицы нет — тип по id класса со сдвигом: классы модели с 0, типы протокола с 1.
+                // Опасность модель не отдаёт, поэтому она из умолчаний.
                 out.passthrough = true;
-                out.type = valid_type(det.cid) ? det.cid : m_default_type;
+                out.type = valid_type(det.cid + 1) ? det.cid + 1 : m_default_type;
                 out.danger = m_default_danger;
                 out.type_title = type_title(out.type);
                 out.danger_title = danger_title(out.danger);
@@ -196,8 +195,7 @@ namespace varan {
             json::array cameras;
             for (const auto& c : m_cameras) {
                 cameras.push_back(json::object{
-                    {"key", c.key}, {"title", c.title}, {"bit", c.bit},
-                    {"mask", 1 << (c.bit - 1)} });
+                    {"key", c.key}, {"title", c.title}, {"bit", c.bit} });
             }
 
             json::object defaults;
@@ -356,19 +354,18 @@ namespace varan {
                     return false;
                 }
                 if (c.bit < 1 || c.bit > 8) {
-                    err = "camera '" + c.key + "': bit must be 1..8";
+                    err = "camera '" + c.key + "': number must be 1..8";
                     return false;
                 }
                 parsed.push_back(std::move(c));
             }
 
-            // Один бит на две камеры — обнаружения слились бы в одну, и понять
-            // по кадру, какая камера сработала, стало бы невозможно.
+            // Один номер на две камеры — по байту 4 не понять, какая сработала.
             for (std::size_t i = 0; i < parsed.size(); ++i) {
                 for (std::size_t j = i + 1; j < parsed.size(); ++j) {
                     if (parsed[i].bit == parsed[j].bit) {
                         err = "cameras '" + parsed[i].key + "' and '" + parsed[j].key +
-                            "' share bit " + std::to_string(parsed[i].bit);
+                            "' share number " + std::to_string(parsed[i].bit);
                         return false;
                     }
                     if (lower(parsed[i].key) == lower(parsed[j].key)) {

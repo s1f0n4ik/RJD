@@ -30,20 +30,8 @@ namespace varan {
                 return buf;
             }
 
-            // Список камер маски как "1, 2" — на странице читается лучше, чем 0x03.
-            std::string mask_note(int mask) {
-                std::string out;
-                for (int b = 1; b <= 8; ++b) {
-                    if (mask & (1 << (b - 1))) {
-                        if (!out.empty()) out += ", ";
-                        out += std::to_string(b);
-                    }
-                }
-                return out;
-            }
-
             bool same_payload(const FCanDetectionPayload& a, const FCanDetectionPayload& b) {
-                return a.count == b.count && a.type == b.type && a.danger == b.danger && a.camera_mask == b.camera_mask;
+                return a.count == b.count && a.type == b.type && a.danger == b.danger && a.camera == b.camera;
             }
 
         } // namespace
@@ -206,15 +194,11 @@ namespace varan {
                     continue;
                 }
                 p.count++;
-                if (d.bit >= 1 && d.bit <= 8) {
-                    p.camera_mask |= (1 << (d.bit - 1));
-                }
-                // Тип отдаём у обнаружения с самым высоким классом опасности: в
-                // четыре байта помещается только одно, и это должно быть самое
-                // опасное — по всем камерам сразу.
+                // Байты 2–4 — самое опасное обнаружение по всем камерам; при равной опасности — раннее
                 if (d.danger > p.danger) {
                     p.danger = d.danger;
                     p.type = d.type;
+                    p.camera = d.camera_no;
                 }
             }
             return p;
@@ -240,20 +224,10 @@ namespace varan {
 
             std::vector<FDetectionState> added;
             if (confirmed) {
-                const int bit = m_taxonomy.camera_bit(msg.camera_id);
-                if (bit == 0 && det_count > 0) {
-                    // Камеры нет в таблице — бит ставить некуда. Обнаружения попадут
-                    // в счётчик кадра, но какая камера сработала, приёмник не узнает.
-                    m_unmapped_cameras.fetch_add(1);
-                }
-                bool passthrough = false;
+                const int camera_no = m_taxonomy.camera_bit(msg.camera_id);
                 for (const auto& d : msg.dets) {
                     const auto r = m_taxonomy.resolve(msg.config_id, d);
-                    passthrough = passthrough || r.passthrough;
-                    added.push_back(FDetectionState{ d.detection_id, msg.camera_id, bit, r.type, r.danger, mono_ms() });
-                }
-                if (passthrough) {
-                    m_passthrough_frames.fetch_add(1);
+                    added.push_back(FDetectionState{ d.detection_id, msg.camera_id, camera_no, r.type, r.danger, mono_ms(), r.passthrough });
                 }
             }
 
@@ -368,7 +342,7 @@ namespace varan {
                 note = std::to_string(payload.count) + " обн. · " +
                     UTaxonomy::type_title(payload.type) + " · " +
                     UTaxonomy::danger_title(payload.danger) +
-                    " · камеры " + mask_note(payload.camera_mask);
+                    " · " + (payload.camera ? "камера " + std::to_string(payload.camera) : std::string("камера без номера"));
             }
 
             {
@@ -531,11 +505,12 @@ namespace varan {
                     json::object o;
                     o["id"] = d.id;
                     o["camera"] = d.camera;
-                    o["bit"] = d.bit;
+                    o["camera_no"] = d.camera_no;
                     o["type"] = d.type;
                     o["danger"] = d.danger;
                     o["age_ms"] = now - d.mono;
                     o["active"] = alive(d, cfg, now);
+                    o["passthrough"] = d.passthrough;
                     dets.push_back(std::move(o));
                 }
             }
@@ -544,14 +519,11 @@ namespace varan {
             pj["count"] = payload.count;
             pj["type"] = payload.type;
             pj["danger"] = payload.danger;
-            pj["camera_mask"] = payload.camera_mask;
-            pj["camera_bits"] = mask_note(payload.camera_mask);
+            pj["camera_no"] = payload.camera;
             pj["type_title"] = payload.type ? UTaxonomy::type_title(payload.type) : std::string("—");
             pj["danger_title"] = payload.danger ? UTaxonomy::danger_title(payload.danger) : std::string("—");
             pj["detections"] = std::move(dets);
             pj["session"] = session;
-            pj["unmapped_cameras"] = m_unmapped_cameras.load();
-            pj["passthrough_frames"] = m_passthrough_frames.load();
 
             json::array summaries;
             for (const auto& s : this->summaries()) {

@@ -5,7 +5,7 @@
 .kr-now .id{font-family:var(--mono);font-size:10.5px;color:var(--fg-3)}
 
 /* Размеры контролов считаются по внешней рамке: ширина ячейки и высота ряда сходятся вне зависимости от сброса */
-.mod-screen .fc,.mod-screen .inp,.mod-screen .sel,.mod-screen .seg,.mod-screen .seg button,.mod-screen .btn,.mod-screen .sw i{box-sizing:border-box}
+.mod-screen .fc,.mod-screen .inp,.mod-screen .seg,.mod-screen .seg button,.mod-screen .btn,.mod-screen .sw i{box-sizing:border-box}
 
 /* Поля: подпись над контролом, ширина ячейки по содержимому */
 .form{display:flex;flex-wrap:wrap;gap:12px 22px;align-items:flex-end}
@@ -16,7 +16,7 @@
 .fc .row{display:flex;align-items:center;gap:8px;min-height:34px;font-size:13px}
 .fc .row .inp{width:72px;min-width:0;text-align:right}
 .fc .row .unit{width:auto;white-space:nowrap}
-.fc select.sel{display:block;width:100%;height:34px;padding:0 28px 0 10px}
+.fc .uisel-btn{height:34px}
 
 /* Строка заголовка: пилюли состояния */
 .mod-title .pill{height:28px}
@@ -139,9 +139,7 @@
 .gt .spec td{padding:9px 12px}
 .card-b>.eyebrow{display:block;margin:0 0 8px}
 .gt+.eyebrow{margin-top:16px}
-.spec .sel{height:30px;font-size:12.5px}
-.spec select.sel{display:block;width:100%;padding:0 28px 0 10px}
-.spec .sel.is-inh{color:var(--fg-3)}
+.spec .uisel-btn{height:30px}
 .spec td.dim{color:var(--fg-3)}
 .spec .swk{display:inline-flex;align-items:center;gap:8px}
 .spec .swk i{width:8px;height:8px;border-radius:2px;flex:0 0 8px}
@@ -151,7 +149,7 @@
 .spec .name.big .swk i{width:10px;height:10px;border-radius:3px}
 .spec .name.big>span:not(.swk){display:block;margin-top:2px}
 .spec .typecell{display:flex;align-items:center;gap:6px}
-.spec .typecell .sel{flex:1;min-width:0}
+.spec .typecell .uisel{flex:1}
 .spec .x{width:26px;height:26px;display:grid;place-items:center;border-radius:6px;border:1px solid var(--line);color:var(--fg-3)}
 .spec .x:hover{border-color:rgba(255,107,128,.5);color:var(--err)}
 .spec .empty{padding:18px}
@@ -166,11 +164,78 @@
 .bitcard.is-set .c{color:var(--fg)}
 .addline{display:flex;align-items:center;gap:12px;margin-top:14px;font-size:13px;color:var(--fg-2)}
 .addline .ico{width:16px;height:16px;color:var(--fg-3)}
-.addline .sel{min-width:300px}
+.addline .uisel{width:auto;min-width:300px}
 .addline .note{font-size:12.5px;color:var(--fg-3)}
 .title-sel{display:flex;align-items:center;gap:10px}
 .title-sel .cap{font-size:12.5px;color:var(--fg-2)}
-.title-sel select.sel{min-width:220px}
+.title-sel .uisel{width:auto;min-width:220px}
+
+/* Шина CAN · на шине сейчас: тона байтов те же, что у схемы кадра (1 число, 2 тип, 3 опасность, 4 камера) */
+.cb-t{--tone:148,161,171}
+.cb-t.f1{--tone:91,157,255}
+.cb-t.f2{--tone:155,141,242}
+.cb-t.f4{--tone:240,189,87}
+.cb-t.f3{--tone:87,214,154}
+@keyframes cb-in{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+@keyframes cb-out{to{opacity:0;transform:scale(.98)}}
+@keyframes cb-swap{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
+@keyframes cb-fade{from{opacity:0}to{opacity:1}}
+.cb-card .card-h h3{white-space:nowrap}
+.cb-card .card-h .meta .live{color:var(--fg)}
+.cb-card .card-h .meta .is-warn{color:var(--warn)}
+.cb-frame{display:grid;grid-template-columns:repeat(4,minmax(0,1fr)) minmax(0,.6fr);gap:6px;margin-bottom:10px}
+.cb-frame.no-tail{grid-template-columns:repeat(4,minmax(0,1fr))}
+.cb-byte{display:flex;flex-direction:column;gap:4px;padding:10px 12px;border:1px solid rgba(var(--tone),.38);border-radius:var(--r);background:rgba(var(--tone),.11);min-width:0;transition:background-color .32s cubic-bezier(.2,.8,.2,1),border-color .32s cubic-bezier(.2,.8,.2,1)}
+.cb-byte .cap{font-size:10.5px;color:rgba(var(--tone),1);opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:color .32s}
+.cb-byte .w{font-size:14px;font-weight:600;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;animation:cb-swap .2s cubic-bezier(.2,.8,.2,1)}
+.cb-byte .w small{font-weight:500;color:var(--fg-2);font-size:12px}
+.cb-byte .h{font-family:var(--mono);font-size:11px;color:rgba(var(--tone),1);animation:cb-swap .2s cubic-bezier(.2,.8,.2,1);transition:color .32s}
+.cb-tail{display:flex;flex-direction:column;justify-content:center;gap:4px;padding:10px 12px;border:1px dashed var(--line-hi);border-radius:var(--r);color:var(--fg-3);min-width:0}
+.cb-tail .cap{font-size:10.5px}
+.cb-tail .h{font-family:var(--mono);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Высота постоянная: шапка колонок и ровно три строки, дальше прокрутка */
+.cb-scroll{height:186px;overflow-y:auto;scrollbar-gutter:stable;overscroll-behavior:contain}
+.cb-list{position:relative;display:flex;flex-direction:column}
+.cb-row{height:52px;box-sizing:border-box;display:grid;grid-template-columns:78px minmax(0,1.3fr) minmax(0,1.2fr) minmax(0,1.1fr) 72px auto;align-items:center;column-gap:12px;padding:0 10px;border-bottom:1px solid var(--line);font-size:12.5px;background:var(--panel);animation:cb-in .32s cubic-bezier(.2,.8,.2,1)}
+.cb-row:last-child{border-bottom:none}
+.cb-row.is-head{position:sticky;top:0;z-index:1;height:30px;padding-bottom:4px;font-size:10.5px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.05em;animation:none}
+.cb-row.is-head .r{text-align:right}
+.cb-row.is-head .go{width:96px}
+.cb-row>*{transition:opacity .32s cubic-bezier(.2,.8,.2,1)}
+.cb-row.is-leaving{animation:cb-out .32s cubic-bezier(.4,0,1,1) forwards;pointer-events:none}
+.cb-id{font-family:var(--mono);font-size:11.5px;color:var(--fg);font-variant-numeric:tabular-nums}
+.cb-id small{display:block;font-size:9.5px;color:var(--acc);letter-spacing:.04em;margin-top:2px;animation:cb-fade .2s}
+.cb-cam,.cb-val{justify-self:start;max-width:calc(100% + 14px);min-width:0;padding:3px 7px;margin:-3px -7px;border-radius:6px;transition:background-color .32s cubic-bezier(.2,.8,.2,1),box-shadow .32s cubic-bezier(.2,.8,.2,1),color .32s}
+.cb-cam b{display:block;font-weight:600;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cb-cam span{font-family:var(--mono);font-size:10.5px;color:var(--fg-3);transition:color .32s}
+.cb-cam span.is-warn{color:var(--warn)}
+.cb-val{display:flex;align-items:center;gap:6px;color:var(--fg-2)}
+.cb-val .t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cb-val .n{font-family:var(--mono);font-size:11px;color:var(--fg-3);flex:0 0 auto;transition:color .32s}
+.cb-age{font-family:var(--mono);font-size:11px;color:var(--fg-2);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.cb-flag{font-size:10px;font-weight:600;padding:1px 6px;border-radius:5px;background:rgba(240,189,87,.14);color:var(--warn);white-space:nowrap;flex:0 0 auto}
+.cb-go{width:96px;justify-content:center;gap:6px}
+.cb-go .ico{width:14px;height:14px}
+/* Строка, давшая байты 2–4: её ячейки окрашены тонами байтов */
+.cb-row.is-top .cb-t{background:rgba(var(--tone),.11);box-shadow:inset 0 0 0 1px rgba(var(--tone),.38);color:var(--fg)}
+.cb-row.is-top .cb-t .n,.cb-row.is-top .cb-cam.cb-t span{color:rgba(var(--tone),1)}
+.cb-sub{display:flex;align-items:center;gap:8px;height:30px;box-sizing:border-box;padding:6px 10px 0;font-size:11px;color:var(--fg-3);background:var(--panel);animation:cb-fade .32s}
+.cb-sub::after{content:'';flex:1;height:1px;background:var(--line)}
+.cb-row.is-off>:not(.cb-go){opacity:.5}
+/* Недавно ушедшие из журнала в свободных строках */
+.cb-row.is-past>:not(.cb-go){opacity:.55}
+.cb-row.is-past .cb-id small{color:var(--fg-3)}
+.cb-why{font-family:var(--mono);font-size:10.5px;color:var(--fg-3);white-space:nowrap;flex:0 0 auto}
+/* Плашка всегда в разметке: разворачивается и сворачивается, а не выскакивает */
+.cb-warn{flex:none;display:flex;align-items:center;gap:10px;max-height:0;margin-top:0;padding:0 12px;overflow:hidden;opacity:0;border:0 solid rgba(240,189,87,.35);border-radius:var(--r);background:rgba(240,189,87,.07);font-size:12.5px;color:var(--fg-2);transition:max-height .32s cubic-bezier(.2,.8,.2,1),margin-top .32s cubic-bezier(.2,.8,.2,1),padding .32s cubic-bezier(.2,.8,.2,1),border-width .32s,opacity .2s}
+.cb-warn.is-on{max-height:72px;margin-top:10px;padding:10px 12px;border-width:1px;opacity:1}
+.cb-warn .ico{width:15px;height:15px;color:var(--warn);flex:0 0 15px}
+.cb-warn button{margin-left:auto;color:var(--acc);white-space:nowrap;font-weight:600}
+/* Пусто — как пустые места проекта: пунктир, значок и подпись по центру области списка */
+.cb-empty{height:100%;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:0 24px;text-align:center;border:1px dashed var(--line-hi);border-radius:var(--r);color:var(--fg-3);font-size:13px;line-height:1.5;animation:cb-fade .32s}
+.cb-empty .ico{color:var(--fg-3)}
+.cb-empty b{font-size:15px;font-weight:600;color:var(--fg-2)}
+.cb-empty span{max-width:60ch}
 
 /* Время и GPS */
 .mod-rows .card.time .card-b,.mod-rows .card.gps .card-b{padding:22px 24px}

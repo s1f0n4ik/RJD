@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '../../../app/Icons';
+import { Select } from '../../../app/Select';
 import type {
   GwTaxonomy,
   GwTaxonomyCamera,
@@ -8,16 +9,9 @@ import type {
   GwTaxonomyPatch,
   GwTaxonomyRule,
 } from '../types';
-import { configMeta, listAllConfigurations, neuralApi } from '../../neural/api/client';
+import { configMeta, listAllConfigurations } from '../../neural/api/client';
 import type { ConfigSummary } from '../../neural/api/types';
-
-// ECameraType::NEURAL из media-center: камеры, отдающие обнаружения
-const CAMERA_TYPE_NEURAL = 2;
-
-interface KnownCamera {
-  id: string;
-  name: string;
-}
+import { useCameraNames } from '../../neural/components/journal/useCameraNames';
 
 interface Props {
   taxonomy: GwTaxonomy | null;
@@ -27,8 +21,8 @@ interface Props {
 
 // Таблицы классов и суперклассов — свои у каждой конфигурации нейросети, правки
 // правил сохраняются кнопкой таблицы, добавление и удаление таблицы — сразу.
-// Байт камер вне конфигураций, любое изменение сохраняется сразу.
-// Тип обнаружения по умолчанию равен id класса; id вне 1..8 подсвечивается флагом.
+// Номера камер вне конфигураций, любое изменение сохраняется сразу.
+// Тип обнаружения по умолчанию — id класса + 1; класс вне 0..7 подсвечивается флагом.
 // Опасность задаёт суперкласс, класс наследует её и может переопределить (0 — не задано).
 
 const INHERIT = 0;
@@ -63,24 +57,22 @@ const rgba = (hex: string, a: number) => {
 };
 
 // Подкомпоненты уровня модуля: объявленные внутри рендера пересоздавали бы поддерево
+// «Не задано» показывается приглушённой подсказкой, а в списке остаётся пунктом
 const Sel: React.FC<{
   value: number;
   items: GwTaxonomyDictItem[];
   placeholder: string;
   onChange: (v: number) => void;
 }> = ({ value, items, placeholder, onChange }) => (
-  <select
-    className={`sel sel--wide${value === INHERIT ? ' is-inh' : ''}`}
-    value={value}
-    onChange={(e) => onChange(Number(e.target.value))}
-  >
-    <option value={INHERIT}>{placeholder}</option>
-    {items.map((i) => (
-      <option key={i.id} value={i.id}>
-        {i.id} · {i.title}
-      </option>
-    ))}
-  </select>
+  <Select
+    value={value === INHERIT ? '' : String(value)}
+    placeholder={placeholder}
+    options={[
+      { value: String(INHERIT), label: placeholder },
+      ...items.map((i) => ({ value: String(i.id), label: `${i.id} · ${i.title}` })),
+    ]}
+    onChange={(v) => onChange(Number(v))}
+  />
 );
 
 const findRule = (rules: GwTaxonomyRule[], key: string): GwTaxonomyRule | undefined =>
@@ -94,7 +86,7 @@ const reconcile = (cfg: GwTaxonomyConfig, m: ConfigMeta, typeIds: Set<number>): 
   });
   const classes = m.classes.map((c) => {
     const ex = findRule(cfg.classes, c.key);
-    const defType = typeIds.has(c.cid) ? c.cid : INHERIT;
+    const defType = typeIds.has(c.cid + 1) ? c.cid + 1 : INHERIT;
     return { key: c.key, title: c.name || c.key, type: ex?.type ?? defType, danger: ex?.danger ?? INHERIT };
   });
   return { ...cfg, superclasses, classes };
@@ -132,7 +124,7 @@ const TaxonomyPanel: React.FC<Props> = ({ taxonomy, busy, onSave }) => {
 
   // Списки из media-center: конфигурации и камеры выбираются из готового
   const [known, setKnown] = useState<ConfigSummary[]>([]);
-  const [knownCameras, setKnownCameras] = useState<KnownCamera[]>([]);
+  const { cameras: knownCameras } = useCameraNames();
 
   const fetchedMeta = useRef<Set<string>>(new Set());
 
@@ -162,25 +154,6 @@ const TaxonomyPanel: React.FC<Props> = ({ taxonomy, busy, onSave }) => {
       })
       .catch(() => {
         /* media-center недоступен — таблицу можно только смотреть */
-      });
-    return () => {
-      stop = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    let stop = false;
-    neuralApi
-      .listCameras()
-      .then((r) => {
-        if (stop) return;
-        const list = Object.entries(r.cameras ?? {})
-          .filter(([, c]) => c.camera_type === CAMERA_TYPE_NEURAL || c.type === CAMERA_TYPE_NEURAL)
-          .map(([id, c]) => ({ id, name: c.display_name || id }));
-        setKnownCameras(list);
-      })
-      .catch(() => {
-        /* media-center недоступен — список камер останется пустым */
       });
     return () => {
       stop = true;
@@ -258,7 +231,7 @@ const TaxonomyPanel: React.FC<Props> = ({ taxonomy, busy, onSave }) => {
     onSave({ configs });
   };
 
-  // Камеры сохраняем сразу; конфликт битов гасим локально
+  // Камеры сохраняем сразу; повтор номера гасим локально
   const commitCameras = (next: GwTaxonomyCamera[]) => {
     setCameras(next);
     const bits = new Set<number>();
@@ -268,7 +241,7 @@ const TaxonomyPanel: React.FC<Props> = ({ taxonomy, busy, onSave }) => {
         return;
       }
       if (bits.has(c.bit)) {
-        setError(`Бит ${c.bit} назначен двум камерам — выберите другой.`);
+        setError(`Номер ${c.bit} назначен двум камерам — выберите другой.`);
         return;
       }
       bits.add(c.bit);
@@ -277,7 +250,7 @@ const TaxonomyPanel: React.FC<Props> = ({ taxonomy, busy, onSave }) => {
     onSave({ cameras: next });
   };
 
-  // Новой камере — первый свободный бит
+  // Новой камере — первый свободный номер
   const addCamera = (id: string, name: string) => {
     if (!id || cameras.some((c) => c.key === id)) return;
     const used = new Set(cameras.map((c) => c.bit));
@@ -317,21 +290,13 @@ const TaxonomyPanel: React.FC<Props> = ({ taxonomy, busy, onSave }) => {
         <div className="title-sel spacer">
           <span className="cap">Новая таблица</span>
           {free.length > 0 ? (
-            <select
-              className="sel"
+            <Select
               value=""
               disabled={busy}
-              onChange={(e) => {
-                if (e.target.value) addConfig(e.target.value);
-              }}
-            >
-              <option value="">— выберите конфигурацию нейросети —</option>
-              {free.map((k) => (
-                <option key={k.id} value={k.id}>
-                  {k.name} · {k.id}
-                </option>
-              ))}
-            </select>
+              placeholder="— выберите конфигурацию нейросети —"
+              options={free.map((k) => ({ value: k.id, label: k.name, hint: k.id }))}
+              onChange={addConfig}
+            />
           ) : (
             <span className="muted" style={{ fontSize: 12.5 }}>
               {known.length === 0 ? 'нет конфигураций нейросети' : 'все конфигурации добавлены'}
@@ -431,7 +396,7 @@ const TaxonomyPanel: React.FC<Props> = ({ taxonomy, busy, onSave }) => {
                           const superDanger = findRule(c.superclasses, cm.superKey)?.danger ?? INHERIT;
                           const inheritedDanger = superDanger || defaults.danger;
                           const typeChosen = typeIds.has(rule?.type ?? INHERIT);
-                          const showFlag = !typeIds.has(cm.cid) && !typeChosen;
+                          const showFlag = !typeIds.has(cm.cid + 1) && !typeChosen;
                           return (
                             <tr
                               key={cm.key}
@@ -454,7 +419,7 @@ const TaxonomyPanel: React.FC<Props> = ({ taxonomy, busy, onSave }) => {
                                   {showFlag && (
                                     <span
                                       className="flag"
-                                      title={`id класса ${cm.cid} вне диапазона типов 1–8 — прямого типа под него нет, выберите вручную`}
+                                      title={`id класса ${cm.cid} вне 0–7 — типа ${cm.cid + 1} в протоколе нет, выберите вручную`}
                                     >
                                       !
                                     </span>
@@ -531,8 +496,8 @@ const TaxonomyPanel: React.FC<Props> = ({ taxonomy, busy, onSave }) => {
 
         <div className="card">
           <div className="card-h">
-            <h3>Байт камер</h3>
-            <span className="meta">{cameras.length} из 8 бит</span>
+            <h3>Номера камер</h3>
+            <span className="meta">{cameras.length} из 8 номеров</span>
           </div>
           <div className="card-b">
             <div className="bitcards">
@@ -542,7 +507,7 @@ const TaxonomyPanel: React.FC<Props> = ({ taxonomy, busy, onSave }) => {
                 return (
                   <div key={bit} className={`bitcard${cam ? ' is-set' : ''}`}>
                     <div className="n">{bit}</div>
-                    <div className="l">бит</div>
+                    <div className="l">номер</div>
                     <div className="c">{cam ? cameraName(cam) : 'свободен'}</div>
                   </div>
                 );
@@ -555,7 +520,7 @@ const TaxonomyPanel: React.FC<Props> = ({ taxonomy, busy, onSave }) => {
                   <tr>
                     <th>Камера</th>
                     <th style={{ width: 160 }}>camera_id</th>
-                    <th style={{ width: 220 }}>Бит</th>
+                    <th style={{ width: 220 }}>Номер</th>
                     <th style={{ width: 44 }} />
                   </tr>
                 </thead>
@@ -565,20 +530,11 @@ const TaxonomyPanel: React.FC<Props> = ({ taxonomy, busy, onSave }) => {
                       <td className="name"><b>{cameraName(c)}</b></td>
                       <td className="m" title={c.key}>{c.key}</td>
                       <td>
-                        <select
-                          className="sel sel--wide"
-                          value={c.bit}
-                          onChange={(e) => {
-                            const v = Number(e.target.value);
-                            commitCameras(cameras.map((x, j) => (j === i ? { ...x, bit: v } : x)));
-                          }}
-                        >
-                          {Array.from({ length: 8 }, (_, b) => (
-                            <option key={b + 1} value={b + 1}>
-                              бит {b + 1} · маска 0x{(1 << b).toString(16).toUpperCase().padStart(2, '0')}
-                            </option>
-                          ))}
-                        </select>
+                        <Select
+                          value={String(c.bit)}
+                          options={Array.from({ length: 8 }, (_, b) => ({ value: String(b + 1), label: `номер ${b + 1}` }))}
+                          onChange={(v) => commitCameras(cameras.map((x, j) => (j === i ? { ...x, bit: Number(v) } : x)))}
+                        />
                       </td>
                       <td>
                         <button type="button" className="x" title="Убрать камеру" onClick={() => commitCameras(cameras.filter((_, j) => j !== i))}>
@@ -598,26 +554,20 @@ const TaxonomyPanel: React.FC<Props> = ({ taxonomy, busy, onSave }) => {
               <Icon name="plus" size={16} />
               Новая камера
               {cameras.length < 8 && freeCameras.length > 0 ? (
-                <select
-                  className="sel"
+                <Select
                   value=""
                   disabled={busy}
-                  onChange={(e) => {
-                    const k = freeCameras.find((x) => x.id === e.target.value);
+                  placeholder="— выберите камеру технического зрения —"
+                  options={freeCameras.map((k) => ({ value: k.id, label: k.name, hint: k.id }))}
+                  onChange={(v) => {
+                    const k = freeCameras.find((x) => x.id === v);
                     if (k) addCamera(k.id, k.name);
                   }}
-                >
-                  <option value="">— выберите камеру neural —</option>
-                  {freeCameras.map((k) => (
-                    <option key={k.id} value={k.id}>
-                      {k.name} · {k.id}
-                    </option>
-                  ))}
-                </select>
+                />
               ) : (
                 <span className="note">
                   {cameras.length >= 8
-                    ? 'все восемь бит заняты'
+                    ? 'все восемь номеров заняты'
                     : knownCameras.length === 0
                       ? 'камер технического зрения нет'
                       : 'все камеры технического зрения добавлены'}
