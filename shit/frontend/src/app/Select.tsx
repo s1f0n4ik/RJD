@@ -146,6 +146,7 @@ export function Select({ value, options, onChange, disabled, placeholder, emptyT
                 aria-expanded={open}
                 onClick={() => (open ? setOpen(false) : openPopup())}
             >
+                {selected?.dot && <span className={`dot ${selected.dot}`} />}
                 <span className="uisel-val">
                     {selected ? selected.label : <span className="muted">{placeholder ?? '—'}</span>}
                 </span>

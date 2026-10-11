@@ -5,7 +5,7 @@ import { Select } from '../../app/Select';
 import { describeError } from '../../components/webrtc/error-codes';
 import { useToast } from '../../features/birdview/components/common/Toast';
 import { neuralApi } from '../../features/neural/api/client';
-import type { ActiveDesc, ConfigSummary, SlotStatus, StreamingDesc, SystemInfo, TileState, VideoStream } from '../../features/neural/api/types';
+import type { ActiveDesc, ConfigSummary, SlotStatus, StreamingDesc, TileState, VideoStream } from '../../features/neural/api/types';
 
 /** Слот на доске: видеопоток, глубина и потолок к/с, вывод полотна с рамками, маска событий */
 interface Slot {
@@ -26,8 +26,6 @@ const DEFAULT_IMAGE = ['confirmed'];
 const LOCK_TIP = 'Пакет обязателен: на это событие берётся снимок';
 
 const toggle = (list: string[], item: string) => (list.includes(item) ? list.filter(x => x !== item) : [...list, item]);
-
-const DEFAULT_SYSTEM: SystemInfo = { platform: 'unknown', label: '—', npu_cores: 0 };
 
 // Названия событий трека — идентификаторы приходят с бэкенда
 const EVENT_NAMES: Record<string, string> = {
@@ -71,7 +69,6 @@ interface InferenceScreenProps {
 export function InferenceScreen({ status, onRefreshStatus }: InferenceScreenProps) {
     const toast = useToast();
 
-    const [system, setSystem] = useState<SystemInfo>(DEFAULT_SYSTEM);
     const [configs, setConfigs] = useState<ConfigSummary[]>([]);
     const [trackerBy, setTrackerBy] = useState<Record<string, boolean>>({});
     const [videos, setVideos] = useState<VideoStream[]>([]);
@@ -114,7 +111,6 @@ export function InferenceScreen({ status, onRefreshStatus }: InferenceScreenProp
     }, []);
 
     useEffect(() => {
-        neuralApi.getSystem().then(setSystem).catch(() => setSystem(DEFAULT_SYSTEM));
         neuralApi.getEventTypes().then(r => r.events?.length && setEventTypes(r.events.map(e => e.type))).catch(() => {});
         neuralApi.listStreams().then(r => setVideos(r.streams ?? [])).catch(() => setVideos([]));
         reloadConfigs().catch(e => setErr(e instanceof Error ? e.message : String(e)));
@@ -218,8 +214,6 @@ export function InferenceScreen({ status, onRefreshStatus }: InferenceScreenProp
     return (
         <>
             <div className="filters">
-                <span className="fld"><span className="k">Платформа</span><span className="v">{system.label}</span></span>
-                <span className="fld"><span className="k">Ядер NPU</span><span className="v">{system.npu_cores}</span></span>
                 <span className="fld"><span className="k">Слотов</span><span className="v">{slots.length}</span></span>
                 {dirty && <span className="tag is-warn">изменения не применены</span>}
                 {err && <span className="tag is-err">{err}</span>}

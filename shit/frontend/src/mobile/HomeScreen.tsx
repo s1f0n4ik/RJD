@@ -5,7 +5,7 @@ import { isAdmin } from '../app/role';
 import { useSystem } from '../app/SystemContext';
 import { formatDeviceDate, formatDeviceTime, useDeviceClock } from '../app/useDeviceClock';
 import {
-    useDisks, useLastDetections, useLinkerStatus, useNeuralStatus as useNeuralSummary,
+    useDisks, useLastDetections, useLinkerStatus, useNeuralSummary, neuralSummaryParts,
 } from '../screens/home/useHomeData';
 import { CAMERA_STATUS } from '../utils/constants';
 import { isProbeCamera } from '../utils/probeFilter';
@@ -117,9 +117,9 @@ export default function HomeScreen() {
 
                 <div className="m-stat">
                     <Icon name="eye" className="ico lead" />
-                    <div className="k">Техническое зрение<small>{neural === undefined ? <Sk w={110} h={10} /> : neural ? (neural.failed ? `${neural.failed} с ошибкой` : neural.slots ? 'все потоки в работе' : 'потоков нет') : 'модуль не отвечает'}</small></div>
+                    <div className="k">Техническое зрение<small>{neural === undefined ? <Sk w={110} h={10} /> : neuralSummaryParts(neural).join(' · ')}</small></div>
                     <Value ready={neural !== undefined} big={neural ? neural.running : '—'} small={neural ? plural(neural.running, 'поток', 'потока', 'потоков') : ''} />
-                    <span className={`dot ${neural === undefined ? '' : !neural || neural.failed ? 'err' : neural.running ? 'ok' : ''}`} />
+                    <span className={`dot ${neural === undefined ? '' : !neural || neural.failed || neural.offline || neural.missing ? 'err' : neural.running ? 'ok' : ''}`} />
                 </div>
 
                 {admin && (

@@ -2,9 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 import { Icon } from '../../app/Icons';
 import { Select } from '../../app/Select';
 import { useToast } from '../../features/birdview/components/common/Toast';
-import { neuralApi } from '../../features/neural/api/client';
+import { neuralApi, neuralDeviceId } from '../../features/neural/api/client';
 import type { ConfigSummary, StreamTile, TileFit, VideoStream } from '../../features/neural/api/types';
-import { moduleDeviceId, signalingWsUrl } from '../../services/devices';
+import { signalingWsUrl } from '../../services/devices';
 import { ratio, viewFor, type EditorCamera } from './editor-cameras';
 import {
     borderRuns, cellRect, clamp, cropForCell, edges, mergeCells, moveCrop, resizeCrop, resizeGrid, tileAt, tileCell, tileDst,
@@ -74,7 +74,7 @@ export function StreamEditor({ initial, isNew, configs, cameras, slots, onBack, 
     const dragRef = useRef<Drag | null>(null);
     const [dragging, setDragging] = useState<Drag | null>(null);
 
-    const deviceId = useMemo(() => { try { return moduleDeviceId('neural'); } catch { return ''; } }, []);
+    const deviceId = useMemo(() => neuralDeviceId(), []);
 
     // Размер полотна задаёт модель конфигурации: его сообщает редактор при открытии
     useEffect(() => {
@@ -494,7 +494,7 @@ function CropField({ label, value, onCommit }: { label: string; value: number; o
 }
 
 function Picker({ cameras, deviceId, sel, onPick }: { cameras: EditorCamera[]; deviceId: string; sel: Cell; onPick: (id: string) => void }) {
-    if (!cameras.length) return <div className="ve-nocam">Нет камер с назначением «Техническое зрение».<br />Назначьте его потоку камеры в разделе «Камеры».</div>;
+    if (!cameras.length) return <div className="ve-nocam">На устройстве нет камер с назначением «Техническое зрение».<br />Назначьте его потоку камеры в разделе «Камеры».</div>;
     return (
         <div className="ve-pick">
             <div className="ve-pick-t">Какая камера встанет в ячейку {sel.r + 1}·{sel.c + 1}?</div>

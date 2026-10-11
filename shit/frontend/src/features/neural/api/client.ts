@@ -8,19 +8,23 @@ import type {
     NeuralConfig,
     SlotStatus,
     SuperclassDef,
-    SystemInfo,
     TrackEventType,
     TrackerType,
     VideoStream,
 } from './types';
-import { modulePath } from '../../../services/devices';
+import { getDevices, getRouting, mcPath, moduleDeviceId } from '../../../services/devices';
 
 // Пустая строка — тот же origin, прокси бэкенда ведёт на устройство модуля
 export const API_HOST = '';
 
-// Ручки /neural/* переезжают на устройство, назначенное модулю neural
-const url = (path: string) =>
-    path.startsWith('/neural/') ? `${API_HOST}${modulePath('neural', path)}` : `${API_HOST}${path}`;
+// Устройство подразделов техзрения: его ставит полоса «Устройство», без выбора — устройство по умолчанию
+let selectedDevice: string | null = null;
+export const setNeuralDevice = (id: string | null) => { selectedDevice = id; };
+export const neuralDeviceId = (): string => selectedDevice ?? moduleDeviceId('neural');
+
+// Ручки /neural/* идут на выбранное устройство или на явно переданное
+const url = (path: string, device?: string) =>
+    path.startsWith('/neural/') ? `${API_HOST}${mcPath(device ?? neuralDeviceId(), path)}` : `${API_HOST}${path}`;
 
 // Снимает обёртку { data: ... } и кидает осмысленную ошибку на не-2xx
 async function unwrap<T>(res: Response): Promise<T> {
@@ -40,14 +44,14 @@ async function unwrap<T>(res: Response): Promise<T> {
 
 const jsonHeaders = { 'Content-Type': 'application/json' };
 
-const get = <T,>(path: string): Promise<T> => fetch(url(path)).then(res => unwrap<T>(res));
+const get = <T,>(path: string, device?: string): Promise<T> => fetch(url(path, device)).then(res => unwrap<T>(res));
 const send = <T,>(path: string, method: string, body?: unknown): Promise<T> =>
     fetch(url(path), { method, headers: body === undefined ? undefined : jsonHeaders, body: body === undefined ? undefined : JSON.stringify(body) })
         .then(res => unwrap<T>(res));
 
 export const neuralApi = {
     // ── Конфигурации ──
-    listConfigurations: () => get<{ configurations: ConfigSummary[] }>('/neural/configurations'),
+    listConfigurations: (device?: string) => get<{ configurations: ConfigSummary[] }>('/neural/configurations', device),
 
     getConfiguration: (id: string) => get<NeuralConfig>(`/neural/configurations?id=${encodeURIComponent(id)}`),
 
@@ -81,14 +85,12 @@ export const neuralApi = {
     stop: () => send<unknown>('/neural/stop', 'POST'),
 
     // ── Классы и суперклассы конфигурации ──
-    getClasses: (configId: string) =>
-        get<{ config_id: string; classes: (ClassDef & { id: string })[] }>(`/neural/classes?config_id=${encodeURIComponent(configId)}`),
-    getSuperclasses: (configId: string) =>
-        get<{ config_id: string; superclasses: (SuperclassDef & { key: string })[] }>(`/neural/superclasses?config_id=${encodeURIComponent(configId)}`),
+    getClasses: (configId: string, device?: string) =>
+        get<{ config_id: string; classes: (ClassDef & { id: string })[] }>(`/neural/classes?config_id=${encodeURIComponent(configId)}`, device),
+    getSuperclasses: (configId: string, device?: string) =>
+        get<{ config_id: string; superclasses: (SuperclassDef & { key: string })[] }>(`/neural/superclasses?config_id=${encodeURIComponent(configId)}`, device),
 
     getTrackerTypes: () => get<{ types: TrackerType[] }>('/neural/tracker-types'),
-
-    getSystem: () => get<SystemInfo>('/neural/system'),
 
     getEventTypes: () => get<{ events: TrackEventType[] }>('/neural/event-types'),
 
@@ -106,3 +108,32 @@ export const neuralApi = {
     // ── Камеры всех устройств (GET /api/cameras) ──
     listCameras: () => get<{ cameras: Record<string, CameraInfo> | null }>('/api/cameras'),
 };
+
+// Устройства с neural в сети, устройство по умолчанию первым
+export function neuralDeviceIds(): string[] {
+    const fallback = getRouting().neural;
+    return getDevices()
+        .filter(d => d.status === 'online' && d.modules.includes('neural'))
+        .sort((a, b) => Number(b.id === fallback) - Number(a.id === fallback))
+        .map(d => d.id);
+}
+
+export type DeviceConfig = ConfigSummary & { device: string };
+
+// Конфигурации всех устройств; совпавший id берётся с первого ответившего по порядку neuralDeviceIds
+export async function listAllConfigurations(): Promise<DeviceConfig[]> {
+    const lists = await Promise.all(neuralDeviceIds().map(device =>
+        neuralApi.listConfigurations(device)
+            .then(r => r.configurations.map(c => ({ ...c, device })))
+            .catch(() => [] as DeviceConfig[])));
+    const byId = new Map<string, DeviceConfig>();
+    for (const c of lists.flat()) if (!byId.has(c.id)) byId.set(c.id, c);
+    return [...byId.values()];
+}
+
+// Классы и суперклассы конфигурации с устройства, где она есть
+export async function configMeta(configId: string) {
+    const found = (await listAllConfigurations()).find(c => c.id === configId);
+    if (!found) throw new Error(`Configuration ${configId} not found on any device`);
+    return Promise.all([neuralApi.getClasses(configId, found.device), neuralApi.getSuperclasses(configId, found.device)]);
+}

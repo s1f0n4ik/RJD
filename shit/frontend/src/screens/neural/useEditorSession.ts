@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { moduleDeviceId, signalingWsUrl } from '../../services/devices';
+import { signalingWsUrl } from '../../services/devices';
+import { neuralDeviceId } from '../../features/neural/api/client';
 import type { TilePlacement, VideoStream } from '../../features/neural/api/types';
 import { withCamerasOnly } from './stream-geometry';
 
@@ -74,7 +75,7 @@ export function useEditorSession(initial: VideoStream): EditorSession {
     useEffect(() => {
         let deviceId: string;
         try {
-            deviceId = moduleDeviceId('neural');
+            deviceId = neuralDeviceId();
         } catch (e) {
             setPhase('closed');
             setError(e instanceof Error ? e.message : String(e));

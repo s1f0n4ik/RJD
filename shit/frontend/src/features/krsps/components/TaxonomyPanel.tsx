@@ -8,7 +8,7 @@ import type {
   GwTaxonomyPatch,
   GwTaxonomyRule,
 } from '../types';
-import { neuralApi } from '../../neural/api/client';
+import { configMeta, listAllConfigurations, neuralApi } from '../../neural/api/client';
 import type { ConfigSummary } from '../../neural/api/types';
 
 // ECameraType::NEURAL из media-center: камеры, отдающие обнаружения
@@ -156,10 +156,9 @@ const TaxonomyPanel: React.FC<Props> = ({ taxonomy, busy, onSave }) => {
 
   useEffect(() => {
     let stop = false;
-    neuralApi
-      .listConfigurations()
-      .then((r) => {
-        if (!stop) setKnown(r.configurations ?? []);
+    listAllConfigurations()
+      .then((list) => {
+        if (!stop) setKnown(list);
       })
       .catch(() => {
         /* media-center недоступен — таблицу можно только смотреть */
@@ -195,7 +194,7 @@ const TaxonomyPanel: React.FC<Props> = ({ taxonomy, busy, onSave }) => {
     ids.forEach((id) => {
       if (!id || fetchedMeta.current.has(id)) return;
       fetchedMeta.current.add(id);
-      Promise.all([neuralApi.getClasses(id), neuralApi.getSuperclasses(id)])
+      configMeta(id)
         .then(([cls, scls]) => {
           const m = buildMeta(cls.classes ?? [], scls.superclasses ?? []);
           setMeta((prev) => ({ ...prev, [id]: m }));
@@ -214,7 +213,7 @@ const TaxonomyPanel: React.FC<Props> = ({ taxonomy, busy, onSave }) => {
       if (!id || configs.some((c) => c.id === id)) return;
       const title = known.find((k) => k.id === id)?.name ?? id;
       try {
-        const [cls, scls] = await Promise.all([neuralApi.getClasses(id), neuralApi.getSuperclasses(id)]);
+        const [cls, scls] = await configMeta(id);
         const m = buildMeta(cls.classes ?? [], scls.superclasses ?? []);
         fetchedMeta.current.add(id);
         setMeta((prev) => ({ ...prev, [id]: m }));

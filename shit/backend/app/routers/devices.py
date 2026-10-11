@@ -288,3 +288,28 @@ async def aggregate_streams():
             streams.extend(_tag(item, device) for item in data)
 
     return {"data": streams}
+
+
+async def _neural_status(device: dict) -> dict:
+    """Слоты техзрения устройства: ok — ответило, no_module — 404, offline — нет ответа."""
+    entry = {"device_id": device["id"], "device_name": device["name"], "state": "offline", "slots": None}
+    # Поллер уже видел устройство не в сети — тайм-аут не ждём
+    if device["status"] == "offline":
+        return entry
+    url = f"http://{device['ip']}:{settings.DEVICE_MC_PORT}/neural/status"
+    try:
+        response = await registry.client.get(url)
+        if response.status_code == 404:
+            return {**entry, "state": "no_module"}
+        response.raise_for_status()
+        return {**entry, "state": "ok", "slots": response.json().get("data") or []}
+    except (httpx.HTTPError, ValueError) as e:
+        logger.debug(f"Fetch /neural/status from {device['id']} failed: {e}")
+        return entry
+
+
+@router.get("/neural/status")
+async def aggregate_neural_status():
+    """Статус слотов со всех устройств с модулем neural по последнему известному списку модулей."""
+    devices = [d for d in registry.snapshot() if "neural" in (d.get("modules") or [])]
+    return {"data": {"devices": list(await asyncio.gather(*(_neural_status(d) for d in devices)))}}

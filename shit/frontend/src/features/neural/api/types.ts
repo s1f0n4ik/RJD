@@ -166,13 +166,6 @@ export interface SlotStatus {
     dropped: number;
 }
 
-/** Платформа из GET /neural/system */
-export interface SystemInfo {
-    platform: 'rk3566' | 'rk3588' | 'nvidia' | 'unknown';
-    label: string;
-    npu_cores: number;
-}
-
 /** Файл модели из GET /neural/models */
 export interface ModelFile {
     filename: string;

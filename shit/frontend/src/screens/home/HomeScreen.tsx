@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Icon } from '../../app/Icons';
 import { navFor, useRole } from '../../app/role';
 import { useSystem } from '../../app/SystemContext';
-import { useDisks, useGatewayStatus, useLastDetections, useLinkerStatus, useNeuralStatus } from './useHomeData';
+import { neuralSummaryOff, neuralSummaryParts, useDisks, useGatewayStatus, useLastDetections, useLinkerStatus, useNeuralSummary } from './useHomeData';
 import { useLayouts } from '../../hooks/Layouts';
 import { detClass } from '../../features/neural/components/journal/DetectionRow';
 import { fmtTime } from '../../features/neural/components/journal/format';
@@ -45,7 +45,7 @@ export function HomeScreen() {
     const { cameraName } = useCameraNames();
     const gateway = useGatewayStatus();
     const linker = useLinkerStatus();
-    const neural = useNeuralStatus();
+    const neural = useNeuralSummary();
 
     const online = devices.filter(d => d.status === 'online');
     const liveCameras = cameras.filter(isLive).length;
@@ -75,16 +75,7 @@ export function HomeScreen() {
             )
             : 'вывод остановлен'
         : 'модуль не отвечает';
-    const neuralSummary = neural
-        ? neural.slots === 0
-            ? 'слотов нет'
-            : (
-                <span className="seps">
-                    <span>{neural.running} {plural(neural.running, 'слот', 'слота', 'слотов')} в работе</span>
-                    {neural.failed > 0 && <span>{neural.failed} с ошибкой</span>}
-                </span>
-            )
-        : 'модуль не отвечает';
+    const neuralSummary = <span className="seps">{neuralSummaryParts(neural).map(p => <span key={p}>{p}</span>)}</span>;
     const gatewaySummary = gateway
         ? (
             <span className="seps">
@@ -149,7 +140,7 @@ export function HomeScreen() {
                 <div className="cols">
                     <div className="tiles">
                         {navFor(role).filter(item => item.to !== '/').map(item => (
-                            <Link key={item.to} to={item.to} className={`tile${(item.to === '/krsps' && !gateway) || (item.to === '/surround' && !linker) || (item.to === '/neural' && !neural) ? ' is-off' : ''}`}>
+                            <Link key={item.to} to={item.to} className={`tile${(item.to === '/krsps' && !gateway) || (item.to === '/surround' && !linker) || (item.to === '/neural' && neuralSummaryOff(neural)) ? ' is-off' : ''}`}>
                                 <Icon name={item.icon} size={22} />
                                 <b>{item.label}</b>
                                 {item.desc && <span>{item.desc}</span>}

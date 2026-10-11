@@ -4,8 +4,6 @@ import { Icon } from '../../../../app/Icons';
 import { Select } from '../../../../app/Select';
 import type { SelectOption } from '../../../../app/Select';
 import { useToast } from '../../../birdview/components/common/Toast';
-import { neuralApi } from '../../api/client';
-import type { ConfigSummary } from '../../api/types';
 import { journalApi } from '../../api/journal';
 import type { JournalDetection, Verdict } from '../../api/journal-types';
 import { useClassResolver } from './useClassResolver';
@@ -41,9 +39,8 @@ export function JournalSection() {
   const { state: fs, filters, patch, applyPreset, selectDevice } = fh;
   const { verdict, cids, deviceId, cameraId, configId } = fs;
   // классы фильтра — из выбранной конфигурации
-  const { resolve, classOptions, optionsFor, legendFor, superOf } = useClassResolver(configId || undefined);
+  const { resolve, classOptions, optionsFor, legendFor, superOf, configs } = useClassResolver(configId || undefined);
   const { cameraName, deviceName, cameras, devices } = useCameraNames();
-  const [configs, setConfigs] = useState<ConfigSummary[]>([]);
 
   const [dets, setDets] = useState<JournalDetection[]>([]);
   const [total, setTotal] = useState(0);
@@ -75,21 +72,6 @@ export function JournalSection() {
   const listRef = useRef<HTMLDivElement>(null);
   // Число открытых по последнему опросу: его смена — закрытие обнаружения
   const openRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    neuralApi
-      .listConfigurations()
-      .then((res) => {
-        if (alive) setConfigs(res.configurations);
-      })
-      .catch(() => {
-        /* список конфигураций останется пустым */
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
 
   const load = useCallback(
     (showSpinner: boolean) => {

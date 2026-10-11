@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { neuralApi } from '../../api/client';
+import { listAllConfigurations, neuralApi, type DeviceConfig } from '../../api/client';
 
 // Журнал хранит только id класса (cid) и config_id. Смысл (имя, цвет, суперкласс)
-// живёт в конфигурации — этот хук загружает классы/суперклассы всех конфигураций
+// живёт в конфигурации — этот хук загружает классы/суперклассы конфигураций всех устройств
 // и резолвит пару config_id + cid в человекочитаемое представление.
 
 export interface ClassMeaning {
@@ -33,18 +33,20 @@ const UNKNOWN: ClassMeaning = {
 export function useClassResolver(configId?: string) {
   // config_id -> (cid -> meaning)
   const [byConfig, setByConfig] = useState<Record<string, Map<number, ClassMeaning>>>({});
+  const [configs, setConfigs] = useState<DeviceConfig[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const { configurations } = await neuralApi.listConfigurations();
+        const configurations = await listAllConfigurations();
+        if (alive) setConfigs(configurations);
         const entries = await Promise.all(
           configurations.map(async (c) => {
             const [cls, sup] = await Promise.all([
-              neuralApi.getClasses(c.id).catch(() => ({ classes: [] as any[] })),
-              neuralApi.getSuperclasses(c.id).catch(() => ({ superclasses: [] as any[] })),
+              neuralApi.getClasses(c.id, c.device).catch(() => ({ classes: [] as any[] })),
+              neuralApi.getSuperclasses(c.id, c.device).catch(() => ({ superclasses: [] as any[] })),
             ]);
             const supMap = new Map<string, { name: string; color: string }>();
             for (const s of sup.superclasses) supMap.set(s.key, { name: s.name, color: s.color });
@@ -128,5 +130,5 @@ export function useClassResolver(configId?: string) {
     return (key: string | null) => (key ? map.get(key) ?? { name: key, color: UNKNOWN.color } : null);
   }, [byConfig]);
 
-  return { resolve, classOptions, optionsFor, legendFor, superOf, loading };
+  return { resolve, classOptions, optionsFor, legendFor, superOf, configs, loading };
 }

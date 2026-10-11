@@ -1,6 +1,6 @@
-import { neuralApi } from '../../features/neural/api/client';
+import { neuralApi, neuralDeviceId } from '../../features/neural/api/client';
 
-// Камеры для редактора видеопотока: поток нейронки и потоки просмотра
+// Камеры выбранного устройства для редактора видеопотока: поток нейронки и потоки просмотра
 
 export interface EditorStream {
     key: string;
@@ -25,8 +25,10 @@ export interface ViewChoice {
 
 export async function loadEditorCameras(): Promise<EditorCamera[]> {
     const res = await neuralApi.listCameras();
+    const device = neuralDeviceId();
     const out: EditorCamera[] = [];
     for (const [id, cam] of Object.entries(res.cameras ?? {})) {
+        if (cam.device_id !== device) continue;
         const entries = Object.entries(cam.streams ?? {});
         const neural = entries.find(([, s]) => s.purposes?.includes('neural'));
         if (!neural) continue;
