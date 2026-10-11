@@ -58,6 +58,7 @@ CAMERA = {
         "segment": 600, "status": 3, "substream": 1, "use_udp": False,
     }},
 }
+CAMERAS = {"camera_f1": CAMERA}
 
 
 def ok(data):
@@ -104,9 +105,31 @@ async def system_info():
     })
 
 
+# Копия поддельной камеры под чужим id и со своим адресом — конфликт id между платами
+@app.post("/_dup/{camera_id}")
+async def dup(camera_id: str):
+    CAMERAS[camera_id] = {**CAMERA, "display_name": f"Копия {camera_id}", "ip_adress": "10.255.0.2"}
+    return ok({"id": camera_id})
+
+
 @app.get("/camera")
 async def camera():
-    return ok({"cameras": {"camera_f1": CAMERA}, "virtual": []})
+    return ok({"cameras": CAMERAS, "virtual": []})
+
+
+@app.post("/camera")
+async def add_camera(request: Request):
+    body = await request.json()
+    camera_id = body.pop("id")
+    CAMERAS[camera_id] = body
+    return ok({"id": camera_id})
+
+
+@app.delete("/camera")
+async def delete_camera(id: str):
+    if CAMERAS.pop(id, None) is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return ok({"id": id})
 
 
 @app.get("/streams")

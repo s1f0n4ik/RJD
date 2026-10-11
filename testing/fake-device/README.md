@@ -17,6 +17,7 @@ bash testing/fake-device/run.sh start                # контейнер + ре
 bash testing/fake-device/run.sh mode no_module       # 404 на /neural/*, neural в модулях остаётся
 bash testing/fake-device/run.sh mode bare            # 404 и пустой список модулей
 bash testing/fake-device/run.sh mode ok              # обратно
+bash testing/fake-device/run.sh dup camera_3         # копия под id камеры другой платы: конфликт id
 bash testing/fake-device/run.sh offline              # пауза контейнера: плата не в сети
 bash testing/fake-device/run.sh online               # снова в сети, адрес тот же
 bash testing/fake-device/run.sh stop                 # убрать из реестра и сверить его с копией
@@ -41,7 +42,7 @@ bash testing/fake-device/run.sh stop                 # убрать из рее�
 | Ручка | Содержимое |
 |-------|------------|
 | `/system/info` | `device_id`, модуль `neural`, платформа RK3588 на 3 ядра NPU |
-| `/camera` | одна камера `camera_f1` с назначением neural |
+| `/camera` | камера `camera_f1` с назначением neural; `POST` и `DELETE ?id=` меняют список в памяти; `dup` добавляет копию с адресом 10.255.0.2 |
 | `/neural/status` | два слота: `fake_stream` работает, `fake_broken` с кодом 6001 |
 | `/neural/configurations` | `railway_camera` (тот же id, что на .102) и `fake-config` со своими классами и суперклассом |
 | `/neural/classes`, `/neural/superclasses` | классы конфигураций выше |

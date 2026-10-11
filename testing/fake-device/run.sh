@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Поддельная плата техзрения на машине мастера: start | mode <ok|no_module|bare> | offline | online | stop
+# Поддельная плата техзрения на машине мастера: start | mode <ok|no_module|bare> | dup <id> | offline | online | stop
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -36,6 +36,10 @@ case "${1:-}" in
         curl -sf -m 3 -X POST "http://$(ip_of):7777/_mode/${2:?mode: ok | no_module | bare}"
         echo
         ;;
+    dup)
+        curl -sf -m 3 -X POST "http://$(ip_of):7777/_dup/${2:?dup: camera id of another device}"
+        echo
+        ;;
     offline)
         # Пауза держит адрес: online возвращает плату без перерегистрации
         docker pause "$NAME" >/dev/null
@@ -56,7 +60,7 @@ case "${1:-}" in
         fi
         ;;
     *)
-        echo "usage: $0 start | mode <ok|no_module|bare> | offline | online | stop" >&2
+        echo "usage: $0 start | mode <ok|no_module|bare> | dup <camera id> | offline | online | stop" >&2
         exit 2
         ;;
 esac

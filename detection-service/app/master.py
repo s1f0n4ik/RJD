@@ -159,12 +159,14 @@ class RsmRules:
             return
         self.outbox.send(Outgoing(shot.request, jpeg=jpeg, path=path, gps=shot.gps))
 
-    # Открытые отправленные — заново в шлюз после подключения
+    # Открытые отправленные — заново в шлюз после подключения; без них — пустое «Удалён» с сессией мастера
     def resend(self) -> int:
         sent = [d for d in self.detections.values() if d.sent]
         for detection in sent:
             self.outbox.send(Outgoing(self._request(
                 gw.TRACK_EVENT_CONFIRMED, detection.last_ts, detection.camera_id, detection.config_id, [gw_detection(detection)])))
+        if not sent:
+            self.outbox.send(Outgoing(self._request(gw.TRACK_EVENT_REMOVED, now_ms(), "", "", [])))
         return len(sent)
 
     def _on_event(self, packet, track, received_at: int, late: bool) -> None:
@@ -172,6 +174,10 @@ class RsmRules:
         box: Box = tuple(track.box) if len(track.box) == 4 else (0, 0, 0, 0)
         state = self.tracks.get(key)
         if state is None:
+            # «Удалён» трека без открытого обнаружения ничего не открывает
+            if track.event == pb.TRACK_EVENT_REMOVED:
+                logger.info("track #%d of %s removed with no open detection, skipped", track.track_id, packet.device_id[:8])
+                return
             state = self._open_track(key, packet, track, box, late)
         else:
             self.journal.touch_track(state.row_id, packet.ts)
