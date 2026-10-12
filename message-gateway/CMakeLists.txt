@@ -50,12 +50,17 @@ add_executable(${PROJECT_NAME}
     src/core/taxonomy.cpp
     src/core/store.cpp
     src/core/rsm2000-integration.cpp
+    src/core/iskra-integration.cpp
     src/utility/devices.cpp
     src/modules/websocket/module.cpp
     src/modules/can/module.cpp
     src/modules/can/bus.cpp
     src/modules/can/codec.cpp
     src/modules/can/traffic-log.cpp
+    src/modules/modbus/rtu.cpp
+    src/modules/modbus/krsps.cpp
+    src/modules/modbus/queue.cpp
+    src/modules/modbus/module.cpp
     src/grpc/ingress.cpp
     $<TARGET_OBJECTS:gateway-proto>
 )

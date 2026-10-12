@@ -48,20 +48,26 @@ namespace varan {
                 return m_tz_offset_min;
             }
 
-            void update_time(std::int64_t unix_ms) {
+            // source — подпись источника в /time: "can" | "modbus"
+            void update_time(std::int64_t unix_ms, const char* source = "can") {
                 std::lock_guard<std::mutex> lock(m_mutex);
                 m_can_unix_ms = unix_ms;
                 m_can_time_mono = mono_ms();
                 m_has_can_time = true;
+                m_time_source = source;
             }
 
-            void update_gps(double lat, double lon, double speed) {
+            // stale_ms — тишина, после которой координаты недостоверны
+            void update_gps(double lat, double lon, double speed, const char* source = "can",
+                std::int64_t stale_ms = GPS_STALE_MS) {
                 std::lock_guard<std::mutex> lock(m_mutex);
                 m_lat = lat;
                 m_lon = lon;
                 m_speed = speed;
                 m_gps_mono = mono_ms();
                 m_has_can_gps = true;
+                m_gps_source = source;
+                m_gps_stale_ms = stale_ms;
             }
 
             FTimeGpsSnapshot snapshot_struct() const {
@@ -82,7 +88,7 @@ namespace varan {
                     s.alt = 0.0;      // Садко высоту не передаёт
                     s.sats = 0;       // и число спутников тоже
                     s.course = 0.0;
-                    s.valid = (mono_ms() - m_gps_mono) <= GPS_STALE_MS;
+                    s.valid = (mono_ms() - m_gps_mono) <= m_gps_stale_ms;
                 }
                 // Шина молчит: координат нет, valid=false, поля нулевые
                 return s;
@@ -92,12 +98,15 @@ namespace varan {
                 const FTimeGpsSnapshot s = snapshot_struct();
 
                 // Источник времени берём из самого снимка — он единый для REST и gRPC
-                const std::string time_src = s.can_time ? "can" : "server";
+                std::string time_src = "server";
                 std::string gps_src;
                 std::int64_t gps_age = -1;
                 {
                     std::lock_guard<std::mutex> lock(m_mutex);
-                    gps_src = m_has_can_gps ? "can" : "none";
+                    if (s.can_time) {
+                        time_src = m_time_source;
+                    }
+                    gps_src = m_has_can_gps ? m_gps_source : "none";
                     if (m_has_can_gps) {
                         gps_age = mono_ms() - m_gps_mono;
                     }
@@ -164,6 +173,10 @@ namespace varan {
             double m_lon = 0.0;
             double m_speed = 0.0;
             std::int64_t m_gps_mono = 0;
+
+            std::string m_time_source = "can";
+            std::string m_gps_source = "can";
+            std::int64_t m_gps_stale_ms = GPS_STALE_MS;
         };
 
     } // namespace gateway

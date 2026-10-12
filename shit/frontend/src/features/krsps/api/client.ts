@@ -2,6 +2,7 @@ import type {
   GwCanConfigPatch,
   GwDevices,
   GwIntegrations,
+  GwModbusConfigPatch,
   GwModule,
   GwStatus,
   GwTaxonomy,
@@ -61,6 +62,17 @@ export const krspsApi = {
   async updateCanConfig(patch: GwCanConfigPatch): Promise<GwStatus> {
     return unwrap<GwStatus>(
       await fetch(url('/config/can'), {
+        method: 'PUT',
+        headers: jsonHeaders,
+        body: JSON.stringify(patch),
+      }),
+    );
+  },
+
+  // Обновление настроек Modbus-модуля активной конфигурации.
+  async updateModbusConfig(patch: GwModbusConfigPatch): Promise<GwStatus> {
+    return unwrap<GwStatus>(
+      await fetch(url('/config/modbus'), {
         method: 'PUT',
         headers: jsonHeaders,
         body: JSON.stringify(patch),

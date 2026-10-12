@@ -37,6 +37,17 @@ message Detection {
     uint64 detection_id = 6;  // ID обнаружения у мастера, наружу не уходит
 }
 
+// Запись обнаружения для АС КРСПС по Modbus; поля считает мастер по правилам конфигурации
+message Record {
+    int32 code = 1;           // код обнаружения
+    uint32 frame_id = 2;      // ID стоп-кадра: номер обнаружения в журнале
+    int32 camera_mask = 3;    // камеры с фиксацией, бит 1 — младший
+    int32 zone = 4;           // зона обнаружения
+    int32 count = 5;          // количество объектов
+    int64 ts = 6;             // время, unix мс в поясе шлюза; 0 — время приёма
+    GpsData gps = 7;          // координаты; без valid шлюз ставит свои
+}
+
 message FrameRequest {
     int32 ver = 1;            // версия протокола, запрошенная клиентом
     int64 id = 2;             // номер сообщения в сессии мастера
@@ -53,6 +64,7 @@ message FrameRequest {
     string config_id = 10;
     int64 session = 11;       // время запуска мастера, unix мс
     TrackEvent event = 12;    // одно на сообщение; шлюз разбирает CONFIRMED и REMOVED, прочие пропускает
+    Record record = 13;       // запись для Modbus; шлюз Искры пишет запись только из сообщений с ней
 }
 
 message FrameReply {

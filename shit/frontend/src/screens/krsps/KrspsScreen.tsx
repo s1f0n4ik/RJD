@@ -6,6 +6,8 @@ import type {
     GwCanConfigPatch,
     GwDevices,
     GwIntegrations,
+    GwModbusConfigPatch,
+    GwModbusModule,
     GwStatus,
     GwTaxonomy,
     GwTaxonomyPatch,
@@ -14,11 +16,12 @@ import type {
 } from '../../features/krsps/types';
 import WebSocketModulePanel from '../../features/krsps/components/WebSocketModulePanel';
 import CanModulePanel from '../../features/krsps/components/CanModulePanel';
+import ModbusModulePanel from '../../features/krsps/components/ModbusModulePanel';
 import TaxonomyPanel from '../../features/krsps/components/TaxonomyPanel';
 import TimeGpsPanel from '../../features/krsps/components/TimeGpsPanel';
 import PanelBoundary from '../../features/krsps/components/PanelBoundary';
 import { connState } from '../../features/krsps/components/ModuleBits';
-import { MODULE_LABEL, SERVICE_SECTIONS, isServiceSection } from './sections';
+import { MODULE_LABEL, SERVICE_SECTIONS } from './sections';
 import './krsps.css';
 
 const STATUS_POLL_MS = 2000;
@@ -165,6 +168,7 @@ export default function KrspsScreen() {
 
     const handleSaveWs = (patch: GwWsConfigPatch) => run(() => krspsApi.updateWsConfig(patch), 'Настройки сохранены');
     const handleSaveCan = (patch: GwCanConfigPatch) => run(() => krspsApi.updateCanConfig(patch), 'Настройки сохранены');
+    const handleSaveModbus = (patch: GwModbusConfigPatch) => run(() => krspsApi.updateModbusConfig(patch), 'Настройки сохранены');
     const handleSaveTaxonomy = (patch: GwTaxonomyPatch) =>
         run(async () => {
             const t = await krspsApi.updateTaxonomy(patch);
@@ -196,9 +200,12 @@ export default function KrspsScreen() {
     }
 
     const moduleIds = status.modules.map(m => m.id);
-    if (!isServiceSection(section) && !moduleIds.includes(section)) {
-        return <Navigate to={`/krsps/${moduleIds[0] ?? SERVICE_SECTIONS[0].id}`} replace />;
+    // Таблица соответствий — только при модулях кроме Modbus
+    const services = SERVICE_SECTIONS.filter(s => s.id !== 'taxonomy' || status.modules.some(m => m.transport !== 'modbus'));
+    if (!services.some(s => s.id === section) && !moduleIds.includes(section)) {
+        return <Navigate to={`/krsps/${moduleIds[0] ?? services[0].id}`} replace />;
     }
+    const timeSource = time?.source.time;
 
     const selectedModule = status.modules.find(m => m.id === section) ?? null;
     const activeId = integrations?.active ?? status.id;
@@ -234,6 +241,17 @@ export default function KrspsScreen() {
                                 onDisconnect={handleDisconnect}
                                 onOpenTaxonomy={() => navigate('/krsps/taxonomy')}
                             />
+                        ) : selectedModule?.transport === 'modbus' ? (
+                            <ModbusModulePanel
+                                module={selectedModule as unknown as GwModbusModule}
+                                title={MODULE_LABEL[selectedModule.id] ?? selectedModule.title}
+                                devices={devices}
+                                tzMin={time?.tz_offset_min ?? 180}
+                                busy={busy}
+                                onSave={handleSaveModbus}
+                                onConnect={handleConnect}
+                                onDisconnect={handleDisconnect}
+                            />
                         ) : selectedModule ? (
                             <WebSocketModulePanel
                                 module={selectedModule}
@@ -264,7 +282,7 @@ export default function KrspsScreen() {
                                 className={`mod-item${section === m.id ? ' is-on' : ''}`}
                                 onClick={() => navigate(`/krsps/${m.id}`)}
                             >
-                                <Icon name={m.transport === 'can' ? 'bus' : 'swap'} />
+                                <Icon name={m.transport === 'websocket' ? 'swap' : 'bus'} />
                                 <span className="nm">{MODULE_LABEL[m.id] ?? m.title}</span>
                                 <span className="sub">{m.transport}</span>
                                 <span className={`dot ${DOT_TONE[connState(m)]}`} />
@@ -275,7 +293,7 @@ export default function KrspsScreen() {
 
                     <div className="blk-h"><h3>Сервис</h3></div>
                     <div className="blk-b">
-                        {SERVICE_SECTIONS.map(s => (
+                        {services.map(s => (
                             <button
                                 key={s.id}
                                 type="button"
@@ -286,8 +304,8 @@ export default function KrspsScreen() {
                                 <span className="nm">{s.label}</span>
                                 {s.id === 'time' && time && (
                                     <>
-                                        <span className="sub">{time.source.time === 'can' ? 'шина CAN' : 'системное'}</span>
-                                        <span className={`dot ${time.source.time === 'can' ? 'ok' : 'warn'}`} />
+                                        <span className="sub">{timeSource === 'can' ? 'шина CAN' : timeSource === 'modbus' ? 'Modbus' : 'системное'}</span>
+                                        <span className={`dot ${timeSource === 'can' || timeSource === 'modbus' ? 'ok' : 'warn'}`} />
                                     </>
                                 )}
                             </button>

@@ -2,6 +2,8 @@
 
 #include <string>
 #include <cstdint>
+#include <algorithm>
+#include <iterator>
 
 #include <boost/json.hpp>
 
@@ -61,11 +63,27 @@ namespace varan {
             FCanMessageId rx_time{ 6, 0xFF01, 0x61, 0x00, true };
         };
 
+        // Настройки Modbus RTU: порт и ответы ведомого
+        struct FModbusConfig {
+            std::string device = "/dev/ttyUSB0";
+            int baud = 115200;
+            std::string parity = "none";        // "none" | "even" | "odd"
+            int data_bits = 8;
+            int stop_bits = 1;
+            int slave = 20;                     // адрес ведомого
+            int device_id = 20;                 // регистр 0x1000
+            int version = 1;                    // регистр 0x1001
+            bool enabled = true;
+        };
+
         struct FGatewayConfig {
             uint16_t rest_port = 9090;   // REST: настроечные ручки
             uint16_t grpc_port = 50051;  // gRPC: ingress кадров
             FWsConfig ws;
             FCanConfig can;
+            FModbusConfig modbus;
+            // Бэкенд мастера: состояние техзрения для регистра 0x1007
+            std::string backend_url = "http://127.0.0.1:8000";
             int heartbeat_sec = 5;
             // Файл с сохранёнными настройками. Пусто — сохранение выключено. Задаётся
             // флагом --state-file; в docker кладётся на том, чтобы пережить
@@ -229,6 +247,58 @@ namespace varan {
                 err = "payload_ttl_ms must be >= tx_period_ms";
                 return false;
             }
+
+            c = t;
+            return true;
+        }
+
+        inline boost::json::object to_json(const FModbusConfig& c) {
+            boost::json::object o;
+            o["device"] = c.device;
+            o["baud"] = c.baud;
+            o["parity"] = c.parity;
+            o["data_bits"] = c.data_bits;
+            o["stop_bits"] = c.stop_bits;
+            o["slave"] = c.slave;
+            o["device_id"] = c.device_id;
+            o["version"] = c.version;
+            o["enabled"] = c.enabled;
+            return o;
+        }
+
+        inline bool apply_json(FModbusConfig& c, const boost::json::object& o, std::string& err) {
+            FModbusConfig t = c;
+            try {
+                if (auto* v = o.if_contains("device"))    t.device = boost::json::value_to<std::string>(*v);
+                if (auto* v = o.if_contains("baud"))      t.baud = v->to_number<int>();
+                if (auto* v = o.if_contains("parity"))    t.parity = boost::json::value_to<std::string>(*v);
+                if (auto* v = o.if_contains("data_bits")) t.data_bits = v->to_number<int>();
+                if (auto* v = o.if_contains("stop_bits")) t.stop_bits = v->to_number<int>();
+                if (auto* v = o.if_contains("slave"))     t.slave = v->to_number<int>();
+                if (auto* v = o.if_contains("device_id")) t.device_id = v->to_number<int>();
+                if (auto* v = o.if_contains("version"))   t.version = v->to_number<int>();
+                if (auto* v = o.if_contains("enabled"))   t.enabled = v->as_bool();
+            }
+            catch (const std::exception& e) {
+                err = e.what();
+                return false;
+            }
+
+            static constexpr int BAUDS[] = { 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600 };
+            if (t.device.empty()) { err = "device is required"; return false; }
+            if (std::find(std::begin(BAUDS), std::end(BAUDS), t.baud) == std::end(BAUDS)) {
+                err = "baud must be one of 1200..921600 standard rates";
+                return false;
+            }
+            if (t.parity != "none" && t.parity != "even" && t.parity != "odd") {
+                err = "parity must be 'none', 'even' or 'odd'";
+                return false;
+            }
+            if (t.data_bits != 7 && t.data_bits != 8) { err = "data_bits must be 7 or 8"; return false; }
+            if (t.stop_bits != 1 && t.stop_bits != 2) { err = "stop_bits must be 1 or 2"; return false; }
+            if (t.slave < 1 || t.slave > 247) { err = "slave must be 1..247"; return false; }
+            if (t.device_id < 0 || t.device_id > 0xFFFF) { err = "device_id must be 0..65535"; return false; }
+            if (t.version < 0 || t.version > 0xFFFF) { err = "version must be 0..65535"; return false; }
 
             c = t;
             return true;

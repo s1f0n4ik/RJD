@@ -39,6 +39,7 @@ function coord(v: number, pos: string, neg: string): string {
 
 const SOURCE_NOTE: Record<string, string> = {
   can: 'шина CAN',
+  modbus: 'АС КРСПС по Modbus',
   server: 'часы сервиса, шина молчит',
   none: 'нет данных, шина молчит',
 };
@@ -80,8 +81,15 @@ const TimeGpsPanel: React.FC<Props> = ({ time, offsetMs, synced, onTimeUpdate })
 
   const gps = time?.gps;
   const fromCan = time?.source.time === 'can';
-  const syncTone = !synced ? 'warn' : fromCan ? 'ok' : '';
-  const syncLabel = !synced ? 'ожидание шлюза' : fromCan ? 'синхронизировано по шине CAN' : 'часы шлюза';
+  const fromModbus = time?.source.time === 'modbus';
+  const syncTone = !synced ? 'warn' : fromCan || fromModbus ? 'ok' : '';
+  const syncLabel = !synced
+    ? 'ожидание шлюза'
+    : fromCan
+    ? 'синхронизировано по шине CAN'
+    : fromModbus
+    ? 'синхронизировано по АС КРСПС'
+    : 'часы шлюза';
 
   return (
     <>
@@ -124,7 +132,7 @@ const TimeGpsPanel: React.FC<Props> = ({ time, offsetMs, synced, onTimeUpdate })
             <div className="kvs">
               <div className="kv"><span className="k">Широта</span><span className="v">{gps ? coord(gps.lat, 'N', 'S') : '—'}</span></div>
               <div className="kv"><span className="k">Долгота</span><span className="v">{gps ? coord(gps.lon, 'E', 'W') : '—'}</span></div>
-              <div className="kv"><span className="k">Скорость</span><span className="v">{gps ? `${gps.speed.toFixed(2)} м/с` : '—'}</span></div>
+              <div className="kv"><span className="k">Скорость</span><span className="v">{gps && time?.source.gps !== 'modbus' ? `${gps.speed.toFixed(2)} м/с` : '—'}</span></div>
               <div className="kv">
                 <span className="k">Данные</span>
                 {!gps ? (

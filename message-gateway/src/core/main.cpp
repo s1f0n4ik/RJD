@@ -44,6 +44,9 @@ int main(int argc, char** argv) {
     config.can.rx_time.addr = peer;
     config.can.enabled = arg(argc, argv, "--can-enabled", "1") != "0";
 
+    // Бэкенд мастера: состояние техзрения для регистра состояния Modbus
+    config.backend_url = arg(argc, argv, "--backend-url", config.backend_url);
+
     // Файл с сохранёнными настройками. Пусто — сохранение выключено (совместимо
     // с запуском без тома). В docker передаётся путь на смонтированном томе.
     config.state_file = arg(argc, argv, "--state-file", "");

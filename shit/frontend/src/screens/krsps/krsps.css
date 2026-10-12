@@ -237,6 +237,101 @@
 .cb-empty b{font-size:15px;font-weight:600;color:var(--fg-2)}
 .cb-empty span{max-width:60ch}
 
+/* Modbus RTU: тона счётчиков записей */
+.kpi.is-warn{border-color:rgba(240,189,87,.4)}
+.kpi.is-warn b{color:var(--warn)}
+.kpi.is-err{border-color:rgba(255,107,128,.4)}
+.kpi.is-err b{color:var(--err)}
+.kpi.is-none b{color:var(--fg-3)}
+
+/* Modbus RTU: сводка плитками */
+.mb-tiles{flex:1 1 100%;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.mb-tile{display:flex;flex-direction:column;gap:5px;padding:12px 15px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel);box-shadow:var(--shadow);min-width:0}
+.mb-tile .c{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--fg-3);white-space:nowrap}
+.mb-tile .c .a{margin-left:auto;font-family:var(--mono);font-size:10px}
+.mb-tile b{font-size:16px;font-weight:600;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+.mb-tile .s{font-family:var(--mono);font-size:11px;color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mb-tile .s .seps{flex-wrap:nowrap}
+.mb-tile.is-ok b{color:var(--ok)}
+.mb-tile.is-warn b{color:var(--warn)}
+.mb-tile.is-err b{color:var(--err)}
+.mb-tile.is-big b{font-family:var(--mono);font-size:22px;line-height:1.05}
+
+/* Modbus RTU: подключение и регистры свёрнуты под плитками */
+.mb-fold{flex:1 1 100%}
+.mb-fold summary .seps{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--fg-2)}
+.mb-fold .msg-b{gap:16px}
+.mb-retry{margin-left:auto;font-family:var(--mono);font-size:11px;opacity:.85}
+.mb-regs{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:4px}
+.mb-reg{display:flex;flex-direction:column;gap:3px;padding:9px 10px;border:1px solid var(--line);border-radius:6px;background:var(--input);min-width:0}
+.mb-reg .a{font-family:var(--mono);font-size:9.5px;color:var(--fg-3)}
+.mb-reg .v{font-family:var(--mono);font-size:17px;font-weight:700;color:var(--fg-2);font-variant-numeric:tabular-nums;line-height:1.15}
+.mb-reg .c{font-size:10.5px;color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mb-reg.is-live .v{color:var(--acc)}
+.mb-reg.is-ok{border-color:rgba(87,214,154,.38);background:rgba(87,214,154,.1)}
+.mb-reg.is-ok .v{color:var(--ok)}
+.mb-reg.is-err{border-color:rgba(255,107,128,.4);background:rgba(255,107,128,.09)}
+.mb-reg.is-err .v{color:var(--err)}
+
+/* Modbus RTU · пакет 28163: тона полей — служебные, номер, время, место, обнаружение, стоп-кадр */
+.mb-t{--tone:148,161,171}
+.mb-t.t-no{--tone:91,157,255}
+.mb-t.t-time{--tone:155,141,242}
+.mb-t.t-geo{--tone:99,196,236}
+.mb-t.t-det{--tone:87,214,154}
+.mb-t.t-frame{--tone:238,155,88}
+.mb-pkt{display:flex;flex-direction:column;gap:5px}
+.mb-ruler,.mb-row{display:grid;grid-template-columns:repeat(16,minmax(0,1fr));gap:4px}
+.mb-ruler span{font-family:var(--mono);font-size:9.5px;color:var(--fg-3);text-align:center;font-variant-numeric:tabular-nums}
+.mb-row+.mb-ruler{margin-top:6px}
+.mb-f{display:flex;flex-direction:column;gap:3px;min-width:0;padding:8px 8px 7px;border:1px solid rgba(var(--tone),.38);border-radius:6px;background:rgba(var(--tone),.11)}
+.mb-f .c{font-size:10px;color:rgb(var(--tone));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mb-f .v{font-size:13px;font-weight:600;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+.mb-f .v small{font-weight:500;color:var(--fg-2);font-size:11px}
+.mb-f .h{font-family:var(--mono);font-size:10px;color:rgb(var(--tone));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mb-f.off{--tone:136,140,151;background:transparent;border-style:dashed;border-color:var(--line-hi)}
+.mb-f.off .c,.mb-f.off .h,.mb-f.off .v{color:var(--fg-3)}
+.mb-pkt-empty{height:132px;display:flex;align-items:center;justify-content:center;gap:9px;border:1px dashed var(--line-hi);border-radius:var(--r);color:var(--fg-3);font-size:13px}
+.mb-pkt-empty b{color:var(--fg-2);font-weight:600}
+
+/* Modbus RTU: последние записи */
+.mb-recs{display:flex;flex-direction:column}
+.mb-rec{display:grid;grid-template-columns:var(--cols);align-items:center;column-gap:12px;min-height:44px;padding:0 10px;border-bottom:1px solid var(--line);font-size:12.5px;color:var(--fg-2)}
+.mb-rec:last-child{border-bottom:none}
+.mb-rec.is-head{min-height:30px;font-size:10.5px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.05em}
+.mb-rec .no{font-family:var(--mono);font-size:12px;color:var(--fg);font-variant-numeric:tabular-nums}
+.mb-rec .no small{display:block;font-size:9.5px;color:var(--acc);letter-spacing:.04em;margin-top:2px}
+.mb-rec .tm{font-family:var(--mono);font-size:11.5px;color:var(--fg-2);font-variant-numeric:tabular-nums;white-space:nowrap}
+.mb-rec .tm small{display:block;font-size:10px;color:var(--fg-3)}
+.mb-rec .tm.is-board{color:var(--warn)}
+.mb-rec .cd{display:flex;align-items:baseline;gap:7px;min-width:0}
+.mb-rec .cd i{font-style:normal;font-family:var(--mono);font-size:11px;color:var(--fg-3);flex:0 0 auto}
+.mb-rec .cd span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--fg)}
+.mb-rec .ct{font-family:var(--mono);font-size:12px;text-align:right;color:var(--fg)}
+.mb-rec .fr{font-family:var(--mono);font-size:11.5px;color:var(--acc);text-align:right}
+.mb-rec .r{text-align:right}
+.mb-rec.is-win{background:rgba(var(--acc-rgb),.06);box-shadow:inset 3px 0 0 var(--acc)}
+.mb-rec.is-read>*:not(.st){opacity:.55}
+.mb-rec .tag{font-size:11px;padding:2px 8px;white-space:nowrap}
+.mb-more{display:flex;align-items:center;gap:8px;min-height:34px;padding:0 10px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:11px;color:var(--fg-3)}
+
+/* Modbus RTU: счётчики и лента обмена */
+.mb-cnts{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-bottom:10px}
+.mb-cnt{padding:8px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel-2);min-width:0}
+.mb-cnt span{display:block;font-size:10.5px;font-weight:600;color:var(--fg-3);white-space:nowrap}
+.mb-cnt b{display:block;margin-top:2px;font-family:var(--mono);font-size:16px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+.mb-cnt b small{font-size:11px;font-weight:600;color:var(--fg-3);margin-left:6px}
+.mb-cnt.is-warn b{color:var(--warn)}
+.mb-feed{max-height:236px}
+.mb-feed>div{display:flex;align-items:center;gap:9px}
+.mb-fc{font-family:var(--mono);font-size:10px;font-weight:700;padding:1px 6px;border-radius:5px;flex:0 0 auto}
+.mb-fc.rd{background:rgba(99,196,236,.16);color:var(--info)}
+.mb-fc.wr{background:rgba(var(--acc-rgb),.16);color:var(--acc)}
+.mb-fc.ex{background:rgba(255,107,128,.16);color:var(--err)}
+.mb-feed .rg{color:var(--fg);min-width:78px}
+.mb-feed .k{color:var(--fg-2);min-width:120px}
+.mb-feed .n{overflow:hidden;text-overflow:ellipsis}
+
 /* Время и GPS */
 .mod-rows .card.time .card-b,.mod-rows .card.gps .card-b{padding:22px 24px}
 .clock-wrap{display:flex;flex-direction:column;gap:12px}

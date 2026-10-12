@@ -43,6 +43,21 @@ namespace varan {
                     det.detection_id = d.detection_id();
                     msg.dets.push_back(std::move(det));
                 }
+
+                if (req.has_record()) {
+                    const auto& r = req.record();
+                    FRecord rec;
+                    rec.code = r.code();
+                    rec.frame_id = r.frame_id();
+                    rec.camera_mask = r.camera_mask();
+                    rec.zone = r.zone();
+                    rec.count = r.count();
+                    rec.ts = r.ts();
+                    rec.gps_valid = r.has_gps() && r.gps().valid();
+                    rec.lat = r.gps().lat();
+                    rec.lon = r.gps().lon();
+                    msg.record = rec;
+                }
                 return msg;
             }
 

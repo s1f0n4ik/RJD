@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { Select, type SelectOption } from '../../../app/Select';
 import type { GwMessageRecord, GwModule } from '../types';
 import { formatBytes, formatClock } from '../utils/format';
 import { humanizeError } from '../utils/errors';
@@ -10,28 +11,45 @@ export type PillState = 'ok' | 'wait' | 'err' | 'off';
 // Состояние подключения по флагам соединения: зелёный — связь есть, жёлтый —
 // идёт попытка, красный — попытка сорвалась и канал переподключается, серый —
 // модуль выключен.
-export function connState(m: GwModule): PillState {
+export function connState(m: Pick<GwModule, 'connection'>): PillState {
   if (m.connection.connected) return 'ok';
   if (!m.connection.enabled) return 'off';
   if (m.connection.error) return 'err';
   return 'wait';
 }
 
-const PILL_LABEL: Record<PillState, string> = {
+export const PILL_LABEL: Record<PillState, string> = {
   ok: 'Соединено',
   wait: 'Подключение',
   err: 'Нет связи',
   off: 'Выключено',
 };
 
-const PILL_TONE: Record<PillState, string> = { ok: 'ok', wait: 'warn', err: 'err', off: '' };
+export const PILL_TONE: Record<PillState, string> = { ok: 'ok', wait: 'warn', err: 'err', off: '' };
+
+// Сохранённое значение остаётся в списке, даже если сейчас устройство не найдено
+export const DeviceSelect: React.FC<{
+  value: string;
+  options: SelectOption[];
+  emptyText: string;
+  onChange: (v: string) => void;
+}> = ({ value, options, emptyText, onChange }) => {
+  const inList = options.some((o) => o.value === value);
+  const all = value && !inList ? [{ value, label: value, hint: 'сейчас не найден', muted: true }, ...options] : options;
+  return <Select value={value} options={all} placeholder={emptyText} emptyText={emptyText} onChange={onChange} />;
+};
+
+// Enter завершает ввод так же, как уход с поля
+export const blurOnEnter = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  if (e.key === 'Enter') e.currentTarget.blur();
+};
 
 // Пилюля состояния: точка мягко пульсирует, пока связи нет; ожидание красное, попытка жёлтая.
 // Сама попытка длится миллисекунды и в опрос раз в 2 с не попадает, поэтому жёлтый держится
 // 2 с после каждого прироста номера попытки.
 const FLASH_MS = 2200;
 
-export const Pill: React.FC<{ module: GwModule }> = ({ module }) => {
+export const Pill: React.FC<{ module: Pick<GwModule, 'connection'> }> = ({ module }) => {
   const c = module.connection;
   const state = connState(module);
   const [flash, setFlash] = useState(false);

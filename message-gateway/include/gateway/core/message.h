@@ -30,6 +30,19 @@ namespace varan {
             std::uint64_t detection_id = 0;   // ID обнаружения у мастера
         };
 
+        // Запись обнаружения для АС КРСПС по Modbus; поля считает мастер
+        struct FRecord {
+            int code = 0;
+            std::uint32_t frame_id = 0;       // ID стоп-кадра: номер обнаружения в журнале
+            int camera_mask = 0;              // бит 1 — младший
+            int zone = 0;
+            int count = 0;
+            std::int64_t ts = 0;              // unix мс в поясе шлюза, 0 — время приёма
+            bool gps_valid = false;
+            double lat = 0.0;
+            double lon = 0.0;
+        };
+
         // Семантическое сообщение кадра от media-center. Кодек превращает его в
         // wire-формат конкретной версии протокола. Ядро НЕ знает про раскладку байт.
         struct FFrameMessage {
@@ -48,6 +61,7 @@ namespace varan {
             std::string config_id;
             std::int64_t session = 0;         // время запуска мастера, unix мс
             ETrackEvent event = ETrackEvent::Unspecified;
+            std::optional<FRecord> record;    // запись для Modbus
         };
 
         // Точный снимок времени + GPS шлюза. Единый источник для REST (/time,

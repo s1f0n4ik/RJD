@@ -15,7 +15,7 @@ import type {
   GwTaxonomyDictItem,
 } from '../types';
 import { formatInt, formatClock } from '../utils/format';
-import { Kpi, Pill, RecordRow } from './ModuleBits';
+import { blurOnEnter, DeviceSelect, Kpi, Pill, RecordRow } from './ModuleBits';
 import CanMessageSpec, { SPECS } from './CanMessageSpec';
 import { humanizeError } from '../utils/errors';
 import { useCameraNames } from '../../neural/components/journal/useCameraNames';
@@ -35,22 +35,6 @@ interface Props {
   onDisconnect: () => void;
   onOpenTaxonomy: () => void;
 }
-
-// Сохранённое значение остаётся в списке, даже если сейчас устройство не найдено
-interface DeviceOption {
-  value: string;
-  label: string;
-}
-const DeviceSelect: React.FC<{
-  value: string;
-  options: DeviceOption[];
-  emptyText: string;
-  onChange: (v: string) => void;
-}> = ({ value, options, emptyText, onChange }) => {
-  const inList = options.some((o) => o.value === value);
-  const all = value && !inList ? [{ value, label: value, hint: 'сейчас не найден', muted: true }, ...options] : options;
-  return <Select value={value} options={all} placeholder={emptyText} emptyText={emptyText} onChange={onChange} />;
-};
 
 // Адреса и PGN принимаем и шестнадцатеричными, и десятичными
 function parseNum(raw: string): number | null {
@@ -403,11 +387,6 @@ const BusNowCard: React.FC<{
       </div>
     </div>
   );
-};
-
-// Enter завершает ввод так же, как уход с поля
-const blurOnEnter = (e: React.KeyboardEvent<HTMLInputElement>) => {
-  if (e.key === 'Enter') e.currentTarget.blur();
 };
 
 // ── Одно сообщение: свёрнутая строка + заголовок J1939 + схема кадра ──

@@ -42,6 +42,11 @@ export interface GwConnection {
   iface?: string;
   device?: string;
   bitrate?: number;
+  // Modbus: параметры serial-порта
+  baud?: number;
+  parity?: 'none' | 'even' | 'odd';
+  data_bits?: number;
+  stop_bits?: number;
   error?: string;
   // WebSocket: идёт ли переподключение после сбоя. Со связью error пуст, статус
   // зелёный; при сбое error несёт причину, статус красный.
@@ -186,6 +191,108 @@ export interface GwModule {
   rx_other?: number;
 }
 
+// Поле записи от кодека пакета: регистры reg..reg+count-1, kind задаёт тон на ленте
+export interface GwPacketField {
+  label: string;
+  reg: number;
+  count: number;
+  kind: 'service' | 'number' | 'time' | 'geo' | 'detection' | 'frame' | 'reserved';
+  value: string;
+  note?: string;
+  text?: string;
+  brief?: boolean;
+}
+
+// Запись очереди для АС КРСПС; ts — unix ms UTC
+export interface GwModbusRecord {
+  number: number;
+  packet: number;
+  ts: number;
+  regs: number[];
+  fields: GwPacketField[];
+}
+
+export interface GwModbusRecent extends GwModbusRecord {
+  status: 'hidden' | 'queued' | 'read' | 'dropped';
+}
+
+// Регистр состояния 0x1007 и дальше
+export interface GwStateRegister {
+  addr: number;
+  value: number;
+  label: string;
+  ok: boolean;
+  code: string;
+  reason: string[];
+  error: string;
+}
+
+// Обмен с ведущим: запрос и наш ответ; ts — unix ms UTC
+export interface GwModbusExchange {
+  seq: number;
+  ts: number;
+  address: number;
+  function: number;
+  reg: number;
+  count: number;
+  exception: number;
+  kind: 'info' | 'state' | 'records' | 'write' | 'time' | 'mark' | 'unsupported' | '';
+  rx: string;
+  tx: string;
+  detail: {
+    count?: number;
+    state?: number;
+    records?: number[];
+    first?: number;
+    last?: number;
+    ok?: boolean;
+    removed?: number;
+    head?: number;
+    time_ok?: boolean;
+    unix_s?: number;
+    gps_ok?: boolean;
+    lat?: number;
+    lon?: number;
+    command?: number;
+    error?: string;
+  };
+}
+
+// Модуль Modbus RTU Искры; age_ms = -1 — событий ещё не было
+export interface GwModbusModule extends Omit<GwModule, 'log'> {
+  slave: { address: number; device_id: number; version: number };
+  master: { online: boolean; age_ms: number };
+  // Значения 0x1000–0x1006
+  block: number[];
+  state: { registers: GwStateRegister[] };
+  time: { synced: boolean; offset_ms: number; unix_s: number; age_ms: number; updates: number; invalid: number };
+  gps: { valid: boolean; lat: number; lon: number; age_ms: number; invalid: number };
+  queue: {
+    total: number;
+    visible: number;
+    hidden: number;
+    window: number;
+    dropped: number;
+    next_number: number;
+    capacity: number;
+    recent: GwModbusRecent[];
+    head: GwModbusRecord | null;
+    last_mark: { first: number; last: number; ok: boolean; removed: number; head: number; age_ms: number } | null;
+  };
+  counters: {
+    requests: number;
+    broadcasts: number;
+    exceptions: number;
+    crc_errors: number;
+    garbage_bytes: number;
+    foreign: number;
+    foreign_last: number;
+    marks_ok: number;
+    marks_rejected: number;
+  };
+  log: GwModbusExchange[];
+}
+
 // Полный снимок активной конфигурации со всеми её модулями (/status, /config).
 export interface GwStatus {
   id: string;
@@ -248,6 +355,19 @@ export interface GwCanConfigPatch {
   tx_detections?: GwCanMessagePatch;
   rx_gps?: GwCanMessagePatch;
   rx_time?: GwCanMessagePatch;
+}
+
+// Частичное обновление настроек Modbus-модуля активной конфигурации.
+export interface GwModbusConfigPatch {
+  device?: string;
+  baud?: number;
+  parity?: 'none' | 'even' | 'odd';
+  data_bits?: number;
+  stop_bits?: number;
+  slave?: number;
+  device_id?: number;
+  version?: number;
+  enabled?: boolean;
 }
 
 // ---------------------------------------------------------------- таблица
