@@ -1,99 +1,62 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '../../app/Icons';
 import { Modal } from '../../app/Modal';
-import { configurationsApi, type CfItem, type CfMaster, type CfState } from './api';
+import { listAllConfigurations, neuralApi } from '../../features/neural/api/client';
+import { getDevices } from '../../services/devices';
+import { configurationsApi, type CfItem, type CfLink, type CfRules, type CfState, type RulesSettings } from './api';
+import {
+    CanCard, ClassPicker, CodesCard, FeedTable, MasterEnvCard, ModbusCard, MODULE_SHORT, RolesCard, StitchCard, WebSocketCard,
+    countDiff, type CameraRef, type ClassCatalog,
+} from './RulesPanels';
 import './configurations.css';
 
 const POLL_MS = 3000;
+const LINK_POLL_MS = 2000;
+const EMPTY_CATALOG: ClassCatalog = { superclasses: [], classes: [] };
 
 interface ToastState {
     text: string;
     tone: 'ok' | 'err';
 }
 
-// Узел фильтра мастера: что он делает для выбранной конфигурации
-function MasterNode({ item, master }: { item: CfItem; master: CfMaster | null }) {
-    if (!master) {
-        return (
-            <div className="cf-node is-warn">
-                <span className="eyebrow">Фильтр обнаружений</span>
-                <b>мастер не отвечает</b>
-            </div>
-        );
-    }
-    if (item.active && master.active !== item.id) {
-        return (
-            <div className="cf-node is-warn">
-                <span className="eyebrow">Фильтр обнаружений</span>
-                <b>переключается</b>
-                <span className="seps"><span>мастер видит {master.active ?? '—'}</span></span>
-            </div>
-        );
-    }
-    if (item.active && master.rules !== item.id) {
-        return (
-            <div className="cf-node is-warn">
-                <span className="eyebrow">Фильтр обнаружений</span>
-                <b>{master.title} вместо {item.id}</b>
-                <span className="seps"><span>открыто {master.open}</span></span>
-            </div>
-        );
-    }
-    if (item.active) {
-        return (
-            <div className="cf-node">
-                <span className="eyebrow">Фильтр обнаружений</span>
-                <b>{master.title}</b>
-                <p>{master.description}</p>
-                <span className="seps"><span>открыто {master.open}</span><span>устройств {master.devices}</span></span>
-            </div>
-        );
-    }
-    const rule = master.available.find(r => r.id === item.id);
-    if (rule) {
-        return (
-            <div className="cf-node">
-                <span className="eyebrow">Фильтр обнаружений</span>
-                <b>{rule.title}</b>
-                <p>{rule.description}</p>
-            </div>
-        );
-    }
-    return (
-        <div className="cf-node is-warn">
-            <span className="eyebrow">Фильтр обнаружений</span>
-            <b>нет правил</b>
-            <span className="seps"><span>мастер работает по {master.available[0]?.title ?? master.title}</span></span>
-        </div>
-    );
+type PickModule = 'websocket' | 'can';
+
+// Суперклассы и классы всех нейросетей всех плат, по имени
+async function loadCatalog(): Promise<ClassCatalog> {
+    const configs = await listAllConfigurations();
+    const metas = await Promise.all(configs.map(c =>
+        Promise.all([neuralApi.getClasses(c.id, c.device), neuralApi.getSuperclasses(c.id, c.device)]).catch(() => null)));
+    const sc = new Map<string, { key: string; name: string; count: number }>();
+    const cls = new Map<string, { name: string; superclass: string }>();
+    metas.forEach(m => {
+        if (!m) return;
+        (m[1].superclasses ?? []).forEach(s => { if (!sc.has(s.key)) sc.set(s.key, { key: s.key, name: s.name, count: 0 }); });
+        (m[0].classes ?? []).forEach(c => { if (!cls.has(c.name)) cls.set(c.name, { name: c.name, superclass: c.superclass ?? '' }); });
+    });
+    cls.forEach(c => { const s = sc.get(c.superclass); if (s) s.count += 1; });
+    return { superclasses: [...sc.values()], classes: [...cls.values()] };
 }
 
-function Flow({ item, master }: { item: CfItem; master: CfMaster | null }) {
-    const live = item.active ? ' is-live' : '';
+// Прошедшее время: «42 с», «5 мин», «2 ч 14 мин»
+function since(ms: number | null): string {
+    if (!ms) return '—';
+    const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+    if (s < 60) return `${s} с`;
+    const m = Math.floor(s / 60);
+    if (m < 60) return `${m} мин`;
+    return `${Math.floor(m / 60)} ч ${m % 60} мин`;
+}
+
+const clone = (s: RulesSettings): RulesSettings => JSON.parse(JSON.stringify(s));
+const savedLabel = (ms: number | null) =>
+    ms ? `сохранено ${new Date(ms).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : 'умолчания';
+
+function Metrics({ rows }: { rows: [string, string, string?][] }) {
     return (
-        <div className="cf-flow">
-            <MasterNode item={item} master={master} />
-            <div className={`cf-wire${live}`} />
-            <div className="cf-node cf-gw">
-                <span className="eyebrow">АС КРСПС</span>
-                <b>Шлюз</b>
-            </div>
-            <div className={`cf-wire${live}`} />
-            <div className="cf-outs">
-                {item.modules.map(m => item.active ? (
-                    <div key={m.id} className="cf-out" data-tip={m.connected ? undefined : m.error || undefined}>
-                        <i className={`dot ${m.connected ? 'ok' : 'err'}`} />
-                        <b>{m.title}</b>
-                        <span>{m.url}</span>
-                    </div>
-                ) : (
-                    <div key={m.id} className="cf-out is-off">
-                        <i className="dot" />
-                        <b>{m.title}</b>
-                        <span>не активна</span>
-                    </div>
-                ))}
-            </div>
+        <div className="cr-met">
+            {rows.map(([k, v, tone], i) => (
+                <Fragment key={i}><span>{k}</span><span className={tone}>{v}</span></Fragment>
+            ))}
         </div>
     );
 }
@@ -101,7 +64,15 @@ function Flow({ item, master }: { item: CfItem; master: CfMaster | null }) {
 export default function ConfigurationsScreen() {
     const [state, setState] = useState<CfState | null>(null);
     const [failed, setFailed] = useState(false);
+    const [link, setLink] = useState<CfLink | null>(null);
     const [sel, setSel] = useState('');
+    const [node, setNode] = useState('master');
+    const [rules, setRules] = useState<CfRules | null>(null);
+    const [rulesError, setRulesError] = useState('');
+    const [draft, setDraft] = useState<RulesSettings | null>(null);
+    const [catalog, setCatalog] = useState<ClassCatalog>(EMPTY_CATALOG);
+    const [cameras, setCameras] = useState<CameraRef[]>([]);
+    const [pick, setPick] = useState<PickModule | null>(null);
     const [pending, setPending] = useState<CfItem | null>(null);
     const [busy, setBusy] = useState(false);
     const [toast, setToast] = useState<ToastState | null>(null);
@@ -143,6 +114,81 @@ export default function ConfigurationsScreen() {
         };
     }, []);
 
+    // Связь и лента — пока экран открыт
+    useEffect(() => {
+        let stop = false;
+        const tick = async () => {
+            try {
+                const l = await configurationsApi.link();
+                if (!stop && alive.current) setLink(l);
+            } catch {
+                if (!stop && alive.current) setLink(null);
+            }
+        };
+        tick();
+        const t = setInterval(tick, LINK_POLL_MS);
+        return () => {
+            stop = true;
+            clearInterval(t);
+        };
+    }, []);
+
+    useEffect(() => {
+        loadCatalog().then(c => { if (alive.current) setCatalog(c); }).catch(() => { /* выбор классов покажет пустые списки */ });
+        neuralApi.listCameras()
+            .then(r => {
+                if (!alive.current) return;
+                setCameras(Object.entries(r.cameras ?? {}).map(([id, c]) => ({ id, name: c.display_name || id, device: c.device_name ?? '' })));
+            })
+            .catch(() => { /* роли покажут только сохранённые камеры */ });
+    }, []);
+
+    const items = state?.items ?? [];
+    const active = items.find(i => i.active) ?? null;
+    const item = items.find(i => i.id === sel) ?? active ?? items[0] ?? null;
+    const itemId = item?.id ?? '';
+
+    // Настройки выбранной конфигурации; несохранённая правка при смене конфигурации теряется
+    useEffect(() => {
+        if (!itemId) return;
+        let stop = false;
+        setNode('master');
+        setRules(null);
+        setDraft(null);
+        setRulesError('');
+        configurationsApi.getRules(itemId)
+            .then(r => {
+                if (stop || !alive.current) return;
+                setRules(r);
+                setDraft(clone(r.settings));
+            })
+            .catch(e => {
+                if (!stop && alive.current) setRulesError(e instanceof Error && e.message.startsWith('404') ? 'Нет правил мастера' : 'Мастер обнаружений не отвечает');
+            });
+        return () => {
+            stop = true;
+        };
+    }, [itemId]);
+
+    const dirty = rules && draft ? countDiff(draft, rules.settings) : 0;
+
+    const save = async () => {
+        if (!draft || !item) return;
+        setBusy(true);
+        try {
+            const r = await configurationsApi.saveRules(item.id, draft);
+            if (alive.current) {
+                setRules(r);
+                setDraft(clone(r.settings));
+                showToast('Настройки сохранены');
+            }
+        } catch (e) {
+            if (alive.current) showToast(e instanceof Error ? e.message : 'Ошибка запроса', 'err');
+        } finally {
+            if (alive.current) setBusy(false);
+        }
+    };
+
     const confirmSelect = async () => {
         if (!pending) return;
         const id = pending.id;
@@ -161,6 +207,9 @@ export default function ConfigurationsScreen() {
         }
     };
 
+    const deviceNames = useMemo(() => new Map(getDevices().map(d => [d.id, d.name])), [link]);
+    const cameraName = useCallback((id: string) => cameras.find(c => c.id === id)?.name ?? id, [cameras]);
+
     if (!state) {
         return (
             <section className="screen mod-screen cf-screen">
@@ -177,14 +226,128 @@ export default function ConfigurationsScreen() {
         );
     }
 
-    const { items, master } = state;
-    const active = items.find(i => i.active) ?? null;
-    const item = items.find(i => i.id === sel) ?? active ?? items[0] ?? null;
+    const master = state.master;
+    const live = !!item?.active && !!link;
+    const off = !item?.active;
+    const gwUp = !!link?.gateway.connected;
+    const devs = link?.devices ?? [];
+    const online = devs.filter(d => d.connected);
+
+    const devicesNode = (
+        <div className={`cr-node${off ? ' is-off' : ''}`}>
+            <div className="cr-node-t">
+                <i className={`dot ${off || !link ? '' : online.length ? 'ok' : 'err'}`} />
+                <b>Устройства</b>
+                <span className="eyebrow">{online.length} из {devs.length}</span>
+            </div>
+            {off ? <Metrics rows={[['не активна', '']]} /> : devs.length === 0 ? <Metrics rows={[['нет пакетов', '']]} /> : (
+                <Metrics rows={[
+                    ...devs.slice(0, 3).map(d => [deviceNames.get(d.id) ?? d.id.slice(0, 8), d.connected ? `${d.packets_per_s} пак/с` : 'нет связи', d.connected ? undefined : 'is-err'] as [string, string, string?]),
+                    ['задержка', `${Math.max(0, ...online.map(d => d.delay_ms))} мс`],
+                ]} />
+            )}
+        </div>
+    );
+
+    const masterNode = (
+        <button type="button" className={`cr-node${off ? ' is-off' : ''}${!off && !link ? ' is-err' : ''}${node === 'master' ? ' is-sel' : ''}`} onClick={() => setNode('master')}>
+            <div className="cr-node-t">
+                <i className={`dot ${off ? '' : link ? 'ok' : 'err'}`} />
+                <b>Мастер</b>
+                <span className="eyebrow">{rules?.title ?? item?.title}</span>
+            </div>
+            {off ? <Metrics rows={[['не активна', '']]} /> : !link ? <Metrics rows={[['не отвечает', '', 'is-err']]} /> : (
+                <Metrics rows={[
+                    ['треков', String(link.master.tracks)],
+                    ['открыто обнаружений', String(link.master.open)],
+                    ['за сессию', String(link.master.opened)],
+                ]} />
+            )}
+        </button>
+    );
+
+    const gatewayNode = (
+        <div className={`cr-node${off ? ' is-off' : ''}${live && !gwUp ? ' is-err' : ''}`}>
+            <div className="cr-node-t">
+                <i className={`dot ${off || !link ? '' : gwUp ? 'ok' : 'err'}`} />
+                <b>Шлюз</b>
+                <span className="eyebrow">gRPC</span>
+            </div>
+            {off || !link ? <Metrics rows={[[off ? 'не активна' : '—', '']]} /> : gwUp ? (
+                <Metrics rows={[
+                    ['очередь', `${link.gateway.queue} / ${link.gateway.queue_max}`],
+                    ['отказов', String(link.gateway.rejected)],
+                    ['на связи', since(link.gateway.connected_at)],
+                ]} />
+            ) : (
+                <Metrics rows={[
+                    ['нет связи', since(link.gateway.lost_at), 'is-err'],
+                    ['адрес', link.gateway.address],
+                ]} />
+            )}
+        </div>
+    );
+
+    const moduleNodes = (item?.modules ?? []).map(m => {
+        const c = link?.counters[m.id];
+        return (
+            <button
+                key={m.id}
+                type="button"
+                className={`cr-node${off ? ' is-off' : ''}${!off && m.connected === false ? ' is-err' : ''}${node === m.id ? ' is-sel' : ''}`}
+                onClick={() => setNode(m.id)}
+                data-tip={!off && !m.connected && m.error ? m.error : undefined}
+            >
+                <div className="cr-node-t">
+                    <i className={`dot ${off ? '' : m.connected ? 'ok' : 'err'}`} />
+                    <b>{MODULE_SHORT[m.id] ?? m.title}</b>
+                    <span className="eyebrow">{m.transport}</span>
+                </div>
+                {c ? (
+                    <Metrics rows={[
+                        ['отправлено', String(c.sent)],
+                        ['принято', String(c.accepted)],
+                        ['отброшено фильтром', String(c.filtered)],
+                    ]} />
+                ) : <Metrics rows={[[off ? 'не активна' : 'сообщений нет', '']]} />}
+            </button>
+        );
+    });
+
+    const moduleHead = (id: string) => {
+        const m = item?.modules.find(x => x.id === id);
+        return { id, dot: off || !m ? '' : m.connected ? 'ok' : 'err', detail: (!off && m?.url) || m?.transport || '' };
+    };
+
+    const patch = (p: Partial<RulesSettings>) => setDraft(d => (d ? { ...d, ...p } : d));
+
+    let left: React.ReactNode = null;
+    let right: React.ReactNode = null;
+    if (draft && rules) {
+        if (node === 'master') {
+            left = <><StitchCard value={draft.stitch} onChange={stitch => patch({ stitch })} /><MasterEnvCard env={rules.env} /></>;
+        } else if (node === 'websocket' && draft.websocket) {
+            left = <WebSocketCard head={moduleHead('websocket')} value={draft.websocket} onChange={websocket => patch({ websocket })} catalog={catalog} onPick={() => setPick('websocket')} />;
+        } else if (node === 'can' && draft.can) {
+            left = <CanCard head={moduleHead('can')} value={draft.can} onChange={can => patch({ can })} catalog={catalog} onPick={() => setPick('can')} />;
+        } else if (node === 'modbus' && draft.modbus) {
+            const modbus = draft.modbus;
+            left = (
+                <>
+                    <ModbusCard head={moduleHead('modbus')} value={modbus} onChange={v => patch({ modbus: v })} />
+                    <RolesCard roles={modbus.roles} cameras={cameras} onChange={roles => patch({ modbus: { ...modbus, roles } })} />
+                </>
+            );
+            right = <CodesCard codes={modbus.codes} catalog={catalog} onChange={codes => patch({ modbus: { ...modbus, codes } })} />;
+        } else {
+            left = <div className="cr-none">Нет правил для модуля</div>;
+        }
+    }
 
     return (
         <section className="screen mod-screen cf-screen">
             <div className="mod">
-                <div className="mod-body cf-body">
+                <div className="mod-body">
                     {!state.gateway ? (
                         <div className="empty">
                             <Icon name="gate" className="ico" />
@@ -193,20 +356,53 @@ export default function ConfigurationsScreen() {
                         </div>
                     ) : item ? (
                         <>
-                            <div className="cf-head">
-                                <span className={`dot${item.active ? ' acc' : ''}`} />
-                                <h3>{item.title}</h3>
-                                <span className="id">{item.id}</span>
-                                <span className={`tag${item.active ? ' is-ok' : ''}`}>{item.active ? 'Активна' : 'Доступна'}</span>
-                                {!item.active && (
-                                    <button className="btn btn--acc" disabled={busy} onClick={() => setPending(item)}>Сделать активной</button>
+                            <div className="cr-body">
+                                <div className="cf-head">
+                                    <span className={`dot${item.active ? ' acc' : ''}`} />
+                                    <h3>{item.title}</h3>
+                                    <span className="id">{item.id}</span>
+                                    <span className={`tag${item.active ? ' is-ok' : ''}`}>{item.active ? 'Активна' : 'Доступна'}</span>
+                                    {!item.active && (
+                                        <button className="btn btn--acc" disabled={busy} onClick={() => setPending(item)}>Сделать активной</button>
+                                    )}
+                                </div>
+                                <div className="cr-chain">
+                                    {devicesNode}
+                                    <div className={`cr-wire${live && online.length ? ' is-live' : ''}`} />
+                                    {masterNode}
+                                    <div className={`cr-wire${live ? (gwUp ? ' is-live' : ' is-down') : ''}`} />
+                                    {gatewayNode}
+                                    <div className={`cr-wire${live && gwUp ? ' is-live' : ''}`} />
+                                    <div className="cr-outs">{moduleNodes}</div>
+                                </div>
+                                {rulesError ? (
+                                    <div className="empty">
+                                        <Icon name="warn" className="ico" />
+                                        <b>{rulesError}</b>
+                                    </div>
+                                ) : !draft ? (
+                                    <div className="mod-loading"><span className="spin" /></div>
+                                ) : (
+                                    <div className="cr-split">
+                                        <div className="cr-col">{left}</div>
+                                        <div className="cr-col">
+                                            {right}
+                                            <FeedTable node={node} entries={item.active ? link?.feed ?? [] : []} cameraName={cameraName} />
+                                        </div>
+                                    </div>
                                 )}
                             </div>
-                            <p className="cf-desc">{item.description}</p>
-                            <div className="cf-sect">
-                                <span className="eyebrow">Состав</span>
-                                <Flow item={item} master={master} />
-                            </div>
+                            {rules && draft && (
+                                <div className="cr-foot">
+                                    <span className="seps">
+                                        {dirty > 0 && <span className="is-warn">изменено {dirty}</span>}
+                                        <span>{savedLabel(rules.saved_at)}</span>
+                                    </span>
+                                    <span className="spacer" />
+                                    <button className="btn" disabled={busy || !dirty} onClick={() => setDraft(clone(rules.settings))}>Сбросить</button>
+                                    <button className="btn btn--acc" disabled={busy || !dirty} onClick={save}>Сохранить</button>
+                                </div>
+                            )}
                         </>
                     ) : (
                         <div className="empty">
@@ -239,6 +435,20 @@ export default function ConfigurationsScreen() {
                     </div>
                 </aside>
             </div>
+
+            {pick && draft?.[pick] && (
+                <ClassPicker
+                    title={`Классы для ${MODULE_SHORT[pick]}`}
+                    value={draft[pick]!.classes}
+                    catalog={catalog}
+                    onClose={() => setPick(null)}
+                    onDone={classes => {
+                        const cur = draft[pick]!;
+                        patch({ [pick]: { ...cur, classes } } as Partial<RulesSettings>);
+                        setPick(null);
+                    }}
+                />
+            )}
 
             {pending && (
                 <Modal

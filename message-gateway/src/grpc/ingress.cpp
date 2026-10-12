@@ -27,6 +27,7 @@ namespace varan {
                 msg.config_id = req.config_id();
                 msg.session = req.session();
                 msg.event = static_cast<ETrackEvent>(req.event());
+                msg.modules.assign(req.modules().begin(), req.modules().end());
 
                 msg.dets.reserve(req.dets_size());
                 for (const auto& d : req.dets()) {
@@ -112,6 +113,7 @@ namespace varan {
                     rpc::FrameReply* reply) override
                 {
                     *reply = to_reply(m_sink.submit_frame(from_proto(*req)));
+                    reply->set_id(req->id());
                     return grpc::Status::OK;
                 }
 
@@ -122,6 +124,7 @@ namespace varan {
                     rpc::FrameRequest req;
                     while (stream->Read(&req)) {
                         auto reply = to_reply(m_sink.submit_frame(from_proto(req)));
+                        reply.set_id(req.id());
                         if (!stream->Write(reply)) {
                             break;
                         }

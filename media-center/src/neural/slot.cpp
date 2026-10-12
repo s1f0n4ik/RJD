@@ -454,8 +454,8 @@ namespace neural {
         return g;
     }
 
-    // Пакет мастеру: события треков камеры за такт, рамки в пикселях кадра камеры
-    detection::FPacket USlot::make_packet(const std::string& camera, const cv::Size& resolution,
+    // Пакет мастеру: все треки камеры за такт с их событием и удалённые в такте, рамки в пикселях кадра камеры
+    detection::FPacket USlot::make_packet(const std::string& camera, const cv::Size& resolution, const std::vector<FTrack>& tracks,
         const std::vector<FTrackEventRecord>& events, const gateway::FGatewayTimeGps& time_gps) const
     {
         detection::FPacket packet;
@@ -465,9 +465,34 @@ namespace neural {
         packet.time_gps = time_gps;
         packet.width = resolution.width;
         packet.height = resolution.height;
+
+        const auto record = [this](const FTrack& t, std::optional<ETrackEvent> event) {
+            return detection::FTrackRecord{ std::max<std::int64_t>(t.id, 0), event, t.state,
+                make_gateway_detection(t.class_id, t.confidence, t.detection) };
+        };
+        const auto same_box = [](const FDetection& a, const FDetection& b) {
+            return a.x1_coord == b.x1_coord && a.y1_coord == b.y1_coord && a.x2_coord == b.x2_coord && a.y2_coord == b.y2_coord;
+        };
+
+        packet.tracks.reserve(tracks.size() + events.size());
+        for (const auto& t : tracks) packet.tracks.push_back(record(t, std::nullopt));
+
         for (const auto& e : events) {
-            packet.tracks.push_back({ std::max<std::int64_t>(e.track.id, 0), e.event,
-                make_gateway_detection(e.track.class_id, e.track.confidence, e.track.detection) });
+            // Удалённого трека в списке уже нет — он идёт отдельной записью с последней рамкой
+            if (e.event == ETrackEvent::REMOVED) {
+                packet.tracks.push_back(record(e.track, e.event));
+                continue;
+            }
+            for (std::size_t i = 0; i < tracks.size(); ++i) {
+                auto& r = packet.tracks[i];
+                if (r.event) continue;
+                // Пробный трек без номера узнаётся по рамке
+                const bool match = e.track.id >= 0 ? tracks[i].id == e.track.id : tracks[i].id < 0 && same_box(tracks[i].detection, e.track.detection);
+                if (match) {
+                    r.event = e.event;
+                    break;
+                }
+            }
         }
         return packet;
     }
@@ -634,9 +659,10 @@ namespace neural {
             auto& tracker = m_trackers[camera];
             if (tracker) {
                 auto update_result = tracker->update(dets, size.width, size.height);
-                if (update_result.has_events()) {
-                    log_events(update_result.events);
+                if (update_result.has_events()) log_events(update_result.events);
 
+                // Такт уходит мастеру, пока у камеры есть треки или в нём удалён последний
+                if (!tracker->tracks().empty() || update_result.has_events()) {
                     // Синхронизированное время шлюза, иначе локальные часы
                     gateway::FGatewayTimeGps time_gps = m_time_provider ? m_time_provider() : gateway::FGatewayTimeGps{};
                     if (time_gps.unix_ms == 0) time_gps.unix_ms = now_ms();
@@ -646,7 +672,7 @@ namespace neural {
 
                     std::uint64_t image_id = 0;
                     if (m_master) {
-                        auto packet = make_packet(camera, size, update_result.events, time_gps);
+                        auto packet = make_packet(camera, size, tracker->tracks(), update_result.events, time_gps);
                         if (want_image) image_id = packet.image_id = m_master->reserve_image_id();
                         m_master->send_packet(std::move(packet));
                     }

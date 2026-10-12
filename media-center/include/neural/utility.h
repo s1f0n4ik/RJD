@@ -78,8 +78,6 @@ namespace neural {
 		std::optional<FStreamingDesc> streaming; // если есть стриминг, то он хранит в себе id и name
 		// События трека, на которые берётся снимок кадра камеры
 		std::vector<std::string> image_mask{ "confirmed" };
-		// События трека, на которые уходит пакет; снимок всегда идёт с пакетом
-		std::vector<std::string> packet_mask{ "confirmed", "updated", "removed" };
 	};
 
 	// Строки JSON-массива; прочие элементы пропускаются
@@ -90,17 +88,14 @@ namespace neural {
 		return out;
 	}
 
-	// Маски снимка и пакета слота; нет ключа — остаётся умолчание
+	// Маска снимка слота; нет ключа — остаётся умолчание
 	inline void read_event_masks(const boost::json::object& obj, FNeuralCoreConfig& desc) {
 		if (auto* v = obj.if_contains("image_mask"); v && v->is_array())
 			desc.image_mask = json_strings(v->as_array());
-		if (auto* v = obj.if_contains("packet_mask"); v && v->is_array())
-			desc.packet_mask = json_strings(v->as_array());
 	}
 
 	inline void write_event_masks(boost::json::object& obj, const FNeuralCoreConfig& desc) {
 		obj["image_mask"] = boost::json::value_from(desc.image_mask);
-		obj["packet_mask"] = boost::json::value_from(desc.packet_mask);
 	}
 
 }

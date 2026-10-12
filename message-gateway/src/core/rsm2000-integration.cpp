@@ -75,6 +75,8 @@ namespace varan {
             bool all_unsupported = true;
 
             for (const auto& m : m_modules) {
+                // Мастер адресует сообщение модулям; пустой список — всем
+                if (!msg.addressed_to(m->id())) continue;
                 const FSubmitResult r = m->handle_frame(msg);
 
                 if (r.status == ESubmitStatus::Accepted) {

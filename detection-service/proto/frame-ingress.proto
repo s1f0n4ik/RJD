@@ -65,6 +65,7 @@ message FrameRequest {
     int64 session = 11;       // время запуска мастера, unix мс
     TrackEvent event = 12;    // одно на сообщение; шлюз разбирает CONFIRMED и REMOVED, прочие пропускает
     Record record = 13;       // запись для Modbus; шлюз Искры пишет запись только из сообщений с ней
+    repeated string modules = 14; // id модулей-получателей; пусто — все модули активной конфигурации
 }
 
 message FrameReply {
@@ -73,6 +74,7 @@ message FrameReply {
     int32 ver = 3;
     string transport = 4;
     int64 wire_size = 5;
+    int64 id = 6;             // номер запроса, на который ответ
 }
 
 message GpsData {

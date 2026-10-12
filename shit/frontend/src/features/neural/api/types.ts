@@ -112,8 +112,6 @@ export interface ActiveDesc {
     streaming?: StreamingDesc;
     // События, на которые берётся снимок кадра камеры
     image_mask?: string[];
-    // События, на которые уходит пакет; снимок всегда идёт с пакетом
-    packet_mask?: string[];
 }
 
 export interface TensorInfo {

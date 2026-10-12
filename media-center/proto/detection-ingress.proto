@@ -8,7 +8,7 @@ service DetectionIngress {
     rpc Stream(stream DeviceMessage) returns (stream Ack);
 }
 
-// События трекера media-center
+// События трекера media-center; UNSPECIFIED — в этом такте у трека события не было
 enum TrackEvent {
     TRACK_EVENT_UNSPECIFIED = 0;
     TRACK_EVENT_CREATED = 1;
@@ -17,6 +17,14 @@ enum TrackEvent {
     TRACK_EVENT_LOST = 4;
     TRACK_EVENT_RECOVERED = 5;
     TRACK_EVENT_REMOVED = 6;
+}
+
+// Состояние трека в такте
+enum TrackState {
+    TRACK_STATE_UNSPECIFIED = 0;
+    TRACK_STATE_TENTATIVE = 1;  // ещё не подтверждён, номера нет
+    TRACK_STATE_CONFIRMED = 2;
+    TRACK_STATE_LOST = 3;       // рамка — последняя известная
 }
 
 message Gps {
@@ -37,9 +45,10 @@ message TrackRecord {
     string superclass = 5;      // пусто — у класса нет суперкласса
     float confidence = 6;       // 0..1
     repeated int32 box = 7;     // x, y, w, h в пикселях кадра камеры
+    TrackState state = 8;
 }
 
-// События треков одной камеры за один такт слота
+// Все треки одной камеры за такт слота и удалённые в нём; такт без треков не шлётся
 message Packet {
     uint64 id = 1;              // уникален в сессии устройства
     string device_id = 2;

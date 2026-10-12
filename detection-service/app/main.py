@@ -5,7 +5,8 @@ import urllib.request
 from contextlib import asynccontextmanager
 
 import grpc
-from fastapi import FastAPI
+from fastapi import Body, FastAPI, HTTPException
+from pydantic import ValidationError
 
 import detection_ingress_pb2_grpc as rpc
 from app.api import router as journal_router
@@ -110,6 +111,34 @@ app.include_router(journal_router)
 async def rules():
     """Конфигурация шлюза, которую видит мастер, и правила, по которым он работает; читает бэкенд."""
     return await run(master.rules_state)
+
+
+@app.get("/rules/{config_id}", tags=["Rules"])
+async def get_rules(config_id: str):
+    """Настройки фильтра и отправки конфигурации, умолчания и окружение мастера."""
+    state = await run(master.rules_settings, config_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail=f"No rules for configuration {config_id}")
+    return state
+
+
+@app.put("/rules/{config_id}", tags=["Rules"])
+async def put_rules(config_id: str, body: dict = Body(...)):
+    """Сохранить настройки конфигурации; действуют сразу и только на новые обнаружения."""
+    if await run(master.rules_settings, config_id) is None:
+        raise HTTPException(status_code=404, detail=f"No rules for configuration {config_id}")
+    try:
+        return await run(master.save_rules, config_id, body)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=e.errors(include_url=False, include_context=False))
+
+
+@app.get("/link", tags=["Rules"])
+async def link_state():
+    """Связь устройства → мастер → шлюз → модули, счётчики и лента отправленного."""
+    state = await run(master.link_state)
+    state["gateway"] = link.state()
+    return state
 
 
 @app.get("/health", tags=["Health"])

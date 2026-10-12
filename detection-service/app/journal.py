@@ -189,12 +189,6 @@ class Journal:
 
     # ── Запись ──
 
-    def packet_seen(self, device_id: str, session: int, packet_id: int) -> bool:
-        return self.conn.execute(
-            "SELECT 1 FROM events WHERE device_id = ? AND session = ? AND packet_id = ? LIMIT 1",
-            [device_id, session, packet_id],
-        ).fetchone() is not None
-
     def add_detection(self, packet, track, late: bool) -> int:
         gps = packet.gps
         cur = self.conn.execute(

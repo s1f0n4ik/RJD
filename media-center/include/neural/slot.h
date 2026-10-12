@@ -139,7 +139,7 @@ namespace neural {
             std::uint64_t image_id = 0;
         };
 
-        detection::FPacket make_packet(const std::string& camera, const cv::Size& resolution,
+        detection::FPacket make_packet(const std::string& camera, const cv::Size& resolution, const std::vector<FTrack>& tracks,
             const std::vector<FTrackEventRecord>& events, const gateway::FGatewayTimeGps& time_gps) const;
         // Постановка в очередь; при переполнении теряется картинка самой старой задачи
         void enqueue_frame(FFrameTask task);

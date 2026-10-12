@@ -5,8 +5,11 @@ app/routers/configurations.py
 мастер обнаружений следует за шлюзом и берёт правила той же конфигурации.
 
 Маршруты:
-  GET  /api/configurations         — конфигурации шлюза, состояние модулей активной, правила мастера
-  POST /api/configurations/select  — сделать конфигурацию активной: {"id": "rsm-2000"}
+  GET  /api/configurations              — конфигурации шлюза, состояние модулей активной, правила мастера
+  POST /api/configurations/select       — сделать конфигурацию активной: {"id": "rsm-2000"}
+  GET  /api/configurations/link         — связь устройства → мастер → шлюз → модули и лента отправленного
+  GET  /api/configurations/{id}/rules   — настройки фильтра и отправки конфигурации
+  PUT  /api/configurations/{id}/rules   — сохранить настройки; действуют сразу
 """
 
 from __future__ import annotations
@@ -16,7 +19,7 @@ import logging
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Body, HTTPException, status
 from pydantic import BaseModel
 
 from app.config import settings
@@ -87,3 +90,37 @@ async def select_configuration(req: SelectRequest) -> dict:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Gateway refused: {response.text[:200]}")
     logger.info(f"configuration {req.id} selected")
     return await list_configurations()
+
+
+async def _master(method: str, path: str, body: Optional[dict] = None) -> dict:
+    url = f"{settings.DETECTION_URL.rstrip('/')}{path}"
+    try:
+        async with httpx.AsyncClient(timeout=settings.GATEWAY_TIMEOUT) as client:
+            response = await client.request(method, url, json=body)
+    except httpx.HTTPError as e:
+        logger.warning(f"configurations: master {url} unavailable: {e}")
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Detection master is unavailable")
+    if response.is_error:
+        try:
+            detail = response.json().get("detail")
+        except ValueError:
+            detail = response.text[:200]
+        raise HTTPException(status_code=response.status_code, detail=detail)
+    return response.json()
+
+
+@router.get("/configurations/link")
+async def configuration_link() -> dict:
+    return await _master("GET", "/link")
+
+
+@router.get("/configurations/{config_id}/rules")
+async def get_configuration_rules(config_id: str) -> dict:
+    return await _master("GET", f"/rules/{config_id}")
+
+
+@router.put("/configurations/{config_id}/rules")
+async def put_configuration_rules(config_id: str, body: dict = Body(...)) -> dict:
+    result = await _master("PUT", f"/rules/{config_id}", body)
+    logger.info(f"configuration {config_id} rules saved")
+    return result

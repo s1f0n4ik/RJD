@@ -27,6 +27,15 @@ namespace detection {
             return rpc::TRACK_EVENT_UNSPECIFIED;
         }
 
+        rpc::TrackState to_proto(neural::ETrackState state) {
+            switch (state) {
+                case neural::ETrackState::TENTATIVE: return rpc::TRACK_STATE_TENTATIVE;
+                case neural::ETrackState::CONFIRMED: return rpc::TRACK_STATE_CONFIRMED;
+                case neural::ETrackState::LOST: return rpc::TRACK_STATE_LOST;
+            }
+            return rpc::TRACK_STATE_UNSPECIFIED;
+        }
+
         void fill_packet(rpc::Packet& out, std::uint64_t id, const FPacket& p, const FDeviceInfo& device, std::int64_t delay_ms) {
             out.set_id(id);
             out.set_delay_ms(delay_ms);
@@ -52,7 +61,8 @@ namespace detection {
             for (const auto& t : p.tracks) {
                 auto* r = out.add_tracks();
                 r->set_track_id(static_cast<std::uint64_t>(std::max<std::int64_t>(t.track_id, 0)));
-                r->set_event(to_proto(t.event));
+                if (t.event) r->set_event(to_proto(*t.event));
+                r->set_state(to_proto(t.state));
                 r->set_class_id(t.detection.cid);
                 r->set_class_name(t.detection.cls);
                 r->set_superclass(t.detection.scls.value_or(""));

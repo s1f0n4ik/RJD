@@ -4,6 +4,7 @@
 #include <vector>
 #include <array>
 #include <optional>
+#include <algorithm>
 #include <cstdint>
 
 namespace varan {
@@ -62,6 +63,11 @@ namespace varan {
             std::int64_t session = 0;         // время запуска мастера, unix мс
             ETrackEvent event = ETrackEvent::Unspecified;
             std::optional<FRecord> record;    // запись для Modbus
+            std::vector<std::string> modules; // id модулей-получателей; пусто — все
+
+            bool addressed_to(const std::string& module_id) const {
+                return modules.empty() || std::find(modules.begin(), modules.end(), module_id) != modules.end();
+            }
         };
 
         // Точный снимок времени + GPS шлюза. Единый источник для REST (/time,

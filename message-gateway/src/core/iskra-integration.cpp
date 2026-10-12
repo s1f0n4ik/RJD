@@ -311,6 +311,13 @@ namespace varan {
         }
 
         FSubmitResult UIskraIntegration::handle_frame(const FFrameMessage& msg) {
+            if (!msg.addressed_to(m_modbus->id())) {
+                FSubmitResult result;
+                result.ver = msg.ver;
+                result.status = ESubmitStatus::NotConnected;
+                result.error = "no delivery modules";
+                return result;
+            }
             return m_modbus->handle_frame(msg);
         }
 

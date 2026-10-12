@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <deque>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -19,14 +20,15 @@
 namespace varan {
 namespace detection {
 
-    // Событие трека для мастера обнаружений
+    // Трек такта для мастера обнаружений
     struct FTrackRecord {
         std::int64_t track_id = 0; // 0 — трек ещё не подтверждён
-        neural::ETrackEvent event = neural::ETrackEvent::CREATED;
+        std::optional<neural::ETrackEvent> event; // пусто — в такте события не было
+        neural::ETrackState state = neural::ETrackState::TENTATIVE;
         gateway::FGatewayDetection detection;
     };
 
-    // События треков одной камеры за такт слота
+    // Все треки одной камеры за такт слота и удалённые в нём
     struct FPacket {
         std::string video_id;
         std::string config_id;

@@ -254,11 +254,6 @@ namespace neural {
                         d.streaming = std::move(stream_desc);
                     }
                 }
-                // Старая общая маска событий становится маской пакета
-                if (auto* c = eo.if_contains("event_mask"); c && c->is_array()) {
-                    d.packet_mask = json_strings(c->as_array());
-                    migrated = true;
-                }
                 read_event_masks(eo, d);
 
                 if (!d.stream_id.empty())
@@ -512,9 +507,9 @@ namespace neural {
         auto cfg = m_json_configurator.load_config(desc.config_id);
         if (!cfg) throw FNeuralError(signaling::CODE_NEURAL_NO_CONFIG, "no configuration: " + desc.config_id);
 
-        // Трекер считает события по объединению масок снимка и пакета
+        // Мастер получает все события трекера; маска снимка проверяется в слоте
         if (cfg->tracker_config) {
-            cfg->tracker_config->event_mask = event_mask_from_types(desc.image_mask) | event_mask_from_types(desc.packet_mask);
+            cfg->tracker_config->event_mask = EVENT_ALL;
         }
 
         if (stream_cameras(*video).empty()) {
