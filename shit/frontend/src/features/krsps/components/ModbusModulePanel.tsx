@@ -318,7 +318,7 @@ const ModbusModulePanel: React.FC<Props> = ({ module, title, devices, tzMin, bus
 
       <div className="mod-rows">
         <div className="mb-tiles">
-          <div className={`mb-tile${st === 'ok' ? ' is-ok' : st === 'err' ? ' is-err' : st === 'wait' ? ' is-warn' : ''}`} data-tip={portErr || undefined}>
+          <div className={`mb-tile${st === 'ok' ? ' is-ok' : st === 'err' ? ' is-err' : st === 'wait' ? ' is-warn' : ''}`}>
             <span className="c"><span className={`dot ${PILL_TONE[st]}`} />Порт</span>
             <b>{PILL_LABEL[st]}</b>
             <span className="s">
@@ -355,10 +355,7 @@ const ModbusModulePanel: React.FC<Props> = ({ module, title, devices, tzMin, bus
             </span>
           </div>
 
-          <div
-            className={`mb-tile is-big ${stateOk ? 'is-ok' : 'is-err'}`}
-            data-tip={[...(main?.reason ?? []), main?.error && humanizeError(main.error)].filter(Boolean).join(' · ')}
-          >
+          <div className={`mb-tile is-big ${stateOk ? 'is-ok' : 'is-err'}`}>
             <span className="c"><span className={`dot ${stateOk ? 'ok' : 'err'}`} />Состояние<span className="a">0x{hex(main?.addr ?? 0x1007)}</span></span>
             <b>{main?.value ?? '—'}</b>
             <span className="s">

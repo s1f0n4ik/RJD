@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Эмулятор АС КРСПС</title>
+<style>
+:root{
+  --bg:#12141a;--surface:#1a1e26;--panel:#232833;--panel-2:#2c3242;--input:#171a21;
+  --line:#333b4a;--line-hi:#454f66;--fg:#f1f3f9;--fg-2:#b0b9cb;--fg-3:#7b8698;
+  --acc:#5b9dff;--acc-glow:rgba(91,157,255,.22);--ok:#57d69a;--warn:#f0bd57;--err:#ff6b80;--info:#63c4ec;
+  --ui:'Inter','Noto Sans',system-ui,'Segoe UI',sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,'Cascadia Mono',Consolas,monospace;
+  --r:8px;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.45 var(--ui)}
+button,input,select{font:inherit;color:inherit}
+.mono{font-family:var(--mono)}
+
+.top{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:16px;padding:10px 20px;
+  background:var(--surface);border-bottom:1px solid var(--line)}
+.brand b{font-size:15px;letter-spacing:.02em}
+.brand span{color:var(--fg-3);margin-left:10px}
+.top .sp{flex:1}
+.top .next{color:var(--fg-3);font-family:var(--mono);font-size:12px}
+.armed{color:var(--warn);font-size:12px}
+
+.btn{border:1px solid var(--line-hi);background:var(--panel);border-radius:6px;padding:6px 12px;cursor:pointer}
+.btn:hover{border-color:var(--acc)}
+.btn.primary{background:var(--acc);border-color:var(--acc);color:#0b1220;font-weight:600}
+.btn.stop{background:transparent;border-color:var(--err);color:var(--err)}
+.btn.sm{padding:3px 9px;font-size:12px}
+
+main{display:grid;grid-template-columns:minmax(0,1fr) 340px;align-items:start}
+.left{padding:16px 20px;display:flex;flex-direction:column;gap:16px;min-width:0}
+.side{position:sticky;top:49px;max-height:calc(100vh - 49px);overflow:auto;background:var(--surface);
+  border-left:1px solid var(--line)}
+@media (max-width:1000px){main{grid-template-columns:1fr}.side{position:static;max-height:none;border-left:0;border-top:1px solid var(--line)}}
+
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1px;background:var(--line);
+  border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.tile{background:var(--panel);padding:12px 14px;min-height:112px}
+.tile .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-3)}
+.tile .val{font-size:20px;font-weight:600;margin:4px 0 2px}
+.tile .sub{color:var(--fg-2);font-size:12px}
+.tile .bad{color:var(--err);font-size:12px;word-break:break-word}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:1px 10px;margin-top:6px;font-size:12px}
+.kv span:nth-child(odd){color:var(--fg-3)}
+.kv span:nth-child(even){font-family:var(--mono);text-align:right}
+
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:1px 8px;border-radius:99px;
+  border:1px solid var(--line-hi);color:var(--fg-2)}
+.pill i{width:7px;height:7px;border-radius:50%;background:var(--fg-3)}
+.pill.ok{color:var(--ok);border-color:rgba(87,214,154,.45)}
+.pill.ok i{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+.pill.err{color:var(--err);border-color:rgba(255,107,128,.45)}
+.pill.err i{background:var(--err);animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.35;box-shadow:0 0 8px var(--err)}}
+
+.counters{display:flex;flex-wrap:wrap;gap:6px}
+.chip{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:4px 10px;font-size:12px;color:var(--fg-2)}
+.chip b{font-family:var(--mono);color:var(--fg);margin-left:6px;font-weight:500}
+.chip.err b{color:var(--err)}
+.chip.warn b{color:var(--warn)}
+
+.block{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.block-h{display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.block-h h2{margin:0;font-size:14px}
+.block-h .muted{color:var(--fg-3);font-size:12px}
+.block-h .sp{flex:1}
+.block-h label{display:flex;align-items:center;gap:6px;color:var(--fg-2);font-size:12px;cursor:pointer}
+.scroll{overflow:auto;max-height:420px}
+.empty{padding:18px 14px;color:var(--fg-3)}
+
+table{border-collapse:collapse;width:100%;font-size:12px}
+th{position:sticky;top:0;background:var(--panel);color:var(--fg-3);font-weight:500;text-align:left;
+  padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:5px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+tr.rec{cursor:pointer}
+tr.rec:hover td{background:rgba(255,255,255,.025)}
+td.num{font-family:var(--mono);white-space:nowrap}
+td .t2{color:var(--fg-3);font-size:11px}
+.tag{display:inline-block;font-size:11px;padding:0 6px;border-radius:4px;margin:1px 4px 1px 0;white-space:nowrap}
+.tag.gap,.tag.prob{background:rgba(240,189,87,.14);color:var(--warn)}
+.tag.repeat{background:rgba(99,196,236,.14);color:var(--info)}
+.tag.wrap{background:rgba(91,157,255,.14);color:var(--acc)}
+tr.regs td{background:var(--input)}
+.regs-grid{font-family:var(--mono);font-size:12px;color:var(--fg-2);white-space:pre;overflow:auto}
+
+.log{font-size:12px}
+.row{display:grid;grid-template-columns:92px 18px 280px minmax(0,1fr) 54px;gap:10px;
+  padding:4px 14px;border-bottom:1px solid rgba(51,59,74,.6);cursor:pointer;border-left:2px solid transparent}
+.row:hover{background:rgba(255,255,255,.02)}
+.row .ts{font-family:var(--mono);color:var(--fg-3)}
+.row .dir{font-family:var(--mono);text-align:center;color:var(--fg-3)}
+.row.tx .dir{color:var(--acc)}
+.row.rx .dir{color:var(--ok)}
+.row .what{color:var(--fg)}
+.row .what small{color:var(--fg-3);margin-left:6px}
+.row .hex{font-family:var(--mono);color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .note{display:block;color:var(--fg-2);font-family:var(--ui);white-space:normal}
+.row.open .hex{white-space:normal;word-break:break-all}
+.row .ms{font-family:var(--mono);color:var(--fg-3);text-align:right}
+.row.warn{border-left-color:var(--warn);background:rgba(240,189,87,.05)}
+.row.warn .what{color:var(--warn)}
+.row.err{border-left-color:var(--err);background:rgba(255,107,128,.05)}
+.row.err .what{color:var(--err)}
+@media (max-width:700px){.row{grid-template-columns:80px 14px 1fr}.row .hex,.row .ms{grid-column:1/-1}}
+
+.grp{padding:14px 16px;border-bottom:1px solid var(--line)}
+.grp h3{margin:0 0 10px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-3);font-weight:600}
+.f{display:grid;grid-template-columns:1fr 150px;align-items:center;gap:8px;margin:6px 0}
+.f > span{color:var(--fg-2)}
+.f input,.f select,.inline input,.inline select{width:100%;min-width:0;background:var(--input);border:1px solid var(--line);
+  border-radius:6px;padding:5px 8px}
+.f input:focus,.f select:focus,.inline input:focus,.inline select:focus{outline:none;border-color:var(--acc);box-shadow:0 0 0 3px var(--acc-glow)}
+.live{font-family:var(--mono);font-size:12px;color:var(--fg-2);background:var(--input);border:1px solid var(--line);
+  border-radius:6px;padding:6px 8px;margin-top:8px;word-break:break-word}
+.live b{font-family:var(--ui);font-weight:400;color:var(--fg-3);margin-right:6px}
+.sw{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:6px 0;color:var(--fg-2);cursor:pointer}
+.sw input{appearance:none;width:34px;height:18px;border-radius:99px;background:var(--panel-2);border:1px solid var(--line-hi);
+  position:relative;cursor:pointer;flex:none;margin:0}
+.sw input::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:var(--fg-3);transition:.15s}
+.sw input:checked{background:var(--acc);border-color:var(--acc)}
+.sw input:checked::after{left:18px;background:#fff}
+.inline{display:flex;gap:6px;align-items:center;margin:6px 0}
+.inline > *{flex:1 1 0;min-width:0}
+.inline .btn{flex:none}
+.port-row{display:flex;gap:6px}
+.port-row select{flex:1}
+.hint{color:var(--fg-3);font-size:11px;margin-top:4px}
+.err-text{color:var(--err);font-size:12px;margin-top:6px}
+.toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--panel-2);border:1px solid var(--err);
+  color:var(--fg);padding:8px 14px;border-radius:8px;box-shadow:0 12px 40px rgba(0,0,0,.5);z-index:9}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><b>АС КРСПС</b><span>эмулятор ведущего · Modbus RTU v2.3</span></div>
+  <div class="sp"></div>
+  <span class="armed" id="armed"></span>
+  <span class="next" id="next"></span>
+  <button class="btn primary" id="run">Запустить цикл</button>
+</header>
+
+<main>
+  <section class="left">
+    <div class="tiles">
+      <div class="tile"><div class="lbl">Порт</div><div class="val" id="t-port">—</div>
+        <div id="t-port-pill"></div><div class="sub" id="t-port-line"></div><div class="bad" id="t-port-err"></div></div>
+      <div class="tile"><div class="lbl">Ведомый</div><div class="val" id="t-slave">—</div>
+        <div id="t-link-pill"></div><div class="sub" id="t-link-ago"></div></div>
+      <div class="tile"><div class="lbl">Блок устройства 0x1000–0x1005</div><div id="t-info"></div></div>
+      <div class="tile"><div class="lbl">Состояние 0x1006+</div><div class="val" id="t-count">—</div><div id="t-state"></div></div>
+    </div>
+
+    <div class="counters" id="counters"></div>
+
+    <div class="block">
+      <div class="block-h"><h2>Полученные записи</h2><span class="muted" id="rec-count"></span></div>
+      <div class="scroll" style="max-height:360px">
+        <table>
+          <thead><tr><th>№</th><th>Время записи, UTC</th><th>Получена</th><th>Код</th><th>Камеры</th><th>Зона</th>
+            <th>Объектов</th><th>Стоп-кадр</th><th>Координаты</th><th></th></tr></thead>
+          <tbody id="records"></tbody>
+        </table>
+        <div class="empty" id="rec-empty">Записей пока нет</div>
+      </div>
+    </div>
+
+    <div class="block">
+      <div class="block-h"><h2>Обмен</h2><span class="muted" id="log-count"></span><div class="sp"></div>
+        <label><input type="checkbox" id="only-err"> только ошибки</label>
+        <button class="btn sm" id="pause">Пауза</button>
+        <button class="btn sm" id="clear">Очистить</button></div>
+      <div class="scroll log" id="log" style="max-height:560px"></div>
+    </div>
+  </section>
+
+  <aside class="side">
+    <div class="grp">
+      <h3>Порт</h3>
+      <div class="f"><span>COM-порт</span><div class="port-row"><select data-k="device" id="device"></select>
+        <button class="btn sm" id="ports" title="Обновить список">↻</button></div></div>
+      <div class="f"><span>Скорость</span><input data-k="baud" data-num type="number" list="bauds">
+        <datalist id="bauds"><option>9600</option><option>19200</option><option>38400</option><option>57600</option><option>115200</option></datalist></div>
+      <div class="f"><span>Чётность</span><select data-k="parity"><option value="N">нет</option><option value="E">чёт</option><option value="O">нечёт</option></select></div>
+      <div class="f"><span>Биты данных</span><select data-k="bytesize" data-num><option>8</option><option>7</option></select></div>
+      <div class="f"><span>Стоп-биты</span><select data-k="stopbits" data-num><option>1</option><option>2</option></select></div>
+      <button class="btn" id="open" style="width:100%;margin-top:6px">Открыть</button>
+    </div>
+
+    <div class="grp">
+      <h3>Ведомый и цикл</h3>
+      <div class="f"><span>Адрес ведомого</span><input data-k="slave" data-num type="number" min="1" max="247"></div>
+      <div class="f"><span>Период, с</span><input data-k="period_s" data-num type="number" min="0.2" step="0.5"></div>
+      <div class="f"><span>Таймаут ответа, мс</span><input data-k="timeout_ms" data-num type="number" min="20" step="50"></div>
+      <label class="sw">Отмечать прочитанные <input type="checkbox" data-k="mark"></label>
+    </div>
+
+    <div class="grp">
+      <h3>Время</h3>
+      <label class="sw">Слать время <input type="checkbox" data-k="send_time"></label>
+      <div class="f"><span>Источник</span><select data-k="time_mode"><option value="pc">часы ПК, UTC</option><option value="manual">заданное</option></select></div>
+      <div class="f" id="f-offset"><span>Сдвиг, с</span><input data-k="time_offset_s" data-num type="number" step="1"></div>
+      <div class="f" id="f-manual"><span>Начать с (UTC)</span><input id="time-manual" type="datetime-local" step="1"></div>
+      <div class="live"><b>шлём</b><span id="live-time">—</span></div>
+    </div>
+
+    <div class="grp">
+      <h3>GPS</h3>
+      <label class="sw">Слать GPS <input type="checkbox" data-k="send_gps"></label>
+      <div class="f"><span>Широта</span><input data-k="lat" data-num type="number" step="0.000001"></div>
+      <div class="f"><span>Долгота</span><input data-k="lon" data-num type="number" step="0.000001"></div>
+      <div class="f"><span>Точка</span><select data-k="gps_mode"><option value="fixed">неподвижна</option><option value="wander">гуляет</option></select></div>
+      <div class="f"><span>Буквы полушарий</span><select data-k="letters"><option value="master">как живой ведущий</option><option value="protocol">по протоколу</option></select></div>
+      <div class="hint" id="letters-hint"></div>
+      <div class="live"><b>шлём</b><span id="live-gps">—</span></div>
+    </div>
+
+    <div class="grp">
+      <h3>Ручной запрос</h3>
+      <div class="inline">
+        <select id="m-fn"><option value="4">04 чтение Input</option><option value="3">03 чтение Holding</option>
+          <option value="6">06 запись регистра</option><option value="16">10 запись регистров</option></select>
+        <input id="m-addr" placeholder="адрес" style="flex:0 0 70px">
+      </div>
+      <div class="inline">
+        <input id="m-start" class="mono" placeholder="0x1000" value="0x1000" style="flex:0 0 90px">
+        <input id="m-args" class="mono" placeholder="количество">
+        <button class="btn" id="m-send">Отправить</button>
+      </div>
+      <div class="hint" id="m-hint"></div>
+      <div class="inline" style="margin-top:12px"><button class="btn" id="a-info">Блок 0x1000–0x1005</button></div>
+      <div class="inline">
+        <input id="a-first" class="mono" type="number" placeholder="первый">
+        <input id="a-last" class="mono" type="number" placeholder="последний">
+        <button class="btn" id="a-mark">Отметить</button>
+      </div>
+      <div class="inline"><button class="btn" id="a-broadcast">Время и GPS · адрес 0</button></div>
+      <h3 style="margin-top:14px">Порча следующего запроса</h3>
+      <label class="sw">Битый CRC <input type="checkbox" id="arm-crc"></label>
+      <label class="sw">Мусор перед кадром <input type="checkbox" id="arm-garbage"></label>
+    </div>
+  </aside>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const MAX_LOG = 2000, MAX_REC = 500;
+let epoch = 0, since = 0, settings = null, filled = false, paused = false;
+let logs = [], recs = [];
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined && text !== null) e.textContent = text;
+  return e;
+}
+function toast(msg) {
+  const t = el('div', 'toast', msg);
+  document.body.append(t);
+  setTimeout(() => t.remove(), 4000);
+}
+async function post(url, body) {
+  const r = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { toast(j.error || `ошибка ${r.status}`); throw new Error(j.error); }
+  return j;
+}
+function pill(ok, text) {
+  const p = el('span', 'pill ' + (ok === null ? '' : ok ? 'ok' : 'err'));
+  p.append(el('i'), document.createTextNode(text));
+  return p;
+}
+const hex4 = v => '0x' + v.toString(16).toUpperCase().padStart(4, '0');
+
+// Настройки
+function val(e) {
+  if (e.type === 'checkbox') return e.checked;
+  return e.dataset.num !== undefined ? Number(e.value) : e.value;
+}
+function fill(s) {
+  document.querySelectorAll('[data-k]').forEach(e => {
+    if (e === document.activeElement) return;
+    const v = s[e.dataset.k];
+    if (e.type === 'checkbox') e.checked = !!v;
+    else if (e.id === 'device' && ![...e.options].some(o => o.value === v)) e.append(new Option(v, v)), e.value = v;
+    else e.value = v;
+  });
+  if (document.activeElement !== $('time-manual') && s.time_manual_s)
+    $('time-manual').value = new Date(s.time_manual_s * 1000).toISOString().slice(0, 19);
+  if (document.activeElement !== $('m-addr') && !$('m-addr').value) $('m-addr').value = s.slave;
+  $('f-offset').hidden = s.time_mode !== 'pc';
+  $('f-manual').hidden = s.time_mode !== 'manual';
+  $('letters-hint').textContent = s.letters === 'master' ? '0x2006 = N/S, 0x2007 = E/W' : '0x2006 = E/W, 0x2007 = N/S';
+}
+async function patch(p) {
+  try { settings = await post('/api/settings', p); fill(settings); } catch (e) { if (settings) fill(settings); }
+}
+document.querySelectorAll('[data-k]').forEach(e => e.addEventListener('change', () => patch({[e.dataset.k]: val(e)})));
+$('time-manual').addEventListener('change', e => e.target.value && patch({time_manual: e.target.value.length === 16 ? e.target.value + ':00' : e.target.value}));
+$('run').onclick = () => patch({running: !settings.running});
+$('open').onclick = () => patch({open: !settings.open});
+
+async function loadPorts() {
+  const list = await (await fetch('/api/ports')).json();
+  const sel = $('device'), cur = settings ? settings.device : sel.value;
+  sel.innerHTML = '';
+  list.forEach(p => sel.append(new Option(`${p.device} — ${p.name}`, p.device)));
+  if (cur && !list.some(p => p.device === cur)) sel.append(new Option(`${cur} — нет в системе`, cur));
+  sel.value = cur;
+}
+$('ports').onclick = loadPorts;
+
+// Ручные запросы
+function argsHint() {
+  const fn = $('m-fn').value;
+  $('m-args').placeholder = fn === '3' || fn === '4' ? 'количество' : fn === '6' ? 'значение' : 'значения через пробел';
+  $('m-hint').textContent = fn === '16' ? 'например 0x0002 — команда, которую шлюз не знает → исключение 03' : '';
+}
+$('m-fn').onchange = argsHint;
+$('m-send').onclick = () => post('/api/request', {fn: +$('m-fn').value, addr: $('m-addr').value || settings.slave,
+  start: $('m-start').value, args: $('m-args').value}).catch(() => {});
+$('m-args').addEventListener('keydown', e => e.key === 'Enter' && $('m-send').click());
+$('a-info').onclick = () => post('/api/action', {name: 'info'}).catch(() => {});
+$('a-mark').onclick = () => {
+  if ($('a-first').value === '' || $('a-last').value === '') return toast('Нужны первый и последний номер');
+  post('/api/action', {name: 'mark', first: +$('a-first').value, last: +$('a-last').value}).catch(() => {});
+};
+$('a-broadcast').onclick = () => post('/api/action', {name: 'broadcast'}).catch(() => {});
+const arm = () => post('/api/action', {name: 'arm', crc: $('arm-crc').checked, garbage: $('arm-garbage').checked}).catch(() => {});
+$('arm-crc').onchange = arm;
+$('arm-garbage').onchange = arm;
+
+// Лента обмена
+const DIRS = {tx: '→', rx: '←', '!': '⚠', '•': '·'};
+function logRow(e) {
+  const r = el('div', `row ${e.dir === 'tx' ? 'tx' : e.dir === 'rx' ? 'rx' : ''} ${e.level !== 'ok' ? e.level : ''}`);
+  r.append(el('span', 'ts', e.ts), el('span', 'dir', DIRS[e.dir] || e.dir));
+  const what = el('span', 'what', e.text);
+  if (e.manual) what.append(el('small', '', 'ручной'));
+  r.append(what);
+  const hex = el('span', 'hex', e.hex);
+  if (e.note) hex.prepend(el('span', 'note', e.note));
+  r.append(hex, el('span', 'ms', e.ms === null || e.ms === undefined ? '' : `${e.ms} мс`));
+  r.onclick = () => r.classList.toggle('open');
+  return r;
+}
+const shown = e => !$('only-err').checked || e.level !== 'ok';
+function renderLog() {
+  const box = $('log');
+  box.replaceChildren(...logs.filter(shown).slice(-400).reverse().map(logRow));
+  $('log-count').textContent = `${logs.length} строк` + (paused ? ' · пауза' : '');
+}
+function pushLog(items) {
+  logs = logs.concat(items).slice(-MAX_LOG);
+  if (paused) { $('log-count').textContent = `${logs.length} строк · пауза`; return; }
+  const box = $('log');
+  items.filter(shown).forEach(e => box.prepend(logRow(e)));
+  while (box.children.length > 400) box.lastChild.remove();
+  $('log-count').textContent = `${logs.length} строк`;
+}
+$('only-err').onchange = renderLog;
+$('pause').onclick = () => { paused = !paused; $('pause').textContent = paused ? 'Продолжить' : 'Пауза'; renderLog(); };
+$('clear').onclick = () => post('/api/action', {name: 'clear'}).catch(() => {});
+
+// Записи
+const TAGS = {gap: 'пропуск', repeat: 'повтор', wrap: '65535 → 0'};
+function regsText(regs) {
+  const lines = [];
+  for (let i = 0; i < regs.length; i += 8)
+    lines.push(`+${String(i).padStart(3, ' ')}  ` + regs.slice(i, i + 8).map(v => v.toString(16).toUpperCase().padStart(4, '0')).join(' ')
+      + '   ' + regs.slice(i, i + 8).map(v => String(v).padStart(5, ' ')).join(''));
+  return lines.join('\n');
+}
+function cell(main, sub) {
+  const td = el('td', '', main);
+  if (sub) td.append(el('div', 't2', sub));
+  return td;
+}
+function recRow(r) {
+  const tr = el('tr', 'rec');
+  const iskra = r.packet === '28163';
+  const num = el('td', 'num', r.number);
+  num.append(el('div', 't2', `дл. ${r.length}`));
+  tr.append(num);
+  if (iskra) {
+    tr.append(cell(r.time), cell(r.at), cell(`${r.code}`, r.code_text), cell(r.cameras, `маска ${r.mask}`),
+      cell(`${r.zone}`, r.zone_text), cell(r.count), el('td', 'num', r.frame), cell(r.lat, r.lon));
+  } else {
+    const td = el('td', '', `пакет не 28163 · тип ${r.regs[2] ?? '—'} · регистров ${r.regs.length}`);
+    td.colSpan = 6;
+    tr.append(cell('—'), cell(r.at), td);
+  }
+  const tags = el('td');
+  if (r.tag) tags.append(el('span', 'tag ' + r.tag, TAGS[r.tag]));
+  r.problems.forEach(p => tags.append(el('span', 'tag prob', p)));
+  tr.append(tags);
+  tr.onclick = () => {
+    if (tr.nextSibling && tr.nextSibling.classList.contains('regs')) return tr.nextSibling.remove();
+    const d = el('tr', 'regs'), td = el('td');
+    td.colSpan = 10;
+    td.append(el('div', 'regs-grid', regsText(r.regs)));
+    d.append(td);
+    tr.after(d);
+  };
+  return tr;
+}
+function pushRecs(items) {
+  recs = recs.concat(items).slice(-MAX_REC);
+  const body = $('records');
+  items.forEach(r => body.prepend(recRow(r)));
+  while (body.querySelectorAll('tr.rec').length > MAX_REC) {
+    const last = body.lastChild;
+    last.remove();
+  }
+  $('rec-empty').hidden = recs.length > 0;
+  $('rec-count').textContent = recs.length ? `${recs.length} в таблице` : '';
+}
+
+// Плитки и счётчики
+const COUNTERS = [['requests', 'Запросов'], ['replies', 'Ответов'], ['timeouts', 'Таймаутов', 'err'], ['crc', 'Ошибок CRC', 'err'],
+  ['exceptions', 'Исключений', 'err'], ['violations', 'Нарушений', 'warn'], ['records', 'Записей'], ['marks', 'Отметок'],
+  ['gaps', 'Пропусков', 'warn'], ['repeats', 'Повторов', 'warn']];
+function kv(pairs) {
+  const box = el('div', 'kv');
+  pairs.forEach(([k, v]) => box.append(el('span', '', k), el('span', '', v)));
+  return box;
+}
+function render(st) {
+  const s = st.settings;
+  $('run').textContent = s.running ? 'Остановить цикл' : 'Запустить цикл';
+  $('run').className = 'btn ' + (s.running ? 'stop' : 'primary');
+  $('next').textContent = st.next_in === null ? 'цикл остановлен' : `следующий через ${st.next_in.toFixed(1)} с`;
+  const armed = [st.armed.crc && 'битый CRC', st.armed.garbage && 'мусор'].filter(Boolean);
+  $('armed').textContent = armed.length ? `следующий запрос: ${armed.join(' + ')}` : '';
+  $('arm-crc').checked = st.armed.crc;
+  $('arm-garbage').checked = st.armed.garbage;
+  $('open').textContent = s.open ? 'Закрыть порт' : 'Открыть порт';
+  $('open').className = 'btn ' + (s.open ? '' : 'primary');
+
+  $('t-port').textContent = st.port.device;
+  $('t-port-pill').replaceChildren(pill(st.port.open ? true : st.port.error ? false : null,
+    st.port.open ? 'открыт' : st.port.error ? 'ошибка' : 'закрыт'));
+  $('t-port-line').textContent = st.port.line;
+  $('t-port-err').textContent = st.port.error;
+
+  $('t-slave').textContent = `адрес ${s.slave}`;
+  $('t-link-pill').replaceChildren(pill(st.port.open ? st.link.online : null, st.link.online ? 'на связи' : 'нет связи'));
+  $('t-link-ago').textContent = st.link.ago === null ? 'ответов не было' : `ответ ${st.link.ago.toFixed(1)} с назад`;
+
+  const i = st.info;
+  $('t-info').replaceChildren(i ? kv([['Идентификатор', i.id], ['Версия', i.version],
+    ['Длина записи', i.length || '0 — разная'], ['Окно', i.window], ['Регистров команд', i.commands],
+    ['Регистров состояния', i.states]]) : el('div', 'sub', 'не прочитан'));
+  $('t-count').textContent = st.state ? `записей ${st.state.count}` : '—';
+  $('t-state').replaceChildren(st.state ? kv(st.state.regs.map((v, k) => [hex4(0x1007 + k), v])) : el('div', 'sub', 'не прочитано'));
+
+  $('counters').replaceChildren(...COUNTERS.map(([k, label, tone]) => {
+    const c = el('span', 'chip ' + (tone && st.counters[k] ? tone : ''), label);
+    c.append(el('b', '', st.counters[k]));
+    return c;
+  }));
+  $('live-time').textContent = st.sending.time;
+  $('live-gps').textContent = st.sending.gps;
+}
+
+async function tick() {
+  try {
+    const st = await (await fetch(`/api/state?since=${since}&epoch=${epoch}`)).json();
+    if (st.epoch !== epoch) {
+      epoch = st.epoch; since = 0; logs = []; recs = [];
+      $('log').replaceChildren(); $('records').replaceChildren();
+    }
+    settings = st.settings;
+    if (!filled) { filled = true; await loadPorts(); fill(settings); argsHint(); }
+    else fill(settings);
+    const top = Math.max(since, ...st.log.map(e => e.seq), ...st.records.map(r => r.seq));
+    if (st.log.length) pushLog(st.log);
+    if (st.records.length) pushRecs(st.records);
+    $('rec-empty').hidden = recs.length > 0;
+    since = top;
+    render(st);
+  } catch (e) {
+    console.error(e);
+    $('next').textContent = 'сервер эмулятора не отвечает';
+  }
+  setTimeout(tick, 500);
+}
+tick();
+</script>
+</body>
+</html>
