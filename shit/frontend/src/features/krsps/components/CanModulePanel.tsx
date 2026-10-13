@@ -21,11 +21,14 @@ import { journalApi } from '../../neural/api/journal';
 import type { JournalDetection } from '../../neural/api/journal-types';
 import { durationLabel, REASON_LABEL } from '../../neural/components/journal/format';
 import { useDeviceClock } from '../../../app/useDeviceClock';
+import { dictName, type Dictionaries } from '../utils/dictionaries';
 
 interface Props {
   module: GwModule;
   title: string;
   devices: GwDevices | null;
+  // Словари мастера: type, danger
+  dicts: Dictionaries;
   busy: boolean;
   onSave: (patch: GwCanConfigPatch) => void;
   onConnect: () => void;
@@ -172,8 +175,11 @@ const BusNowCard: React.FC<{
   payload: GwCanPayload;
   dlc: number;
   ttlMs: number | null;
-}> = ({ payload, dlc, ttlMs }) => {
+  dicts: Dictionaries;
+}> = ({ payload, dlc, ttlMs, dicts }) => {
   const navigate = useNavigate();
+  // Название числа по словарю мастера; 0 — пусто
+  const title = (key: string, n: number) => (n ? dictName(dicts, key, n) ?? 'нет в словаре' : '—');
   const { cameraName } = useCameraNames();
   const listRef = useRef<HTMLDivElement>(null);
   const rows = useBusRows(payload.detections ?? [], ttlMs);
@@ -229,11 +235,11 @@ const BusNowCard: React.FC<{
         </span>
         <span className="cb-val cb-t f2">
           <span className="n">{d.type}</span>
-          <span className="t">{d.type_title}</span>
+          <span className="t">{title('type', d.type)}</span>
         </span>
         <span className="cb-val cb-t f4">
           <span className="n">{d.danger}</span>
-          <span className="t">{d.danger_title}</span>
+          <span className="t">{title('danger', d.danger)}</span>
         </span>
         <span className="cb-age">{detAge(r.age)}</span>
         <button
@@ -303,12 +309,12 @@ const BusNowCard: React.FC<{
           </div>
           <div className={`cb-byte cb-t${count ? ' f2' : ''}`}>
             <span className="cap">Байт 2 · тип</span>
-            <span className="w" key={`t${type}`}>{type ? top?.d.type_title : <small>не задан</small>}</span>
+            <span className="w" key={`t${type}`}>{type ? title('type', type) : <small>не задан</small>}</span>
             <span className="h" key={`th${type}`}>{hex2(type)}</span>
           </div>
           <div className={`cb-byte cb-t${count ? ' f4' : ''}`}>
             <span className="cap">Байт 3 · опасность</span>
-            <span className="w" key={`d${danger}`}>{danger ? top?.d.danger_title : <small>не задана</small>}</span>
+            <span className="w" key={`d${danger}`}>{danger ? title('danger', danger) : <small>не задана</small>}</span>
             <span className="h" key={`dh${danger}`}>{hex2(danger)}</span>
           </div>
           <div className={`cb-byte cb-t${count ? ' f3' : ''}`}>
@@ -529,7 +535,7 @@ const MessageBlock: React.FC<MsgProps> = ({ msg, summary, busy, onPatch, childre
   );
 };
 
-const CanModulePanel: React.FC<Props> = ({ module, title, devices, busy, onSave, onConnect, onDisconnect }) => {
+const CanModulePanel: React.FC<Props> = ({ module, title, devices, dicts, busy, onSave, onConnect, onDisconnect }) => {
   const conn = module.connection;
   const tx = module.tx;
   const messages = module.messages ?? [];
@@ -691,6 +697,7 @@ const CanModulePanel: React.FC<Props> = ({ module, title, devices, busy, onSave,
                 payload={module.payload}
                 dlc={tx?.dlc ?? 8}
                 ttlMs={tx && tx.ttl_enabled !== false ? tx.payload_ttl_ms : null}
+                dicts={dicts}
               />
             )}
 

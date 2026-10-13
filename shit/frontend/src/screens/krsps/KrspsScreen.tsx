@@ -18,6 +18,8 @@ import ModbusModulePanel from '../../features/krsps/components/ModbusModulePanel
 import TimeGpsPanel from '../../features/krsps/components/TimeGpsPanel';
 import PanelBoundary from '../../features/krsps/components/PanelBoundary';
 import { connState } from '../../features/krsps/components/ModuleBits';
+import type { Dictionaries } from '../../features/krsps/utils/dictionaries';
+import { configurationsApi, dictionariesOf } from '../configurations/api';
 import { MODULE_LABEL, SERVICE_SECTIONS } from './sections';
 import './krsps.css';
 
@@ -44,6 +46,7 @@ export default function KrspsScreen() {
     const [offsetMs, setOffsetMs] = useState(0);
     const [synced, setSynced] = useState(false);
     const [busy, setBusy] = useState(false);
+    const [dicts, setDicts] = useState<Dictionaries>({});
     const [toast, setToast] = useState<ToastState | null>(null);
     const toastTimer = useRef<number | null>(null);
 
@@ -134,6 +137,19 @@ export default function KrspsScreen() {
         return () => clearInterval(t);
     }, [refreshIntegrations, refreshDevices]);
 
+    // Словари мастера для активной конфигурации: числа модулей расшифровываются по ним
+    const ruleId = integrations?.active ?? status?.id ?? '';
+    useEffect(() => {
+        if (!ruleId) return;
+        let stop = false;
+        configurationsApi.getRules(ruleId)
+            .then(r => { if (!stop) setDicts(dictionariesOf(r.settings)); })
+            .catch(() => { if (!stop) setDicts({}); });
+        return () => {
+            stop = true;
+        };
+    }, [ruleId]);
+
     const run = useCallback(
         async (fn: () => Promise<unknown>, okMsg: string) => {
             setBusy(true);
@@ -211,6 +227,7 @@ export default function KrspsScreen() {
                                 module={selectedModule}
                                 title={MODULE_LABEL[selectedModule.id] ?? selectedModule.title}
                                 devices={devices}
+                                dicts={dicts}
                                 busy={busy}
                                 onSave={handleSaveCan}
                                 onConnect={handleConnect}
@@ -222,6 +239,7 @@ export default function KrspsScreen() {
                                 title={MODULE_LABEL[selectedModule.id] ?? selectedModule.title}
                                 devices={devices}
                                 tzMin={time?.tz_offset_min ?? 180}
+                                dicts={dicts}
                                 busy={busy}
                                 onSave={handleSaveModbus}
                                 onConnect={handleConnect}

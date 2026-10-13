@@ -90,8 +90,6 @@ export interface GwCanPayloadDetection {
   camera_no: number;    // 0 — камеры нет в таблице соответствий
   type: number;
   danger: number;
-  type_title: string;
-  danger_title: string;
   age_ms: number;       // с «Подтверждён»
   active: boolean;      // false — погасло по сроку, ждёт «Удалён»
 }
@@ -102,8 +100,6 @@ export interface GwCanPayload {
   type: number;
   danger: number;
   camera_no: number;     // байт 4 — номер камеры самого опасного, 0 — без номера
-  type_title: string;
-  danger_title: string;
   detections: GwCanPayloadDetection[];
   session: number;            // сессия мастера, 0 — сообщений ещё не было
 }
@@ -200,6 +196,9 @@ export interface GwPacketField {
   kind: 'service' | 'number' | 'time' | 'geo' | 'detection' | 'frame' | 'reserved';
   value: string;
   note?: string;
+  // Ключ словаря мастера, по которому расшифровывается значение
+  dict?: string;
+  // Расшифровка по словарю — считает страница
   text?: string;
   brief?: boolean;
 }

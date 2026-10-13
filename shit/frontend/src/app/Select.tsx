@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Icon } from './Icons';
 
 export interface SelectOption {
@@ -23,6 +23,8 @@ interface SelectProps {
     emptyText?: string;
     /** Вызывается при раскрытии — чтобы подгрузить варианты */
     onOpen?: () => void;
+    /** Содержимое кнопки вместо подписи выбранного */
+    display?: ReactNode;
 }
 
 interface PopupPos {
@@ -43,7 +45,7 @@ const POPUP_MAX = 320;
  * Позиционируется fixed от рамки кнопки: так его не режут прокручиваемые
  * контейнеры (шторка, тело модалки), а у нижней кромки экрана он открывается вверх.
  */
-export function Select({ value, options, onChange, disabled, placeholder, emptyText, onOpen }: SelectProps) {
+export function Select({ value, options, onChange, disabled, placeholder, emptyText, onOpen, display }: SelectProps) {
     const [open, setOpen] = useState(false);
     const [active, setActive] = useState(-1);
     const [pos, setPos] = useState<PopupPos | null>(null);
@@ -148,7 +150,7 @@ export function Select({ value, options, onChange, disabled, placeholder, emptyT
             >
                 {selected?.dot && <span className={`dot ${selected.dot}`} />}
                 <span className="uisel-val">
-                    {selected ? selected.label : <span className="muted">{placeholder ?? '—'}</span>}
+                    {display ?? (selected ? selected.label : <span className="muted">{placeholder ?? '—'}</span>)}
                 </span>
                 <Icon name="chev" size={12} className="uisel-car" />
             </button>

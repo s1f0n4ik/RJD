@@ -2,20 +2,21 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { useNavigate, useParams } from 'react-router-dom';
 import { Icon } from '../../app/Icons';
 import { Modal } from '../../app/Modal';
+import { useNeuralStatus } from '../../app/neuralStatus';
 import { listAllConfigurations, neuralApi } from '../../features/neural/api/client';
 import { getDevices } from '../../services/devices';
-import { configurationsApi, isIskraTable, type CfItem, type CfLink, type CfRules, type CfState, type RulesSettings } from './api';
+import { configurationsApi, dictionariesOf, isIskraTable, type CfItem, type CfLink, type CfRules, type CfState, type RulesSettings } from './api';
 import {
     CanCard, ClassPicker, FeedTable, MasterEnvCard, ModbusCard, MODULE_SHORT, StitchCard, WebSocketCard,
     countDiff, type CameraRef, type ClassCatalog,
 } from './RulesPanels';
-import { defaultZoneLabel, IskraTablePanel, RsmTablePanel, zonesError } from './TablePanels';
+import {
+    DictionariesPanel, IskraTablePanel, RsmTablePanel, settingsError, tableUsage, type NeuralModel, type RunningMap,
+} from './TablePanels';
 import './configurations.css';
 
 const POLL_MS = 3000;
 const LINK_POLL_MS = 2000;
-const EMPTY_CATALOG: ClassCatalog = { superclasses: [], classes: [] };
-
 interface ToastState {
     text: string;
     tone: 'ok' | 'err';
@@ -23,17 +24,32 @@ interface ToastState {
 
 type PickModule = 'websocket' | 'can';
 
-// Суперклассы и классы всех нейросетей всех плат, по имени
-async function loadCatalog(): Promise<ClassCatalog> {
+// Конфигурации нейросети всех плат: классы по id, суперклассы по месту в списке
+async function loadModels(): Promise<NeuralModel[]> {
     const configs = await listAllConfigurations();
     const metas = await Promise.all(configs.map(c =>
         Promise.all([neuralApi.getClasses(c.id, c.device), neuralApi.getSuperclasses(c.id, c.device)]).catch(() => null)));
+    return configs.flatMap((c, i) => {
+        const m = metas[i];
+        if (!m) return [];
+        return [{
+            id: c.id,
+            name: c.name || c.id,
+            classes: (m[0].classes ?? [])
+                .map(x => ({ id: Number(x.id), name: x.name, superclass: x.superclass ?? '' }))
+                .sort((a, b) => a.id - b.id),
+            superclasses: (m[1].superclasses ?? []).map(s => ({ key: s.key, name: s.name, color: s.color ?? '' })),
+        }];
+    });
+}
+
+// Суперклассы и классы всех конфигураций по имени — для фильтров модулей
+function catalogOf(models: NeuralModel[]): ClassCatalog {
     const sc = new Map<string, { key: string; name: string; count: number; color: string }>();
     const cls = new Map<string, { name: string; superclass: string }>();
-    metas.forEach(m => {
-        if (!m) return;
-        (m[1].superclasses ?? []).forEach(s => { if (!sc.has(s.key)) sc.set(s.key, { key: s.key, name: s.name, count: 0, color: s.color ?? '' }); });
-        (m[0].classes ?? []).forEach(c => { if (!cls.has(c.name)) cls.set(c.name, { name: c.name, superclass: c.superclass ?? '' }); });
+    models.forEach(m => {
+        m.superclasses.forEach(s => { if (!sc.has(s.key)) sc.set(s.key, { ...s, count: 0 }); });
+        m.classes.forEach(c => { if (!cls.has(c.name)) cls.set(c.name, { name: c.name, superclass: c.superclass }); });
     });
     cls.forEach(c => { const s = sc.get(c.superclass); if (s) s.count += 1; });
     return { superclasses: [...sc.values()], classes: [...cls.values()] };
@@ -65,7 +81,9 @@ function Metrics({ rows }: { rows: [string, string, string?][] }) {
 
 export default function ConfigurationsScreen() {
     const navigate = useNavigate();
-    const tableView = useParams().section === 'table';
+    const section = useParams().section;
+    const tableView = section === 'table';
+    const dictView = section === 'dict';
     const [state, setState] = useState<CfState | null>(null);
     const [failed, setFailed] = useState(false);
     const [link, setLink] = useState<CfLink | null>(null);
@@ -74,7 +92,9 @@ export default function ConfigurationsScreen() {
     const [rules, setRules] = useState<CfRules | null>(null);
     const [rulesError, setRulesError] = useState('');
     const [draft, setDraft] = useState<RulesSettings | null>(null);
-    const [catalog, setCatalog] = useState<ClassCatalog>(EMPTY_CATALOG);
+    const [models, setModels] = useState<NeuralModel[]>([]);
+    const catalog = useMemo(() => catalogOf(models), [models]);
+    const neural = useNeuralStatus();
     const [cameras, setCameras] = useState<CameraRef[]>([]);
     const [pick, setPick] = useState<PickModule | null>(null);
     const [pending, setPending] = useState<CfItem | null>(null);
@@ -138,7 +158,7 @@ export default function ConfigurationsScreen() {
     }, []);
 
     useEffect(() => {
-        loadCatalog().then(c => { if (alive.current) setCatalog(c); }).catch(() => { /* выбор классов покажет пустые списки */ });
+        loadModels().then(m => { if (alive.current) setModels(m); }).catch(() => { /* выбор классов покажет пустые списки */ });
         neuralApi.listCameras()
             .then(r => {
                 if (!alive.current) return;
@@ -175,7 +195,17 @@ export default function ConfigurationsScreen() {
     }, [itemId]);
 
     const dirty = rules && draft ? countDiff(draft, rules.settings) : 0;
-    const tableError = draft && isIskraTable(draft.table) ? zonesError(draft.table.zones) : '';
+    const tableError = settingsError(draft?.dictionaries);
+
+    // Конфигурация нейросети → платы, где её слот запущен
+    const running = useMemo(() => {
+        const map: RunningMap = new Map();
+        (neural ?? []).forEach(d => (d.slots ?? []).forEach(s => {
+            const on = map.get(s.config_id) ?? [];
+            if (s.running && !on.includes(d.device_name)) map.set(s.config_id, [...on, d.device_name]);
+        }));
+        return map;
+    }, [neural]);
 
     const save = async () => {
         if (!draft || !item) return;
@@ -335,15 +365,7 @@ export default function ConfigurationsScreen() {
         } else if (node === 'can' && draft.can) {
             left = <CanCard head={moduleHead('can')} value={draft.can} onChange={can => patch({ can })} catalog={catalog} onPick={() => setPick('can')} />;
         } else if (node === 'modbus' && draft.modbus) {
-            left = (
-                <ModbusCard
-                    head={moduleHead('modbus')}
-                    value={draft.modbus}
-                    zone={isIskraTable(draft.table) ? defaultZoneLabel(draft.table) : '—'}
-                    onChange={v => patch({ modbus: v })}
-                    onOpenTable={() => navigate('/configurations/table')}
-                />
-            );
+            left = <ModbusCard head={moduleHead('modbus')} value={draft.modbus} onChange={v => patch({ modbus: v })} />;
         } else {
             left = <div className="cr-none">Нет правил для модуля</div>;
         }
@@ -371,7 +393,7 @@ export default function ConfigurationsScreen() {
                                         <button className="btn btn--acc" disabled={busy} onClick={() => setPending(item)}>Сделать активной</button>
                                     )}
                                 </div>
-                                {!tableView && (
+                                {!tableView && !dictView && (
                                     <div className="cr-chain">
                                         {devicesNode}
                                         <div className={`cr-wire${live && online.length ? ' is-live' : ''}`} />
@@ -389,22 +411,48 @@ export default function ConfigurationsScreen() {
                                     </div>
                                 ) : !draft ? (
                                     <div className="mod-loading"><span className="spin" /></div>
+                                ) : (tableView || dictView) && (!draft.table || !draft.dictionaries) ? (
+                                    <div className="empty">
+                                        <Icon name="warn" className="ico" />
+                                        <b>Мастер обнаружений не отдаёт таблицу соответствий и словари — обновите его</b>
+                                    </div>
+                                ) : dictView ? (
+                                    <DictionariesPanel
+                                        value={draft.dictionaries!}
+                                        defaults={rules?.defaults.dictionaries}
+                                        usage={tableUsage(draft.table!, models)}
+                                        onChange={dictionaries => patch({ dictionaries })}
+                                    />
                                 ) : tableView ? (
-                                    !draft.table ? (
-                                        <div className="empty">
-                                            <Icon name="warn" className="ico" />
-                                            <b>Мастер обнаружений не отдаёт таблицу соответствий — обновите его</b>
-                                        </div>
-                                    ) : isIskraTable(draft.table) ? (
-                                        <IskraTablePanel value={draft.table} onChange={table => patch({ table })} catalog={catalog} cameras={cameras} />
+                                    isIskraTable(draft.table) ? (
+                                        <IskraTablePanel
+                                            value={draft.table}
+                                            onChange={table => patch({ table })}
+                                            dicts={draft.dictionaries!}
+                                            catalog={models}
+                                            running={running}
+                                            cameras={cameras}
+                                        />
                                     ) : (
-                                        <RsmTablePanel value={draft.table} onChange={table => patch({ table })} catalog={catalog} cameras={cameras} />
+                                        <RsmTablePanel
+                                            value={draft.table!}
+                                            onChange={table => patch({ table })}
+                                            dicts={draft.dictionaries!}
+                                            catalog={models}
+                                            running={running}
+                                            cameras={cameras}
+                                        />
                                     )
                                 ) : (
                                     <div className="cr-split">
                                         <div className="cr-col">{left}</div>
                                         <div className="cr-col">
-                                            <FeedTable node={node} entries={item.active ? link?.feed ?? [] : []} cameraName={cameraName} />
+                                            <FeedTable
+                                                node={node}
+                                                entries={item.active ? link?.feed ?? [] : []}
+                                                cameraName={cameraName}
+                                                dicts={dictionariesOf(rules?.settings)}
+                                            />
                                         </div>
                                     </div>
                                 )}
@@ -455,11 +503,14 @@ export default function ConfigurationsScreen() {
                         <>
                             <div className="blk-h"><h3>{item.title}</h3></div>
                             <div className="blk-b">
-                                <button type="button" className={`mod-item${tableView ? '' : ' is-on'}`} onClick={() => navigate('/configurations')}>
+                                <button type="button" className={`mod-item${tableView || dictView ? '' : ' is-on'}`} onClick={() => navigate('/configurations')}>
                                     <Icon name="link" className="ico" /><span className="nm">Связь и правила</span>
                                 </button>
                                 <button type="button" className={`mod-item${tableView ? ' is-on' : ''}`} onClick={() => navigate('/configurations/table')}>
                                     <Icon name="tune" className="ico" /><span className="nm">Таблица соответствий</span>
+                                </button>
+                                <button type="button" className={`mod-item${dictView ? ' is-on' : ''}`} onClick={() => navigate('/configurations/dict')}>
+                                    <Icon name="list" className="ico" /><span className="nm">Словари</span>
                                 </button>
                             </div>
                         </>

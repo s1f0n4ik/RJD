@@ -615,3 +615,13 @@ select.sel:disabled{opacity:.45;cursor:not-allowed}
 /* Ползунок в строке со значением: нативный вход лежит поверх дорожки прозрачным, зона захвата шире неё */
 .tf-range .track input[type=range]{position:absolute;left:0;top:-9px;width:100%;height:22px;margin:0;padding:0;opacity:0;cursor:pointer}
 .tf-range .track:focus-within{border-color:var(--acc-dim);box-shadow:0 0 0 2px rgba(var(--acc-rgb),.15)}
+
+/* Строка с многоточием (FitText): обрезанный текст при наведении раскрывается на месте поверх соседей, плашка растёт слева направо, за текстом идёт курсор */
+.fit{position:relative;display:block;min-width:0}
+.fit-t{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fit-full{position:absolute;left:calc(var(--fit-shift,0px) - 6px);top:50%;z-index:6;max-width:calc(100% + 16px);padding:3px 10px 3px 6px;transform:translateY(-50%);white-space:nowrap;overflow:hidden;color:var(--fg);background:var(--panel-2);border-radius:6px;box-shadow:0 0 0 1px var(--line-hi),0 12px 28px -14px rgba(0,0,0,.8);opacity:0;pointer-events:none;transition:max-width .14s ease,opacity .1s ease}
+.fit-full::after{content:'';position:absolute;right:4px;top:4px;bottom:4px;width:2px;border-radius:1px;background:var(--acc);box-shadow:0 0 8px rgba(var(--acc-rgb),.8);opacity:0}
+.fit[data-cut]:hover .fit-full{opacity:1;max-width:min(640px,70vw);transition:max-width .34s cubic-bezier(.2,.8,.2,1),opacity .06s ease}
+.fit[data-cut]:hover .fit-full::after{animation:fit-caret .6s ease forwards}
+@keyframes fit-caret{0%,55%{opacity:1}100%{opacity:0}}
+@media (prefers-reduced-motion:reduce){.fit-full,.fit[data-cut]:hover .fit-full{transition:none}.fit-full::after{display:none}}

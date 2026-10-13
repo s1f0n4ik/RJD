@@ -1,3 +1,5 @@
+import type { Dictionaries } from '../../features/krsps/utils/dictionaries';
+
 // Конфигурации изделия: /api/configurations бэкенда мастера (шлюз АС КРСПС + правила мастера обнаружений)
 
 export interface CfModule {
@@ -42,37 +44,34 @@ export interface RuleModbus {
     ceiling_s: number;
 }
 
-// Тип обнаружения CAN 1–8 и класс опасности 1–4; 0 — не задано
-export interface RsmClassRule {
-    type: number;
-    danger: number;
+// Числа одной конфигурации нейросети; строки нет — id + 1 (суперкласс — место + 1), 0 — пусто
+export interface ModelTable {
+    // id класса → число
+    classes: Record<string, number>;
+    // Место суперкласса в списке конфигурации → число
+    superclasses: Record<string, number>;
 }
 
 export interface RsmTable {
-    defaults: RsmClassRule;
-    // Ключ суперкласса → класс опасности
-    superclasses: Record<string, number>;
-    // Имя класса → тип и опасность
-    classes: Record<string, RsmClassRule>;
+    // Конфигурация нейросети → числа; конфигурации нет — всё по +1
+    models: Record<string, ModelTable>;
+    // Правило РСМ: конфигурация нейросети → id класса → опасность вместо суперкласса
+    danger_override: Record<string, Record<string, number>>;
     // id камеры → номер 1–8
     cameras: Record<string, number>;
 }
 
-export interface IskraZone {
-    number: number;
+export interface IskraCamera {
+    // Бит маски камер записи 28163
+    bit: number;
     name: string;
-    color: string;
-    // Зона вне многоугольников
-    default: boolean;
+    // Камера технического зрения; пусто — не назначена
+    camera_id: string;
 }
 
 export interface IskraTable {
-    // Класс → код 28163
-    codes: Record<string, number>;
-    // id камеры → роль
-    roles: Record<string, number>;
-    // Порядок — опасность: первая самая опасная
-    zones: IskraZone[];
+    models: Record<string, ModelTable>;
+    cameras: IskraCamera[];
 }
 
 export interface RulesSettings {
@@ -80,11 +79,21 @@ export interface RulesSettings {
     websocket?: RuleClassFilter & { late_s: number };
     can?: RuleClassFilter;
     modbus?: RuleModbus;
-    // Нет у мастера старше таблиц соответствий
+    // Нет у мастера старше решений 63–70
     table?: RsmTable | IskraTable;
+    // РСМ: type, danger; Искра: code, zone
+    dictionaries?: Dictionaries;
 }
 
-export const isIskraTable = (t?: RsmTable | IskraTable): t is IskraTable => !!t && 'zones' in t;
+export const isIskraTable = (t?: RsmTable | IskraTable): t is IskraTable => !!t && Array.isArray((t as IskraTable).cameras);
+
+// Словари для расшифровки чисел; у Искры камеры — словарь cameras по битам
+export function dictionariesOf(settings?: RulesSettings): Dictionaries {
+    const dicts = { ...settings?.dictionaries };
+    const table = settings?.table;
+    if (isIskraTable(table)) dicts.cameras = table.cameras.map(c => ({ number: c.bit, name: c.name }));
+    return dicts;
+}
 
 export interface CfRules extends CfRule {
     settings: RulesSettings;

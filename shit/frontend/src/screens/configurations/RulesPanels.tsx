@@ -1,22 +1,11 @@
 import { useEffect, useState } from 'react';
+import { FitText } from '../../app/FitText';
 import { Icon } from '../../app/Icons';
 import { Modal } from '../../app/Modal';
+import { dictName, type Dictionaries } from '../../features/krsps/utils/dictionaries';
 import type { CfRules, FeedEntry, FeedStatus, RuleClassFilter, RuleModbus, RuleStitch } from './api';
 
 export const MODULE_SHORT: Record<string, string> = { websocket: 'ЦПУ', can: 'CAN', modbus: 'Modbus' };
-
-// Коды записи 28163 Искры
-export const ISKRA_CODES = [
-    'человек, СИЗ не распознан', 'в СИЗ', 'без СИЗа', 'легковая', 'грузовая', 'строительная техника',
-    'сыпучие отходы', 'твёрдые отходы', 'шпала (мусор)', 'граффити', 'борщевик',
-];
-// Роли камер Искры: номер — бит маски камер
-export const ROLES = [
-    { value: 1, label: 'Дальняя' },
-    { value: 2, label: 'Ближняя' },
-    { value: 3, label: 'Левая' },
-    { value: 4, label: 'Правая' },
-];
 
 export interface ClassCatalog {
     superclasses: { key: string; name: string; count: number; color: string }[];
@@ -201,22 +190,17 @@ export function CanCard({ head, value, onChange, catalog, onPick }: {
     );
 }
 
-export function ModbusCard({ head, value, zone, onChange, onOpenTable }: {
+export function ModbusCard({ head, value, onChange }: {
     head: ModuleHead;
     value: RuleModbus;
-    zone: string;
     onChange: (v: RuleModbus) => void;
-    onOpenTable: () => void;
 }) {
     return (
         <section className={`card cr-card${value.enabled ? '' : ' is-off'}`}>
             <CardHead head={head} on={value.enabled} onToggle={enabled => onChange({ ...value, enabled })} />
             <div className="card-b">
                 <div className="cr-row"><label>Запись не позже</label><NumField value={value.ceiling_s} unit="с" onChange={ceiling_s => onChange({ ...value, ceiling_s })} /></div>
-                <div className="cr-row">
-                    <label>Зона по умолчанию</label>
-                    <div className="tf-ro"><button type="button" className="cr-link" onClick={onOpenTable}>{zone}<Icon name="tune" size={13} /></button></div>
-                </div>
+                <div className="cr-row" data-tip="Слот инференса пока не ставит зоны"><label>Зона</label><div className="tf-ro">пусто</div></div>
                 <div className="cr-row"><label>Число объектов</label><div className="tf-ro">1</div></div>
             </div>
         </section>
@@ -304,14 +288,22 @@ const time = (t: number) => new Date(t).toLocaleTimeString('ru-RU', { hour12: fa
 const conf = (e: FeedEntry) => (e.confidence !== undefined ? <span className="cf">{e.confidence.toFixed(2).replace('.', ',')}</span> : null);
 const ids = (e: FeedEntry) => (e.more?.length ? `${e.detection_id} +${e.more.length}` : String(e.detection_id));
 
-function roleNames(mask?: number): string {
-    const names = ROLES.filter(r => mask && mask & (1 << (r.value - 1))).map(r => r.label.toLowerCase());
-    return names.length ? names.join(', ') : '—';
+// Камеры Искры по битам маски: название из таблицы, иначе номер бита
+function cameraBits(dicts: Dictionaries, mask?: number): string {
+    const bits = Array.from({ length: 16 }, (_, i) => i + 1).filter(b => mask && mask & (1 << (b - 1)));
+    return bits.length ? bits.map(b => dictName(dicts, 'cameras', b) ?? String(b)).join(', ') : '—';
 }
 
-export function FeedTable({ node, entries, cameraName }: { node: string; entries: FeedEntry[]; cameraName: (id: string) => string }) {
+export function FeedTable({ node, entries, cameraName, dicts }: {
+    node: string;
+    entries: FeedEntry[];
+    cameraName: (id: string) => string;
+    // Словари сохранённых правил: числа ленты ушли по ним
+    dicts: Dictionaries;
+}) {
     const rows = node === 'master' ? entries : entries.filter(e => e.module === node);
     if (rows.length === 0) return <div className="cr-feed cr-feed-empty">Сообщений нет</div>;
+    const zoneNamed = rows.some(e => dictName(dicts, 'zone', e.zone ?? 0));
     const head = (cols: [string, string][]) => (
         <>
             <colgroup>{cols.map(([, w], i) => <col key={i} style={w ? { width: w } : undefined} />)}</colgroup>
@@ -321,10 +313,10 @@ export function FeedTable({ node, entries, cameraName }: { node: string; entries
     return (
         <div className="cr-feed tab-wrap">
             <table className="tab">
-                {node === 'master' && head([['Время', '76px'], ['Модуль', '84px'], ['Событие', '124px'], ['Обнаружение', '122px'], ['Класс', ''], ['Ответ', '112px']])}
-                {node === 'websocket' && head([['Время', '76px'], ['Обнаружение', '122px'], ['Класс', ''], ['Камера', ''], ['Ответ', '112px']])}
-                {node === 'can' && head([['Время', '76px'], ['Событие', '124px'], ['Обнаружение', '122px'], ['Класс', ''], ['Ответ', '112px']])}
-                {node === 'modbus' && head([['Время', '76px'], ['Обнаружение', '122px'], ['Код', ''], ['Камеры', ''], ['Зона', '66px'], ['Ответ', '112px']])}
+                {node === 'master' && head([['Время', '76px'], ['Модуль', '76px'], ['Событие', '118px'], ['Обнаружение', '118px'], ['Класс', ''], ['Ответ', '112px']])}
+                {node === 'websocket' && head([['Время', '76px'], ['Обнаружение', '118px'], ['Класс', ''], ['Камера', ''], ['Ответ', '112px']])}
+                {node === 'can' && head([['Время', '76px'], ['Событие', '118px'], ['Обнаружение', '118px'], ['Класс', ''], ['Ответ', '112px']])}
+                {node === 'modbus' && head([['Время', '76px'], ['Обнаружение', '118px'], ['Код', ''], ['Камеры', '120px'], ['Зона', zoneNamed ? '' : '56px'], ['Ответ', '112px']])}
                 <tbody>
                     {rows.map(e => (
                         <tr key={e.seq}>
@@ -334,14 +326,18 @@ export function FeedTable({ node, entries, cameraName }: { node: string; entries
                             <td className="no">{ids(e)}</td>
                             {node === 'modbus' ? (
                                 <>
-                                    <td><span className="mono">{e.code}</span> {ISKRA_CODES[e.code ?? -1] ?? ''}</td>
-                                    <td>{roleNames(e.camera_mask)}</td>
-                                    <td className="mono">{e.zone}</td>
+                                    <td className="fx">
+                                        <span className="fx-row"><span className="mono">{e.code}</span><FitText text={dictName(dicts, 'code', e.code ?? 0) ?? ''} /></span>
+                                    </td>
+                                    <td className="fx"><FitText text={cameraBits(dicts, e.camera_mask)} /></td>
+                                    <td className="fx">
+                                        <span className="fx-row"><span className="mono">{e.zone || '—'}</span><FitText text={dictName(dicts, 'zone', e.zone ?? 0) ?? ''} /></span>
+                                    </td>
                                 </>
                             ) : (
-                                <td>{e.class_name}{node === 'websocket' && conf(e)}</td>
+                                <td className="fx"><span className="fx-row"><FitText text={e.class_name} />{node === 'websocket' && conf(e)}</span></td>
                             )}
-                            {node === 'websocket' && <td>{cameraName(e.camera_id)}</td>}
+                            {node === 'websocket' && <td className="fx"><FitText text={cameraName(e.camera_id)} /></td>}
                             <td><Answer e={e} /></td>
                         </tr>
                     ))}

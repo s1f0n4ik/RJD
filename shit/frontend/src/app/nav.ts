@@ -63,6 +63,7 @@ export const CRUMBS: Record<string, string[]> = {
     '/devices': ['Устройства'],
     '/configurations': ['Конфигурации'],
     '/configurations/table': ['Конфигурации', 'Таблица соответствий'],
+    '/configurations/dict': ['Конфигурации', 'Словари'],
 };
 
 // Крошки для путей с разделами внутри: /krsps/<модуль>, /surround/<подраздел>

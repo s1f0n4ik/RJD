@@ -273,7 +273,8 @@
 .mb-rec .tm.is-board{color:var(--warn)}
 .mb-rec .cd{display:flex;align-items:baseline;gap:7px;min-width:0}
 .mb-rec .cd i{font-style:normal;font-family:var(--mono);font-size:11px;color:var(--fg-3);flex:0 0 auto}
-.mb-rec .cd span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--fg)}
+.mb-rec .cd .fit{color:var(--fg)}
+.mb-rec.is-read>.cd:hover{opacity:1}
 .mb-rec .ct{font-family:var(--mono);font-size:12px;text-align:right;color:var(--fg)}
 .mb-rec .fr{font-family:var(--mono);font-size:11.5px;color:var(--acc);text-align:right}
 .mb-rec .r{text-align:right}

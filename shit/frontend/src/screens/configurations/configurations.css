@@ -34,6 +34,7 @@
 
 /* Выбранное звено: настройки слева, лента справа */
 .cf-screen .cr-split{display:grid;grid-template-columns:380px minmax(0,1fr);gap:16px;align-items:start}
+@container (max-width:900px){.cf-screen .cr-split{grid-template-columns:minmax(0,1fr)}}
 .cf-screen .cr-col{display:flex;flex-direction:column;gap:14px;min-width:0}
 .cf-screen .cr-none{padding:14px 2px;font-size:12.5px;color:var(--fg-3)}
 
@@ -43,6 +44,10 @@
 .cf-screen .cr-feed .tab{table-layout:fixed}
 .cf-screen .cr-feed .tab th,.cf-screen .cr-feed .tab td{overflow:hidden;text-overflow:ellipsis;padding-inline:10px}
 .cf-screen .cr-feed .tab tbody td{height:40px}
+/* Ячейки с FitText не обрезают: раскрытый текст ложится поверх соседей */
+.cf-screen .cr-feed .tab td.fx{overflow:visible}
+.cf-screen .cr-feed .fx-row{display:flex;align-items:baseline;gap:6px;min-width:0}
+.cf-screen .cr-feed .fx-row>.mono,.cf-screen .cr-feed .fx-row>.cf{flex:none;margin-left:0}
 .cf-screen .cr-feed .tm{font-family:var(--mono);font-size:11.5px;color:var(--fg-3);font-variant-numeric:tabular-nums}
 .cf-screen .cr-feed .no{font-family:var(--mono);font-size:12px;color:var(--acc);font-variant-numeric:tabular-nums}
 .cf-screen .cr-feed .cf{font-family:var(--mono);font-size:11px;color:var(--fg-3);margin-left:6px}
@@ -71,57 +76,21 @@
 .cf-screen .cr-add{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:6px;border:1px dashed var(--line-hi);font-size:11.5px;color:var(--fg-2)}
 .cf-screen .cr-add:hover{color:var(--fg);border-color:var(--acc-dim)}
 
-/* Искра: класс → код, роли камер */
-.cf-screen .cr-map{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
-.cf-screen .cr-map-r{display:grid;grid-template-columns:minmax(0,1fr) 250px;align-items:center;column-gap:12px;min-height:40px;padding:4px 6px 4px 12px;border-bottom:1px solid var(--line);background:var(--input);font-size:12.5px;color:var(--fg)}
-.cf-screen .cr-map-r:last-child{border-bottom:none}
-.cf-screen .cr-map-r .nm{display:flex;align-items:center;gap:8px;min-width:0}
-.cf-screen .cr-map-r .nm>span:first-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.cf-screen .cr-map-r .uisel-btn{height:30px;font-size:12px}
-.cf-screen .cr-map-r.is-head{min-height:30px;background:var(--panel);font-size:10.5px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.06em}
-.cf-screen .cr-roles .cr-map-r{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;padding:7px 8px 7px 12px;min-height:48px}
-.cf-screen .cr-roles .cam{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1 1 130px;white-space:nowrap}
-.cf-screen .cr-roles .cam,.cf-screen .cr-roles .cam small{overflow:hidden;text-overflow:ellipsis}
-.cf-screen .cr-roles .cam small{font-family:var(--mono);font-size:10.5px;color:var(--fg-3)}
-.cf-screen .cr-roles .seg{padding:2px}
-.cf-screen .cr-roles .seg button{min-height:26px;padding:0 7px;font-size:12px}
-.cf-screen .cr-roles .seg button i{font-style:normal;font-family:var(--mono);font-size:10px;color:var(--fg-3);margin-right:5px}
-.cf-screen .cr-roles .seg button.is-on i{color:var(--acc)}
-
 /* Подвал сохранения: высота и линия как у подвала рельсы */
 .cf-screen .cr-foot{display:flex;align-items:center;gap:10px;height:var(--foot);flex:0 0 var(--foot);padding:0 26px;border-top:1px solid var(--line);background:var(--surface)}
 .cf-screen .cr-foot .seps{font-family:var(--mono);font-size:11.5px;color:var(--fg-2)}
 .cf-screen .cr-foot .seps .is-warn{color:var(--warn)}
 .cf-screen .cr-foot .seps .is-err{color:var(--err)}
 
-/* Звено Modbus: зона по умолчанию — ссылка в таблицу */
-.cf-screen .cr-link{display:inline-flex;align-items:center;gap:7px;color:var(--acc)}
-.cf-screen .cr-link:hover{text-decoration:underline}
-
-/* Таблица соответствий: блоки стопкой, у Искры две колонки до 1040px */
-.cf-screen .tb-halves{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
-@container (max-width:1040px){.cf-screen .tb-halves{grid-template-columns:minmax(0,1fr)}}
-.cf-screen .tb-col{display:flex;flex-direction:column;gap:14px;min-width:0}
-.cf-screen .tb-defs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 40px}
+/* Таблица соответствий и словари */
 .cf-screen .tb-card .card-b{display:flex;flex-direction:column;gap:12px}
-.cf-screen .tb-card .cr-row{grid-template-columns:96px minmax(0,1fr)}
 .cf-screen .tb-card .uisel-btn{height:30px;font-size:12px}
-.cf-screen .tb-codes .cr-map-r{grid-template-columns:minmax(0,1fr) 270px}
-.cf-screen .tb-codes .nm>span:first-child{flex:none;max-width:70%}
-.cf-screen .tb-codes .nm .tag{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cf-screen .gt{border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
 .cf-screen .gt .spec{table-layout:fixed}
 .cf-screen .gt .spec thead th{background:var(--input);padding:9px 12px}
 .cf-screen .gt .spec td{padding:9px 12px}
 .cf-screen .spec .uisel-btn{width:100%;min-width:0}
 .cf-screen .spec td.dim{color:var(--fg-3)}
-.cf-screen .spec .swk{display:inline-flex;align-items:center;gap:8px}
-.cf-screen .spec .swk i{width:8px;height:8px;border-radius:2px;flex:0 0 8px}
-.cf-screen .spec .name b{color:var(--fg);font-weight:600;font-size:13.5px}
-.cf-screen .spec .name .swk i{width:10px;height:10px;border-radius:3px}
-.cf-screen .spec .name>span:not(.swk):not(.tag){display:block;margin-top:2px;font-family:var(--mono);font-size:10.5px;color:var(--fg-3)}
-.cf-screen .spec td.nm b{display:block;color:var(--fg);font-weight:600}
-.cf-screen .spec td .tag.is-warn{margin-top:5px;white-space:nowrap}
 .cf-screen .spec td.cam b{display:block;color:var(--fg);font-weight:600}
 .cf-screen .spec td.cam small{font-family:var(--mono);font-size:10.5px;color:var(--fg-3)}
 .cf-screen .spec .x{width:26px;height:26px;display:grid;place-items:center;border-radius:6px;border:1px solid var(--line);color:var(--fg-3)}
@@ -138,37 +107,91 @@
 .cf-screen .addline .ico{width:16px;height:16px;color:var(--fg-3)}
 .cf-screen .addline .uisel{width:auto;min-width:300px}
 .cf-screen .addline .note{font-size:12.5px;color:var(--fg-3)}
-
-/* Редактор зон: порядок строк — порядок опасности */
-.cf-screen .tb-zones{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r);background:var(--input)}
-.cf-screen .tb-zr{position:relative;display:grid;grid-template-columns:22px 30px 72px minmax(0,1fr) 112px 28px;align-items:center;column-gap:8px;row-gap:4px;padding:6px 8px;border-bottom:1px solid var(--line)}
-.cf-screen .tb-zr:last-child{border-bottom:none}
-.cf-screen .tb-zr.is-head{min-height:30px;padding-block:0;background:var(--panel);border-radius:var(--r) var(--r) 0 0;font-size:10.5px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.06em}
-.cf-screen .tb-zr.is-head span:nth-child(3),.cf-screen .tb-zr.is-head span:nth-child(5){text-align:center}
-.cf-screen .tb-ord{display:flex;flex-direction:column}
-.cf-screen .tb-arr{height:14px;display:grid;place-items:center;border-radius:4px;color:var(--fg-3)}
-.cf-screen .tb-arr:hover:not([disabled]){color:var(--fg);background:var(--panel-2)}
-.cf-screen .tb-arr[disabled]{opacity:.25;cursor:default}
-.cf-screen .tb-arr .ico{transform:rotate(-90deg)}
-.cf-screen .tb-arr.dn .ico{transform:rotate(90deg)}
-.cf-screen .tb-sw{width:28px;height:28px;display:grid;place-items:center;border-radius:7px;border:1px solid var(--line)}
-.cf-screen .tb-sw:hover,.cf-screen .tb-sw.is-open{border-color:var(--line-hi)}
-.cf-screen .tb-sw i{width:14px;height:14px;border-radius:4px;background:var(--c);box-shadow:0 0 8px var(--c)}
-.cf-screen .tb-zr .inp{height:30px;width:100%;min-width:0}
-.cf-screen .tb-zr .tb-zn{font-family:var(--mono);text-align:center;font-variant-numeric:tabular-nums}
-.cf-screen .tb-radio{justify-self:center;width:28px;height:28px;display:grid;place-items:center;border-radius:7px}
-.cf-screen .tb-radio:hover{background:var(--panel-2)}
-.cf-screen .tb-radio i{width:16px;height:16px;display:grid;place-items:center;border-radius:50%;border:1px solid var(--line-hi)}
-.cf-screen .tb-radio.is-on i{border-color:var(--acc)}
-.cf-screen .tb-radio.is-on i::after{content:'';width:8px;height:8px;border-radius:50%;background:var(--acc);box-shadow:0 0 8px rgba(var(--acc-rgb),.7)}
 .cf-screen .tb-x{width:26px;height:26px;display:grid;place-items:center;border-radius:6px;border:1px solid var(--line);color:var(--fg-3)}
 .cf-screen .tb-x:hover:not([disabled]){border-color:rgba(255,107,128,.5);color:var(--err)}
 .cf-screen .tb-x[disabled]{opacity:.3;cursor:not-allowed}
-.cf-screen .tb-msg{grid-column:3/-1;font-size:11.5px;color:var(--err)}
-.cf-screen .tb-pal{position:absolute;left:38px;top:40px;z-index:5;display:grid;grid-template-columns:repeat(4,24px);gap:6px;padding:9px;background:var(--panel-2);border:1px solid var(--line-hi);border-radius:var(--r);box-shadow:var(--shadow-lg)}
-.cf-screen .tb-pal button{width:24px;height:24px;border-radius:6px;background:var(--c)}
-.cf-screen .tb-pal button.is-on{outline:2px solid var(--fg);outline-offset:2px}
 .cf-screen .tb-foot{display:flex;align-items:center;gap:10px}
+.cf-screen .tb-foot .note{font-size:11.5px;color:var(--fg-3)}
+.cf-screen .tb-foot{justify-content:space-between}
+
+/* Группы страницы */
+.cf-screen .mt-group{display:flex;flex-direction:column;gap:10px;min-width:0}
+.cf-screen .mt-group-h{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.cf-screen .mt-group-h h4{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-2)}
+.cf-screen .mt-group-h .n{font-family:var(--mono);font-size:11px;color:var(--fg-3)}
+
+/* Число строки: по умолчанию приглушено, вне словаря — плашка */
+.cf-screen .mt-v .k{font-family:var(--mono);font-weight:600;color:var(--acc);margin-right:8px;font-variant-numeric:tabular-nums}
+.cf-screen .mt-v .tag{padding:1px 7px;font-size:11px}
+.cf-screen .mt-v.is-auto{color:var(--fg-3)}
+.cf-screen .mt-v.is-auto .k{color:var(--fg-2)}
+.cf-screen .mt-plus{display:inline-block;font-family:var(--mono);font-size:10px;line-height:15px;padding:0 5px;margin-right:7px;border-radius:4px;border:1px dashed var(--line-hi);color:var(--fg-3)}
+.cf-screen .mt-from{font-size:11px;color:var(--fg-3);margin-right:7px}
+.cf-screen .mt-empty{color:var(--fg-3)}
+.cf-screen .uisel-val small{font-family:var(--mono);font-size:10.5px;color:var(--fg-3);margin-left:8px}
+
+/* Строки таблицы сеткой */
+.cf-screen .mt-tab{border:1px solid var(--line);border-radius:var(--r);background:var(--input)}
+.cf-screen .mt-r{display:grid;grid-template-columns:44px minmax(0,1fr) minmax(0,1.15fr);align-items:center;column-gap:12px;min-height:42px;padding:5px 8px 5px 12px;border-bottom:1px solid var(--line);font-size:12.5px}
+.cf-screen .mt-tab.has-over .mt-r{grid-template-columns:44px minmax(0,1fr) minmax(0,1.15fr) minmax(0,1.15fr)}
+.cf-screen .mt-tab.is-cams .mt-r{grid-template-columns:44px minmax(0,.8fr) minmax(0,1.3fr) 26px}
+.cf-screen .mt-r:last-child{border-bottom:none}
+.cf-screen .mt-r.is-head{min-height:30px;padding-block:0;background:var(--panel);border-radius:var(--r) var(--r) 0 0;font-size:10.5px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.06em}
+.cf-screen .mt-r.is-head em{font-style:normal;text-transform:none;letter-spacing:0;color:var(--acc);margin-left:6px}
+.cf-screen .mt-r.is-off{box-shadow:inset 3px 0 0 var(--warn);background:linear-gradient(90deg,color-mix(in srgb,var(--warn) 9%,transparent),transparent 60%)}
+.cf-screen .mt-r .uisel-btn{height:30px;font-size:12px}
+.cf-screen .mt-r .inp{height:30px;width:100%;min-width:0}
+.cf-screen .mt-wide{grid-column:1/-1;font-size:12px;color:var(--fg-3)}
+.cf-screen .mt-id{font-family:var(--mono);font-size:11.5px;color:var(--fg-3);font-variant-numeric:tabular-nums}
+.cf-screen .mt-bit{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--acc);font-variant-numeric:tabular-nums}
+.cf-screen .mt-name{display:flex;flex-direction:column;gap:2px;min-width:0}
+.cf-screen .mt-name b{font-weight:600;color:var(--fg)}
+.cf-screen .mt-name small{font-family:var(--mono);font-size:10.5px;color:var(--fg-3)}
+.cf-screen .mt-sc{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cf-screen .mt-sc.is-main{color:var(--fg)}
+.cf-screen .mt-sc i{width:7px;height:7px;flex:0 0 7px;border-radius:2px}
+.cf-screen .mt-x{width:26px;height:26px;display:grid;place-items:center;flex:none;border-radius:6px;border:1px solid var(--line);color:var(--fg-3)}
+.cf-screen .mt-x:hover{border-color:rgba(255,107,128,.5);color:var(--err)}
+
+/* Секция конфигурации нейросети: шапка сворачивает, крестик убирает из таблицы */
+.cf-screen .mt-model{min-width:0}
+.cf-screen .mt-mh{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-height:52px;padding:10px 12px 10px 16px;color:var(--fg);cursor:pointer}
+.cf-screen .mt-mh:focus-visible{outline:2px solid var(--acc-dim);outline-offset:-2px;border-radius:var(--r-lg)}
+.cf-screen .mt-mh .car{flex:0 0 12px;color:var(--fg-3);transform:rotate(90deg);transition:transform .15s ease}
+.cf-screen .mt-model.is-closed .mt-mh .car{transform:none}
+.cf-screen .mt-model:not(.is-closed) .mt-mh{border-bottom:1px solid var(--line)}
+.cf-screen .mt-mh .ttl{font-size:14px;font-weight:650}
+.cf-screen .mt-mh .id{font-family:var(--mono);font-size:11px;color:var(--fg-3)}
+.cf-screen .mt-act{display:inline-flex;align-items:center;gap:7px;font-size:11.5px;color:var(--fg-3)}
+.cf-screen .mt-act.is-on{color:var(--ok)}
+.cf-screen .mt-sum{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap}
+.cf-screen .mt-mb{padding:14px 16px 16px;display:flex;flex-direction:column;gap:16px}
+.cf-screen .mt-blk{display:flex;flex-direction:column;gap:8px;min-width:0}
+.cf-screen .mt-blk-h{display:flex;align-items:baseline;gap:8px;font-size:12px;color:var(--fg-3)}
+.cf-screen .mt-blk-h b{font-size:12.5px;font-weight:600;color:var(--fg)}
+.cf-screen .mt-blk-h .to{color:var(--fg-2)}
+.cf-screen .mt-blk-h .n{font-family:var(--mono);font-size:11px}
+.cf-screen .mt-line{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-height:40px;padding:8px 12px;border:1px dashed var(--line);border-radius:var(--r);font-size:12px;color:var(--fg-3)}
+.cf-screen .mt-line b{font-size:12.5px;font-weight:600;color:var(--fg-2)}
+.cf-screen .mt-line .n{font-family:var(--mono);font-size:11px}
+.cf-screen .mt-none{display:flex;flex-direction:column;gap:4px;padding:22px 18px;border:1px dashed var(--line-hi);border-radius:var(--r-lg);font-size:12.5px;color:var(--fg-3)}
+.cf-screen .mt-none b{font-size:13.5px;font-weight:600;color:var(--fg)}
+
+/* Словари: по одному во всю ширину */
+.cf-screen .mt-dicts{display:flex;flex-direction:column;gap:14px}
+.cf-screen .mt-dict .card-h .id{font-family:var(--mono);font-size:11px;color:var(--fg-3)}
+.cf-screen .mt-dict .card-h .tag{margin-left:auto}
+.cf-screen .mt-d{border:1px solid var(--line);border-radius:var(--r);background:var(--input)}
+.cf-screen .mt-dr{display:grid;grid-template-columns:72px minmax(0,1fr) 64px 26px;align-items:center;column-gap:10px;row-gap:4px;padding:5px 8px;border-bottom:1px solid var(--line)}
+.cf-screen .mt-dr:last-child{border-bottom:none}
+.cf-screen .mt-dr.is-head{min-height:30px;padding-block:0;background:var(--panel);border-radius:var(--r) var(--r) 0 0;font-size:10.5px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.06em}
+.cf-screen .mt-dr.is-head span:first-child{text-align:center}
+.cf-screen .mt-dr.is-head span:nth-child(3){text-align:right}
+.cf-screen .mt-dr .inp{height:32px;width:100%;min-width:0}
+.cf-screen .mt-dr .mt-dn{font-family:var(--mono);text-align:center;font-variant-numeric:tabular-nums}
+.cf-screen .mt-use{font-family:var(--mono);font-size:11px;color:var(--fg-3);text-align:right;white-space:nowrap}
+.cf-screen .mt-use.is-on{color:var(--fg-2)}
+.cf-screen .mt-msg{grid-column:2/-1;font-size:11.5px;color:var(--err)}
 
 /* Список конфигураций */
 .cf-screen .cf-list{padding:10px;display:flex;flex-direction:column;gap:8px}

@@ -14,6 +14,8 @@ import type {
 import { formatInt } from '../utils/format';
 import { humanizeError } from '../utils/errors';
 import { blurOnEnter, connState, DeviceSelect, PILL_LABEL, PILL_TONE, Pill } from './ModuleBits';
+import { fieldText, type Dictionaries } from '../utils/dictionaries';
+import { FitText } from '../../../app/FitText';
 
 interface Props {
   module: GwModbusModule;
@@ -21,6 +23,8 @@ interface Props {
   devices: GwDevices | null;
   // Пояс шлюза, минуты от UTC
   tzMin: number;
+  // Словари мастера: code, zone, cameras
+  dicts: Dictionaries;
   busy: boolean;
   onSave: (patch: GwModbusConfigPatch) => void;
   onConnect: () => void;
@@ -170,14 +174,14 @@ const Packet: React.FC<{ r: GwModbusRecord }> = ({ r }) => (
   </div>
 );
 
-// Столбцы таблицы записей: поля с пометкой brief; столбец с расшифровкой хоть у одной записи — шире
+// Столбцы таблицы записей: поля с пометкой brief; столбец с расшифровкой хоть у одной записи — широкий, число с названием слева, остальные — число справа
 const briefOf = (r: GwModbusRecord) => r.fields.filter((f) => f.brief);
 const wideOf = (records: GwModbusRecord[]) =>
   new Set(records.flatMap((r) => briefOf(r).filter((f) => f.text).map((f) => f.reg)));
 const columnsOf = (brief: GwPacketField[], wide: Set<number>) =>
-  ['62px', '112px', '128px', ...brief.map((f) => (wide.has(f.reg) ? 'minmax(0,1.4fr)' : '84px'))].join(' ');
+  ['62px', '104px', '104px', ...brief.map((f) => (wide.has(f.reg) ? 'minmax(0,1.4fr)' : '76px'))].join(' ');
 
-const RecordLine: React.FC<{ e: GwModbusRecent; win: boolean; tzMs: number }> = ({ e, win, tzMs }) => {
+const RecordLine: React.FC<{ e: GwModbusRecent; win: boolean; tzMs: number; wide: Set<number> }> = ({ e, win, tzMs, wide }) => {
   const [label, tone] = STATUS[e.status];
   const done = e.status === 'read' || e.status === 'dropped';
   const hidden = e.status === 'hidden';
@@ -195,10 +199,10 @@ const RecordLine: React.FC<{ e: GwModbusRecent; win: boolean; tzMs: number }> = 
         <small>{hidden ? 'часы платы' : day(e.ts + tzMs)}</small>
       </span>
       {briefOf(e).map((f) =>
-        f.text ? (
+        wide.has(f.reg) ? (
           <span key={f.reg} className="cd">
             <i>{f.value}</i>
-            <span>{f.text}</span>
+            <FitText text={f.text ?? ''} />
           </span>
         ) : (
           <span key={f.reg} className={f.kind === 'frame' ? 'fr' : 'ct'}>
@@ -266,11 +270,21 @@ function Seg<T extends string | number>({ value, options, disabled, onPick }: {
   );
 }
 
-const ModbusModulePanel: React.FC<Props> = ({ module, title, devices, tzMin, busy, onSave, onConnect, onDisconnect }) => {
+// Поля с ключом словаря получают расшифровку по словарям мастера
+function decoded<T extends GwModbusRecord>(r: T, dicts: Dictionaries): T {
+  return { ...r, fields: r.fields.map((f) => (f.dict ? { ...f, text: fieldText(dicts, f.dict, f.value) } : f)) };
+}
+
+const ModbusModulePanel: React.FC<Props> = ({ module, title, devices, tzMin, dicts, busy, onSave, onConnect, onDisconnect }) => {
   const [filter, setFilter] = useState<Filter>('all');
   const [formError, setFormError] = useState('');
 
-  const { connection: c, slave, master, time, state, queue, counters, log } = module;
+  const { connection: c, slave, master, time, state, counters, log } = module;
+  const queue = {
+    ...module.queue,
+    head: module.queue.head && decoded(module.queue.head, dicts),
+    recent: module.queue.recent.map((r) => decoded(r, dicts)),
+  };
   const tzMs = tzMin * 60_000;
   const st = connState(module);
   const portErr = humanizeError(c.error);
@@ -507,7 +521,7 @@ const ModbusModulePanel: React.FC<Props> = ({ module, title, devices, tzMin, bus
                 </div>
                 {earlier > 0 && <div className="mb-more">ещё {formatInt(earlier)} ждут чтения</div>}
                 {[...waiting, ...done].map((e) => (
-                  <RecordLine key={`${e.number}-${e.status}-${e.ts}`} e={e} tzMs={tzMs} win={e.status === 'queued' && e.number === headNo} />
+                  <RecordLine key={`${e.number}-${e.status}-${e.ts}`} e={e} tzMs={tzMs} wide={wide} win={e.status === 'queued' && e.number === headNo} />
                 ))}
               </div>
             ) : (
