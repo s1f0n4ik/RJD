@@ -2,6 +2,7 @@ import type { IconName } from './Icons';
 import { sectionLabel } from '../screens/krsps/sections';
 import { SURROUND_SECTIONS, surroundSectionLabel } from '../screens/surround/sections';
 import { NEURAL_SECTIONS, neuralSectionLabel } from '../screens/neural/sections';
+import { CONFIG_SECTIONS, configSectionLabel } from '../screens/configurations/sections';
 
 /**
  * Разделы оболочки.
@@ -39,7 +40,10 @@ export const NAV: NavItem[] = [
     { to: '/live',     label: 'Отображение',         icon: 'grid',  desc: 'Сетки просмотра и прямой эфир', admin: true },
     { to: '/archive',  label: 'Архив',               icon: 'arch',  desc: 'Записи, таймлайны и склейка' },
     { to: '/devices',  label: 'Устройства',          icon: 'dev',   desc: 'Одноплатники: состояние и маршрутизация', admin: true },
-    { to: '/configurations', label: 'Конфигурации',  icon: 'kit',   desc: 'Конфигурация изделия: фильтр обнаружений и таблицы соответствий', admin: true },
+    {
+        to: '/configurations', label: 'Конфигурации', icon: 'kit', desc: 'Конфигурация изделия: фильтр обнаружений и таблицы соответствий', admin: true,
+        sub: CONFIG_SECTIONS.map((s, i) => ({ to: `/configurations/${s.id}`, label: s.label, n: String(i + 1).padStart(2, '0') })),
+    },
 
     {
         to: '/neural', label: 'Техническое зрение', icon: 'eye', group: 'Модули', desc: 'Нейросети, видеопотоки, инференс, журнал',
@@ -62,8 +66,6 @@ export const CRUMBS: Record<string, string[]> = {
     '/archive': ['Архив'],
     '/devices': ['Устройства'],
     '/configurations': ['Конфигурации'],
-    '/configurations/table': ['Конфигурации', 'Таблица соответствий'],
-    '/configurations/dict': ['Конфигурации', 'Словари'],
 };
 
 // Крошки для путей с разделами внутри: /krsps/<модуль>, /surround/<подраздел>
@@ -76,5 +78,7 @@ export function crumbsFor(pathname: string): string[] {
     if (surround) return surround[1] ? ['Система 360', surroundSectionLabel(surround[1])] : ['Система 360'];
     const neural = /^\/neural(?:\/([^/]+))?$/.exec(pathname);
     if (neural) return neural[1] ? ['Техническое зрение', neuralSectionLabel(neural[1])] : ['Техническое зрение'];
+    const config = /^\/configurations\/([^/]+)$/.exec(pathname);
+    if (config) return ['Конфигурации', configSectionLabel(config[1])];
     return ['Главная'];
 }

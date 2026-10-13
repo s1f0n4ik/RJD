@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Icon } from '../../../app/Icons';
 import { Switch } from '../../../app/Modal';
 import { Select } from '../../../app/Select';
@@ -125,13 +125,23 @@ function passes(f: Filter, e: GwModbusExchange): boolean {
   return true;
 }
 
-const Seps: React.FC<{ parts: Array<string | false | null | undefined> }> = ({ parts }) => (
+const Seps: React.FC<{ parts: React.ReactNode[] }> = ({ parts }) => (
   <span className="seps">
     {parts.filter(Boolean).map((p, i) => (
       <span key={i}>{p}</span>
     ))}
   </span>
 );
+
+// Возраст из статуса шлюза дотикивает от момента ответа
+const Since: React.FC<{ ms: number; at: number; children: (ms: number) => string }> = ({ ms, at, children }) => {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const t = window.setInterval(() => tick((v) => v + 1), 100);
+    return () => window.clearInterval(t);
+  }, []);
+  return <>{children(ms + performance.now() - at)}</>;
+};
 
 // Регистры поля шестнадцатерично; ряд одинаковых — одним значением с кратностью
 function fieldHex(regs: number[], f: GwPacketField): string {
@@ -171,6 +181,27 @@ const Packet: React.FC<{ r: GwModbusRecord }> = ({ r }) => (
         </div>
       </React.Fragment>
     ))}
+  </div>
+);
+
+// Пустое окно на невидимом каркасе пакета той же длины — высота как у заполненного
+const EmptyWindow: React.FC<{ regs: number; hidden: number }> = ({ regs, hidden }) => (
+  <div className="mb-win">
+    <div className="mb-pkt" style={{ visibility: 'hidden' }}>
+      {Array.from({ length: Math.ceil(regs / 16) }, (_, row) => (
+        <React.Fragment key={row}>
+          <div className="mb-ruler"><span>0</span></div>
+          <div className="mb-row">
+            <div className="mb-f off"><span className="c">0</span><span className="v">0</span><span className="h">0</span></div>
+          </div>
+        </React.Fragment>
+      ))}
+    </div>
+    <div className="mb-pkt-empty">
+      <Icon name="lock" size={18} />
+      <b>Окно пустое</b>
+      {hidden > 0 && <span>скрыто {formatInt(hidden)}</span>}
+    </div>
   </div>
 );
 
@@ -278,8 +309,11 @@ function decoded<T extends GwModbusRecord>(r: T, dicts: Dictionaries): T {
 const ModbusModulePanel: React.FC<Props> = ({ module, title, devices, tzMin, dicts, busy, onSave, onConnect, onDisconnect }) => {
   const [filter, setFilter] = useState<Filter>('all');
   const [formError, setFormError] = useState('');
+  const seen = useRef({ module, at: performance.now() });
+  if (seen.current.module !== module) seen.current = { module, at: performance.now() };
+  const at = seen.current.at;
 
-  const { connection: c, slave, master, time, state, counters, log } = module;
+  const { connection: c, slave, master, time, gps, state, counters, log } = module;
   const queue = {
     ...module.queue,
     head: module.queue.head && decoded(module.queue.head, dicts),
@@ -298,9 +332,7 @@ const ModbusModulePanel: React.FC<Props> = ({ module, title, devices, tzMin, dic
   const summary = ['RS-485', device, line, `адрес ${slave.address}`];
 
   const hasTime = time.age_ms >= 0;
-  // Первый регистр состояния — 0x1007
-  const main = state.registers[0];
-  const stateOk = !!main?.ok;
+  const hasGps = gps.age_ms >= 0;
 
   const head = queue.head;
   const headNo = head?.number;
@@ -348,12 +380,9 @@ const ModbusModulePanel: React.FC<Props> = ({ module, title, devices, tzMin, dic
             <span className="c"><span className={`dot ${master.online ? 'ok' : master.age_ms >= 0 ? 'err' : ''}`} />АС КРСПС</span>
             <b>{master.online ? 'На связи' : master.age_ms >= 0 ? 'Молчит' : 'Не опрашивала'}</b>
             <span className="s">
-              <Seps
-                parts={[
-                  master.age_ms >= 0 && (master.online ? `запрос ${ago(master.age_ms)} назад` : ago(master.age_ms)),
-                  `всего ${formatInt(counters.requests)}`,
-                ]}
-              />
+              {master.age_ms >= 0 && (
+                <Since ms={master.age_ms} at={at}>{(v) => (master.online ? `запрос ${ago(v)} назад` : ago(v))}</Since>
+              )}
             </span>
           </div>
 
@@ -362,18 +391,18 @@ const ModbusModulePanel: React.FC<Props> = ({ module, title, devices, tzMin, dic
             <b>{hasTime ? clock(time.unix_s * 1000 + tzMs) : 'Не приходило'}</b>
             <span className="s">
               {hasTime ? (
-                <Seps parts={[`${ago(time.age_ms)} назад`, `сдвиг платы ${-time.offset_ms > 0 ? '+' : ''}${sec(-time.offset_ms)} с`]} />
+                <Since ms={time.age_ms} at={at}>{(v) => `${ago(v)} назад`}</Since>
               ) : (
                 <Seps parts={[`скрыто ${formatInt(queue.hidden)}`]} />
               )}
             </span>
           </div>
 
-          <div className={`mb-tile is-big ${stateOk ? 'is-ok' : 'is-err'}`}>
-            <span className="c"><span className={`dot ${stateOk ? 'ok' : 'err'}`} />Состояние<span className="a">0x{hex(main?.addr ?? 0x1007)}</span></span>
-            <b>{main?.value ?? '—'}</b>
+          <div className={`mb-tile${hasGps ? '' : ' is-warn'}`}>
+            <span className="c"><span className={`dot ${gps.valid ? 'ok' : 'warn'}`} />Координаты АС КРСПС</span>
+            <b>{hasGps ? `${coord(gps.lat, 'N', 'S')} ${coord(gps.lon, 'E', 'W')}` : 'Не приходили'}</b>
             <span className="s">
-              <Seps parts={main?.reason ?? []} />
+              {hasGps && <Since ms={gps.age_ms} at={at}>{(v) => `${ago(v)} назад`}</Since>}
             </span>
           </div>
         </div>
@@ -431,7 +460,14 @@ const ModbusModulePanel: React.FC<Props> = ({ module, title, devices, tzMin, dic
                   <Icon name="warn" size={15} />
                   Порт: {portErr}
                   <span className="mb-retry">
-                    <Seps parts={[!!c.attempt && `попытка ${c.attempt}`, !!c.retry_in_ms && `следующая через ${Math.ceil(c.retry_in_ms / 1000)} с`]} />
+                    <Seps
+                      parts={[
+                        !!c.attempt && `попытка ${c.attempt}`,
+                        !!c.retry_in_ms && (
+                          <Since ms={-c.retry_in_ms} at={at}>{(v) => `следующая через ${Math.max(0, Math.ceil(-v / 1000))} с`}</Since>
+                        ),
+                      ]}
+                    />
                   </span>
                 </div>
               )}
@@ -477,12 +513,12 @@ const ModbusModulePanel: React.FC<Props> = ({ module, title, devices, tzMin, dic
                 <b>{formatInt(queue.dropped)}</b>
               </div>
               <div className={`kpi${!mark ? ' is-none' : mark.ok ? '' : ' is-warn'}`}>
-                <span>Последняя отметка</span>
+                <span>Отправка</span>
                 <b>
                   {mark ? (
                     <>
-                      {mark.first}–{mark.last}
-                      <small>{mark.ok ? `${ago(mark.age_ms)} назад` : 'отклонена'}</small>
+                      <Since ms={mark.age_ms} at={at}>{ago}</Since>
+                      <small>{mark.ok ? 'назад' : 'назад, отклонена'}</small>
                     </>
                   ) : (
                     '—'
@@ -498,11 +534,7 @@ const ModbusModulePanel: React.FC<Props> = ({ module, title, devices, tzMin, dic
             {head ? (
               <Packet r={head} />
             ) : (
-              <div className="mb-pkt-empty">
-                <Icon name="lock" size={18} />
-                <b>Окно пустое</b>
-                {queue.hidden > 0 && <span>скрыто {formatInt(queue.hidden)}</span>}
-              </div>
+              <EmptyWindow regs={queue.recent[0]?.regs.length || module.block[2] || 32} hidden={queue.hidden} />
             )}
           </div>
           <div className="card-b" style={{ paddingTop: 0 }}>
@@ -579,7 +611,7 @@ const ModbusModulePanel: React.FC<Props> = ({ module, title, devices, tzMin, dic
                 {shown.map((e) => {
                   const bad = !!(e.exception || e.detail.error);
                   return (
-                    <div key={e.seq} data-tip={e.tx ? `${e.rx} → ${e.tx}` : e.rx}>
+                    <div key={e.seq}>
                       <span className="t">
                         {clock(e.ts + tzMs)}.{String(e.ts % 1000).padStart(3, '0')}
                       </span>

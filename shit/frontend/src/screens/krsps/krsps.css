@@ -212,7 +212,7 @@
 .kpi.is-none b{color:var(--fg-3)}
 
 /* Modbus RTU: сводка плитками */
-.mb-tiles{flex:1 1 100%;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.mb-tiles{flex:1 1 100%;display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) minmax(max-content,1fr);gap:10px}
 .mb-tile{display:flex;flex-direction:column;gap:5px;padding:12px 15px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel);box-shadow:var(--shadow);min-width:0}
 .mb-tile .c{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--fg-3);white-space:nowrap}
 .mb-tile .c .a{margin-left:auto;font-family:var(--mono);font-size:10px}
@@ -222,7 +222,6 @@
 .mb-tile.is-ok b{color:var(--ok)}
 .mb-tile.is-warn b{color:var(--warn)}
 .mb-tile.is-err b{color:var(--err)}
-.mb-tile.is-big b{font-family:var(--mono);font-size:22px;line-height:1.05}
 
 /* Modbus RTU: подключение и регистры свёрнуты под плитками */
 .mb-fold{flex:1 1 100%}
@@ -248,6 +247,7 @@
 .mb-t.t-det{--tone:87,214,154}
 .mb-t.t-frame{--tone:238,155,88}
 .mb-pkt{display:flex;flex-direction:column;gap:5px}
+.mb-win{position:relative}
 .mb-ruler,.mb-row{display:grid;grid-template-columns:repeat(16,minmax(0,1fr));gap:4px}
 .mb-ruler span{font-family:var(--mono);font-size:9.5px;color:var(--fg-3);text-align:center;font-variant-numeric:tabular-nums}
 .mb-row+.mb-ruler{margin-top:6px}
@@ -258,7 +258,7 @@
 .mb-f .h{font-family:var(--mono);font-size:10px;color:rgb(var(--tone));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mb-f.off{--tone:136,140,151;background:transparent;border-style:dashed;border-color:var(--line-hi)}
 .mb-f.off .c,.mb-f.off .h,.mb-f.off .v{color:var(--fg-3)}
-.mb-pkt-empty{height:132px;display:flex;align-items:center;justify-content:center;gap:9px;border:1px dashed var(--line-hi);border-radius:var(--r);color:var(--fg-3);font-size:13px}
+.mb-pkt-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:9px;border:1px dashed var(--line-hi);border-radius:var(--r);color:var(--fg-3);font-size:13px}
 .mb-pkt-empty b{color:var(--fg-2);font-weight:600}
 
 /* Modbus RTU: последние записи */

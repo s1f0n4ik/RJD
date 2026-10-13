@@ -1,7 +1,8 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Navigate, useParams } from 'react-router-dom';
 import { Icon } from '../../app/Icons';
 import { Modal } from '../../app/Modal';
+import { Select, type SelectOption } from '../../app/Select';
 import { useNeuralStatus } from '../../app/neuralStatus';
 import { listAllConfigurations, neuralApi } from '../../features/neural/api/client';
 import { getDevices } from '../../services/devices';
@@ -13,6 +14,7 @@ import {
 import {
     DictionariesPanel, IskraTablePanel, RsmTablePanel, settingsError, tableUsage, type NeuralModel, type RunningMap,
 } from './TablePanels';
+import { isConfigSection } from './sections';
 import './configurations.css';
 
 const POLL_MS = 3000;
@@ -80,8 +82,7 @@ function Metrics({ rows }: { rows: [string, string, string?][] }) {
 }
 
 export default function ConfigurationsScreen() {
-    const navigate = useNavigate();
-    const section = useParams().section;
+    const section = useParams().section ?? '';
     const tableView = section === 'table';
     const dictView = section === 'dict';
     const [state, setState] = useState<CfState | null>(null);
@@ -245,6 +246,8 @@ export default function ConfigurationsScreen() {
     const deviceNames = useMemo(() => new Map(getDevices().map(d => [d.id, d.name])), [link]);
     const cameraName = useCallback((id: string) => cameras.find(c => c.id === id)?.name ?? id, [cameras]);
 
+    if (!isConfigSection(section)) return <Navigate to="/configurations/link" replace />;
+
     if (!state) {
         return (
             <section className="screen mod-screen cf-screen">
@@ -356,6 +359,13 @@ export default function ConfigurationsScreen() {
 
     const patch = (p: Partial<RulesSettings>) => setDraft(d => (d ? { ...d, ...p } : d));
 
+    const options: SelectOption[] = items.map(i => ({
+        value: i.id,
+        label: i.title,
+        hint: `${i.id} · ${i.modules.map(m => m.title).join(', ')} · ${i.active ? 'активна' : 'доступна'}`,
+        dot: i.active ? 'ok' : undefined,
+    }));
+
     let left: React.ReactNode = null;
     if (draft && rules) {
         if (node === 'master') {
@@ -383,16 +393,26 @@ export default function ConfigurationsScreen() {
                         </div>
                     ) : item ? (
                         <>
+                            <div className="cf-bar">
+                                <span className="cf-bar-cap">Конфигурация</span>
+                                <span className="cf-bar-sel">
+                                    <Select
+                                        value={item.id}
+                                        options={options}
+                                        onChange={setSel}
+                                        display={<><b>{item.title}</b><span className="id">{item.id}</span></>}
+                                    />
+                                </span>
+                                <span className="seps cf-bar-mods">
+                                    {item.modules.map(m => <span key={m.id}>{m.title}</span>)}
+                                </span>
+                                {item.active ? (
+                                    <span className="pill ok cf-bar-end"><span className="dot" />активна</span>
+                                ) : (
+                                    <button className="btn btn--acc cf-bar-end" disabled={busy} onClick={() => setPending(item)}>Сделать активной</button>
+                                )}
+                            </div>
                             <div className="cr-body">
-                                <div className="cf-head">
-                                    <span className={`dot${item.active ? ' acc' : ''}`} />
-                                    <h3>{item.title}</h3>
-                                    <span className="id">{item.id}</span>
-                                    <span className={`tag${item.active ? ' is-ok' : ''}`}>{item.active ? 'Активна' : 'Доступна'}</span>
-                                    {!item.active && (
-                                        <button className="btn btn--acc" disabled={busy} onClick={() => setPending(item)}>Сделать активной</button>
-                                    )}
-                                </div>
                                 {!tableView && !dictView && (
                                     <div className="cr-chain">
                                         {devicesNode}
@@ -477,45 +497,6 @@ export default function ConfigurationsScreen() {
                         </div>
                     )}
                 </div>
-
-                <aside className="mod-side">
-                    <div className="blk-h"><h3>Конфигурации</h3><span className="eyebrow spacer">{items.length}</span></div>
-                    <div className="cf-list">
-                        {items.map(i => (
-                            <button
-                                key={i.id}
-                                type="button"
-                                className={`cf-pick${item?.id === i.id ? ' is-sel' : ''}`}
-                                onClick={() => setSel(i.id)}
-                            >
-                                <div className="cf-pick-t">
-                                    <b>{i.title}</b>
-                                    <span className="id">{i.id}</span>
-                                    <span className={`tag${i.active ? ' is-ok' : ''}`}>{i.active ? 'Активна' : 'Доступна'}</span>
-                                </div>
-                                <div className="cf-pick-m">
-                                    {i.modules.map(m => <span key={m.id} className="tag">{m.title}</span>)}
-                                </div>
-                            </button>
-                        ))}
-                    </div>
-                    {item && (
-                        <>
-                            <div className="blk-h"><h3>{item.title}</h3></div>
-                            <div className="blk-b">
-                                <button type="button" className={`mod-item${tableView || dictView ? '' : ' is-on'}`} onClick={() => navigate('/configurations')}>
-                                    <Icon name="link" className="ico" /><span className="nm">Связь и правила</span>
-                                </button>
-                                <button type="button" className={`mod-item${tableView ? ' is-on' : ''}`} onClick={() => navigate('/configurations/table')}>
-                                    <Icon name="tune" className="ico" /><span className="nm">Таблица соответствий</span>
-                                </button>
-                                <button type="button" className={`mod-item${dictView ? ' is-on' : ''}`} onClick={() => navigate('/configurations/dict')}>
-                                    <Icon name="list" className="ico" /><span className="nm">Словари</span>
-                                </button>
-                            </div>
-                        </>
-                    )}
-                </aside>
             </div>
 
             {pick && draft?.[pick] && (

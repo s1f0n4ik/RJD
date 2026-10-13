@@ -32,7 +32,7 @@ DEFAULTS = {
 }
 COUNTERS = ("requests", "replies", "timeouts", "crc", "exceptions", "violations", "records", "marks", "gaps", "repeats")
 
-# Словари пакета 28163 — как в message-gateway/src/core/iskra-integration.cpp
+# Словари пакета 28163 — как в detection-service/app/rules.py; коды с 1, 0 — пусто
 CODES = ["Человек, не удалось распознать наличие СИЗ", "Человек в СИЗ", "Человек без СИЗа",
          "Легковая автомобильная техника", "Грузовая автомобильная техника", "Строительная техника",
          "Сыпучие отходы производства", "Твёрдые отходы производства", "Железнодорожная шпала (мусор)",
@@ -105,7 +105,7 @@ def decode_record(r: list) -> dict:
         "packet": "28163", "time": utc_text(unix_s),
         "lat": angle_text(r[7:10], r[14]) if r[14] else "—",
         "lon": angle_text(r[10:13], r[13]) if r[13] else "—",
-        "code": r[15], "code_text": CODES[r[15]] if r[15] < len(CODES) else "",
+        "code": r[15], "code_text": CODES[r[15] - 1] if 1 <= r[15] <= len(CODES) else "",
         "frame": r[16] | r[17] << 16, "mask": r[18],
         "cameras": ", ".join(ROLES[i] for i in range(4) if r[18] >> i & 1) or "—",
         "zone": r[19], "zone_text": ZONES[r[19]] if r[19] < len(ZONES) else "",
@@ -432,6 +432,10 @@ class Master:
         count = self.poll_state()
         budget = count or 0
         while count and budget > 0:
+            # Выборка дольше периода — время и GPS между порциями
+            if time.monotonic() >= self.next_cycle:
+                self.next_cycle = time.monotonic() + self.s["period_s"]
+                self.write_time_gps()
             numbers = self.fetch(min(count, budget))
             if not numbers or not self.s["mark"]:
                 return
@@ -666,7 +670,7 @@ class FakeSlave:
 
     def push(self, length: int = 32):
         regs = [length, self.next, 1] + [0] * (length - 3)
-        regs[15:21] = [2, 7, 0, 0b0101, 2, 3]
+        regs[15:21] = [3, 7, 0, 0b0101, 2, 3]
         self.queue.append(regs)
         self.next = (self.next + 1) & 0xFFFF
 
@@ -739,6 +743,15 @@ def selftest():
     sent = sum(sl.holding[0x2008 + i] << (16 * i) for i in range(4))
     assert before - 1 <= sent <= time.time() + 1
     assert [sl.holding[0x2000 + i] for i in range(6)] == split_angle(55.752057) + split_angle(37.626105)
+
+    m, sl = fresh()
+    for _ in range(7):
+        sl.push()
+    m.s["period_s"] = 0
+    sent = []
+    m.write_time_gps = lambda addr=None: sent.append(addr) or True
+    m.cycle()
+    assert len(sent) == 4 and not sl.queue, (sent, sl.queue)
 
     m, sl = fresh()
     sl.push(32), sl.push(40), sl.push(130)

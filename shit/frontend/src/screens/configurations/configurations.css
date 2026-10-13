@@ -1,12 +1,19 @@
-/* Конфигурации изделия: цепочка связи и настройки выбранного звена слева, список справа */
+/* Конфигурации изделия: полоса выбора конфигурации, под ней подраздел во всю ширину */
 /* Прокручивается только тело, подвал под ним во всю ширину */
 .cf-screen .mod-body{padding:0;display:flex;flex-direction:column;overflow:hidden}
 .cf-screen .cr-body{padding:22px 26px;display:flex;flex-direction:column;gap:16px;flex:1 1 auto;min-height:0;overflow-y:auto;scrollbar-gutter:stable;container-type:inline-size}
 
-.cf-screen .cf-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:0}
-.cf-screen .cf-head h3{font-size:16px;font-weight:650;letter-spacing:-.01em}
-.cf-screen .cf-head .id{font-family:var(--mono);font-size:11px;color:var(--fg-3)}
-.cf-screen .cf-head .btn{margin-left:auto}
+/* Выбор конфигурации — как «Устройство» в техническом зрении */
+.cf-screen .cf-bar{display:flex;align-items:center;flex-wrap:wrap;gap:10px 14px;min-height:52px;padding:9px 26px;background:var(--bg);border-bottom:1px solid var(--line);flex:0 0 auto}
+.cf-screen .cf-bar-cap{font-size:12px;color:var(--fg-3)}
+.cf-screen .cf-bar-sel{width:300px;max-width:100%;flex:0 1 300px}
+.cf-screen .cf-bar-sel .uisel-btn{gap:9px}
+.cf-screen .cf-bar-sel .uisel-val{display:flex;align-items:baseline;gap:9px}
+.cf-screen .cf-bar-sel .uisel-val b{font-weight:600;color:var(--fg)}
+.cf-screen .cf-bar-sel .uisel-val .id{font-family:var(--mono);font-size:11px;color:var(--fg-3)}
+.cf-screen .cf-bar-mods{font-size:12px;color:var(--fg-2)}
+.cf-screen .cf-bar-end{margin-left:auto}
+.cf-screen .cf-bar .pill{height:26px}
 
 /* Цепочка: устройства → мастер → шлюз → модули */
 .cf-screen .cr-chain{display:grid;grid-template-columns:minmax(0,1fr) 26px minmax(0,1fr) 26px minmax(0,.85fr) 26px minmax(0,1.15fr);align-items:center}
@@ -192,16 +199,6 @@
 .cf-screen .mt-use{font-family:var(--mono);font-size:11px;color:var(--fg-3);text-align:right;white-space:nowrap}
 .cf-screen .mt-use.is-on{color:var(--fg-2)}
 .cf-screen .mt-msg{grid-column:2/-1;font-size:11.5px;color:var(--err)}
-
-/* Список конфигураций */
-.cf-screen .cf-list{padding:10px;display:flex;flex-direction:column;gap:8px}
-.cf-screen .cf-pick{display:flex;flex-direction:column;gap:8px;padding:11px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel);text-align:left;width:100%;transition:border-color .14s}
-.cf-screen .cf-pick:hover{border-color:var(--line-hi)}
-.cf-screen .cf-pick.is-sel{border-color:rgba(var(--acc-rgb),.5);box-shadow:inset 3px 0 0 var(--acc)}
-.cf-screen .cf-pick-t{display:flex;align-items:center;gap:8px;min-width:0}
-.cf-screen .cf-pick-t b{font-size:13px;font-weight:600}
-.cf-screen .cf-pick-t .id{font-family:var(--mono);font-size:10.5px;color:var(--fg-3);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
-.cf-screen .cf-pick-m{display:flex;gap:5px;flex-wrap:wrap}
 
 /* Окна рисуются вне экрана */
 .modal.cf-confirm{--modal-w:460px}
