@@ -16,6 +16,7 @@ namespace gateway {
         double cf = 0.0;                    // confidence 0..1
         std::array<int, 4> box{ 0, 0, 0, 0 }; // x, y, w, h в пикселях
         std::optional<std::string> scls;    // подкатегория (superclass)
+        int scid = 0;                       // место суперкласса в списке конфигурации, с 0
     };
 
     // Точное время + GPS шлюза

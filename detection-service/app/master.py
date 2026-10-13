@@ -51,6 +51,7 @@ class Detection:
     class_id: int = 0
     class_name: str = ""
     superclass: str = ""
+    superclass_id: int = 0
     confidence: float = 0.0
     # Опоздавшее — только в журнал
     late: bool = False
@@ -283,7 +284,7 @@ class Rules:
             detection = Detection(
                 detection_id, packet.device_id, packet.session, packet.camera_id, cls, packet.ts,
                 config_id=packet.config_id, class_id=track.class_id, class_name=track.class_name,
-                superclass=track.superclass, confidence=track.confidence, late=late,
+                superclass=track.superclass, superclass_id=track.superclass_id, confidence=track.confidence, late=late,
                 opened=time.monotonic(), opened_ts=packet.ts,
                 gps=(packet.gps.lat, packet.gps.lon) if packet.gps.valid else None,
             )
@@ -418,11 +419,11 @@ class RsmRules(Rules):
 
     # Сообщение CAN: тип, опасность и номер камеры по таблице соответствий
     def _can_request(self, event: int, ts: int, detection: Detection, track=None) -> "gw.FrameRequest":
-        table = self.settings.table
         d = gw_detection(detection, track)
-        d.type, d.danger = table.resolve(d.cls, d.scls)
+        superclass_id = track.superclass_id if track is not None else detection.superclass_id
+        d.type, d.danger = self.settings.resolve(detection.config_id, d.cid, d.scls, superclass_id)
         request = self._request(event, ts, detection.camera_id, detection.config_id, [d], "can")
-        request.camera_no = table.cameras.get(detection.camera_id, 0)
+        request.camera_no = self.settings.table.cameras.get(detection.camera_id, 0)
         return request
 
     def _ws_takes(self, detection: Detection) -> bool:
@@ -524,14 +525,13 @@ class IskraRules(Rules):
         detection.recorded = True
         if detection.late:
             return
-        table = self.settings.table
-        code = table.codes.get(detection.class_name)
-        if not self.settings.modbus.enabled or code is None:
+        # Код пусто — только журнал
+        code = self.settings.code(detection.config_id, detection.class_id)
+        if not self.settings.modbus.enabled or not code:
             self.feed.filtered("modbus")
             return
-        role = table.roles.get(detection.camera_id, 0)
-        mask = 1 << (role - 1) if role else 0
-        record = gw.Record(code=code, frame_id=detection.id & 0xFFFFFFFF, camera_mask=mask, zone=table.default_zone(),
+        # Зону слот пока не ставит — пусто
+        record = gw.Record(code=code, frame_id=detection.id & 0xFFFFFFFF, camera_mask=self.settings.camera_mask(detection.camera_id),
                            count=1, ts=detection.opened_ts)
         if detection.gps is not None:
             record.gps.CopyFrom(gw.GpsData(lat=detection.gps[0], lon=detection.gps[1], valid=True))

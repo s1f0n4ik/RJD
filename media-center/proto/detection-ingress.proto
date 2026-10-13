@@ -46,6 +46,7 @@ message TrackRecord {
     float confidence = 6;       // 0..1
     repeated int32 box = 7;     // x, y, w, h в пикселях кадра камеры
     TrackState state = 8;
+    int32 superclass_id = 9;    // место суперкласса в списке конфигурации, с 0; при пустом superclass не смотрится
 }
 
 // Все треки одной камеры за такт слота и удалённые в нём; такт без треков не шлётся

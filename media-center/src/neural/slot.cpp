@@ -444,6 +444,11 @@ namespace neural {
                 break;
             }
         }
+        if (g.scls) {
+            const auto& sc = m_config.superclasses;
+            const auto it = std::find_if(sc.begin(), sc.end(), [&](const auto& s) { return s.key == *g.scls; });
+            g.scid = static_cast<int>(it - sc.begin());
+        }
 
         // Пиксельные координаты x, y, w, h — как ждёт протокол шлюза.
         const int x1 = static_cast<int>(std::lround(det.x1_coord));

@@ -66,6 +66,7 @@ namespace detection {
                 r->set_class_id(t.detection.cid);
                 r->set_class_name(t.detection.cls);
                 r->set_superclass(t.detection.scls.value_or(""));
+                r->set_superclass_id(t.detection.scid);
                 r->set_confidence(static_cast<float>(t.detection.cf));
                 for (int v : t.detection.box) r->add_box(v);
             }

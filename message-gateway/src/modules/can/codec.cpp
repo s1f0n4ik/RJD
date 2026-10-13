@@ -11,27 +11,6 @@ namespace varan {
 
         namespace {
 
-            // Словари протокола: числа задаёт сторона заказчика
-            const char* TYPE_TITLES[] = {
-                "",
-                "Человек",
-                "Инструмент",
-                "Металлический предмет",
-                "Каменные и бетонные материалы",
-                "Древесные материалы",
-                "Полимерные и текстильные материалы",
-                "Сезонные и погодные объекты",
-                "Специфические предметы, связанные с работами РСМ"
-            };
-
-            const char* DANGER_TITLES[] = {
-                "",
-                "Информация (нет опасности)",
-                "Средняя опасность",
-                "Высокая опасность",
-                "Критическая опасность"
-            };
-
             // Байты 3-4 и 7-8 идут Intel-порядком (вперёд младшим байтом).
             std::uint16_t read_u16_le(const FCanFrame& f, std::size_t pos) {
                 return static_cast<std::uint16_t>(f.data[pos]) |
@@ -121,14 +100,6 @@ namespace varan {
             }
 
         } // namespace
-
-        std::string can_type_title(int type) {
-            return type >= 1 && type <= 8 ? TYPE_TITLES[type] : "Неизвестный тип";
-        }
-
-        std::string can_danger_title(int danger) {
-            return danger >= 1 && danger <= 4 ? DANGER_TITLES[danger] : "Неизвестный класс";
-        }
 
         std::uint32_t make_j1939_id(int priority, int pgn, int src, int dst) {
             const std::uint32_t dp = static_cast<std::uint32_t>((pgn >> 16) & 0x03);

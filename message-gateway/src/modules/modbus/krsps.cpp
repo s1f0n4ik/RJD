@@ -297,8 +297,8 @@ namespace gateway {
                 if (!f.note.empty()) {
                     o["note"] = f.note;
                 }
-                if (!f.text.empty()) {
-                    o["text"] = f.text;
+                if (!f.dict.empty()) {
+                    o["dict"] = f.dict;
                 }
                 if (f.brief) {
                     o["brief"] = true;

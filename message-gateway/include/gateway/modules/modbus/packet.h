@@ -18,7 +18,7 @@ namespace varan {
             std::string kind;           // service | number | time | geo | detection | frame | reserved
             std::string value;
             std::string note;           // вторая строка значения
-            std::string text;           // расшифровка значения
+            std::string dict;           // словарь мастера, по которому расшифровывается значение
             bool brief = false;         // столбец таблицы записей
         };
 

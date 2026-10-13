@@ -7,13 +7,8 @@ from pydantic import BaseModel, Field, ValidationError, model_validator
 
 logger = logging.getLogger(__name__)
 
-# Код записи 28163: 0–10 по словарю Искры
-Code = Annotated[int, Field(ge=0, le=10)]
-# Роль камеры Искры: 1 дальняя, 2 ближняя, 3 левая, 4 правая, 0 — без роли
-Role = Annotated[int, Field(ge=0, le=4)]
-# Тип обнаружения CAN 1–8 и класс опасности 1–4; 0 — не задано
-CanType = Annotated[int, Field(ge=0, le=8)]
-Danger = Annotated[int, Field(ge=0, le=4)]
+# Число таблицы соответствий; 0 — пусто, наружу не уходит
+Number = Annotated[int, Field(ge=0, le=65535)]
 # Номер камеры CAN в байте 4
 CameraNo = Annotated[int, Field(ge=1, le=8)]
 
@@ -50,72 +45,116 @@ class ModbusModule(BaseModel):
     ceiling_s: float = Field(30.0, ge=1, le=3600)
 
 
-class ClassRule(BaseModel):
-    type: CanType = 0
-    danger: Danger = 0
+class Entry(BaseModel):
+    number: int = Field(ge=1, le=65535)
+    name: str = ""
 
 
-class RsmDefaults(BaseModel):
-    type: int = Field(8, ge=1, le=8)
-    danger: int = Field(1, ge=1, le=4)
+def entries(rows: list[tuple[int, str]]) -> list[Entry]:
+    return [Entry(number=n, name=name) for n, name in rows]
+
+
+def check_dictionary(name: str, rows: list[Entry], limit: int) -> None:
+    numbers = [e.number for e in rows]
+    if len(set(numbers)) != len(numbers):
+        raise ValueError(f"dictionary {name}: numbers must be unique")
+    if any(n > limit for n in numbers):
+        raise ValueError(f"dictionary {name}: numbers must not exceed {limit}")
+
+
+# Число из словаря протокола; вне словаря — пусто
+def known(rows: list[Entry], number: int) -> int:
+    return number if any(e.number == number for e in rows) else 0
+
+
+class ModelTable(BaseModel):
+    # id класса → число; строки нет — id + 1
+    classes: dict[int, Number] = {}
+    # Место суперкласса в списке конфигурации → число; строки нет — место + 1
+    superclasses: dict[int, Number] = {}
+
+    def class_no(self, class_id: int) -> int:
+        return self.classes.get(class_id, class_id + 1)
+
+    def superclass_no(self, place: int) -> int:
+        return self.superclasses.get(place, place + 1)
+
+
+class RsmDictionaries(BaseModel):
+    type: list[Entry] = entries([
+        (1, "Человек"), (2, "Инструмент"), (3, "Металлический предмет"), (4, "Каменные и бетонные материалы"),
+        (5, "Древесные материалы"), (6, "Полимерные и текстильные материалы"), (7, "Сезонные и погодные объекты"),
+        (8, "Специфические предметы, связанные с работами РСМ"),
+    ])
+    danger: list[Entry] = entries([
+        (1, "Информация (нет опасности)"), (2, "Средняя опасность"), (3, "Высокая опасность"), (4, "Критическая опасность"),
+    ])
+
+    @model_validator(mode="after")
+    def _valid(self) -> "RsmDictionaries":
+        # Тип и опасность — байты кадра CAN
+        check_dictionary("type", self.type, 255)
+        check_dictionary("danger", self.danger, 255)
+        return self
 
 
 class RsmTable(BaseModel):
-    # Класс без своего правила и суперкласса
-    defaults: RsmDefaults = RsmDefaults()
-    # Ключ суперкласса → класс опасности
-    superclasses: dict[str, Danger] = {}
-    # Имя класса → тип и опасность
-    classes: dict[str, ClassRule] = {}
+    # Конфигурация нейросети → числа; конфигурации нет — всё по +1
+    models: dict[str, ModelTable] = {}
+    # Правило РСМ: конфигурация нейросети → id класса → опасность вместо суперкласса
+    danger_override: dict[str, dict[int, Number]] = {}
     # id камеры → номер
     cameras: dict[str, CameraNo] = {}
 
     @model_validator(mode="after")
     def _unique_cameras(self) -> "RsmTable":
         numbers = list(self.cameras.values())
-        for number in numbers:
-            if numbers.count(number) > 1:
-                raise ValueError(f"camera number {number} is assigned to more than one camera")
+        if len(set(numbers)) != len(numbers):
+            raise ValueError("camera numbers must be unique")
         return self
 
-    # Тип и опасность: правило класса, затем суперкласс, затем умолчание
-    def resolve(self, class_name: str, superclass: str) -> tuple[int, int]:
-        rule = self.classes.get(class_name, ClassRule())
-        danger = rule.danger or self.superclasses.get(superclass, 0) or self.defaults.danger
-        return rule.type or self.defaults.type, danger
+
+class IskraDictionaries(BaseModel):
+    code: list[Entry] = entries([
+        (1, "Человек, не удалось распознать наличие СИЗ"), (2, "Человек в СИЗ"), (3, "Человек без СИЗа"),
+        (4, "Легковая автомобильная техника"), (5, "Грузовая автомобильная техника"), (6, "Строительная техника"),
+        (7, "Сыпучие отходы производства"), (8, "Твёрдые отходы производства"), (9, "Железнодорожная шпала (мусор)"),
+        (10, "Граффити"), (11, "Борщевик"),
+    ])
+    zone: list[Entry] = entries([(1, "На пути"), (2, "Опасная близость"), (3, "Полоса отвода")])
+
+    @model_validator(mode="after")
+    def _valid(self) -> "IskraDictionaries":
+        check_dictionary("code", self.code, 65535)
+        check_dictionary("zone", self.zone, 65535)
+        return self
 
 
-class Zone(BaseModel):
-    number: int = Field(ge=0, le=65535)
+class IskraCamera(BaseModel):
+    # Бит маски камер записи 28163
+    bit: int = Field(ge=1, le=8)
     name: str = ""
-    color: str = "#94a1ab"
-    # Зона вне многоугольников
-    default: bool = False
+    # Камера технического зрения; пусто — не назначена
+    camera_id: str = ""
 
 
 class IskraTable(BaseModel):
-    # Класс модели → код 28163; класса нет — только журнал
-    codes: dict[str, Code] = {"Человек": 0, "Автомобиль": 3, "Грузовик": 4}
-    # id камеры → роль
-    roles: dict[str, Role] = {}
-    # Порядок — опасность: первая самая опасная
-    zones: list[Zone] = [
-        Zone(number=1, name="На пути", color="#ff6b80"),
-        Zone(number=2, name="Опасная близость", color="#f0bd57"),
-        Zone(number=3, name="Полоса отвода", color="#6aa8ff", default=True),
+    models: dict[str, ModelTable] = {}
+    # Камеры Искры: по умолчанию четыре, не больше восьми
+    cameras: list[IskraCamera] = [
+        IskraCamera(bit=1, name="Дальняя"), IskraCamera(bit=2, name="Ближняя"),
+        IskraCamera(bit=3, name="Левая"), IskraCamera(bit=4, name="Правая"),
     ]
 
     @model_validator(mode="after")
-    def _valid_zones(self) -> "IskraTable":
-        numbers = [z.number for z in self.zones]
-        if len(set(numbers)) != len(numbers):
-            raise ValueError("zone numbers must be unique")
-        if sum(z.default for z in self.zones) != 1:
-            raise ValueError("exactly one zone must be the default")
+    def _valid_cameras(self) -> "IskraTable":
+        bits = [c.bit for c in self.cameras]
+        if len(set(bits)) != len(bits):
+            raise ValueError("camera bits must be unique")
+        assigned = [c.camera_id for c in self.cameras if c.camera_id]
+        if len(set(assigned)) != len(assigned):
+            raise ValueError("a vision camera is assigned to more than one camera")
         return self
-
-    def default_zone(self) -> int:
-        return next(z.number for z in self.zones if z.default)
 
 
 class RsmSettings(BaseModel):
@@ -123,12 +162,32 @@ class RsmSettings(BaseModel):
     websocket: WebSocketModule = WebSocketModule()
     can: CanModule = CanModule()
     table: RsmTable = RsmTable()
+    dictionaries: RsmDictionaries = RsmDictionaries()
+
+    # Тип и опасность CAN: класс → тип; опасность — правило РСМ, иначе суперкласс, без него пусто
+    def resolve(self, config_id: str, class_id: int, superclass: str, superclass_id: int) -> tuple[int, int]:
+        model = self.table.models.get(config_id, ModelTable())
+        override = self.table.danger_override.get(config_id, {})
+        if class_id in override:
+            danger = override[class_id]
+        elif superclass:
+            danger = model.superclass_no(superclass_id)
+        else:
+            danger = 0
+        return known(self.dictionaries.type, model.class_no(class_id)), known(self.dictionaries.danger, danger)
 
 
 class IskraSettings(BaseModel):
     stitch: Stitch = Stitch()
     modbus: ModbusModule = ModbusModule()
     table: IskraTable = IskraTable()
+    dictionaries: IskraDictionaries = IskraDictionaries()
+
+    def code(self, config_id: str, class_id: int) -> int:
+        return known(self.dictionaries.code, self.table.models.get(config_id, ModelTable()).class_no(class_id))
+
+    def camera_mask(self, camera_id: str) -> int:
+        return sum(1 << (c.bit - 1) for c in self.table.cameras if c.camera_id and c.camera_id == camera_id)
 
 
 class RulesStore:

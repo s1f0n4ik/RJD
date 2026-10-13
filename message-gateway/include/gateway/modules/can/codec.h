@@ -34,10 +34,6 @@ namespace varan {
             int camera = 0;        // байт 4 — номер камеры того же обнаружения, 0 — без номера
         };
 
-        // Названия из словарей протокола: тип 1..8, класс опасности 1..4
-        std::string can_type_title(int type);
-        std::string can_danger_title(int danger);
-
         // Раскладывает нагрузку по байтам кадра. Байты сверх четырёх заполняются
         // 0xFF — в J1939 это "значение недоступно", а не ноль.
         FCanFrame encode_detection_frame(const FCanDetectionPayload& p, int priority,

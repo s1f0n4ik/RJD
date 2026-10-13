@@ -89,15 +89,6 @@ namespace varan {
 
             const char* MODULE_TAG = "module:modbus";
 
-            // Коды обнаружения 0–10, зоны 1–3, роли камер по битам маски 1–4
-            const char* const CODES[] = {
-                "Человек, не удалось распознать наличие СИЗ", "Человек в СИЗ", "Человек без СИЗа",
-                "Легковая автомобильная техника", "Грузовая автомобильная техника", "Строительная техника",
-                "Сыпучие отходы производства", "Твёрдые отходы производства", "Железнодорожная шпала (мусор)",
-                "Граффити", "Борщевик" };
-            const char* const ZONES[] = { "", "На пути", "Опасная близость", "Полоса отвода" };
-            const char* const ROLES[] = { "дальняя", "ближняя", "левая", "правая" };
-
             std::int64_t num(const json::object& o, const char* key) {
                 const auto* v = o.if_contains(key);
                 return v && v->is_number() ? v->to_number<std::int64_t>() : 0;
@@ -166,11 +157,9 @@ namespace varan {
             const std::int64_t unix_s = get_unix(regs, 3);
             const std::uint32_t frame = static_cast<std::uint32_t>(regs[16]) | static_cast<std::uint32_t>(regs[17]) << 16;
             std::string cameras;
-            std::string roles;
-            for (int i = 0; i < 4; ++i) {
+            for (int i = 0; i < 16; ++i) {
                 if (regs[18] & (1 << i)) {
                     cameras += (cameras.empty() ? "" : ", ") + std::to_string(i + 1);
-                    roles += (roles.empty() ? "" : ", ") + std::string(ROLES[i]);
                 }
             }
 
@@ -181,10 +170,11 @@ namespace varan {
             f.push_back({ "Долгота", 10, 3, "geo", angle_text(regs, 10) });
             f.push_back({ "E/W", 13, 1, "geo", letter(regs[13]) });
             f.push_back({ "N/S", 14, 1, "geo", letter(regs[14]) });
-            f.push_back({ "Код", 15, 1, "detection", std::to_string(regs[15]), "", regs[15] < 11 ? CODES[regs[15]] : "", true });
+            // Поле несёт ключ словаря мастера
+            f.push_back({ "Код", 15, 1, "detection", std::to_string(regs[15]), "", "code", true });
             f.push_back({ "Стоп-кадр", 16, 2, "frame", std::to_string(frame), "", "", true });
-            f.push_back({ "Камеры", 18, 1, "detection", cameras.empty() ? "—" : cameras, "", roles, true });
-            f.push_back({ "Зона", 19, 1, "detection", std::to_string(regs[19]), "", regs[19] < 4 ? ZONES[regs[19]] : "", true });
+            f.push_back({ "Камеры", 18, 1, "detection", cameras.empty() ? "—" : cameras, "", "cameras", true });
+            f.push_back({ "Зона", 19, 1, "detection", std::to_string(regs[19]), "", "zone", true });
             f.push_back({ "Объектов", 20, 1, "detection", std::to_string(regs[20]), "", "", true });
             f.push_back({ "Резерв", 21, 11, "reserved", "—" });
             return f;

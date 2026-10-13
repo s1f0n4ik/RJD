@@ -335,10 +335,10 @@ namespace varan {
                 note = "обнаружений нет";
             }
             else {
-                note = std::to_string(payload.count) + " обн. · " +
-                    can_type_title(payload.type) + " · " +
-                    can_danger_title(payload.danger) +
-                    " · " + (payload.camera ? "камера " + std::to_string(payload.camera) : std::string("камера без номера"));
+                // Числа как ушли в кадр, 0 — пусто
+                const auto num = [](int v) { return v ? std::to_string(v) : std::string("—"); };
+                note = std::to_string(payload.count) + " обн. · тип " + num(payload.type) +
+                    " · опасность " + num(payload.danger) + " · камера " + num(payload.camera);
             }
 
             {
@@ -504,8 +504,6 @@ namespace varan {
                     o["camera_no"] = d.camera_no;
                     o["type"] = d.type;
                     o["danger"] = d.danger;
-                    o["type_title"] = d.type ? can_type_title(d.type) : std::string("—");
-                    o["danger_title"] = d.danger ? can_danger_title(d.danger) : std::string("—");
                     o["age_ms"] = now - d.mono;
                     o["active"] = alive(d, cfg, now);
                     dets.push_back(std::move(o));
@@ -517,8 +515,6 @@ namespace varan {
             pj["type"] = payload.type;
             pj["danger"] = payload.danger;
             pj["camera_no"] = payload.camera;
-            pj["type_title"] = payload.type ? can_type_title(payload.type) : std::string("—");
-            pj["danger_title"] = payload.danger ? can_danger_title(payload.danger) : std::string("—");
             pj["detections"] = std::move(dets);
             pj["session"] = session;
 
