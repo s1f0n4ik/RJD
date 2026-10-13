@@ -90,9 +90,10 @@ export interface GwCanPayloadDetection {
   camera_no: number;    // 0 — камеры нет в таблице соответствий
   type: number;
   danger: number;
+  type_title: string;
+  danger_title: string;
   age_ms: number;       // с «Подтверждён»
   active: boolean;      // false — погасло по сроку, ждёт «Удалён»
-  passthrough: boolean; // таблицы конфигурации нет, тип — id класса + 1
 }
 
 // Нагрузка, которая прямо сейчас уходит на шину.
@@ -368,56 +369,4 @@ export interface GwModbusConfigPatch {
   device_id?: number;
   version?: number;
   enabled?: boolean;
-}
-
-// ---------------------------------------------------------------- таблица
-// Общая таблица соответствий (/taxonomy): одна на весь шлюз, применяется всеми
-// модулями. Нейросеть отдаёт имена классов, протоколы требуют числовые id —
-// здесь задаётся связь между ними.
-
-// Словарь протокола: тип обнаружения 1..8 либо класс опасности 1..4.
-// Фиксирован на стороне шлюза, правке не подлежит.
-export interface GwTaxonomyDictItem {
-  id: number;
-  title: string;
-}
-
-// Правило класса или суперкласса. type/danger === 0 — «не задано»: поле
-// берётся с более общего уровня (класс -> суперкласс -> по умолчанию).
-export interface GwTaxonomyRule {
-  key: string;
-  title: string;
-  type: number;
-  danger: number;
-}
-
-// Таблица одной конфигурации нейросети. Имена классов задаются конфигом модели
-// и осмысленны только внутри своей конфигурации, поэтому таблица у каждой своя.
-export interface GwTaxonomyConfig {
-  id: string;      // config_id, каким его шлёт media-center
-  title: string;
-  classes: GwTaxonomyRule[];
-  superclasses: GwTaxonomyRule[];
-}
-
-// Камера. Вне конфигураций: камера физическая, от модели не зависит.
-export interface GwTaxonomyCamera {
-  key: string;    // camera_id, каким его шлёт media-center
-  title: string;
-  bit: number;    // номер камеры в байте 4, 1..8
-}
-
-export interface GwTaxonomy {
-  types: GwTaxonomyDictItem[];
-  dangers: GwTaxonomyDictItem[];
-  configs: GwTaxonomyConfig[];
-  cameras: GwTaxonomyCamera[];
-  defaults: { type: number; danger: number };
-}
-
-// Секции заменяются целиком; отсутствующая остаётся как была.
-export interface GwTaxonomyPatch {
-  configs?: GwTaxonomyConfig[];
-  cameras?: GwTaxonomyCamera[];
-  defaults?: { type: number; danger: number };
 }

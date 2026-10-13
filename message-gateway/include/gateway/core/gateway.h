@@ -15,7 +15,6 @@
 #include "gateway/core/frame-sink.h"
 #include "gateway/core/integration.h"
 #include "gateway/core/timesource.h"
-#include "gateway/core/taxonomy.h"
 #include "gateway/core/store.h"
 
 namespace varan {
@@ -51,7 +50,7 @@ namespace varan {
             // конструкторе, до запуска модулей). Сохранённое побеждает флаги
             // запуска — иначе перезапуск сбрасывал бы выбранный режим шины.
             void restore_state();
-            // Записать текущие настройки всех интеграций и таблицу соответствий.
+            // Записать текущие настройки всех интеграций.
             // Зовётся после каждой удачной правки по REST.
             void persist_state();
 
@@ -74,8 +73,6 @@ namespace varan {
             URouter::FResponse handle_versions(const URouter::FRequest& req);
             URouter::FResponse handle_time(const URouter::FRequest& req);
             URouter::FResponse handle_put_time_config(const URouter::FRequest& req);
-            URouter::FResponse handle_get_taxonomy(const URouter::FRequest& req);
-            URouter::FResponse handle_put_taxonomy(const URouter::FRequest& req);
             URouter::FResponse handle_devices(const URouter::FRequest& req);
 
         private:
@@ -90,15 +87,13 @@ namespace varan {
             std::shared_ptr<IIntegration> m_active;
             mutable std::mutex m_active_mutex;
 
-            // Общие для всего шлюза: таблица соответствий (её применяют модули всех
-            // интеграций) и источник времени/GPS (его наполняет модуль CAN).
-            // Живут здесь, а не внутри интеграции, потому что настраиваются один
-            // раз и переживают переключение конфигурации.
-            UTaxonomy m_taxonomy;
+            // Общий для всего шлюза источник времени/GPS (его наполняет модуль CAN).
+            // Живёт здесь, а не внутри интеграции, потому что переживает
+            // переключение конфигурации.
             UTimeSource m_time;
 
-            // Файловое хранилище настроек: таблица соответствий, настройки
-            // сообщений и подключений всех модулей. Переживает перезапуск.
+            // Файловое хранилище настроек: настройки сообщений и подключений
+            // всех модулей. Переживает перезапуск.
             UStore m_store;
 
             std::unique_ptr<UGrpcIngress> m_grpc;

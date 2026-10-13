@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 from typing import Annotated, Optional
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, model_validator
 
 logger = logging.getLogger(__name__)
 
@@ -11,6 +11,11 @@ logger = logging.getLogger(__name__)
 Code = Annotated[int, Field(ge=0, le=10)]
 # Роль камеры Искры: 1 дальняя, 2 ближняя, 3 левая, 4 правая, 0 — без роли
 Role = Annotated[int, Field(ge=0, le=4)]
+# Тип обнаружения CAN 1–8 и класс опасности 1–4; 0 — не задано
+CanType = Annotated[int, Field(ge=0, le=8)]
+Danger = Annotated[int, Field(ge=0, le=4)]
+# Номер камеры CAN в байте 4
+CameraNo = Annotated[int, Field(ge=1, le=8)]
 
 
 class Stitch(BaseModel):
@@ -43,21 +48,87 @@ class ModbusModule(BaseModel):
     enabled: bool = True
     # Запись уходит при закрытии обнаружения, но не позже этого времени после открытия
     ceiling_s: float = Field(30.0, ge=1, le=3600)
+
+
+class ClassRule(BaseModel):
+    type: CanType = 0
+    danger: Danger = 0
+
+
+class RsmDefaults(BaseModel):
+    type: int = Field(8, ge=1, le=8)
+    danger: int = Field(1, ge=1, le=4)
+
+
+class RsmTable(BaseModel):
+    # Класс без своего правила и суперкласса
+    defaults: RsmDefaults = RsmDefaults()
+    # Ключ суперкласса → класс опасности
+    superclasses: dict[str, Danger] = {}
+    # Имя класса → тип и опасность
+    classes: dict[str, ClassRule] = {}
+    # id камеры → номер
+    cameras: dict[str, CameraNo] = {}
+
+    @model_validator(mode="after")
+    def _unique_cameras(self) -> "RsmTable":
+        numbers = list(self.cameras.values())
+        for number in numbers:
+            if numbers.count(number) > 1:
+                raise ValueError(f"camera number {number} is assigned to more than one camera")
+        return self
+
+    # Тип и опасность: правило класса, затем суперкласс, затем умолчание
+    def resolve(self, class_name: str, superclass: str) -> tuple[int, int]:
+        rule = self.classes.get(class_name, ClassRule())
+        danger = rule.danger or self.superclasses.get(superclass, 0) or self.defaults.danger
+        return rule.type or self.defaults.type, danger
+
+
+class Zone(BaseModel):
+    number: int = Field(ge=0, le=65535)
+    name: str = ""
+    color: str = "#94a1ab"
+    # Зона вне многоугольников
+    default: bool = False
+
+
+class IskraTable(BaseModel):
     # Класс модели → код 28163; класса нет — только журнал
     codes: dict[str, Code] = {"Человек": 0, "Автомобиль": 3, "Грузовик": 4}
     # id камеры → роль
     roles: dict[str, Role] = {}
+    # Порядок — опасность: первая самая опасная
+    zones: list[Zone] = [
+        Zone(number=1, name="На пути", color="#ff6b80"),
+        Zone(number=2, name="Опасная близость", color="#f0bd57"),
+        Zone(number=3, name="Полоса отвода", color="#6aa8ff", default=True),
+    ]
+
+    @model_validator(mode="after")
+    def _valid_zones(self) -> "IskraTable":
+        numbers = [z.number for z in self.zones]
+        if len(set(numbers)) != len(numbers):
+            raise ValueError("zone numbers must be unique")
+        if sum(z.default for z in self.zones) != 1:
+            raise ValueError("exactly one zone must be the default")
+        return self
+
+    def default_zone(self) -> int:
+        return next(z.number for z in self.zones if z.default)
 
 
 class RsmSettings(BaseModel):
     stitch: Stitch = Stitch()
     websocket: WebSocketModule = WebSocketModule()
     can: CanModule = CanModule()
+    table: RsmTable = RsmTable()
 
 
 class IskraSettings(BaseModel):
     stitch: Stitch = Stitch()
     modbus: ModbusModule = ModbusModule()
+    table: IskraTable = IskraTable()
 
 
 class RulesStore:

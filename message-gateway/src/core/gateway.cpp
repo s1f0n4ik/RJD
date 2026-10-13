@@ -54,7 +54,7 @@ namespace varan {
             // Пока одна конфигурация — РСМ-2000 (модули WebSocket и CAN). Новые
             // добавляются push_back новой реализации IIntegration.
             auto rsm = std::make_shared<URsm2000Integration>(
-                m_ws_ioc, m_config.ws, m_config.can, m_config.heartbeat_sec, m_taxonomy, m_time);
+                m_ws_ioc, m_config.ws, m_config.can, m_config.heartbeat_sec, m_time);
             m_integrations.push_back(rsm);
             m_active = rsm;
 
@@ -111,17 +111,6 @@ namespace varan {
                 }
             }
 
-            // Таблица соответствий — общий объект, храним под активной конфигурацией.
-            if (auto a = active()) {
-                if (const auto* node = all.if_contains(a->id()); node && node->is_object()) {
-                    if (const auto* tax = node->as_object().if_contains("taxonomy"); tax && tax->is_object()) {
-                        std::string err;
-                        if (!m_taxonomy.apply_json(tax->as_object(), err)) {
-                            ULog::warn(TAG, "restore taxonomy: " + err);
-                        }
-                    }
-                }
-            }
             ULog::info(TAG, "Settings restored from " + m_config.state_file);
         }
 
@@ -140,21 +129,16 @@ namespace varan {
             for (const auto& it : m_integrations) {
                 json::object node;
                 if (const auto* ex = integrations.if_contains(it->id()); ex && ex->is_object()) {
-                    node = ex->as_object();  // сохраняем то, чего нет в памяти (напр. таблицу неактивной)
+                    node = ex->as_object();  // сохраняем то, чего нет в памяти
                 }
+                // Таблица соответствий переехала в мастер обнаружений
+                node.erase("taxonomy");
                 json::object modules;
                 for (const auto& m : it->modules()) {
                     modules[m->id()] = m->config_snapshot();
                 }
                 node["modules"] = std::move(modules);
                 integrations[it->id()] = std::move(node);
-            }
-
-            // Таблица соответствий пишется под активную конфигурацию.
-            if (auto a = active()) {
-                if (auto* node = integrations.if_contains(a->id()); node && node->is_object()) {
-                    node->as_object()["taxonomy"] = m_taxonomy.to_json();
-                }
             }
 
             root["active"] = active() ? active()->id() : "";
@@ -189,13 +173,6 @@ namespace varan {
                 [this](const auto& r) { return handle_module_connect(r, true); });
             m_router->add_route(http::verb::post, "/modules/disconnect",
                 [this](const auto& r) { return handle_module_connect(r, false); });
-
-            // Общая таблица соответствий: одна на весь шлюз, применяется всеми
-            // модулями всех конфигураций.
-            m_router->add_route(http::verb::get, "/taxonomy",
-                [this](const auto& r) { return handle_get_taxonomy(r); });
-            m_router->add_route(http::verb::put, "/taxonomy",
-                [this](const auto& r) { return handle_put_taxonomy(r); });
 
             // Что видно на машине: интерфейсы CAN и serial-порты.
             m_router->add_route(http::verb::get, "/devices",
@@ -437,24 +414,6 @@ namespace varan {
                 m->stop();
             }
             return make_json(req, http::status::ok, m->to_json());
-        }
-
-        URouter::FResponse UGateway::handle_get_taxonomy(const URouter::FRequest& req) {
-            return make_json(req, http::status::ok, m_taxonomy.to_json());
-        }
-
-        URouter::FResponse UGateway::handle_put_taxonomy(const URouter::FRequest& req) {
-            boost::system::error_code ec;
-            auto parsed = json::parse(req.body(), ec);
-            if (ec || !parsed.is_object()) {
-                return make_error(req, http::status::bad_request, "invalid json body");
-            }
-            std::string err;
-            if (!m_taxonomy.apply_json(parsed.as_object(), err)) {
-                return make_error(req, http::status::bad_request, err);
-            }
-            persist_state();
-            return make_json(req, http::status::ok, m_taxonomy.to_json());
         }
 
         URouter::FResponse UGateway::handle_ws_connect(const URouter::FRequest& req) {

@@ -47,7 +47,6 @@ add_executable(${PROJECT_NAME}
     src/core/main.cpp
     src/core/gateway.cpp
     src/core/frame-codec-v1.cpp
-    src/core/taxonomy.cpp
     src/core/store.cpp
     src/core/rsm2000-integration.cpp
     src/core/iskra-integration.cpp

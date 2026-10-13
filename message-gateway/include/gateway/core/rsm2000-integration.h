@@ -10,7 +10,6 @@
 #include "gateway/modules/websocket/module.h"
 #include "gateway/modules/can/module.h"
 #include "gateway/core/config.h"
-#include "gateway/core/taxonomy.h"
 #include "gateway/core/timesource.h"
 #include "gateway/utility/clock.h"
 
@@ -27,7 +26,7 @@ namespace varan {
         class URsm2000Integration : public IIntegration {
         public:
             URsm2000Integration(boost::asio::io_context& ioc, FWsConfig ws, FCanConfig can,
-                int heartbeat_sec, const UTaxonomy& taxonomy, UTimeSource& time_source);
+                int heartbeat_sec, UTimeSource& time_source);
 
             std::string id() const override { return "rsm-2000"; }
             std::string title() const override { return "РСМ-2000"; }

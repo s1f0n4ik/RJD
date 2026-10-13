@@ -72,7 +72,7 @@
 
 .rail-item.is-off .lbl{text-decoration:line-through;text-decoration-color:var(--fg-3)}
 
-.rail-foot{border-top:1px solid var(--line);padding:10px;display:flex;align-items:center;gap:10px;min-height:60px}
+.rail-foot{border-top:1px solid var(--line);padding:10px;display:flex;align-items:center;gap:10px;height:var(--foot);flex:0 0 var(--foot)}
 
 .avatar{
   width:34px;height:34px;flex:0 0 34px;border-radius:10px;

@@ -23,8 +23,6 @@ logger = logging.getLogger(__name__)
 EVENT_NAMES = {value: name.removeprefix("TRACK_EVENT_").lower() for name, value in pb.TrackEvent.items()}
 NO_EVENT = pb.TRACK_EVENT_UNSPECIFIED
 FEED_SIZE = 200
-# Зона записи Искры, пока зон на полотне нет: полоса отвода
-ISKRA_ZONE = 3
 
 # Рамка x, y, w, h
 Box = tuple[int, int, int, int]
@@ -418,6 +416,15 @@ class RsmRules(Rules):
         # Снимки для ЦПУ, ждущие свой кадр: (устройство, сессия, id снимка)
         self.shots: dict[tuple, Shot] = {}
 
+    # Сообщение CAN: тип, опасность и номер камеры по таблице соответствий
+    def _can_request(self, event: int, ts: int, detection: Detection, track=None) -> "gw.FrameRequest":
+        table = self.settings.table
+        d = gw_detection(detection, track)
+        d.type, d.danger = table.resolve(d.cls, d.scls)
+        request = self._request(event, ts, detection.camera_id, detection.config_id, [d], "can")
+        request.camera_no = table.cameras.get(detection.camera_id, 0)
+        return request
+
     def _ws_takes(self, detection: Detection) -> bool:
         ws = self.settings.websocket
         return not detection.late and ws.enabled and ws.allows(detection.class_name, detection.superclass)
@@ -430,15 +437,13 @@ class RsmRules(Rules):
         detection.sent_to.add("can")
         entry = self.feed.add("can", "confirmed", detection.id, detection.class_name, detection.camera_id,
                               confidence=track.confidence)
-        self.outbox.send(Outgoing(self._request(
-            gw.TRACK_EVENT_CONFIRMED, packet.ts, packet.camera_id, packet.config_id, [gw_detection(detection, track)], "can"), entry=entry))
+        self.outbox.send(Outgoing(self._can_request(gw.TRACK_EVENT_CONFIRMED, packet.ts, detection, track), entry=entry))
 
     def on_closed(self, detection: Detection, ended_at: int) -> None:
         if "can" not in detection.sent_to:
             return
         entry = self.feed.add("can", "removed", detection.id, detection.class_name, detection.camera_id)
-        self.outbox.send(Outgoing(self._request(
-            gw.TRACK_EVENT_REMOVED, ended_at, detection.camera_id, detection.config_id, [gw_detection(detection)], "can"), entry=entry))
+        self.outbox.send(Outgoing(self._can_request(gw.TRACK_EVENT_REMOVED, ended_at, detection), entry=entry))
 
     # Первый снимок новых обнаружений — в ЦПУ со всеми целями кадра, которые ЦПУ берёт
     def _shot(self, packet) -> None:
@@ -489,8 +494,7 @@ class RsmRules(Rules):
     def resend(self) -> int:
         sent = [d for d in self.detections.values() if "can" in d.sent_to]
         for detection in sent:
-            self.outbox.send(Outgoing(self._request(
-                gw.TRACK_EVENT_CONFIRMED, detection.last_ts, detection.camera_id, detection.config_id, [gw_detection(detection)], "can")))
+            self.outbox.send(Outgoing(self._can_request(gw.TRACK_EVENT_CONFIRMED, detection.last_ts, detection)))
         if not sent:
             self.outbox.send(Outgoing(self._request(gw.TRACK_EVENT_REMOVED, now_ms(), "", "", [], "can")))
         return len(sent)
@@ -520,14 +524,14 @@ class IskraRules(Rules):
         detection.recorded = True
         if detection.late:
             return
-        modbus = self.settings.modbus
-        code = modbus.codes.get(detection.class_name)
-        if not modbus.enabled or code is None:
+        table = self.settings.table
+        code = table.codes.get(detection.class_name)
+        if not self.settings.modbus.enabled or code is None:
             self.feed.filtered("modbus")
             return
-        role = modbus.roles.get(detection.camera_id, 0)
+        role = table.roles.get(detection.camera_id, 0)
         mask = 1 << (role - 1) if role else 0
-        record = gw.Record(code=code, frame_id=detection.id & 0xFFFFFFFF, camera_mask=mask, zone=ISKRA_ZONE,
+        record = gw.Record(code=code, frame_id=detection.id & 0xFFFFFFFF, camera_mask=mask, zone=table.default_zone(),
                            count=1, ts=detection.opened_ts)
         if detection.gps is not None:
             record.gps.CopyFrom(gw.GpsData(lat=detection.gps[0], lon=detection.gps[1], valid=True))

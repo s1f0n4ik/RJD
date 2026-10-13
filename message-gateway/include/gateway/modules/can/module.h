@@ -15,7 +15,6 @@
 #include "gateway/modules/can/traffic-log.h"
 #include "gateway/core/config.h"
 #include "gateway/core/stats.h"
-#include "gateway/core/taxonomy.h"
 #include "gateway/core/timesource.h"
 
 namespace varan {
@@ -37,8 +36,7 @@ namespace varan {
         // С жизнью нагрузки запись гаснет через payload_ttl_ms после добавления и ждёт «Удалён» погашенной
         class UCanModule : public IModule {
         public:
-            UCanModule(boost::asio::io_context& ioc, FCanConfig config,
-                const UTaxonomy& taxonomy, UTimeSource& time_source);
+            UCanModule(boost::asio::io_context& ioc, FCanConfig config, UTimeSource& time_source);
 
             std::string id() const override { return "can"; }
             std::string title() const override { return "CAN"; }
@@ -50,7 +48,7 @@ namespace varan {
 
             FSubmitResult handle_frame(const FFrameMessage& msg) override;
 
-            // CAN несёт только числовые id из общей таблицы, версия протокола
+            // CAN несёт только числовые id от мастера, версия протокола
             // изображения к нему не относится: кодек здесь свой и один.
             std::vector<int> protocol_versions() const override { return {}; }
 
@@ -63,11 +61,10 @@ namespace varan {
             struct FDetectionState {
                 std::uint64_t id = 0;
                 std::string camera;   // camera_id
-                int camera_no = 0;    // номер из таблицы соответствий, 0 — камеры там нет
+                int camera_no = 0;    // номер от мастера, 0 — камеры нет в таблице соответствий
                 int type = 0;
                 int danger = 0;
                 std::int64_t mono = 0; // монотонный момент «Подтверждён»
-                bool passthrough = false; // таблицы конфигурации нет, тип — id класса + 1
             };
 
             void start_tx();
@@ -87,7 +84,6 @@ namespace varan {
 
         private:
             boost::asio::io_context& m_ioc;
-            const UTaxonomy& m_taxonomy;
             UTimeSource& m_time;
 
             mutable std::mutex m_mutex;

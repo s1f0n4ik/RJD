@@ -133,39 +133,7 @@
 .feed .n.is-err{color:var(--err)}
 .feed .dir{margin:0 4px}
 
-/* Таблица соответствий: таблицы в рамке с затемнённой шапкой */
-.gt{border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
-.gt .spec thead th{background:var(--input);padding:9px 12px}
-.gt .spec td{padding:9px 12px}
 .card-b>.eyebrow{display:block;margin:0 0 8px}
-.gt+.eyebrow{margin-top:16px}
-.spec .uisel-btn{height:30px}
-.spec td.dim{color:var(--fg-3)}
-.spec .swk{display:inline-flex;align-items:center;gap:8px}
-.spec .swk i{width:8px;height:8px;border-radius:2px;flex:0 0 8px}
-.spec .name b{display:block;color:var(--fg);font-weight:600}
-.spec .name>span:not(.swk){font-family:var(--mono);font-size:10.5px;color:var(--fg-3)}
-.spec .name.big b{font-size:13.5px}
-.spec .name.big .swk i{width:10px;height:10px;border-radius:3px}
-.spec .name.big>span:not(.swk){display:block;margin-top:2px}
-.spec .typecell{display:flex;align-items:center;gap:6px}
-.spec .typecell .uisel{flex:1}
-.spec .x{width:26px;height:26px;display:grid;place-items:center;border-radius:6px;border:1px solid var(--line);color:var(--fg-3)}
-.spec .x:hover{border-color:rgba(255,107,128,.5);color:var(--err)}
-.spec .empty{padding:18px}
-.flag{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:5px;background:rgba(255,107,128,.16);color:var(--err);font-family:var(--mono);font-size:11px;font-weight:700;flex:0 0 18px}
-.bitcards{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:6px;margin-bottom:16px}
-.bitcard{border:1px solid var(--line);border-radius:var(--r);background:var(--input);padding:10px 8px;text-align:center;min-width:0}
-.bitcard .n{font-family:var(--mono);font-size:26px;font-weight:700;color:var(--fg-3);line-height:1;font-variant-numeric:tabular-nums}
-.bitcard .l{font-size:9.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-3);margin-top:4px}
-.bitcard .c{font-size:11px;color:var(--fg-3);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.bitcard.is-set{background:rgba(87,214,154,.1);border-color:rgba(87,214,154,.4)}
-.bitcard.is-set .n{color:var(--ok)}
-.bitcard.is-set .c{color:var(--fg)}
-.addline{display:flex;align-items:center;gap:12px;margin-top:14px;font-size:13px;color:var(--fg-2)}
-.addline .ico{width:16px;height:16px;color:var(--fg-3)}
-.addline .uisel{width:auto;min-width:300px}
-.addline .note{font-size:12.5px;color:var(--fg-3)}
 .title-sel{display:flex;align-items:center;gap:10px}
 .title-sel .cap{font-size:12.5px;color:var(--fg-2)}
 .title-sel .uisel{width:auto;min-width:220px}
@@ -213,7 +181,6 @@
 .cb-val .t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cb-val .n{font-family:var(--mono);font-size:11px;color:var(--fg-3);flex:0 0 auto;transition:color .32s}
 .cb-age{font-family:var(--mono);font-size:11px;color:var(--fg-2);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
-.cb-flag{font-size:10px;font-weight:600;padding:1px 6px;border-radius:5px;background:rgba(240,189,87,.14);color:var(--warn);white-space:nowrap;flex:0 0 auto}
 .cb-go{width:96px;justify-content:center;gap:6px}
 .cb-go .ico{width:14px;height:14px}
 /* Строка, давшая байты 2–4: её ячейки окрашены тонами байтов */

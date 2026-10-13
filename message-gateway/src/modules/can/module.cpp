@@ -36,10 +36,8 @@ namespace varan {
 
         } // namespace
 
-        UCanModule::UCanModule(boost::asio::io_context& ioc, FCanConfig config,
-            const UTaxonomy& taxonomy, UTimeSource& time_source)
+        UCanModule::UCanModule(boost::asio::io_context& ioc, FCanConfig config, UTimeSource& time_source)
             : m_ioc(ioc)
-            , m_taxonomy(taxonomy)
             , m_time(time_source)
             , m_config(std::move(config))
             , m_tx_timer(ioc)
@@ -224,10 +222,8 @@ namespace varan {
 
             std::vector<FDetectionState> added;
             if (confirmed) {
-                const int camera_no = m_taxonomy.camera_bit(msg.camera_id);
                 for (const auto& d : msg.dets) {
-                    const auto r = m_taxonomy.resolve(msg.config_id, d);
-                    added.push_back(FDetectionState{ d.detection_id, msg.camera_id, camera_no, r.type, r.danger, mono_ms(), r.passthrough });
+                    added.push_back(FDetectionState{ d.detection_id, msg.camera_id, msg.camera_no, d.type, d.danger, mono_ms() });
                 }
             }
 
@@ -340,8 +336,8 @@ namespace varan {
             }
             else {
                 note = std::to_string(payload.count) + " обн. · " +
-                    UTaxonomy::type_title(payload.type) + " · " +
-                    UTaxonomy::danger_title(payload.danger) +
+                    can_type_title(payload.type) + " · " +
+                    can_danger_title(payload.danger) +
                     " · " + (payload.camera ? "камера " + std::to_string(payload.camera) : std::string("камера без номера"));
             }
 
@@ -508,9 +504,10 @@ namespace varan {
                     o["camera_no"] = d.camera_no;
                     o["type"] = d.type;
                     o["danger"] = d.danger;
+                    o["type_title"] = d.type ? can_type_title(d.type) : std::string("—");
+                    o["danger_title"] = d.danger ? can_danger_title(d.danger) : std::string("—");
                     o["age_ms"] = now - d.mono;
                     o["active"] = alive(d, cfg, now);
-                    o["passthrough"] = d.passthrough;
                     dets.push_back(std::move(o));
                 }
             }
@@ -520,8 +517,8 @@ namespace varan {
             pj["type"] = payload.type;
             pj["danger"] = payload.danger;
             pj["camera_no"] = payload.camera;
-            pj["type_title"] = payload.type ? UTaxonomy::type_title(payload.type) : std::string("—");
-            pj["danger_title"] = payload.danger ? UTaxonomy::danger_title(payload.danger) : std::string("—");
+            pj["type_title"] = payload.type ? can_type_title(payload.type) : std::string("—");
+            pj["danger_title"] = payload.danger ? can_danger_title(payload.danger) : std::string("—");
             pj["detections"] = std::move(dets);
             pj["session"] = session;
 

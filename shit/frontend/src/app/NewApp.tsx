@@ -85,6 +85,7 @@ export default function NewApp() {
                         <Route path="archive" element={<ArchiveScreen />} />
                         <Route path="devices" element={<DevicesScreen />} />
                         <Route path="configurations" element={<ConfigurationsScreen />} />
+                        <Route path="configurations/:section" element={<ConfigurationsScreen />} />
                         <Route path="krsps" element={<KrspsScreen />} />
                         <Route path="krsps/:section" element={<KrspsScreen />} />
                         <Route path="surround" element={<SurroundScreen />} />

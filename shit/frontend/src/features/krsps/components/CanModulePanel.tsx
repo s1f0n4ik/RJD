@@ -11,8 +11,6 @@ import type {
   GwCanSummary,
   GwDevices,
   GwModule,
-  GwTaxonomy,
-  GwTaxonomyDictItem,
 } from '../types';
 import { formatInt, formatClock } from '../utils/format';
 import { blurOnEnter, DeviceSelect, Kpi, Pill, RecordRow } from './ModuleBits';
@@ -28,12 +26,10 @@ interface Props {
   module: GwModule;
   title: string;
   devices: GwDevices | null;
-  taxonomy: GwTaxonomy | null;
   busy: boolean;
   onSave: (patch: GwCanConfigPatch) => void;
   onConnect: () => void;
   onDisconnect: () => void;
-  onOpenTaxonomy: () => void;
 }
 
 // Адреса и PGN принимаем и шестнадцатеричными, и десятичными
@@ -67,8 +63,6 @@ const detWord = (n: number) => {
   if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return 'обнаружения';
   return 'обнаружений';
 };
-
-const dictTitle = (items: GwTaxonomyDictItem[] | undefined, id: number) => items?.find((i) => i.id === id)?.title ?? '—';
 
 // Движение карточки: длительность и кривая входа из общего набора плавности
 const MOVE_MS = 320;
@@ -178,9 +172,7 @@ const BusNowCard: React.FC<{
   payload: GwCanPayload;
   dlc: number;
   ttlMs: number | null;
-  taxonomy: GwTaxonomy | null;
-  onOpenTaxonomy: () => void;
-}> = ({ payload, dlc, ttlMs, taxonomy, onOpenTaxonomy }) => {
+}> = ({ payload, dlc, ttlMs }) => {
   const navigate = useNavigate();
   const { cameraName } = useCameraNames();
   const listRef = useRef<HTMLDivElement>(null);
@@ -211,7 +203,7 @@ const BusNowCard: React.FC<{
   const firstOff = rows.findIndex((r) => !r.active && !r.leaving);
 
   // Плашка сворачивается со своим последним текстом, а не с нулём
-  const gaps = present.filter((r) => !r.d.camera_no || r.d.passthrough).length;
+  const gaps = present.filter((r) => !r.d.camera_no).length;
   const lastGaps = useRef(gaps);
   if (gaps) lastGaps.current = gaps;
   const shownGaps = lastGaps.current;
@@ -237,12 +229,11 @@ const BusNowCard: React.FC<{
         </span>
         <span className="cb-val cb-t f2">
           <span className="n">{d.type}</span>
-          <span className="t">{dictTitle(taxonomy?.types, d.type)}</span>
-          {d.passthrough && <span className="cb-flag">без таблицы</span>}
+          <span className="t">{d.type_title}</span>
         </span>
         <span className="cb-val cb-t f4">
           <span className="n">{d.danger}</span>
-          <span className="t">{dictTitle(taxonomy?.dangers, d.danger)}</span>
+          <span className="t">{d.danger_title}</span>
         </span>
         <span className="cb-age">{detAge(r.age)}</span>
         <button
@@ -258,7 +249,6 @@ const BusNowCard: React.FC<{
   };
 
   const pastEl = (j: JournalDetection) => {
-    const no = taxonomy?.cameras?.find((c) => c.key === j.camera_id)?.bit ?? 0;
     return (
       <div key={`p${j.id}`} data-k={`p${j.id}`} className="cb-row is-past">
         <span className="cb-id">
@@ -267,9 +257,7 @@ const BusNowCard: React.FC<{
         </span>
         <span className="cb-cam">
           <b>{cameraName(j.camera_id)}</b>
-          <span>
-            {j.camera_id} · {no ? `№ ${no}` : 'нет номера'}
-          </span>
+          <span>{j.camera_id}</span>
         </span>
         <span className="cb-val">
           <span className="t">{j.class_name ?? '—'}</span>
@@ -315,12 +303,12 @@ const BusNowCard: React.FC<{
           </div>
           <div className={`cb-byte cb-t${count ? ' f2' : ''}`}>
             <span className="cap">Байт 2 · тип</span>
-            <span className="w" key={`t${type}`}>{type ? dictTitle(taxonomy?.types, type) : <small>не задан</small>}</span>
+            <span className="w" key={`t${type}`}>{type ? top?.d.type_title : <small>не задан</small>}</span>
             <span className="h" key={`th${type}`}>{hex2(type)}</span>
           </div>
           <div className={`cb-byte cb-t${count ? ' f4' : ''}`}>
             <span className="cap">Байт 3 · опасность</span>
-            <span className="w" key={`d${danger}`}>{danger ? dictTitle(taxonomy?.dangers, danger) : <small>не задана</small>}</span>
+            <span className="w" key={`d${danger}`}>{danger ? top?.d.danger_title : <small>не задана</small>}</span>
             <span className="h" key={`dh${danger}`}>{hex2(danger)}</span>
           </div>
           <div className={`cb-byte cb-t${count ? ' f3' : ''}`}>
@@ -381,8 +369,8 @@ const BusNowCard: React.FC<{
 
         <div className={`cb-warn${gaps ? ' is-on' : ''}`} aria-hidden={!gaps}>
           <Icon name="warn" size={15} />
-          У {shownGaps === 1 ? 'одного обнаружения' : `${shownGaps} обнаружений`} нет номера камеры или таблицы их конфигурации: в байт 4 уходит 0, тип берётся по id класса.
-          <button type="button" tabIndex={gaps ? undefined : -1} onClick={onOpenTaxonomy}>Таблица соответствий</button>
+          У {shownGaps === 1 ? 'одного обнаружения' : `${shownGaps} обнаружений`} камера без номера в таблице соответствий: в байт 4 уходит 0.
+          <button type="button" tabIndex={gaps ? undefined : -1} onClick={() => navigate('/configurations/table')}>Таблица соответствий</button>
         </div>
       </div>
     </div>
@@ -541,7 +529,7 @@ const MessageBlock: React.FC<MsgProps> = ({ msg, summary, busy, onPatch, childre
   );
 };
 
-const CanModulePanel: React.FC<Props> = ({ module, title, devices, taxonomy, busy, onSave, onConnect, onDisconnect, onOpenTaxonomy }) => {
+const CanModulePanel: React.FC<Props> = ({ module, title, devices, busy, onSave, onConnect, onDisconnect }) => {
   const conn = module.connection;
   const tx = module.tx;
   const messages = module.messages ?? [];
@@ -703,8 +691,6 @@ const CanModulePanel: React.FC<Props> = ({ module, title, devices, taxonomy, bus
                 payload={module.payload}
                 dlc={tx?.dlc ?? 8}
                 ttlMs={tx && tx.ttl_enabled !== false ? tx.payload_ttl_ms : null}
-                taxonomy={taxonomy}
-                onOpenTaxonomy={onOpenTaxonomy}
               />
             )}
 

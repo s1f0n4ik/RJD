@@ -13,10 +13,10 @@ namespace varan {
         }
 
         URsm2000Integration::URsm2000Integration(boost::asio::io_context& ioc, FWsConfig ws,
-            FCanConfig can, int heartbeat_sec, const UTaxonomy& taxonomy, UTimeSource& time_source)
+            FCanConfig can, int heartbeat_sec, UTimeSource& time_source)
         {
             m_modules.push_back(std::make_shared<UWsModule>(ioc, std::move(ws), heartbeat_sec));
-            m_modules.push_back(std::make_shared<UCanModule>(ioc, std::move(can), taxonomy, time_source));
+            m_modules.push_back(std::make_shared<UCanModule>(ioc, std::move(can), time_source));
         }
 
         std::shared_ptr<IModule> URsm2000Integration::find_module(const std::string& id) const {

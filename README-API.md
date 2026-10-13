@@ -277,8 +277,6 @@ nginx срезает префикс: `/api/gateway/status` → `/status`. Кли
 | PUT | `/api/gateway/config/can` | `/config/can` | режим шины, адреса сообщений, период, DLC |
 | POST | `/api/gateway/modules/connect` | `/modules/connect` | поднять модуль: `{ module }` |
 | POST | `/api/gateway/modules/disconnect` | `/modules/disconnect` | погасить модуль |
-| GET | `/api/gateway/taxonomy` | `/taxonomy` | таблица соответствий + словари типов и опасностей |
-| PUT | `/api/gateway/taxonomy` | `/taxonomy` | обновить таблицу (секция заменяется целиком) |
 | GET | `/api/gateway/devices` | `/devices` | CAN-интерфейсы и serial-порты машины |
 | GET | `/api/gateway/time` | `/time` | время и GPS от Садко |
 

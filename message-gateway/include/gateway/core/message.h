@@ -29,6 +29,8 @@ namespace varan {
             std::array<int, 4> box{ 0, 0, 0, 0 }; // x, y, w, h
             std::optional<std::string> scls;  // подкатегория (info/warning/danger)
             std::uint64_t detection_id = 0;   // ID обнаружения у мастера
+            int type = 0;                     // тип обнаружения CAN по таблице мастера, 0 — не посчитан
+            int danger = 0;                   // класс опасности CAN по таблице мастера, 0 — не посчитан
         };
 
         // Запись обнаружения для АС КРСПС по Modbus; поля считает мастер
@@ -56,14 +58,12 @@ namespace varan {
             std::vector<FDetection> dets;
             std::string image;                // сырые байты изображения
             std::string camera_id;            // идентификатор камеры-источника
-            // Конфигурация нейросети, которой получены обнаружения. Имена классов
-            // осмысленны только внутри своей конфигурации, поэтому таблица
-            // соответствий выбирается по этому id. Пусто — таблица не ищется.
-            std::string config_id;
+            std::string config_id;            // конфигурация нейросети, которой получены обнаружения
             std::int64_t session = 0;         // время запуска мастера, unix мс
             ETrackEvent event = ETrackEvent::Unspecified;
             std::optional<FRecord> record;    // запись для Modbus
             std::vector<std::string> modules; // id модулей-получателей; пусто — все
+            int camera_no = 0;                // номер камеры CAN по таблице мастера, 0 — камеры в таблице нет
 
             bool addressed_to(const std::string& module_id) const {
                 return modules.empty() || std::find(modules.begin(), modules.end(), module_id) != modules.end();

@@ -1,13 +1,15 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { Icon } from '../../app/Icons';
 import { Modal } from '../../app/Modal';
 import { listAllConfigurations, neuralApi } from '../../features/neural/api/client';
 import { getDevices } from '../../services/devices';
-import { configurationsApi, type CfItem, type CfLink, type CfRules, type CfState, type RulesSettings } from './api';
+import { configurationsApi, isIskraTable, type CfItem, type CfLink, type CfRules, type CfState, type RulesSettings } from './api';
 import {
-    CanCard, ClassPicker, CodesCard, FeedTable, MasterEnvCard, ModbusCard, MODULE_SHORT, RolesCard, StitchCard, WebSocketCard,
+    CanCard, ClassPicker, FeedTable, MasterEnvCard, ModbusCard, MODULE_SHORT, StitchCard, WebSocketCard,
     countDiff, type CameraRef, type ClassCatalog,
 } from './RulesPanels';
+import { defaultZoneLabel, IskraTablePanel, RsmTablePanel, zonesError } from './TablePanels';
 import './configurations.css';
 
 const POLL_MS = 3000;
@@ -26,11 +28,11 @@ async function loadCatalog(): Promise<ClassCatalog> {
     const configs = await listAllConfigurations();
     const metas = await Promise.all(configs.map(c =>
         Promise.all([neuralApi.getClasses(c.id, c.device), neuralApi.getSuperclasses(c.id, c.device)]).catch(() => null)));
-    const sc = new Map<string, { key: string; name: string; count: number }>();
+    const sc = new Map<string, { key: string; name: string; count: number; color: string }>();
     const cls = new Map<string, { name: string; superclass: string }>();
     metas.forEach(m => {
         if (!m) return;
-        (m[1].superclasses ?? []).forEach(s => { if (!sc.has(s.key)) sc.set(s.key, { key: s.key, name: s.name, count: 0 }); });
+        (m[1].superclasses ?? []).forEach(s => { if (!sc.has(s.key)) sc.set(s.key, { key: s.key, name: s.name, count: 0, color: s.color ?? '' }); });
         (m[0].classes ?? []).forEach(c => { if (!cls.has(c.name)) cls.set(c.name, { name: c.name, superclass: c.superclass ?? '' }); });
     });
     cls.forEach(c => { const s = sc.get(c.superclass); if (s) s.count += 1; });
@@ -62,6 +64,8 @@ function Metrics({ rows }: { rows: [string, string, string?][] }) {
 }
 
 export default function ConfigurationsScreen() {
+    const navigate = useNavigate();
+    const tableView = useParams().section === 'table';
     const [state, setState] = useState<CfState | null>(null);
     const [failed, setFailed] = useState(false);
     const [link, setLink] = useState<CfLink | null>(null);
@@ -171,6 +175,7 @@ export default function ConfigurationsScreen() {
     }, [itemId]);
 
     const dirty = rules && draft ? countDiff(draft, rules.settings) : 0;
+    const tableError = draft && isIskraTable(draft.table) ? zonesError(draft.table.zones) : '';
 
     const save = async () => {
         if (!draft || !item) return;
@@ -322,7 +327,6 @@ export default function ConfigurationsScreen() {
     const patch = (p: Partial<RulesSettings>) => setDraft(d => (d ? { ...d, ...p } : d));
 
     let left: React.ReactNode = null;
-    let right: React.ReactNode = null;
     if (draft && rules) {
         if (node === 'master') {
             left = <><StitchCard value={draft.stitch} onChange={stitch => patch({ stitch })} /><MasterEnvCard env={rules.env} /></>;
@@ -331,14 +335,15 @@ export default function ConfigurationsScreen() {
         } else if (node === 'can' && draft.can) {
             left = <CanCard head={moduleHead('can')} value={draft.can} onChange={can => patch({ can })} catalog={catalog} onPick={() => setPick('can')} />;
         } else if (node === 'modbus' && draft.modbus) {
-            const modbus = draft.modbus;
             left = (
-                <>
-                    <ModbusCard head={moduleHead('modbus')} value={modbus} onChange={v => patch({ modbus: v })} />
-                    <RolesCard roles={modbus.roles} cameras={cameras} onChange={roles => patch({ modbus: { ...modbus, roles } })} />
-                </>
+                <ModbusCard
+                    head={moduleHead('modbus')}
+                    value={draft.modbus}
+                    zone={isIskraTable(draft.table) ? defaultZoneLabel(draft.table) : '—'}
+                    onChange={v => patch({ modbus: v })}
+                    onOpenTable={() => navigate('/configurations/table')}
+                />
             );
-            right = <CodesCard codes={modbus.codes} catalog={catalog} onChange={codes => patch({ modbus: { ...modbus, codes } })} />;
         } else {
             left = <div className="cr-none">Нет правил для модуля</div>;
         }
@@ -366,15 +371,17 @@ export default function ConfigurationsScreen() {
                                         <button className="btn btn--acc" disabled={busy} onClick={() => setPending(item)}>Сделать активной</button>
                                     )}
                                 </div>
-                                <div className="cr-chain">
-                                    {devicesNode}
-                                    <div className={`cr-wire${live && online.length ? ' is-live' : ''}`} />
-                                    {masterNode}
-                                    <div className={`cr-wire${live ? (gwUp ? ' is-live' : ' is-down') : ''}`} />
-                                    {gatewayNode}
-                                    <div className={`cr-wire${live && gwUp ? ' is-live' : ''}`} />
-                                    <div className="cr-outs">{moduleNodes}</div>
-                                </div>
+                                {!tableView && (
+                                    <div className="cr-chain">
+                                        {devicesNode}
+                                        <div className={`cr-wire${live && online.length ? ' is-live' : ''}`} />
+                                        {masterNode}
+                                        <div className={`cr-wire${live ? (gwUp ? ' is-live' : ' is-down') : ''}`} />
+                                        {gatewayNode}
+                                        <div className={`cr-wire${live && gwUp ? ' is-live' : ''}`} />
+                                        <div className="cr-outs">{moduleNodes}</div>
+                                    </div>
+                                )}
                                 {rulesError ? (
                                     <div className="empty">
                                         <Icon name="warn" className="ico" />
@@ -382,11 +389,21 @@ export default function ConfigurationsScreen() {
                                     </div>
                                 ) : !draft ? (
                                     <div className="mod-loading"><span className="spin" /></div>
+                                ) : tableView ? (
+                                    !draft.table ? (
+                                        <div className="empty">
+                                            <Icon name="warn" className="ico" />
+                                            <b>Мастер обнаружений не отдаёт таблицу соответствий — обновите его</b>
+                                        </div>
+                                    ) : isIskraTable(draft.table) ? (
+                                        <IskraTablePanel value={draft.table} onChange={table => patch({ table })} catalog={catalog} cameras={cameras} />
+                                    ) : (
+                                        <RsmTablePanel value={draft.table} onChange={table => patch({ table })} catalog={catalog} cameras={cameras} />
+                                    )
                                 ) : (
                                     <div className="cr-split">
                                         <div className="cr-col">{left}</div>
                                         <div className="cr-col">
-                                            {right}
                                             <FeedTable node={node} entries={item.active ? link?.feed ?? [] : []} cameraName={cameraName} />
                                         </div>
                                     </div>
@@ -396,11 +413,12 @@ export default function ConfigurationsScreen() {
                                 <div className="cr-foot">
                                     <span className="seps">
                                         {dirty > 0 && <span className="is-warn">изменено {dirty}</span>}
+                                        {tableError && <span className="is-err">{tableError}</span>}
                                         <span>{savedLabel(rules.saved_at)}</span>
                                     </span>
                                     <span className="spacer" />
                                     <button className="btn" disabled={busy || !dirty} onClick={() => setDraft(clone(rules.settings))}>Сбросить</button>
-                                    <button className="btn btn--acc" disabled={busy || !dirty} onClick={save}>Сохранить</button>
+                                    <button className="btn btn--acc" disabled={busy || !dirty || !!tableError} onClick={save}>Сохранить</button>
                                 </div>
                             )}
                         </>
@@ -433,6 +451,19 @@ export default function ConfigurationsScreen() {
                             </button>
                         ))}
                     </div>
+                    {item && (
+                        <>
+                            <div className="blk-h"><h3>{item.title}</h3></div>
+                            <div className="blk-b">
+                                <button type="button" className={`mod-item${tableView ? '' : ' is-on'}`} onClick={() => navigate('/configurations')}>
+                                    <Icon name="link" className="ico" /><span className="nm">Связь и правила</span>
+                                </button>
+                                <button type="button" className={`mod-item${tableView ? ' is-on' : ''}`} onClick={() => navigate('/configurations/table')}>
+                                    <Icon name="tune" className="ico" /><span className="nm">Таблица соответствий</span>
+                                </button>
+                            </div>
+                        </>
+                    )}
                 </aside>
             </div>
 

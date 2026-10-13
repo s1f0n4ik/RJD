@@ -9,15 +9,12 @@ import type {
     GwModbusConfigPatch,
     GwModbusModule,
     GwStatus,
-    GwTaxonomy,
-    GwTaxonomyPatch,
     GwTime,
     GwWsConfigPatch,
 } from '../../features/krsps/types';
 import WebSocketModulePanel from '../../features/krsps/components/WebSocketModulePanel';
 import CanModulePanel from '../../features/krsps/components/CanModulePanel';
 import ModbusModulePanel from '../../features/krsps/components/ModbusModulePanel';
-import TaxonomyPanel from '../../features/krsps/components/TaxonomyPanel';
 import TimeGpsPanel from '../../features/krsps/components/TimeGpsPanel';
 import PanelBoundary from '../../features/krsps/components/PanelBoundary';
 import { connState } from '../../features/krsps/components/ModuleBits';
@@ -42,7 +39,6 @@ export default function KrspsScreen() {
     const [status, setStatus] = useState<GwStatus | null>(null);
     const [failed, setFailed] = useState(false);
     const [integrations, setIntegrations] = useState<GwIntegrations | null>(null);
-    const [taxonomy, setTaxonomy] = useState<GwTaxonomy | null>(null);
     const [devices, setDevices] = useState<GwDevices | null>(null);
     const [time, setTime] = useState<GwTime | null>(null);
     const [offsetMs, setOffsetMs] = useState(0);
@@ -121,15 +117,6 @@ export default function KrspsScreen() {
         };
     }, []);
 
-    const refreshTaxonomy = useCallback(async () => {
-        try {
-            const t = await krspsApi.getTaxonomy();
-            if (alive.current) setTaxonomy(t);
-        } catch {
-            /* раздел покажет загрузку */
-        }
-    }, []);
-
     // Устройства перечитываем регулярно: адаптер могли воткнуть после запуска
     const refreshDevices = useCallback(async () => {
         try {
@@ -142,11 +129,10 @@ export default function KrspsScreen() {
 
     useEffect(() => {
         refreshIntegrations();
-        refreshTaxonomy();
         refreshDevices();
         const t = setInterval(refreshDevices, DEVICES_POLL_MS);
         return () => clearInterval(t);
-    }, [refreshIntegrations, refreshTaxonomy, refreshDevices]);
+    }, [refreshIntegrations, refreshDevices]);
 
     const run = useCallback(
         async (fn: () => Promise<unknown>, okMsg: string) => {
@@ -169,11 +155,6 @@ export default function KrspsScreen() {
     const handleSaveWs = (patch: GwWsConfigPatch) => run(() => krspsApi.updateWsConfig(patch), 'Настройки сохранены');
     const handleSaveCan = (patch: GwCanConfigPatch) => run(() => krspsApi.updateCanConfig(patch), 'Настройки сохранены');
     const handleSaveModbus = (patch: GwModbusConfigPatch) => run(() => krspsApi.updateModbusConfig(patch), 'Настройки сохранены');
-    const handleSaveTaxonomy = (patch: GwTaxonomyPatch) =>
-        run(async () => {
-            const t = await krspsApi.updateTaxonomy(patch);
-            if (alive.current) setTaxonomy(t);
-        }, 'Таблица сохранена');
 
     // Подключение адресное: трогаем только модуль, открытый на странице
     const handleConnect = () => run(() => krspsApi.connectModule(section), 'Переподключение запущено');
@@ -200,10 +181,8 @@ export default function KrspsScreen() {
     }
 
     const moduleIds = status.modules.map(m => m.id);
-    // Таблица соответствий — только при модулях кроме Modbus
-    const services = SERVICE_SECTIONS.filter(s => s.id !== 'taxonomy' || status.modules.some(m => m.transport !== 'modbus'));
-    if (!services.some(s => s.id === section) && !moduleIds.includes(section)) {
-        return <Navigate to={`/krsps/${moduleIds[0] ?? services[0].id}`} replace />;
+    if (!SERVICE_SECTIONS.some(s => s.id === section) && !moduleIds.includes(section)) {
+        return <Navigate to={`/krsps/${moduleIds[0] ?? SERVICE_SECTIONS[0].id}`} replace />;
     }
     const timeSource = time?.source.time;
 
@@ -227,19 +206,15 @@ export default function KrspsScreen() {
                                     setSynced(true);
                                 }}
                             />
-                        ) : section === 'taxonomy' ? (
-                            <TaxonomyPanel taxonomy={taxonomy} busy={busy} onSave={handleSaveTaxonomy} />
                         ) : selectedModule?.transport === 'can' ? (
                             <CanModulePanel
                                 module={selectedModule}
                                 title={MODULE_LABEL[selectedModule.id] ?? selectedModule.title}
                                 devices={devices}
-                                taxonomy={taxonomy}
                                 busy={busy}
                                 onSave={handleSaveCan}
                                 onConnect={handleConnect}
                                 onDisconnect={handleDisconnect}
-                                onOpenTaxonomy={() => navigate('/krsps/taxonomy')}
                             />
                         ) : selectedModule?.transport === 'modbus' ? (
                             <ModbusModulePanel
@@ -293,7 +268,7 @@ export default function KrspsScreen() {
 
                     <div className="blk-h"><h3>Сервис</h3></div>
                     <div className="blk-b">
-                        {services.map(s => (
+                        {SERVICE_SECTIONS.map(s => (
                             <button
                                 key={s.id}
                                 type="button"

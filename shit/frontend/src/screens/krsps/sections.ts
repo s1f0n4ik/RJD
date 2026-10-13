@@ -6,7 +6,6 @@ export const MODULE_LABEL: Record<string, string> = {
 };
 
 export const SERVICE_SECTIONS = [
-    { id: 'taxonomy', label: 'Таблица соответствий', icon: 'tune' },
     { id: 'time', label: 'Время и GPS', icon: 'clock' },
 ] as const;
 

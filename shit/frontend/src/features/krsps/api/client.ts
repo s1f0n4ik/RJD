@@ -5,8 +5,6 @@ import type {
   GwModbusConfigPatch,
   GwModule,
   GwStatus,
-  GwTaxonomy,
-  GwTaxonomyPatch,
   GwTime,
   GwWsConfigPatch,
 } from '../types';
@@ -98,21 +96,6 @@ export const krspsApi = {
         method: 'POST',
         headers: jsonHeaders,
         body: JSON.stringify({ module }),
-      }),
-    );
-  },
-
-  // Общая таблица соответствий: одна на весь шлюз.
-  async getTaxonomy(): Promise<GwTaxonomy> {
-    return unwrap<GwTaxonomy>(await fetch(url('/taxonomy')));
-  },
-
-  async updateTaxonomy(patch: GwTaxonomyPatch): Promise<GwTaxonomy> {
-    return unwrap<GwTaxonomy>(
-      await fetch(url('/taxonomy'), {
-        method: 'PUT',
-        headers: jsonHeaders,
-        body: JSON.stringify(patch),
       }),
     );
   },

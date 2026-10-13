@@ -1,18 +1,17 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Icon } from '../../app/Icons';
 import { Modal } from '../../app/Modal';
-import { Select, type SelectOption } from '../../app/Select';
 import type { CfRules, FeedEntry, FeedStatus, RuleClassFilter, RuleModbus, RuleStitch } from './api';
 
 export const MODULE_SHORT: Record<string, string> = { websocket: 'ЦПУ', can: 'CAN', modbus: 'Modbus' };
 
 // Коды записи 28163 Искры
-const ISKRA_CODES = [
+export const ISKRA_CODES = [
     'человек, СИЗ не распознан', 'в СИЗ', 'без СИЗа', 'легковая', 'грузовая', 'строительная техника',
     'сыпучие отходы', 'твёрдые отходы', 'шпала (мусор)', 'граффити', 'борщевик',
 ];
 // Роли камер Искры: номер — бит маски камер
-const ROLES = [
+export const ROLES = [
     { value: 1, label: 'Дальняя' },
     { value: 2, label: 'Ближняя' },
     { value: 3, label: 'Левая' },
@@ -20,7 +19,7 @@ const ROLES = [
 ];
 
 export interface ClassCatalog {
-    superclasses: { key: string; name: string; count: number }[];
+    superclasses: { key: string; name: string; count: number; color: string }[];
     classes: { name: string; superclass: string }[];
 }
 
@@ -124,7 +123,7 @@ function CardHead({ head, on, onToggle }: { head: ModuleHead; on: boolean; onTog
 }
 
 // Каталог не пришёл — про пропавшие имена сказать нечего
-const missing = (name: string, catalog: ClassCatalog) =>
+export const missing = (name: string, catalog: ClassCatalog) =>
     catalog.classes.length > 0 && !catalog.classes.some(c => c.name === name) && !catalog.superclasses.some(s => s.key === name);
 
 function classLabel(name: string, catalog: ClassCatalog): { label: string; superclass: boolean; known: boolean } {
@@ -202,93 +201,23 @@ export function CanCard({ head, value, onChange, catalog, onPick }: {
     );
 }
 
-export function ModbusCard({ head, value, onChange }: { head: ModuleHead; value: RuleModbus; onChange: (v: RuleModbus) => void }) {
+export function ModbusCard({ head, value, zone, onChange, onOpenTable }: {
+    head: ModuleHead;
+    value: RuleModbus;
+    zone: string;
+    onChange: (v: RuleModbus) => void;
+    onOpenTable: () => void;
+}) {
     return (
         <section className={`card cr-card${value.enabled ? '' : ' is-off'}`}>
             <CardHead head={head} on={value.enabled} onToggle={enabled => onChange({ ...value, enabled })} />
             <div className="card-b">
                 <div className="cr-row"><label>Запись не позже</label><NumField value={value.ceiling_s} unit="с" onChange={ceiling_s => onChange({ ...value, ceiling_s })} /></div>
-                <div className="cr-row"><label>Зона</label><div className="tf-ro">3 · полоса отвода</div></div>
+                <div className="cr-row">
+                    <label>Зона по умолчанию</label>
+                    <div className="tf-ro"><button type="button" className="cr-link" onClick={onOpenTable}>{zone}<Icon name="tune" size={13} /></button></div>
+                </div>
                 <div className="cr-row"><label>Число объектов</label><div className="tf-ro">1</div></div>
-            </div>
-        </section>
-    );
-}
-
-export function RolesCard({ roles, cameras, onChange }: { roles: Record<string, number>; cameras: CameraRef[]; onChange: (v: Record<string, number>) => void }) {
-    const rows = useMemo(() => {
-        const known = new Set(cameras.map(c => c.id));
-        return [...cameras, ...Object.keys(roles).filter(id => !known.has(id)).map(id => ({ id, name: id, device: '' }))];
-    }, [cameras, roles]);
-    const set = (id: string, role: number) => {
-        const next = { ...roles };
-        if (role) next[id] = role; else delete next[id];
-        onChange(next);
-    };
-    return (
-        <section className="card cr-card">
-            <div className="card-h"><h3>Роли камер</h3><span className="eyebrow">{Object.values(roles).filter(Boolean).length} из {rows.length}</span></div>
-            <div className="card-b">
-                {rows.length === 0 ? <div className="cr-none">Камер нет</div> : (
-                    <div className="cr-map cr-roles">
-                        {rows.map(cam => (
-                            <div key={cam.id} className="cr-map-r">
-                                <span className="cam">{cam.name}<small>{cam.device ? `${cam.id} · ${cam.device}` : cam.id}</small></span>
-                                <span className="seg">
-                                    {ROLES.map(r => (
-                                        <button key={r.value} type="button" className={roles[cam.id] === r.value ? 'is-on' : ''} onClick={() => set(cam.id, r.value)}>
-                                            <i>{r.value}</i>{r.label}
-                                        </button>
-                                    ))}
-                                    <button type="button" className={roles[cam.id] ? '' : 'is-on'} onClick={() => set(cam.id, 0)}>—</button>
-                                </span>
-                            </div>
-                        ))}
-                    </div>
-                )}
-            </div>
-        </section>
-    );
-}
-
-const CODE_OPTIONS: SelectOption[] = [
-    { value: '', label: '— только журнал' },
-    ...ISKRA_CODES.map((label, code) => ({ value: String(code), label: `${code} · ${label}` })),
-];
-
-export function CodesCard({ codes, catalog, onChange }: { codes: Record<string, number>; catalog: ClassCatalog; onChange: (v: Record<string, number>) => void }) {
-    const rows = useMemo(() => {
-        const known = new Set(catalog.classes.map(c => c.name));
-        return [
-            ...catalog.classes,
-            ...Object.keys(codes).filter(n => !known.has(n)).map(name => ({ name, superclass: '', gone: missing(name, catalog) })),
-        ] as { name: string; superclass: string; gone?: boolean }[];
-    }, [catalog, codes]);
-    const scName = (key: string) => catalog.superclasses.find(s => s.key === key)?.name ?? key;
-    const set = (name: string, value: string) => {
-        const next = { ...codes };
-        if (value === '') delete next[name]; else next[name] = Number(value);
-        onChange(next);
-    };
-    return (
-        <section className="card cr-card">
-            <div className="card-h"><h3>Класс → код 28163</h3><span className="eyebrow">{rows.filter(r => r.name in codes).length} из {rows.length}</span></div>
-            <div className="card-b">
-                {rows.length === 0 ? <div className="cr-none">Классов нет</div> : (
-                    <div className="cr-map">
-                        <div className="cr-map-r is-head"><span>Класс</span><span>Код</span></div>
-                        {rows.map(r => (
-                            <div key={r.name} className="cr-map-r">
-                                <span className="nm">
-                                    <span>{r.name}</span>
-                                    {r.superclass && <span className="tag">{scName(r.superclass)}</span>}
-                                    {r.gone && <span className="tag is-warn">нет в нейросетях</span>}
-                                </span>
-                                <Select value={r.name in codes ? String(codes[r.name]) : ''} options={CODE_OPTIONS} onChange={v => set(r.name, v)} />
-                            </div>
-                        ))}
-                    </div>
-                )}
             </div>
         </section>
     );

@@ -40,8 +40,39 @@ export interface RuleClassFilter {
 export interface RuleModbus {
     enabled: boolean;
     ceiling_s: number;
+}
+
+// Тип обнаружения CAN 1–8 и класс опасности 1–4; 0 — не задано
+export interface RsmClassRule {
+    type: number;
+    danger: number;
+}
+
+export interface RsmTable {
+    defaults: RsmClassRule;
+    // Ключ суперкласса → класс опасности
+    superclasses: Record<string, number>;
+    // Имя класса → тип и опасность
+    classes: Record<string, RsmClassRule>;
+    // id камеры → номер 1–8
+    cameras: Record<string, number>;
+}
+
+export interface IskraZone {
+    number: number;
+    name: string;
+    color: string;
+    // Зона вне многоугольников
+    default: boolean;
+}
+
+export interface IskraTable {
+    // Класс → код 28163
     codes: Record<string, number>;
+    // id камеры → роль
     roles: Record<string, number>;
+    // Порядок — опасность: первая самая опасная
+    zones: IskraZone[];
 }
 
 export interface RulesSettings {
@@ -49,7 +80,11 @@ export interface RulesSettings {
     websocket?: RuleClassFilter & { late_s: number };
     can?: RuleClassFilter;
     modbus?: RuleModbus;
+    // Нет у мастера старше таблиц соответствий
+    table?: RsmTable | IskraTable;
 }
+
+export const isIskraTable = (t?: RsmTable | IskraTable): t is IskraTable => !!t && 'zones' in t;
 
 export interface CfRules extends CfRule {
     settings: RulesSettings;

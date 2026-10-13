@@ -28,6 +28,7 @@ namespace varan {
                 msg.session = req.session();
                 msg.event = static_cast<ETrackEvent>(req.event());
                 msg.modules.assign(req.modules().begin(), req.modules().end());
+                msg.camera_no = req.camera_no();
 
                 msg.dets.reserve(req.dets_size());
                 for (const auto& d : req.dets()) {
@@ -42,6 +43,8 @@ namespace varan {
                         det.scls = d.scls();
                     }
                     det.detection_id = d.detection_id();
+                    det.type = d.type();
+                    det.danger = d.danger();
                     msg.dets.push_back(std::move(det));
                 }
 

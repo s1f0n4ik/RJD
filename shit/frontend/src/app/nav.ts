@@ -39,7 +39,7 @@ export const NAV: NavItem[] = [
     { to: '/live',     label: 'Отображение',         icon: 'grid',  desc: 'Сетки просмотра и прямой эфир', admin: true },
     { to: '/archive',  label: 'Архив',               icon: 'arch',  desc: 'Записи, таймлайны и склейка' },
     { to: '/devices',  label: 'Устройства',          icon: 'dev',   desc: 'Одноплатники: состояние и маршрутизация', admin: true },
-    { to: '/configurations', label: 'Конфигурации',  icon: 'kit',   desc: 'Конфигурация изделия: АС КРСПС и фильтр обнаружений', admin: true },
+    { to: '/configurations', label: 'Конфигурации',  icon: 'kit',   desc: 'Конфигурация изделия: фильтр обнаружений и таблицы соответствий', admin: true },
 
     {
         to: '/neural', label: 'Техническое зрение', icon: 'eye', group: 'Модули', desc: 'Нейросети, видеопотоки, инференс, журнал',
@@ -51,7 +51,7 @@ export const NAV: NavItem[] = [
         to: '/surround', label: 'Система 360', icon: '360', desc: 'Калибровка, сборка, конфигуратор', admin: true,
         sub: SURROUND_SECTIONS.map((s, i) => ({ to: `/surround/${s.id}`, label: s.label, n: String(i + 1).padStart(2, '0') })),
     },
-    { to: '/krsps',    label: 'АС КРСПС',            icon: 'gate',  desc: 'Шлюз сообщений и таблица соответствий', admin: true },
+    { to: '/krsps',    label: 'АС КРСПС',            icon: 'gate',  desc: 'Шлюз сообщений: модули доставки, время и GPS', admin: true },
 ];
 
 // Крошки верхней планки: раздел и, при необходимости, шаг внутри него
@@ -62,6 +62,7 @@ export const CRUMBS: Record<string, string[]> = {
     '/archive': ['Архив'],
     '/devices': ['Устройства'],
     '/configurations': ['Конфигурации'],
+    '/configurations/table': ['Конфигурации', 'Таблица соответствий'],
 };
 
 // Крошки для путей с разделами внутри: /krsps/<модуль>, /surround/<подраздел>
