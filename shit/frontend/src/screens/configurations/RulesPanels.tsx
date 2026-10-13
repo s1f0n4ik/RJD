@@ -263,6 +263,9 @@ export function ClassPicker({ title, value, catalog, onDone, onClose }: {
 
 // ── Лента отправленного ──
 
+// Строк в таблице: свежие сверху
+const FEED_ROWS = 25;
+
 const STATUS: Record<FeedStatus, { label: string; dot: string; err?: boolean }> = {
     new: { label: 'ждёт ответа', dot: 'warn' },
     sent: { label: 'ждёт ответа', dot: 'warn' },
@@ -301,7 +304,7 @@ export function FeedTable({ node, entries, cameraName, dicts }: {
     // Словари сохранённых правил: числа ленты ушли по ним
     dicts: Dictionaries;
 }) {
-    const rows = node === 'master' ? entries : entries.filter(e => e.module === node);
+    const rows = (node === 'master' ? entries : entries.filter(e => e.module === node)).slice(0, FEED_ROWS);
     if (rows.length === 0) return <div className="cr-feed cr-feed-empty">Сообщений нет</div>;
     const zoneNamed = rows.some(e => dictName(dicts, 'zone', e.zone ?? 0));
     const head = (cols: [string, string][]) => (
