@@ -64,9 +64,9 @@ namespace neural {
 		return m_tiles;
 	}
 
-	void UCanvasComposer::request_snapshot(const std::string& camera, FSnapshotSink sink) {
+	void UCanvasComposer::request_snapshot(SPGLTextureWrapper frame, FSnapshotSink sink) {
 		std::lock_guard<std::mutex> lk(m_snapshot_mutex);
-		m_snapshots.push_back({ camera, std::move(sink) });
+		m_snapshots.push_back({ std::move(frame), std::move(sink) });
 	}
 
 	std::vector<std::string> UCanvasComposer::missing_cameras() const {
@@ -128,9 +128,13 @@ namespace neural {
 			glClear(GL_COLOR_BUFFER_BIT);
 
 			auto placements = cells;
+			// Кадр камеры берётся из хранилища один раз за тик
+			std::map<std::string, std::shared_ptr<IFrame>> tick;
 			for (size_t i = 0; i < placements.size(); ++i) {
 				auto& p = placements[i];
-				auto ptr = m_storage->extract(p.camera);
+				auto [taken, fresh] = tick.try_emplace(p.camera);
+				if (fresh) taken->second = m_storage->extract(p.camera);
+				auto ptr = taken->second;
 				auto frame = std::dynamic_pointer_cast<USharedGLTextureWrapper>(ptr);
 				if (!frame) {
 					p.state = ETileState::NO_CAMERA;
@@ -142,13 +146,22 @@ namespace neural {
 				if (w.last != ptr) {
 					w.last = ptr;
 					w.changed_at = now;
+					++w.changes;
 				}
+				const float span = std::chrono::duration<float>(now - w.window).count();
+				if (span >= 1.f) {
+					w.fps = w.window == clock::time_point{} ? 0.f : w.changes / span;
+					w.changes = 0;
+					w.window = now;
+				}
+				p.source_fps = w.fps;
 				if (now - w.changed_at > TILE_STALL_TIMEOUT) {
 					p.state = ETileState::STALLED;
 					continue;
 				}
 
 				p.state = ETileState::OK;
+				p.frame = frame;
 				p.cam_w = static_cast<int>(frame->width);
 				p.cam_h = static_cast<int>(frame->height);
 				p.dst = fit_rect(p.cell, p.crop, p.cam_w, p.cam_h, fits[i]);
@@ -173,7 +186,7 @@ namespace neural {
 				requests.swap(m_snapshots);
 			}
 			for (auto& r : requests) {
-				auto frame = std::dynamic_pointer_cast<USharedGLTextureWrapper>(m_storage->extract(r.camera));
+				const auto& frame = r.frame;
 				if (!frame) {
 					if (r.sink) r.sink(cv::Mat());
 					continue;

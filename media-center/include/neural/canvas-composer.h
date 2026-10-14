@@ -50,8 +50,8 @@ namespace neural {
 		// Размещение тайлов последнего тика
 		FCanvasInfo tiles() const;
 
-		// Полный кадр камеры на ближайшем тике; пустой Mat — камеры нет
-		void request_snapshot(const std::string& camera, FSnapshotSink sink);
+		// Заданный кадр камеры в полном размере на ближайшем тике; пустой Mat — кадра нет
+		void request_snapshot(SPGLTextureWrapper frame, FSnapshotSink sink);
 
 		// Камеры видеопотока, которых нет в хранилище
 		std::vector<std::string> missing_cameras() const;
@@ -63,13 +63,17 @@ namespace neural {
 		void render_loop(int fps);
 
 		struct FSnapshotRequest {
-			std::string camera;
+			SPGLTextureWrapper frame;
 			FSnapshotSink sink;
 		};
 
 		struct FSourceWatch {
 			std::shared_ptr<IFrame> last;
 			std::chrono::steady_clock::time_point changed_at;
+			// Смены кадра в текущем окне, начало окна и частота за прошлое окно
+			int changes = 0;
+			std::chrono::steady_clock::time_point window;
+			float fps = 0.f;
 		};
 
 	private:

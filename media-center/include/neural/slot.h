@@ -108,11 +108,14 @@ namespace neural {
             cv::Mat rgb;
             FCanvasInfo tiles;
             std::chrono::steady_clock::time_point enqueued;
+            // Время и GPS сборки полотна
+            gateway::FGatewayTimeGps time_gps;
         };
         // Кадр после инференса, ждёт своей очереди на доставку
         struct FInferred {
             cv::Mat rgb;
             FCanvasInfo tiles;
+            gateway::FGatewayTimeGps time_gps;
             yolo_inference_result_t result;
             std::vector<uint8_t> mask;
         };
@@ -130,7 +133,7 @@ namespace neural {
 
         gateway::FGatewayDetection make_gateway_detection(int class_id, double confidence, const FDetection& box) const;
 
-        // Снимок для мастера: кадр камеры приходит на тик позже события
+        // Снимок для мастера: кадр камеры, на котором посчитаны рамки
         struct FFrameTask {
             std::string camera;
             cv::Mat rgb;

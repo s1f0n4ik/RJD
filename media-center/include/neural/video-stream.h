@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <memory>
 #include <set>
 #include <string>
 #include <vector>
@@ -12,6 +13,8 @@
 #include "neural/detection.h"
 
 namespace varan {
+	class USharedGLTextureWrapper;
+
 namespace neural {
 
 	enum class ETileFit { LETTERBOX, STRETCH };
@@ -65,6 +68,10 @@ namespace neural {
 		int cam_w = 0;
 		int cam_h = 0;
 		ETileState state = ETileState::NO_CAMERA;
+		// Смен кадра камеры в секунду на тиках сборщика
+		float source_fps = 0.f;
+		// Кадр камеры, из которого собран тайл на этом тике
+		std::shared_ptr<USharedGLTextureWrapper> frame;
 	};
 
 	inline std::vector<std::string> stream_cameras(const FVideoStream& s) {

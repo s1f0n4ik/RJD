@@ -126,12 +126,30 @@ namespace neural {
 		}
 	}
 
+	// Вид рамки: сплошная с подписью, пунктир без подписи, пунктир с подписью
+	enum class EBoxStyle { SOLID, DASHED, DASHED_LABELED };
+
+	// Пунктирный прямоугольник: штрих и промежуток по dash пикселей
+	inline void dashed_rectangle(cv::Mat& img, const cv::Rect& r, const cv::Scalar& color, int thickness = 1, int dash = 6) {
+		const cv::Point corners[] = { r.tl(), { r.x + r.width, r.y }, r.br(), { r.x, r.y + r.height } };
+		for (int i = 0; i < 4; ++i) {
+			const cv::Point a = corners[i];
+			const cv::Point b = corners[(i + 1) % 4];
+			const double len = cv::norm(b - a);
+			if (len <= 0) continue;
+			for (double s = 0; s < len; s += 2 * dash)
+				cv::line(img, a + (b - a) * (s / len), a + (b - a) * (std::min(len, s + dash) / len), color, thickness);
+		}
+	}
+
+	// styles идёт параллельно detections; пустой — все рамки сплошные
 	inline void draw_detections_grouped(
 		cv::Mat& frame_rgb,
 		const std::vector<FDetection>& detections,
 		const std::vector<uint8_t>& mask,
 		const std::vector<FClassInfo>& classes,
 		const std::vector<FSuperclass>& superclasses,
+		const std::vector<EBoxStyle>& styles = {},
 		float alpha = 0.4f)
 	{
 		if (frame_rgb.empty()) return;
@@ -167,14 +185,18 @@ namespace neural {
 		}
 
 		// Bbox + подпись "id conf"
-		for (const auto& d : detections) {
+		for (size_t i = 0; i < detections.size(); ++i) {
+			const auto& d = detections[i];
 			if (d.class_id < 0 || d.class_id >= (int)classes.size()) continue;
 
 			cv::Scalar color = color_of(classes[d.class_id].superclass);
+			const EBoxStyle style = i < styles.size() ? styles[i] : EBoxStyle::SOLID;
 
 			cv::Rect r(d.x1_coord, d.y1_coord,
 				d.x2_coord - d.x1_coord, d.y2_coord - d.y1_coord);
-			cv::rectangle(frame_rgb, r, color, 2);
+			if (style == EBoxStyle::SOLID) cv::rectangle(frame_rgb, r, color, 2);
+			else dashed_rectangle(frame_rgb, r, color);
+			if (style == EBoxStyle::DASHED) continue;
 
 			char buf[32];
 			std::snprintf(buf, sizeof(buf), "%d %.2f", d.class_id, d.confidence);

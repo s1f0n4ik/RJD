@@ -425,6 +425,7 @@ UNeuralController::get_status(const http::request<http::string_body>& req) {
                     to["rect"] = rect_json(t.dst);
                     to["camera_width"] = t.cam_w;
                     to["camera_height"] = t.cam_h;
+                    to["source_fps"] = t.source_fps;
                     tiles.push_back(std::move(to));
                 }
             }

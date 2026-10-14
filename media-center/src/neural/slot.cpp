@@ -552,6 +552,10 @@ namespace neural {
     void USlot::on_canvas(cv::Mat rgba, FCanvasInfo tiles) {
         if (rgba.empty()) return;
 
+        // Синхронизированное время шлюза, иначе локальные часы
+        gateway::FGatewayTimeGps time_gps = m_time_provider ? m_time_provider() : gateway::FGatewayTimeGps{};
+        if (time_gps.unix_ms == 0) time_gps.unix_ms = now_ms();
+
         // Сборщик не ждёт NPU: полотно либо встаёт в очередь, либо теряется
         {
             std::lock_guard<std::mutex> lk(m_infer_mutex);
@@ -559,7 +563,7 @@ namespace neural {
                 m_dropped.fetch_add(1);
                 return;
             }
-            m_infer_queue.push_back({ ++m_infer_seq, std::move(rgba), std::move(tiles), std::chrono::steady_clock::now() });
+            m_infer_queue.push_back({ ++m_infer_seq, std::move(rgba), std::move(tiles), std::chrono::steady_clock::now(), time_gps });
         }
         m_infer_cv.notify_one();
     }
@@ -602,6 +606,7 @@ namespace neural {
             FInferred inferred;
             inferred.rgb = job.rgb;
             inferred.tiles = std::move(job.tiles);
+            inferred.time_gps = job.time_gps;
             inferred.result = m_classifier->classify(job.rgb, inferred.mask);
 
             ema(m_infer_ms, std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - started).count());
@@ -641,11 +646,13 @@ namespace neural {
         // Рамка полотна принадлежит тайлу по центру и переводится в кадр своей камеры
         std::map<std::string, std::vector<FDetection>> by_camera;
         std::map<std::string, cv::Size> resolution;
+        std::map<std::string, SPGLTextureWrapper> source;
         std::map<std::string, int> tile_count;
         for (const auto& t : tiles) {
             if (t.state != ETileState::OK) continue;
             ++tile_count[t.camera];
             resolution[t.camera] = cv::Size(t.cam_w, t.cam_h);
+            source[t.camera] = t.frame;
             by_camera[t.camera];
         }
         for (const auto& d : result.detections) {
@@ -668,16 +675,12 @@ namespace neural {
 
                 // Такт уходит мастеру, пока у камеры есть треки или в нём удалён последний
                 if (!tracker->tracks().empty() || update_result.has_events()) {
-                    // Синхронизированное время шлюза, иначе локальные часы
-                    gateway::FGatewayTimeGps time_gps = m_time_provider ? m_time_provider() : gateway::FGatewayTimeGps{};
-                    if (time_gps.unix_ms == 0) time_gps.unix_ms = now_ms();
-
                     const bool want_image = m_composer && std::any_of(update_result.events.begin(), update_result.events.end(),
                         [this](const FTrackEventRecord& e) { return event_matches_mask(e.event, m_image_events); });
 
                     std::uint64_t image_id = 0;
                     if (m_master) {
-                        auto packet = make_packet(camera, size, tracker->tracks(), update_result.events, time_gps);
+                        auto packet = make_packet(camera, size, tracker->tracks(), update_result.events, inferred.time_gps);
                         if (want_image) image_id = packet.image_id = m_master->reserve_image_id();
                         m_master->send_packet(std::move(packet));
                     }
@@ -686,7 +689,7 @@ namespace neural {
                         FFrameTask task;
                         task.camera = camera;
                         task.image_id = image_id;
-                        m_composer->request_snapshot(camera, [this, task = std::move(task)](cv::Mat shot) mutable {
+                        m_composer->request_snapshot(source[camera], [this, task = std::move(task)](cv::Mat shot) mutable {
                             if (shot.empty()) return;
                             task.rgb = std::move(shot);
                             task.width = task.rgb.cols;
@@ -707,6 +710,7 @@ namespace neural {
 
         if (m_streaming_enabled) {
             std::vector<FDetection> draw_dets;
+            std::vector<EBoxStyle> draw_styles;
 
             const bool with_tracker = !m_trackers.empty() && m_trackers.begin()->second;
             if (with_tracker) {
@@ -716,15 +720,20 @@ namespace neural {
                     auto it = m_trackers.find(t.camera);
                     if (it == m_trackers.end() || !it->second) continue;
                     for (const auto& tr : it->second->tracks()) {
-                        if (tr.state != ETrackState::CONFIRMED && tr.state != ETrackState::LOST) continue;
+                        // Найденный подтверждённый — сплошной, пробный — пунктир, с пропусками — пунктир с подписью
+                        EBoxStyle style = EBoxStyle::DASHED_LABELED;
+                        if (tr.state == ETrackState::TENTATIVE) style = EBoxStyle::DASHED;
+                        else if (tr.state == ETrackState::CONFIRMED && tr.lost_frames == 0) style = EBoxStyle::SOLID;
                         FDetection d = to_canvas(t, tr.detection);
-                        if (clip_to(t.dst, d)) draw_dets.push_back(std::move(d));
+                        if (!clip_to(t.dst, d)) continue;
+                        draw_dets.push_back(std::move(d));
+                        draw_styles.push_back(style);
                     }
                 }
             }
             else { draw_dets = std::move(result.detections); }
 
-            draw_detections_grouped(rgb_pixels, draw_dets, mask, m_config.classes, m_config.superclasses);
+            draw_detections_grouped(rgb_pixels, draw_dets, mask, m_config.classes, m_config.superclasses, draw_styles);
 
             std::lock_guard<std::mutex> lk(m_resource_mutex);
             if (ensure_streamer(rgb_pixels.cols, rgb_pixels.rows)) {
