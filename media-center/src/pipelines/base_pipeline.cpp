@@ -397,6 +397,8 @@ UCameraPipeline::FBusWatch UCameraPipeline::setup_bus_watch(GstElement* pipeline
 
             switch (GST_MESSAGE_TYPE(msg)) {
             case GST_MESSAGE_ERROR: {
+                if (self->on_branch_error(msg)) break;
+
                 GError* err = nullptr;
                 gchar* debug = nullptr;
                 gst_message_parse_error(msg, &err, &debug);

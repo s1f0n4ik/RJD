@@ -33,6 +33,7 @@ namespace archive {
         std::string camera_id;
         std::string stream_key;
         std::string path;         // абсолютный путь файла — ключ строки
+        std::string volume_id;    // том пула, на котором открыт фрагмент; пусто — без пула
 
         // Время со старта записи, не привязаны ни к системному, ни к шине
         std::int64_t mono_ms = 0;

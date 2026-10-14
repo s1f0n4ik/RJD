@@ -195,7 +195,7 @@ json::object USystemController::collect() {
         json::array disks;
         const auto varan_root = varan::paths().nvr.config.parent_path().parent_path();
         disks.push_back(collect_disk("varan_root", varan_root));
-        disks.push_back(collect_disk("storage", varan::paths().journal));
+        disks.push_back(collect_disk("storage", varan::paths().archive));
         info["disks"] = std::move(disks);
     }
 

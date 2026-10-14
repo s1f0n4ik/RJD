@@ -1,6 +1,9 @@
 #pragma once 
 
 #include <mutex>
+#include <atomic>
+#include <optional>
+#include <unordered_map>
 #include <condition_variable>
 #include <map>
 #include <iostream>
@@ -196,6 +199,9 @@ protected:
 	// Возвращает владельца: у кого он лежит, тот и снимает
 	[[nodiscard]] FBusWatch setup_bus_watch(GstElement* pipeline, bool use_probe_handler = false);
 
+	// Ошибка ветки, которую подкласс разбирает сам; true — конвейер не перезапускается
+	virtual bool on_branch_error(GstMessage*) { return false; }
+
 	// Логика для обработки ошибок; code — числовой код из signaling_definers.h
 	virtual void on_bus_error(int code, const std::string& description, bool is_probe = false);
 	// для сецифичной работы pipeline
@@ -335,8 +341,18 @@ protected:
 
 	virtual void on_bus_error(int code, const std::string& description, bool probe_handler = false);
 	virtual void on_bus_message(GstMessage* msg);
+	bool on_branch_error(GstMessage* msg) override;
 
 private:
+
+	// Каталог записей и том пула для очередного сегмента; пустой том — без пула
+	struct FRecordRoot {
+		std::filesystem::path path;
+		std::string volume_id;
+	};
+
+	// Куда писать очередной сегмент; пусто — цель пула недоступна и запись ждёт
+	std::optional<FRecordRoot> resolve_record_root();
 
 	void create_gst_gl_context(varan::birdview::UEGLContextManager* gl_context_manager);
 
@@ -365,11 +381,16 @@ private:
 	FGstGLContext m_gl_context;
 
 	FPipelineBranch m_record_branch;
-	std::filesystem::path m_record_path = "";
 
 	// Писатель индекса сегментов; пусто — записи в базу нет, файлы пишутся как раньше
 	std::shared_ptr<varan::archive::USegmentWriter> m_segment_writer;
 	guint m_timer_check_record_id = 0;
+
+	// С какого момента цель пула недоступна, мкс монотонных часов; 0 — доступна
+	std::atomic<gint64> m_target_lost_us{0};
+	// Том файла фрагмента от format-location до сообщения о его открытии
+	std::mutex m_fragment_mutex;
+	std::unordered_map<std::string, std::string> m_fragment_volumes;
 
 	FPipelineBranch m_decoder_branch;
 

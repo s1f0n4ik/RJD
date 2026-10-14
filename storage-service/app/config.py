@@ -14,8 +14,8 @@ class Settings(BaseSettings):
     MEDIA_ROOT: str = "/storage/media"
     # Пул устройства: тома, порядок записи, имена, пороги
     POOL_PATH: str = "/storage/archive/pool.json"
-    # Текущая цель записи для media-center
-    TARGET_PATH: str = "/storage/archive/target.json"
+    # Текущая цель записи для media-center; он читает <--archive-dir>/target.json
+    WRITE_TARGET_PATH: str = "/storage/archive/target.json"
     # Файл метки тома в корне диска
     VOLUME_MARKER: str = ".varan-volume"
     # Как часто опрашивать диски (секунды)

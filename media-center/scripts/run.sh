@@ -3,7 +3,7 @@
 #
 # Аргументы приложения именованные, порядок значения не имеет:
 #   --rest-port --signaling-ip --signaling-port --varan-root
-#   [--modules] [--gateway-ip --gateway-port] [--detection-ip --detection-port] [--journal-dir]
+#   [--modules] [--gateway-ip --gateway-port] [--detection-ip --detection-port] [--archive-dir]
 # По умолчанию используются те же, что в systemd-сервисе устройства.
 # Значения можно переопределить аргументами или переменными окружения
 # MC_REST_PORT / MC_SIGNALING_IP / MC_SIGNALING_PORT / MC_VARAN_ROOT / MC_MODULES.
@@ -42,11 +42,6 @@ DISPLAY_ENV="${MC_DISPLAY:-:0}"
 XAUTH_ENV="${MC_XAUTHORITY:-/home/orangepi/.Xauthority}"
 XDG_ENV="${MC_XDG_RUNTIME_DIR:-/run/user/1000}"
 
-# Каталог журнала обнаружений (SQLite + кадры). По умолчанию /storage/journal,
-# но он принадлежит root — media-center же работает под обычным пользователем.
-# Либо выдайте права на каталог, либо укажите свой путь через MC_JOURNAL_DIR.
-JOURNAL_DIR_ENV="${MC_JOURNAL_DIR:-/storage/journal}"
-
 # Корень рабочего каталога: nvr, neural и surround_view кладут данные сюда.
 # Обязателен для приложения — дефолта в коде нет.
 VARAN_ROOT_ENV="${MC_VARAN_ROOT:-/home/orangepi/varan}"
@@ -64,5 +59,4 @@ ssh -t "$REMOTE" "source '$GST_ENV'; \
         --modules='$MODULES' \
         --gateway-ip='$GATEWAY_IP' \
         --gateway-port='$GATEWAY_PORT' \
-        $DETECTION_ARGS \
-        --journal-dir='$JOURNAL_DIR_ENV'"
+        $DETECTION_ARGS"

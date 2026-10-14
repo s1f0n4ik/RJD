@@ -47,9 +47,10 @@ struct FPaths {
 		std::filesystem::path linker_state_root;
 	} surround;
 
-	std::filesystem::path journal;
 	// Индекс архивных записей: тоже свой том, отдельно от рабочего корня
 	std::filesystem::path archive;
+	// Файл цели записи, который ведёт storage-service: том и каталог для сегментов
+	std::filesystem::path write_target;
 	// Файлы лога процесса
 	std::filesystem::path logs;
 };
@@ -71,7 +72,6 @@ namespace detail {
 // Заполняет раскладку, вызывается в мейне до создания подсистем
 inline void init_paths(
 	const std::filesystem::path& varan_root,
-	const std::filesystem::path& journal_dir,
 	const std::filesystem::path& archive_dir
 ) {
 	FPaths& p = detail::mutable_paths();
@@ -96,8 +96,8 @@ inline void init_paths(
 	p.surround.projection_root      = surround_root / "projection";
 	p.surround.linker_state_root    = surround_root / "linker";
 
-	p.journal = journal_dir;
 	p.archive = archive_dir;
+	p.write_target = archive_dir / "target.json";
 	p.logs = varan_root / "logs";
 
 	detail::paths_initialized() = true;

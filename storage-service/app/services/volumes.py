@@ -22,7 +22,8 @@ logger = logging.getLogger(__name__)
 # Без метки ФС автомонтирование называет каталог UUID тома
 UUID_NAME = re.compile(r"^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4})$")
 
-SUITABLE_FS = {"ext4"}
+# exfat — ядерный драйвер; FUSE-вариант виден как fuseblk и не отличим от ntfs-3g
+SUITABLE_FS = {"ext4", "exfat"}
 
 # Страховка media-center: выше этого он не пишет
 STUCK_PERCENT = 99.0
@@ -343,7 +344,7 @@ class VolumePool:
 
     def _choose_target(self) -> None:
         internal = self._internal()
-        target, path = internal, settings.RECORDS_PATH
+        target, path, root = internal, settings.RECORDS_PATH, settings.INTERNAL_ROOT
 
         writable = self._write_set()
         if writable:
@@ -351,15 +352,20 @@ class VolumePool:
             percents = {e["id"]: p if (p := _percent(m.path)) is not None else 100.0 for e, m in writable}
             below = [(e, m) for e, m in writable if percents[e["id"]] < e["high"]]
             target, mount = below[0] if below else min(writable, key=lambda pair: percents[pair[0]["id"]])
-            path = str(self._records_dir(mount))
+            path, root = str(self._records_dir(mount)), mount.path
 
-        payload = {"volume_id": target["id"], "path": path}
+        payload = {"volume_id": target["id"], "path": path, "marker": str(Path(root, settings.VOLUME_MARKER))}
+        try:
+            # Корень цели создаёт служба: media-center создаёт внутри только камеру и поток
+            Path(path).mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            logger.warning("Cannot create records dir %s: %s", path, e)
         if payload == self._target:
             return
         try:
-            _write_durable(Path(settings.TARGET_PATH), json.dumps(payload))
+            _write_durable(Path(settings.WRITE_TARGET_PATH), json.dumps(payload))
         except OSError as e:
-            logger.error("Cannot write target file %s: %s", settings.TARGET_PATH, e)
+            logger.error("Cannot write target file %s: %s", settings.WRITE_TARGET_PATH, e)
             return
         logger.info("Write target -> volume %s at %s", payload["volume_id"], payload["path"])
         self._target = payload
@@ -546,7 +552,10 @@ class VolumePool:
             await loop.run_in_executor(None, self.tick)
         except Exception:
             logger.exception("Initial volume pool tick failed")
-        logger.info("Volume pool started: media=%s, interval=%ss", settings.MEDIA_ROOT, settings.POOL_INTERVAL_SEC)
+        logger.info(
+            "Volume pool started: media=%s, write target=%s, interval=%ss",
+            settings.MEDIA_ROOT, settings.WRITE_TARGET_PATH, settings.POOL_INTERVAL_SEC,
+        )
         self._task = asyncio.create_task(self._run())
 
     async def stop(self) -> None:

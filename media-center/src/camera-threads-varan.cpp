@@ -45,9 +45,6 @@ struct AppConfig {
 	// Корень рабочего каталога: nvr, neural и surround_view кладут данные сюда.
 	std::filesystem::path varan_root;
 
-	// Путь к БД с журналом обнаружений
-	std::filesystem::path journal_dir;
-
 	// Путь к БД с сешментными записями архивных видел
 	std::filesystem::path archive_dir;
 
@@ -79,7 +76,7 @@ int main(int argc, char* argv[])
 		return EXIT_FAILURE;
 	}
 
-	varan::init_paths(config.varan_root, config.journal_dir, config.archive_dir);
+	varan::init_paths(config.varan_root, config.archive_dir);
 
 	// Создание дерева директорий
 	for (const auto& dir : varan::required_directories()) {
@@ -141,6 +138,7 @@ int main(int argc, char* argv[])
 	if (segment_writer->start()) {
 		main_logger.info("archive index enabled -> " + varan::paths().archive.string()
 			+ " session=" + segment_writer->session_uid());
+		main_logger.info("archive write target -> " + varan::paths().write_target.string());
 	}
 	else {
 		main_logger.error("archive index DISABLED: writer start failed at "
@@ -356,12 +354,12 @@ static void print_usage(const char* exe, ULogger* logger) {
 		"    [--modules=birdview,neural] \\\n"
 		"    [--gateway-ip=<ip> --gateway-port=<port>] \\\n"
 		"    [--detection-ip=<ip> --detection-port=<port>] \\\n"
-		"    [--journal-dir=<dir>] [--archive-dir=<dir>]\n"
+		"    [--archive-dir=<dir>]\n"
 		"\n"
 		"  --varan-root   working directory: nvr, neural, surround_view\n"
 		"  --modules      optional build modules; without the flag it is a pure NVR\n"
-		"  --journal-dir  detection journal; otherwise MC_JOURNAL_DIR, otherwise /storage/journal\n"
-		"  --archive-dir  recording index; otherwise MC_ARCHIVE_DIR, otherwise /storage/archive\n"
+		"  --archive-dir  recording index and target.json from storage-service;\n"
+		"                 otherwise MC_ARCHIVE_DIR, otherwise /storage/archive\n"
 		"  --gateway-*    connection to message-gateway; set both or none\n"
 		"  --detection-*  connection to the detection master (neural tracks); set both or none\n";
 
@@ -415,8 +413,6 @@ bool parse_arguments(int argc, char* argv[], AppConfig& config, ULogger* logger)
 				return false;
 			}
 			config.modules = *modules;
-		} else if (name == "journal-dir") {
-			config.journal_dir = value;
 		} else if (name == "archive-dir") {
 			config.archive_dir = value;
 		} else if (name == "gateway-ip") {
@@ -487,15 +483,7 @@ bool parse_arguments(int argc, char* argv[], AppConfig& config, ULogger* logger)
 		config.detection_port = std::to_string(detection_port);
 	}
 
-	// Журнал: флаг важнее переменной, переменная важнее умолчания.
-	if (config.journal_dir.empty()) {
-		const char* env_dir = std::getenv("MC_JOURNAL_DIR");
-		config.journal_dir = (env_dir && *env_dir)
-			? std::filesystem::path(env_dir)
-			: std::filesystem::path("/storage/journal");
-	}
-
-	// Индекс архива: тот же порядок предпочтений
+	// Индекс архива: флаг важнее переменной, переменная важнее умолчания
 	if (config.archive_dir.empty()) {
 		const char* env_dir = std::getenv("MC_ARCHIVE_DIR");
 		config.archive_dir = (env_dir && *env_dir)

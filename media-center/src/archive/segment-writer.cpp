@@ -95,7 +95,9 @@ namespace {
             // 0 — фрагмент ещё пишется либо оборван обесточиванием
             "  closed INTEGER NOT NULL DEFAULT 0,"
             // mc — строку записала ветка записи, scan — нашёл storage-service
-            "  origin TEXT NOT NULL DEFAULT 'mc'"
+            "  origin TEXT NOT NULL DEFAULT 'mc',"
+            // Том пула дисков; NULL — внутренний том
+            "  volume_id TEXT"
             ");"
             // Точка соответствия монотонного и настенного времени. Пишется, когда
             // источник стал лучше: по ней storage-service ставит якорь сессии,
@@ -112,7 +114,11 @@ namespace {
             "CREATE INDEX IF NOT EXISTS idx_seg_open ON segments(closed);"
             "CREATE INDEX IF NOT EXISTS idx_mark_session ON time_marks(session_uid, mono_ms);";
 
-        return db().exec(kSchema, "schema");
+        if (!db().exec(kSchema, "schema")) return false;
+
+        // Базы прежних сборок без тома пула
+        db().add_column("segments", "volume_id", "TEXT");
+        return db().exec("CREATE INDEX IF NOT EXISTS idx_seg_volume ON segments(volume_id);", "volume index");
     }
 
     void USegmentWriter::on_started() {
@@ -228,8 +234,8 @@ namespace {
         // файл перезаписывается, значит и строка должна принадлежать новой
         db::UStatement insert(db(),
             "INSERT INTO segments("
-            "session_uid,camera_id,stream_key,path,mono_start_ms,wall_start_ms,time_source,origin) "
-            "VALUES(?,?,?,?,?,?,?,'mc') "
+            "session_uid,camera_id,stream_key,path,mono_start_ms,wall_start_ms,time_source,origin,volume_id) "
+            "VALUES(?,?,?,?,?,?,?,'mc',?) "
             "ON CONFLICT(path) DO UPDATE SET "
             "session_uid=excluded.session_uid,"
             "camera_id=excluded.camera_id,"
@@ -237,6 +243,7 @@ namespace {
             "mono_start_ms=excluded.mono_start_ms,"
             "wall_start_ms=excluded.wall_start_ms,"
             "time_source=excluded.time_source,"
+            "volume_id=excluded.volume_id,"
             "mono_end_ms=NULL,wall_end_ms=NULL,size_bytes=NULL,closed=0,origin='mc';");
 
         if (!insert.ok()) {
@@ -250,7 +257,8 @@ namespace {
               .bind(event.path)
               .bind(event.mono_ms)
               .bind(event.wall_ms)
-              .bind(std::string(to_string(event.source)));
+              .bind(std::string(to_string(event.source)))
+              .bind_text_or_null(event.volume_id);
 
         if (!insert.step_done()) {
             logger().error("insert segment: " + db().error());

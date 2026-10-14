@@ -3,9 +3,12 @@
 #include <filesystem>
 #include <array>
 #include <fstream>
+#include <sstream>
 #include <string_view>
 #include <vector>
 #include <system_error>
+
+#include <boost/json.hpp>
 
 #include <gst/rtsp/gstrtsptransport.h>
 
@@ -19,6 +22,7 @@
 #include "utility/branch-helpers.h"
 #include "nvr/element-definers.h"
 #include "archive/segment-writer.h"
+#include "core/paths.h"
 
 #define MAIN_TEE "tee_main"
 
@@ -159,6 +163,72 @@ bool write_mp4_duration(const std::filesystem::path& path, std::int64_t duration
 
 	file.flush();
 	return file.good();
+}
+
+// Сколько ждать, пока storage-service укажет доступный том, прежде чем писать во внутренний
+constexpr gint64 kTargetGraceUs = 10 * G_TIME_SPAN_SECOND;
+
+// Имена элементов ветки записи: по ним узнаются её ошибки и после сноса ветки
+constexpr const char* kRecordQueueName = "record_queue";
+constexpr const char* kSplitmuxName = "splitmux";
+
+bool is_record_source(GstObject* source) {
+	for (GstObject* object = source; object; object = GST_OBJECT_PARENT(object)) {
+		const gchar* name = GST_OBJECT_NAME(object);
+		if (g_strcmp0(name, kRecordQueueName) == 0 || g_strcmp0(name, kSplitmuxName) == 0) return true;
+	}
+	return false;
+}
+
+// Цель записи от storage-service; пустой volume_id — файла цели нет
+struct FWriteTarget {
+	std::string volume_id;
+	std::filesystem::path path;
+	std::filesystem::path marker;
+};
+
+std::string read_text(const std::filesystem::path& path) {
+	std::ifstream file(path);
+	if (!file) return {};
+	std::ostringstream text;
+	text << file.rdbuf();
+	return text.str();
+}
+
+std::string json_string(const boost::json::value& value, const char* key) {
+	if (!value.is_object()) return {};
+	const auto* field = value.as_object().if_contains(key);
+	return field && field->is_string() ? std::string(field->as_string()) : std::string();
+}
+
+FWriteTarget read_write_target() {
+	boost::system::error_code ec;
+	const auto value = boost::json::parse(read_text(varan::paths().write_target), ec);
+	if (ec) return {};
+	return { json_string(value, "volume_id"), json_string(value, "path"), json_string(value, "marker") };
+}
+
+// Том цели на месте: каталог записей есть, метка читается и называет тот же том
+bool target_alive(const FWriteTarget& target) {
+	std::error_code ec;
+	if (target.path.empty() || !std::filesystem::is_directory(target.path, ec)) return false;
+	boost::system::error_code json_ec;
+	const auto marker = boost::json::parse(read_text(target.marker), json_ec);
+	return !json_ec && json_string(marker, "id") == target.volume_id;
+}
+
+// Каталоги камеры и потока; в цели пула корень не создаётся никогда
+bool ensure_record_dir(const std::filesystem::path& root, const std::filesystem::path& dir, bool pooled) {
+	std::error_code ec;
+	if (pooled) {
+		if (!std::filesystem::is_directory(root, ec)) return false;
+		std::filesystem::create_directory(dir.parent_path(), ec);
+		std::filesystem::create_directory(dir, ec);
+	}
+	else {
+		std::filesystem::create_directories(dir, ec);
+	}
+	return std::filesystem::is_directory(dir, ec);
 }
 
 } // namespace
@@ -363,8 +433,6 @@ bool UCameraStreamPipeline::initialize() {
 			m_logger->debug("inititalize(): record path not found. Record branch didn't create");
 		}
 		else {
-			// Подпапка потока: у камеры может писаться несколько потоков сразу
-			m_record_path = m_parameters.record_path / m_parameters.camera_name / m_parameters.name;
 			create_record_branch(tee);
 			set_timer_check_record_branch();
 		}
@@ -431,28 +499,53 @@ void UCameraStreamPipeline::on_bus_message(GstMessage* msg) {
 		}
 		break;
 	}
-	case GST_MESSAGE_ERROR: {
-		// Специфика main: проверяем splitmux
-		GError* err = nullptr;
-		gchar* debug = nullptr;
-		gst_message_parse_error(msg, &err, &debug);
-
-		if (m_record_branch.is_deployed.load() &&
-			(GST_MESSAGE_SRC(msg) == GST_OBJECT(
-				m_record_branch.get_element(varan::nvr::RECORD_SPLITMUXSINK))))
-		{
-			m_logger->error("splitmux error, restarting record branch");
-			destroy_branch(m_record_branch);
-			create_record_branch(m_tees[MAIN_TEE]);
-		}
-
-		if (err) g_error_free(err);
-		if (debug) g_free(debug);
-		break;
-	}
 	default:
 		break;
 	}
+}
+
+std::optional<UCameraStreamPipeline::FRecordRoot> UCameraStreamPipeline::resolve_record_root() {
+	const FWriteTarget target = read_write_target();
+
+	// Пула нет: пишем по пути потока, как до него
+	if (target.volume_id.empty()) {
+		m_target_lost_us.store(0);
+		return FRecordRoot{ m_parameters.record_path, "" };
+	}
+
+	if (target_alive(target)) {
+		if (m_target_lost_us.exchange(0) != 0) {
+			m_logger->info("write target is available again: " + target.path.string());
+		}
+		return FRecordRoot{ target.path, target.volume_id };
+	}
+
+	const gint64 now = g_get_monotonic_time();
+	gint64 lost = 0;
+	if (m_target_lost_us.compare_exchange_strong(lost, now)) {
+		m_logger->warn("write target is unavailable, waiting for storage-service: " + target.path.string());
+		return std::nullopt;
+	}
+	if (now - lost < kTargetGraceUs) return std::nullopt;
+
+	// storage-service так и не сменил цель: пишем во внутренний том
+	m_logger->warn("write target is still unavailable, recording to " + m_parameters.record_path.string());
+	return FRecordRoot{ m_parameters.record_path, "" };
+}
+
+bool UCameraStreamPipeline::on_branch_error(GstMessage* msg) {
+	if (!is_record_source(GST_MESSAGE_SRC(msg))) return false;
+
+	GError* err = nullptr;
+	gst_message_parse_error(msg, &err, nullptr);
+	const gchar* source = GST_OBJECT_NAME(GST_MESSAGE_SRC(msg));
+	m_logger->error(std::string("record branch error, live stays: ")
+		+ (source ? source : "unknown") + ": " + (err ? err->message : "unknown"));
+	if (err) g_error_free(err);
+
+	// Ветку вернёт таймер, когда цель записи снова будет доступна
+	if (m_record_branch.is_deployed.load()) destroy_branch(m_record_branch);
+	return true;
 }
 
 bool UCameraStreamPipeline::create_decoder_branch(GstElement* tee) {
@@ -567,25 +660,24 @@ bool UCameraStreamPipeline::create_record_branch(GstElement* tee)
 	}
 
 	m_logger->debug("Creating branch to record segments...");
-	if (!std::filesystem::exists(m_record_path)) {
-		try {
-			std::filesystem::create_directories(m_record_path);
-			m_logger->debug("create_record_branch(): Directory " + m_record_path.string() + " sucessfully created!");
-		}
-		catch (...) {
-			m_logger->error("create_record_branch(): Cannot create directories at path: " + m_record_path.string());
-			return false;
-		}
-	}
+	const auto root = resolve_record_root();
+	if (!root) return false;
 
-	auto usage = get_disk_usage(m_parameters.record_path, m_logger.get());
-	if (usage >= 99.0f) {
-		m_logger->error("create_record_branch(): Cannot create record branch at path=" + m_record_path.string() + "; disk usage=" + std::to_string(usage));
+	// Подпапка потока: у камеры может писаться несколько потоков сразу
+	const auto record_dir = root->path / m_parameters.camera_name / m_parameters.name;
+	if (!ensure_record_dir(root->path, record_dir, !root->volume_id.empty())) {
+		m_logger->error("create_record_branch(): Cannot create directories at path: " + record_dir.string());
 		return false;
 	}
 
-	auto record_queue = gst_element_factory_make("queue", "record_queue");
-	auto splitmux = gst_element_factory_make("splitmuxsink", "splitmux");
+	auto usage = get_disk_usage(root->path, m_logger.get());
+	if (usage >= 99.0f) {
+		m_logger->error("create_record_branch(): Cannot create record branch at path=" + record_dir.string() + "; disk usage=" + std::to_string(usage));
+		return false;
+	}
+
+	auto record_queue = gst_element_factory_make("queue", kRecordQueueName);
+	auto splitmux = gst_element_factory_make("splitmuxsink", kSplitmuxName);
 
 	if (!record_queue || !splitmux) {
 		std::ostringstream oss;
@@ -606,15 +698,26 @@ bool UCameraStreamPipeline::create_record_branch(GstElement* tee)
 	g_signal_connect(splitmux, "format-location",
 		G_CALLBACK(+[](GstElement*, guint, gpointer data) -> gchar* {
 			auto self = static_cast<UCameraStreamPipeline*>(data);
-			const auto& record_path = self->m_record_path;
 
-			float usage = self->get_disk_usage(record_path, self->m_logger.get());
-			if (usage >= 99.0f) {
-				self->m_logger->warn(
-					"format-location: disk usage " +
-					std::to_string(static_cast<int>(usage)) +
-					"%, scheduling record branch removal"
-				);
+			// Корень выбирается на каждый сегмент: смена диска пула идёт на границе
+			const auto root = self->resolve_record_root();
+			const auto record_dir = root
+				? root->path / self->m_parameters.camera_name / self->m_parameters.name
+				: std::filesystem::path();
+
+			std::string reason;
+			if (!root) {
+				reason = "write target is unavailable";
+			}
+			else if (!ensure_record_dir(root->path, record_dir, !root->volume_id.empty())) {
+				reason = "cannot create " + record_dir.string();
+			}
+			else if (const float usage = self->get_disk_usage(root->path, self->m_logger.get()); usage >= 99.0f) {
+				reason = "disk usage " + std::to_string(static_cast<int>(usage)) + "%";
+			}
+
+			if (!reason.empty()) {
+				self->m_logger->warn("format-location: " + reason + ", scheduling record branch removal");
 				// Планируем удаление в главном потоке GLib — не трогаем пайплайн из колбека
 				g_idle_add([](gpointer data) -> gboolean {
 					auto self = static_cast<UCameraStreamPipeline*>(data);
@@ -630,7 +733,11 @@ bool UCameraStreamPipeline::create_record_branch(GstElement* tee)
 			std::ostringstream oss;
 			oss << self->m_parameters.camera_name << "_" << make_start_timestamp() << ".mp4";
 
-			auto save_path = record_path / oss.str();
+			auto save_path = record_dir / oss.str();
+			{
+				std::lock_guard<std::mutex> lock(self->m_fragment_mutex);
+				self->m_fragment_volumes[save_path.string()] = root->volume_id;
+			}
 			return g_strdup(save_path.c_str());
 		}),
 		this
@@ -686,6 +793,16 @@ bool UCameraStreamPipeline::create_record_branch(GstElement* tee)
 
 	GstPad* tee_record_pad = attached.pad;
 
+	// Ошибка записи не доходит до tee: иначе она останавливает источник и весь конвейер камеры
+	gst_pad_add_probe(tee_record_pad,
+		static_cast<GstPadProbeType>(GST_PAD_PROBE_TYPE_BUFFER | GST_PAD_PROBE_TYPE_BUFFER_LIST),
+		+[](GstPad*, GstPadProbeInfo*, gpointer data) -> GstPadProbeReturn {
+			const GstFlowReturn last = gst_pad_get_last_flow_return(static_cast<GstPad*>(data));
+			return last < GST_FLOW_EOS ? GST_PAD_PROBE_DROP : GST_PAD_PROBE_OK;
+		},
+		gst_element_get_static_pad(record_queue, "src"),
+		gst_object_unref);
+
 	if (m_record_branch.elements.size() != 0) m_record_branch.elements.clear();
 
 	m_record_branch.add_element(varan::nvr::QUEUE, record_queue);
@@ -737,7 +854,15 @@ void UCameraStreamPipeline::on_record_fragment(const char* location, bool opened
 	event.wall_ms = stamp.wall_ms;
 	event.source = stamp.source;
 
-	if (!opened) {
+	if (opened) {
+		std::lock_guard<std::mutex> lock(m_fragment_mutex);
+		const auto found = m_fragment_volumes.find(event.path);
+		if (found != m_fragment_volumes.end()) {
+			event.volume_id = found->second;
+			m_fragment_volumes.erase(found);
+		}
+	}
+	else {
 		std::error_code ec;
 		const auto size = std::filesystem::file_size(location, ec);
 		if (!ec) event.size_bytes = static_cast<std::int64_t>(size);
@@ -756,23 +881,23 @@ void UCameraStreamPipeline::on_record_fragment(const char* location, bool opened
 }
 
 void UCameraStreamPipeline::set_timer_check_record_branch() {
-	m_timer_check_record_id = g_timeout_add_seconds(60, [](gpointer data) -> gboolean {
+	// Инициализация после рестарта зовёт сюда снова: старый таймер снимается
+	if (m_timer_check_record_id != 0) g_source_remove(m_timer_check_record_id);
+
+	m_timer_check_record_id = g_timeout_add_seconds(2, [](gpointer data) -> gboolean {
 		auto self = static_cast<UCameraStreamPipeline*>(data);
 
-		if (self->m_record_branch.is_deployed.load()) {
-			if (self->m_logger) self->m_logger->debug("timer_check_record_branch: record branch is alive");
+		if (self->m_record_branch.is_deployed.load() || self->m_is_restarting.load()) {
 			return G_SOURCE_CONTINUE;
 		}
 
-		auto usage = UCameraStreamPipeline::get_disk_usage(self->m_record_path, self->m_logger.get());
+		// Цель пула недоступна — ждём, пока storage-service выберет другую
+		const auto root = self->resolve_record_root();
+		if (!root) return G_SOURCE_CONTINUE;
+
+		auto usage = UCameraStreamPipeline::get_disk_usage(root->path, nullptr);
 		// Гистерезис к порогу сноса: ветка не мигает у самой границы
-		if (usage >= 97.0f) {
-			if (self->m_logger) self->m_logger->warn(
-				"timer_check_record_branch: disk still at " +
-				std::to_string(static_cast<int>(usage)) + "%, waiting, not recovering"
-			);
-			return G_SOURCE_CONTINUE;
-		}
+		if (usage >= 97.0f) return G_SOURCE_CONTINUE;
 
 		self->m_logger->info(
 			"timer_check_record_branch: disk at " +
