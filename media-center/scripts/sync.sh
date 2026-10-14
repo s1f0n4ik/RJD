@@ -20,6 +20,7 @@ ITEMS=(
     README.md
     src
     include
+    checks
     shaders
     proto
     server

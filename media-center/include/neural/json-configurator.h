@@ -4,7 +4,7 @@
 #include <optional>
 
 #include "tracker/tracking-types.h"
-#include "tracker/iou-tracker.h"
+#include "tracker/tracker-registry.h"
 #include "utility/json-reader.h"
 #include "neural/utility.h"
 
@@ -117,14 +117,8 @@ namespace neural {
 					auto track_object = track_config->as_object();
 					if (auto* t = track_object.if_contains("type"); t && t->is_string()) {
 						const std::string config_type = t->as_string().c_str();
-						if (config_type == "iou") {
-							FIoUTrackerConfig iou_config;
-							if (auto* v = track_object.if_contains("iou_threshold"); v && v->is_number()) iou_config.iou_threshold = (float)v->as_double();
-							if (auto* v = track_object.if_contains("min_hits"); v && v->is_int64()) iou_config.min_hits = v->as_int64();
-							if (auto* v = track_object.if_contains("max_lost"); v && v->is_int64()) iou_config.max_lost = v->as_int64();
-							if (auto* v = track_object.if_contains("move_threshold"); v && v->is_number()) iou_config.move_threshold = (float)v->as_double();
-
-							info.tracker_config = std::make_shared<FIoUTrackerConfig>(std::move(iou_config));
+						if (const auto* type = find_tracker_type(config_type)) {
+							info.tracker_config = type->parse(track_object, info);
 						}
 						else {
 							log_warn("load_config(): cannot load tracker config; type " + config_type + " doesn't implement!");

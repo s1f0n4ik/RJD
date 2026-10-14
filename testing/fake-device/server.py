@@ -210,7 +210,13 @@ async def event_types():
 
 @app.get("/neural/tracker-types")
 async def tracker_types():
-    return ok({"types": [{"type": "iou", "name": "IoU-трекер"}]})
+    return ok({"types": [
+        {"type": "iou", "name": "IoU-трекер",
+         "defaults": {"iou_threshold": 0.3, "min_hits": 4, "max_lost": 8, "move_threshold": 0.05}},
+        {"type": "kalman_iou", "name": "Калман + IoU",
+         "defaults": {"iou_threshold": 0.3, "low_confidence": 0.1, "low_iou_threshold": 0.5, "min_hits": 3, "max_lost_s": 1.0,
+                      "move_threshold": 0.05, "std_position": 0.05, "std_velocity": 0.00625, "match_by": "superclass"}},
+    ]})
 
 
 @app.get("/neural/models")

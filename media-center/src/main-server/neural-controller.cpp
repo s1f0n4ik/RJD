@@ -5,6 +5,7 @@
 #include "neural/video-stream.h"
 #include "neural/npu-pool.h"
 #include "neural/tracker/tracking-types.h"
+#include "neural/tracker/tracker-registry.h"
 
 #include <algorithm>
 #include <boost/json.hpp>
@@ -601,18 +602,13 @@ UNeuralController::get_tracker_types(const http::request<http::string_body>& req
     const std::string tag = "GET /neural/tracker-types";
     log_request(m_logger, req, tag);
 
-    // Единый источник правды по реализованным трекерам. Значение "type"
-    // должно совпадать с разбором в UJsonNeuralConfiguration::load_config().
-    static const std::vector<std::pair<std::string, std::string>> kTrackerTypes = {
-        { "iou", "IoU-трекер" },
-    };
-
     try {
         boost::json::array types_arr;
-        for (const auto& [type, name] : kTrackerTypes) {
+        for (const auto& t : varan::neural::tracker_types()) {
             boost::json::object item;
-            item["type"] = type;
-            item["name"] = name;
+            item["type"] = t.type;
+            item["name"] = t.name;
+            item["defaults"] = t.defaults();
             types_arr.push_back(std::move(item));
         }
         boost::json::object data;

@@ -3,7 +3,7 @@
 
 #include "signaling_definers.h"
 
-#include "neural/tracker/iou-tracker.h"
+#include "neural/tracker/tracker-registry.h"
 #include "neural/postprocess.h"
 #include "neural/utility.h"
 
@@ -67,9 +67,9 @@ namespace neural {
     }
 
     std::shared_ptr<IDetectionTracker> USlot::make_tracker() const {
-        if (auto tr_cfg = static_cast<FIoUTrackerConfig*>(m_config.tracker_config.get()); tr_cfg)
-            return std::make_shared<UIoUTracker>(*tr_cfg, m_track_ids);
-        return nullptr;
+        const auto& cfg = m_config.tracker_config;
+        const auto* type = cfg ? find_tracker_type(cfg->type) : nullptr;
+        return type ? type->make(*cfg, m_track_ids) : nullptr;
     }
 
     FCameraMessageSender& USlot::sender_for(const std::string& camera) {
@@ -91,12 +91,17 @@ namespace neural {
     bool USlot::ensure_classifier() {
         // Вызывающий ДОЛЖЕН держать m_resource_mutex.
         if (m_classifier) return true;
+        // Трекеру со вторым проходом нужны и слабые детекции
+        const auto& tracker = m_config.tracker_config;
+        const float confidence = tracker && tracker->min_confidence > 0.f
+            ? std::min(tracker->min_confidence, m_config.thresholds.confidence)
+            : m_config.thresholds.confidence;
         try {
             m_classifier = std::make_unique<Classifier>(
                 m_config.model_path,
                 m_config.classes,
                 m_config.thresholds.nms,
-                m_config.thresholds.confidence,
+                confidence,
                 m_depth,
                 &m_logger
             );
@@ -607,10 +612,13 @@ namespace neural {
             inferred.rgb = job.rgb;
             inferred.tiles = std::move(job.tiles);
             inferred.time_gps = job.time_gps;
+            inferred.at = job.enqueued;
             inferred.result = m_classifier->classify(job.rgb, inferred.mask);
 
             ema(m_infer_ms, std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - started).count());
-            ema(m_det_count, static_cast<float>(inferred.result.detections.size()));
+            const auto& dets = inferred.result.detections;
+            ema(m_det_count, static_cast<float>(std::count_if(dets.begin(), dets.end(),
+                [this](const FDetection& d) { return d.confidence >= m_config.thresholds.confidence; })));
             deliver(job.seq, std::move(inferred));
         }
     }
@@ -648,11 +656,14 @@ namespace neural {
         std::map<std::string, cv::Size> resolution;
         std::map<std::string, SPGLTextureWrapper> source;
         std::map<std::string, int> tile_count;
+        // Окна камеры, которые видит модель, в пикселях кадра камеры
+        std::map<std::string, std::vector<cv::Rect2f>> visible;
         for (const auto& t : tiles) {
             if (t.state != ETileState::OK) continue;
             ++tile_count[t.camera];
             resolution[t.camera] = cv::Size(t.cam_w, t.cam_h);
             source[t.camera] = t.frame;
+            visible[t.camera].emplace_back(t.crop.x * t.cam_w, t.crop.y * t.cam_h, t.crop.width * t.cam_w, t.crop.height * t.cam_h);
             by_camera[t.camera];
         }
         for (const auto& d : result.detections) {
@@ -670,7 +681,7 @@ namespace neural {
 
             auto& tracker = m_trackers[camera];
             if (tracker) {
-                auto update_result = tracker->update(dets, size.width, size.height);
+                auto update_result = tracker->update(dets, FTrackerFrame{ size.width, size.height, inferred.at, visible[camera] });
                 if (update_result.has_events()) log_events(update_result.events);
 
                 // Такт уходит мастеру, пока у камеры есть треки или в нём удалён последний

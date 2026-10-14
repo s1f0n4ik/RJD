@@ -1,12 +1,23 @@
 #pragma once
 
+#include <chrono>
 #include <vector>
 #include <cstdint>
+
+#include <opencv2/core.hpp>
 
 #include "tracking-types.h"
 
 namespace varan {
 namespace neural {
+
+    // Кадр для трекера: размер, время сборки полотна и видимые окна камеры в пикселях кадра; пусто — весь кадр
+    struct FTrackerFrame {
+        int width = 1;
+        int height = 1;
+        std::chrono::steady_clock::time_point at;
+        std::vector<cv::Rect2f> visible;
+    };
 
     class IDetectionTracker {
     public:
@@ -18,6 +29,11 @@ namespace neural {
             const std::vector<FDetection>& detections,
             int frame_width = 1,
             int frame_height = 1) = 0;
+
+        // То же со временем кадра и видимыми окнами; трекеру, которому они не нужны, хватает размера
+        virtual FTrackerUpdateResult update(const std::vector<FDetection>& detections, const FTrackerFrame& frame) {
+            return update(detections, frame.width, frame.height);
+        }
 
         // Все текущие треки
         virtual const std::vector<FTrack>& tracks() const = 0;

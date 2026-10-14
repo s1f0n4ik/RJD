@@ -130,7 +130,7 @@ namespace neural {
 	enum class EBoxStyle { SOLID, DASHED, DASHED_LABELED };
 
 	// Пунктирный прямоугольник: штрих и промежуток по dash пикселей
-	inline void dashed_rectangle(cv::Mat& img, const cv::Rect& r, const cv::Scalar& color, int thickness = 1, int dash = 6) {
+	inline void dashed_rectangle(cv::Mat& img, const cv::Rect& r, const cv::Scalar& color, int thickness = 2, int dash = 6) {
 		const cv::Point corners[] = { r.tl(), { r.x + r.width, r.y }, r.br(), { r.x, r.y + r.height } };
 		for (int i = 0; i < 4; ++i) {
 			const cv::Point a = corners[i];
