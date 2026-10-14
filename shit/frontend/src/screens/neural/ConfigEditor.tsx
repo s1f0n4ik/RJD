@@ -3,14 +3,27 @@ import { Icon } from '../../app/Icons';
 import { Select } from '../../app/Select';
 import type { ClassDef, ModelFile, NeuralConfig, SuperclassDef, TrackerConfig, TrackerType } from '../../features/neural/api/types';
 
-// Дефолт трекера при включении — совпадает с FIoUTrackerConfig на сервере
-const DEFAULT_TRACKER: TrackerConfig = {
-    type: 'iou',
-    iou_threshold: 0.3,
-    min_hits: 4,
-    max_lost: 8,
-    move_threshold: 0.05,
+// Поле трекера: ключ конфигурации, подпись, знаков после запятой, пределы
+interface TrackerField { key: string; label: string; digits: number; min?: number; max?: number }
+
+const F = (key: string, label: string, digits: number, min?: number, max?: number): TrackerField => ({ key, label, digits, min, max });
+
+// Поля по типу трекера: на виду и под раскрытием; значения по умолчанию приходят с сервера
+const TRACKER_FIELDS: Record<string, { matchBy?: boolean; main: TrackerField[]; more?: { label: string; fields: TrackerField[] } }> = {
+    iou: {
+        main: [F('iou_threshold', 'Порог IoU', 2, 0, 1), F('move_threshold', 'Порог сдвига', 2, 0, 1), F('min_hits', 'Мин. совпадений', 0, 1), F('max_lost', 'Макс. пропусков', 0, 0)],
+    },
+    kalman_iou: {
+        matchBy: true,
+        main: [F('iou_threshold', 'Порог IoU', 2, 0, 1), F('min_hits', 'Мин. совпадений', 0, 1), F('max_lost_s', 'Срок потери, с', 1, 0.1), F('move_threshold', 'Порог сдвига', 2, 0, 1)],
+        more: {
+            label: 'Слабые детекции и фильтр',
+            fields: [F('low_confidence', 'Уверенность слабых', 2, 0, 1), F('low_iou_threshold', 'Порог IoU слабых', 2, 0, 1), F('std_position', 'Шум положения', 3, 0), F('std_velocity', 'Шум скорости', 5, 0)],
+        },
+    },
 };
+
+const MATCH_BY: [string, string][] = [['class', 'по классу'], ['superclass', 'по суперклассу']];
 
 const NO_SUPER_COLOR = '#7b8698';
 const NEW_COLOR = '#5b9dff';
@@ -58,11 +71,42 @@ export function ConfigEditor({ value, onChange, creating, id, onIdChange, idErro
     };
 
     const tracker = value.tracker ?? null;
+    const [moreOpen, setMoreOpen] = useState(false);
+    const defaultsOf = (type: string) => trackerTypes.find(t => t.type === type)?.defaults ?? {};
+    // Выключенный трекер показывает поля первого типа приглушёнными
+    const shownType = tracker?.type ?? trackerTypes[0]?.type ?? '';
+    const shownDefaults = defaultsOf(shownType);
+    const fields = TRACKER_FIELDS[shownType];
+    const fieldValue = (key: string) => tracker?.[key] ?? shownDefaults[key];
+    const differs = (key: string) => key in shownDefaults && fieldValue(key) !== shownDefaults[key];
+    const canReset = !!tracker && Object.keys(shownDefaults).some(differs);
+    const moreChanged = !!tracker && !!fields?.more?.fields.some(f => differs(f.key));
+
     const setTrackerType = (type: string) => {
-        patch({ tracker: type ? { ...(tracker ?? DEFAULT_TRACKER), type } : null });
+        if (type === tracker?.type) return;
+        patch({ tracker: type ? { ...defaultsOf(type), type } : null });
     };
     const patchTracker = (p: Partial<TrackerConfig>) => {
-        if (tracker) patch({ tracker: { ...tracker, ...p } });
+        if (tracker) patch({ tracker: { ...tracker, ...p } as TrackerConfig });
+    };
+    const resetTracker = () => {
+        if (tracker) patch({ tracker: { ...defaultsOf(tracker.type), type: tracker.type } });
+    };
+
+    const numField = (f: TrackerField) => {
+        const v = fieldValue(f.key);
+        return (
+            <NumField key={f.key} label={f.label} value={v == null ? undefined : Number(v)} step={10 ** -f.digits} min={f.min} max={f.max} digits={f.digits}
+                onCommit={n => patchTracker({ [f.key]: n })} disabled={!tracker} />
+        );
+    };
+    // Поля парами в ряд
+    const pairs = (list: TrackerField[]) => {
+        const rows = [];
+        for (let i = 0; i < list.length; i += 2) {
+            rows.push(<div className="tf-row" key={list[i].key}>{numField(list[i])}{list[i + 1] ? numField(list[i + 1]) : <div className="tf" />}</div>);
+        }
+        return rows;
     };
 
     return (
@@ -125,20 +169,33 @@ export function ConfigEditor({ value, onChange, creating, id, onIdChange, idErro
                                     <button key={t.type} className={tracker?.type === t.type ? 'is-on' : ''} onClick={() => setTrackerType(t.type)}>{t.name}</button>
                                 ))}
                             </div>
+                            <button className="icon-btn" data-tip="По умолчанию" disabled={!canReset} onClick={resetTracker}>
+                                <Icon name="reset" size={13} />
+                            </button>
                         </div>
                         <div className={`blk-b${tracker ? '' : ' is-dim'}`}>
-                            <div className="tf-row">
-                                <NumField label="Порог IoU" value={tracker?.iou_threshold ?? DEFAULT_TRACKER.iou_threshold} step={0.01} min={0} max={1} digits={2}
-                                    onCommit={v => patchTracker({ iou_threshold: v })} disabled={!tracker} />
-                                <NumField label="Порог сдвига" value={tracker?.move_threshold ?? DEFAULT_TRACKER.move_threshold} step={0.01} min={0} max={1} digits={2}
-                                    onCommit={v => patchTracker({ move_threshold: v })} disabled={!tracker} />
-                            </div>
-                            <div className="tf-row">
-                                <NumField label="Мин. совпадений" value={tracker?.min_hits ?? DEFAULT_TRACKER.min_hits} step={1} min={1} digits={0}
-                                    onCommit={v => patchTracker({ min_hits: v })} disabled={!tracker} />
-                                <NumField label="Макс. пропусков" value={tracker?.max_lost ?? DEFAULT_TRACKER.max_lost} step={1} min={0} digits={0}
-                                    onCommit={v => patchTracker({ max_lost: v })} disabled={!tracker} />
-                            </div>
+                            {fields?.matchBy && (
+                                <div className="tf">
+                                    <span className="tf-cap">Сопоставлять</span>
+                                    <div className="seg trk-seg">
+                                        {MATCH_BY.map(([key, label]) => (
+                                            <button key={key} className={fieldValue('match_by') === key ? 'is-on' : ''} disabled={!tracker}
+                                                onClick={() => patchTracker({ match_by: key })}>{label}</button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                            {fields && pairs(fields.main)}
+                            {fields?.more && (
+                                <>
+                                    <button className={`trk-more${moreOpen ? ' is-open' : ''}`} onClick={() => setMoreOpen(o => !o)}>
+                                        <Icon name="chev" size={12} />
+                                        {fields.more.label}
+                                        <span className={`tag${moreChanged ? ' is-acc' : ''}`}>{fields.more.fields.length}</span>
+                                    </button>
+                                    {moreOpen && pairs(fields.more.fields)}
+                                </>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -158,7 +215,8 @@ export function ConfigEditor({ value, onChange, creating, id, onIdChange, idErro
 // ── Числовое поле с коммитом по blur/Enter: пока печатают, значение живёт строкой ──
 interface NumFieldProps {
     label: string;
-    value: number;
+    // Нет значения — пустое поле
+    value?: number;
     step: number;
     min?: number;
     max?: number;
@@ -168,16 +226,17 @@ interface NumFieldProps {
 }
 
 function NumField({ label, value, step, min, max, digits, disabled, onCommit }: NumFieldProps) {
-    const [text, setText] = useState(value.toFixed(digits));
+    const show = (v?: number) => (v == null ? '' : v.toFixed(digits));
+    const [text, setText] = useState(show(value));
     const [focused, setFocused] = useState(false);
 
     useEffect(() => {
-        if (!focused) setText(value.toFixed(digits));
+        if (!focused) setText(value == null ? '' : value.toFixed(digits));
     }, [value, digits, focused]);
 
     const commit = () => {
         let n = Number(text.replace(',', '.'));
-        if (!Number.isFinite(n)) { setText(value.toFixed(digits)); return; }
+        if (!text.trim() || !Number.isFinite(n)) { setText(show(value)); return; }
         if (min != null) n = Math.max(min, n);
         if (max != null) n = Math.min(max, n);
         n = Number(n.toFixed(digits));

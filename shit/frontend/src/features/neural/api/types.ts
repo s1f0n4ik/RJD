@@ -23,19 +23,18 @@ export interface ClassDef {
     color: string;
 }
 
-/** Конфиг трекера; json-configurator читает type "iou" */
+/** Конфиг трекера: type и поля этого типа; набор полей задаёт GET /neural/tracker-types */
 export interface TrackerConfig {
     type: string;
-    iou_threshold: number;
-    min_hits: number;
-    max_lost: number;
-    move_threshold: number;
+    [field: string]: string | number;
 }
 
 /** Реализованный тип трекера (GET /neural/tracker-types) */
 export interface TrackerType {
     type: string;
     name: string;
+    /** Значения по умолчанию; старый media-center их не отдаёт */
+    defaults?: Record<string, string | number>;
 }
 
 /** Тип события трека (GET /neural/event-types) — только идентификатор */
