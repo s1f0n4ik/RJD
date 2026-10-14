@@ -3,6 +3,7 @@ import { sectionLabel } from '../screens/krsps/sections';
 import { SURROUND_SECTIONS, surroundSectionLabel } from '../screens/surround/sections';
 import { NEURAL_SECTIONS, neuralSectionLabel } from '../screens/neural/sections';
 import { CONFIG_SECTIONS, configSectionLabel } from '../screens/configurations/sections';
+import { SETTINGS_SECTIONS, settingsSectionLabel } from '../screens/settings/sections';
 
 /**
  * Разделы оболочки.
@@ -24,6 +25,7 @@ export interface NavItem {
     label: string;
     icon: IconName;
     admin?: boolean;
+    /** Группа в рельсе: подпись встаёт перед первым пунктом группы */
     group?: string;
     /** Подпись на плитке главной, как в макете */
     desc?: string;
@@ -36,14 +38,19 @@ const NEURAL_VIEWER_SECTIONS = new Set(['journal']);
 
 export const NAV: NavItem[] = [
     { to: '/',         label: 'Главная',             icon: 'home' },
-    { to: '/cameras',  label: 'Камеры',              icon: 'cam',   desc: 'Источники, потоки, разрешение' },
-    { to: '/live',     label: 'Отображение',         icon: 'grid',  desc: 'Сетки просмотра и прямой эфир', admin: true },
-    { to: '/archive',  label: 'Архив',               icon: 'arch',  desc: 'Записи, таймлайны и склейка' },
     { to: '/devices',  label: 'Устройства',          icon: 'dev',   desc: 'Одноплатники: состояние и маршрутизация', admin: true },
     {
         to: '/configurations', label: 'Конфигурации', icon: 'kit', desc: 'Конфигурация изделия: фильтр обнаружений и таблицы соответствий', admin: true,
         sub: CONFIG_SECTIONS.map((s, i) => ({ to: `/configurations/${s.id}`, label: s.label, n: String(i + 1).padStart(2, '0') })),
     },
+    {
+        to: '/settings', label: 'Настройки системы', icon: 'tune', desc: 'Диски записи и пороги очистки', admin: true,
+        sub: SETTINGS_SECTIONS.map((s, i) => ({ to: `/settings/${s.id}`, label: s.label, n: String(i + 1).padStart(2, '0') })),
+    },
+
+    { to: '/cameras',  label: 'Камеры',              icon: 'cam',   group: 'Видео', desc: 'Источники, потоки, разрешение' },
+    { to: '/live',     label: 'Отображение',         icon: 'grid',  group: 'Видео', desc: 'Сетки просмотра и прямой эфир', admin: true },
+    { to: '/archive',  label: 'Архив',               icon: 'arch',  group: 'Видео', desc: 'Записи, таймлайны и склейка' },
 
     {
         to: '/neural', label: 'Техническое зрение', icon: 'eye', group: 'Модули', desc: 'Нейросети, видеопотоки, инференс, журнал',
@@ -52,10 +59,10 @@ export const NAV: NavItem[] = [
         })),
     },
     {
-        to: '/surround', label: 'Система 360', icon: '360', desc: 'Калибровка, сборка, конфигуратор', admin: true,
+        to: '/surround', label: 'Система 360', icon: '360', group: 'Модули', desc: 'Калибровка, сборка, конфигуратор', admin: true,
         sub: SURROUND_SECTIONS.map((s, i) => ({ to: `/surround/${s.id}`, label: s.label, n: String(i + 1).padStart(2, '0') })),
     },
-    { to: '/krsps',    label: 'АС КРСПС',            icon: 'gate',  desc: 'Шлюз сообщений: модули доставки, время и GPS', admin: true },
+    { to: '/krsps',    label: 'АС КРСПС',            icon: 'gate',  group: 'Модули', desc: 'Шлюз сообщений: модули доставки, время и GPS', admin: true },
 ];
 
 // Крошки верхней планки: раздел и, при необходимости, шаг внутри него
@@ -80,5 +87,7 @@ export function crumbsFor(pathname: string): string[] {
     if (neural) return neural[1] ? ['Техническое зрение', neuralSectionLabel(neural[1])] : ['Техническое зрение'];
     const config = /^\/configurations\/([^/]+)$/.exec(pathname);
     if (config) return ['Конфигурации', configSectionLabel(config[1])];
+    const settings = /^\/settings\/([^/]+)$/.exec(pathname);
+    if (settings) return ['Настройки системы', settingsSectionLabel(settings[1])];
     return ['Главная'];
 }

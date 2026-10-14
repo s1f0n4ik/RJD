@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { Navigate, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { Icon, IconSprite } from './Icons';
 import { crumbsFor } from './nav';
@@ -36,11 +36,7 @@ export function AppShell({ username, role, onLogout }: AppShellProps) {
     // Закрытый для роли адрес — на главную; проверка одна на все экраны
     if (!canOpen(pathname, role)) return <Navigate to="/" replace />;
 
-    // Подпись группы стоит у первого модуля, всё после него — та же группа
     const nav = navFor(role);
-    const firstModule = nav.findIndex(item => item.group);
-    const mainItems = firstModule < 0 ? nav : nav.slice(0, firstModule);
-    const moduleItems = firstModule < 0 ? [] : nav.slice(firstModule);
 
     const railItem = (item: (typeof nav)[number]) => (
         <div key={item.to} style={{ display: 'contents' }}>
@@ -86,14 +82,19 @@ export function AppShell({ username, role, onLogout }: AppShellProps) {
                 </div>
 
                 <div className="rail-nav">
-                    {mainItems.map(railItem)}
-                    {/* Эфир открывается вне оболочки — обычная ссылка, не маршрут роутера */}
-                    <a className="rail-item" href="/translation">
-                        <Icon name="play" />
-                        <span className="lbl">Прямая трансляция</span>
-                    </a>
-                    {moduleItems.length > 0 && <div className="rail-group">{moduleItems[0].group}</div>}
-                    {moduleItems.map(railItem)}
+                    {nav.map((item, i) => (
+                        <Fragment key={item.to}>
+                            {item.group && item.group !== nav[i - 1]?.group && <div className="rail-group">{item.group}</div>}
+                            {railItem(item)}
+                            {/* Эфир замыкает «Видео» и открывается вне оболочки — обычная ссылка, не маршрут роутера */}
+                            {item.group === 'Видео' && nav[i + 1]?.group !== 'Видео' && (
+                                <a className="rail-item" href="/translation">
+                                    <Icon name="play" />
+                                    <span className="lbl">Прямая трансляция</span>
+                                </a>
+                            )}
+                        </Fragment>
+                    ))}
                 </div>
 
                 <div className="rail-foot">

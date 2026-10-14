@@ -3,13 +3,15 @@ import { Link } from 'react-router-dom';
 import { Icon } from '../../app/Icons';
 import { navFor, useRole } from '../../app/role';
 import { useSystem } from '../../app/SystemContext';
-import { neuralSummaryOff, neuralSummaryParts, useDisks, useGatewayStatus, useLastDetections, useLinkerStatus, useNeuralSummary } from './useHomeData';
+import { neuralSummaryOff, neuralSummaryParts, useGatewayStatus, useLastDetections, useLinkerStatus, useNeuralSummary } from './useHomeData';
 import { useLayouts } from '../../hooks/Layouts';
 import { detClass } from '../../features/neural/components/journal/DetectionRow';
 import { fmtTime } from '../../features/neural/components/journal/format';
 import { useCameraNames } from '../../features/neural/components/journal/useCameraNames';
 import { useClassResolver } from '../../features/neural/components/journal/useClassResolver';
 import type { Device } from '../../services/devices';
+import { formatBytes, formatPair } from '../devices/model';
+import { disksLabel, usePools } from '../settings/pool';
 import './home.css';
 
 // Статус 3 — пайплайн запущен; всё остальное для оператора означает «потока нет».
@@ -17,10 +19,7 @@ import './home.css';
 const isLive = (camera: { offline?: boolean; streams?: Record<string, { status?: number }> }) =>
     !camera.offline && Object.values(camera.streams ?? {}).some(s => s.status === 3);
 
-const toGb = (bytes: number) => bytes / 1024 ** 3;
-
-const formatGb = (gb: number) =>
-    gb >= 1024 ? `${(gb / 1024).toFixed(2)} ТБ` : gb >= 10 ? `${Math.round(gb)} ГБ` : `${gb.toFixed(1)} ГБ`;
+const DISK_POLL_MS = 20_000;
 
 // 1 камера · 2 камеры · 5 камер
 const plural = (n: number, one: string, few: string, many: string) => {
@@ -38,7 +37,7 @@ const maxTemp = (device: Device) => {
 export function HomeScreen() {
     const role = useRole();
     const { cameras, devices } = useSystem();
-    const disks = useDisks(devices);
+    const { pools } = usePools(devices, DISK_POLL_MS);
     const { layouts } = useLayouts();
     const { items: detections, available: journalUp } = useLastDetections();
     const { resolve } = useClassResolver();
@@ -198,51 +197,59 @@ export function HomeScreen() {
                             <div className="card-h"><h3>Накопители</h3></div>
                             <div className="card-b">
                                 {devices.map(device => {
-                                    const disk = disks[device.id];
-                                    if (!disk) return null;
-                                    // Незанятая часть резерва журнала архиву уже не достанется —
-                                    // тревога считается по ней же, что и у чистильщика
-                                    const withheld = Math.max(0, disk.journal_reserve_bytes - disk.journal_bytes);
-                                    const pressure = disk.total_bytes
-                                        ? (disk.used_bytes + withheld) / disk.total_bytes * 100
-                                        : 0;
-                                    const warn = pressure >= disk.max_used_percent - 15;
-                                    const crit = pressure >= disk.max_used_percent;
+                                    const pool = pools[device.id];
+                                    if (!pool) return null;
+                                    const s = pool.summary;
                                     const share = (bytes: number) =>
-                                        disk.total_bytes ? Math.max(0, bytes / disk.total_bytes * 100) : 0;
-                                    const other = Math.max(0, disk.used_bytes - disk.records_bytes - disk.journal_bytes);
+                                        s.total_bytes ? Math.max(0, bytes / s.total_bytes * 100) : 0;
+                                    const other = Math.max(0, s.used_bytes - s.records_bytes - s.journal_bytes);
+                                    // Состояние пула считает служба: кольцо — жёлтая, писать некуда — красная
+                                    const tone = s.state === 'stuck' ? ' is-err' : s.state === 'ring' ? ' is-warn' : '';
                                     return (
-                                        <div className={`disk${crit ? ' is-err' : warn ? ' is-warn' : ''}`} key={device.id}>
+                                        <div className={`disk${tone}`} key={device.id}>
                                             <div className="disk-h">
                                                 <b>{device.name}</b>
-                                                <span className="num">
-                                                    {formatGb(disk.used_gb)} / {formatGb(disk.total_gb)}
+                                                <span className="num">{formatPair(s.used_bytes, s.total_bytes)}</span>
+                                            </div>
+                                            <div className="disk-sub">
+                                                <span className="seps">
+                                                    <span>{disksLabel(s.disk_count)}</span>
+                                                    {s.state !== 'stuck' && s.writing && <span className="is-w">пишется на «{s.writing}»</span>}
+                                                    {s.state === 'ring' && <span className="is-st">удаляются старые</span>}
+                                                    {s.state === 'stuck' && <span className="is-st">писать некуда</span>}
                                                 </span>
                                             </div>
                                             <div className="bar bar--split">
-                                                <i className="dk-ar" style={{ width: `${share(disk.records_bytes)}%` }} />
-                                                <i className="dk-jr" style={{ width: `${share(disk.journal_bytes)}%` }} />
+                                                <i className="dk-ar" style={{ width: `${share(s.records_bytes)}%` }} />
+                                                <i className="dk-jr" style={{ width: `${share(s.journal_bytes)}%` }} />
                                                 <i className="dk-ot" style={{ width: `${share(other)}%` }} />
                                             </div>
                                             <div className="disk-lg">
-                                                <span><i className="dk-ar" />Архив<span className="num">{formatGb(toGb(disk.records_bytes))}</span></span>
-                                                {disk.journal_reserve_bytes > 0 && (
+                                                <span><i className="dk-ar" />Архив<span className="num">{formatBytes(s.records_bytes)}</span></span>
+                                                {s.journal_reserve_bytes > 0 && (
                                                     <span>
                                                         <i className="dk-jr" />Журнал
                                                         <span className="num">
-                                                            {formatGb(toGb(disk.journal_bytes))} из {formatGb(toGb(disk.journal_reserve_bytes))}
+                                                            {formatBytes(s.journal_bytes)} из {formatBytes(s.journal_reserve_bytes)}
                                                         </span>
                                                     </span>
                                                 )}
-                                                <span><i className="dk-ot" />Прочее<span className="num">{formatGb(toGb(other))}</span></span>
-                                                <span><i className="dk-fr" />Свободно<span className="num">{formatGb(disk.free_gb)}</span></span>
+                                                <span><i className="dk-ot" />Прочее<span className="num">{formatBytes(other)}</span></span>
+                                                <span><i className="dk-fr" />Свободно<span className="num">{formatBytes(s.free_bytes)}</span></span>
                                             </div>
+                                            {pool.volumes.filter(v => v.state !== 'online').map(v => (
+                                                <div key={v.id} className={`disk-off${v.state === 'readonly' ? ' is-ro' : ''}`}>
+                                                    <Icon name={v.state === 'readonly' ? 'lock' : 'unlink'} size={13} />
+                                                    <span>«{v.name}» {v.state === 'readonly' ? 'только для чтения' : 'не подключён'}</span>
+                                                    {v.records_bytes > 0 && <span className="num">{formatBytes(v.records_bytes)} архива</span>}
+                                                </div>
+                                            ))}
                                         </div>
                                     );
                                 })}
                                 {devices.length === 0 ? (
                                     <p className="hint">Накопители появятся вместе с устройствами.</p>
-                                ) : devices.every(d => !disks[d.id]) && (
+                                ) : devices.every(d => !pools[d.id]) && (
                                     <p className="hint">Служба хранения не отвечает — занятость дисков неизвестна.</p>
                                 )}
                             </div>

@@ -294,6 +294,7 @@
 
 .arch-side .kv .v.is-err { color: var(--err) }
 .arch-side .kv .v.is-warn { color: var(--warn) }
+.arch-side .kv .v.is-gone { color: var(--fg-2) }
 
 .arch-act {
   display: flex;
@@ -537,6 +538,11 @@
 .dm-lane s { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--line); text-decoration: none }
 .dm-lane i { position: absolute; top: 0; bottom: 0; background: rgba(var(--acc-rgb), .38) }
 .dm-trk.is-on .dm-lane i { background: rgba(var(--acc-rgb), .78) }
+
+/* Куски на неподключённых дисках: в выгрузку не войдут */
+.dm-lane i.is-gone,
+.dm-trk.is-on .dm-lane i.is-gone { background: repeating-linear-gradient(45deg, rgba(176, 185, 203, .42) 0 3px, rgba(176, 185, 203, .1) 3px 6px) }
+.dm-num .is-gone { color: var(--warn) }
 
 .dm-lane u {
   position: absolute;

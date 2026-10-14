@@ -12,6 +12,7 @@ import ArchiveScreen from '../screens/archive/ArchiveScreen';
 import { DevicesScreen } from '../screens/devices/DevicesScreen';
 import KrspsScreen from '../screens/krsps/KrspsScreen';
 import ConfigurationsScreen from '../screens/configurations/ConfigurationsScreen';
+import SettingsScreen from '../screens/settings/SettingsScreen';
 import SurroundScreen from '../screens/surround/SurroundScreen';
 import NeuralScreen from '../screens/neural/NeuralScreen';
 import { LoginScreen } from '../screens/login/LoginScreen';
@@ -86,6 +87,8 @@ export default function NewApp() {
                         <Route path="devices" element={<DevicesScreen />} />
                         <Route path="configurations" element={<ConfigurationsScreen />} />
                         <Route path="configurations/:section" element={<ConfigurationsScreen />} />
+                        <Route path="settings" element={<SettingsScreen />} />
+                        <Route path="settings/:section" element={<SettingsScreen />} />
                         <Route path="krsps" element={<KrspsScreen />} />
                         <Route path="krsps/:section" element={<KrspsScreen />} />
                         <Route path="surround" element={<SurroundScreen />} />

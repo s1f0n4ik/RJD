@@ -385,6 +385,19 @@ class VolumePool:
         with self._lock:
             return [(dict(e), m.path, self._records_dir(m)) for e, m in self._write_set()]
 
+    def capacity(self) -> Optional[dict]:
+        """Ёмкость подключённых томов пула суммарно."""
+        with self._lock:
+            roots = [settings.INTERNAL_ROOT] + [m.path for m in self._live.values()]
+        usages = [u for u in map(_usage, roots) if u is not None]
+        if not usages:
+            return None
+        return {
+            "total_bytes": sum(u.total for u in usages),
+            "used_bytes": sum(u.used for u in usages),
+            "free_bytes": sum(u.free for u in usages),
+        }
+
     # ── снимок для интерфейса ──
 
     def snapshot(self) -> dict:

@@ -285,6 +285,16 @@
   background: repeating-linear-gradient(45deg, rgba(var(--acc-rgb), .4) 0 5px, rgba(var(--acc-rgb), .14) 5px 10px);
 }
 
+/* Запись на неподключённом диске пула: серая штриховка */
+.tl-run.is-gone {
+  background: repeating-linear-gradient(45deg, rgba(176, 185, 203, .3) 0 5px, rgba(176, 185, 203, .08) 5px 10px);
+  box-shadow: inset 0 0 0 1px rgba(176, 185, 203, .24);
+}
+.tl-row.is-sel .tl-run.is-gone {
+  background: repeating-linear-gradient(45deg, rgba(176, 185, 203, .42) 0 5px, rgba(176, 185, 203, .12) 5px 10px);
+}
+.tl-gap-lab.is-gone { color: var(--fg-2) }
+
 .tl-gap {
   position: absolute;
   top: 7px;
@@ -402,6 +412,7 @@
 }
 .tl-peek-shot img.is-load { opacity: 0 }
 .tl-peek-shot.is-none { color: var(--warn); font-size: 11.5px }
+.tl-peek-shot.is-gone { color: var(--fg-2) }
 
 /* Кружок центрируется отступами, а не transform: его занимает вращение */
 .tl-peek-spin {

@@ -23,6 +23,7 @@ export const formatBytes = (bytes?: number | null): string => {
     if (!bytes || bytes <= 0) return '—';
     const tb = bytes / (1024 * GB);
     if (tb >= 1) return `${ru(tb)} ТБ`;
+    if (bytes < GB) return `${Math.max(1, Math.round(bytes / 1024 ** 2))} МБ`;
     return `${Math.round(bytes / GB)} ГБ`;
 };
 

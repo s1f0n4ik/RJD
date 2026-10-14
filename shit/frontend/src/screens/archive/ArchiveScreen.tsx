@@ -11,8 +11,9 @@ import type { ArchiveShape, ArchiveState, Segment, Track } from './model';
 import {
     DAY_MS, DEFAULT_ZOOM, ZOOMS, dateKey, dayStartMs, fetchSegments,
     fetchShape, fetchState, fmtBytes, fmtDate, fmtDuration, fmtTime,
-    recordedWithin, segmentAt, segmentUrl, trackKey,
+    goneWithin, recordedWithin, segmentAt, segmentUrl, trackKey,
 } from './model';
+import { formatBytes } from '../devices/model';
 import './archive.css';
 
 // Экран архива
@@ -213,7 +214,9 @@ export function ArchiveScreen() {
         setSeek({ ms, token: Date.now() });
     }, [cursorMs]);
 
-    const currentSegment = cursorMs === null ? null : segmentAt(segments, cursorMs);
+    const atCursor = cursorMs === null ? null : segmentAt(segments, cursorMs);
+    // Файл извлечённого диска не скачать
+    const currentSegment = atCursor?.available === false ? null : atCursor;
 
     // Отмена в карточке диапазона: гасим и выделение, и сам режим выбора
     const cancelPicking = useCallback(() => {
@@ -241,7 +244,15 @@ export function ArchiveScreen() {
 
     const windowRecorded = tracks.reduce((sum, track) => sum + track.recorded_ms, 0);
     const windowGaps = tracks.reduce((sum, track) => sum + track.gaps.length, 0);
-    const disk = state?.devices.find(device => device.disk)?.disk;
+    const windowGone = tracks.reduce((sum, track) => sum + goneWithin(track, from, to), 0);
+
+    // Пулы всех устройств одной полосой
+    const disks = (state?.devices ?? []).flatMap(device => (device.disk ? [device.disk] : []));
+    const disk = disks.length ? {
+        total_bytes: disks.reduce((sum, d) => sum + d.total_bytes, 0),
+        used_bytes: disks.reduce((sum, d) => sum + d.used_bytes, 0),
+    } : null;
+    const diskPercent = disk?.total_bytes ? Math.round(disk.used_bytes / disk.total_bytes * 1000) / 10 : 0;
 
     return (
         <div className="screen arch">
@@ -328,6 +339,12 @@ export function ArchiveScreen() {
                         <div className="sect">
                             <span className="eyebrow">В окне таймлайна</span>
                             <div className="kv"><span className="k">Записано</span><span className="v">{fmtDuration(windowRecorded)}</span></div>
+                            {windowGone > 0 && (
+                                <div className="kv">
+                                    <span className="k">Не подключено</span>
+                                    <span className="v is-gone">{fmtDuration(windowGone)}</span>
+                                </div>
+                            )}
                             <div className="kv"><span className="k">Дорожек</span><span className="v">{tracks.length}</span></div>
                             <div className="kv">
                                 <span className="k">Пропусков</span>
@@ -363,11 +380,11 @@ export function ArchiveScreen() {
                             {disk && (
                                 <div className="arch-meter">
                                     <div className="arch-meter-bar">
-                                        <i style={{ width: `${disk.used_percent}%` }} />
+                                        <i style={{ width: `${diskPercent}%` }} />
                                     </div>
                                     <div className="arch-meter-cap">
-                                        <span>{fmtBytes(disk.used_bytes)} из {fmtBytes(disk.total_bytes)}</span>
-                                        <span>{String(disk.used_percent).replace('.', ',')} %</span>
+                                        <span>{formatBytes(disk.used_bytes)} из {formatBytes(disk.total_bytes)}</span>
+                                        <span>{String(diskPercent).replace('.', ',')} %</span>
                                     </div>
                                 </div>
                             )}

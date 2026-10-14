@@ -9,7 +9,7 @@ import { Calendar } from './Calendar';
 import type { Track, ZoomLevel } from './model';
 import {
     DAY_MS, ZOOMS, browserDownload, buildTicks, dateKey, dayStartMs, estimateBytes, fmtBytes,
-    fmtDate, fmtDuration, fmtTick, fmtTime, gapsWithin, percentIn, recordedWithin, recordingJobs, startCut, trackKey,
+    fmtDate, fmtDuration, fmtTick, fmtTime, gapsWithin, goneWithin, isAvailable, percentIn, recordedWithin, recordingJobs, startCut, trackKey,
     zipUrl,
 } from './model';
 
@@ -111,6 +111,8 @@ export function DownloadModal({
             name: cameraNames.get(track.camera_id) || track.camera_id,
             deleted,
             recorded,
+            // На неподключённых дисках — в выгрузку не войдёт
+            gone: goneWithin(track, range.from, range.to),
             bytes: estimateBytes(track, recorded),
             // Сегменты дорожки известны за весь архив, в диапазон попадает их доля по времени
             files: track.recorded_ms > 0
@@ -312,17 +314,24 @@ export function DownloadModal({
                                 <span className="dm-num seps">
                                     {row.recorded > 0 && <span>{fmtDuration(row.recorded)}</span>}
                                     {row.recorded > 0 && <span>≈ {fmtBytes(row.bytes)}</span>}
+                                    {row.gone > 0 && <span className="is-gone">не вошло {fmtDuration(row.gone)}</span>}
                                 </span>
                             </span>
 
-                            <span className={`dm-lane${row.recorded ? '' : ' is-empty'}`}>
+                            <span className={`dm-lane${row.recorded || row.gone ? '' : ' is-empty'}`}>
                                 {scale.ticks.map(tick => (
                                     <s key={tick.ms} style={{ left: `${tick.percent}%` }} />
                                 ))}
                                 {row.runs.map((run, index) => {
                                     const left = Math.max(0, percentIn(run.start_ms, range.from, range.to));
                                     const right = Math.min(100, percentIn(run.end_ms, range.from, range.to));
-                                    return <i key={index} style={{ left: `${left}%`, width: `${right - left}%` }} />;
+                                    return (
+                                        <i
+                                            key={index}
+                                            className={isAvailable(run) ? undefined : 'is-gone'}
+                                            style={{ left: `${left}%`, width: `${right - left}%` }}
+                                        />
+                                    );
                                 })}
                                 {row.gaps.map((gap, index) => {
                                     const left = Math.max(0, percentIn(gap.start_ms, range.from, range.to));

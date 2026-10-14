@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '../../app/Icons';
 import { ArchiveFeed } from './feed';
 import type { Segment, Track } from './model';
-import { fmtTime, isRecorded, runAfter, segmentAt, segmentUrl, trackKey } from './model';
+import { fmtTime, goneAt, isRecorded, runAfter, segmentAt, segmentUrl, trackKey } from './model';
 
 // Проигрывание архива через границы сегментов
 
@@ -25,10 +25,12 @@ interface Props {
 export function ArchivePlayer({
     track, segments: allSegments, seek, playing, speed, onProgress, onPlayingChange, onTrackEnd, onSeekTo,
 }: Props) {
-    // Список сегментов приезжает позже смены дорожки — чужие не берём
+    // Список сегментов приезжает позже смены дорожки — чужие не берём.
+    // Файлы извлечённых дисков в ленту не идут: эстафета перепрыгнет их, как разрыв
     const segments = useMemo(
         () => (track
-            ? allSegments.filter(s => s.camera_id === track.camera_id && s.stream_key === track.stream_key)
+            ? allSegments.filter(s => s.camera_id === track.camera_id && s.stream_key === track.stream_key
+                && s.available !== false)
             : []),
         [allSegments, track],
     );
@@ -194,6 +196,7 @@ export function ArchivePlayer({
     // Куда прыгать, считаем по кускам: они есть у дорожки всегда, в отличие
     // от сегментов, которые подгружаются только вокруг курсора
     const nextMs = !current && track ? runAfter(track, seek.ms) : null;
+    const disk = !current && track ? goneAt(track, seek.ms) : null;
 
     return (
         <div className="arch-video">
@@ -220,8 +223,8 @@ export function ArchivePlayer({
 
             {!current && (
                 <div className="arch-empty">
-                    <Icon name="arch" />
-                    <span>{track ? 'В этот момент записи нет' : 'Выберите дорожку'}</span>
+                    <Icon name={disk ? 'unlink' : 'arch'} />
+                    <span>{disk ? `Диск «${disk}» не подключён` : track ? 'В этот момент записи нет' : 'Выберите дорожку'}</span>
                     {nextMs !== null && (
                         <button
                             type="button"

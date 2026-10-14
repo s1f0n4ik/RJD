@@ -9,7 +9,7 @@ import { RangeCard } from './RangeCard';
 import type { Track, ZoomLevel } from './model';
 import {
     ZOOMS, buildTicks, dateKey, fmtDateLong, fmtDuration,
-    fmtTime, frameUrl, isRecorded, msAt, percentIn, trackKey,
+    fmtTime, frameUrl, goneAt, isAvailable, isRecorded, msAt, percentIn, trackKey,
 } from './model';
 import './timeline.css';
 
@@ -364,16 +364,31 @@ export function Timeline({
                             const key = trackKey(track);
                             return (
                                 <div key={key} className={`tl-row${key === selectedKey ? ' is-sel' : ''}`}>
-                                    {track.runs.map((run, index) => (
-                                        <i
-                                            key={`r${index}`}
-                                            className={`tl-run${track.trusted ? '' : ' is-doubt'}`}
-                                            style={{
-                                                left: `${percentIn(run.start_ms, from, to)}%`,
-                                                width: `${percentIn(run.end_ms, from, to) - percentIn(run.start_ms, from, to)}%`,
-                                            }}
-                                        />
-                                    ))}
+                                    {track.runs.map((run, index) => {
+                                        const left = percentIn(run.start_ms, from, to);
+                                        const width = percentIn(run.end_ms, from, to) - left;
+                                        // Запись на неподключённом диске: есть в индексе, но не смотрится
+                                        const gone = !isAvailable(run);
+                                        const shownLeft = Math.max(0, left);
+                                        const shownRight = Math.min(100, left + width);
+
+                                        return (
+                                            <Fragment key={`r${index}`}>
+                                                <i
+                                                    className={`tl-run${gone ? ' is-gone' : track.trusted ? '' : ' is-doubt'}`}
+                                                    style={{ left: `${left}%`, width: `${width}%` }}
+                                                />
+                                                {gone && shownRight - shownLeft > GAP_LABEL_MIN_PERCENT && (
+                                                    <span
+                                                        className="tl-gap-lab is-gone"
+                                                        style={{ left: `${(shownLeft + shownRight) / 2}%` }}
+                                                    >
+                                                        диск «{run.disk || 'без имени'}» не подключён
+                                                    </span>
+                                                )}
+                                            </Fragment>
+                                        );
+                                    })}
 
                                     {/* Разрыв приходит настоящими границами и может выходить за окно */}
                                     {track.gaps.map((gap, index) => {
@@ -478,6 +493,7 @@ function Peek({ hover, track }: { hover: Hover; track: Track }) {
     // Есть ли запись в этот момент, видно по кускам: список сегментов таймлайну
     // не приходит, а кадр ручка отдаёт по времени, а не по имени файла
     const recorded = isRecorded(track, hover.ms);
+    const disk = recorded ? null : goneAt(track, hover.ms);
 
     const [shot, setShot] = useState<string | null>(null);
     const [loaded, setLoaded] = useState<string | null>(null);
@@ -503,8 +519,8 @@ function Peek({ hover, track }: { hover: Hover; track: Track }) {
 
     return createPortal(
         <div className="tl-peek" ref={ref}>
-            <div className={`tl-peek-shot${recorded ? '' : ' is-none'}`}>
-                {!recorded && 'записи в этот момент нет'}
+            <div className={`tl-peek-shot${recorded ? '' : ' is-none'}${disk ? ' is-gone' : ''}`}>
+                {!recorded && (disk ? `диск «${disk}» не подключён` : 'записи в этот момент нет')}
                 {recorded && broken && 'кадр не получен'}
                 {recorded && shot && !broken && (
                     <img

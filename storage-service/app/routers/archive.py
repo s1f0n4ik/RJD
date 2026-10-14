@@ -12,7 +12,7 @@ from app.services.cutter import run_cut_job, zip_entries
 from app.services.frames import frame_at
 from app.services.jobs import jobs
 from app.services.segments import index
-from app.services.storage import storage
+from app.services.volumes import pool
 from app.services.zipstream import stream_zip
 
 logger = logging.getLogger(__name__)
@@ -147,15 +147,10 @@ async def archive_state():
     loop = asyncio.get_running_loop()
     state = await loop.run_in_executor(None, index.state)
 
-    usage = storage.disk_usage()
+    usage = await loop.run_in_executor(None, pool.capacity)
     if usage is not None:
-        state["disk"] = {
-            "path": str(storage.root),
-            "total_bytes": usage.total,
-            "used_bytes": usage.used,
-            "free_bytes": usage.free,
-            "used_percent": round(usage.used / usage.total * 100, 1) if usage.total else 0.0,
-        }
+        total = usage["total_bytes"]
+        state["disk"] = {**usage, "used_percent": round(usage["used_bytes"] / total * 100, 1) if total else 0.0}
 
     return state
 

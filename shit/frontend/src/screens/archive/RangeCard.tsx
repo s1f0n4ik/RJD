@@ -5,7 +5,7 @@ import type { Anchor } from '../../app/popover';
 import { usePopover } from '../../app/popover';
 import type { Track } from './model';
 import {
-    estimateBytes, fmtBytes, fmtDuration, fmtTime, gapsWithin, recordedWithin, trackKey,
+    estimateBytes, fmtBytes, fmtDuration, fmtTime, gapsWithin, goneWithin, recordedWithin, trackKey,
 } from './model';
 
 // Окошко диапазона: в обычном режиме одна камера, в полноэкранном список дорожек
@@ -27,16 +27,20 @@ interface Piece {
     recorded: number;
     bytes: number;
     missing: number;
+    // На неподключённых дисках — в склейку не войдёт
+    gone: number;
 }
 
 function measure(track: Track, from: number, to: number, name: string): Piece {
     const recorded = recordedWithin(track, from, to);
+    const gone = goneWithin(track, from, to);
     return {
         track,
         name,
         recorded,
         bytes: estimateBytes(track, recorded),
-        missing: gapsWithin(track, from, to).length ? to - from - recorded : 0,
+        missing: gapsWithin(track, from, to).length ? Math.max(0, to - from - recorded - gone) : 0,
+        gone,
     };
 }
 
@@ -62,6 +66,7 @@ export function RangeCard({
     const chosen = pieces.filter(piece => !off.has(trackKey(piece.track)));
     const totalBytes = chosen.reduce((sum, piece) => sum + piece.bytes, 0);
     const totalRecorded = chosen.reduce((sum, piece) => sum + piece.recorded, 0);
+    const totalGone = chosen.reduce((sum, piece) => sum + piece.gone, 0);
 
     const toggle = (key: string) => setOff(current => {
         const next = new Set(current);
@@ -116,6 +121,12 @@ export function RangeCard({
                         <span>Размер архива</span>
                         <b>≈ {fmtBytes(totalBytes)}</b>
                     </div>
+                    {totalGone > 0 && (
+                        <div className="rc-row is-warn">
+                            <span>Не вошло</span>
+                            <b>{fmtDuration(totalGone)}</b>
+                        </div>
+                    )}
 
                     <div className="rc-foot">
                         <button type="button" className="btn btn--sm" onClick={onCancel}>Отменить</button>
@@ -140,6 +151,12 @@ export function RangeCard({
                         <div className="rc-row is-warn">
                             <span>Короче на</span>
                             <b>{fmtDuration(one.missing)}</b>
+                        </div>
+                    )}
+                    {!!one?.gone && (
+                        <div className="rc-row is-warn">
+                            <span>Не вошло</span>
+                            <b>{fmtDuration(one.gone)}</b>
                         </div>
                     )}
 

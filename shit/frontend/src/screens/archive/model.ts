@@ -16,11 +16,17 @@ export interface Segment {
     trusted: boolean;
     session_uid: string;
     estimated_end?: boolean;
+    // false — файл на извлечённом диске пула; disk — его имя
+    available?: boolean;
+    disk?: string | null;
 }
 
+// available:false — кусок лежит на неподключённом диске, disk — имя диска
 export interface Run {
     start_ms: number;
     end_ms: number;
+    available?: boolean;
+    disk?: string | null;
 }
 
 // record — запись прервалась, power — изделие было обесточено
@@ -128,14 +134,9 @@ export const fetchDays = (from: string, to: string) =>
 export const fetchState = () =>
     getJson<ArchiveState>('/api/archive/state');
 
-// Адрес файла сегмента на устройстве, которое его писало
+// Адрес файла сегмента на устройстве, которое его писало: по строке индекса, на любом томе пула
 export function segmentUrl(track: Track, segment: Segment, download = false): string {
-    const kind = download ? 'download' : 'stream';
-    const query = `?stream=${encodeURIComponent(track.stream_key)}`;
-    return storagePath(
-        track.device_id,
-        `/api/recordings/${kind}/${encodeURIComponent(track.camera_id)}/${encodeURIComponent(segment.file)}${query}`,
-    );
+    return storagePath(track.device_id, `/api/archive/file/${segment.id}${download ? '?download=true' : ''}`);
 }
 
 // Кадр дорожки на момент времени — превью в лупе таймлайна
@@ -240,24 +241,36 @@ export function segmentAfter(segments: Segment[], ms: number): Segment | null {
     return segments.find(s => s.start_ms >= ms) || null;
 }
 
-// Ближайшее начало записи после момента — по кускам, без списка сегментов
+// Кусок на подключённом диске — его можно смотреть и выгружать
+export const isAvailable = (run: Run) => run.available !== false;
+
+// Ближайшее начало доступной записи после момента — по кускам, без списка сегментов
 export function runAfter(track: Track, ms: number): number | null {
-    const run = track.runs.find(r => r.start_ms >= ms);
+    const run = track.runs.find(r => isAvailable(r) && r.start_ms >= ms);
     return run ? run.start_ms : null;
 }
 
-// Записан ли момент: попадает ли он в непрерывный кусок
+// Можно ли смотреть момент: попадает ли он в доступный кусок
 export const isRecorded = (track: Track, ms: number) =>
-    track.runs.some(run => run.start_ms <= ms && ms < run.end_ms);
+    track.runs.some(run => isAvailable(run) && run.start_ms <= ms && ms < run.end_ms);
+
+// Имя неподключённого диска, на котором лежит момент; null — момент не на нём
+export function goneAt(track: Track, ms: number): string | null {
+    const run = track.runs.find(r => !isAvailable(r) && r.start_ms <= ms && ms < r.end_ms);
+    return run ? run.disk || 'без имени' : null;
+}
+
+function overlap(runs: Run[], from: number, to: number): number {
+    return runs.reduce((sum, run) => sum + Math.max(0, Math.min(run.end_ms, to) - Math.max(run.start_ms, from)), 0);
+}
 
 // Сколько записи внутри диапазона — то, что реально попадёт в склейку
-export function recordedWithin(track: Track, from: number, to: number): number {
-    return track.runs.reduce((sum, run) => {
-        const start = Math.max(run.start_ms, from);
-        const end = Math.min(run.end_ms, to);
-        return sum + Math.max(0, end - start);
-    }, 0);
-}
+export const recordedWithin = (track: Track, from: number, to: number) =>
+    overlap(track.runs.filter(isAvailable), from, to);
+
+// Сколько записи диапазона лежит на неподключённых дисках — в склейку не войдёт
+export const goneWithin = (track: Track, from: number, to: number) =>
+    overlap(track.runs.filter(run => !isAvailable(run)), from, to);
 
 // Разрывы, попавшие в диапазон: о них предупреждаем до склейки
 export function gapsWithin(track: Track, from: number, to: number): Gap[] {

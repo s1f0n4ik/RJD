@@ -1,0 +1,102 @@
+/* Настройки системы → Хранилище */
+
+.st-screen{overflow:hidden}
+.st-bar{display:flex;align-items:center;flex-wrap:wrap;gap:10px 14px;min-height:52px;padding:9px 26px;background:var(--bg);border-bottom:1px solid var(--line);flex:0 0 auto}
+.st-cap{font-size:12px;color:var(--fg-3)}
+.st-bar>.seps{font-family:var(--mono);font-size:11.5px;color:var(--fg-2)}
+.st-end{margin-left:auto;display:flex;align-items:center;gap:10px}
+.st-seg button{display:inline-flex;align-items:center;gap:8px}
+
+/* Полоса занятости тома: записи устройства, прочее, пороги */
+.st-m{position:relative;height:10px;border-radius:5px;background:var(--input);box-shadow:inset 0 0 0 1px var(--line)}
+.st-m .st-rec,.st-m .st-oth{position:absolute;top:0;bottom:0}
+.st-m .st-rec{left:0;border-radius:5px 0 0 5px;background:rgba(var(--acc-rgb),.5)}
+.st-m .st-oth{background:var(--line-hi)}
+.st-m .st-hi{position:absolute;top:-4px;bottom:-4px;width:2px;margin-left:-1px;border-radius:1px;background:var(--warn)}
+.st-m .st-lo{position:absolute;top:-2px;bottom:-2px;width:0;border-left:1px dashed var(--fg-2)}
+.st-m.is-writing .st-rec{background:var(--acc);box-shadow:0 0 5px rgba(var(--acc-rgb),.35)}
+.st-m.is-full .st-rec{background:var(--warn);box-shadow:0 0 5px rgba(240,189,87,.3)}
+.st-m.is-dis .st-rec{background:rgba(var(--acc-rgb),.25)}
+.st-m.is-ro .st-rec{background:rgba(240,189,87,.45)}
+.st-m.is-none{background:repeating-linear-gradient(45deg,rgba(176,185,203,.16) 0 5px,transparent 5px 10px)}
+.st-m.is-big{height:14px;border-radius:7px}
+.st-m.is-big .st-rec{border-radius:7px 0 0 7px}
+
+.st-no{display:inline-grid;place-items:center;min-width:22px;height:22px;padding:0 5px;border-radius:6px;background:var(--panel-2);border:1px solid var(--line);font-family:var(--mono);font-size:11px;font-weight:600;color:var(--fg-2);justify-self:start}
+.st-lock{display:inline-grid;place-items:center;width:18px;height:22px;color:var(--fg-3)}
+.st-grip{display:inline-grid;place-items:center;width:18px;height:22px;color:var(--fg-3);cursor:grab}
+.st-grip:hover{color:var(--fg)}
+.st-screen .tag .dot{flex:0 0 6px}
+.st-t-off{border-style:dashed;color:var(--fg-3);background:transparent}
+
+/* Таблица томов */
+.st-body{flex:1;min-height:0;display:flex}
+.st-main{flex:1;min-width:0;overflow-y:auto;padding:22px 26px 40px;display:flex;flex-direction:column;gap:14px}
+.st-gh{display:flex;align-items:baseline;gap:10px}
+.st-gh h4{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-2)}
+.st-gh .n{font-family:var(--mono);font-size:11px;color:var(--fg-3)}
+.st-tab{border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel);overflow:hidden;margin-bottom:8px}
+.st-r{display:grid;grid-template-columns:18px 26px minmax(0,1.1fr) minmax(0,1.5fr) minmax(0,1fr) 124px 38px;align-items:center;column-gap:14px;min-height:64px;padding:8px 16px 8px 12px;border-bottom:1px solid var(--line);cursor:pointer;position:relative}
+.st-r:last-child{border-bottom:none}
+.st-r:hover{background:rgba(44,50,66,.55)}
+.st-r.is-sel{background:var(--panel-2)}
+.st-r.is-sel::before{content:'';position:absolute;left:0;top:9px;bottom:9px;width:3px;border-radius:0 2px 2px 0;background:var(--acc);box-shadow:0 0 12px rgba(var(--acc-rgb),.55)}
+.st-r.is-drag{opacity:.55}
+.st-r.is-head{min-height:32px;padding-block:0;cursor:default;background:var(--input);font-size:10.5px;color:var(--fg-3);text-transform:uppercase;letter-spacing:.06em}
+.st-r.is-head:hover{background:var(--input)}
+.st-r.is-off{background:repeating-linear-gradient(45deg,rgba(123,134,152,.06) 0 6px,transparent 6px 12px)}
+.st-r.is-off .st-nm b,.st-r.is-dis .st-nm b{color:var(--fg-2)}
+.st-nm{display:flex;flex-direction:column;gap:3px;min-width:0}
+.st-nm b{font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.st-nm small,.st-arc small{font-family:var(--mono);font-size:10.5px;color:var(--fg-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.st-use{display:flex;flex-direction:column;gap:7px;min-width:0}
+.st-use .t{display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px;font-family:var(--mono);font-size:11px;color:var(--fg-2);font-variant-numeric:tabular-nums;white-space:nowrap}
+.st-use .t .seps{margin-left:auto}
+/* Цвета полосы: архив устройства и прочее */
+.st-lg{display:inline-flex;align-items:center;gap:6px;font-family:var(--ui);color:var(--fg-3)}
+.st-lg i{width:8px;height:8px;border-radius:2px;flex:0 0 8px;background:var(--acc)}
+.st-lg i.is-oth{background:var(--line-hi)}
+/* Шторка открыта — строкам тесно, легенда уходит */
+.st-body.is-drawer .st-lg{display:none}
+.st-arc{display:flex;flex-direction:column;gap:3px;min-width:0}
+.st-arc b{font-family:var(--mono);font-size:12.5px;font-weight:500}
+.st-sw{justify-self:end;display:flex}
+
+.st-un{display:flex;flex-wrap:wrap;gap:8px}
+.st-un-i{display:inline-flex;align-items:center;gap:10px;min-height:38px;padding:0 12px;border:1px dashed var(--line-hi);border-radius:var(--r);font-size:12.5px;color:var(--fg-2)}
+.st-un-i .fs{font-family:var(--mono);font-size:11px;color:var(--fg-3)}
+
+/* Шторка справа, как у камер */
+.st-drawer{flex:0 0 420px;min-height:0;display:flex;flex-direction:column;background:var(--surface);border-left:1px solid var(--line-hi);box-shadow:-8px 0 24px rgba(0,0,0,.35);animation:st-in .22s cubic-bezier(.3,.9,.3,1)}
+@keyframes st-in{from{transform:translateX(100%)}to{transform:translateX(0)}}
+.st-dh{display:flex;align-items:center;gap:10px;min-height:56px;padding:0 12px 0 18px;border-bottom:1px solid var(--line);flex:0 0 auto}
+.st-dh h2{font-size:15px;font-weight:650;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.st-dh .x{margin-left:auto;width:30px;height:30px;display:grid;place-items:center;border-radius:7px;color:var(--fg-3)}
+.st-dh .x:hover{background:var(--panel-2);color:var(--fg)}
+.st-dscroll{flex:1;min-height:0;overflow-y:auto}
+.st-blk-h{display:flex;align-items:center;gap:10px;height:48px;padding:0 18px;background:var(--input);border-bottom:1px solid var(--line);font-size:13px;font-weight:600}
+.st-blk-h .n{font-family:var(--mono);font-size:11px;font-weight:400;color:var(--fg-3)}
+.st-blk-b{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:14px}
+.st-blk-b .kv:first-child{padding-top:0}
+.st-blk-b .kv:last-child{padding-bottom:0}
+.st-dfoot{display:flex;align-items:center;justify-content:flex-end;gap:10px;height:var(--foot);flex:0 0 var(--foot);padding:0 18px;border-top:1px solid var(--line)}
+
+/* Поля: подпись | контрол; у порогов третья колонка — объём */
+.st-fgrid{display:grid;grid-template-columns:minmax(0,1fr) 180px;gap:10px 12px;align-items:center}
+.st-fgrid label{font-size:13px;color:var(--fg-2);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.st-fgrid .inp{width:100%;box-sizing:border-box}
+.st-fgrid .ro{font-family:var(--mono);font-size:12.5px;color:var(--fg);text-align:right;font-variant-numeric:tabular-nums;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.st-fgrid .sw{justify-self:end}
+.st-fgrid.st-th{grid-template-columns:minmax(0,1fr) 92px 76px}
+.st-th .tf-unit .tf-in{text-align:right}
+
+/* Шкала порогов под полосой */
+.st-scale{position:relative;height:16px;margin-top:6px;font-family:var(--mono);font-size:10px;color:var(--fg-3)}
+.st-scale span{position:absolute;top:0;transform:translateX(-50%)}
+.st-scale .is-hi{color:var(--warn)}
+
+/* Чужие архивы */
+.st-fr{display:flex;align-items:center;gap:10px;min-height:42px;padding:0 6px 0 12px;border:1px solid rgba(240,189,87,.3);border-radius:var(--r);background:rgba(240,189,87,.06);color:var(--fg-2)}
+.st-fr b{font-family:var(--mono);font-size:12px;font-weight:500;color:var(--fg)}
+.st-fr .num{margin-left:auto;font-family:var(--mono);font-size:11.5px}
+.st-fr .icon-btn:hover{border-color:rgba(255,107,128,.5);color:var(--err)}
