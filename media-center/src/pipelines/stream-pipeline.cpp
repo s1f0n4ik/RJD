@@ -1214,6 +1214,7 @@ GstFlowReturn UCameraStreamPipeline::on_new_sample_gl_texture(GstElement* sink, 
 	gl_frame->width = info.width;
 	gl_frame->height = info.height;
 	gl_frame->pts = GST_BUFFER_PTS(buffer) / 1e6;
+	gl_frame->arrived = std::chrono::steady_clock::now();
 
 	// Передаем буфер кадров
 	if (pipeline->m_dma_sender) pipeline->m_dma_sender(pipeline->m_parameters.camera_name, std::move(gl_frame));

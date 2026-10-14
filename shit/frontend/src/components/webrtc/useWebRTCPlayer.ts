@@ -57,6 +57,8 @@ interface UseWebRTCPlayerOptions {
     onMessage?: (msg: PlayerMessage) => void;
     /** false — соединение не поднимается; для второго видео ячейки без второго потока */
     enabled?: boolean;
+    /** Задержка показа видео, мс; null — как решит браузер */
+    videoDelayMs?: number | null;
 }
 
 interface UseWebRTCPlayerResult {
@@ -104,6 +106,7 @@ export function useWebRTCPlayer({
                                     collectStats = false,
                                     onMessage,
                                     enabled = true,
+                                    videoDelayMs = null,
                                 }: UseWebRTCPlayerOptions): UseWebRTCPlayerResult {
     const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -118,6 +121,10 @@ export function useWebRTCPlayer({
     // Колбэк в ref: инлайн-функция родителя не должна пересоздавать сессию
     const onMessageRef = useRef(onMessage);
     onMessageRef.current = onMessage;
+
+    // Задержка в ref: новая сессия получает её при приходе дорожки
+    const videoDelayRef = useRef(videoDelayMs);
+    videoDelayRef.current = videoDelayMs;
 
     // Стабильный client_id на всё время жизни хука
     const clientIdRef = useRef<string>(externalClientId ?? makeClientId());
@@ -190,8 +197,13 @@ export function useWebRTCPlayer({
         const video = videoRef.current;
         if (!video) return;
         video.srcObject = stream;
+        rtcRef.current?.setVideoDelay(videoDelayRef.current);
         setStatus('streaming');
     }, []);
+
+    useEffect(() => {
+        rtcRef.current?.setVideoDelay(videoDelayMs);
+    }, [videoDelayMs]);
 
     // Закрыть текущий WebRTC без реконнекта (напр. WS упал — ждём пока WS поднимется)
     const closeRTC = useCallback((sendClose: boolean) => {

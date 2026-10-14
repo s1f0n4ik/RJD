@@ -201,6 +201,13 @@ export class WebRTCManager {
         this.close(true);
     }
 
+    /** Задержка показа видео, мс; null — как решит браузер. Без поддержки jitterBufferTarget ничего не меняет */
+    setVideoDelay(ms: number | null): void {
+        this.pc?.getReceivers().forEach(receiver => {
+            if (receiver.track?.kind === 'video') receiver.jitterBufferTarget = ms;
+        });
+    }
+
     /** Сырая статистика соединения; null — сессии нет */
     async getStats(): Promise<RTCStatsReport | null> {
         if (!this.pc) return null;

@@ -114,6 +114,7 @@ namespace neural {
 			std::string error;
 			float infer_ms = 0.f;
 			float wait_ms = 0.f;
+			float lag_ms = 0.f;
 			float fps = 0.f;
 			float detections = 0.f;
 			int tracks = 0;

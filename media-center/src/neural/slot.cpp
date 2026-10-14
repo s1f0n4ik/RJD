@@ -302,6 +302,7 @@ namespace neural {
         std::lock_guard<std::mutex> dl(m_deliver_mutex);
         for (auto& [cam, tracker] : m_trackers) if (tracker) tracker->reset();
         m_pending.clear();
+        m_camera_lag.clear();
     }
 
     inline std::string serialize_detection(const FDetection& d) {
@@ -319,7 +320,7 @@ namespace neural {
         return ss.str();
     }
 
-    void USlot::send_detections(const std::string& camera, const std::vector<FDetection>& detections, const cv::Size& resolution) {
+    void USlot::send_detections(const std::string& camera, const std::vector<FDetection>& detections, const cv::Size& resolution, float lag_ms) {
         auto& sender = sender_for(camera);
         if (!sender) return;
 
@@ -362,13 +363,15 @@ namespace neural {
         meta["detections"] = std::move(dets_arr);
         meta["source"] = m_video.id;
         meta["source_name"] = m_video.name;
+        meta["lag_ms"] = lag_ms;
+        meta["fps"] = m_fps.load();
 
         const std::string msg = make_socket_message("neural", true, nullptr, nullptr, &meta);
         sender(msg);
     }
 
     void USlot::send_tracks(const std::string& camera, const std::vector<FTrack>& tracks,
-        const cv::Size& resolution)
+        const cv::Size& resolution, float lag_ms)
     {
         auto& sender = sender_for(camera);
         if (!sender) return;
@@ -415,6 +418,8 @@ namespace neural {
         meta["tracks"] = std::move(tracks_arr);
         meta["source"] = m_video.id;
         meta["source_name"] = m_video.name;
+        meta["lag_ms"] = lag_ms;
+        meta["fps"] = m_fps.load();
 
         const std::string msg = make_socket_message("neural_tracks", true, nullptr, nullptr, &meta);
         sender(msg);
@@ -673,6 +678,19 @@ namespace neural {
             if (has_area(cam)) by_camera[tiles[i].camera].push_back(std::move(cam));
         }
 
+        // Отставание от выхода кадра камеры из декодера до отправки рамок, сглаженное по камере
+        float slot_lag = 0.f;
+        const auto lag_of = [&](const std::string& camera) {
+            float& lag = m_camera_lag[camera];
+            const auto it = source.find(camera);
+            if (it != source.end() && it->second && it->second->arrived != std::chrono::steady_clock::time_point{}) {
+                const float sample = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - it->second->arrived).count();
+                lag = lag == 0.f ? sample : lag * 0.9f + sample * 0.1f;
+            }
+            slot_lag = std::max(slot_lag, lag);
+            return lag;
+        };
+
         int total_tracks = 0;
         for (auto& [camera, dets] : by_camera) {
             // Одна камера в нескольких тайлах даёт дубли в зоне перекрытия
@@ -710,14 +728,15 @@ namespace neural {
                     }
                 }
 
-                send_tracks(camera, tracker->tracks(), size);
+                send_tracks(camera, tracker->tracks(), size, lag_of(camera));
                 total_tracks += static_cast<int>(tracker->tracks().size());
             }
             else {
-                send_detections(camera, dets, size);
+                send_detections(camera, dets, size, lag_of(camera));
             }
         }
         m_track_count.store(total_tracks);
+        m_lag_ms.store(slot_lag);
 
         if (m_streaming_enabled) {
             std::vector<FDetection> draw_dets;

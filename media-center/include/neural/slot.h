@@ -86,6 +86,8 @@ namespace neural {
 
         float infer_ms() const { return m_infer_ms.load(); }
         float wait_ms() const { return m_wait_ms.load(); }
+        // Отставание рамок от прихода кадра из декодера, наибольшее по камерам
+        float lag_ms() const { return m_lag_ms.load(); }
         float fps() const { return m_fps.load(); }
         // Детекций на кадр после NMS (среднее) и треков сейчас
         float detections() const { return m_det_count.load(); }
@@ -128,8 +130,8 @@ namespace neural {
         // Разнос детекций по камерам, трекеры, отправка, эфир
         void process_inferred(cv::Mat rgb_pixels, FInferred& inferred);
 
-        void send_detections(const std::string& camera, const std::vector<FDetection>& detections, const cv::Size& resolution);
-        void send_tracks(const std::string& camera, const std::vector<FTrack>& tracks, const cv::Size& resolution);
+        void send_detections(const std::string& camera, const std::vector<FDetection>& detections, const cv::Size& resolution, float lag_ms);
+        void send_tracks(const std::string& camera, const std::vector<FTrack>& tracks, const cv::Size& resolution, float lag_ms);
 
         void log_events(const std::vector<FTrackEventRecord>& events);
 
@@ -210,9 +212,12 @@ namespace neural {
         std::mutex m_deliver_mutex;
         std::chrono::steady_clock::time_point m_fps_window;
         int m_fps_count = 0;
+        // Сглаженное отставание по камерам; доступ только под m_deliver_mutex
+        std::map<std::string, float> m_camera_lag;
 
         std::atomic<float> m_infer_ms{ 0.f };
         std::atomic<float> m_wait_ms{ 0.f };
+        std::atomic<float> m_lag_ms{ 0.f };
         std::atomic<float> m_fps{ 0.f };
         std::atomic<float> m_det_count{ 0.f };
         std::atomic<int> m_track_count{ 0 };

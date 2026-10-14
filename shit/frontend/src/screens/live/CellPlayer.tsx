@@ -34,12 +34,22 @@ const CODE_CORRECTION_MISSING = 4003;
 // Слот молчит дольше — его рамки гаснут; покрывает fps_limit 1 и порог замёрзшего тайла
 const SOURCE_TTL_MS = 3000;
 
+// Задержка видео под рамки: потолок, ручная поправка, период и порог смены
+const VIDEO_DELAY_MAX_MS = 1000;
+const VIDEO_DELAY_CORRECTION_MS = 0;
+const VIDEO_DELAY_PERIOD_MS = 10_000;
+const VIDEO_DELAY_STEP_MS = 30;
+
 // Рамки одного слота: сообщение слота заменяет только их
 interface FSourceFrame {
     name: string;
     detections: Detection[];
     tracks: Track[];
     at: number;
+    /** Отставание рамок от кадра на плате; null — прошивка его не шлёт */
+    lagMs: number | null;
+    /** Сколько раз в секунду слот обновляет рамки */
+    fps: number;
 }
 
 interface FLegendItem {
@@ -115,6 +125,9 @@ export function CellPlayer({
 
     const [switching, setSwitching] = useState(false);
 
+    // Задержка видео под отставание рамок; null — видео живое
+    const [videoDelayMs, setVideoDelayMs] = useState<number | null>(null);
+
     const pendingRef = useRef(false);
     const switchTimerRef = useRef<number | null>(null);
     const switchingRef = useRef(false);
@@ -137,6 +150,8 @@ export function CellPlayer({
                 tracks?: Track[];
                 source?: string;
                 source_name?: string;
+                lag_ms?: number;
+                fps?: number;
             } | undefined;
             const detections = msg.type === 'neural' ? meta?.detections : [];
             const tracks = msg.type === 'neural_tracks' ? meta?.tracks : [];
@@ -144,7 +159,14 @@ export function CellPlayer({
 
             // Без source — прошивка до меток источника: все рамки одного слота
             const id = meta?.source ?? '';
-            sourcesRef.current.set(id, { name: meta?.source_name || id, detections, tracks, at: performance.now() });
+            sourcesRef.current.set(id, {
+                name: meta?.source_name || id,
+                detections,
+                tracks,
+                at: performance.now(),
+                lagMs: typeof meta?.lag_ms === 'number' ? meta.lag_ms : null,
+                fps: typeof meta?.fps === 'number' ? meta.fps : 0,
+            });
             return;
         }
 
@@ -173,6 +195,7 @@ export function CellPlayer({
         signalingUrl,
         collectStats,
         onMessage: handleMessage,
+        videoDelayMs,
     });
 
     useEffect(() => {
@@ -266,6 +289,41 @@ export function CellPlayer({
         frame = requestAnimationFrame(draw);
         return () => cancelAnimationFrame(frame);
     }, [detectionsOn, videoRef]);
+
+    // Видео ждёт рамки по самому медленному слоту: отставание плюс полпериода обновления рамок
+    useEffect(() => {
+        if (!detectionsOn) return;
+
+        let applied: number | null = null;
+        let appliedAt = 0;
+
+        const timer = window.setInterval(() => {
+            const now = performance.now();
+            let target: number | null = null;
+            for (const source of sourcesRef.current.values()) {
+                if (now - source.at >= SOURCE_TTL_MS || source.lagMs === null) continue;
+                const value = source.lagMs + (source.fps > 0 ? 500 / source.fps : 0);
+                target = Math.max(target ?? 0, value);
+            }
+            if (target !== null) {
+                target = Math.min(VIDEO_DELAY_MAX_MS, Math.max(0, Math.round(target + VIDEO_DELAY_CORRECTION_MS)));
+            }
+
+            // Первые данные и пропажа рамок применяются сразу, остальное не чаще периода и выше порога
+            const due = applied === null || target === null
+                || (now - appliedAt >= VIDEO_DELAY_PERIOD_MS && Math.abs(target - applied) > VIDEO_DELAY_STEP_MS);
+            if (!due || target === applied) return;
+
+            applied = target;
+            appliedAt = now;
+            setVideoDelayMs(target);
+        }, 1000);
+
+        return () => {
+            window.clearInterval(timer);
+            setVideoDelayMs(null);
+        };
+    }, [detectionsOn]);
 
     // ─── Коррекция ──────────────────────────────────────────────
 

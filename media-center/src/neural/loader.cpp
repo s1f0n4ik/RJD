@@ -658,6 +658,7 @@ namespace neural {
             status.error = s->error();
             status.infer_ms = s->infer_ms();
             status.wait_ms = s->wait_ms();
+            status.lag_ms = s->lag_ms();
             status.fps = s->fps();
             status.detections = s->detections();
             status.tracks = s->tracks();

@@ -2,6 +2,7 @@
 
 #include <string>
 #include <vector>
+#include <chrono>
 #include <optional>
 #include <functional>
 #include <memory>
@@ -37,6 +38,8 @@ namespace varan {
 			uint32_t width;
 			uint32_t height;
 			uint64_t pts;
+			// Момент выхода кадра из декодера
+			std::chrono::steady_clock::time_point arrived{};
 			std::string format;
 	};
 

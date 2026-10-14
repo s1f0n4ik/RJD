@@ -472,6 +472,7 @@ UNeuralController::get_status(const http::request<http::string_body>& req) {
             item["error"] = s.error;
             item["infer_ms"] = s.infer_ms;
             item["wait_ms"] = s.wait_ms;
+            item["lag_ms"] = s.lag_ms;
             item["fps"] = s.fps;
             item["detections"] = s.detections;
             item["tracks"] = s.tracks;
