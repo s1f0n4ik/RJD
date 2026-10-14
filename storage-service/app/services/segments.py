@@ -21,14 +21,13 @@ import sqlite3
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Callable, Iterable, Optional
 
 from app.config import settings
 from app.services import mp4_header
-from app.services.storage import storage
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +73,18 @@ class FSession:
     trusted: bool = False
 
 
+@dataclass(frozen=True)
+class FVolumeView:
+    # Внутренний том; строки без volume_id принадлежат ему
+    internal_id: Optional[str] = None
+    # Подключённые тома: id → каталог записей устройства на томе (None — каталог неизвестен)
+    present: dict = field(default_factory=dict)
+    # Извлечённые тома: id → имя для подписи
+    offline: dict = field(default_factory=dict)
+    # Проверка тома прямо сейчас: метка на месте и каталог записей существует
+    alive: Callable[[str], bool] = lambda _volume_id: False
+
+
 class SegmentIndex:
     """Чтение индекса сегментов и нормализация времени."""
 
@@ -83,11 +94,11 @@ class SegmentIndex:
         self._unmeasurable: set[int] = set()
         # Заголовки, уже проверенные на верную длительность
         self._header_checked: set[int] = set()
+        # Состояние пула, публикуется пулом при каждом опросе дисков
+        self.view = FVolumeView()
 
-    @property
-    def records_root(self) -> Path:
-        # Путь записей меняется в рантайме через API — берём его у storage
-        return storage.root
+    def _volume_of(self, row) -> Optional[str]:
+        return row["volume_id"] or self.view.internal_id
 
     # ── соединение ──
 
@@ -125,6 +136,16 @@ class SegmentIndex:
             "  computed_at INTEGER"
             ");"
         )
+        if self._has_table(conn, "segments"):
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(segments);")}
+            if "volume_id" not in columns:
+                try:
+                    conn.execute("ALTER TABLE segments ADD COLUMN volume_id TEXT;")
+                except sqlite3.OperationalError as e:
+                    # Колонку уже добавил media-center
+                    if "duplicate column" not in str(e):
+                        raise
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_seg_volume ON segments(volume_id);")
         conn.commit()
 
     # ── якоря сессий ──
@@ -417,8 +438,7 @@ class SegmentIndex:
         unique = {row["id"]: row for row in found}
         return list(unique.values())
 
-    @staticmethod
-    def _normalize(row: sqlite3.Row, session: Optional[FSession]) -> dict:
+    def _normalize(self, row: sqlite3.Row, session: Optional[FSession]) -> dict:
         """Строка базы → сегмент в настенном времени изделия."""
         if session is not None:
             start = row["mono_start_ms"] + session.anchor_ms
@@ -429,8 +449,14 @@ class SegmentIndex:
             end = row["wall_end_ms"]
             trusted = False
 
+        volume_id = self._volume_of(row)
+        disk = self.view.offline.get(volume_id)
+
         return {
             "id": row["id"],
+            "volume_id": volume_id,
+            "available": disk is None,
+            "disk": disk,
             "camera_id": row["camera_id"],
             "stream_key": row["stream_key"],
             "path": row["path"],
@@ -487,8 +513,8 @@ class SegmentIndex:
                 if item["end_ms"] > window_start and item["start_ms"] < window_end
             ]
             visible = [
-                (max(start, window_start), min(end, window_end))
-                for start, end in runs
+                (max(start, window_start), min(end, window_end), disk)
+                for start, end, disk in runs
                 if end > window_start and start < window_end
             ]
 
@@ -496,10 +522,13 @@ class SegmentIndex:
                 "camera_id": camera_id,
                 "stream_key": stream_key,
                 "trusted": all(item["trusted"] for item in inside) if inside else True,
-                "recorded_ms": sum(end - start for start, end in visible),
+                "recorded_ms": sum(end - start for start, end, _disk in visible),
                 "bytes": sum(item["size_bytes"] for item in inside),
                 "segment_count": len(inside),
-                "runs": [{"start_ms": s, "end_ms": e} for s, e in visible],
+                "runs": [
+                    {"start_ms": s, "end_ms": e, "available": d is None, "disk": d}
+                    for s, e, d in visible
+                ],
                 "gaps": [
                     gap for gap in gaps
                     if gap["end_ms"] > window_start and gap["start_ms"] < window_end
@@ -676,9 +705,15 @@ class SegmentIndex:
             if not self._has_table(conn, "segments"):
                 return {"skipped": True}
 
-            known = {row["path"]: row for row in conn.execute(
-                "SELECT id, path, closed, mono_start_ms, wall_start_ms FROM segments;"
-            )}
+            self._stamp_internal(conn)
+
+            # Строки извлечённых томов сверке не подлежат
+            known = {
+                row["path"]: row for row in conn.execute(
+                    "SELECT id, path, closed, mono_start_ms, wall_start_ms, volume_id FROM segments;"
+                )
+                if self._volume_of(row) in self.view.present
+            }
 
             removed = self._drop_missing(conn, known)
             empty = self._drop_empty(conn, known)
@@ -714,10 +749,10 @@ class SegmentIndex:
         """
         rows = [
             row for row in conn.execute(
-                "SELECT id, path, mono_end_ms - mono_start_ms AS span FROM segments"
+                "SELECT id, path, volume_id, mono_end_ms - mono_start_ms AS span FROM segments"
                 " WHERE closed=1 AND mono_end_ms IS NOT NULL;"
             )
-            if row["id"] not in self._header_checked
+            if row["id"] not in self._header_checked and self._volume_of(row) in self.view.present
         ]
         if not rows:
             return 0
@@ -745,9 +780,26 @@ class SegmentIndex:
 
         return repaired
 
-    @staticmethod
-    def _drop_missing(conn: sqlite3.Connection, known: dict) -> int:
-        gone = [path for path in known if not os.path.exists(path)]
+    def _stamp_internal(self, conn: sqlite3.Connection) -> None:
+        # Строки без тома записаны во внутренний том
+        if self.view.internal_id:
+            conn.execute(
+                "UPDATE segments SET volume_id=? WHERE volume_id IS NULL;",
+                (self.view.internal_id,),
+            )
+
+    def _drop_missing(self, conn: sqlite3.Connection, known: dict) -> int:
+        alive: dict[str, bool] = {}
+        gone = []
+        for path, row in known.items():
+            if os.path.exists(path):
+                continue
+            volume_id = self._volume_of(row)
+            # Том мог исчезнуть после опроса пула — тогда файл не удалён, а недоступен
+            if volume_id not in alive:
+                alive[volume_id] = self.view.alive(volume_id)
+            if alive[volume_id]:
+                gone.append(path)
         if not gone:
             return 0
         conn.executemany("DELETE FROM segments WHERE path=?;", [(p,) for p in gone])
@@ -765,7 +817,7 @@ class SegmentIndex:
         now = datetime.now().timestamp()
         gone = []
 
-        for path, _camera_id, _stream_key in self._walk_records():
+        for path, _camera_id, _stream_key, _volume_id in self._walk_records():
             try:
                 stat = os.stat(path)
             except OSError:
@@ -833,11 +885,11 @@ class SegmentIndex:
         """
         rows = [
             row for row in conn.execute(
-                "SELECT id, path, mono_start_ms, wall_start_ms FROM segments"
+                "SELECT id, path, volume_id, mono_start_ms, wall_start_ms FROM segments"
                 " WHERE closed=1 AND (mono_end_ms IS NULL OR wall_end_ms IS NULL)"
                 " ORDER BY id;"
             )
-            if row["id"] not in self._unmeasurable
+            if row["id"] not in self._unmeasurable and self._volume_of(row) in self.view.present
         ]
         if not rows:
             return 0
@@ -879,7 +931,7 @@ class SegmentIndex:
         """
         added = 0
 
-        for path, camera_id, stream_key in self._walk_records():
+        for path, camera_id, stream_key, volume_id in self._walk_records():
             if path in known:
                 continue
 
@@ -895,9 +947,9 @@ class SegmentIndex:
             conn.execute(
                 "INSERT OR IGNORE INTO segments("
                 "session_uid,camera_id,stream_key,path,"
-                "mono_start_ms,wall_start_ms,time_source,size_bytes,closed,origin)"
-                " VALUES('',?,?,?,0,?, 'none',?,1,'scan');",
-                (camera_id, stream_key, path, wall_ms, size),
+                "mono_start_ms,wall_start_ms,time_source,size_bytes,closed,origin,volume_id)"
+                " VALUES('',?,?,?,0,?, 'none',?,1,'scan',?);",
+                (camera_id, stream_key, path, wall_ms, size, volume_id),
             )
             added += 1
 
@@ -905,7 +957,16 @@ class SegmentIndex:
 
     def _walk_records(self):
         """Видеофайлы под корнем записей: <камера>/<поток>/файл и старая плоская раскладка."""
-        root = self.records_root
+        for volume_id, root in list(self.view.present.items()):
+            if root is None:
+                continue
+            try:
+                yield from self._walk_root(root, volume_id)
+            except OSError as e:
+                logger.warning("Cannot walk volume %s at %s: %s", volume_id, root, e)
+
+    @staticmethod
+    def _walk_root(root: Path, volume_id: str):
         if not root.exists():
             return
 
@@ -916,17 +977,20 @@ class SegmentIndex:
                 if entry.is_dir():
                     for file in sorted(entry.iterdir()):
                         if file.is_file() and file.suffix.lower() in VIDEO_EXTENSIONS:
-                            yield str(file), camera_dir.name, entry.name
+                            yield str(file), camera_dir.name, entry.name, volume_id
                 elif entry.is_file() and entry.suffix.lower() in VIDEO_EXTENSIONS:
-                    yield str(entry), camera_dir.name, LEGACY_STREAM
+                    yield str(entry), camera_dir.name, LEGACY_STREAM, volume_id
 
-    def oldest_files(self, limit: int) -> list[str]:
+    def oldest_files(self, limit: int, volume_ids: Iterable[str]) -> list[tuple[str, str]]:
         """
         Самые старые файлы по нормализованному времени — порядок удаления при
         нехватке места. Не по mtime: когда часы врали, он не совпадает с
         порядком записи. Сортирует SQLite, наружу уходит только запрошенная
         пачка — таблица целиком в память не поднимается.
         """
+        ids = list(volume_ids)
+        if not ids:
+            return []
         conn = self._connect()
         if conn is None:
             return []
@@ -935,6 +999,9 @@ class SegmentIndex:
             self._ensure_own_schema(conn)
             if not self._has_table(conn, "segments"):
                 return []
+
+            self._stamp_internal(conn)
+            conn.commit()
 
             sessions = self._load_sessions(conn)
 
@@ -951,10 +1018,102 @@ class SegmentIndex:
             )
 
             rows = conn.execute(
-                f"SELECT path FROM segments ORDER BY ({started}) LIMIT ?;",
-                (*params, limit),
+                f"SELECT path, volume_id FROM segments WHERE volume_id IN ({_places(ids)})"
+                f" ORDER BY ({started}) LIMIT ?;",
+                (*ids, *params, limit),
             )
-            return [row["path"] for row in rows]
+            return [(row["path"], row["volume_id"]) for row in rows]
+        finally:
+            conn.close()
+
+    def forget_volume(self, volume_id: str) -> int:
+        conn = self._connect()
+        if conn is None:
+            return 0
+        try:
+            if not self._has_table(conn, "segments"):
+                return 0
+            removed = 0
+            # Пачками: одна большая транзакция держала бы писателя media-center
+            while True:
+                cursor = conn.execute(
+                    "DELETE FROM segments WHERE id IN"
+                    " (SELECT id FROM segments WHERE volume_id=? LIMIT 5000);",
+                    (volume_id,),
+                )
+                conn.commit()
+                if cursor.rowcount <= 0:
+                    return removed
+                removed += cursor.rowcount
+        finally:
+            conn.close()
+
+    def move_volume(self, volume_id: str, old_root: str, new_root: str) -> int:
+        conn = self._connect()
+        if conn is None:
+            return 0
+        try:
+            self._ensure_own_schema(conn)
+            if not self._has_table(conn, "segments"):
+                return 0
+            old_prefix = old_root.rstrip("/") + "/"
+            new_prefix = new_root.rstrip("/") + "/"
+            cursor = conn.execute(
+                "UPDATE segments SET path = ? || substr(path, ?)"
+                " WHERE volume_id=? AND substr(path, 1, ?) = ?;",
+                (new_prefix, len(old_prefix) + 1, volume_id, len(old_prefix), old_prefix),
+            )
+            conn.commit()
+            return cursor.rowcount
+        finally:
+            conn.close()
+
+    def volume_stats(self) -> dict:
+        conn = self._connect()
+        if conn is None:
+            return {}
+        try:
+            self._ensure_own_schema(conn)
+            if not self._has_table(conn, "segments"):
+                return {}
+
+            anchors = {s.uid: s.anchor_ms for s in self._load_sessions(conn)}
+            stats: dict[str, dict] = {}
+
+            for row in conn.execute(
+                "SELECT volume_id, session_uid, COUNT(*) AS count,"
+                " COALESCE(SUM(size_bytes), 0) AS bytes,"
+                " MIN(mono_start_ms) AS mono_lo, MAX(COALESCE(mono_end_ms, mono_start_ms)) AS mono_hi,"
+                " MIN(wall_start_ms) AS wall_lo, MAX(COALESCE(wall_end_ms, wall_start_ms)) AS wall_hi"
+                " FROM segments GROUP BY volume_id, session_uid;"
+            ):
+                anchor = anchors.get(row["session_uid"])
+                if anchor is None:
+                    lo, hi = row["wall_lo"], row["wall_hi"]
+                else:
+                    lo, hi = row["mono_lo"] + anchor, row["mono_hi"] + anchor
+
+                item = stats.setdefault(self._volume_of(row), {
+                    "bytes": 0, "segment_count": 0, "first_ms": lo, "last_ms": hi,
+                })
+                item["bytes"] += row["bytes"]
+                item["segment_count"] += row["count"]
+                item["first_ms"] = min(item["first_ms"], lo)
+                item["last_ms"] = max(item["last_ms"], hi)
+
+            return stats
+        finally:
+            conn.close()
+
+    def segment_path(self, segment_id: int) -> Optional[str]:
+        conn = self._connect()
+        if conn is None:
+            return None
+        try:
+            if not self._has_table(conn, "segments"):
+                return None
+            row = conn.execute("SELECT path FROM segments WHERE id=?;", (segment_id,)).fetchone()
+            return row["path"] if row else None
         finally:
             conn.close()
 
@@ -1062,30 +1221,35 @@ def _fill_missing_ends(items: list[dict]) -> None:
         item["estimated_end"] = True
 
 
-def _merge_runs(items: list[dict]) -> list[tuple[int, int]]:
+def _merge_runs(items: list[dict]) -> list[tuple[int, int, Optional[str]]]:
     """Соседние сегменты сливаются в непрерывный кусок, пока зазор мал."""
-    runs: list[tuple[int, int]] = []
+    runs: list[tuple[int, int, Optional[str]]] = []
 
     for item in items:
         start = item["start_ms"]
         end = item["end_ms"]
+        disk = item["disk"]
         if end <= start:
             continue
 
-        if runs and start - runs[-1][1] <= GAP_THRESHOLD_MS:
-            runs[-1] = (runs[-1][0], max(runs[-1][1], end))
+        # Запись на извлечённом диске — отдельный кусок
+        if runs and start - runs[-1][1] <= GAP_THRESHOLD_MS and runs[-1][2] == disk:
+            runs[-1] = (runs[-1][0], max(runs[-1][1], end), disk)
         else:
-            runs.append((start, end))
+            runs.append((start, end, disk))
 
     return runs
 
 
-def _find_gaps(items: list[dict], runs: list[tuple[int, int]]) -> list[dict]:
+def _find_gaps(items: list[dict], runs: list[tuple[int, int, Optional[str]]]) -> list[dict]:
     """Пропуски между кусками: kind=power на границе сессий, record внутри одной."""
     sessions_at = [(item["start_ms"], item["session_uid"]) for item in items]
 
     gaps = []
     for left, right in zip(runs, runs[1:]):
+        # Куски одной записи на разных дисках идут встык
+        if right[0] - left[1] <= GAP_THRESHOLD_MS:
+            continue
         before = _session_at(sessions_at, left[1])
         after = _session_at(sessions_at, right[0])
         gaps.append({

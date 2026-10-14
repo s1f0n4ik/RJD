@@ -24,11 +24,6 @@ class StorageService:
     def __init__(self, root: Path):
         self.root = root
 
-    def set_root(self, new_root: Path) -> None:
-        """Сменить корневой каталог записей в рантайме."""
-        self.root = new_root
-        logger.info("Storage root changed to %s", new_root)
-
     def disk_usage(self):
         """Занятость диска, на котором лежит корень записей.
         Возвращает namedtuple с полями total, used, free либо None."""
@@ -177,13 +172,14 @@ class StorageService:
         for _, path in files:
             yield path
 
-    def remove_empty_subdirs(self) -> int:
+    def remove_empty_subdirs(self, root: Optional[Path] = None) -> int:
         """Удалить пустые каталоги камер и их потоков; потоки первыми."""
-        if not self.root.exists():
+        root = root or self.root
+        if not root.exists():
             return 0
 
         removed = 0
-        for camera_dir in self.root.iterdir():
+        for camera_dir in root.iterdir():
             if not camera_dir.is_dir():
                 continue
 

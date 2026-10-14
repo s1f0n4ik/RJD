@@ -53,7 +53,8 @@ services:
       - CLEANUP_INTERVAL_SEC=60
       - CLEANUP_TARGET_RATIO=0.9
     volumes:
-      - /storage:/storage
+      # rslave: внешние диски, смонтированные в /storage/media после старта, видны внутри
+      - /storage:/storage:rslave
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/', timeout=3)"]

@@ -1,11 +1,13 @@
 import asyncio
 import logging
 import re
+from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Query, Response
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, HTTPException, Query, Request, Response
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
+from app.routers.recordings import range_response
 from app.services.cutter import run_cut_job, zip_entries
 from app.services.frames import frame_at
 from app.services.jobs import jobs
@@ -82,6 +84,23 @@ async def archive_segments(
         None, index.range_segments, camera, stream, from_ms, to_ms
     )
     return {"segments": segments}
+
+
+@router.get("/archive/file/{segment_id}")
+async def archive_file(segment_id: int, request: Request, download: bool = False):
+    """Файл сегмента по его строке в индексе — на любом томе пула."""
+    loop = asyncio.get_running_loop()
+    path = await loop.run_in_executor(None, index.segment_path, segment_id)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Segment not found")
+
+    file_path = Path(path)
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Segment file is not available, its volume may be detached")
+
+    if download:
+        return FileResponse(file_path, filename=file_path.name, media_type="application/octet-stream")
+    return range_response(file_path, request)
 
 
 @router.get("/archive/frame")

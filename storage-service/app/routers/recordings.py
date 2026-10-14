@@ -41,9 +41,6 @@ class ArchiveRequest(BaseModel):
     start_minutes: float | None = None
     end_minutes: float | None = None
 
-class PathChangeRequest(BaseModel):
-    path: str
-
 @router.get("/recordings")
 async def list_all():
     return {"recordings": storage.list_all()}
@@ -78,17 +75,6 @@ async def disk_state():
         "used_percent": round(used_percent, 1),
         "max_used_percent": settings.MAX_USED_PERCENT,
     }
-
-@router.post("/recordings/path")
-async def change_path(req: PathChangeRequest):
-    """Сменить путь просмотра записей в рантайме."""
-    new_root = Path(req.path)
-    if not new_root.exists():
-        raise HTTPException(status_code=400, detail=f"Path does not exist: {req.path}")
-    if not new_root.is_dir():
-        raise HTTPException(status_code=400, detail=f"Not a directory: {req.path}")
-    storage.set_root(new_root)
-    return {"ok": True, "path": str(storage.root)}
 
 @router.get("/recordings/jobs")
 async def list_active_jobs():
@@ -257,7 +243,11 @@ async def stream(
     file_path = storage.resolve_file(camera_name, filename, stream_key)
     if file_path is None:
         raise HTTPException(status_code=404, detail="File not found")
+    return range_response(file_path, request)
 
+
+# Файл с поддержкой Range: плеер архива тянет его кусками
+def range_response(file_path: Path, request: Request) -> Response:
     file_size = file_path.stat().st_size
     range_header = request.headers.get("range")
 

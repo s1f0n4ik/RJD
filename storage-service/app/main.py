@@ -4,12 +4,13 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.config import settings
-from app.routers import recordings, archive
+from app.routers import recordings, archive, pool as pool_router
 from app.services import exports
 from app.services.cleaner import cleaner
 from app.services.jobs import jobs
 from app.services.journal import journal
 from app.services.reconciler import reconciler
+from app.services.volumes import pool
 
 logging.basicConfig(
     level=logging.DEBUG if settings.DEBUG else logging.INFO,
@@ -24,6 +25,7 @@ async def lifespan(app: FastAPI):
     # После перезапуска задач нет, а их результаты на диске — есть
     exports.sweep()
     journal.move_legacy()
+    await pool.start()
     await jobs.start()
     await cleaner.start()
     await reconciler.start()
@@ -32,6 +34,7 @@ async def lifespan(app: FastAPI):
     await jobs.stop()
     await cleaner.stop()
     await reconciler.stop()
+    await pool.stop()
 
 
 app = FastAPI(
@@ -42,6 +45,7 @@ app = FastAPI(
 
 app.include_router(recordings.router, prefix="/api", tags=["Recordings"])
 app.include_router(archive.router, prefix="/api", tags=["Archive"])
+app.include_router(pool_router.router, prefix="/api", tags=["Storage pool"])
 
 
 @app.get("/", tags=["Health"])

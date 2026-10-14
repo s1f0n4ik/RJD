@@ -4,8 +4,24 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     """Конфигурация storage-сервиса"""
 
-    # Где лежат записи, стартовый путь. Меняется в рантайме через API.
+    # Где лежат записи на внутреннем томе /storage
     RECORDS_PATH: str = "/storage/internal"
+
+    # ── Пул дисков записи ──
+    # Корень внутреннего тома, в нём лежит его метка
+    INTERNAL_ROOT: str = "/storage"
+    # Куда ОС монтирует внешние диски: /storage/media/<метка или UUID>
+    MEDIA_ROOT: str = "/storage/media"
+    # Пул устройства: тома, порядок записи, имена, пороги
+    POOL_PATH: str = "/storage/archive/pool.json"
+    # Текущая цель записи для media-center
+    TARGET_PATH: str = "/storage/archive/target.json"
+    # Файл метки тома в корне диска
+    VOLUME_MARKER: str = ".varan-volume"
+    # Как часто опрашивать диски (секунды)
+    POOL_INTERVAL_SEC: float = 2.0
+    # media-center на этой же машине: отсюда берётся device_id
+    MEDIA_CENTER_URL: str = "http://127.0.0.1:7777"
 
     # Порог занятости диска с записями в процентах.
     # Когда занято больше этого значения — запускается очистка старых записей.
