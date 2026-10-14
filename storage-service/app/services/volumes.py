@@ -22,8 +22,8 @@ logger = logging.getLogger(__name__)
 # Без метки ФС автомонтирование называет каталог UUID тома
 UUID_NAME = re.compile(r"^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4})$")
 
-# exfat — ядерный драйвер; FUSE-вариант виден как fuseblk и не отличим от ntfs-3g
-SUITABLE_FS = {"ext4", "exfat"}
+# fuseblk в MEDIA_ROOT монтирует только varan-media, и это exFAT: ядро платы без exfat
+SUITABLE_FS = {"ext4", "exfat", "fuseblk"}
 
 # Страховка media-center: выше этого он не пишет
 STUCK_PERCENT = 99.0
@@ -358,8 +358,13 @@ class VolumePool:
         try:
             # Корень цели создаёт служба: media-center создаёт внутри только камеру и поток
             Path(path).mkdir(parents=True, exist_ok=True)
+            # media-center пишет не от root: каталоги устройства на внешнем диске открыты всем
+            if target is not internal:
+                for directory in (Path(path).parent, Path(path)):
+                    if directory.stat().st_mode & 0o777 != 0o777:
+                        os.chmod(directory, 0o777)
         except OSError as e:
-            logger.warning("Cannot create records dir %s: %s", path, e)
+            logger.warning("Cannot prepare records dir %s: %s", path, e)
         if payload == self._target:
             return
         try:
