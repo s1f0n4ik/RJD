@@ -198,6 +198,18 @@ export function HomeScreen() {
                             <div className="card-b">
                                 {devices.map(device => {
                                     const pool = pools[device.id];
+                                    // undefined — ответа ещё не было, null — служба не ответила
+                                    if (pool === undefined) return (
+                                        <div className="disk" key={device.id}>
+                                            <div className="disk-h"><b>{device.name}</b></div>
+                                            <div className="disk-sub"><span className="skel" style={{ width: 110, height: 10, margin: '3px 0' }} /></div>
+                                            <span className="skel" style={{ display: 'block', height: 8 }} />
+                                            <div className="disk-lg">
+                                                <span className="skel" style={{ width: '100%', height: 10, margin: '3px 0' }} />
+                                                <span className="skel" style={{ width: '60%', height: 10, margin: '3px 0' }} />
+                                            </div>
+                                        </div>
+                                    );
                                     if (!pool) return null;
                                     const s = pool.summary;
                                     const share = (bytes: number) =>
@@ -249,7 +261,7 @@ export function HomeScreen() {
                                 })}
                                 {devices.length === 0 ? (
                                     <p className="hint">Накопители появятся вместе с устройствами.</p>
-                                ) : devices.every(d => !pools[d.id]) && (
+                                ) : devices.every(d => pools[d.id] === null) && (
                                     <p className="hint">Служба хранения не отвечает — занятость дисков неизвестна.</p>
                                 )}
                             </div>

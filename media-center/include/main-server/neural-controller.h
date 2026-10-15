@@ -55,6 +55,9 @@ public:
         get_status(const boost::beast::http::request<boost::beast::http::string_body>& req);
 
     boost::beast::http::response<boost::beast::http::string_body>
+        get_summary(const boost::beast::http::request<boost::beast::http::string_body>& req);
+
+    boost::beast::http::response<boost::beast::http::string_body>
         post_start(const boost::beast::http::request<boost::beast::http::string_body>& req);
 
     boost::beast::http::response<boost::beast::http::string_body>

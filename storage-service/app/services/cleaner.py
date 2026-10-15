@@ -65,7 +65,7 @@ class StorageCleaner:
     def _check_internal(self):
         # /storage чистится собственным давлением: выгрузки и резерв журнала
         entry = pool.internal_entry()
-        measured = internal_usage()
+        measured = internal_usage(fresh=True)
         if measured is None or not measured["total"]:
             return
 

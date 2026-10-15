@@ -1,9 +1,11 @@
 import logging
 import shutil
 import sqlite3
+import time
 from contextlib import closing
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 from app.config import settings
 
@@ -20,6 +22,8 @@ class JournalService:
     def __init__(self, db_path: Path, frames_dir: Path):
         self.db_path = db_path
         self.frames_dir = frames_dir
+        # Последний обход кадров: (time.monotonic(), байты)
+        self._frames_measured: Optional[tuple[float, int]] = None
 
     def available(self) -> bool:
         return self.db_path.exists()
@@ -91,8 +95,14 @@ class JournalService:
                 continue
         return total
 
-    def journal_bytes(self) -> int:
-        return self.frames_size_bytes() + self.db_size_bytes()
+    # Кадры — по последнему обходу, если он моложе двух интервалов очистителя; fresh — обойти заново
+    def journal_bytes(self, fresh: bool = False) -> int:
+        now = time.monotonic()
+        measured = self._frames_measured
+        if fresh or measured is None or now - measured[0] > 2 * settings.CLEANUP_INTERVAL_SEC:
+            measured = (now, self.frames_size_bytes())
+            self._frames_measured = measured
+        return measured[1] + self.db_size_bytes()
 
     # Нет базы — нет журнала на этой машине, резервировать нечего
     def reserve_bytes(self) -> int:

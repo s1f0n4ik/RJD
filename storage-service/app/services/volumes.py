@@ -132,14 +132,14 @@ def _percent(path: str) -> Optional[float]:
     return usage.used / usage.total * 100
 
 
-def internal_usage() -> Optional[dict]:
-    # Занятость /storage с учётом выгрузок и незанятого резерва журнала
+def internal_usage(fresh: bool = False) -> Optional[dict]:
+    # Занятость /storage с учётом выгрузок и незанятого резерва журнала; fresh — кадры журнала обойти заново
     usage = _usage(settings.INTERNAL_ROOT)
     if usage is None:
         return None
     exported = exports.dir_size(exports.root())
     reserve = journal.reserve_bytes()
-    journal_used = journal.journal_bytes()
+    journal_used = journal.journal_bytes(fresh)
     withheld = max(0, reserve - journal_used) if reserve else 0
     return {
         "used": max(0, usage.used - exported) + withheld,

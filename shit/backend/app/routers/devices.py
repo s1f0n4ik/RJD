@@ -313,3 +313,44 @@ async def aggregate_neural_status():
     """Статус слотов со всех устройств с модулем neural по последнему известному списку модулей."""
     devices = [d for d in registry.snapshot() if "neural" in (d.get("modules") or [])]
     return {"data": {"devices": list(await asyncio.gather(*(_neural_status(d) for d in devices)))}}
+
+
+# Число слотов, работающих и с ошибкой на устройстве; state — как у _neural_status
+async def _neural_summary(device: dict) -> dict:
+    if device["status"] == "offline":
+        return {"state": "offline"}
+    url = f"http://{device['ip']}:{settings.DEVICE_MC_PORT}/neural/summary"
+    try:
+        response = await registry.client.get(url)
+        # media-center без /neural/summary: сводка по полному статусу
+        if response.status_code == 404:
+            entry = await _neural_status(device)
+            slots = entry["slots"] or []
+            return {
+                "state": entry["state"],
+                "slots": len(slots),
+                "running": sum(1 for s in slots if s.get("running")),
+                "failed": sum(1 for s in slots if s.get("code", 0) != 0),
+            }
+        response.raise_for_status()
+        return {"state": "ok", **(response.json().get("data") or {})}
+    except (httpx.HTTPError, ValueError) as e:
+        logger.debug(f"Fetch /neural/summary from {device['id']} failed: {e}")
+        return {"state": "offline"}
+
+
+@router.get("/neural/summary")
+async def aggregate_neural_summary():
+    """Сводка слотов техзрения по всем устройствам с модулем neural для плитки главной."""
+    devices = [d for d in registry.snapshot() if "neural" in (d.get("modules") or [])]
+    entries = await asyncio.gather(*(_neural_summary(d) for d in devices))
+    ok = [e for e in entries if e["state"] == "ok"]
+    return {"data": {
+        "devices": len(entries),
+        "ok": len(ok),
+        "slots": sum(e.get("slots", 0) for e in ok),
+        "running": sum(e.get("running", 0) for e in ok),
+        "failed": sum(e.get("failed", 0) for e in ok),
+        "offline": sum(1 for e in entries if e["state"] == "offline"),
+        "missing": sum(1 for e in entries if e["state"] == "no_module"),
+    }}

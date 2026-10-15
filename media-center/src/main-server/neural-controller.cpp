@@ -488,6 +488,31 @@ UNeuralController::get_status(const http::request<http::string_body>& req) {
     }
 }
 
+// ─── GET /neural/summary ────────────────────────────────────
+http::response<http::string_body>
+UNeuralController::get_summary(const http::request<http::string_body>& req) {
+    const std::string tag = "GET /neural/summary";
+    log_request(m_logger, req, tag);
+    try {
+        int64_t slots = 0, running = 0, failed = 0;
+        for (const auto& s : m_loader->get_slots()) {
+            ++slots;
+            if (s.running) ++running;
+            if (s.code != 0) ++failed;
+        }
+        boost::json::object data;
+        data["slots"] = slots;
+        data["running"] = running;
+        data["failed"] = failed;
+        boost::json::object body;
+        body["data"] = std::move(data);
+        return json_ok(m_logger, req, body, tag);
+    }
+    catch (const std::exception& e) {
+        return json_error(m_logger, req, http::status::internal_server_error, e.what(), tag);
+    }
+}
+
 // ─── POST start / restart / stop ────────────────────────────
 http::response<http::string_body>
 UNeuralController::post_start(const http::request<http::string_body>& req) {

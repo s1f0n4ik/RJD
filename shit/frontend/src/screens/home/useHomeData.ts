@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useNeuralStatus } from '../../app/neuralStatus';
+import { useEffect, useState } from 'react';
 import { modulePath, storagePath, type Device } from '../../services/devices';
 import { journalApi } from '../../features/neural/api/journal';
 import type { JournalDetection } from '../../features/neural/api/journal-types';
@@ -23,6 +22,7 @@ export interface DiskState {
 
 const DISK_POLL_MS = 20_000;
 const JOURNAL_POLL_MS = 15_000;
+const NEURAL_POLL_MS = 10_000;
 
 /** Диски всех устройств: ключ — id устройства. */
 export function useDisks(devices: Device[]) {
@@ -125,20 +125,28 @@ export interface NeuralSummary {
 
 // undefined — ответа ещё не было, null — мастер не ответил
 export function useNeuralSummary(): NeuralSummary | null | undefined {
-    const status = useNeuralStatus();
-    return useMemo(() => {
-        if (!status) return status;
-        const slots = status.flatMap(d => d.slots ?? []);
-        return {
-            devices: status.length,
-            ok: status.filter(d => d.state === 'ok').length,
-            slots: slots.length,
-            running: slots.filter(s => s.running).length,
-            failed: slots.filter(s => s.code !== 0).length,
-            offline: status.filter(d => d.state === 'offline').length,
-            missing: status.filter(d => d.state === 'no_module').length,
+    const [summary, setSummary] = useState<NeuralSummary | null | undefined>(undefined);
+
+    useEffect(() => {
+        let alive = true;
+
+        const load = async () => {
+            try {
+                const res = await fetch('/api/neural/summary');
+                if (!res.ok) throw new Error(String(res.status));
+                const json = await res.json() as { data: NeuralSummary };
+                if (alive) setSummary(json.data);
+            } catch {
+                if (alive) setSummary(null);
+            }
         };
-    }, [status]);
+
+        load();
+        const timer = window.setInterval(load, NEURAL_POLL_MS);
+        return () => { alive = false; window.clearInterval(timer); };
+    }, []);
+
+    return summary;
 }
 
 const plural = (n: number, one: string, few: string, many: string) => {

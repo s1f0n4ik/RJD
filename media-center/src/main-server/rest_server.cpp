@@ -137,6 +137,8 @@ URestServer::URestServer(
         [neural_ctrl](const auto& r) { return neural_ctrl->post_state(r); });
     m_router->add_route(http::verb::get, "/neural/status", 
         [neural_ctrl](const auto& r) { return neural_ctrl->get_status(r); });
+    m_router->add_route(http::verb::get, "/neural/summary",
+        [neural_ctrl](const auto& r) { return neural_ctrl->get_summary(r); });
     m_router->add_route(http::verb::post, "/neural/start", 
         [neural_ctrl](const auto& r) { return neural_ctrl->post_start(r); });
     m_router->add_route(http::verb::post, "/neural/restart", 
