@@ -1,5 +1,8 @@
 #pragma once
 
+#include <vector>
+#include <opencv2/core/types.hpp>
+
 struct FDetection
 {
     int x1_coord;
@@ -10,6 +13,8 @@ struct FDetection
 
     int class_id;
 
+    // Коэффициенты маски seg-модели; живут от разбора до сборки контуров
     std::vector<float> mask_coefficients;
-    std::vector<float> cropped_cords;
+    // Внешние контуры маски в тех же координатах, что и рамка; пусто у моделей без масок
+    std::vector<std::vector<cv::Point>> polygons;
 };

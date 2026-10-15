@@ -131,9 +131,9 @@ namespace neural {
         printf("model input height=%d, width=%d, channel=%d\n",
             app_ctx->model_height, app_ctx->model_width, app_ctx->model_channel);
 
-        app_ctx->layout = detect_output_layout(*app_ctx, app_ctx->model_class_count);
-        printf("output layout: %s, classes=%d\n",
-            output_layout_name(app_ctx->layout), app_ctx->model_class_count);
+        app_ctx->layout = detect_output_layout(*app_ctx, app_ctx->model_class_count, app_ctx->mask_count);
+        printf("output layout: %s, classes=%d, masks=%d\n",
+            output_layout_name(app_ctx->layout), app_ctx->model_class_count, app_ctx->mask_count);
 
         return 0;
     }
@@ -231,28 +231,24 @@ namespace neural {
         auto* lb = const_cast<letterbox_t*>(&letter_box);  // постпроцесс ждёт указатель
         const input_parameters_t params{
             src_meta.width, src_meta.height,
-            model_w, model_h, 64, 32,
+            model_w, model_h,
             static_cast<int>(classes.size()), conf_threshold };
 
         switch (app_ctx->layout) {
-        case EOutputLayout::SEGMENTATION: {
-            segmentation_proto_t proto;
-            decode_int8_segmentation(*app_ctx, outputs, lb, params, result.detections, proto);
-            result.detections = apply_nms(result.detections, threshold_nms);
-            build_segmentation_mask(result.detections, proto, lb, params, result.mask);
-            break;
-        }
-        case EOutputLayout::SPLIT_LEVELS:
-            decode_split_levels(*app_ctx, outputs, lb, params, result.detections);
-            result.detections = apply_nms(result.detections, threshold_nms);
-            break;
         case EOutputLayout::SINGLE:
+        case EOutputLayout::SINGLE_SEG:
             decode_single_output(*app_ctx, outputs, lb, params, result.detections);
-            result.detections = apply_nms(result.detections, threshold_nms);
+            break;
+        case EOutputLayout::SPLIT_LEVELS:
+        case EOutputLayout::SPLIT_LEVELS_SEG:
+            decode_split_levels(*app_ctx, outputs, lb, params, result.detections);
             break;
         default:
             if (logger) logger->error("inference_yolo_rknn(): unknown output layout");
         }
+        result.detections = apply_nms(result.detections, threshold_nms);
+        // Контуры собираются до освобождения выходов: прото читается прямо из буфера рантайма
+        if (is_segmentation(app_ctx->layout)) build_polygons(*app_ctx, outputs, lb, params, result.detections);
 
         rknn_outputs_release(app_ctx->rknn_ctx, app_ctx->io_num.n_output, outputs.data());
         return ret;

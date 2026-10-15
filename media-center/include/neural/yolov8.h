@@ -23,7 +23,6 @@ namespace neural {
 
     typedef struct FYolo_Result {
         std::vector<FDetection> detections;
-        std::vector<uint8_t> mask;
     } yolo_inference_result_t;
 
     int init_yolov8_model(const std::string& model_path, rknn_app_context_t* app_ctx);

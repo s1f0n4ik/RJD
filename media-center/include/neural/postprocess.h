@@ -24,9 +24,15 @@ namespace  neural {
         // Девять выходов, на уровень: бокс [1, 4*bins, H, W], скоры после сигмоиды [1, nc, H, W], сумма скоров [1, 1, H, W]
         // bins 16 у yolo11 (DFL), 1 у yolo26 (расстояния напрямую)
         SPLIT_LEVELS,
-        // Четыре выхода INT8: прото-тензор масок и три уровня сетки
-        SEGMENTATION
+        // SINGLE с коэффициентами масок: [1, 4 + nc + nm, anchors] и прото [1, nm, H/4, W/4]
+        SINGLE_SEG,
+        // SPLIT_LEVELS с четвёртым тензором уровня seg_l* [1, nm, H, W] и прото; выходы узнаются по именам
+        SPLIT_LEVELS_SEG
     };
+
+    inline bool is_segmentation(EOutputLayout layout) {
+        return layout == EOutputLayout::SINGLE_SEG || layout == EOutputLayout::SPLIT_LEVELS_SEG;
+    }
 
     const char* output_layout_name(EOutputLayout layout);
 
@@ -42,10 +48,12 @@ namespace  neural {
         EOutputLayout layout;
         // Число классов, зашитое в выходных тензорах; конфигурация с ним сверяется, но не переопределяет
         int model_class_count;
+        // Коэффициентов маски на детекцию; 0 у моделей без масок
+        int mask_count;
     } rknn_app_context_t;
 
-    // Определяет раскладку по атрибутам выходов и число классов в модели
-    EOutputLayout detect_output_layout(const rknn_app_context_t& app_ctx, int& out_class_count);
+    // Определяет раскладку по атрибутам выходов, число классов и коэффициентов маски
+    EOutputLayout detect_output_layout(const rknn_app_context_t& app_ctx, int& out_class_count, int& out_mask_count);
 
     // Всё, что нужно декодеру тензоров; NMS сюда не входит, его применяет вызывающий
     typedef struct FInputParameters {
@@ -55,49 +63,24 @@ namespace  neural {
         int model_width;
         int model_height;
 
-        int dfl_count;
-        int mask_coeffs_count;
-
         int class_count;
 
         float threshold_confidence;
 
     } input_parameters_t;
 
-    // Прото-тензор масок, живёт между декодированием и сборкой маски
-    struct FSegmentationProto {
-        std::vector<float> tensor;
-
-        int width = 0;
-        int height = 0;
-        int coefficients = 0;
-
-        bool empty() const { return tensor.empty(); }
-    };
-
-    using segmentation_proto_t = FSegmentationProto;
-
     std::vector<FDetection> apply_nms(const std::vector<FDetection>& Detections, float IoU_Threshold);
 
-    void decode_int8_segmentation(
+    // Контуры масок по прото для детекций, переживших NMS; коэффициенты после сборки освобождаются
+    void build_polygons(
         const rknn_app_context_t& app_ctx,
         const std::vector<rknn_output>& Outputs,
         letterbox_t* LetterBox,
         const input_parameters_t& input_parameters,
-        std::vector<FDetection>& OutDetections,
-        segmentation_proto_t& OutProto
+        std::vector<FDetection>& Detections
     );
 
-    // Собирает маску по детекциям, пережившим NMS
-    void build_segmentation_mask(
-        const std::vector<FDetection>& Detections,
-        const segmentation_proto_t& Proto,
-        letterbox_t* LetterBox,
-        const input_parameters_t& input_parameters,
-        std::vector<uint8_t>& out_mask
-    );
-
-    // Девять выходов по уровням; сумма скоров отбрасывает пустые якоря до чтения классов
+    // Девять выходов по уровням (у seg тринадцать); сумма скоров отбрасывает пустые якоря до чтения классов
     void decode_split_levels(
         const rknn_app_context_t& app_ctx,
         const std::vector<rknn_output>& Outputs,
@@ -106,7 +89,7 @@ namespace  neural {
         std::vector<FDetection>& OutDetections
     );
 
-    // Одноголовый экспорт: выход [1, 4 + nc, anchors], каналы 0..3 — бокс, дальше скоры
+    // Одноголовый экспорт: выход [1, 4 + nc, anchors], каналы 0..3 — бокс, дальше скоры, у seg затем коэффициенты маски
     // Работает и с FP16/FP32, и с INT8
     void decode_single_output(
         const rknn_app_context_t& app_ctx,

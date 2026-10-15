@@ -30,7 +30,7 @@ namespace varan {
             Classifier(const Classifier&) = delete;
             Classifier& operator=(const Classifier&) = delete;
 
-            yolo_inference_result_t classify(const cv::Mat& frame, std::vector<uint8_t>& drawable_mask);
+            yolo_inference_result_t classify(const cv::Mat& frame);
 
             int depth_actual() const { return m_handle->depth_actual(); }
             const FModelInfo& info() const { return m_handle->info(); }

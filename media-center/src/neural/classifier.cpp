@@ -42,8 +42,7 @@ namespace varan {
                 " actual=" + std::to_string(depth_actual()));
         }
 
-        yolo_inference_result_t Classifier::classify(const cv::Mat& frame,
-            std::vector<uint8_t>& drawable_mask)
+        yolo_inference_result_t Classifier::classify(const cv::Mat& frame)
         {
             yolo_inference_result_t result;
             if (frame.empty()) return result;
@@ -78,7 +77,6 @@ namespace varan {
                     std::to_string(result.detections.size()));
             }
 
-            if (ret == 0) drawable_mask = std::move(result.mask);
             return result;
         }
 

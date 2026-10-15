@@ -121,7 +121,6 @@ namespace neural {
             // Время сборки полотна для трекера
             std::chrono::steady_clock::time_point at;
             yolo_inference_result_t result;
-            std::vector<uint8_t> mask;
         };
 
         void infer_worker();

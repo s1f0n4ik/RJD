@@ -149,7 +149,7 @@ export interface SlotStatus {
     depth: number;
     depth_actual: number;
     fps_limit: number;
-    /** Раскладка выходов модели: SINGLE, SPLIT_LEVELS, SEGMENTATION, UNKNOWN */
+    /** Раскладка выходов модели: SINGLE, SPLIT_LEVELS, SINGLE_SEG, SPLIT_LEVELS_SEG, UNKNOWN */
     layout: string;
     model?: ModelInfo;
     /** 0 — ошибки нет, иначе код 6xxx */

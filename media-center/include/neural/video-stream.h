@@ -166,33 +166,39 @@ namespace neural {
 		return cv::Rect(cell.x + (cell.width - w) / 2, cell.y + (cell.height - h) / 2, w, h);
 	}
 
-	// Рамка полотна - пиксели кадра камеры, с обрезкой по области тайла
+	// Рамка и контуры полотна - пиксели кадра камеры, с обрезкой по области тайла
 	inline FDetection to_camera(const FTilePlacement& p, const FDetection& d) {
 		FDetection out = d;
-		const auto clampx = [&](int v) { return std::clamp(v, p.dst.x, p.dst.x + p.dst.width); };
-		const auto clampy = [&](int v) { return std::clamp(v, p.dst.y, p.dst.y + p.dst.height); };
 		const float sx = p.crop.width * p.cam_w / std::max(1, p.dst.width);
 		const float sy = p.crop.height * p.cam_h / std::max(1, p.dst.height);
 		const float ox = p.crop.x * p.cam_w;
 		const float oy = p.crop.y * p.cam_h;
-		out.x1_coord = static_cast<int>(std::lround(ox + (clampx(d.x1_coord) - p.dst.x) * sx));
-		out.x2_coord = static_cast<int>(std::lround(ox + (clampx(d.x2_coord) - p.dst.x) * sx));
-		out.y1_coord = static_cast<int>(std::lround(oy + (clampy(d.y1_coord) - p.dst.y) * sy));
-		out.y2_coord = static_cast<int>(std::lround(oy + (clampy(d.y2_coord) - p.dst.y) * sy));
+		const auto mx = [&](int v) { return static_cast<int>(std::lround(ox + (std::clamp(v, p.dst.x, p.dst.x + p.dst.width) - p.dst.x) * sx)); };
+		const auto my = [&](int v) { return static_cast<int>(std::lround(oy + (std::clamp(v, p.dst.y, p.dst.y + p.dst.height) - p.dst.y) * sy)); };
+		out.x1_coord = mx(d.x1_coord);
+		out.x2_coord = mx(d.x2_coord);
+		out.y1_coord = my(d.y1_coord);
+		out.y2_coord = my(d.y2_coord);
+		for (auto& polygon : out.polygons)
+			for (auto& pt : polygon) pt = { mx(pt.x), my(pt.y) };
 		return out;
 	}
 
-	// Рамка кадра камеры - пиксели полотна; за окном тайла рамка уходит за его край
+	// Рамка и контуры кадра камеры - пиксели полотна; за окном тайла уходят за его край
 	inline FDetection to_canvas(const FTilePlacement& p, const FDetection& d) {
 		FDetection out = d;
 		const float sx = p.dst.width / std::max(1.f, p.crop.width * p.cam_w);
 		const float sy = p.dst.height / std::max(1.f, p.crop.height * p.cam_h);
 		const float ox = p.crop.x * p.cam_w;
 		const float oy = p.crop.y * p.cam_h;
-		out.x1_coord = static_cast<int>(std::lround(p.dst.x + (d.x1_coord - ox) * sx));
-		out.x2_coord = static_cast<int>(std::lround(p.dst.x + (d.x2_coord - ox) * sx));
-		out.y1_coord = static_cast<int>(std::lround(p.dst.y + (d.y1_coord - oy) * sy));
-		out.y2_coord = static_cast<int>(std::lround(p.dst.y + (d.y2_coord - oy) * sy));
+		const auto mx = [&](int v) { return static_cast<int>(std::lround(p.dst.x + (v - ox) * sx)); };
+		const auto my = [&](int v) { return static_cast<int>(std::lround(p.dst.y + (v - oy) * sy)); };
+		out.x1_coord = mx(d.x1_coord);
+		out.x2_coord = mx(d.x2_coord);
+		out.y1_coord = my(d.y1_coord);
+		out.y2_coord = my(d.y2_coord);
+		for (auto& polygon : out.polygons)
+			for (auto& pt : polygon) pt = { mx(pt.x), my(pt.y) };
 		return out;
 	}
 

@@ -16,6 +16,8 @@ export interface Detection {
     confidence?: number;       // 0..1, опционально
     // rect: сервер шлёт либо массив [x1,y1,x2,y2], либо объект {x,y,w,h}
     rect: [number, number, number, number] | { x: number; y: number; w: number; h: number };
+    /** Внешние контуры маски seg-модели: плоские [x1, y1, x2, y2, ...], нормированы к кадру */
+    polygons?: number[][];
     /** Цвет метки источника; ставит клиент, когда слотов на камере больше одного */
     mark?: string;
 }
@@ -34,6 +36,8 @@ export interface Track {
     age?:        number;
     lost_frames?: number;
     rect: [number, number, number, number] | { x: number; y: number; w: number; h: number };
+    /** Контуры только у найденного на этом кадре (lost_frames == 0) */
+    polygons?: number[][];
     mark?: string;
 }
 
@@ -44,6 +48,7 @@ const LABEL_PAD_H  = 2;
 const LABEL_PAD_W  = 6;
 const LABEL_OFFSET = -2;
 const MARK_SIZE    = 6;
+const FILL_ALPHA   = 0.28;
 
 const FALLBACK_COLORS = [
     '#f44336', '#e91e63', '#9c27b0', '#3f51b5',
@@ -110,6 +115,30 @@ export function drawDetections(
         ctx.setLineDash([]);
     };
 
+    // Контуры seg-модели: заливка цветом класса и обводка с подложкой, как у рамки
+    const drawPolygons = (polygons: number[][], color: string, dashed: boolean) => {
+        const path = new Path2D();
+        for (const flat of polygons) {
+            for (let i = 0; i + 1 < flat.length; i += 2) {
+                const x = frame.x + flat[i] * frame.width, y = frame.y + flat[i + 1] * frame.height;
+                if (i === 0) path.moveTo(x, y); else path.lineTo(x, y);
+            }
+            path.closePath();
+        }
+        ctx.globalAlpha = FILL_ALPHA;
+        ctx.fillStyle = color;
+        ctx.fill(path);
+        ctx.globalAlpha = 1;
+        ctx.setLineDash(dashed ? [6, 4] : []);
+        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+        ctx.lineWidth = RECT_LINE_W + 1.5;
+        ctx.stroke(path);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = RECT_LINE_W;
+        ctx.stroke(path);
+        ctx.setLineDash([]);
+    };
+
     const drawLabel = (x1: number, y1: number, label: string, color: string, mark?: string) => {
         ctx.font = `bold ${FONT_SIZE}px ${FONT_FAMILY}`;
         const markW = mark ? MARK_SIZE + LABEL_PAD_W : 0;
@@ -134,16 +163,18 @@ export function drawDetections(
     for (const det of detections) {
         const [x1, y1, bw, bh] = toPx(det.rect);
         const color = det.color || colorForId(det.id);
-        drawBox(x1, y1, bw, bh, color, false);
+        if (det.polygons?.length) drawPolygons(det.polygons, color, false);
+        else drawBox(x1, y1, bw, bh, color, false);
         const conf = det.confidence != null ? ` ${Math.round(det.confidence * 100)}%` : '';
         drawLabel(x1, y1, (det.name || `class ${det.id}`) + conf, color, det.mark);
     }
 
-    // tentative — пунктир без подписи, confirmed — сплошной с номером, lost — пунктир с меткой L
+    // tentative — пунктир без подписи, confirmed — сплошной с номером, lost — пунктир с меткой L; контур вместо рамки, если пришёл
     for (const t of tracks) {
         const [x1, y1, bw, bh] = toPx(t.rect);
         const color = t.color || colorForId(t.class_id);
-        drawBox(x1, y1, bw, bh, color, t.state !== 'confirmed');
+        if (t.polygons?.length) drawPolygons(t.polygons, color, t.state !== 'confirmed');
+        else drawBox(x1, y1, bw, bh, color, t.state !== 'confirmed');
 
         const clsName = t.name || `class ${t.class_id}`;
         const hasCurrent = (t.lost_frames ?? 0) === 0;

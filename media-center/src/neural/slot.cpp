@@ -320,6 +320,22 @@ namespace neural {
         return ss.str();
     }
 
+    // Контуры в нормированных координатах кадра плоскими массивами [x1, y1, x2, y2, ...]
+    static boost::json::array polygons_json(const std::vector<std::vector<cv::Point>>& polygons, float img_w, float img_h) {
+        const auto norm = [](int v, float size) { return std::round(v / static_cast<double>(size) * 1e4) / 1e4; };
+        boost::json::array out;
+        for (const auto& polygon : polygons) {
+            boost::json::array flat;
+            flat.reserve(polygon.size() * 2);
+            for (const auto& p : polygon) {
+                flat.emplace_back(norm(p.x, img_w));
+                flat.emplace_back(norm(p.y, img_h));
+            }
+            out.push_back(std::move(flat));
+        }
+        return out;
+    }
+
     void USlot::send_detections(const std::string& camera, const std::vector<FDetection>& detections, const cv::Size& resolution, float lag_ms) {
         auto& sender = sender_for(camera);
         if (!sender) return;
@@ -355,6 +371,7 @@ namespace neural {
             rect.emplace_back(img_w > 0 ? det.x2_coord / img_w : 0.0f);
             rect.emplace_back(img_h > 0 ? det.y2_coord / img_h : 0.0f);
             d["rect"] = std::move(rect);
+            if (!det.polygons.empty() && img_w > 0 && img_h > 0) d["polygons"] = polygons_json(det.polygons, img_w, img_h);
 
             dets_arr.push_back(std::move(d));
         }
@@ -410,7 +427,10 @@ namespace neural {
             rect.emplace_back(img_w > 0 ? t.detection.x2_coord / img_w : 0.0f);
             rect.emplace_back(img_h > 0 ? t.detection.y2_coord / img_h : 0.0f);
             obj["rect"] = std::move(rect);
-            
+            // Контуры только у найденного на этом кадре: в потере остаётся рамка
+            if (t.lost_frames == 0 && !t.detection.polygons.empty() && img_w > 0 && img_h > 0)
+                obj["polygons"] = polygons_json(t.detection.polygons, img_w, img_h);
+
             tracks_arr.push_back(std::move(obj));
         }
 
@@ -589,12 +609,14 @@ namespace neural {
             return d.x2_coord > d.x1_coord && d.y2_coord > d.y1_coord;
         }
 
-        // Рамка, вписанная в область тайла; false — рамка целиком за окном
+        // Рамка и контуры, вписанные в область тайла; false — рамка целиком за окном
         bool clip_to(const cv::Rect& r, FDetection& d) {
             d.x1_coord = std::clamp(d.x1_coord, r.x, r.x + r.width);
             d.x2_coord = std::clamp(d.x2_coord, r.x, r.x + r.width);
             d.y1_coord = std::clamp(d.y1_coord, r.y, r.y + r.height);
             d.y2_coord = std::clamp(d.y2_coord, r.y, r.y + r.height);
+            for (auto& polygon : d.polygons)
+                for (auto& p : polygon) p = { std::clamp(p.x, r.x, r.x + r.width), std::clamp(p.y, r.y, r.y + r.height) };
             return has_area(d);
         }
     }
@@ -618,7 +640,7 @@ namespace neural {
             inferred.tiles = std::move(job.tiles);
             inferred.time_gps = job.time_gps;
             inferred.at = job.enqueued;
-            inferred.result = m_classifier->classify(job.rgb, inferred.mask);
+            inferred.result = m_classifier->classify(job.rgb);
 
             ema(m_infer_ms, std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - started).count());
             const auto& dets = inferred.result.detections;
@@ -652,7 +674,6 @@ namespace neural {
 
     void USlot::process_inferred(cv::Mat rgb_pixels, FInferred& inferred) {
         auto& result = inferred.result;
-        auto& mask = inferred.mask;
         static const std::vector<FTilePlacement> no_tiles;
         const auto& tiles = inferred.tiles ? *inferred.tiles : no_tiles;
 
@@ -755,6 +776,7 @@ namespace neural {
                         if (tr.state == ETrackState::TENTATIVE) style = EBoxStyle::DASHED;
                         else if (tr.state == ETrackState::CONFIRMED && tr.lost_frames == 0) style = EBoxStyle::SOLID;
                         FDetection d = to_canvas(t, tr.detection);
+                        if (tr.lost_frames != 0) d.polygons.clear();
                         if (!clip_to(t.dst, d)) continue;
                         draw_dets.push_back(std::move(d));
                         draw_styles.push_back(style);
@@ -763,7 +785,7 @@ namespace neural {
             }
             else { draw_dets = std::move(result.detections); }
 
-            draw_detections_grouped(rgb_pixels, draw_dets, mask, m_config.classes, m_config.superclasses, draw_styles);
+            draw_detections_grouped(rgb_pixels, draw_dets, m_config.classes, m_config.superclasses, draw_styles);
 
             std::lock_guard<std::mutex> lk(m_resource_mutex);
             if (ensure_streamer(rgb_pixels.cols, rgb_pixels.rows)) {

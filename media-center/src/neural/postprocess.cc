@@ -99,82 +99,71 @@ namespace  neural {
         return selected_detections;
     }
 
-    static void matmul_by_cpu_uint8(float* A, float* B, std::vector<uint8_t>& C, int ROWS_A, int COLS_A, int COLS_B)
+    // Индекс выхода по имени тензора; -1 — такого нет
+    static int output_index(const rknn_app_context_t& app_ctx, const std::string& name)
     {
-        float temp = 0;
-        for (int i = 0; i < ROWS_A; i++)
-        {
-            for (int j = 0; j < COLS_B; j++)
-            {
-                temp = 0;
-                for (int k = 0; k < COLS_A; k++)
-                {
-                    temp += A[i * COLS_A + k] * B[k * COLS_B + j];
-                }
-                C[i * COLS_B + j] = temp > 0 ? 4 : 0;
-            }
+        for (uint32_t i = 0; i < app_ctx.io_num.n_output; ++i) {
+            if (name == app_ctx.output_attrs[i].name) return static_cast<int>(i);
         }
+        return -1;
     }
 
-    static void resize_by_opencv_uint8(uint8_t* input_image, int input_width, int input_height, int boxes_num, std::vector<uint8_t>& output_image, int target_width, int target_height)
+    // Головной выход одноголового экспорта: у seg рядом с ним лежит четырёхмерное прото
+    static int head_index(const rknn_app_context_t& app_ctx)
     {
-        for (int b = 0; b < boxes_num; b++)
-        {
-            cv::Mat src_image(input_height, input_width, CV_8U, &input_image[b * input_width * input_height]);
-            cv::Mat dst_image;
-            cv::resize(src_image, dst_image, cv::Size(target_width, target_height), 0, 0, cv::INTER_LINEAR);
-            memcpy(&output_image[b * target_width * target_height], dst_image.data, target_width * target_height * sizeof(uint8_t));
-        }
+        return app_ctx.io_num.n_output == 2 && app_ctx.output_attrs[0].n_dims == 4 ? 1 : 0;
     }
 
-    static void crop_mask_uint8(const std::vector<FDetection>& detections, uint8_t* seg_mask, int height, int width, std::vector<uint8_t>& all_mask_in_one)
+    static int proto_index(const rknn_app_context_t& app_ctx)
     {
-        for (size_t det_i = 0; det_i < detections.size(); ++det_i)
-        {
-            float x1 = detections[det_i].cropped_cords[0];
-            float y1 = detections[det_i].cropped_cords[1];
-            float x2 = detections[det_i].cropped_cords[2];
-            float y2 = detections[det_i].cropped_cords[3];
-
-            for (int i = 0; i < height; i++)
-            {
-                for (int j = 0; j < width; j++)
-                {
-                    if (j >= x1 && j < x2 && i >= y1 && i < y2)
-                    {
-                        if (all_mask_in_one[i * width + j] == 0)
-                        {
-                            all_mask_in_one[i * width + j] =
-                                seg_mask[det_i * width * height + i * width + j] > 0 ? (detections[det_i].class_id + 1) : 0;
-                        }
-                    }
-                }
-            }
-        }
+        if (app_ctx.layout == EOutputLayout::SPLIT_LEVELS_SEG) return output_index(app_ctx, "proto");
+        return 1 - head_index(app_ctx);
     }
 
-    static void seg_reverse(uint8_t* seg_mask, std::vector<uint8_t>& cropped_seg, int model_in_height, int model_in_width,
-                           int cropped_height, int cropped_width, int ori_in_height, int ori_in_width, int y_pad, int x_pad,
-                           std::vector<uint8_t>& seg_mask_real)
-    {
-        if (y_pad == 0 && x_pad == 0 && ori_in_height == model_in_height && ori_in_width == model_in_width)
-        {
-            return;
-        }
+    // Выходы одного уровня сетки; seg только у seg-экспорта
+    struct FLevel {
+        int box = -1;
+        int cls = -1;
+        int sum = -1;
+        int seg = -1;
+    };
 
-        int cropped_index = 0;
-        for (int i = 0; i < model_in_height; i++)
-        {
-            for (int j = 0; j < model_in_width; j++)
-            {
-                if (i >= y_pad && i < model_in_height - y_pad && j >= x_pad && j < model_in_width - x_pad)
-                {
-                    cropped_seg[cropped_index] = seg_mask[i * model_in_width + j];
-                    cropped_index++;
-                }
-            }
+    // Уровни seg-экспорта по именам box_l*, cls_l*, sum_l*, seg_l*
+    static std::vector<FLevel> named_levels(const rknn_app_context_t& app_ctx)
+    {
+        std::vector<FLevel> levels;
+        for (int i = 0;; ++i) {
+            const std::string tag = "_l" + std::to_string(i);
+            const FLevel level{ output_index(app_ctx, "box" + tag), output_index(app_ctx, "cls" + tag),
+                                output_index(app_ctx, "sum" + tag), output_index(app_ctx, "seg" + tag) };
+            if (level.box < 0) break;
+            levels.push_back(level);
         }
-        resize_by_opencv_uint8(cropped_seg.data(), cropped_width, cropped_height, 1, seg_mask_real, ori_in_width, ori_in_height);
+        return levels;
+    }
+
+    // Уровни девятитензорного экспорта: тензор суммы задаёт сетку, бокс и скоры ищутся по той же сетке
+    static std::vector<FLevel> grid_levels(const rknn_app_context_t& app_ctx)
+    {
+        const uint32_t n = app_ctx.io_num.n_output;
+        const rknn_tensor_attr* attrs = app_ctx.output_attrs;
+        std::vector<FLevel> levels;
+        std::vector<bool> used(n, false);
+        for (uint32_t i = 0; i < n; ++i) {
+            if (used[i] || attrs[i].dims[1] != 1) continue;
+            FLevel level;
+            level.sum = static_cast<int>(i);
+            for (uint32_t j = 0; j < n; ++j) {
+                const rknn_tensor_attr& a = attrs[j];
+                if (j == i || used[j] || a.dims[2] != attrs[i].dims[2] || a.dims[3] != attrs[i].dims[3]) continue;
+                if (a.dims[1] == 4 || a.dims[1] == 4 * DFL_BINS) level.box = static_cast<int>(j);
+                else if (a.dims[1] != 1) level.cls = static_cast<int>(j);
+            }
+            if (level.box < 0 || level.cls < 0) continue;
+            used[i] = used[level.box] = used[level.cls] = true;
+            levels.push_back(level);
+        }
+        return levels;
     }
 
     const char* output_layout_name(EOutputLayout layout)
@@ -182,14 +171,16 @@ namespace  neural {
         switch (layout) {
         case EOutputLayout::SINGLE: return "single output [1, 4+nc, anchors]";
         case EOutputLayout::SPLIT_LEVELS: return "split levels (box, scores, sum) x3";
-        case EOutputLayout::SEGMENTATION: return "int8 segmentation, proto + 3 levels";
+        case EOutputLayout::SINGLE_SEG: return "single output with masks [1, 4+nc+nm, anchors] + proto";
+        case EOutputLayout::SPLIT_LEVELS_SEG: return "split levels with masks (box, scores, sum, mask) x3 + proto";
         default: return "unknown";
         }
     }
 
-    EOutputLayout detect_output_layout(const rknn_app_context_t& app_ctx, int& out_class_count)
+    EOutputLayout detect_output_layout(const rknn_app_context_t& app_ctx, int& out_class_count, int& out_mask_count)
     {
         out_class_count = 0;
+        out_mask_count = 0;
         const uint32_t n = app_ctx.io_num.n_output;
         const rknn_tensor_attr* attrs = app_ctx.output_attrs;
         if (n == 0 || attrs == nullptr) {
@@ -201,15 +192,30 @@ namespace  neural {
             return EOutputLayout::SINGLE;
         }
 
-        if (n == 4 && app_ctx.is_quant) {
-            // Прото-тензор имеет 32 канала, уровни сетки: 64 DFL + nc + 32 коэффициентов маски
-            for (uint32_t i = 0; i < n; ++i) {
-                if (attrs[i].n_dims == 4 && attrs[i].dims[1] > 64 + 32) {
-                    out_class_count = static_cast<int>(attrs[i].dims[1]) - 64 - 32;
-                    break;
-                }
+        if (n == 2) {
+            const rknn_tensor_attr& head = attrs[head_index(app_ctx)];
+            const rknn_tensor_attr& proto = attrs[proto_index(app_ctx)];
+            const int classes = static_cast<int>(head.dims[1]) - 4 - static_cast<int>(proto.dims[1]);
+            if (head.n_dims != 3 || proto.n_dims != 4 || head.dims[2] == 0 || classes <= 0) {
+                return EOutputLayout::UNKNOWN;
             }
-            return EOutputLayout::SEGMENTATION;
+            out_class_count = classes;
+            out_mask_count = static_cast<int>(proto.dims[1]);
+            return EOutputLayout::SINGLE_SEG;
+        }
+
+        const int proto = output_index(app_ctx, "proto");
+        if (proto >= 0) {
+            const auto levels = named_levels(app_ctx);
+            if (levels.empty() || n != levels.size() * 4 + 1) {
+                return EOutputLayout::UNKNOWN;
+            }
+            for (const auto& level : levels) {
+                if (level.cls < 0 || level.sum < 0 || level.seg < 0) return EOutputLayout::UNKNOWN;
+            }
+            out_class_count = static_cast<int>(attrs[levels[0].cls].dims[1]);
+            out_mask_count = static_cast<int>(attrs[proto].dims[1]);
+            return EOutputLayout::SPLIT_LEVELS_SEG;
         }
 
         if (n == 9) {
@@ -324,154 +330,6 @@ namespace  neural {
         }
     }
 
-    void decode_int8_segmentation(
-        const rknn_app_context_t& app_ctx,
-        const std::vector<rknn_output>& outputs,
-        letterbox_t* letter_box,
-        const input_parameters_t& input_parameters,
-        std::vector<FDetection>& out_detections,
-        segmentation_proto_t& out_proto
-    )
-    {
-        const int class_count = usable_class_count(app_ctx, input_parameters);
-
-        for (size_t output_index = 0; output_index < outputs.size(); output_index++) {
-            const rknn_tensor_attr& output_attr = app_ctx.output_attrs[output_index];
-            const int8_t* tensor = static_cast<int8_t*>(outputs[output_index].buf);
-
-            int detection_data = output_attr.dims[1];
-            int grid_height = output_attr.dims[2];
-            int grid_width = output_attr.dims[3];
-
-            int zero_point = output_attr.zp;
-            float scale = output_attr.scale;
-
-            if (detection_data == input_parameters.mask_coeffs_count) {
-                out_proto.height = output_attr.dims[2];
-                out_proto.width = output_attr.dims[3];
-                out_proto.coefficients = input_parameters.mask_coeffs_count;
-
-                int proto_tensor_size = out_proto.coefficients * out_proto.height * out_proto.width;
-                out_proto.tensor.resize(proto_tensor_size);
-
-                for (int p = 0; p < proto_tensor_size; ++p) {
-                    out_proto.tensor[p] = dequantize(tensor[p], scale, zero_point);
-                }
-                continue;
-            }
-
-            float stride = input_parameters.model_width / grid_width;
-
-            for (int y = 0; y < grid_height; ++y) {
-                for (int x = 0; x < grid_width; ++x) {
-                    int base_offset = y * grid_width + x;
-
-                    int class_id = -1;
-                    float max_class_conf = 0;
-
-                    for (int c = 0; c < class_count; ++c) {
-                        float value = dequantize(tensor[c * grid_height * grid_width + base_offset], scale, zero_point);
-
-                        if (value > max_class_conf) {
-                            max_class_conf = value;
-                            class_id = c;
-                        }
-                    }
-
-                    if (max_class_conf < input_parameters.threshold_confidence) {
-                        continue;
-                    }
-
-                    std::vector<float> dfl(input_parameters.dfl_count);
-                    std::vector<float> mask_coeffs(input_parameters.mask_coeffs_count);
-
-                    int dfl_bins = input_parameters.dfl_count / 4;
-
-                    // Каналы после классов: DFL, затем коэффициенты маски; классы считаются по тензору, не по конфигурации
-                    const int model_classes = app_ctx.model_class_count;
-                    for (int c = model_classes; c < detection_data; ++c) {
-                        float value = dequantize(tensor[c * grid_height * grid_width + base_offset], scale, zero_point);
-
-                        if (c < model_classes + input_parameters.dfl_count) {
-                            dfl[c - model_classes] = value;
-                        }
-                        else {
-                            mask_coeffs[c - (model_classes + input_parameters.dfl_count)] = value;
-                        }
-                    }
-                    FDetection detect;
-
-                    int num_cords = 4;
-                    detect.cropped_cords.resize(num_cords);
-                    for (int cord = 0; cord < num_cords; ++cord) {
-                        int grid_temp = cord % 2 == 0 ? x : y;
-                        int grid_coef = cord <= 1 ? -1 : 1;
-                        detect.cropped_cords[cord] = (grid_temp + grid_coef * compute_dfl(&dfl[cord * dfl_bins], dfl_bins) + 0.5) * stride;
-                    }
-
-                    detect.x1_coord = static_cast<int>(std::clamp(detect.cropped_cords[0] - letter_box->x_pad, 0.f, (float)input_parameters.model_width) / letter_box->scale);
-                    detect.y1_coord = static_cast<int>(std::clamp(detect.cropped_cords[1] - letter_box->y_pad, 0.f, (float)input_parameters.model_height) / letter_box->scale);
-                    detect.x2_coord = static_cast<int>(std::clamp(detect.cropped_cords[2] - letter_box->x_pad, 0.f, (float)input_parameters.model_width) / letter_box->scale);
-                    detect.y2_coord = static_cast<int>(std::clamp(detect.cropped_cords[3] - letter_box->y_pad, 0.f, (float)input_parameters.model_height) / letter_box->scale);
-
-                    detect.confidence = max_class_conf;
-                    detect.class_id = class_id;
-
-                    detect.mask_coefficients = std::move(mask_coeffs);
-
-                    out_detections.push_back(detect);
-                }
-            }
-        }
-    }
-
-    void build_segmentation_mask(
-        const std::vector<FDetection>& detections,
-        const segmentation_proto_t& proto,
-        letterbox_t* letter_box,
-        const input_parameters_t& input_parameters,
-        std::vector<uint8_t>& out_mask
-    )
-    {
-        if (proto.empty() || detections.empty()) {
-            return;
-        }
-
-        int mask_h = proto.height;
-        int mask_w = proto.width;
-        int num_coefficients = proto.coefficients;
-
-        int count_detections = static_cast<int>(detections.size());
-        std::vector<float> mask_coefficients;
-        mask_coefficients.reserve(count_detections * num_coefficients);
-        for (const auto& det : detections) {
-            mask_coefficients.insert(mask_coefficients.end(), det.mask_coefficients.begin(), det.mask_coefficients.end());
-        }
-
-        // Копия прото-тензора: matmul_by_cpu_uint8 принимает неконстантный указатель
-        std::vector<float> proto_tensor = proto.tensor;
-
-        std::vector<uint8_t> matmul_result(count_detections * mask_h * mask_w);
-        matmul_by_cpu_uint8(mask_coefficients.data(), proto_tensor.data(), matmul_result, count_detections, num_coefficients, mask_h * mask_w);
-
-        std::vector<uint8_t> seg_mask(count_detections * input_parameters.model_width * input_parameters.model_height);
-        resize_by_opencv_uint8(matmul_result.data(), mask_w, mask_h, count_detections, seg_mask, input_parameters.model_width, input_parameters.model_height);
-
-        std::vector<uint8_t> all_mask_in_one(input_parameters.model_width * input_parameters.model_height);
-        crop_mask_uint8(detections, seg_mask.data(), input_parameters.model_height, input_parameters.model_width, all_mask_in_one);
-
-        int cropped_height = input_parameters.model_height - letter_box->y_pad * 2;
-        int cropped_width = input_parameters.model_width - letter_box->x_pad * 2;
-        int original_height = input_parameters.input_image_height;
-        int original_width = input_parameters.input_image_width;
-        int x_pad = letter_box->x_pad; int y_pad = letter_box->y_pad;
-
-        std::vector<uint8_t> cropped_mask(cropped_height * cropped_width);
-        out_mask.resize(input_parameters.input_image_height * input_parameters.input_image_width);
-        seg_reverse(all_mask_in_one.data(), cropped_mask, input_parameters.model_height, input_parameters.model_width,
-                    cropped_height, cropped_width, original_height, original_width, y_pad, x_pad, out_mask);
-    }
-
     void decode_split_levels(
         const rknn_app_context_t& app_ctx,
         const std::vector<rknn_output>& Outputs,
@@ -484,35 +342,24 @@ namespace  neural {
         if (classes <= 0) return;
 
         const float threshold = input_parameters.threshold_confidence;
-        std::vector<bool> used(Outputs.size(), false);
+        const int masks = app_ctx.mask_count;
         float dfl[4 * DFL_BINS];
 
-        for (size_t i = 0; i < Outputs.size(); ++i) {
-            if (used[i] || app_ctx.output_attrs[i].dims[1] != 1) continue;
-
-            // Тензор суммы задаёт уровень; бокс и скоры ищем по той же сетке
-            const rknn_tensor_attr& sum_attr = app_ctx.output_attrs[i];
+        const auto levels = app_ctx.layout == EOutputLayout::SPLIT_LEVELS_SEG ? named_levels(app_ctx) : grid_levels(app_ctx);
+        for (const auto& level : levels) {
+            const rknn_tensor_attr& sum_attr = app_ctx.output_attrs[level.sum];
             const int grid_h = static_cast<int>(sum_attr.dims[2]);
             const int grid_w = static_cast<int>(sum_attr.dims[3]);
-            int box_index = -1, cls_index = -1;
-            for (size_t j = 0; j < Outputs.size(); ++j) {
-                const rknn_tensor_attr& a = app_ctx.output_attrs[j];
-                if (j == i || used[j] || a.dims[2] != sum_attr.dims[2] || a.dims[3] != sum_attr.dims[3]) continue;
-                if (a.dims[1] == 4 || a.dims[1] == 4 * DFL_BINS) box_index = static_cast<int>(j);
-                else if (a.dims[1] != 1) cls_index = static_cast<int>(j);
-            }
-            if (box_index < 0 || cls_index < 0) continue;
-            used[i] = used[box_index] = used[cls_index] = true;
 
-            const rknn_tensor_attr& box_attr = app_ctx.output_attrs[box_index];
+            const rknn_tensor_attr& box_attr = app_ctx.output_attrs[level.box];
             const int bins = static_cast<int>(box_attr.dims[1]) / 4;
             const size_t cells = static_cast<size_t>(grid_h) * grid_w;
             const float stride_x = static_cast<float>(input_parameters.model_width) / grid_w;
             const float stride_y = static_cast<float>(input_parameters.model_height) / grid_h;
 
-            const FTensorReader sum(Outputs[i], sum_attr);
-            const FTensorReader scores(Outputs[cls_index], app_ctx.output_attrs[cls_index]);
-            const FTensorReader boxes(Outputs[box_index], box_attr);
+            const FTensorReader sum(Outputs[level.sum], sum_attr);
+            const FTensorReader scores(Outputs[level.cls], app_ctx.output_attrs[level.cls]);
+            const FTensorReader boxes(Outputs[level.box], box_attr);
             const int8_t q_sum_threshold = sum.quantized_threshold(threshold);
             const int8_t q_threshold = scores.quantized_threshold(threshold);
 
@@ -547,10 +394,19 @@ namespace  neural {
 
                     const float cx = x + 0.5f;
                     const float cy = y + 0.5f;
-                    OutDetections.push_back(make_detection(
+                    FDetection detection = make_detection(
                         (cx - left) * stride_x, (cy - top) * stride_y,
                         (cx + right) * stride_x, (cy + bottom) * stride_y,
-                        class_id, score, LetterBox, input_parameters));
+                        class_id, score, LetterBox, input_parameters);
+
+                    if (level.seg >= 0) {
+                        const FTensorReader coefficients(Outputs[level.seg], app_ctx.output_attrs[level.seg]);
+                        detection.mask_coefficients.resize(masks);
+                        for (int k = 0; k < masks; ++k) {
+                            detection.mask_coefficients[k] = coefficients.at(static_cast<size_t>(k) * cells + cell);
+                        }
+                    }
+                    OutDetections.push_back(std::move(detection));
                 }
             }
         }
@@ -564,16 +420,19 @@ namespace  neural {
         std::vector<FDetection>& OutDetections
     )
     {
-        if (Outputs.empty() || Outputs[0].buf == nullptr) return;
+        const int head = head_index(app_ctx);
+        if (Outputs.size() <= static_cast<size_t>(head) || Outputs[head].buf == nullptr) return;
 
         const int classes = usable_class_count(app_ctx, input_parameters);
         if (classes <= 0) return;
 
         // Раскладка [1, channels, anchors]: якорей dims[2], у 3-мерного тензора dims[3] == 0
-        const rknn_tensor_attr& attr = app_ctx.output_attrs[0];
+        const rknn_tensor_attr& attr = app_ctx.output_attrs[head];
         const size_t anchors = attr.dims[2];
+        // Коэффициенты маски идут после всех классов модели, а не только описанных в конфигурации
+        const size_t first_mask = 4 + static_cast<size_t>(app_ctx.model_class_count);
 
-        const FTensorReader reader(Outputs[0], attr);
+        const FTensorReader reader(Outputs[head], attr);
         const float threshold = input_parameters.threshold_confidence;
         const int8_t q_threshold = reader.quantized_threshold(threshold);
 
@@ -588,9 +447,104 @@ namespace  neural {
             const float w = reader.at(2 * anchors + anchor);
             const float h = reader.at(3 * anchors + anchor);
 
-            OutDetections.push_back(make_detection(
+            FDetection detection = make_detection(
                 cx - w * 0.5f, cy - h * 0.5f, cx + w * 0.5f, cy + h * 0.5f,
-                class_id, score, LetterBox, input_parameters));
+                class_id, score, LetterBox, input_parameters);
+
+            detection.mask_coefficients.resize(app_ctx.mask_count);
+            for (int k = 0; k < app_ctx.mask_count; ++k) {
+                detection.mask_coefficients[k] = reader.at((first_mask + k) * anchors + anchor);
+            }
+            OutDetections.push_back(std::move(detection));
+        }
+    }
+
+    void build_polygons(
+        const rknn_app_context_t& app_ctx,
+        const std::vector<rknn_output>& Outputs,
+        letterbox_t* LetterBox,
+        const input_parameters_t& input_parameters,
+        std::vector<FDetection>& Detections
+    )
+    {
+        // Кусок контура меньше этой доли рамки — крапинка, не часть объекта
+        constexpr double kMinPartArea = 0.02;
+        // Допуск упрощения контура — доля диагонали рамки
+        constexpr double kSimplify = 0.01;
+
+        const int masks = app_ctx.mask_count;
+        const int index = proto_index(app_ctx);
+        if (masks <= 0 || index < 0 || static_cast<size_t>(index) >= Outputs.size() || Outputs[index].buf == nullptr) return;
+
+        const rknn_tensor_attr& attr = app_ctx.output_attrs[index];
+        const int proto_h = static_cast<int>(attr.dims[2]);
+        const int proto_w = static_cast<int>(attr.dims[3]);
+        const size_t plane = static_cast<size_t>(proto_h) * proto_w;
+        const FTensorReader proto(Outputs[index], attr);
+
+        // Клетка прото в пикселях входа модели
+        const float cell_w = static_cast<float>(input_parameters.model_width) / proto_w;
+        const float cell_h = static_cast<float>(input_parameters.model_height) / proto_h;
+        const float scale = LetterBox->scale;
+        const float pad_x = static_cast<float>(LetterBox->x_pad);
+        const float pad_y = static_cast<float>(LetterBox->y_pad);
+
+        for (auto& d : Detections) {
+            if (static_cast<int>(d.mask_coefficients.size()) != masks) continue;
+
+            // Рамка во входе модели и покрывающий её кусок прото
+            const float mx1 = d.x1_coord * scale + pad_x, my1 = d.y1_coord * scale + pad_y;
+            const float mx2 = d.x2_coord * scale + pad_x, my2 = d.y2_coord * scale + pad_y;
+            const int px1 = std::clamp(static_cast<int>(std::floor(mx1 / cell_w)), 0, proto_w);
+            const int py1 = std::clamp(static_cast<int>(std::floor(my1 / cell_h)), 0, proto_h);
+            const int px2 = std::clamp(static_cast<int>(std::ceil(mx2 / cell_w)), 0, proto_w);
+            const int py2 = std::clamp(static_cast<int>(std::ceil(my2 / cell_h)), 0, proto_h);
+
+            if (px2 > px1 && py2 > py1) {
+                // Логит маски = коэффициенты × прото; > 0 то же, что сигмоида > 0.5
+                cv::Mat logits(py2 - py1, px2 - px1, CV_32F, cv::Scalar(0));
+                for (int k = 0; k < masks; ++k) {
+                    const float c = d.mask_coefficients[k];
+                    const size_t base = static_cast<size_t>(k) * plane;
+                    for (int y = py1; y < py2; ++y) {
+                        float* row = logits.ptr<float>(y - py1);
+                        const size_t offset = base + static_cast<size_t>(y) * proto_w;
+                        for (int x = px1; x < px2; ++x) row[x - px1] += c * proto.at(offset + x);
+                    }
+                }
+
+                cv::Mat up;
+                cv::resize(logits, up, cv::Size(static_cast<int>(std::lround((px2 - px1) * cell_w)),
+                                                static_cast<int>(std::lround((py2 - py1) * cell_h))), 0, 0, cv::INTER_LINEAR);
+                const float ox = px1 * cell_w;
+                const float oy = py1 * cell_h;
+                const cv::Rect box = cv::Rect(static_cast<int>(std::lround(mx1 - ox)), static_cast<int>(std::lround(my1 - oy)),
+                                              static_cast<int>(std::lround(mx2 - mx1)), static_cast<int>(std::lround(my2 - my1)))
+                                     & cv::Rect(0, 0, up.cols, up.rows);
+
+                if (!box.empty()) {
+                    const cv::Mat binary = up(box) > 0.f;
+                    std::vector<std::vector<cv::Point>> contours;
+                    cv::findContours(binary, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+
+                    const double min_area = kMinPartArea * box.area();
+                    const double epsilon = std::max(1.0, kSimplify * std::hypot(box.width, box.height));
+                    const float bx = ox + box.x - pad_x;
+                    const float by = oy + box.y - pad_y;
+                    for (auto& contour : contours) {
+                        if (cv::contourArea(contour) < min_area) continue;
+                        std::vector<cv::Point> polygon;
+                        cv::approxPolyDP(contour, polygon, epsilon, true);
+                        // Из куска во входе модели в кадр, как рамка в make_detection
+                        for (auto& p : polygon) {
+                            p.x = std::clamp(static_cast<int>(std::lround((bx + p.x) / scale)), 0, input_parameters.input_image_width);
+                            p.y = std::clamp(static_cast<int>(std::lround((by + p.y) / scale)), 0, input_parameters.input_image_height);
+                        }
+                        d.polygons.push_back(std::move(polygon));
+                    }
+                }
+            }
+            std::vector<float>().swap(d.mask_coefficients);
         }
     }
 

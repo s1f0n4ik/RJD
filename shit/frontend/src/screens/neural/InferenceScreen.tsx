@@ -50,9 +50,9 @@ const fmtMb = (bytes: number) => `${(bytes / (1 << 20)).toFixed(1)} МБ`;
 // Бэкенд отдаёт раскладку описательной фразой (output_layout_name), в строке модели нужно короткое имя
 const layoutName = (layout: string): string => {
     const l = layout.toLowerCase();
+    if (l.includes('masks')) return l.startsWith('split') ? 'SPLIT_LEVELS_SEG' : 'SINGLE_SEG';
     if (l.startsWith('single')) return 'SINGLE';
     if (l.startsWith('split')) return 'SPLIT_LEVELS';
-    if (l.includes('segmentation')) return 'SEGMENTATION';
     return layout.toUpperCase();
 };
 const fmt1 = (v: number) => v.toLocaleString('ru-RU', { maximumFractionDigits: 1, minimumFractionDigits: 1 });
