@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Icon } from '../../app/Icons';
+import { Switch } from '../../app/Modal';
 import { Select } from '../../app/Select';
 import type { ClassDef, ModelFile, NeuralConfig, SuperclassDef, TrackerConfig, TrackerType } from '../../features/neural/api/types';
 
@@ -15,7 +16,7 @@ const TRACKER_FIELDS: Record<string, { matchBy?: boolean; main: TrackerField[]; 
     },
     kalman_iou: {
         matchBy: true,
-        main: [F('iou_threshold', 'Порог IoU', 2, 0, 1), F('min_hits', 'Мин. совпадений', 0, 1), F('max_lost_s', 'Срок потери, с', 1, 0.1), F('move_threshold', 'Порог сдвига', 2, 0, 1)],
+        main: [F('iou_threshold', 'Порог IoU', 2, 0, 1), F('min_size_similarity', 'Похожесть размеров', 2, 0, 1), F('min_hits', 'Мин. совпадений', 0, 1), F('max_lost_s', 'Срок потери, с', 1, 0.1), F('move_threshold', 'Порог сдвига', 2, 0, 1)],
         more: {
             label: 'Слабые детекции и фильтр',
             fields: [F('low_confidence', 'Уверенность слабых', 2, 0, 1), F('low_iou_threshold', 'Порог IoU слабых', 2, 0, 1), F('std_position', 'Шум положения', 3, 0), F('std_velocity', 'Шум скорости', 5, 0)],
@@ -157,6 +158,14 @@ export function ConfigEditor({ value, onChange, creating, id, onIdChange, idErro
                                     onCommit={v => patch({ thresholds: { ...value.thresholds, confidence: v } })} />
                                 <NumField label="NMS" value={value.thresholds.nms} step={0.01} min={0} max={1} digits={2}
                                     onCommit={v => patch({ thresholds: { ...value.thresholds, nms: v } })} />
+                            </div>
+                            <div className="tf-row">
+                                <div className="tf" data-tip="Только для моделей с масками: детекция без контура отбрасывается">
+                                    <span className="tf-cap">Маска</span>
+                                    <Switch on={value.thresholds.require_mask ?? true}
+                                        onToggle={v => patch({ thresholds: { ...value.thresholds, require_mask: v } })}>требовать</Switch>
+                                </div>
+                                <div className="tf" />
                             </div>
                         </div>
                     </div>

@@ -25,9 +25,11 @@ namespace rest {
 	// ── Логирование ──
 
 	// Тело дампится только для JSON: бинарники в websocket-лог не идут
-	inline void log_request(ULogger* logger, const http::request<http::string_body>& req, const std::string& tag) {
+	// level — уровень строки запроса: опросные ручки пишут её в DEBUG
+	inline void log_request(ULogger* logger, const http::request<http::string_body>& req, const std::string& tag,
+		ULogger::ELoggerLevel level = ULogger::ELoggerLevel::INFO) {
 		if (!logger) return;
-		logger->info(tag + " from " + std::string(req[http::field::user_agent]));
+		logger->log(level, tag + " from " + std::string(req[http::field::user_agent]));
 		if (req.body().empty()) return;
 
 		const auto content_type = std::string(req[http::field::content_type]);
@@ -40,9 +42,10 @@ namespace rest {
 		}
 	}
 
-	inline void log_response(ULogger* logger, const std::string& tag, const boost::json::value& body) {
+	inline void log_response(ULogger* logger, const std::string& tag, const boost::json::value& body,
+		ULogger::ELoggerLevel level = ULogger::ELoggerLevel::SEND) {
 		if (!logger) return;
-		logger->send(tag + " → " + boost::json::serialize(body));
+		logger->log(level, tag + " → " + boost::json::serialize(body));
 	}
 
 	inline void log_error(ULogger* logger, const std::string& tag, const std::string& msg) {
@@ -62,10 +65,12 @@ namespace rest {
 	}
 
 	// Успешный ответ с логированием.
+	// level — уровень дампа ответа: опросные ручки пишут его в TRACE
 	inline http::response<http::string_body> json_ok(
-		ULogger* logger, const http::request<http::string_body>& req, const boost::json::value& body, const std::string& tag = ""
+		ULogger* logger, const http::request<http::string_body>& req, const boost::json::value& body, const std::string& tag = "",
+		ULogger::ELoggerLevel level = ULogger::ELoggerLevel::SEND
 	) {
-		log_response(logger, tag, body);
+		log_response(logger, tag, body, level);
 		return make_response(req.version(), http::status::ok, body);
 	}
 

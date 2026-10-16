@@ -35,6 +35,7 @@ namespace varan {
             int depth_actual() const { return m_handle->depth_actual(); }
             const FModelInfo& info() const { return m_handle->info(); }
             const char* layout() const { return output_layout_name(m_handle->master().layout); }
+            bool segmentation() const { return is_segmentation(m_handle->master().layout); }
 
         private:
             std::unique_ptr<UNpuPool::UHandle> m_handle;

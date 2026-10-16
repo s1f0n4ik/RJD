@@ -107,7 +107,7 @@ http::response<http::string_body>
 UController::get_camera(const http::request<http::string_body>& req)
 {
     const std::string tag = "GET /camera";
-    log_request(m_logger, req, tag);
+    log_request(m_logger, req, tag, ULogger::ELoggerLevel::DEBUG);
 
     http::response<http::string_body> res{ http::status::ok, req.version() };
     res.set(http::field::content_type, "application/json");

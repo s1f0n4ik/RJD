@@ -80,6 +80,8 @@ namespace neural {
 						info.thresholds.nms = static_cast<float>(v->to_number<double>());
 					if (auto* v = to.if_contains("confidence"); v && v->is_number())
 						info.thresholds.confidence = static_cast<float>(v->to_number<double>());
+					if (auto* v = to.if_contains("require_mask"); v && v->is_bool())
+						info.thresholds.require_mask = v->as_bool();
 				}
 
 				if (auto* sc = obj.if_contains("superclasses"); sc && sc->is_object()) {

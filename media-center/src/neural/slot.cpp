@@ -643,7 +643,9 @@ namespace neural {
             inferred.result = m_classifier->classify(job.rgb);
 
             ema(m_infer_ms, std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - started).count());
-            const auto& dets = inferred.result.detections;
+            auto& dets = inferred.result.detections;
+            if (m_config.thresholds.require_mask && m_classifier->segmentation())
+                std::erase_if(dets, [](const FDetection& d) { return d.polygons.empty(); });
             ema(m_det_count, static_cast<float>(std::count_if(dets.begin(), dets.end(),
                 [this](const FDetection& d) { return d.confidence >= m_config.thresholds.confidence; })));
             deliver(job.seq, std::move(inferred));

@@ -404,7 +404,7 @@ UNeuralController::post_state(const http::request<http::string_body>& req) {
 http::response<http::string_body>
 UNeuralController::get_status(const http::request<http::string_body>& req) {
     const std::string tag = "GET /neural/status";
-    log_request(m_logger, req, tag);
+    log_request(m_logger, req, tag, ULogger::ELoggerLevel::DEBUG);
     try {
         boost::json::array result;
         for (const auto& s : m_loader->get_slots()) {
@@ -481,7 +481,7 @@ UNeuralController::get_status(const http::request<http::string_body>& req) {
         }
         boost::json::object body;
         body["data"] = std::move(result);
-        return json_ok(m_logger, req, body, tag);
+        return json_ok(m_logger, req, body, tag, ULogger::ELoggerLevel::TRACE);
     }
     catch (const std::exception& e) {
         return json_error(m_logger, req, http::status::internal_server_error, e.what(), tag);
@@ -492,7 +492,7 @@ UNeuralController::get_status(const http::request<http::string_body>& req) {
 http::response<http::string_body>
 UNeuralController::get_summary(const http::request<http::string_body>& req) {
     const std::string tag = "GET /neural/summary";
-    log_request(m_logger, req, tag);
+    log_request(m_logger, req, tag, ULogger::ELoggerLevel::DEBUG);
     try {
         int64_t slots = 0, running = 0, failed = 0;
         for (const auto& s : m_loader->get_slots()) {
@@ -506,7 +506,7 @@ UNeuralController::get_summary(const http::request<http::string_body>& req) {
         data["failed"] = failed;
         boost::json::object body;
         body["data"] = std::move(data);
-        return json_ok(m_logger, req, body, tag);
+        return json_ok(m_logger, req, body, tag, ULogger::ELoggerLevel::TRACE);
     }
     catch (const std::exception& e) {
         return json_error(m_logger, req, http::status::internal_server_error, e.what(), tag);

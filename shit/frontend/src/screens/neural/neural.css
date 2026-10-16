@@ -47,6 +47,8 @@
 .nvb .blk-h .seg button{min-height:26px}
 .nvb .blk-b{padding:16px 18px;display:flex;flex-direction:column;gap:12px}
 .nvb .blk-b.is-dim{opacity:.38;pointer-events:none}
+/* Переключатель в поле — в высоту поля ввода */
+.nvb .tf > .sw{height:32px}
 /* Трекер: сегмент «Сопоставлять» в высоту поля и раскрытие редких полей */
 .trk-seg{height:32px;padding:2px;box-sizing:border-box}
 .trk-seg button{flex:1;min-height:26px;padding:0 8px;white-space:nowrap}

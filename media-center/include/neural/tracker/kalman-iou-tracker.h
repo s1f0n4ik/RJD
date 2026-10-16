@@ -21,6 +21,7 @@ namespace neural {
     struct FKalmanIoUTrackerConfig : public FTrackerConfig {
         EMatchBy match_by = EMatchBy::SUPERCLASS;
         float iou_threshold = 0.3f;       // минимальный IoU с предсказанной рамкой для уверенных детекций
+        float min_size_similarity = 0.5f; // минимальная похожесть размеров с последней уверенной рамкой трека; 0 — без проверки
         float low_confidence = 0.1f;      // нижний порог слабых детекций второго прохода
         float low_iou_threshold = 0.5f;   // минимальный IoU для слабых детекций
         int   min_hits = 3;               // совпадений до подтверждения
@@ -65,15 +66,14 @@ namespace neural {
         }
 
         void update(const FDetection& box) {
-            auto hm = cv::Matx<float, 4, 8>::zeros();
-            for (int i = 0; i < 4; ++i) hm(i, i) = 1.f;
             const float w = m_x(2), h = m_x(3);
-            const float s[4] = { m_sp * w, m_sp * h, m_sp * w, m_sp * h };
-            auto r = cv::Matx<float, 4, 4>::zeros();
-            for (int i = 0; i < 4; ++i) r(i, i) = s[i] * s[i];
-            const cv::Matx<float, 8, 4> k = m_p * hm.t() * (hm * m_p * hm.t() + r).inv(cv::DECOMP_CHOLESKY);
-            m_x += k * (measure(box) - hm * m_x);
-            m_p = (cv::Matx<float, 8, 8>::eye() - k * hm) * m_p;
+            correct<4>(measure(box), { m_sp * w, m_sp * h, m_sp * w, m_sp * h });
+        }
+
+        // Только центр: размер и скорость его изменения не меняются
+        void update_center(const FDetection& box) {
+            const auto z = measure(box);
+            correct<2>(cv::Matx<float, 2, 1>(z(0), z(1)), { m_sp * m_x(2), m_sp * m_x(3) });
         }
 
         // Текущая оценка рамки
@@ -89,6 +89,17 @@ namespace neural {
         }
 
     private:
+        // Коррекция по первым N компонентам состояния с шумом измерения s
+        template <int N> void correct(const cv::Matx<float, N, 1>& z, const float (&s)[N]) {
+            auto hm = cv::Matx<float, N, 8>::zeros();
+            for (int i = 0; i < N; ++i) hm(i, i) = 1.f;
+            auto r = cv::Matx<float, N, N>::zeros();
+            for (int i = 0; i < N; ++i) r(i, i) = s[i] * s[i];
+            const cv::Matx<float, 8, N> k = m_p * hm.t() * (hm * m_p * hm.t() + r).inv(cv::DECOMP_CHOLESKY);
+            m_x += k * (z - hm * m_x);
+            m_p = (cv::Matx<float, 8, 8>::eye() - k * hm) * m_p;
+        }
+
         static cv::Matx<float, 4, 1> measure(const FDetection& d) {
             return cv::Matx<float, 4, 1>((d.x1_coord + d.x2_coord) * 0.5f, (d.y1_coord + d.y2_coord) * 0.5f,
                 float(d.x2_coord - d.x1_coord), float(d.y2_coord - d.y1_coord));
@@ -162,7 +173,7 @@ namespace neural {
 
             for (int d : fresh) {
                 const auto& det = detections[d];
-                FKalmanTrack t{ FTrack{}, UKalmanBoxFilter(det, m_config.std_position, m_config.std_velocity), {}, frame.at, det };
+                FKalmanTrack t{ FTrack{}, UKalmanBoxFilter(det, m_config.std_position, m_config.std_velocity), {}, frame.at, det, size_of(det) };
                 auto& o = t.out;
                 o.detection = det;
                 o.class_id = det.class_id;
@@ -208,7 +219,19 @@ namespace neural {
             clock::time_point seen;
             // Рамка последнего подтверждения или «Движения»
             FDetection anchor;
+            // Ширина и высота последней уверенной рамки — образец для проверки размеров
+            cv::Size2f size;
         };
+
+        static cv::Size2f size_of(const FDetection& d) {
+            return { float(d.x2_coord - d.x1_coord), float(d.y2_coord - d.y1_coord) };
+        }
+
+        // Произведение отношений меньшего к большему по ширине и по высоте
+        static float size_similarity(const cv::Size2f& a, const cv::Size2f& b) {
+            const auto ratio = [](float x, float y) { return std::max(x, y) > 0.f ? std::min(x, y) / std::max(x, y) : 0.f; };
+            return ratio(a.width, b.width) * ratio(a.height, b.height);
+        }
 
         static float seconds(clock::duration d) {
             return std::chrono::duration<float>(d).count();
@@ -244,18 +267,19 @@ namespace neural {
             return class_id;
         }
 
-        // Жадное сопоставление по убыванию IoU с предсказанной рамкой; возвращает несопоставленные детекции
+        // Жадное сопоставление по убыванию IoU с предсказанной рамкой; strong — проход уверенных детекций; возвращает несопоставленные детекции
         std::vector<int> match(const std::vector<FDetection>& dets, const std::vector<int>& pool, std::vector<bool>& matched,
-            float threshold, bool with_tentative, const FTrackerFrame& frame, std::vector<FTrackEventRecord>& events)
+            float threshold, bool strong, const FTrackerFrame& frame, std::vector<FTrackEventRecord>& events)
         {
             struct FCandidate { float iou; size_t t; int d; };
             std::vector<FCandidate> candidates;
             for (size_t t = 0; t < m_state.size(); ++t) {
-                if (matched[t] || (!with_tentative && m_state[t].out.state == ETrackState::TENTATIVE)) continue;
+                if (matched[t] || (!strong && m_state[t].out.state == ETrackState::TENTATIVE)) continue;
                 const FDetection predicted = m_state[t].filter.box();
                 const int track_group = group(m_state[t].out.class_id);
                 for (int d : pool) {
                     if (group(dets[d].class_id) != track_group) continue;
+                    if (size_similarity(m_state[t].size, size_of(dets[d])) < m_config.min_size_similarity) continue;
                     const float iou = box_iou(predicted, dets[d]);
                     if (iou >= threshold) candidates.push_back({ iou, t, d });
                 }
@@ -267,7 +291,7 @@ namespace neural {
                 if (matched[c.t] || used[c.d]) continue;
                 matched[c.t] = true;
                 used[c.d] = true;
-                hit(m_state[c.t], dets[c.d], frame, events);
+                hit(m_state[c.t], dets[c.d], strong, frame, events);
             }
 
             std::vector<int> rest;
@@ -275,8 +299,13 @@ namespace neural {
             return rest;
         }
 
-        void hit(FKalmanTrack& t, const FDetection& det, const FTrackerFrame& frame, std::vector<FTrackEventRecord>& events) {
-            t.filter.update(det);
+        // Уверенная детекция обновляет всю рамку фильтра и образец размера, слабая — только центр
+        void hit(FKalmanTrack& t, const FDetection& det, bool strong, const FTrackerFrame& frame, std::vector<FTrackEventRecord>& events) {
+            if (strong) {
+                t.filter.update(det);
+                t.size = size_of(det);
+            }
+            else t.filter.update_center(det);
             t.seen = frame.at;
             t.votes[det.class_id] += det.confidence;
 

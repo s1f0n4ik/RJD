@@ -38,6 +38,7 @@ namespace neural {
 
     template <class F> void tracker_fields(FKalmanIoUTrackerConfig& c, F&& f) {
         f("iou_threshold", c.iou_threshold);
+        f("min_size_similarity", c.min_size_similarity);
         f("low_confidence", c.low_confidence);
         f("low_iou_threshold", c.low_iou_threshold);
         f("min_hits", c.min_hits);

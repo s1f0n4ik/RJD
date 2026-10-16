@@ -9,6 +9,8 @@ export interface ConfigSummary {
 export interface ThresholdConfig {
     nms: number;
     confidence: number;
+    /** Модель с масками: детекция без контура отбрасывается; нет поля — включено */
+    require_mask?: boolean;
 }
 
 export interface SuperclassDef {

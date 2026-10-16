@@ -150,6 +150,44 @@ static void accumulated_move() {
     CHECK(updates == 1);
 }
 
+static bool sized(const FTrack& t, int w, int h) {
+    return std::abs(t.detection.x2_coord - t.detection.x1_coord - w) <= 2 && std::abs(t.detection.y2_coord - t.detection.y1_coord - h) <= 2;
+}
+
+// Рамка вдвое крупнее трека проходит IoU, но не похожесть размеров: трек в потере с прежним размером, уверенная рождает свой трек
+static void size_jump() {
+    struct FJunk { int w; int h; float conf; };
+    for (const auto junk : { FJunk{ 150, 90, 0.9f }, FJunk{ 167, 48, 0.2f } }) {
+        for (const float gate : { 0.f, 0.5f }) {
+            auto c = base();
+            c.min_size_similarity = gate;
+            FRun r(c);
+            for (int k = 0; k < 10; ++k) r.step(k * 0.04f, { box(500, 500, 100, 60) });
+            const auto id = r.only().id;
+            const auto res = r.step(0.4f, { box(500, 500, junk.w, junk.h, 0, junk.conf) });
+            if (gate == 0.f) {
+                CHECK(!has(res, ETrackEvent::LOST) && r.only().id == id);
+                continue;
+            }
+            CHECK(has(res, ETrackEvent::LOST) && has(res, ETrackEvent::CREATED) == (junk.conf >= 0.5f));
+            const auto& t = r.tracker.tracks()[0];
+            CHECK(t.id == id && t.state == ETrackState::LOST && sized(t, 100, 60));
+        }
+    }
+}
+
+// Слабые рамки другого размера держат трек, но размер в фильтре остаётся от уверенной
+static void weak_keeps_size() {
+    FRun r(base());
+    for (int k = 0; k < 10; ++k) r.step(k * 0.04f, { box(500, 500, 100, 60) });
+    for (int k = 10; k < 20; ++k) {
+        const auto res = r.step(k * 0.04f, { box(500, 500, 130, 75, 0, 0.2f) });
+        CHECK(!has(res, ETrackEvent::LOST) && r.only().state == ETrackState::CONFIRMED);
+    }
+    r.step(0.8f, {});
+    CHECK(r.only().state == ETrackState::LOST && sized(r.only(), 100, 60));
+}
+
 int main() {
     dropped_and_missed();
     low_confidence_bridge();
@@ -157,6 +195,8 @@ int main() {
     class_flip();
     lost_timeout();
     accumulated_move();
+    size_jump();
+    weak_keeps_size();
     std::puts("tracker-check: OK");
     return 0;
 }

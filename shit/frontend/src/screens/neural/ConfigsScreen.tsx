@@ -10,7 +10,7 @@ import { ImportModal } from './ImportModal';
 const blankConfig = (): NeuralConfig => ({
     name: '',
     model_path: '',
-    thresholds: { nms: 0.45, confidence: 0.5 },
+    thresholds: { nms: 0.45, confidence: 0.5, require_mask: true },
     tracker: null,
     superclasses: {},
     classes: {},

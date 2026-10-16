@@ -31,6 +31,8 @@ namespace neural {
 	struct FThresholds {
 		float nms = 0.45f;
 		float confidence = 0.5f;
+		// Модель с масками: детекция без контура отбрасывается
+		bool require_mask = true;
 	};
 
 	struct FSuperclass {
