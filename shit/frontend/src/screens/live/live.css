@@ -55,18 +55,6 @@
 
 .live-switches { display: flex; flex-direction: column; gap: 9px; margin-top: 12px; }
 
-.live-toast {
-    position: fixed;
-    right: 18px;
-    bottom: 18px;
-    z-index: 60;
-    padding: 11px 15px;
-    border-radius: var(--r);
-    background: var(--panel);
-    border: 1px solid var(--line-hi);
-    box-shadow: var(--shadow-lg);
-    font-size: 13px;
-}
 
 /* Модалка произвольной сетки — крупная: матрица и предпросмотр рядом */
 .freegrid-modal { --modal-w: 1000px; height: min(640px, 88vh); }

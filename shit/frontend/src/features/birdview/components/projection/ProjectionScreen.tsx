@@ -6,7 +6,7 @@ import type { EventLog } from '../../hooks/useEventLog';
 import type { CalibrationCamera, WsMessage } from '../../api/ws-types';
 import { linkerApi } from '../../api/linker';
 import { fetchCalibrationCameras } from '../../api/cameras';
-import { useToast } from '../common/Toast';
+import { useToast } from '../../../../app/Toast';
 import { PROJ_METHOD, PROJ_TYPE, toWarpPoints } from '../../api/projection';
 import {
     allCamerasDone,

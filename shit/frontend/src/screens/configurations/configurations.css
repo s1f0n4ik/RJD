@@ -25,7 +25,7 @@
 .cf-screen .cr-met span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cf-screen .cr-met span:nth-child(even){font-family:var(--mono);font-size:11.5px;color:var(--fg);text-align:right;font-variant-numeric:tabular-nums}
 .cf-screen .cr-met .is-err{color:var(--err)}
-.cf-screen .cr-node.is-err{border-color:rgba(255,107,128,.4)}
+.cf-screen .cr-node.is-err{border-color:var(--err-edge)}
 .cf-screen .cr-node.is-off{opacity:.62}
 .cf-screen .cr-outs{display:flex;flex-direction:column;gap:8px;min-width:0}
 .cf-screen .cr-wire{position:relative;align-self:stretch}
@@ -33,9 +33,9 @@
 .cf-screen .cr-wire::after{content:'';position:absolute;right:0;top:50%;width:6px;height:6px;margin-top:-3px;border-top:1px solid var(--line-hi);border-right:1px solid var(--line-hi);transform:rotate(45deg)}
 .cf-screen .cr-wire.is-live::before{background:rgba(var(--acc-rgb),.6);box-shadow:0 0 6px rgba(var(--acc-rgb),.5)}
 .cf-screen .cr-wire.is-live::after{border-color:rgba(var(--acc-rgb),.8)}
-.cf-screen .cr-wire.is-down::before{background:none;border-top:1px dashed rgba(255,107,128,.7)}
-.cf-screen .cr-wire.is-down::after{border-color:rgba(255,107,128,.7)}
-.cf-screen button.cr-node{cursor:pointer;transition:border-color .14s,box-shadow .14s}
+.cf-screen .cr-wire.is-down::before{background:none;border-top:1px dashed color-mix(in srgb,var(--err) 70%,transparent)}
+.cf-screen .cr-wire.is-down::after{border-color:color-mix(in srgb,var(--err) 70%,transparent)}
+.cf-screen button.cr-node{cursor:pointer;transition:border-color var(--t-fast) var(--ease-out),box-shadow var(--t-fast) var(--ease-out)}
 .cf-screen button.cr-node:hover{border-color:var(--line-hi)}
 .cf-screen button.cr-node.is-sel{border-color:rgba(var(--acc-rgb),.6);box-shadow:0 0 0 1px rgba(var(--acc-rgb),.25),0 8px 24px -14px rgba(var(--acc-rgb),.7);background:linear-gradient(180deg,rgba(var(--acc-rgb),.08),transparent 70%),var(--input)}
 
@@ -101,13 +101,13 @@
 .cf-screen .spec td.cam b{display:block;color:var(--fg);font-weight:600}
 .cf-screen .spec td.cam small{font-family:var(--mono);font-size:10.5px;color:var(--fg-3)}
 .cf-screen .spec .x{width:26px;height:26px;display:grid;place-items:center;border-radius:6px;border:1px solid var(--line);color:var(--fg-3)}
-.cf-screen .spec .x:hover{border-color:rgba(255,107,128,.5);color:var(--err)}
+.cf-screen .spec .x:hover{border-color:var(--err-edge);color:var(--err)}
 .cf-screen .bitcards{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:6px}
 .cf-screen .bitcard{border:1px solid var(--line);border-radius:var(--r);background:var(--input);padding:10px 8px;text-align:center;min-width:0}
 .cf-screen .bitcard .n{font-family:var(--mono);font-size:26px;font-weight:700;color:var(--fg-3);line-height:1;font-variant-numeric:tabular-nums}
 .cf-screen .bitcard .l{font-size:9.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-3);margin-top:4px}
 .cf-screen .bitcard .c{font-size:11px;color:var(--fg-3);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.cf-screen .bitcard.is-set{background:rgba(87,214,154,.1);border-color:rgba(87,214,154,.4)}
+.cf-screen .bitcard.is-set{background:color-mix(in srgb,var(--ok) 10%,transparent);border-color:var(--ok-edge)}
 .cf-screen .bitcard.is-set .n{color:var(--ok)}
 .cf-screen .bitcard.is-set .c{color:var(--fg)}
 .cf-screen .addline{display:flex;align-items:center;gap:12px;font-size:13px;color:var(--fg-2)}
@@ -115,7 +115,7 @@
 .cf-screen .addline .uisel{width:auto;min-width:300px}
 .cf-screen .addline .note{font-size:12.5px;color:var(--fg-3)}
 .cf-screen .tb-x{width:26px;height:26px;display:grid;place-items:center;border-radius:6px;border:1px solid var(--line);color:var(--fg-3)}
-.cf-screen .tb-x:hover:not([disabled]){border-color:rgba(255,107,128,.5);color:var(--err)}
+.cf-screen .tb-x:hover:not([disabled]){border-color:var(--err-edge);color:var(--err)}
 .cf-screen .tb-x[disabled]{opacity:.3;cursor:not-allowed}
 .cf-screen .tb-foot{display:flex;align-items:center;gap:10px}
 .cf-screen .tb-foot .note{font-size:11.5px;color:var(--fg-3)}
@@ -158,13 +158,13 @@
 .cf-screen .mt-sc.is-main{color:var(--fg)}
 .cf-screen .mt-sc i{width:7px;height:7px;flex:0 0 7px;border-radius:2px}
 .cf-screen .mt-x{width:26px;height:26px;display:grid;place-items:center;flex:none;border-radius:6px;border:1px solid var(--line);color:var(--fg-3)}
-.cf-screen .mt-x:hover{border-color:rgba(255,107,128,.5);color:var(--err)}
+.cf-screen .mt-x:hover{border-color:var(--err-edge);color:var(--err)}
 
 /* Секция конфигурации нейросети: шапка сворачивает, крестик убирает из таблицы */
 .cf-screen .mt-model{min-width:0}
 .cf-screen .mt-mh{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-height:52px;padding:10px 12px 10px 16px;color:var(--fg);cursor:pointer}
 .cf-screen .mt-mh:focus-visible{outline:2px solid var(--acc-dim);outline-offset:-2px;border-radius:var(--r-lg)}
-.cf-screen .mt-mh .car{flex:0 0 12px;color:var(--fg-3);transform:rotate(90deg);transition:transform .15s ease}
+.cf-screen .mt-mh .car{flex:0 0 12px;color:var(--fg-3);transform:rotate(90deg);transition:transform var(--t-fast) var(--ease-out)}
 .cf-screen .mt-model.is-closed .mt-mh .car{transform:none}
 .cf-screen .mt-model:not(.is-closed) .mt-mh{border-bottom:1px solid var(--line)}
 .cf-screen .mt-mh .ttl{font-size:14px;font-weight:650}

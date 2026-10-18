@@ -22,17 +22,28 @@ import { wsUrl } from '../../utils/constants';
 import { isProbeCamera } from '../../utils/probeFilter';
 import type { CPPCamera, VirtualStream } from '../../types';
 import { Wall } from '../live/Wall';
-import { cameraToWallSource, virtualToWallSource, type WallSource } from '../live/sources';
+import { cameraToWallSource, useOfflineSince, virtualToWallSource, type WallSource } from '../live/sources';
+import { Since } from '../live/CellOverlays';
 import { emptyLayout, layoutFromSaved, PRESETS, type LayoutState } from '../live/model';
 import { useCorrectionLinks } from '../live/useCorrectionLinks';
 import '../../styles/tokens.css';
 import '../../styles/ui.css';
 import './translation.css';
+import { useFlash } from '../../app/motion';
 
 const SOURCES_POLL_MS = 10_000;
 
 // Отображений нет — показываем временную сетку, а не ошибку
 const FALLBACK_GRID = PRESETS[PRESETS.length - 1].grid;
+
+// «N источник / источника / источников»
+function sourcesWord(n: number): string {
+    const mod10 = n % 10;
+    const mod100 = n % 100;
+    if (mod10 === 1 && mod100 !== 11) return `${n} источник`;
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return `${n} источника`;
+    return `${n} источников`;
+}
 
 function layoutNameFromPath(): string {
     const parts = window.location.pathname.split('/').filter(Boolean);
@@ -196,6 +207,15 @@ export default function TranslationScreen() {
         window.location.href = '/new/live';
     };
 
+    // Молчащие устройства текущего отображения: одна полоса вместо тревоги в каждой ячейке
+    const offlineSince = useOfflineSince(sources);
+    const inAir = new Set(Object.values(layout.cells));
+    const silent = sources.filter(s => s.offline && s.deviceId && inAir.has(s.id));
+    const silentNames = [...new Set(silent.map(s => s.deviceName || s.deviceId))];
+    const silentSince = Math.min(...silent.map(s => offlineSince.get(s.deviceId ?? '') ?? Date.now()));
+
+    const flashAir = useFlash<HTMLSpanElement>(`${counts.live}/${counts.total}`, counts.live < counts.total ? 'warn' : '');
+
     return (
         // Нажатие мимо ячейки и мимо источника снимает выбор источника
         <div className="tr" onClick={() => { if (armed) setArmed(null); }}>
@@ -227,7 +247,7 @@ export default function TranslationScreen() {
                     <span className="tr-name">{fallback ? 'временная сетка' : layout.name}</span>
                 )}
 
-                <span className={`pill${counts.live < counts.total ? ' warn' : ' ok'}`}>
+                <span ref={flashAir} className={`pill${counts.live < counts.total ? ' warn' : ' ok'}`}>
                     <span className="dot" />
                     {counts.live} из {counts.total} в эфире
                 </span>
@@ -267,6 +287,17 @@ export default function TranslationScreen() {
                     <Icon name="warn" />
                     Отображения не настроены — показана временная сетка, изменения не сохраняются.
                     <button className="btn btn--sm" onClick={exit}>Создать отображение</button>
+                </div>
+            )}
+
+            {silent.length > 0 && (
+                <div className="banner is-err tr-bnr">
+                    <Icon name="warn" size={15} />
+                    {silentNames.join(', ')} {silentNames.length > 1 ? 'не отвечают' : 'не отвечает'}
+                    <span className="seps">
+                        <span>{sourcesWord(silent.length)}</span>
+                        <Since since={silentSince} />
+                    </span>
                 </div>
             )}
 

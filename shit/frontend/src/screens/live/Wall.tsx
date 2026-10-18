@@ -11,7 +11,7 @@ import type { PlayerStats, PlayerStatus } from '../../components/webrtc/useWebRT
 import { Icon } from '../../app/Icons';
 import { CellPlayer } from './CellPlayer';
 import { SurroundCell } from './SurroundCell';
-import { resolveStream, type WallSource } from './sources';
+import { resolveStream, useOfflineSince, type WallSource } from './sources';
 import type { Grid, LayoutState } from './model';
 import './wall.css';
 
@@ -113,6 +113,10 @@ export function Wall({
         (id: string | undefined) => (id ? sources.find(s => s.id === id) : undefined),
         [sources],
     );
+
+    const offlineSince = useOfflineSince(sources);
+    const offlineSinceOf = (source: WallSource) =>
+        (source.offline && source.deviceId ? offlineSince.get(source.deviceId) ?? null : null);
 
     // Ключ закрепляется за плеером и переезжает вместе с ним: и React, и
     // очередь подъёма видят один и тот же плеер на новом месте. Раздавать
@@ -311,11 +315,7 @@ export function Wall({
             return <div className="cell-msg"><b>Источник удалён</b>{sourceId}</div>;
         }
 
-        if (source.offline) {
-            return <div className="cell-msg"><b>{source.name}</b>устройство не отвечает</div>;
-        }
-
-        if (source.kind === 'virtual' && !source.active) {
+        if (source.kind === 'virtual' && !source.active && !source.offline) {
             return <div className="cell-msg"><b>{source.name}</b>модуль не запущен</div>;
         }
 
@@ -336,6 +336,7 @@ export function Wall({
             return (
                 <SurroundCell
                     key={`${sourceId}-${switchKey}`}
+                    offlineSince={offlineSinceOf(source)}
                     streamId={sourceId}
                     name={source.name}
                     signalingUrl={signalingUrlOf(sourceId)}
@@ -362,6 +363,7 @@ export function Wall({
         return (
             <CellPlayer
                 key={`${sourceId}-${switchKey}`}
+                offlineSince={offlineSinceOf(source)}
                 cameraId={sourceId}
                 cameraName={source.name}
                 signalingUrl={signalingUrlOf(sourceId)}
@@ -404,8 +406,8 @@ export function Wall({
                     const key = cellKeys[cell.id];
                     const source = sourceOf(sourceId);
                     const empty = !sourceId;
-                    const broken = Boolean(sourceId) && (!source || source.offline
-                        || (source.kind === 'virtual' && !source.active)
+                    const broken = Boolean(sourceId) && (!source
+                        || (source.kind === 'virtual' && !source.active && !source.offline)
                         || (source.kind === 'camera' && source.viewStreams.length === 0));
 
                     const hidden = Boolean(expanded) && expanded !== cell.id;

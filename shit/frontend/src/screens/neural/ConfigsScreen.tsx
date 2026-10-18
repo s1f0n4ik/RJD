@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Icon } from '../../app/Icons';
 import { ConfirmModal } from '../../features/birdview/components/common/ConfirmModal';
-import { useToast } from '../../features/birdview/components/common/Toast';
+import { useToast } from '../../app/Toast';
 import { neuralApi } from '../../features/neural/api/client';
 import type { ConfigSummary, ModelFile, NeuralConfig, TrackerType } from '../../features/neural/api/types';
 import { ConfigEditor } from './ConfigEditor';

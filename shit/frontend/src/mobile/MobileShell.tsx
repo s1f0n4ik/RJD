@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { Navigate, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { Icon, IconSprite, type IconName } from '../app/Icons';
 import { crumbsFor } from '../app/nav';
 import { isAdmin } from '../app/role';
 import { useSystem } from '../app/SystemContext';
 import { formatDeviceTime, useDeviceClock } from '../app/useDeviceClock';
+import { reducedMotion } from '../app/motion';
 import './mobile.css';
 
 interface Tab {
@@ -52,6 +53,42 @@ export function MobileShell(props: MobileShellProps) {
     const { unixMs, source } = useDeviceClock();
     const [slot, setSlot] = useState<HTMLElement | null>(null);
 
+    const tabsRef = useRef<HTMLElement>(null);
+    const indRef = useRef<HTMLElement>(null);
+    const indPlaced = useRef(false);
+    const stageRef = useRef<HTMLDivElement>(null);
+    const firstPath = useRef(true);
+
+    // Указатель вкладки переезжает к активной; первая расстановка без анимации
+    useLayoutEffect(() => {
+        const ind = indRef.current;
+        const active = tabsRef.current?.querySelector<HTMLElement>('.m-tab.is-on');
+        if (!ind || !active || !active.offsetWidth) return;
+        if (!indPlaced.current) ind.style.transition = 'none';
+        ind.style.opacity = '1';
+        ind.style.width = `${active.offsetWidth * 0.56}px`;
+        ind.style.transform = `translateX(${active.offsetLeft + active.offsetWidth * 0.22}px)`;
+        if (!indPlaced.current) {
+            void ind.offsetWidth;
+            ind.style.transition = '';
+            indPlaced.current = true;
+        }
+    }, [pathname, role]);
+
+    // Смена экрана: новый экран проявляется со сдвигом 4 px
+    useLayoutEffect(() => {
+        if (firstPath.current) {
+            firstPath.current = false;
+            return;
+        }
+        const screen = stageRef.current?.firstElementChild;
+        if (!screen || reducedMotion()) return;
+        screen.animate(
+            [{ opacity: 0, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }],
+            { duration: 200, easing: 'cubic-bezier(.2,.8,.2,1)' },
+        );
+    }, [pathname]);
+
     // Закрытый адрес уводит на главную, пояснение уезжает в state
     if (!canOpenMobile(pathname, role)) {
         const closed = pathname === '/' ? '' : crumbsFor(pathname)[0];
@@ -84,11 +121,12 @@ export function MobileShell(props: MobileShellProps) {
                 </a>
             </header>
 
-            <div className="m-stage">
+            <div className="m-stage" ref={stageRef}>
                 <Outlet context={{ ...props, slot } satisfies ShellContext} />
             </div>
 
-            <nav className="m-tabs" aria-label="Разделы">
+            <nav className="m-tabs" aria-label="Разделы" ref={tabsRef}>
+                <i className="m-tab-ind" ref={indRef} />
                 {tabsFor(role).map(tab => (
                     <NavLink
                         key={tab.to}

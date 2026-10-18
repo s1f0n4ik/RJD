@@ -24,10 +24,10 @@ export interface ClassOption {
 
 const UNKNOWN: ClassMeaning = {
   name: '',
-  color: '#667089',
+  color: '#6c717c',
   superKey: '',
   superName: '',
-  superColor: '#667089',
+  superColor: '#6c717c',
 };
 
 export function useClassResolver(configId?: string) {

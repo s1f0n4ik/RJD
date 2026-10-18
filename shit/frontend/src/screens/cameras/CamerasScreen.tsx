@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Icon } from '../../app/Icons';
-import { Modal, isModalOpen } from '../../app/Modal';
+import { Modal, isModalOpen, Seg } from '../../app/Modal';
+import { useToast } from '../../app/Toast';
+import { reducedMotion, useFlash } from '../../app/motion';
 import { isAdmin, useRole } from '../../app/role';
 import { api } from '../../services/api';
 import { getDevices, loadDevices, signalingWsUrl } from '../../services/devices';
@@ -50,11 +52,6 @@ const FILTERS: Array<[PurposeFilter, string]> = [
     ['birdview', '360'],
 ];
 
-interface ToastState {
-    tone: 'ok' | 'err';
-    text: string;
-}
-
 /** Все назначения камеры без повторов — для колонки списка. */
 const cameraPurposes = (camera: Camera): StreamPurpose[] => {
     const all = new Set<StreamPurpose>();
@@ -94,14 +91,8 @@ export function CamerasScreen() {
     const [addStreamOpen, setAddStreamOpen] = useState(false);
     const [confirmDelete, setConfirmDelete] = useState<Camera | null>(null);
 
-    const [toast, setToast] = useState<ToastState | null>(null);
-    const toastTimer = useRef<number | null>(null);
-
-    const showToast = useCallback((tone: 'ok' | 'err', text: string) => {
-        setToast({ tone, text });
-        if (toastTimer.current) window.clearTimeout(toastTimer.current);
-        toastTimer.current = window.setTimeout(() => setToast(null), 4500);
-    }, []);
+    const toast = useToast();
+    const showToast = useCallback((tone: 'ok' | 'err', text: string) => toast(text, '', tone), [toast]);
 
     // Список камер: /api/cameras несёт владельца и флаг offline
     const load = useCallback(async (silent = false) => {
@@ -176,9 +167,11 @@ export function CamerasScreen() {
         return () => { alive = false; };
     }, [selectedId, copyKey]);
 
-    // Закрытие отдаёт анимации доиграть: размонтирование — в finishClose
+    // Закрытие отдаёт переходу доиграть: размонтирование — в finishClose
     const requestClose = () => {
-        if (selectedId) setClosing(true);
+        if (!selectedId) return;
+        if (reducedMotion()) finishClose();
+        else setClosing(true);
     };
     const finishClose = () => {
         setSelectedId(null);
@@ -190,7 +183,7 @@ export function CamerasScreen() {
     useEffect(() => {
         if (!selectedId) return;
         const onKey = (e: KeyboardEvent) => {
-            if (e.key === 'Escape' && !isModalOpen()) setClosing(true);
+            if (e.key === 'Escape' && !isModalOpen()) requestClose();
         };
         document.addEventListener('keydown', onKey);
         return () => document.removeEventListener('keydown', onKey);
@@ -361,15 +354,19 @@ export function CamerasScreen() {
         ? previewStream.key
         : viewableStream(selected ?? ({} as Camera))?.key;
 
+    const flashTotal = useFlash<HTMLSpanElement>(byDevice.length);
+    const flashLive = useFlash<HTMLSpanElement>(liveCount, liveCount !== byDevice.length ? 'warn' : '');
+    const flashTroubled = useFlash<HTMLSpanElement>(troubled, troubled > 0 ? 'bad' : '');
+
     return (
         <section className="screen">
             <div className="filters">
-                <span className="fld"><span className="k">Всего</span><span className="v st-acc">{byDevice.length}</span></span>
-                <span className="fld">
+                <span className="fld" ref={flashTotal}><span className="k">Всего</span><span className="v st-acc">{byDevice.length}</span></span>
+                <span className="fld" ref={flashLive}>
                     <span className="k">В работе</span>
                     <span className={`v ${liveCount !== byDevice.length ? 'st-warn' : 'st-ok'}`}>{liveCount}</span>
                 </span>
-                <span className="fld">
+                <span className="fld" ref={flashTroubled}>
                     <span className="k">С проблемами</span>
                     <span className={`v ${troubled > 0 ? 'st-err' : 'st-ok'}`}>{troubled}</span>
                 </span>
@@ -398,7 +395,7 @@ export function CamerasScreen() {
                     </span>
                 )}
 
-                <div className="seg">
+                <Seg>
                     {FILTERS.map(([value, label]) => (
                         <button
                             key={value}
@@ -408,7 +405,7 @@ export function CamerasScreen() {
                             {label}
                         </button>
                     ))}
-                </div>
+                </Seg>
 
                 <span className="spacer" />
                 {canEdit && (
@@ -515,8 +512,8 @@ export function CamerasScreen() {
                 {canEdit && selected && form && (
                     <div
                         className={`drawer${closing ? ' is-closing' : ''}`}
-                        onAnimationEnd={e => {
-                            if (closing && e.animationName === 'drawer-out') finishClose();
+                        onTransitionEnd={e => {
+                            if (closing && e.target === e.currentTarget && e.propertyName === 'flex-basis') finishClose();
                         }}
                     >
                         <div className="drawer-h">
@@ -735,21 +732,6 @@ export function CamerasScreen() {
                         </p>
                     </div>
                 </Modal>
-            )}
-
-            {toast && (
-                <div className="toast">
-                    <span className={`dot ${toast.tone}`} />
-                    <div>{toast.text}</div>
-                    <button
-                        className="icon-btn"
-                        style={{ border: 'none', marginLeft: 6 }}
-                        onClick={() => setToast(null)}
-                        aria-label="Закрыть уведомление"
-                    >
-                        <Icon name="x" size={13} />
-                    </button>
-                </div>
             )}
         </section>
     );

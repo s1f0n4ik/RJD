@@ -6,6 +6,7 @@ import type { SelectOption } from '../../../../app/Select';
 import type { Verdict } from '../../api/journal-types';
 import type { ClassOption } from './useClassResolver';
 import { wallNow } from './format';
+import { Seg } from '../../../../app/Modal';
 
 // Журнал почти всегда смотрят «за последнее время», поэтому основной способ —
 // пресеты в один клик. Точный диапазон нужен реже и живёт в календаре.
@@ -68,7 +69,7 @@ interface PresetSegProps {
 
 export function PresetSeg({ preset, onPreset }: PresetSegProps) {
   return (
-    <div className="seg">
+    <Seg>
       {PRESETS.map((p) => (
         <button
           key={p.key}
@@ -79,7 +80,7 @@ export function PresetSeg({ preset, onPreset }: PresetSegProps) {
           {p.label}
         </button>
       ))}
-    </div>
+    </Seg>
   );
 }
 

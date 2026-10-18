@@ -239,7 +239,7 @@ export function JournalSummary({ filters, classOptions, superOf, cameraName, dev
     classOptions.find((o) => o.cid === cid && o.name === name)?.color ?? classOptions.find((o) => o.cid === cid)?.color;
   const clsRows: Row[] = data.classes.map((c) => {
     const sup = superOf(c.superclass);
-    const color = classColor(c.class_id, c.class_name) ?? sup?.color ?? '#5b9dff';
+    const color = classColor(c.class_id, c.class_name) ?? sup?.color ?? '#68a5ff';
     return {
       key: `${c.superclass}:${c.class_id}:${c.class_name}`,
       name: c.class_name || String(c.class_id ?? '—'),

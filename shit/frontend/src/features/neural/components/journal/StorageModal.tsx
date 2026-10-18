@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Modal } from '../../../../app/Modal';
-import { useToast } from '../../../birdview/components/common/Toast';
+import { Modal, Seg } from '../../../../app/Modal';
+import { useToast } from '../../../../app/Toast';
 import { journalApi } from '../../api/journal';
 import type { JournalStorageState } from '../../api/journal';
 import { DateRangePicker } from './DateRangePicker';
@@ -202,7 +202,7 @@ export function StorageModal({ onClose, onPurged }: Props) {
             <div className="tf-row j-mt j-purge">
               <div className="tf">
                 <span className="tf-cap">Очистить записи</span>
-                <div className="seg">
+                <Seg>
                   <button
                     type="button"
                     className={purgeMode === 'date' ? 'is-on' : ''}
@@ -217,7 +217,7 @@ export function StorageModal({ onClose, onPurged }: Props) {
                   >
                     Все
                   </button>
-                </div>
+                </Seg>
               </div>
               <div className="tf j-purge-date">
                 <span className="tf-cap">Дата</span>

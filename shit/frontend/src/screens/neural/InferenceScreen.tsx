@@ -3,7 +3,7 @@ import { Icon } from '../../app/Icons';
 import { Switch } from '../../app/Modal';
 import { Select } from '../../app/Select';
 import { describeError } from '../../components/webrtc/error-codes';
-import { useToast } from '../../features/birdview/components/common/Toast';
+import { useToast } from '../../app/Toast';
 import { neuralApi } from '../../features/neural/api/client';
 import type { ActiveDesc, ConfigSummary, SlotStatus, StreamingDesc, TileState, VideoStream } from '../../features/neural/api/types';
 

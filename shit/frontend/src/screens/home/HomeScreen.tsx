@@ -13,6 +13,7 @@ import type { Device } from '../../services/devices';
 import { formatBytes, formatPair } from '../devices/model';
 import { disksLabel, usePools } from '../settings/pool';
 import './home.css';
+import { useFlash } from '../../app/motion';
 
 // Статус 3 — пайплайн запущен; всё остальное для оператора означает «потока нет».
 // Камера в работе, если работает хотя бы один её поток: их произвольное число
@@ -97,6 +98,10 @@ export function HomeScreen() {
     const offlineNames = devices.filter(d => d.status !== 'online').map(d => d.name).join(', ');
     const [dismissed, setDismissed] = useState<string | null>(null);
 
+    const flashCameras = useFlash<HTMLDivElement>(`${liveCameras}/${cameras.length}`);
+    const flashDevices = useFlash<HTMLDivElement>(`${online.length}/${devices.length}`);
+    const flashAttention = useFlash<HTMLDivElement>(deadCameras + offlineDevices, deadCameras + offlineDevices > 0 ? 'warn' : '');
+
     return (
         <section className="screen glow home">
             <div className="scroll">
@@ -106,15 +111,15 @@ export function HomeScreen() {
                         <h1>Общее состояние</h1>
                     </div>
                     <div className="hero-stats">
-                        <div className="stat is-acc">
+                        <div className="stat is-acc" ref={flashCameras}>
                             <b>{liveCameras}/{cameras.length}</b>
                             <span>камер в работе</span>
                         </div>
-                        <div className="stat">
+                        <div className="stat" ref={flashDevices}>
                             <b>{online.length}/{devices.length}</b>
                             <span>устройств в сети</span>
                         </div>
-                        <div className={`stat${deadCameras + offlineDevices > 0 ? ' is-warn' : ''}`}>
+                        <div className={`stat${deadCameras + offlineDevices > 0 ? ' is-warn' : ''}`} ref={flashAttention}>
                             <b>{deadCameras + offlineDevices}</b>
                             <span>требуют внимания</span>
                         </div>

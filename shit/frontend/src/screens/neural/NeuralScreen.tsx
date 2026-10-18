@@ -5,7 +5,6 @@ import { Select, type SelectOption } from '../../app/Select';
 import { navFor, useRole } from '../../app/role';
 import { refreshNeuralStatus, useNeuralStatus, type NeuralDeviceStatus } from '../../app/neuralStatus';
 import { getRouting, type Device } from '../../services/devices';
-import { ToastProvider } from '../../features/birdview/components/common/Toast';
 import { setNeuralDevice } from '../../features/neural/api/client';
 import { JournalSection } from '../../features/neural/components/journal/JournalSection';
 import { lastSeenTime, sinceLabel } from '../devices/model';
@@ -37,11 +36,9 @@ export default function NeuralScreen() {
     }
 
     return (
-        <ToastProvider>
-            <section className="screen nv-screen">
-                {section === 'journal' ? <JournalSection /> : <DeviceSection section={section} />}
-            </section>
-        </ToastProvider>
+        <section className="screen nv-screen">
+            {section === 'journal' ? <JournalSection /> : <DeviceSection section={section} />}
+        </section>
     );
 }
 

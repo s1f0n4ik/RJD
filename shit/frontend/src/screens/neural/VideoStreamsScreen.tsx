@@ -4,7 +4,7 @@ import { Icon } from '../../app/Icons';
 import { Modal } from '../../app/Modal';
 import { Select } from '../../app/Select';
 import { ConfirmModal } from '../../features/birdview/components/common/ConfirmModal';
-import { useToast } from '../../features/birdview/components/common/Toast';
+import { useToast } from '../../app/Toast';
 import { neuralApi } from '../../features/neural/api/client';
 import type { ConfigSummary, VideoStream } from '../../features/neural/api/types';
 import { loadEditorCameras, type EditorCamera } from './editor-cameras';

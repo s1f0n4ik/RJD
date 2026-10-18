@@ -12,9 +12,9 @@ const GRID_MULTS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000];
 const GRID_MAJOR_EVERY = 5;
 
 // Габарит рисуется своим цветом, а не акцентным: он не часть выделения
-const GABARIT_COLOR = '#E8A33D';
-const GABARIT_FILL = 'rgba(232,163,61,0.08)';
-const GABARIT_GUIDE = 'rgba(232,163,61,0.35)';
+const GABARIT_COLOR = '#edbc51';
+const GABARIT_FILL = 'rgba(237,188,81,0.08)';
+const GABARIT_GUIDE = 'rgba(237,188,81,0.35)';
 
 // Оси размерных линий разведены цветом. Линия, засечки, подпись и продолжение
 // грани — всё в цвете своей оси

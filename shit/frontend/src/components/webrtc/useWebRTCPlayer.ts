@@ -75,6 +75,8 @@ interface UseWebRTCPlayerResult {
     stats: PlayerStats | null;
     /** Отправить своё сообщение в сигналинг; false — WS закрыт */
     send: (data: Record<string, unknown>) => boolean;
+    /** Когда пропал живой кадр; null — кадр есть или его ещё не было */
+    lostAt: number | null;
 }
 
 // Сколько ждать ответа камеры на запрос соединения. Камера успевает поднять
@@ -93,6 +95,20 @@ const STALL_TIMEOUT_MS = 8000;
 
 // Период снятия статистики соединения
 const STATS_INTERVAL_MS = 1000;
+
+// Ширина снимка последнего кадра для постера
+const POSTER_W = 640;
+
+// Последний кадр уходит в poster того же <video>: обрыв виден серым кадром, а не чёрным
+function capturePoster(video: HTMLVideoElement) {
+    if (!video.videoWidth) return;
+    const scale = Math.min(1, POSTER_W / video.videoWidth);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(video.videoWidth * scale);
+    canvas.height = Math.round(video.videoHeight * scale);
+    canvas.getContext('2d')?.drawImage(video, 0, 0, canvas.width, canvas.height);
+    video.poster = canvas.toDataURL('image/jpeg', 0.7);
+}
 
 function makeClientId(): string {
     return `client_${Math.random().toString(36).substring(2, 11)}`;
@@ -117,6 +133,11 @@ export function useWebRTCPlayer({
     // потока сторожа наверху судят по ответу прошлой сессии
     const [granted, setGranted] = useState<{ forStream?: string; value: string | null } | null>(null);
     const [stats, setStats] = useState<PlayerStats | null>(null);
+    const [lostAt, setLostAt] = useState<number | null>(null);
+    // Номер подключения дорожки: колбэк первого кадра прошлой сессии не должен её оживить
+    const attachSeqRef = useRef(0);
+    // Перезапуск сессии, если первый кадр так и не пришёл
+    const stallRef = useRef<() => void>(() => {});
 
     // Колбэк в ref: инлайн-функция родителя не должна пересоздавать сессию
     const onMessageRef = useRef(onMessage);
@@ -182,9 +203,15 @@ export function useWebRTCPlayer({
 
     // ─── Вспомогательные функции ────────────────────────────────────────────
 
-    const clearVideoSrc = useCallback(() => {
+    const clearVideoSrc = useCallback((keepFrame = true) => {
         const video = videoRef.current;
         if (!video) return;
+        attachSeqRef.current += 1;
+        if (keepFrame && video.dataset.live !== undefined) {
+            capturePoster(video);
+            setLostAt(prev => prev ?? Date.now());
+        }
+        delete video.dataset.live;
         if (video.srcObject) {
             (video.srcObject as MediaStream).getTracks().forEach(t => {
                 try { t.stop(); } catch { /* ignore */ }
@@ -196,9 +223,23 @@ export function useWebRTCPlayer({
     const attachStream = useCallback((stream: MediaStream) => {
         const video = videoRef.current;
         if (!video) return;
+        video.dataset.rtc = '';
         video.srcObject = stream;
         rtcRef.current?.setVideoDelay(videoDelayRef.current);
-        setStatus('streaming');
+
+        // Эфир начинается с первого показанного кадра; до него виден постер или ожидание
+        const seq = ++attachSeqRef.current;
+        const markLive = () => {
+            if (seq !== attachSeqRef.current) return;
+            video.dataset.live = '';
+            setLostAt(null);
+            setStatus('streaming');
+        };
+        if ('requestVideoFrameCallback' in video) video.requestVideoFrameCallback(markLive);
+        else (video as HTMLVideoElement).addEventListener('loadeddata', markLive, { once: true });
+        window.setTimeout(() => {
+            if (seq === attachSeqRef.current && video.dataset.live === undefined) stallRef.current();
+        }, STALL_TIMEOUT_MS);
     }, []);
 
     useEffect(() => {
@@ -213,6 +254,15 @@ export function useWebRTCPlayer({
         }
         clearVideoSrc();
     }, [clearVideoSrc]);
+
+    useEffect(() => {
+        stallRef.current = () => {
+            console.warn(`[Player:${cameraId}] no first frame for ${STALL_TIMEOUT_MS}ms, restarting session`);
+            closeRTC(true);
+            rtcRef.current = null;
+            scheduleRetry({ code: null, kind: 'stream', text: 'Кадры не пришли' });
+        };
+    });
 
     // Отправить connection-request (WS должен быть открыт)
     const sendConnectionRequest = useCallback(() => {
@@ -327,6 +377,14 @@ export function useWebRTCPlayer({
 
         // Генерируем новый clientId при изменении cameraId/signalingUrl
         clientIdRef.current = externalClientId ?? makeClientId();
+
+        // Кадр прежней камеры не должен всплыть у новой
+        const video = videoRef.current;
+        if (video) {
+            video.removeAttribute('poster');
+            delete video.dataset.live;
+        }
+        setLostAt(null);
 
         console.log(`[Player:${cameraId}] mount, client_id=${clientIdRef.current}`);
 
@@ -455,7 +513,7 @@ export function useWebRTCPlayer({
             // destroy() у WSManager закроет WS без реконнектов
             ws.destroy();
             wsRef.current = null;
-            clearVideoSrc();
+            clearVideoSrc(false);
         };
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -593,5 +651,5 @@ export function useWebRTCPlayer({
     // Ответ прошлой сессии для текущего запроса не значит ничего
     const grantedStream = granted && granted.forStream === stream ? granted.value : null;
 
-    return { status, errorMsg: errorInfo?.text ?? '', errorInfo, attempt, grantedStream, videoRef, stats, send };
+    return { status, errorMsg: errorInfo?.text ?? '', errorInfo, attempt, grantedStream, videoRef, stats, send, lostAt };
 }

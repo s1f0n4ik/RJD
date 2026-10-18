@@ -7,13 +7,13 @@
 /* Список камер — грид, не таблица: один шаблон колонок у шапки и строк,
    выравнивание держится геометрией и не зависит от содержимого ячеек */
 /* Состояние — по содержимому и у правого края, запас ширины уходит названию и назначениям */
-.cam-grid{--cam-cols:minmax(150px,1fr) minmax(190px,1.4fr) 130px 120px 76px minmax(160px,max-content);min-width:840px}
+.cam-grid{--cam-cols:minmax(150px,1fr) minmax(190px,1.4fr) 130px minmax(150px,.75fr) 76px minmax(160px,max-content);min-width:840px}
 .cam-head,.cam-row{display:grid;grid-template-columns:var(--cam-cols);align-items:center}
 .cam-head{position:sticky;top:0;z-index:2;background:var(--surface);border-bottom:1px solid var(--line)}
 .cam-head span{padding:9px 12px;font-size:10px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--fg-3);white-space:nowrap}
-.cam-row{min-height:46px;border-bottom:1px solid var(--line);cursor:pointer;transition:.12s}
+.cam-row{min-height:46px;border-bottom:1px solid var(--line);cursor:pointer;transition:var(--tr-ui)}
 .cam-row:hover{background:var(--surface)}
-.cam-row.is-open{background:rgba(var(--acc-rgb),.12);border-bottom-color:transparent}
+.cam-row.is-open{background:var(--acc-bg);border-bottom-color:transparent}
 .cam-row > span{padding:0 12px;font-size:12.5px;color:var(--fg-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* Единственная ячейка с переносом содержимого */
 .cam-row > span.cell-purp{white-space:normal;overflow:visible;padding-top:7px;padding-bottom:7px}
@@ -21,7 +21,7 @@
 .cam-row .mono{font-family:var(--mono);font-size:11.5px;color:var(--fg-3)}
 .cam-name{display:inline-flex;align-items:center;gap:9px;max-width:100%;overflow:hidden}
 .cam-name i{overflow:hidden;text-overflow:ellipsis;font-style:normal}
-.cam-name .chev{color:var(--fg-3);flex:0 0 12px;transition:transform .15s ease}
+.cam-name .chev{color:var(--fg-3);flex:0 0 12px;transition:transform var(--t-fast) var(--ease-out)}
 .cam-row.is-open .cam-name .chev{color:var(--acc);transform:rotate(90deg)}
 
 /* Тона состояния камеры и потока */
@@ -39,30 +39,30 @@
 .st{display:inline-flex;align-items:center;gap:7px;font-size:12px}
 
 /* Разворачивание потоков: грид-обёртка анимирует высоту 0fr - 1fr */
-.streams-wrap{display:grid;animation:streams-in .2s ease}
+.streams-wrap{display:grid;animation:streams-in var(--t-mid) var(--ease-out)}
 .streams-wrap > .streams{min-height:0;overflow:hidden}
-.streams-wrap.is-closing{animation:streams-out .18s ease-in forwards}
+.streams-wrap.is-closing{animation:streams-out 160ms var(--ease-in) forwards}
 @keyframes streams-in{from{grid-template-rows:0fr;opacity:.4}to{grid-template-rows:1fr;opacity:1}}
 @keyframes streams-out{from{grid-template-rows:1fr;opacity:1}to{grid-template-rows:0fr;opacity:.3}}
 
 /* Подтаблица потоков: тише основной, чтобы читалась как вложенная */
-.streams{background:rgba(var(--acc-rgb),.05);box-shadow:inset 3px 0 0 var(--acc);border-bottom:1px solid var(--line);padding:8px 14px 10px 40px}
+.streams{background:color-mix(in srgb,var(--acc-bg) 40%,transparent);box-shadow:inset 3px 0 0 var(--acc);border-bottom:1px solid var(--line);padding:8px 14px 10px 40px}
 .stab{width:100%;table-layout:fixed;border-collapse:collapse}
-.stab th{text-align:left;background:transparent;border-bottom:1px solid rgba(51,59,74,.7);padding:0 10px 6px;font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;font-weight:700;color:#5f6b7d;white-space:nowrap}
-.stab td{height:38px;padding:0 10px;border-bottom:1px solid rgba(51,59,74,.45);font-size:12px;color:var(--fg-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stab th{text-align:left;background:transparent;border-bottom:1px solid var(--line);padding:0 10px 6px;font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;font-weight:700;color:var(--fg-3);white-space:nowrap}
+.stab td{height:38px;padding:0 10px;border-bottom:1px solid color-mix(in srgb,var(--line) 60%,transparent);font-size:12px;color:var(--fg-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .stab tr:last-child td{border-bottom:none}
 .stab tbody tr{cursor:pointer}
-.stab tbody tr.is-on td{background:rgba(var(--acc-rgb),.13);color:var(--fg)}
+.stab tbody tr.is-on td{background:var(--acc-bg);color:var(--fg)}
 .stab tbody tr.is-on td:first-child{box-shadow:inset 2px 0 0 var(--acc);border-radius:4px 0 0 4px}
 .stab .rtsp{font-family:var(--mono);font-size:11px;color:var(--fg-3)}
 .chnum{display:inline-flex;align-items:center;justify-content:center;min-width:24px;height:22px;padding:0 6px;border-radius:6px;border:1px solid var(--line);font-family:var(--mono);font-size:11.5px;color:var(--fg-2)}
 .stab tbody tr.is-on .chnum{border-color:rgba(var(--acc-rgb),.5);color:var(--acc);background:rgba(var(--acc-rgb),.12)}
 
-/* Шторка настроек: колонка справа. Имя drawer-out используется в коде */
-.drawer{flex:0 0 420px;min-height:0;background:var(--surface);border-left:1px solid var(--line-hi);box-shadow:-8px 0 24px rgba(0,0,0,.35);display:flex;flex-direction:column;animation:drawer-in .22s cubic-bezier(.3,.9,.3,1)}
-.drawer.is-closing{animation:drawer-out .18s ease-in forwards}
-@keyframes drawer-in{from{transform:translateX(100%)}to{transform:translateX(0)}}
-@keyframes drawer-out{to{transform:translateX(100%)}}
+/* Шторка настроек: колонка справа растёт вместе с таблицей, содержимое прижато вправо; конец закрытия ловит код по flex-basis */
+.drawer{flex:0 0 420px;min-height:0;overflow:hidden;align-items:flex-end;background:var(--surface);border-left:1px solid var(--line-hi);box-shadow:-8px 0 24px rgba(0,0,0,.35);display:flex;flex-direction:column;transition:flex-basis var(--t-mid) var(--ease-out)}
+.drawer>*{width:420px;min-width:420px;flex-shrink:0}
+@starting-style{.drawer{flex-basis:0}}
+.drawer.is-closing{flex-basis:0;transition-duration:160ms;transition-timing-function:var(--ease-in)}
 .drawer-h{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line)}
 .drawer-h h2{font-size:14px;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .drawer-h .sub{display:block;font-size:11px;color:var(--fg-3);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -111,12 +111,12 @@
 .scan-side{flex:0 0 224px;border-right:1px solid var(--line);background:var(--input);padding:14px;display:flex;flex-direction:column;gap:14px}
 .scan-side .cap{font-size:11px;color:var(--fg-3);margin-bottom:5px}
 .scan-bar{height:6px;background:#0f1218;border-radius:3px;overflow:hidden;margin-bottom:6px}
-.scan-bar i{display:block;height:100%;background:var(--acc);border-radius:3px;transition:width .3s ease}
-.scan-kv{display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid rgba(51,59,74,.5);font-size:12px;color:var(--fg-2)}
+.scan-bar i{display:block;height:100%;background:var(--acc);border-radius:3px;transition:width var(--t-slow) var(--ease-out)}
+.scan-kv{display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid color-mix(in srgb,var(--line) 50%,transparent);font-size:12px;color:var(--fg-2)}
 .scan-kv:last-child{border-bottom:none}
 .scan-kv b{font-family:var(--mono);font-weight:500;color:var(--fg)}
 .scan-list{flex:1;min-width:0;overflow-y:auto}
-.scan-row{display:flex;align-items:center;gap:12px;min-height:52px;padding:6px 14px;border-bottom:1px solid rgba(51,59,74,.5)}
+.scan-row{display:flex;align-items:center;gap:12px;min-height:52px;padding:6px 14px;border-bottom:1px solid color-mix(in srgb,var(--line) 50%,transparent)}
 .scan-row:last-child{border-bottom:none}
 .scan-row:hover{background:#1f2530}
 .scan-row .who{flex:1;min-width:0}
@@ -126,10 +126,10 @@
 .scan-row .sub{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .scan-row .addr{font-family:var(--mono);font-size:11.5px;color:var(--fg)}
 .vend{display:inline-flex;align-items:center;padding:2px 8px;border-radius:5px;background:rgba(var(--acc-rgb),.12);border:1px solid rgba(var(--acc-rgb),.35);color:var(--acc);font-size:11px;font-weight:600;white-space:nowrap}
-.vend--warn{background:rgba(240,189,87,.1);border-color:rgba(240,189,87,.35);color:var(--warn)}
+.vend--warn{background:color-mix(in srgb,var(--warn) 10%,transparent);border-color:var(--warn-edge);color:var(--warn)}
 .vend--dim{background:none;border-color:var(--line);color:var(--fg-2)}
 .scan-chip{display:inline-flex;align-items:center;gap:5px;padding:2px 7px;border-radius:5px;border:1px solid var(--line);font-size:10.5px;color:var(--fg-2);white-space:nowrap}
-.scan-chip.ok{border-color:rgba(87,214,154,.4);color:var(--ok)}
+.scan-chip.ok{border-color:var(--ok-edge);color:var(--ok)}
 
 /* Мастер добавления (Д-3): слева живая проверка, справа поля.
    Строки подключения тянутся на всю ширину, числа каналов — по ёмкости значения */
@@ -171,22 +171,22 @@
 .purps{display:flex;align-items:center;gap:5px;flex-wrap:wrap;row-gap:4px}
 .stab .purps{flex-wrap:nowrap;overflow:hidden}
 .purp{display:inline-flex;align-items:center;height:19px;padding:0 7px;border-radius:999px;border:1px solid;font-size:10.5px;font-weight:600;letter-spacing:.01em;white-space:nowrap}
-.purp--view{color:var(--info);border-color:rgba(99,196,236,.4);background:rgba(99,196,236,.1)}
-.purp--record{color:var(--save);border-color:rgba(229,161,99,.4);background:rgba(229,161,99,.1)}
-.purp--neural{color:var(--viol);border-color:rgba(155,141,242,.4);background:rgba(155,141,242,.1)}
-.purp--birdview{color:var(--acc);border-color:rgba(var(--acc-rgb),.4);background:rgba(var(--acc-rgb),.1)}
+.purp--view{color:var(--info);border-color:var(--info-edge);background:var(--info-bg)}
+.purp--record{color:var(--save);border-color:var(--save-edge);background:transparent}
+.purp--neural{color:var(--viol);border-color:var(--viol-edge);background:var(--viol-bg)}
+.purp--birdview{color:var(--acc);border-color:var(--acc-edge);background:var(--acc-bg)}
 
 /* Выбор назначений в шторке: тот же цвет, но кликабельно */
 .purp-pick{display:flex;flex-wrap:wrap;gap:7px}
-.purp-btn{display:inline-flex;align-items:center;gap:7px;height:29px;padding:0 11px;border-radius:999px;border:1px solid var(--line);background:var(--input);color:var(--fg-3);font-size:12px;transition:.12s}
+.purp-btn{display:inline-flex;align-items:center;gap:7px;height:29px;padding:0 11px;border-radius:999px;border:1px solid var(--line);background:var(--input);color:var(--fg-3);font-size:12px;transition:var(--tr-ui)}
 .purp-btn:hover:not(:disabled){border-color:var(--line-hi);color:var(--fg-2)}
 .purp-btn:disabled{opacity:.45;cursor:not-allowed}
 .purp-btn .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
 .purp-btn.is-on{color:var(--fg);border-color:currentColor}
-.purp-btn.is-on.purp--view{color:var(--info);background:rgba(99,196,236,.12)}
-.purp-btn.is-on.purp--record{color:var(--save);background:rgba(229,161,99,.12)}
-.purp-btn.is-on.purp--neural{color:var(--viol);background:rgba(155,141,242,.12)}
-.purp-btn.is-on.purp--birdview{color:var(--acc);background:rgba(var(--acc-rgb),.12)}
+.purp-btn.is-on.purp--view{color:var(--info);background:var(--info-bg)}
+.purp-btn.is-on.purp--record{color:var(--save);background:transparent}
+.purp-btn.is-on.purp--neural{color:var(--viol);background:var(--viol-bg)}
+.purp-btn.is-on.purp--birdview{color:var(--acc);background:var(--acc-bg)}
 
 /* Строка управления потоками в шторке */
 .stream-bar{display:flex;align-items:flex-end;gap:10px}
@@ -196,7 +196,7 @@
 .probe-head{display:flex;align-items:center;min-height:24px;margin-bottom:12px}
 .probe-head .hint{display:inline-flex;align-items:center;gap:9px}
 .probe-list{display:flex;flex-direction:column;gap:8px}
-.probe-row{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--input);transition:.12s}
+.probe-row{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--input);transition:var(--tr-ui)}
 .probe-row:hover{border-color:rgba(var(--acc-rgb),.5);background:rgba(var(--acc-rgb),.08)}
 .probe-row{cursor:pointer}
 .probe-row input[type=checkbox]{flex:0 0 auto;accent-color:var(--acc);width:15px;height:15px;margin:0}
@@ -222,8 +222,8 @@
 .scard .plate i{font-style:normal;font-size:8px;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3);margin-top:1px}
 .scard .who{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
 .scard .who .n{font-size:12.5px;color:var(--fg);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.scard .del{width:26px;height:26px;display:grid;place-items:center;border-radius:6px;border:1px solid var(--line);color:var(--fg-3);flex:none;transition:.12s}
-.scard .del:hover{border-color:rgba(255,107,128,.5);color:var(--err)}
+.scard .del{width:26px;height:26px;display:grid;place-items:center;border-radius:6px;border:1px solid var(--line);color:var(--fg-3);flex:none;transition:var(--tr-ui)}
+.scard .del:hover{border-color:var(--err-edge);color:var(--err)}
 /* Компактные переключатели назначений */
 .purp-btn--sm{height:22px;padding:0 8px;font-size:10.5px;gap:5px}
 .purp-btn--sm .dot{width:5px;height:5px}
@@ -237,15 +237,15 @@
 .seg--xs button{min-height:22px;padding:0 9px;font-size:11px;font-weight:600;border-radius:4px}
 
 /* Совпадающий id: счётчик в фильтрах, метка в строке, копии в шторке */
-.fld.is-err{border-color:rgba(255,107,128,.42)}
+.fld.is-err{border-color:var(--err-edge)}
 .fld.is-err .k{color:var(--err)}
-.fld.is-err.is-on{background:rgba(255,107,128,.1)}
+.fld.is-err.is-on{background:color-mix(in srgb,var(--err) 10%,transparent)}
 .cam-name .tag{flex:none;padding:1px 7px;font-size:10.5px;font-weight:500}
-.dup{display:flex;flex-direction:column;gap:12px;padding:12px;border:1px solid rgba(255,107,128,.32);border-radius:var(--r);background:rgba(255,107,128,.06)}
+.dup{display:flex;flex-direction:column;gap:12px;padding:12px;border:1px solid color-mix(in srgb,var(--err) 32%,transparent);border-radius:var(--r);background:color-mix(in srgb,var(--err) 6%,transparent)}
 .dup-h{display:flex;align-items:center;gap:8px;color:var(--err)}
 .dup-h .eyebrow{color:var(--err)}
 .dup-item{display:flex;flex-direction:column;gap:10px}
-.dup-item + .dup-item{padding-top:12px;border-top:1px solid rgba(255,107,128,.2)}
+.dup-item + .dup-item{padding-top:12px;border-top:1px solid color-mix(in srgb,var(--err) 20%,transparent)}
 .dup-card{display:flex;align-items:center;gap:10px}
 .dup-card .who{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
 .dup-card .who b{font-size:13px;font-weight:600;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

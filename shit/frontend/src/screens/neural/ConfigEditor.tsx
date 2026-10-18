@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Icon } from '../../app/Icons';
-import { Switch } from '../../app/Modal';
+import { Switch, Seg } from '../../app/Modal';
 import { Select } from '../../app/Select';
 import type { ClassDef, ModelFile, NeuralConfig, SuperclassDef, TrackerConfig, TrackerType } from '../../features/neural/api/types';
 
@@ -26,8 +26,8 @@ const TRACKER_FIELDS: Record<string, { matchBy?: boolean; main: TrackerField[]; 
 
 const MATCH_BY: [string, string][] = [['class', 'по классу'], ['superclass', 'по суперклассу']];
 
-const NO_SUPER_COLOR = '#7b8698';
-const NEW_COLOR = '#5b9dff';
+const NO_SUPER_COLOR = '#878c97';
+const NEW_COLOR = '#68a5ff';
 
 interface ConfigEditorProps {
     value: NeuralConfig;
@@ -172,12 +172,12 @@ export function ConfigEditor({ value, onChange, creating, id, onIdChange, idErro
                     <div className="nvb">
                         <div className="blk-h">
                             <h3>Трекер</h3>
-                            <div className="seg spacer">
+                            <Seg className="spacer">
                                 <button className={!tracker ? 'is-on' : ''} onClick={() => setTrackerType('')}>Выключен</button>
                                 {trackerTypes.map(t => (
                                     <button key={t.type} className={tracker?.type === t.type ? 'is-on' : ''} onClick={() => setTrackerType(t.type)}>{t.name}</button>
                                 ))}
-                            </div>
+                            </Seg>
                             <button className="icon-btn" data-tip="По умолчанию" disabled={!canReset} onClick={resetTracker}>
                                 <Icon name="reset" size={13} />
                             </button>
@@ -186,12 +186,12 @@ export function ConfigEditor({ value, onChange, creating, id, onIdChange, idErro
                             {fields?.matchBy && (
                                 <div className="tf">
                                     <span className="tf-cap">Сопоставлять</span>
-                                    <div className="seg trk-seg">
+                                    <Seg className="trk-seg">
                                         {MATCH_BY.map(([key, label]) => (
                                             <button key={key} className={fieldValue('match_by') === key ? 'is-on' : ''} disabled={!tracker}
                                                 onClick={() => patchTracker({ match_by: key })}>{label}</button>
                                         ))}
-                                    </div>
+                                    </Seg>
                                 </div>
                             )}
                             {fields && pairs(fields.main)}

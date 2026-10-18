@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Modal } from '../../app/Modal';
+import { Modal, Seg } from '../../app/Modal';
 import { neuralApi } from '../../features/neural/api/client';
 import type { ConfigSummary, ImportMode, NeuralConfig } from '../../features/neural/api/types';
 
@@ -105,10 +105,10 @@ export function ImportModal({ existing, onClose, onImported }: ImportModalProps)
 
                 <div className="tf">
                     <span className="tf-cap">Режим</span>
-                    <div className="seg">
+                    <Seg>
                         <button className={mode === 'merge' ? 'is-on' : ''} style={{ flex: 1 }} onClick={() => setMode('merge')}>Дополнить</button>
                         <button className={mode === 'replace' ? 'is-on' : ''} style={{ flex: 1 }} onClick={() => setMode('replace')}>Заменить все</button>
-                    </div>
+                    </Seg>
                 </div>
 
                 {err && <span className="hint is-err">{err}</span>}

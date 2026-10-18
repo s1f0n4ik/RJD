@@ -19,7 +19,7 @@ import { drawDetections, markForSource, type Detection, type Track } from '../..
 import type { ViewStream } from './sources';
 import { formatDeviceDate, formatDeviceTime } from '../../app/useDeviceClock';
 import { Icon } from '../../app/Icons';
-import { CellFlash, CellState, useFlash } from './CellOverlays';
+import { CellFlash, CellState, LostPlate, useFlash } from './CellOverlays';
 import type { Overlays } from './model';
 
 // Ключ потока коррекции: надстройка камеры перехватывает сессию по нему
@@ -87,6 +87,8 @@ interface CellPlayerProps {
     correctionRequest?: { enable: boolean; nonce: number };
     /** Идёт запрос: пока он не завершён, переключать нечего */
     onCorrectionBusy?: (busy: boolean) => void;
+    // Устройство молчит с этого момента; null — на связи
+    offlineSince?: number | null;
 }
 
 function num(value: number | null | undefined, digits: number): string {
@@ -114,6 +116,7 @@ export function CellPlayer({
     controls = 'all',
     correctionRequest,
     onCorrectionBusy,
+    offlineSince = null,
 }: CellPlayerProps) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const boxRef = useRef<HTMLDivElement>(null);
@@ -189,7 +192,7 @@ export function CellPlayer({
 
     const stream = corrected ? CORRECTION_STREAM : streamKey;
 
-    const { status, errorInfo, attempt, grantedStream, videoRef, stats, send } = useWebRTCPlayer({
+    const { status, errorInfo, attempt, grantedStream, videoRef, stats, send, lostAt } = useWebRTCPlayer({
         cameraId,
         stream,
         signalingUrl,
@@ -398,7 +401,11 @@ export function CellPlayer({
                 </div>
             )}
 
-            {!live && <CellState status={status} error={errorInfo} attempt={attempt} />}
+            {!live && (offlineSince !== null
+                ? <LostPlate text="устройство не отвечает" since={offlineSince} />
+                : lostAt !== null
+                    ? <LostPlate text="нет сигнала" since={lostAt} title={errorInfo?.text} />
+                    : <CellState status={status} error={errorInfo} attempt={attempt} />)}
 
             {detectionsOn && overlays.sources && legend.length > 0 && (
                 <div className={`cellv-legend${overlays.time ? ' is-raised' : ''}`}>

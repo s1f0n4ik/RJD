@@ -22,7 +22,7 @@
 
 .pill.err .dot{background:var(--err);box-shadow:0 0 7px var(--err)}
 
-.pill.err{border-color:rgba(255,107,128,.35);color:var(--err)}
+.pill.err{border-color:var(--err-edge);color:var(--err)}
 
 .dot{width:6px;height:6px;border-radius:50%;background:var(--fg-3);flex:0 0 6px}
 
@@ -36,7 +36,7 @@
 
 .dot.save{background:var(--save);box-shadow:0 0 7px var(--save)}
 
-.icon-btn{width:30px;height:30px;display:grid;place-items:center;border-radius:7px;border:1px solid var(--line);color:var(--fg-2);transition:.15s}
+.icon-btn{width:30px;height:30px;display:grid;place-items:center;border-radius:7px;border:1px solid var(--line);color:var(--fg-2);transition:var(--tr-ui)}
 
 .icon-btn:hover:not([disabled]){border-color:var(--line-hi);color:var(--fg)}
 /* Гасим значок, а не кнопку: opacity на кнопке создаёт контекст наложения и топит подсказку */
@@ -73,7 +73,7 @@
   min-height:38px;padding:0 15px;border-radius:var(--r);
   display:inline-flex;align-items:center;justify-content:center;gap:8px;
   border:1px solid var(--line-hi);background:var(--panel-2);color:var(--fg);
-  font-size:13px;font-weight:600;transition:.15s;white-space:nowrap;
+  font-size:13px;font-weight:600;transition:var(--tr-ui);white-space:nowrap;
 }
 
 .btn:hover{border-color:var(--acc-dim)}
@@ -140,21 +140,26 @@
 
 .sw{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;color:var(--fg-2);cursor:pointer}
 
-.sw i{width:34px;height:19px;flex:0 0 34px;border-radius:10px;background:var(--input);border:1px solid var(--line);position:relative;transition:.15s}
+.sw i{width:34px;height:19px;flex:0 0 34px;border-radius:10px;background:var(--input);border:1px solid var(--line);position:relative;transition:var(--tr-ui)}
 
-.sw i::after{content:'';position:absolute;left:2px;top:2px;width:13px;height:13px;border-radius:50%;background:var(--fg-3);transition:.15s}
+.sw i::after{content:'';position:absolute;left:2px;top:2px;width:13px;height:13px;border-radius:50%;background:var(--fg-3);transition:var(--tr-ui)}
 
 .sw.is-on i{background:rgba(var(--acc-rgb),.22);border-color:var(--acc-dim)}
 
 .sw.is-on i::after{left:auto;right:2px;background:var(--acc)}
 
-.seg{display:flex;background:var(--input);border:1px solid var(--line);border-radius:var(--r);padding:3px;gap:2px}
+.seg{position:relative;display:flex;background:var(--input);border:1px solid var(--line);border-radius:var(--r);padding:3px;gap:2px}
 
-.seg button{min-height:30px;padding:0 12px;border-radius:6px;font-size:12.5px;font-weight:500;color:var(--fg-2)}
+.seg button{min-height:30px;padding:0 12px;border-radius:6px;font-size:12.5px;font-weight:500;color:var(--fg-2);transition:var(--tr-ui)}
 
 .seg button:hover{color:var(--fg)}
 
 .seg button.is-on{background:var(--panel-2);color:var(--fg);font-weight:600}
+
+/* Подложка <Seg>: переезжает под выбранную кнопку; без неё .is-on красится сам */
+.seg>button{position:relative;z-index:1}
+.seg-pill{position:absolute;left:0;top:0;width:0;height:0;border-radius:6px;background:var(--panel-2);pointer-events:none;opacity:0;transition:transform var(--t-mid) var(--ease-out),width var(--t-mid) var(--ease-out),height var(--t-mid) var(--ease-out)}
+.seg:has(>.seg-pill)>button.is-on{background:transparent}
 
 .seg button.is-on.v-true{color:var(--ok)}
 
@@ -174,13 +179,13 @@
 
 .tag .sw-col{width:8px;height:8px;border-radius:2px;flex:0 0 8px}
 
-.tag.is-acc{background:rgba(var(--acc-rgb),.14);border-color:rgba(var(--acc-rgb),.32);color:var(--acc)}
+.tag.is-acc{background:var(--acc-bg);border-color:var(--acc-edge);color:var(--acc)}
 
-.tag.is-ok{background:rgba(87,214,154,.13);border-color:rgba(87,214,154,.3);color:var(--ok)}
+.tag.is-ok{background:var(--ok-bg);border-color:var(--ok-edge);color:var(--ok)}
 
-.tag.is-err{background:rgba(255,107,128,.13);border-color:rgba(255,107,128,.3);color:var(--err)}
+.tag.is-err{background:var(--err-bg);border-color:var(--err-edge);color:var(--err)}
 
-.tag.is-warn{background:rgba(240,189,87,.13);border-color:rgba(240,189,87,.3);color:var(--warn)}
+.tag.is-warn{background:transparent;border-color:var(--warn-edge);color:var(--warn)}
 
 /* ── Общие раскладки рабочих экранов ────────────────────── */
 .work{flex:1;min-height:0;display:flex}
@@ -192,7 +197,7 @@
 .tool{
   min-height:36px;padding:0 13px;border-radius:var(--r);
   display:inline-flex;align-items:center;gap:8px;
-  border:1px solid transparent;color:var(--fg-2);font-size:13px;font-weight:500;transition:.15s;
+  border:1px solid transparent;color:var(--fg-2);font-size:13px;font-weight:500;transition:var(--tr-ui);
 }
 
 .tool:hover{background:var(--panel);color:var(--fg)}
@@ -238,11 +243,11 @@
 
 .grid2 .field{margin-bottom:0}
 
-.row-item{display:flex;align-items:center;gap:10px;min-height:40px;padding:0 10px;border-radius:var(--r);border:1px solid transparent;transition:.14s;width:100%;text-align:left}
+.row-item{display:flex;align-items:center;gap:10px;min-height:40px;padding:0 10px;border-radius:var(--r);border:1px solid transparent;transition:var(--tr-ui);width:100%;text-align:left}
 
 .row-item:hover{background:var(--panel)}
 
-.row-item.is-sel{background:rgba(var(--acc-rgb),.14);border-color:rgba(var(--acc-rgb),.38)}
+.row-item.is-sel{background:var(--acc-bg);border-color:var(--acc-edge)}
 
 .chip-col{width:10px;height:10px;flex:0 0 10px;border-radius:3px}
 
@@ -339,17 +344,21 @@
 
 .banner{
   display:flex;align-items:center;gap:11px;padding:10px 14px;border-radius:var(--r);
-  border:1px solid rgba(240,189,87,.35);background:rgba(240,189,87,.09);color:var(--warn);font-size:12.5px;
+  border:1px solid var(--line);background:var(--surface);box-shadow:inset 3px 0 0 var(--warn);color:var(--warn);font-size:12.5px;
 }
 
-.banner.is-err{border-color:rgba(255,107,128,.35);background:rgba(255,107,128,.08);color:var(--err)}
+.banner.is-err{border-color:var(--err-edge);background:var(--err-bg);box-shadow:inset 3px 0 0 var(--err);color:var(--err)}
 
-.banner.is-info{border-color:rgba(var(--acc-rgb),.32);background:rgba(var(--acc-rgb),.08);color:var(--acc)}
+.banner.is-info{border-color:var(--acc-edge);background:var(--surface);box-shadow:inset 3px 0 0 var(--acc);color:var(--acc)}
 
 .banner .btn{margin-left:auto}
 
 /* ── Модальные окна ─────────────────────────────────────── */
-.overlay{position:fixed;inset:0;z-index:400;background:rgba(6,8,12,.72);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;padding:32px}
+.overlay{position:fixed;inset:0;z-index:400;background:rgba(6,8,12,.74);display:flex;align-items:center;justify-content:center;padding:32px}
+.overlay:not([hidden]){animation:overlay-in 160ms var(--ease-out)}
+.overlay:not([hidden])>.modal{animation:modal-in var(--t-mid) var(--ease-out)}
+@keyframes overlay-in{from{opacity:0}}
+@keyframes modal-in{from{opacity:0;transform:translateY(8px) scale(.98)}}
 
 /* Ширина задаётся переменной: вариант и экранный класс меняют только её */
 .modal{
@@ -391,8 +400,31 @@
 .toast{
   position:fixed;right:20px;bottom:20px;z-index:500;display:flex;align-items:center;gap:11px;
   padding:12px 15px;border-radius:var(--r);background:var(--panel);border:1px solid var(--line-hi);
-  box-shadow:var(--shadow-lg);font-size:13px;max-width:380px;
+  box-shadow:var(--shadow-lg);font-size:13px;max-width:380px;cursor:pointer;
+  animation:toast-in var(--t-mid) var(--ease-out);
 }
+.toast.is-out{animation:toast-out 150ms var(--ease-in) forwards}
+
+/* Видео WebRTC: проявляется с первым кадром, при обрыве держит последний кадр серым, возврат перетекает в цвет */
+video[data-rtc]{transition:opacity var(--t-slow) var(--ease-out),filter var(--t-slow) var(--ease-out)}
+video[data-rtc]:not([data-live]){filter:grayscale(1) brightness(.42)}
+video[data-rtc]:not([data-live]):not([poster]){opacity:0}
+
+/* Плашка ячейки стены: сигнала нет или устройство молчит, со временем с момента потери */
+.cell-lost{position:absolute;left:10px;bottom:10px;z-index:3;display:flex;align-items:center;gap:9px;padding:6px 10px;border-radius:var(--r);background:rgba(10,12,16,.82);border:1px solid var(--line-hi);font-size:12px;color:var(--fg);animation:overlay-in var(--t-mid) var(--ease-out)}
+.cell-lost .t{font-family:var(--mono);font-size:11.5px;color:var(--fg-2);font-variant-numeric:tabular-nums}
+.cell-lost .spin{width:12px;height:12px;border-width:1.5px}
+
+/* Отклик нажатия */
+:is(.btn,.tool,.icon-btn,.tl-tool,.purp-btn,.seg>button,.tl-zoom button,.rail-item,.row-item):active:not(:disabled){transform:scale(.97)}
+
+/* Вспышка сводного счётчика при смене значения */
+.flash{animation:flash 900ms var(--ease-out)}
+.flash[data-flash="warn"]{--fl:color-mix(in srgb,var(--warn) 30%,transparent)}
+.flash[data-flash="bad"]{--fl:color-mix(in srgb,var(--err) 34%,transparent)}
+@keyframes flash{from{background-color:var(--fl,rgba(var(--acc-rgb),.3))}}
+@keyframes toast-in{from{opacity:0;transform:translateY(8px)}}
+@keyframes toast-out{to{opacity:0;transform:translateY(6px)}}
 
 .toast .dot{width:8px;height:8px;flex:0 0 8px}
 
@@ -417,13 +449,13 @@
   display:flex;align-items:center;gap:8px;width:100%;height:32px;padding:0 10px;
   background:var(--input);border:1px solid var(--line);border-radius:var(--r);
   color:var(--fg);font-size:12.5px;text-align:left;
-  transition:border-color .15s ease,box-shadow .15s ease;
+  transition:border-color var(--t-fast) var(--ease-out),box-shadow var(--t-fast) var(--ease-out);
 }
 .uisel-btn:hover{border-color:var(--line-hi)}
 .uisel.is-open .uisel-btn,.uisel-btn:focus-visible{border-color:var(--acc-dim);box-shadow:0 0 0 3px rgba(var(--acc-rgb),.13);outline:none}
 .uisel-btn:disabled{opacity:.45;cursor:not-allowed}
 .uisel-val{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.uisel-car{flex:0 0 12px;color:var(--fg-3);transform:rotate(90deg);transition:transform .15s ease}
+.uisel-car{flex:0 0 12px;color:var(--fg-3);transform:rotate(90deg);transition:transform var(--t-fast) var(--ease-out)}
 .uisel.is-open .uisel-car{transform:rotate(-90deg)}
 
 .uisel-pop{
@@ -467,7 +499,7 @@ select.sel:disabled{opacity:.45;cursor:not-allowed}
 
 .pill--job:hover{border-color:var(--acc)}
 
-.pill--job.is-done{border-color:rgba(87,214,154,.5)}
+.pill--job.is-done{border-color:var(--ok-edge)}
 
 .ring{width:15px;height:15px;flex:0 0 15px;border-radius:50%;background:conic-gradient(var(--acc) var(--p,0%),rgba(255,255,255,.1) 0)}
 
@@ -496,7 +528,7 @@ select.sel:disabled{opacity:.45;cursor:not-allowed}
 
 .dl-bar{height:4px;border-radius:2px;background:var(--input);margin:9px 0 7px;overflow:hidden}
 
-.dl-bar i{display:block;height:100%;background:var(--acc);transition:width .2s}
+.dl-bar i{display:block;height:100%;background:var(--acc);transition:width var(--t-mid) var(--ease-out)}
 
 .dl-bar.is-done i{background:var(--ok)}
 
@@ -510,12 +542,12 @@ select.sel:disabled{opacity:.45;cursor:not-allowed}
 .tf{display:flex;flex-direction:column;gap:5px;min-width:0;flex:1 1 0}
 .tf-cap{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:6px}
 .tf-cap .spacer{margin-left:auto}
-.tf-in{width:100%;height:32px;padding:0 10px;background:var(--input);border:1px solid var(--line);border-radius:6px;color:var(--fg);font-family:var(--mono);font-size:12px;text-align:left;box-sizing:border-box;transition:border-color .2s,box-shadow .2s}
+.tf-in{width:100%;height:32px;padding:0 10px;background:var(--input);border:1px solid var(--line);border-radius:6px;color:var(--fg);font-family:var(--mono);font-size:12px;text-align:left;box-sizing:border-box;transition:border-color var(--t-mid) var(--ease-out),box-shadow var(--t-mid) var(--ease-out)}
 .tf-in:hover{border-color:var(--line-hi)}
 .tf-in:focus{outline:none;border-color:var(--acc-dim);box-shadow:0 0 0 2px rgba(var(--acc-rgb),.15)}
 .tf-in[readonly]{color:var(--fg-2)}
-.tf-in.is-err{border-color:var(--err);box-shadow:0 0 0 2px rgba(255,107,128,.18)}
-.tf-in.is-warn{border-color:var(--warn);box-shadow:0 0 0 2px rgba(240,189,87,.18)}
+.tf-in.is-err{border-color:var(--err);box-shadow:0 0 0 2px color-mix(in srgb,var(--err) 18%,transparent)}
+.tf-in.is-warn{border-color:var(--warn);box-shadow:0 0 0 2px color-mix(in srgb,var(--warn) 18%,transparent)}
 .tf .sel{height:32px;display:flex;width:100%;font-family:var(--mono);font-size:12px;border-radius:6px;padding-left:10px}
 .tf-row{display:flex;gap:8px;align-items:flex-end}
 .tf-row>.tf{min-width:0}
@@ -540,6 +572,8 @@ select.sel:disabled{opacity:.45;cursor:not-allowed}
 [data-tip]{position:relative}
 /* Слой подсказки [data-tip] поверх страницы, его ставит TipLayer */
 .tip-layer{position:fixed;top:0;left:0;z-index:600;width:max-content;max-width:min(420px,calc(100vw - 16px));padding:5px 9px;border-radius:6px;background:var(--panel-2);border:1px solid var(--line-hi);color:var(--fg);font-family:var(--ui);font-size:11.5px;font-weight:500;line-height:1.4;letter-spacing:0;text-transform:none;box-shadow:var(--shadow);pointer-events:none}
+.tip-layer:not([hidden]){animation:tip-in 100ms var(--ease-out)}
+@keyframes tip-in{from{opacity:0}}
 
 /* ── Рамка модуля: тело слева, панель разделов справа (общая для модулей, родом с КРСПС) ── */
 .mod-screen{display:flex;flex-direction:column;min-height:0}
@@ -549,7 +583,7 @@ select.sel:disabled{opacity:.45;cursor:not-allowed}
 .mod-side .blk-h{display:flex;align-items:center;gap:10px;height:48px;padding:0 18px;background:var(--input);border-bottom:1px solid var(--line);flex:0 0 auto}
 .mod-side .blk-h h3{font-size:13px;font-weight:600}
 .mod-side .blk-b{padding:10px;display:flex;flex-direction:column;gap:3px;border-bottom:1px solid var(--line)}
-.mod-item{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 11px;border-radius:var(--r);color:var(--fg-2);width:100%;text-align:left;transition:.14s;position:relative}
+.mod-item{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 11px;border-radius:var(--r);color:var(--fg-2);width:100%;text-align:left;transition:var(--tr-ui);position:relative}
 .mod-item:hover{background:var(--panel)}
 .mod-item.is-on{background:var(--panel);color:var(--fg)}
 .mod-item.is-on::before{content:'';position:absolute;left:0;top:7px;bottom:7px;width:3px;border-radius:0 2px 2px 0;background:var(--acc);box-shadow:0 0 12px rgba(var(--acc-rgb),.55)}
@@ -590,7 +624,7 @@ select.sel:disabled{opacity:.45;cursor:not-allowed}
 .rng input[type=range]:focus{outline:none}
 
 /* ── Коэффициент: поле с якорем-джойстиком ── */
-.jf{position:relative;display:flex;align-items:center;height:32px;background:var(--input);border:1px solid var(--line);border-radius:6px;transition:border-color .2s,box-shadow .2s}
+.jf{position:relative;display:flex;align-items:center;height:32px;background:var(--input);border:1px solid var(--line);border-radius:6px;transition:border-color var(--t-mid) var(--ease-out),box-shadow var(--t-mid) var(--ease-out)}
 .jf:hover{border-color:var(--line-hi)}
 .jf.is-live{border-color:var(--acc-dim);box-shadow:0 0 0 2px rgba(var(--acc-rgb),.15)}
 .jf-scale{position:absolute;inset:0;border-radius:5px;overflow:hidden;pointer-events:none;display:none}
@@ -619,9 +653,9 @@ select.sel:disabled{opacity:.45;cursor:not-allowed}
 /* Строка с многоточием (FitText): обрезанный текст при наведении раскрывается на месте поверх соседей, плашка растёт слева направо, за текстом идёт курсор */
 .fit{position:relative;display:block;min-width:0}
 .fit-t{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.fit-full{position:absolute;left:calc(var(--fit-shift,0px) - 6px);top:50%;z-index:6;max-width:calc(100% + 16px);padding:3px 10px 3px 6px;transform:translateY(-50%);white-space:nowrap;overflow:hidden;color:var(--fg);background:var(--panel-2);border-radius:6px;box-shadow:0 0 0 1px var(--line-hi),0 12px 28px -14px rgba(0,0,0,.8);opacity:0;pointer-events:none;transition:max-width .14s ease,opacity .1s ease}
+.fit-full{position:absolute;left:calc(var(--fit-shift,0px) - 6px);top:50%;z-index:6;max-width:calc(100% + 16px);padding:3px 10px 3px 6px;transform:translateY(-50%);white-space:nowrap;overflow:hidden;color:var(--fg);background:var(--panel-2);border-radius:6px;box-shadow:0 0 0 1px var(--line-hi),0 12px 28px -14px rgba(0,0,0,.8);opacity:0;pointer-events:none;transition:max-width var(--t-fast) var(--ease-out),opacity var(--t-fast) var(--ease-out)}
 .fit-full::after{content:'';position:absolute;right:4px;top:4px;bottom:4px;width:2px;border-radius:1px;background:var(--acc);box-shadow:0 0 8px rgba(var(--acc-rgb),.8);opacity:0}
-.fit[data-cut]:hover .fit-full{opacity:1;max-width:min(640px,70vw);transition:max-width .34s cubic-bezier(.2,.8,.2,1),opacity .06s ease}
+.fit[data-cut]:hover .fit-full{opacity:1;max-width:min(640px,70vw);transition:max-width var(--t-slow) var(--ease-out),opacity .06s var(--ease-out)}
 .fit[data-cut]:hover .fit-full::after{animation:fit-caret .6s ease forwards}
 @keyframes fit-caret{0%,55%{opacity:1}100%{opacity:0}}
 @media (prefers-reduced-motion:reduce){.fit-full,.fit[data-cut]:hover .fit-full{transition:none}.fit-full::after{display:none}}

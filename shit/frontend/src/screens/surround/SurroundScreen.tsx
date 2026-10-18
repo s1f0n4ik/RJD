@@ -4,7 +4,7 @@ import { Icon } from '../../app/Icons';
 import { useSystem } from '../../app/SystemContext';
 import { setSurroundStatus } from '../../app/surroundStatus';
 import { getRouting } from '../../services/devices';
-import { ToastProvider, useToast } from '../../features/birdview/components/common/Toast';
+import { useToast } from '../../app/Toast';
 import { ConfirmModal } from '../../features/birdview/components/common/ConfirmModal';
 import { ConfiguratorScreen } from '../../features/birdview/components/configurator/ConfiguratorScreen';
 import { MappingScreen } from '../../features/birdview/components/mapping/MappingScreen';
@@ -78,11 +78,7 @@ export default function SurroundScreen() {
         return <Navigate to={`/surround/${SURROUND_SECTIONS[0].id}`} replace />;
     }
 
-    return (
-        <ToastProvider>
-            <SurroundContent screen={section} />
-        </ToastProvider>
-    );
+    return <SurroundContent screen={section} />;
 }
 
 function SurroundContent({ screen }: { screen: ScreenId }) {

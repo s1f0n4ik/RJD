@@ -15,13 +15,14 @@
 .sv-conf .zrow{cursor:pointer}
 .sv-conf .zrow .key.is-warn{color:var(--warn)}
 /* Карточка камеры: строка и поля — один блок, обведённый цветом самой камеры */
-.sv-conf .camrow{border:1px solid transparent;border-radius:var(--r);transition:border-color .18s ease,background .18s ease,box-shadow .18s ease}
+.sv-conf .camrow{border:1px solid transparent;border-radius:var(--r);transition:border-color var(--t-mid) var(--ease-out),background-color var(--t-mid) var(--ease-out),box-shadow var(--t-mid) var(--ease-out)}
 .sv-conf .camrow.is-open{border-color:var(--cam);background:var(--bg);box-shadow:0 8px 20px rgba(0,0,0,.35)}
 /* Обводит карточка целиком, поэтому строка внутри своих рамок и подложки не имеет */
 .sv-conf .camrow.is-open .zrow.is-sel{background:none;border-color:transparent}
-.sv-conf .camrow-edit{max-height:0;opacity:0;visibility:hidden;overflow:hidden;transform:translateY(-4px);transition:max-height .18s ease,opacity .16s ease,transform .18s ease,visibility 0s linear .18s}
-.sv-conf .camrow.is-open .camrow-edit{max-height:120px;opacity:1;visibility:visible;transform:none;transition:max-height .2s ease,opacity .18s ease .02s,transform .2s ease,visibility 0s}
-.sv-conf .camrow-edit-in{padding:0 10px 9px 42px}
+.sv-conf .camrow-edit{display:grid;grid-template-rows:0fr;opacity:0;visibility:hidden;transform:translateY(-4px);transition:grid-template-rows var(--t-mid) var(--ease-out),opacity var(--t-fast) var(--ease-out),transform var(--t-mid) var(--ease-out),visibility 0s linear var(--t-mid)}
+.sv-conf .camrow.is-open .camrow-edit{grid-template-rows:1fr;opacity:1;visibility:visible;transform:none;transition:grid-template-rows var(--t-mid) var(--ease-out),opacity var(--t-mid) var(--ease-out) .02s,transform var(--t-mid) var(--ease-out),visibility 0s}
+.sv-conf .camrow-edit-in{min-height:0;overflow:hidden}
+.sv-conf .camrow-edit-in>.tf-row{padding:0 10px 9px 42px}
 .sv-conf .camrow-edit .tf-in{height:28px;font-size:11.5px}
 .sv-conf .camrow-edit .tf-cap{font-size:9.5px}
 @media (prefers-reduced-motion: reduce){
@@ -35,7 +36,7 @@
 .sv-conf .sv-foot .tf-cap .spacer{color:var(--save)}
 
 /* Поле с ошибкой ввода: обёртка .tf красит свой .tf-in */
-.tf.is-err .tf-in{border-color:var(--err);box-shadow:0 0 0 2px rgba(255,107,128,.18)}
+.tf.is-err .tf-in{border-color:var(--err);box-shadow:0 0 0 2px color-mix(in srgb,var(--err) 18%,transparent)}
 
 /* Модалки конфигуратора */
 .conf-modal-b{display:flex;flex-direction:column;gap:14px}
@@ -56,7 +57,7 @@
 .pp-grid{stroke:var(--line);stroke-width:1;fill:none}
 .pp-overlay{fill:rgba(255,255,255,.04);stroke:var(--line-hi);stroke-width:1.5}
 .pp-camera{fill:rgba(var(--acc-rgb),.07);stroke:var(--acc);stroke-width:2}
-.pp-zone{fill:rgba(87,214,154,.14);stroke:var(--ok);stroke-width:1.5}
+.pp-zone{fill:color-mix(in srgb,var(--ok) 14%,transparent);stroke:var(--ok);stroke-width:1.5}
 .pp-gab{fill:none;stroke:var(--save);stroke-width:2;stroke-dasharray:8 5}
 .pp-label{font-family:var(--mono);fill:var(--fg-2);pointer-events:none}
 

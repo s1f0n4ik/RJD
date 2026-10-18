@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Icon } from '../../../app/Icons';
-import { Switch } from '../../../app/Modal';
+import { Switch, Seg } from '../../../app/Modal';
 import { Select } from '../../../app/Select';
 import type {
   GwCanConfigPatch,
@@ -374,9 +374,13 @@ const BusNowCard: React.FC<{
         </div>
 
         <div className={`cb-warn${gaps ? ' is-on' : ''}`} aria-hidden={!gaps}>
-          <Icon name="warn" size={15} />
-          У {shownGaps === 1 ? 'одного обнаружения' : `${shownGaps} обнаружений`} камера без номера в таблице соответствий: в байт 4 уходит 0.
-          <button type="button" tabIndex={gaps ? undefined : -1} onClick={() => navigate('/configurations/table')}>Таблица соответствий</button>
+          <div className="cb-warn-in">
+            <div className="cb-warn-box">
+              <Icon name="warn" size={15} />
+              У {shownGaps === 1 ? 'одного обнаружения' : `${shownGaps} обнаружений`} камера без номера в таблице соответствий: в байт 4 уходит 0.
+              <button type="button" tabIndex={gaps ? undefined : -1} onClick={() => navigate('/configurations/table')}>Таблица соответствий</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -491,7 +495,7 @@ const MessageBlock: React.FC<MsgProps> = ({ msg, summary, busy, onPatch, childre
             </div>
             <div className="fc auto">
               <span className="cap">Система счисления</span>
-              <div className="seg">
+              <Seg>
                 <button type="button" className={`seps${base === 'hex' ? ' is-on' : ''}`} onClick={() => switchBase('hex')}>
                   <span>16</span>
                   <span>HEX</span>
@@ -500,7 +504,7 @@ const MessageBlock: React.FC<MsgProps> = ({ msg, summary, busy, onPatch, childre
                   <span>10</span>
                   <span>DEC</span>
                 </button>
-              </div>
+              </Seg>
             </div>
             <div className="fc">
               <span className="cap">PGN</span>
@@ -626,10 +630,10 @@ const CanModulePanel: React.FC<Props> = ({ module, title, devices, dicts, busy, 
             <div className="form">
               <div className="fc">
                 <span className="cap">Режим</span>
-                <div className="seg">
+                <Seg>
                   <button type="button" className={mode === 'socketcan' ? 'is-on' : ''} disabled={busy} onClick={() => mode !== 'socketcan' && patchConnection({ mode: 'socketcan' })}>SocketCAN</button>
                   <button type="button" className={mode === 'slcan' ? 'is-on' : ''} disabled={busy} onClick={() => mode !== 'slcan' && patchConnection({ mode: 'slcan' })}>slcan (serial)</button>
-                </div>
+                </Seg>
               </div>
               {mode === 'socketcan' ? (
                 <div className="fc" style={{ flex: '0 1 220px' }}>
@@ -835,13 +839,13 @@ const CanModulePanel: React.FC<Props> = ({ module, title, devices, dicts, busy, 
             <div className="card">
               <div className="card-h">
                 <h3>Лента шины</h3>
-                <div className="seg seg--xs">
+                <Seg className="seg--xs">
                   {(['all', 'rx', 'tx'] as const).map((f) => (
                     <button key={f} type="button" className={filter === f ? 'is-on' : ''} onClick={() => setFilter(f)}>
                       {f === 'all' ? 'Все' : f === 'rx' ? 'Приём' : 'Передача'}
                     </button>
                   ))}
-                </div>
+                </Seg>
                 <span className="meta">
                   <span className="seps">
                     <span>{shown.length}</span>

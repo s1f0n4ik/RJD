@@ -5,7 +5,7 @@ import { fetchCalibrationCameras } from '../../api/cameras';
 import type { CalibrationCamera } from '../../api/ws-types';
 import { DEFAULT_CORRECTION_FPS, fetchCalibrationLinks, saveCalibrationLinks } from '../../api/links';
 import type { CalibrationConfigInfo, CalibrationLinks } from '../../api/links';
-import { useToast } from '../common/Toast';
+import { useToast } from '../../../../app/Toast';
 import '../../../../screens/surround/mapping.css';
 
 // Совпадение разрешения камеры и конфигурации: на устройстве это условие включения коррекции

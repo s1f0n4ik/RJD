@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Modal, Switch } from '../../app/Modal';
+import { useToast } from '../../app/Toast';
 import { Select } from '../../app/Select';
 import { Icon } from '../../app/Icons';
 import { useDeviceClock } from '../../app/useDeviceClock';
@@ -35,6 +36,7 @@ import {
     type Overlays,
 } from './model';
 import './live.css';
+import { useFlash } from '../../app/motion';
 
 // Опрос источников: пропажа устройства и смена статусов видны без перезагрузки
 const SOURCES_POLL_MS = 10_000;
@@ -88,7 +90,7 @@ export default function LiveScreen() {
     const [pending, setPending] = useState<(() => void) | null>(null);
     // Действие, которое ждёт конца сохранения через модалку имени
     const afterSaveRef = useRef<(() => void) | null>(null);
-    const [toast, setToast] = useState('');
+    const toast = useToast();
     // Закрытие помнит причину: появится другая — предупреждение вернётся
     const [dismissed, setDismissed] = useState('');
 
@@ -322,8 +324,7 @@ export default function LiveScreen() {
         setSnapshot(JSON.stringify(next));
         localStorage.setItem(LAST_LAYOUT_KEY, name);
         setSaveName(null);
-        setToast(`Отображение «${name}» сохранено`);
-        window.setTimeout(() => setToast(''), 3000);
+        toast(`Отображение «${name}» сохранено`, '', 'ok');
 
         const queued = afterSaveRef.current;
         afterSaveRef.current = null;
@@ -391,6 +392,8 @@ export default function LiveScreen() {
         );
     };
 
+    const flashAir = useFlash<HTMLSpanElement>(`${counts.live}/${counts.total}`, counts.live < counts.total ? 'warn' : '');
+
     return (
         <section className="screen live">
             <div className="toolbar">
@@ -431,7 +434,7 @@ export default function LiveScreen() {
                 </div>
 
                 <div className="zoom">
-                    <span className={`pill${counts.total === 0 ? ''
+                    <span ref={flashAir} className={`pill${counts.total === 0 ? ''
                         : counts.live < counts.total ? ' warn' : ' ok'}`}>
                         <span className="dot" />
                         {counts.live} из {counts.total} в эфире
@@ -585,7 +588,6 @@ export default function LiveScreen() {
                 </aside>
             </div>
 
-            {toast && <div className="live-toast">{toast}</div>}
 
             {freeGridOpen && (
                 <FreeGridModal

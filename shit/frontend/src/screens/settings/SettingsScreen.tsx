@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Navigate, useParams } from 'react-router-dom';
 import { Icon } from '../../app/Icons';
-import { Modal, Switch, isModalOpen } from '../../app/Modal';
+import { Modal, Switch, isModalOpen, Seg } from '../../app/Modal';
 import { useSystem } from '../../app/SystemContext';
-import { ToastProvider, useToast } from '../../features/birdview/components/common/Toast';
+import { useToast } from '../../app/Toast';
+import { reducedMotion } from '../../app/motion';
 import { formatBytes } from '../devices/model';
 import {
     MAX_HIGH, MIN_GAP, MIN_HIGH, STOP_PERCENT, disksLabel, poolApi, usePools,
@@ -40,7 +41,7 @@ const baseName = (path: string) => path.split('/').filter(Boolean).pop() ?? path
 export default function SettingsScreen() {
     const { section = '' } = useParams();
     if (!isSettingsSection(section)) return <Navigate to="/settings/storage" replace />;
-    return <ToastProvider><StorageSection /></ToastProvider>;
+    return <StorageSection />;
 }
 
 function VolumeTag({ v }: { v: PoolVolume }) {
@@ -99,14 +100,25 @@ function StorageSection() {
     const pool = device ? pools[device.id] : undefined;
 
     const [selId, setSelId] = useState<string | null>(null);
+    const [closing, setClosing] = useState(false);
     const selected = pool?.volumes.find(v => v.id === selId) ?? null;
+
+    const pick = (id: string) => {
+        setClosing(false);
+        setSelId(id);
+    };
+    // Закрытие отдаёт переходу доиграть: снятие выбора — по концу перехода шторки
+    const closeDrawer = () => {
+        if (reducedMotion()) setSelId(null);
+        else setClosing(true);
+    };
     const [forgetting, setForgetting] = useState<PoolVolume | null>(null);
 
     // Esc закрывает шторку, уступая модалкам
     useEffect(() => {
         if (!selected) return;
         const onKey = (e: KeyboardEvent) => {
-            if (e.key === 'Escape' && !isModalOpen()) setSelId(null);
+            if (e.key === 'Escape' && !isModalOpen()) closeDrawer();
         };
         document.addEventListener('keydown', onKey);
         return () => document.removeEventListener('keydown', onKey);
@@ -156,7 +168,7 @@ function StorageSection() {
         <section className="screen mod-screen st-screen">
             <div className="st-bar">
                 <span className="st-cap">Устройство</span>
-                <div className="seg st-seg">
+                <Seg className="st-seg">
                     {devices.map(d => (
                         <button
                             key={d.id}
@@ -168,7 +180,7 @@ function StorageSection() {
                             {d.name}
                         </button>
                     ))}
-                </div>
+                </Seg>
                 {pool && (
                     <span className="seps">
                         <span>{disksLabel(pool.summary.disk_count)}</span>
@@ -193,7 +205,7 @@ function StorageSection() {
                         <VolumeTable
                             pool={pool}
                             selId={selId}
-                            onSelect={setSelId}
+                            onSelect={pick}
                             onToggle={(v, on) => void update(v.id, { enabled: on })}
                             onReorder={ids => void reorder(ids)}
                         />
@@ -217,14 +229,23 @@ function StorageSection() {
                     </div>
 
                     {selected && (
-                        <VolumeDrawer
-                            key={selected.id}
-                            deviceId={device.id}
-                            v={selected}
-                            onClose={() => setSelId(null)}
-                            onUpdate={patch => update(selected.id, patch)}
-                            onForget={() => setForgetting(selected)}
-                        />
+                        <aside
+                            className={`st-drawer${closing ? ' is-closing' : ''}`}
+                            onTransitionEnd={e => {
+                                if (!closing || e.target !== e.currentTarget || e.propertyName !== 'flex-basis') return;
+                                setSelId(null);
+                                setClosing(false);
+                            }}
+                        >
+                            <VolumeDrawer
+                                key={selected.id}
+                                deviceId={device.id}
+                                v={selected}
+                                onClose={closeDrawer}
+                                onUpdate={patch => update(selected.id, patch)}
+                                onForget={() => setForgetting(selected)}
+                            />
+                        </aside>
                     )}
                 </div>
             )}
@@ -452,7 +473,7 @@ function VolumeDrawer({ deviceId, v, onClose, onUpdate, onForget }: DrawerProps)
     };
 
     return (
-        <aside className="st-drawer">
+        <div className="st-dw">
             <div className="st-dh">
                 <h2>{v.name}</h2>
                 <VolumeTag v={v} />
@@ -602,6 +623,6 @@ function VolumeDrawer({ deviceId, v, onClose, onUpdate, onForget }: DrawerProps)
                     </div>
                 </Modal>
             )}
-        </aside>
+        </div>
     );
 }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '../../app/Icons';
-import { Modal } from '../../app/Modal';
+import { Modal, Seg } from '../../app/Modal';
 import { Select } from '../../app/Select';
 import { api } from '../../services/api';
 import { defaultCameraDeviceId, getDevices, mcPath, signalingWsUrl } from '../../services/devices';
@@ -523,7 +523,7 @@ export function AddCameraWizard({ cameras, initial, onClose, onSaved }: AddCamer
                                                             patchStream(stream.key, togglePurpose(stream, purpose))}
                                                     />
                                                 </span>
-                                                <span className="seg seg--xs" title="Транспорт RTSP">
+                                                <Seg className="seg--xs" title="Транспорт RTSP">
                                                     <button
                                                         type="button"
                                                         className={stream.use_udp ? '' : 'is-on'}
@@ -538,7 +538,7 @@ export function AddCameraWizard({ cameras, initial, onClose, onSaved }: AddCamer
                                                     >
                                                         UDP
                                                     </button>
-                                                </span>
+                                                </Seg>
                                                 <button
                                                     type="button"
                                                     className="del"

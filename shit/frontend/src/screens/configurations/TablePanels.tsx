@@ -17,7 +17,7 @@ export interface NeuralModel {
 // Конфигурация нейросети → платы, где её слот запущен
 export type RunningMap = Map<string, string[]>;
 
-const NEUTRAL = '#94a1ab';
+const NEUTRAL = '#878c97';
 const NUMBERS_1_8 = [1, 2, 3, 4, 5, 6, 7, 8];
 
 // Подписи словарей; число ограничено полем протокола

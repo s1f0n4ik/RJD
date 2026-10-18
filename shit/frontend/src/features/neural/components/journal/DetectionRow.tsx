@@ -25,7 +25,7 @@ export function detClass(det: JournalDetection, resolve: Resolve): DetClass {
   const m = det.class_id != null ? resolve(det.config_id, det.class_id) : null;
   return {
     name: det.class_name || m?.name || '—',
-    color: m?.color || m?.superColor || '#5b9dff',
+    color: m?.color || m?.superColor || '#68a5ff',
     superName: m?.superName || det.superclass || '',
   };
 }

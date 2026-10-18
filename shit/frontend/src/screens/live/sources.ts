@@ -7,6 +7,7 @@
  * самой ячейке).
  */
 
+import { useRef } from 'react';
 import type { CPPCamera, StreamProducer, VirtualStream } from '../../types';
 import { CAMERA_STATUS } from '../../utils/constants';
 import { PRODUCER_NAME } from '../../components/streams/stream-sources';
@@ -27,6 +28,8 @@ export interface WallSource {
     /** Устройство не ответило, данные из кэша мастера */
     offline: boolean;
     deviceId?: string;
+    // Имя устройства-владельца для сообщений о связи
+    deviceName?: string;
     /** Вторая строка списка: состав виртуального потока или адрес камеры */
     detail?: string;
     producer?: StreamProducer;
@@ -63,6 +66,7 @@ export function cameraToWallSource(camera: CPPCamera): WallSource {
         active: !camera.offline && entries.some(([, s]) => s.status === CAMERA_STATUS.RUNNING),
         offline: Boolean(camera.offline),
         deviceId: camera.device_id,
+        deviceName: camera.device_name,
         detail: camera.ip_adress,
         viewStreams,
         hasNeural: entries.some(([, s]) => s.purposes?.includes('neural')),
@@ -82,6 +86,7 @@ export function virtualToWallSource(stream: VirtualStream, nameOf: (id: string) 
         active: !stream.offline && stream.running,
         offline: Boolean(stream.offline),
         deviceId: stream.device_id,
+        deviceName: stream.device_name,
         detail: stream.cameras.length ? `${PRODUCER_NAME[stream.producer]} · ${cameras}` : PRODUCER_NAME[stream.producer],
         producer: stream.producer,
         secondary: stream.secondary
@@ -106,4 +111,13 @@ export function resolveStream(
     if (!saved) return { key: source.viewStreams[0]?.key, fallback: false };
     if (source.viewStreams.some(s => s.key === saved)) return { key: saved, fallback: false };
     return { key: source.viewStreams[0]?.key, fallback: true };
+}
+
+// Момент, когда устройство впервые замечено молчащим; ключ — идентификатор устройства
+export function useOfflineSince(sources: WallSource[]): Map<string, number> {
+    const since = useRef(new Map<string, number>());
+    const off = new Set(sources.flatMap(s => (s.offline && s.deviceId ? [s.deviceId] : [])));
+    for (const id of [...since.current.keys()]) if (!off.has(id)) since.current.delete(id);
+    for (const id of off) if (!since.current.has(id)) since.current.set(id, Date.now());
+    return since.current;
 }

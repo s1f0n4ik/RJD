@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { Icon } from '../../../../app/Icons';
 import { confState, emitConfChange, q, useConfStore } from '../../state/conf-store';
-import { useToast } from '../common/Toast';
+import { useToast } from '../../../../app/Toast';
 import { NumberField } from '../common/NumberField';
 import {
     confAddCamera,

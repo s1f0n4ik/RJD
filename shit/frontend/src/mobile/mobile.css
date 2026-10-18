@@ -44,7 +44,12 @@
 
 .m-tab.is-on .ico{color:var(--acc)}
 
-.m-tab.is-on::before{content:'';position:absolute;top:0;left:22%;right:22%;height:2px;border-radius:0 0 2px 2px;background:var(--acc);box-shadow:0 0 12px rgba(var(--acc-rgb),.7)}
+/* Указатель активной вкладки: один на панель, переезжает между вкладками */
+.m-tab-ind{position:absolute;left:0;top:0;z-index:1;width:0;height:2px;border-radius:0 0 2px 2px;background:var(--acc);box-shadow:0 0 12px rgba(var(--acc-rgb),.7);pointer-events:none;opacity:0;transition:transform 260ms var(--ease-out),width 260ms var(--ease-out)}
+
+/* Отклик нажатия вкладок и строк */
+.m-tab,.m-li{transition:var(--tr-ui)}
+.m-tab:active,.m-li:active{transform:scale(.97)}
 
 .m-bdg{position:absolute;top:8px;right:calc(50% - 20px);min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--err);color:#1a0508;font-family:var(--mono);font-size:10px;font-weight:700;display:grid;place-items:center}
 
@@ -157,7 +162,7 @@
 
 .m-vf.is-wait .spin{position:absolute;left:50%;top:50%;margin:-11px 0 0 -11px;width:22px;height:22px}
 
-.m-vbtn{width:32px;height:32px;display:grid;place-items:center;border-radius:8px;border:1px solid rgba(255,255,255,.18);background:rgba(18,20,26,.7);color:var(--fg)}
+.m-vbtn{width:32px;height:32px;display:grid;place-items:center;border-radius:8px;border:1px solid rgba(255,255,255,.18);background:color-mix(in srgb,var(--bg) 70%,transparent);color:var(--fg)}
 
 .m-vbtn .ico{width:16px;height:16px}
 
@@ -249,7 +254,7 @@
 
 .m-tl-bar i{position:absolute;top:0;bottom:0;background:rgba(var(--acc-rgb),.55)}
 
-.m-tl-bar i.gap{background:rgba(255,107,128,.25)}
+.m-tl-bar i.gap{background:color-mix(in srgb,var(--err) 25%,transparent)}
 
 .m-tl-zoom{display:flex;align-items:center;gap:6px;padding:0 0 8px;font-family:var(--mono);font-size:11px;color:var(--fg-3)}
 
@@ -351,7 +356,7 @@
 
 .m-dv{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);margin:0 16px 12px;overflow:hidden}
 
-.m-dv.is-off{border-color:rgba(255,107,128,.35)}
+.m-dv.is-off{border-color:var(--err-edge)}
 
 .m-dv-h{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line)}
 

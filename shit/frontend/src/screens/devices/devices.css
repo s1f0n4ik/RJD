@@ -45,23 +45,24 @@
 .dev-menu button{min-height:32px;padding:0 10px;border-radius:6px;font-size:13px;text-align:left;color:var(--fg-2)}
 .dev-menu button:hover{background:var(--panel-2);color:var(--fg)}
 .dev-menu button.is-err{color:var(--err)}
-.dev-menu button.is-err:hover{background:rgba(255,107,128,.12)}
+.dev-menu button.is-err:hover{background:var(--err-bg)}
 
 .blk-h{display:flex;align-items:center;gap:10px;height:48px;padding:0 18px;background:var(--input);border-bottom:1px solid var(--line)}
 .blk-h h3{font-size:13px;font-weight:600}
 .blk-b{padding:16px 18px;background:var(--surface)}
 .blk-f{display:flex;align-items:center;gap:9px;padding:11px 18px;background:var(--surface);border-top:1px solid var(--line)}
 
-.dev-side{width:340px;flex:0 0 340px;min-height:0;display:flex;flex-direction:column;border-left:1px solid var(--line);background:var(--surface);transition:margin-right .22s ease,visibility 0s linear 0s}
-.dev-side.is-closed{margin-right:-340px;visibility:hidden;transition:margin-right .22s ease,visibility 0s linear .22s}
+.dev-side{flex:0 0 340px;min-height:0;display:flex;flex-direction:column;align-items:flex-end;overflow:hidden;border-left:1px solid var(--line);background:var(--surface);transition:flex-basis var(--t-mid) var(--ease-out),visibility 0s linear 0s}
+.dev-side>*{width:340px;min-width:340px}
+.dev-side.is-closed{flex-basis:0;visibility:hidden;transition:flex-basis var(--t-mid) var(--ease-out),visibility 0s linear var(--t-mid)}
 .dev-side-b{flex:1;min-height:0;overflow-y:auto;padding:16px 18px;display:flex;flex-direction:column;gap:12px}
 .dev-side-b .eyebrow{padding-top:4px}
 .dev-side-b .eyebrow:first-child{padding-top:0}
 
 /* Кнопка, а не перетяжка: маленькая, по центру края панели */
-.dev-grip{position:absolute;top:50%;transform:translateY(-50%);z-index:6;width:20px;height:46px;display:grid;place-items:center;border:1px solid var(--line);border-right:none;border-radius:var(--r) 0 0 var(--r);background:var(--panel);color:var(--fg-3);transition:right .22s ease,background .12s,color .12s,border-color .12s}
+.dev-grip{position:absolute;top:50%;transform:translateY(-50%);z-index:6;width:20px;height:46px;display:grid;place-items:center;border:1px solid var(--line);border-right:none;border-radius:var(--r) 0 0 var(--r);background:var(--panel);color:var(--fg-3);transition:right var(--t-mid) var(--ease-out),background-color var(--t-fast) var(--ease-out),color var(--t-fast) var(--ease-out),border-color var(--t-fast) var(--ease-out)}
 .dev-grip:hover{background:var(--panel-2);color:var(--fg);border-color:var(--line-hi)}
-.dev-grip svg{transition:transform .16s}
+.dev-grip svg{transition:transform var(--t-fast) var(--ease-out)}
 .dev-grip.is-closed svg{transform:rotate(180deg)}
 
 .rt-row{display:flex;flex-direction:column;gap:6px}
@@ -114,7 +115,7 @@
 
 .found{display:flex;flex-direction:column;gap:7px}
 .found-h{display:flex;align-items:center;gap:8px;padding-bottom:2px}
-.fnd-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;min-height:46px;padding:5px 12px;border:1px solid var(--line-hi);border-radius:var(--r);background:var(--panel-2);text-align:left;transition:border-color .12s,background .12s}
+.fnd-row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;min-height:46px;padding:5px 12px;border:1px solid var(--line-hi);border-radius:var(--r);background:var(--panel-2);text-align:left;transition:border-color var(--t-fast) var(--ease-out),background-color var(--t-fast) var(--ease-out)}
 .fnd-row:hover:not([disabled]){border-color:var(--acc-dim);background:rgba(var(--acc-rgb),.08)}
 .fnd-row.is-sel{border-color:var(--acc);background:rgba(var(--acc-rgb),.13);box-shadow:inset 3px 0 0 var(--acc)}
 .fnd-row.is-known{opacity:.6}

@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { Navigate, useParams } from 'react-router-dom';
 import { Icon } from '../../app/Icons';
 import { Modal } from '../../app/Modal';
+import { useToast } from '../../app/Toast';
 import { Select, type SelectOption } from '../../app/Select';
 import { useNeuralStatus } from '../../app/neuralStatus';
 import { listAllConfigurations, neuralApi } from '../../features/neural/api/client';
@@ -19,10 +20,6 @@ import './configurations.css';
 
 const POLL_MS = 3000;
 const LINK_POLL_MS = 2000;
-interface ToastState {
-    text: string;
-    tone: 'ok' | 'err';
-}
 
 type PickModule = 'websocket' | 'can';
 
@@ -100,23 +97,17 @@ export default function ConfigurationsScreen() {
     const [pick, setPick] = useState<PickModule | null>(null);
     const [pending, setPending] = useState<CfItem | null>(null);
     const [busy, setBusy] = useState(false);
-    const [toast, setToast] = useState<ToastState | null>(null);
-    const toastTimer = useRef<number | null>(null);
+    const toast = useToast();
     const alive = useRef(true);
 
     useEffect(() => {
         alive.current = true;
         return () => {
             alive.current = false;
-            if (toastTimer.current) window.clearTimeout(toastTimer.current);
         };
     }, []);
 
-    const showToast = useCallback((text: string, tone: 'ok' | 'err' = 'ok') => {
-        setToast({ text, tone });
-        if (toastTimer.current) window.clearTimeout(toastTimer.current);
-        toastTimer.current = window.setTimeout(() => setToast(null), 4500);
-    }, []);
+    const showToast = useCallback((text: string, tone: 'ok' | 'err' = 'ok') => toast(text, '', tone), [toast]);
 
     useEffect(() => {
         let stop = false;
@@ -546,13 +537,6 @@ export default function ConfigurationsScreen() {
                         <div className="kv"><span className="k">Закроются обнаружения</span><span className="v">{master?.open ?? '—'}</span></div>
                     </div>
                 </Modal>
-            )}
-
-            {toast && (
-                <div className="toast">
-                    <span className={`dot ${toast.tone}`} />
-                    <div>{toast.text}</div>
-                </div>
             )}
         </section>
     );

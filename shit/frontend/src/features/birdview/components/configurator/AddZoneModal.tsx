@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Modal } from '../../../../app/Modal';
 import { confState, fmtM, q } from '../../state/conf-store';
 import { NumberField } from '../common/NumberField';
-import { useToast } from '../common/Toast';
+import { useToast } from '../../../../app/Toast';
 import { zoneFitsField } from './conf-canvas';
 import { confPlaceZone } from './conf-actions';
 

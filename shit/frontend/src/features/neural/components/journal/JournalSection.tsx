@@ -3,7 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { Icon } from '../../../../app/Icons';
 import { Select } from '../../../../app/Select';
 import type { SelectOption } from '../../../../app/Select';
-import { useToast } from '../../../birdview/components/common/Toast';
+import { useToast } from '../../../../app/Toast';
 import { journalApi } from '../../api/journal';
 import type { JournalDetection, Verdict } from '../../api/journal-types';
 import { useClassResolver } from './useClassResolver';
@@ -232,12 +232,6 @@ export function JournalSection() {
   const mapValue = Math.min(mapLimitDraft, mapMax);
   const mapPct = mapMax > PAGE_LIMIT ? ((mapValue - PAGE_LIMIT) / (mapMax - PAGE_LIMIT)) * 100 : 0;
 
-  const verdictCounts = useMemo(() => {
-    const c = { true: 0, false: 0, unverified: 0 };
-    for (const d of withGps) c[d.verdict] += 1;
-    return c;
-  }, [withGps]);
-
   const classPopover = (anchor: HTMLElement | null) =>
     classOpen &&
     anchor && (
@@ -329,9 +323,6 @@ export function JournalSection() {
         <Icon name="unfull" size={15} />
       </button>
       <div className="cnt">
-        <span className="tag is-ok">подтверждённые {verdictCounts.true}</span>
-        <span className="tag is-err">ложные {verdictCounts.false}</span>
-        <span className="tag">не проверено {verdictCounts.unverified}</span>
         <span className="tag is-warn">без координат {mapList.length - withGps.length}</span>
       </div>
       {classPopover(classPaneRef.current)}

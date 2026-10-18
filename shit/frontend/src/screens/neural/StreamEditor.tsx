@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { Icon } from '../../app/Icons';
 import { Select } from '../../app/Select';
-import { useToast } from '../../features/birdview/components/common/Toast';
+import { useToast } from '../../app/Toast';
 import { neuralApi, neuralDeviceId } from '../../features/neural/api/client';
 import type { ConfigSummary, StreamTile, TileFit, VideoStream } from '../../features/neural/api/types';
 import { signalingWsUrl } from '../../services/devices';
@@ -12,6 +12,7 @@ import {
 } from './stream-geometry';
 import { EDITOR_STREAM_ID, useEditorSession } from './useEditorSession';
 import { VideoBox } from './VideoBox';
+import { Seg } from '../../app/Modal';
 
 // Размеры разметки в экранных пикселях: делятся на масштаб «пикселей экрана на единицу»
 const ANCHOR_PX = 10.5;
@@ -333,13 +334,13 @@ export function StreamEditor({ initial, isNew, configs, cameras, slots, onBack, 
                                         options={cameras.map(c => ({ value: c.id, label: c.name, hint: `${c.neural.width}×${c.neural.height}` }))} />
                                 </span>
                                 <CellCap s={S} sel={sel} idx={selIdx} />
-                                <div className="seg ve-fit">
+                                <Seg className="ve-fit">
                                     {(['letterbox', 'stretch'] as TileFit[]).map(f => (
                                         <button key={f} className={selTile.fit === f ? 'is-on' : ''} onClick={() => patchTile(selIdx, { fit: f })}>
                                             {f === 'letterbox' ? 'Вписать' : 'Растянуть'}
                                         </button>
                                     ))}
-                                </div>
+                                </Seg>
                             </>
                         ) : (
                             <><span className="eyebrow">Кадр камеры</span><CellCap s={S} sel={sel} idx={selIdx} /></>

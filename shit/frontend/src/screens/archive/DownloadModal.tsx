@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
-import { Modal } from '../../app/Modal';
+import { Modal, Seg } from '../../app/Modal';
 import { useDownloads } from '../../app/DownloadsContext';
 import type { Anchor } from '../../app/popover';
 import { elementAnchor, usePopover } from '../../app/popover';
@@ -209,14 +209,14 @@ export function DownloadModal({
             onClose={onClose}
             footer={(
                 <>
-                    <div className="seg">
+                    <Seg>
                         <button type="button" className={kind === 'cut' ? 'is-on' : ''} onClick={() => setKind('cut')}>
                             Склеить в один файл
                         </button>
                         <button type="button" className={kind === 'zip' ? 'is-on' : ''} onClick={() => setKind('zip')}>
                             Сегменты как есть
                         </button>
-                    </div>
+                    </Seg>
                     <div className="dm-total">
                         <b>≈ {fmtBytes(totalBytes)}</b>
                         <span>{outputs}</span>
@@ -233,7 +233,7 @@ export function DownloadModal({
                     <span className="eyebrow">Диапазон</span>
 
                     {!(fixedRange && selection) && (
-                        <div className="seg">
+                        <Seg>
                             <button type="button" className={mode === 'today' ? 'is-on' : ''} onClick={() => setMode('today')}>
                                 Сегодня
                             </button>
@@ -248,7 +248,7 @@ export function DownloadModal({
                             <button type="button" className={mode === 'all' ? 'is-on' : ''} onClick={() => setMode('all')}>
                                 Всё сразу
                             </button>
-                        </div>
+                        </Seg>
                     )}
 
                     <div className={`dm-when${fixedRange && selection ? ' is-fixed' : ''}`}>

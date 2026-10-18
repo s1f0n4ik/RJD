@@ -6,29 +6,49 @@
 @font-face{font-family:'JetBrains Mono';font-style:normal;font-weight:100 800;font-display:swap;src:url('/fonts/jetbrains-mono-cyrillic.woff2') format('woff2');unicode-range:U+0301,U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116}
 
 :root{
-  --bg:#12141a;
+  --bg:#11141a;
   --surface:#1a1e26;
-  --panel:#232833;
-  --panel-2:#2c3242;
-  --input:#171a21;
-  --line:#333b4a;
-  --line-hi:#454f66;
+  --panel:#242830;
+  --panel-2:#2e323b;
+  --input:#161920;
+  --line:#3b3f48;
+  --line-hi:#515660;
 
-  --fg:#f1f3f9;
-  --fg-2:#b0b9cb;
-  --fg-3:#7b8698;
+  --fg:#e7e9ee;
+  --fg-2:#b8bcc5;
+  --fg-3:#878c97;
 
-  --acc:#5b9dff;
-  --acc-dim:#3a7fe8;
-  --acc-glow:rgba(91,157,255,.22);
-  --acc-rgb:91,157,255;
+  --acc:#68a5ff;
+  --acc-dim:#4687eb;
+  --acc-glow:color-mix(in srgb,var(--acc) 22%,transparent);
+  --acc-rgb:104,165,255;
 
-  --ok:#57d69a;
-  --warn:#f0bd57;
-  --err:#ff6b80;
-  --info:#63c4ec;
-  --save:#e5a163;
-  --viol:#9b8df2;
+  --ok:#53cf95;
+  --warn:#edbc51;
+  --err:#f66773;
+  --info:#4dc4ee;
+  --save:#ee9b58;
+  --viol:#9f93f5;
+
+  --acc-bg:#1d2e48;
+  --acc-edge:#385b8f;
+  --ok-bg:#123625;
+  --ok-edge:#1a6b48;
+  --err-bg:#442224;
+  --err-edge:#884246;
+  --info-bg:#073341;
+  --info-edge:#006580;
+  --viol-bg:#2d2946;
+  --viol-edge:#59518d;
+  --warn-edge:#745504;
+  --save-edge:#824c1c;
+
+  --t-fast:120ms;
+  --t-mid:200ms;
+  --t-slow:320ms;
+  --ease-out:cubic-bezier(.2,.8,.2,1);
+  --ease-in:cubic-bezier(.4,0,1,1);
+  --tr-ui:background-color var(--t-fast) var(--ease-out),border-color var(--t-fast) var(--ease-out),color var(--t-fast) var(--ease-out),box-shadow var(--t-fast) var(--ease-out),opacity var(--t-fast) var(--ease-out),fill var(--t-fast) var(--ease-out),stroke var(--t-fast) var(--ease-out),transform 90ms var(--ease-out);
 
   --ui:'Inter','Noto Sans',system-ui,'Segoe UI',sans-serif;
   --mono:'JetBrains Mono',ui-monospace,'Cascadia Mono',Consolas,monospace;

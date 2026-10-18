@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { FitText } from '../../app/FitText';
 import { Icon } from '../../app/Icons';
-import { Modal } from '../../app/Modal';
+import { Modal, Seg } from '../../app/Modal';
 import { dictName, type Dictionaries } from '../../features/krsps/utils/dictionaries';
 import type { CfRules, FeedEntry, FeedStatus, RuleClassFilter, RuleModbus, RuleStitch } from './api';
 
@@ -130,10 +130,10 @@ function ClassRows({ value, onChange, catalog, onPick }: {
     return (
         <div className="cr-row">
             <label>Классы</label>
-            <div className="seg seg--xs">
+            <Seg className="seg--xs">
                 <button type="button" className={value.classes_all ? 'is-on' : ''} onClick={() => onChange({ ...value, classes_all: true })}>Все</button>
                 <button type="button" className={value.classes_all ? '' : 'is-on'} onClick={() => onChange({ ...value, classes_all: false })}>Выбранные</button>
-            </div>
+            </Seg>
             {!value.classes_all && (
                 <div className="cr-chips">
                     {value.classes.map(name => {

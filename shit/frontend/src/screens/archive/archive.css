@@ -22,7 +22,7 @@
   color: var(--fg-3);
   font-family: var(--mono);
   font-size: 13px;
-  transition: .14s;
+  transition: var(--tr-ui);
 }
 
 .arch-step-arrow:hover { color: var(--fg); background: var(--panel) }
@@ -96,7 +96,7 @@
   font-family: var(--mono);
   color: var(--fg-3);
   border: 1px solid transparent;
-  transition: .12s;
+  transition: var(--tr-ui);
 }
 
 .arch-cal-d b { font-size: 11.5px; font-weight: 400; line-height: 1 }
@@ -119,8 +119,8 @@
 }
 
 .arch-cal-d.is-doubt {
-  background: repeating-linear-gradient(45deg, rgba(240, 189, 87, .18) 0 4px, transparent 4px 8px);
-  border-color: rgba(240, 189, 87, .28);
+  background: repeating-linear-gradient(45deg, color-mix(in srgb,var(--warn) 18%,transparent) 0 4px, transparent 4px 8px);
+  border-color: color-mix(in srgb,var(--warn) 28%,transparent);
   color: var(--warn);
 }
 
@@ -193,7 +193,7 @@
   border: 1px solid rgba(255, 255, 255, .07);
   font-family: var(--mono);
   font-size: 11px;
-  color: rgba(241, 243, 249, .82);
+  color: color-mix(in srgb,var(--fg) 82%,transparent);
 }
 
 .arch-empty {
@@ -233,14 +233,14 @@
   border-radius: 6px;
   display: grid;
   place-items: center;
-  background: rgba(24, 28, 37, .6);
+  background: color-mix(in srgb,var(--surface) 60%,transparent);
   border: 1px solid rgba(255, 255, 255, .08);
-  color: rgba(241, 243, 249, .86);
-  transition: .14s;
+  color: color-mix(in srgb,var(--fg) 86%,transparent);
+  transition: var(--tr-ui);
 }
 
 .arch-vbtn svg { width: 13px; height: 13px }
-.arch-vbtn:hover { background: rgba(40, 46, 60, .85); color: #fff }
+.arch-vbtn:hover { background: color-mix(in srgb,var(--panel-2) 85%,transparent); color: #fff }
 .arch-vbtn.is-off { opacity: .35; pointer-events: none }
 
 .arch-vbtn.is-main {
@@ -264,21 +264,21 @@
   white-space: nowrap;
 }
 
-.arch-vtime small { font-size: 11px; color: rgba(241, 243, 249, .5) }
+.arch-vtime small { font-size: 11px; color: color-mix(in srgb,var(--fg) 50%,transparent) }
 
 .arch-vspeed {
   flex: 0 0 auto;
   height: 26px;
   padding: 0 9px;
   border-radius: 6px;
-  background: rgba(24, 28, 37, .6);
+  background: color-mix(in srgb,var(--surface) 60%,transparent);
   border: 1px solid rgba(255, 255, 255, .08);
-  color: rgba(241, 243, 249, .86);
+  color: color-mix(in srgb,var(--fg) 86%,transparent);
   font-family: var(--mono);
   font-size: 11px;
 }
 
-.arch-vspeed:hover { background: rgba(40, 46, 60, .85); color: #fff }
+.arch-vspeed:hover { background: color-mix(in srgb,var(--panel-2) 85%,transparent); color: #fff }
 
 /* ── правая панель ── */
 
@@ -310,7 +310,7 @@
   color: var(--fg-2);
   font-size: 12.5px;
   text-align: left;
-  transition: .14s;
+  transition: var(--tr-ui);
 }
 
 .arch-act:last-child { margin-bottom: 0 }
@@ -333,9 +333,9 @@
 .arch-warn {
   margin-top: 12px;
   padding: 9px 11px;
-  border: 1px solid rgba(240, 189, 87, .35);
+  border: 1px solid var(--warn-edge);
   border-radius: var(--r);
-  background: rgba(240, 189, 87, .08);
+  background: color-mix(in srgb,var(--warn) 8%,transparent);
   font-size: 12px;
   line-height: 1.4;
   color: var(--warn);
@@ -388,9 +388,12 @@
   box-shadow: var(--shadow-lg);
   font-size: 12.5px;
   color: var(--fg-2);
+  animation: arch-toast-in var(--t-mid) var(--ease-out);
 }
 
-.arch-toast.is-err { border-color: rgba(255, 107, 128, .45); color: var(--err) }
+@keyframes arch-toast-in { from { opacity: 0 } }
+
+.arch-toast.is-err { border-color: var(--err-edge); color: var(--err) }
 
 .arch-toast button {
   margin-left: auto;
@@ -421,13 +424,13 @@
   background: var(--panel);
   color: var(--fg-3);
   cursor: pointer;
-  transition: .12s;
+  transition: var(--tr-ui);
 }
 
 .arch-side-grip:hover { background: var(--panel-2); color: var(--fg); border-color: var(--line-hi) }
 
 /* Стрелка смотрит туда, куда уедет панель */
-.arch-side-grip svg { transition: transform .16s }
+.arch-side-grip svg { transition: transform var(--t-fast) var(--ease-out)}
 .arch-side-grip.is-closed svg { transform: rotate(180deg) }
 
 /* Раздел «Скачать» ждёт переделки — блок приглушён целиком */
@@ -478,7 +481,7 @@
   display: block;
   width: 100%;
   padding: 8px 0 9px;
-  border-top: 1px solid rgba(51, 59, 74, .55);
+  border-top: 1px solid color-mix(in srgb,var(--line) 55%,transparent);
   text-align: left;
 }
 
@@ -541,7 +544,7 @@
 
 /* Куски на неподключённых дисках: в выгрузку не войдут */
 .dm-lane i.is-gone,
-.dm-trk.is-on .dm-lane i.is-gone { background: repeating-linear-gradient(45deg, rgba(176, 185, 203, .42) 0 3px, rgba(176, 185, 203, .1) 3px 6px) }
+.dm-trk.is-on .dm-lane i.is-gone { background: repeating-linear-gradient(45deg, color-mix(in srgb,var(--fg-2) 42%,transparent) 0 3px, color-mix(in srgb,var(--fg-2) 10%,transparent) 3px 6px) }
 .dm-num .is-gone { color: var(--warn) }
 
 .dm-lane u {
@@ -549,7 +552,7 @@
   top: 0;
   bottom: 0;
   text-decoration: none;
-  background: repeating-linear-gradient(45deg, rgba(255, 107, 128, .32) 0 3px, transparent 3px 6px);
+  background: repeating-linear-gradient(45deg, color-mix(in srgb,var(--err) 32%,transparent) 0 3px, transparent 3px 6px);
 }
 
 .dm-lane.is-empty { background: repeating-linear-gradient(90deg, var(--input) 0 6px, transparent 6px 9px) }

@@ -7,7 +7,7 @@ import type { CalibrationCamera, SliderKey, WsMessage } from '../../api/ws-types
 import type { StreamControl } from '../../hooks/useStreamControl';
 import type { Correction } from '../../hooks/useCorrection';
 import type { ConnState } from '../../types';
-import { useToast } from '../common/Toast';
+import { useToast } from '../../../../app/Toast';
 import { CameraPanel } from './CameraPanel';
 import { CalibrationBlock } from './CalibrationBlock';
 import type { PatternInfo } from './CalibrationBlock';

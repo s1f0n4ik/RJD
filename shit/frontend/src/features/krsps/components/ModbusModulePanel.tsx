@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Icon } from '../../../app/Icons';
-import { Switch } from '../../../app/Modal';
+import { Switch, Seg } from '../../../app/Modal';
 import { Select } from '../../../app/Select';
 import type {
   GwDevices,
@@ -284,20 +284,20 @@ const NumField: React.FC<{
   );
 };
 
-function Seg<T extends string | number>({ value, options, disabled, onPick }: {
+function SegPick<T extends string | number>({ value, options, disabled, onPick }: {
   value: T;
   options: Array<[T, string]>;
   disabled: boolean;
   onPick: (v: T) => void;
 }) {
   return (
-    <div className="seg">
+    <Seg>
       {options.map(([v, label]) => (
         <button key={v} type="button" className={v === value ? 'is-on' : ''} disabled={disabled} onClick={() => v !== value && onPick(v)}>
           {label}
         </button>
       ))}
-    </div>
+    </Seg>
   );
 }
 
@@ -431,15 +431,15 @@ const ModbusModulePanel: React.FC<Props> = ({ module, title, devices, tzMin, dic
                 </div>
                 <div className="fc">
                   <span className="cap">Чётность</span>
-                  <Seg value={parity} options={PARITY} disabled={busy} onPick={(v) => onSave({ parity: v })} />
+                  <SegPick value={parity} options={PARITY} disabled={busy} onPick={(v) => onSave({ parity: v })} />
                 </div>
                 <div className="fc">
                   <span className="cap">Биты данных</span>
-                  <Seg value={dataBits} options={[[7, '7'], [8, '8']]} disabled={busy} onPick={(v) => onSave({ data_bits: v })} />
+                  <SegPick value={dataBits} options={[[7, '7'], [8, '8']]} disabled={busy} onPick={(v) => onSave({ data_bits: v })} />
                 </div>
                 <div className="fc">
                   <span className="cap">Стоп-биты</span>
-                  <Seg value={stopBits} options={[[1, '1'], [2, '2']]} disabled={busy} onPick={(v) => onSave({ stop_bits: v })} />
+                  <SegPick value={stopBits} options={[[1, '1'], [2, '2']]} disabled={busy} onPick={(v) => onSave({ stop_bits: v })} />
                 </div>
                 <span className="vsep" />
                 <div className="fc">
@@ -565,13 +565,13 @@ const ModbusModulePanel: React.FC<Props> = ({ module, title, devices, tzMin, dic
         <div className="card">
           <div className="card-h">
             <h3>Обмен с АС КРСПС</h3>
-            <div className="seg seg--xs">
+            <Seg className="seg--xs">
               {FILTERS.map(([f, label]) => (
                 <button key={f} type="button" className={filter === f ? 'is-on' : ''} onClick={() => setFilter(f)}>
                   {label}
                 </button>
               ))}
-            </div>
+            </Seg>
             <span className="meta">последние {log.length}</span>
           </div>
           <div className="card-b">

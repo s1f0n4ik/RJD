@@ -48,6 +48,33 @@ export function CellState({ status, error, attempt = 0 }: {
     );
 }
 
+// Минуты и секунды с момента потери
+function sinceText(ms: number): string {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+// Отсчёт с момента потери, обновляется раз в секунду
+export function Since({ since }: { since: number }) {
+    const [now, setNow] = useState(Date.now());
+    useEffect(() => {
+        const timer = window.setInterval(() => setNow(Date.now()), 1000);
+        return () => window.clearInterval(timer);
+    }, []);
+    return <span className="t">{sinceText(now - since)}</span>;
+}
+
+// Плашка поверх серого кадра: сигнала нет или устройство молчит, с отсчётом
+export function LostPlate({ text, since, title }: { text: string; since: number; title?: string }) {
+    return (
+        <div className="cell-lost" title={title}>
+            <span className="spin" />
+            <span>{text}</span>
+            <Since since={since} />
+        </div>
+    );
+}
+
 export function CellFlash({ flash, onClose }: { flash: Flash; onClose: () => void }) {
     return (
         <div className={`cellv-note${flash.tone === 'err' ? ' is-err' : ''}`}>

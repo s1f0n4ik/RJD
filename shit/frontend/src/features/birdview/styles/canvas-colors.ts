@@ -2,22 +2,22 @@
 // значения продублированы из токенов tokens.css (--acc, --acc-dim, --bg, --panel)
 
 export const CANVAS_COLORS = {
-    accent: '#5b9dff',
-    accentDim: '#3a7fe8',
+    accent: '#68a5ff',
+    accentDim: '#4687eb',
     // Заливка выделенной области
-    accentFill: 'rgba(91, 157, 255, 0.10)',
+    accentFill: 'rgba(104, 165, 255, 0.10)',
     // Направляющие и вспомогательные линии поверх содержимого
-    accentGuide: 'rgba(91, 157, 255, 0.30)',
+    accentGuide: 'rgba(104, 165, 255, 0.30)',
     // Ломаная между точками разметки
-    accentLine: 'rgba(91, 157, 255, 0.75)',
+    accentLine: 'rgba(104, 165, 255, 0.75)',
 
     // Обводка точек и подложка под подписями — цвет фона страницы
-    base: '#12141a',
+    base: '#11141a',
     // Плашка под подписью на поле конфигуратора — цвет панели
-    panelBackdrop: 'rgba(35, 40, 51, 0.90)',
+    panelBackdrop: 'rgba(36, 40, 48, 0.90)',
     // Сетка поля: холодная штриховка от --fg-3, каждая пятая линия заметнее
-    gridLine: 'rgba(123, 134, 152, 0.13)',
-    gridMajor: 'rgba(123, 134, 152, 0.30)',
+    gridLine: 'rgba(135, 140, 151, 0.13)',
+    gridMajor: 'rgba(135, 140, 151, 0.30)',
     shadow: 'rgba(0, 0, 0, 0.55)',
     labelBackdrop: 'rgba(0, 0, 0, 0.70)',
 } as const;

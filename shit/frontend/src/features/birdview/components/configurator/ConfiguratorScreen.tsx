@@ -20,7 +20,7 @@ import { ElementMenu } from './ElementMenu';
 import { LoadPresetModal } from './LoadPresetModal';
 import { importPreset } from './conf-import';
 import { linkerPath } from '../../api/linker';
-import { useToast } from '../common/Toast';
+import { useToast } from '../../../../app/Toast';
 import '../../../../screens/surround/configurator.css';
 
 // Экран «Конфигуратор»: холст с полем и постоянная панель справа

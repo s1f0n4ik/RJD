@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Icon } from '../../app/Icons';
 import { Modal } from '../../app/Modal';
+import { useToast } from '../../app/Toast';
 import { Select } from '../../app/Select';
 import { elementAnchor, usePopover, type Anchor } from '../../app/popover';
 import { useSystem } from '../../app/SystemContext';
@@ -30,6 +31,7 @@ import {
     type RoutingSlot,
 } from './model';
 import './devices.css';
+import { useFlash } from '../../app/motion';
 
 const CAMERAS_POLL_MS = 15_000;
 const SIDE_WIDTH = 340;
@@ -37,11 +39,6 @@ const SIDE_WIDTH = 340;
 interface CameraCount {
     total: number;
     offline: boolean;
-}
-
-interface ToastState {
-    text: string;
-    tone: 'ok' | 'err';
 }
 
 export function DevicesScreen() {
@@ -59,15 +56,10 @@ export function DevicesScreen() {
     const [confirmDelete, setConfirmDelete] = useState<Device | null>(null);
     const [polling, setPolling] = useState<string | null>(null);
     const [sideOpen, setSideOpen] = useState(true);
-    const [toast, setToast] = useState<ToastState | null>(null);
-    const toastTimer = useRef<number | null>(null);
+    const toast = useToast();
     const menuRef = usePopover<HTMLDivElement>(menu?.anchor ?? null, { side: 'bottom', align: 'start' });
 
-    const showToast = (text: string, tone: 'ok' | 'err' = 'ok') => {
-        setToast({ text, tone });
-        if (toastTimer.current) window.clearTimeout(toastTimer.current);
-        toastTimer.current = window.setTimeout(() => setToast(null), 4500);
-    };
+    const showToast = (text: string, tone: 'ok' | 'err' = 'ok') => toast(text, '', tone);
 
     // Маршруты приезжают тем же запросом, что список; правку пользователя не затираем
     useEffect(() => {
@@ -222,15 +214,19 @@ export function DevicesScreen() {
         );
     };
 
+    const flashDevices = useFlash<HTMLSpanElement>(devices.length);
+    const flashOnline = useFlash<HTMLSpanElement>(online, online !== devices.length ? 'warn' : '');
+    const flashCameras = useFlash<HTMLSpanElement>(cameraTotal);
+
     return (
         <section className="screen dev-screen">
             <div className="filters">
-                <span className="fld"><span className="k">Устройств</span><span className="v st-acc">{devices.length}</span></span>
-                <span className="fld">
+                <span className="fld" ref={flashDevices}><span className="k">Устройств</span><span className="v st-acc">{devices.length}</span></span>
+                <span className="fld" ref={flashOnline}>
                     <span className="k">В сети</span>
                     <span className={`v ${online === devices.length ? 'st-ok' : 'st-warn'}`}>{online}</span>
                 </span>
-                <span className="fld"><span className="k">Камер</span><span className="v">{cameraTotal}</span></span>
+                <span className="fld" ref={flashCameras}><span className="k">Камер</span><span className="v">{cameraTotal}</span></span>
                 <span className="fld"><span className="k">Порт опроса</span><span className="v">7777</span></span>
 
                 <span className="spacer" />
@@ -515,13 +511,6 @@ export function DevicesScreen() {
                         </div>
                     </div>
                 </Modal>
-            )}
-
-            {toast && (
-                <div className="toast">
-                    <span className={`dot ${toast.tone}`} />
-                    <div>{toast.text}</div>
-                </div>
             )}
         </section>
     );

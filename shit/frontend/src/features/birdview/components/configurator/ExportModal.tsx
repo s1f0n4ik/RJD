@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Modal } from '../../../../app/Modal';
 import { confState, useConfStore } from '../../state/conf-store';
-import { useToast } from '../common/Toast';
+import { useToast } from '../../../../app/Toast';
 import { buildExportJson, formatExportJson, saveExport } from './conf-export';
 import { checkCameraKeys } from './conf-validate';
 

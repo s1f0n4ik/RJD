@@ -107,8 +107,8 @@ export function PlanView({ geometry, bindings, cameras, locked, onAssign }: Plan
                             width={geometry.machine.w}
                             height={geometry.machine.h}
                             rx={Math.min(geometry.machine.w, geometry.machine.h) * 0.04}
-                            fill="rgba(232,163,61,0.08)"
-                            stroke="#E8A33D"
+                            fill="rgba(237,188,81,0.08)"
+                            stroke="#edbc51"
                             strokeDasharray="8 5"
                             strokeWidth={Math.max(geometry.view.width, geometry.view.height) * 0.003}
                         />
@@ -116,7 +116,7 @@ export function PlanView({ geometry, bindings, cameras, locked, onAssign }: Plan
                             x={geometry.machine.x + geometry.machine.w / 2}
                             y={geometry.machine.y + geometry.machine.h / 2}
                             textAnchor="middle"
-                            fill="#E8A33D"
+                            fill="#edbc51"
                             style={{ fontSize: fit('МАШИНА', geometry.machine, label * 0.8) }}
                         >
                             МАШИНА

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Icon } from '../../../../app/Icons';
 import { Modal } from '../../../../app/Modal';
-import { useToast } from '../common/Toast';
+import { useToast } from '../../../../app/Toast';
 import { PresetPreview } from './PresetPreview';
 import type { PresetPreviewData } from './PresetPreview';
 import { linkerPath } from '../../api/linker';

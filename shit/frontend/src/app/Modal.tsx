@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
+import type { HTMLAttributes } from 'react';
 import { Icon } from './Icons';
 
 // Стек открытых модалок: Esc закрывает только верхнюю, а не все сразу
@@ -84,6 +85,53 @@ export function Switch({ on, onToggle, children, disabled }: SwitchProps) {
     );
 }
 
+// Сегменты: подложка выбранной кнопки переезжает к новой
+export function Seg({ className, children, ...rest }: HTMLAttributes<HTMLDivElement>) {
+    const ref = useRef<HTMLDivElement>(null);
+    const pillRef = useRef<HTMLElement>(null);
+
+    useLayoutEffect(() => {
+        const root = ref.current;
+        const pill = pillRef.current;
+        if (!root || !pill) return;
+        let placed = false;
+        const place = () => {
+            const on = root.querySelector<HTMLElement>(':scope > button.is-on');
+            if (!on) {
+                pill.style.opacity = '0';
+                return;
+            }
+            if (!placed) pill.style.transition = 'none';
+            pill.style.opacity = '1';
+            pill.style.width = `${on.offsetWidth}px`;
+            pill.style.height = `${on.offsetHeight}px`;
+            pill.style.borderRadius = getComputedStyle(on).borderRadius;
+            pill.style.transform = `translate(${on.offsetLeft}px, ${on.offsetTop}px)`;
+            if (!placed) {
+                void pill.offsetWidth;
+                pill.style.transition = '';
+                placed = true;
+            }
+        };
+        place();
+        const mo = new MutationObserver(place);
+        mo.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] });
+        const ro = new ResizeObserver(place);
+        ro.observe(root);
+        return () => {
+            mo.disconnect();
+            ro.disconnect();
+        };
+    }, []);
+
+    return (
+        <div ref={ref} className={`seg${className ? ` ${className}` : ''}`} {...rest}>
+            <i className="seg-pill" ref={pillRef} aria-hidden="true" />
+            {children}
+        </div>
+    );
+}
+
 // Подсказки [data-tip]: один слой на body, под элементом или над ним, в пределах окна
 export function TipLayer() {
     useEffect(() => {
@@ -92,14 +140,29 @@ export function TipLayer() {
         tip.hidden = true;
         document.body.appendChild(tip);
         let anchor: HTMLElement | null = null;
+        let timer = 0;
+        let warmUntil = 0;
         const gap = 8;
+        // Задержка показа и «тёплое» окно, в котором соседняя подсказка открывается сразу
+        const DELAY_MS = 400;
+        const WARM_MS = 300;
 
         const hide = () => {
+            window.clearTimeout(timer);
+            if (!tip.hidden) warmUntil = performance.now() + WARM_MS;
             anchor = null;
             tip.hidden = true;
         };
         const show = (el: HTMLElement) => {
+            window.clearTimeout(timer);
             anchor = el;
+            if (tip.hidden && performance.now() > warmUntil) {
+                timer = window.setTimeout(() => anchor === el && place(el), DELAY_MS);
+                return;
+            }
+            place(el);
+        };
+        const place = (el: HTMLElement) => {
             tip.textContent = el.dataset.tip ?? '';
             tip.hidden = false;
             const r = el.getBoundingClientRect();

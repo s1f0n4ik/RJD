@@ -22,7 +22,7 @@
     min-width: 0;
     min-height: 0;
     /* Выбор и снятие выбора идут одним переходом — рамка не мигает */
-    transition: border-color .16s ease, box-shadow .16s ease, background-color .16s ease;
+    transition: border-color var(--t-fast) var(--ease-out),box-shadow var(--t-fast) var(--ease-out),background-color var(--t-fast) var(--ease-out);
 }
 
 .cell:hover { border-color: var(--line-hi); box-shadow: 0 0 0 1px rgba(var(--acc-rgb), .12); }
@@ -62,33 +62,33 @@
 /* Свободная ячейка: своя надпись видна, пока не целятся именно в неё.
    Фон непрозрачный (--input с зелёным подмесом): rgba перекрыл бы плашку
    ячейки чернотой стены, а градиент не анимируется */
-.wall.is-picking .cell.is-free .cell-msg { transition: opacity .14s ease; }
+.wall.is-picking .cell.is-free .cell-msg { transition: opacity var(--t-fast) var(--ease-out); }
 .cell.is-free:hover .cell-msg, .cell.is-free.is-drop .cell-msg { opacity: 0; }
 
 .cell.is-free {
     background: #192025;
-    border-color: rgba(87, 214, 154, .5);
+    border-color: var(--ok-edge);
     border-style: dashed;
     animation: cell-free-pulse 2s ease-in-out infinite;
 }
 
 .cell.is-free:hover, .cell.is-free.is-drop {
     background: #1c292b;
-    border-color: rgba(87, 214, 154, .8);
-    box-shadow: 0 0 0 1px rgba(87, 214, 154, .3);
+    border-color: color-mix(in srgb,var(--ok) 80%,transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb,var(--ok) 30%,transparent);
     animation: none;
 }
 
-.cell.is-busy { border-color: rgba(240, 189, 87, .42); }
+.cell.is-busy { border-color: var(--warn-edge); }
 
 .cell.is-busy:hover, .cell.is-busy.is-drop {
-    border-color: rgba(240, 189, 87, .75);
-    box-shadow: 0 0 0 1px rgba(240, 189, 87, .26);
+    border-color: color-mix(in srgb,var(--warn) 75%,transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb,var(--warn) 26%,transparent);
 }
 
 @keyframes cell-free-pulse {
-    0%, 100% { border-color: rgba(87, 214, 154, .28); }
-    50% { border-color: rgba(87, 214, 154, .6); }
+    0%, 100% { border-color: color-mix(in srgb,var(--ok) 28%,transparent); }
+    50% { border-color: color-mix(in srgb,var(--ok) 60%,transparent); }
 }
 
 /* Выше .cell-drop и кнопок кадра: ячейка целиком читается как цель */
@@ -104,18 +104,18 @@
     text-align: center;
     opacity: 0;
     background: rgba(8, 10, 14, .6);
-    transition: opacity .16s ease;
+    transition: opacity var(--t-fast) var(--ease-out);
 }
 
 .cell-pick span {
     padding: 7px 12px;
     border-radius: var(--r);
-    background: rgba(240, 189, 87, .12);
-    color: rgba(240, 189, 87, .92);
+    background: color-mix(in srgb,var(--warn) 12%,transparent);
+    color: color-mix(in srgb,var(--warn) 92%,transparent);
     font-size: 12.5px;
     font-weight: 600;
     line-height: 1.3;
-    transition: transform .16s ease;
+    transition: transform var(--t-fast) var(--ease-out);
 }
 
 /* Обе подсказки проявляются только под прицелом: кадр важнее текста */
@@ -127,7 +127,7 @@
 
 /* У свободной затемнять нечего — заливку даёт сама ячейка */
 .cell.is-free .cell-pick { background: transparent; }
-.cell.is-free .cell-pick span { background: rgba(87, 214, 154, .14); color: rgba(87, 214, 154, .95); }
+.cell.is-free .cell-pick span { background: var(--ok-bg); color: color-mix(in srgb,var(--ok) 95%,transparent); }
 
 @media (prefers-reduced-motion: reduce) {
     .cell.is-free { animation: none; }
@@ -150,7 +150,7 @@
     gap: 8px;
     padding: 8px 9px 5px;
     font-size: 11.5px;
-    background: linear-gradient(180deg, rgba(18, 20, 26, .88), transparent);
+    background: linear-gradient(180deg, color-mix(in srgb,var(--bg) 88%,transparent), transparent);
     pointer-events: none;
 }
 
@@ -166,7 +166,7 @@
     display: flex;
     gap: 4px;
     opacity: 0;
-    transition: opacity .12s;
+    transition: opacity var(--t-fast) var(--ease-out);
 }
 
 .cell:hover .cell-tools { opacity: 1; }
@@ -182,7 +182,7 @@
     width: 26px; height: 26px;
     border-radius: 6px;
     border: 1px solid var(--line);
-    background: rgba(18, 20, 26, .78);
+    background: color-mix(in srgb,var(--bg) 78%,transparent);
     color: var(--fg-2);
     cursor: pointer;
 }
@@ -236,7 +236,7 @@
     display: flex;
     gap: 4px;
     opacity: 0;
-    transition: opacity .12s;
+    transition: opacity var(--t-fast) var(--ease-out);
 }
 .cell:hover .cellv-tools { opacity: 1; }
 
@@ -267,7 +267,7 @@
 .cell-code {
     font-family: var(--mono);
     font-style: normal;
-    font-size: 10.5px;
+    font-size: 11px;
     color: var(--fg-3);
     margin-left: 6px;
 }
@@ -281,7 +281,7 @@
     gap: 8px;
     padding: 7px 10px;
     border-radius: var(--r);
-    background: rgba(18, 20, 26, .92);
+    background: color-mix(in srgb,var(--bg) 92%,transparent);
     border: 1px solid var(--line-hi);
     color: var(--fg);
     font-size: 12px;

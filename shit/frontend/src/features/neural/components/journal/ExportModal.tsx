@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Modal, Switch } from '../../../../app/Modal';
 import type { SelectOption } from '../../../../app/Select';
 import { useDownloads } from '../../../../app/DownloadsContext';
-import { useToast } from '../../../birdview/components/common/Toast';
+import { useToast } from '../../../../app/Toast';
 import { JOURNAL_JOBS, exportFilters, journalApi } from '../../api/journal';
 import type { JournalDetection } from '../../api/journal-types';
 import { detClass } from './DetectionRow';

@@ -12,6 +12,7 @@ import { REASON_LABEL, durationLabel, fmtCoord, fmtDate, fmtTime, pluralRecords 
 import { useCameraNames } from '../features/neural/components/journal/useCameraNames';
 import { useClassResolver } from '../features/neural/components/journal/useClassResolver';
 import '../features/neural/components/journal/journal.css';
+import { Seg } from '../app/Modal';
 
 const LIMIT = 100;
 const POLL_MS = 5000;
@@ -150,10 +151,10 @@ export default function JournalScreen() {
 
     return (
         <section className="m-screen">
-            <div className="seg">
+            <Seg>
                 <button className={mode === 'list' ? 'is-on' : ''} onClick={() => setMode('list')}><Icon name="list" size={15} />Список</button>
                 <button className={mode === 'map' ? 'is-on' : ''} onClick={() => setMode('map')}><Icon name="map" size={15} />Карта</button>
-            </div>
+            </Seg>
             <div className="m-chips">
                 {PRESETS.map(p => (
                     <button key={p.key} className={`m-chip${preset === p.key ? ' is-on' : ''}`} onClick={() => setPreset(p.key)}>

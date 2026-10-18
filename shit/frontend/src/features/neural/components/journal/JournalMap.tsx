@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import maplibregl from 'maplibre-gl';
@@ -9,7 +9,8 @@ import type { ClassMeaning } from './useClassResolver';
 import { Icon } from '../../../../app/Icons';
 import { FrameWithBoxes, previewShot } from './FrameWithBoxes';
 import { DetTags, detClass } from './DetectionRow';
-import { fmtDateTime, pluralRecords } from './format';
+import { fmtDateTime, fmtTime, pluralRecords } from './format';
+import { MapScene, PointsLayer, mapColor, type DrawItem, type MapPoint } from './mapPoints';
 
 interface Props {
   detections: JournalDetection[];
@@ -23,9 +24,12 @@ interface Props {
 
 // Стартовый вид, пока нет ни одной точки с координатами.
 const DEFAULT_CENTER: [number, number] = [37.618, 55.751];
-const SRC = 'journal-detections';
-const FALLBACK = '#4d8bff';
-const PIE = 'jr-pie:';
+// Плашки только на крупном масштабе, где скоплений уже нет
+const PLATE_ZOOM = 16;
+// Подъём попапа над выбранной точкой: её кольцо и зазор
+const POINT_LIFT = 31;
+// Точка мини-карты панели меньше полноэкранной
+const MINI_SIZE = 0.75;
 
 // Попап на карте: одна запись либо список записей кластера.
 interface PopupState {
@@ -33,67 +37,72 @@ interface PopupState {
   ids: number[];
   view: 'list' | 'record';
   recordId: number | null;
+  lift: number;
 }
 
-// В источнике лежат только точки, поэтому координаты достаём напрямую —
-// разбирать полный union Geometry здесь незачем.
-function coordsOf(geometry: unknown): [number, number] {
-  return (geometry as { coordinates: [number, number] }).coordinates;
+interface Plate {
+  id: number;
+  side: 'r' | 'l';
 }
 
-// Цвет класса обнаружения — единственный сектор пай-иконки
-function pieColors(det: JournalDetection, resolve: Props['resolve']): string[] {
-  return [detClass(det, resolve).color];
-}
-
-// Иконка точки: круг из равных секторов по цветам классов, обводка под фон.
-function makePieIcon(colors: string[]): { data: ImageData; pixelRatio: number } {
-  const ratio = Math.min(Math.ceil(window.devicePixelRatio || 1), 3);
-  const size = 20 * ratio;
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = size;
-  const ctx = canvas.getContext('2d')!;
-  const c = size / 2;
-  const r = c - 1.5 * ratio;
-  colors.forEach((color, i) => {
-    ctx.beginPath();
-    ctx.moveTo(c, c);
-    ctx.arc(
-      c,
-      c,
-      r,
-      -Math.PI / 2 + (i / colors.length) * 2 * Math.PI,
-      -Math.PI / 2 + ((i + 1) / colors.length) * 2 * Math.PI,
-    );
-    ctx.closePath();
-    ctx.fillStyle = color;
-    ctx.fill();
-  });
-  ctx.beginPath();
-  ctx.arc(c, c, r, 0, 2 * Math.PI);
-  ctx.lineWidth = 2 * ratio;
-  ctx.strokeStyle = '#0a0c11';
-  ctx.stroke();
-  return { data: ctx.getImageData(0, 0, size, size), pixelRatio: ratio };
-}
-
-function toGeoJson(dets: JournalDetection[], resolve: Props['resolve']) {
-  return {
-    type: 'FeatureCollection' as const,
-    features: dets
-      .filter((d) => d.gps)
-      .map((d) => ({
-        type: 'Feature' as const,
+function toPoints(dets: JournalDetection[], resolve: Props['resolve']): MapPoint[] {
+  return dets
+    .filter((d) => d.gps)
+    .map((d) => {
+      const c = detClass(d, resolve);
+      return {
         id: d.id,
-        geometry: { type: 'Point' as const, coordinates: [d.gps!.lon, d.gps!.lat] },
-        properties: {
-          id: d.id,
-          ts: d.started_at,
-          icon: PIE + pieColors(d, resolve).join('|'),
-        },
-      })),
-  };
+        lng: d.gps!.lon,
+        lat: d.gps!.lat,
+        ts: d.started_at,
+        color: mapColor(c.color),
+        name: c.name,
+        time: fmtTime(d.started_at).slice(0, 5),
+        verdict: d.verdict,
+      };
+    });
 }
+
+const measure = document.createElement('canvas').getContext('2d')!;
+const textW = (s: string, font: string) => {
+  measure.font = font;
+  return measure.measureText(s).width;
+};
+
+// Плашка справа от точки, при столкновении слева, иначе без плашки; выбранная раскладывается первой
+function layoutPlates(map: maplibregl.Map, items: DrawItem[], selected: number | null): Plate[] {
+  const points = items
+    .filter((it) => it.point && it.alpha > 0.5)
+    .map((it) => ({ p: it.point!, at: map.project([it.point!.lng, it.point!.lat]) }));
+  const taken = points.map(({ at }) => ({ x: at.x - 16, y: at.y - 16, w: 32, h: 32 }));
+  const hits = (a: (typeof taken)[number]) =>
+    taken.some((b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h);
+  const out: Plate[] = [];
+  points
+    .sort((a, b) => Number(b.p.id === selected) - Number(a.p.id === selected))
+    .forEach(({ p, at }) => {
+      const w = Math.ceil((textW(p.name, '11.5px Inter') + textW(p.time, '10.5px "JetBrains Mono"') + 43) * 1.07);
+      const h = 24;
+      const side = ([['r', at.x + 26], ['l', at.x - 26 - w]] as const).find(([, x]) => !hits({ x, y: at.y - h / 2, w, h }));
+      if (!side) return;
+      taken.push({ x: side[1] - 3, y: at.y - h / 2 - 3, w: w + 6, h: h + 6 });
+      out.push({ id: p.id, side: side[0] });
+    });
+  return out;
+}
+
+const VERDICT_ICON: Record<string, ReactNode> = {
+  true: (
+    <svg width="9" height="9" viewBox="0 0 10 10">
+      <path d="M1.6 5.3l2.3 2.3 4.6-5" stroke="currentColor" strokeWidth="1.9" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  false: (
+    <svg width="7.5" height="7.5" viewBox="0 0 10 10">
+      <path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  ),
+};
 
 export function JournalMap({
   detections,
@@ -105,11 +114,14 @@ export function JournalMap({
   onOpenViewer,
 }: Props) {
   const boxRef = useRef<HTMLDivElement>(null);
+  const platesRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
+  const sceneRef = useRef<MapScene | null>(null);
   const readyRef = useRef(false);
   // Набор точек, под который камера уже подстраивалась.
   const fitKeyRef = useRef('');
 
+  const [plates, setPlates] = useState<Plate[]>([]);
   const [popup, setPopup] = useState<PopupState | null>(null);
   const popupObjRef = useRef<maplibregl.Popup | null>(null);
   // Контейнер живёт дольше попапа: в него порталом рендерится содержимое.
@@ -119,9 +131,12 @@ export function JournalMap({
   // Обработчики карты живут весь срок карты — колбэки читаем через ref.
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
-  // Попапы только на полном экране: на мини-карте панели им негде поместиться
+  // Попапы и плашки только на полном экране: на мини-карте панели им негде поместиться
   const modeRef = useRef(mode);
   modeRef.current = mode;
+  const followRef = useRef<() => void>(() => {});
+  const hoverRef = useRef<(key: string | null) => void>(() => {});
+  const openRef = useRef<(item: DrawItem) => void>(() => {});
 
   // Инициализация карты один раз. Стиль отдаётся со своего origin вместе с
   // глифами — карта полностью офлайн.
@@ -142,114 +157,54 @@ export function JournalMap({
     // Атрибуция OpenStreetMap обязательна по условиям лицензии ODbL.
     map.addControl(new maplibregl.AttributionControl({ customAttribution: '© OpenStreetMap' }));
 
-    // Пай-иконки создаются по требованию: имя кодирует цвета секторов.
-    map.on('styleimagemissing', (e) => {
-      if (!e.id.startsWith(PIE)) return;
-      const { data, pixelRatio } = makePieIcon(e.id.slice(PIE.length).split('|'));
-      map.addImage(e.id, data, { pixelRatio });
-    });
+    const scene = new MapScene(map);
+    scene.instant = modeRef.current === 'single';
+    scene.size = modeRef.current === 'single' ? MINI_SIZE : 1;
+    sceneRef.current = scene;
+
+    // Плашки следуют за своими точками каждый кадр
+    followRef.current = () => {
+      const box = platesRef.current;
+      if (!box) return;
+      const at = new Map(scene.items.filter((it) => it.point).map((it) => [it.point!.id, it]));
+      for (const el of Array.from(box.children) as HTMLElement[]) {
+        const it = at.get(Number(el.dataset.id));
+        el.style.transform = it ? `translate(${it.x}px, ${it.y}px)` : 'translate(-9999px, -9999px)';
+        el.style.opacity = it ? String(it.alpha) : '0';
+      }
+    };
+
+    hoverRef.current = (key) => {
+      if (scene.hover === key) return;
+      scene.hover = key;
+      map.getCanvas().style.cursor = key ? 'pointer' : '';
+      for (const el of Array.from(platesRef.current?.children ?? []) as HTMLElement[]) {
+        if (`p:${el.dataset.id}` === key) el.dataset.hover = '';
+        else delete el.dataset.hover;
+      }
+      map.triggerRepaint();
+    };
+
+    const replace = () =>
+      setPlates(
+        modeRef.current === 'full' && map.getZoom() >= PLATE_ZOOM ? layoutPlates(map, scene.items, scene.selected) : [],
+      );
 
     map.on('load', () => {
-      map.addSource(SRC, {
-        type: 'geojson',
-        data: { type: 'FeatureCollection', features: [] },
-        cluster: true,
-        clusterRadius: 44,
-        clusterMaxZoom: 15,
-      });
-
-      // Скопления снимков в одной точке сворачиваются в кластер «+N».
-      map.addLayer({
-        id: 'clusters',
-        type: 'circle',
-        source: SRC,
-        filter: ['has', 'point_count'],
-        paint: {
-          'circle-color': FALLBACK,
-          'circle-opacity': 0.9,
-          'circle-radius': ['step', ['get', 'point_count'], 15, 10, 20, 50, 26],
-          'circle-stroke-width': 2,
-          'circle-stroke-color': '#0a0c11',
-        },
-      });
-      map.addLayer({
-        id: 'cluster-count',
-        type: 'symbol',
-        source: SRC,
-        filter: ['has', 'point_count'],
-        layout: {
-          'text-field': ['get', 'point_count_abbreviated'],
-          'text-font': ['Noto Sans Bold'],
-          'text-size': 12,
-        },
-        paint: { 'text-color': '#0a0c11' },
-      });
-
-      // Ореол выбранной записи — под пай-иконкой точки.
-      map.addLayer({
-        id: 'points-selected',
-        type: 'circle',
-        source: SRC,
-        filter: ['==', ['get', 'id'], -1],
-        paint: {
-          'circle-color': 'rgba(77,139,255,0.25)',
-          'circle-radius': 13,
-          'circle-stroke-width': 2,
-          'circle-stroke-color': FALLBACK,
-        },
-      });
-      // Одиночные точки — пай-иконка по цветам классов записи.
-      map.addLayer({
-        id: 'points',
-        type: 'symbol',
-        source: SRC,
-        filter: ['!', ['has', 'point_count']],
-        layout: {
-          'icon-image': ['get', 'icon'],
-          'icon-allow-overlap': true,
-          'icon-ignore-placement': true,
-        },
-      });
-
-      map.on('click', 'points', (e) => {
-        const f = e.features?.[0];
-        if (!f) return;
-        const id = Number(f.properties?.id);
-        onSelectRef.current(id);
-        if (modeRef.current !== 'full') return;
-        setPopup({ lngLat: coordsOf(f.geometry), ids: [id], view: 'record', recordId: id });
-      });
-
-      // Клик по кластеру — список его записей, новые сверху.
-      map.on('click', 'clusters', (e) => {
-        const f = e.features?.[0];
-        if (!f || modeRef.current !== 'full') return;
-        const src = map.getSource(SRC) as maplibregl.GeoJSONSource;
-        const lngLat = coordsOf(f.geometry);
-        src.getClusterLeaves(Number(f.properties?.cluster_id), 10000, 0).then((leaves) => {
-          const ids = leaves
-            .map((l) => ({ id: Number(l.properties?.id), ts: Number(l.properties?.ts) }))
-            .sort((a, b) => b.ts - a.ts)
-            .map((l) => l.id);
-          setPopup({ lngLat, ids, view: 'list', recordId: null });
-        });
-      });
-
-      // Клик мимо точек и кластеров закрывает попап; closeOnClick выключен,
-      // иначе клик по соседней точке закрыл бы только что открытый попап.
-      map.on('click', (e) => {
-        if (!map.getLayer('points')) return;
-        const hits = map.queryRenderedFeatures(e.point, { layers: ['points', 'clusters'] });
-        if (!hits.length) setPopup(null);
-      });
-
-      for (const layer of ['points', 'clusters']) {
-        map.on('mouseenter', layer, () => (map.getCanvas().style.cursor = 'pointer'));
-        map.on('mouseleave', layer, () => (map.getCanvas().style.cursor = ''));
-      }
-
+      map.addLayer(new PointsLayer(scene, () => followRef.current()));
       readyRef.current = true;
       map.resize();
+    });
+    map.on('zoomstart', () => setPlates([]));
+    map.on('moveend', () => map.once('render', replace));
+    map.on('mousemove', (e) => hoverRef.current(scene.hit(e.point.x, e.point.y)?.key ?? null));
+    map.on('mouseout', () => hoverRef.current(null));
+    // Клик мимо точек и кластеров закрывает попап; closeOnClick у попапа выключен,
+    // иначе клик по соседней точке закрыл бы только что открытый попап.
+    map.on('click', (e) => {
+      const it = scene.hit(e.point.x, e.point.y);
+      if (it) openRef.current(it);
+      else setPopup(null);
     });
 
     mapRef.current = map;
@@ -258,9 +213,31 @@ export function JournalMap({
       popupObjRef.current = null;
       map.remove();
       mapRef.current = null;
+      sceneRef.current = null;
       readyRef.current = false;
     };
   }, []);
+
+  // Точка — выбор и попап записи; скопление — попап со списком, новые сверху
+  openRef.current = (it) => {
+    if (it.point) {
+      onSelectRef.current(it.point.id);
+      if (modeRef.current !== 'full') return;
+      setPopup({ lngLat: [it.point.lng, it.point.lat], ids: [it.point.id], view: 'record', recordId: it.point.id, lift: POINT_LIFT });
+      return;
+    }
+    const scene = sceneRef.current;
+    const map = mapRef.current;
+    if (!scene || !map || modeRef.current !== 'full' || !it.cluster) return;
+    const at = map.unproject([it.x, it.y]);
+    setPopup({
+      lngLat: [at.lng, at.lat],
+      ids: scene.leavesOf(it.cluster.id),
+      view: 'list',
+      recordId: null,
+      lift: it.cluster.r0 * it.scale + 4,
+    });
+  };
 
   // Позиция и видимость maplibre-попапа следуют за состоянием.
   useEffect(() => {
@@ -277,7 +254,7 @@ export function JournalMap({
         maxWidth: 'none',
       }).setDOMContent(popupBoxRef.current!);
     }
-    popupObjRef.current.setLngLat(popup.lngLat);
+    popupObjRef.current.setOffset(popup.lift).setLngLat(popup.lngLat);
     if (!popupObjRef.current.isOpen()) popupObjRef.current.addTo(map);
   }, [popup]);
 
@@ -285,29 +262,44 @@ export function JournalMap({
   useEffect(() => {
     fitKeyRef.current = '';
     setPopup(null);
+    if (sceneRef.current) {
+      sceneRef.current.instant = mode === 'single';
+      sceneRef.current.size = mode === 'single' ? MINI_SIZE : 1;
+      mapRef.current?.triggerRepaint();
+    }
   }, [mode]);
+
+  // Выбор меняет только вид точки: кольцо и масштаб доигрывают переходы
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    scene.selected = selectedId;
+    mapRef.current?.triggerRepaint();
+  }, [selectedId]);
+
+  // Новые плашки встают на свои точки до отрисовки
+  useLayoutEffect(() => followRef.current(), [plates]);
 
   // Обновление данных и позиционирования.
   useEffect(() => {
     const map = mapRef.current;
-    if (!map) return;
+    const scene = sceneRef.current;
+    if (!map || !scene) return;
 
     const apply = () => {
-      const src = map.getSource(SRC) as maplibregl.GeoJSONSource | undefined;
-      if (!src) return;
+      const points = toPoints(detections, resolve);
+      scene.selected = selectedId;
+      scene.setData(points);
+      map.triggerRepaint();
+      map.once('render', () =>
+        setPlates(modeRef.current === 'full' && map.getZoom() >= PLATE_ZOOM ? layoutPlates(map, scene.items, scene.selected) : []),
+      );
 
-      const data = toGeoJson(detections, resolve);
-      src.setData(data);
-
-      if (map.getLayer('points-selected')) {
-        map.setFilter('points-selected', ['==', ['get', 'id'], selectedId ?? -1]);
-      }
-
-      if (!data.features.length) return;
+      if (!points.length) return;
 
       // Смена одного лишь выбора (клик по точке, запись из попапа кластера)
       // камеру не трогает — перецентровка только при изменении набора точек.
-      const key = data.features.map((f) => f.properties.id).join(',');
+      const key = points.map((p) => p.id).join(',');
       if (key === fitKeyRef.current) return;
       const first = fitKeyRef.current === '';
       fitKeyRef.current = key;
@@ -317,19 +309,19 @@ export function JournalMap({
       if (mode === 'full' && !first) return;
 
       if (mode === 'single') {
-        const sel =
-          data.features.find((f) => f.properties.id === selectedId) ?? data.features[0];
-        map.easeTo({ center: sel.geometry.coordinates as [number, number], zoom: Math.max(map.getZoom(), 13) });
+        const sel = points.find((p) => p.id === selectedId) ?? points[0];
+        map.easeTo({ center: [sel.lng, sel.lat], zoom: Math.max(map.getZoom(), 13) });
       } else {
         const bounds = new maplibregl.LngLatBounds();
-        for (const f of data.features) bounds.extend(f.geometry.coordinates as [number, number]);
+        for (const p of points) bounds.extend([p.lng, p.lat]);
         map.fitBounds(bounds, { padding: 60, maxZoom: 15, duration: 400 });
       }
     };
 
     if (readyRef.current) apply();
     else map.once('load', apply);
-  }, [detections, selectedId, mode, resolve]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detections, mode, resolve]);
 
   // Контейнер мог изменить размер (разворот на весь экран) — пересчитать.
   useEffect(() => {
@@ -422,10 +414,39 @@ export function JournalMap({
     );
   }
 
+  const scene = sceneRef.current;
   return (
-    <>
+    <div className="jm-wrap">
       <div className="jm-map" ref={boxRef} />
+      <div className="jm-plates" ref={platesRef}>
+        {plates.map((pl) => {
+          const p = scene?.points.get(pl.id);
+          if (!p) return null;
+          return (
+            <button
+              key={pl.id}
+              type="button"
+              data-id={pl.id}
+              className={`jm-plate side-${pl.side}${pl.id === selectedId ? ' is-sel' : ''}`}
+              aria-label={`${p.name}, ${p.time}`}
+              onMouseEnter={() => hoverRef.current(`p:${pl.id}`)}
+              onMouseLeave={() => hoverRef.current(null)}
+              onClick={() => {
+                const it = scene?.items.find((d) => d.point?.id === pl.id);
+                if (it) openRef.current(it);
+              }}
+            >
+              <span className="jm-plate-in">
+                {VERDICT_ICON[p.verdict] && <span className={`jm-vd v-${p.verdict}`}>{VERDICT_ICON[p.verdict]}</span>}
+                <i style={{ background: p.color }} />
+                <span className="n">{p.name}</span>
+                <span className="t">{p.time}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
       {createPortal(content, popupBoxRef.current)}
-    </>
+    </div>
   );
 }

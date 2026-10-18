@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Icon } from '../../../../app/Icons';
-import { Switch } from '../../../../app/Modal';
+import { Switch, Seg } from '../../../../app/Modal';
 import type { CalibrationCamera } from '../../api/ws-types';
 import type { EventLog } from '../../hooks/useEventLog';
 import type { ConnState } from '../../types';
@@ -157,7 +157,7 @@ export function CalibrationViewer({
     return (
         <>
             <div className="toolbar">
-                <div className={`seg${canShowUndistort ? '' : ' is-off'}`}>
+                <Seg className={canShowUndistort ? undefined : 'is-off'}>
                     <button
                         className={showUndistort ? '' : 'is-on'}
                         onClick={() => {
@@ -174,7 +174,7 @@ export function CalibrationViewer({
                     >
                         С коррекцией
                     </button>
-                </div>
+                </Seg>
 
                 {streaming && (
                     <Switch on={chessboard} onToggle={onToggleChessboard}>

@@ -36,7 +36,7 @@ body.ui-new .home .scroll::-webkit-scrollbar{display:none}
 .tile{
   display:flex;flex-direction:column;gap:10px;padding:16px;min-height:124px;text-align:left;
   background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);
-  box-shadow:var(--shadow);transition:.16s;
+  box-shadow:var(--shadow);transition:var(--tr-ui);
 }
 
 .tile:hover{background:var(--panel-2);border-color:var(--line-hi);transform:translateY(-1px)}
@@ -113,10 +113,10 @@ body.ui-new .home .scroll::-webkit-scrollbar{display:none}
 .disk-sub .is-w{color:var(--fg-2)}
 .disk.is-warn .disk-sub .is-st{color:var(--warn)}
 .disk.is-err .disk-sub .is-st{color:var(--err)}
-.disk-off{display:flex;align-items:center;gap:8px;margin-top:10px;padding:5px 10px;border:1px dashed var(--line-hi);border-radius:6px;font-size:11.5px;color:var(--fg-2);background:repeating-linear-gradient(45deg,rgba(123,134,152,.07) 0 5px,transparent 5px 10px)}
+.disk-off{display:flex;align-items:center;gap:8px;margin-top:10px;padding:5px 10px;border:1px dashed var(--line-hi);border-radius:6px;font-size:11.5px;color:var(--fg-2);background:repeating-linear-gradient(45deg,color-mix(in srgb,var(--fg-3) 7%,transparent) 0 5px,transparent 5px 10px)}
 .disk-off .ico{flex:0 0 13px}
 .disk-off .num{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--fg-3);white-space:nowrap}
-.disk-off.is-ro{border-color:rgba(240,189,87,.35);color:var(--warn);background:none}
+.disk-off.is-ro{border-color:var(--warn-edge);color:var(--warn);background:none}
 
 /* Пусто в карточке: заголовок предупреждающим, под ним — что с этим делать */
 .card-none{display:flex;flex-direction:column;gap:4px;padding:6px 2px 4px}
@@ -126,6 +126,6 @@ body.ui-new .home .scroll::-webkit-scrollbar{display:none}
 .card-none span{font-size:12px;line-height:1.4;color:var(--fg-3)}
 
 /* Последние обнаружения: строка ведёт в журнал */
-.home-det{margin:0 -8px;padding:8px;border-radius:6px;transition:background .12s}
+.home-det{margin:0 -8px;padding:8px;border-radius:6px;transition:background-color var(--t-fast) var(--ease-out)}
 .home-det:hover{background:var(--panel-2)}
 .home-lnk:hover{color:var(--acc)}

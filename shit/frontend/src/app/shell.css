@@ -8,15 +8,15 @@
   width:var(--rail);flex:0 0 var(--rail);
   background:var(--surface);
   border-right:1px solid var(--line);
-  display:flex;flex-direction:column;
+  display:flex;flex-direction:column;overflow:hidden;
   transition:width .2s cubic-bezier(.4,0,.2,1),flex-basis .2s cubic-bezier(.4,0,.2,1);
 }
 
 .shell.is-narrow .rail{width:64px;flex-basis:64px}
 
-.rail-head{height:var(--top);flex:0 0 var(--top);display:flex;align-items:center;gap:9px;padding:0 12px;border-bottom:1px solid var(--line)}
+.rail-head{height:var(--top);flex:0 0 var(--top);display:flex;align-items:center;gap:9px;padding:0 12px;border-bottom:1px solid var(--line);overflow:hidden}
 
-.rail-burger{width:40px;height:40px;flex:0 0 40px;display:grid;place-items:center;border-radius:var(--r);color:var(--fg-2);transition:.15s}
+.rail-burger{width:40px;height:40px;flex:0 0 40px;display:grid;place-items:center;border-radius:var(--r);color:var(--fg-2);transition:var(--tr-ui)}
 
 .rail-burger:hover{background:var(--panel-2);color:var(--fg)}
 
@@ -26,9 +26,12 @@
 
 .rail-wordmark span{font-family:var(--mono);font-size:9.5px;color:var(--fg-3);letter-spacing:.02em}
 
-.shell.is-narrow .rail-wordmark{display:none}
+/* Узкая рельса: подписи гаснут, а не пропадают */
+.rail-wordmark,.rail-item .lbl,.who{transition:opacity 140ms var(--ease-out)}
 
-.rail-nav{flex:1;overflow-y:auto;padding:12px 10px;display:flex;flex-direction:column;gap:3px}
+.shell.is-narrow .rail-wordmark{opacity:0}
+
+.rail-nav{position:relative;flex:1;overflow-y:auto;padding:12px 10px;display:flex;flex-direction:column;gap:3px}
 
 .rail-group{padding:18px 8px 8px;font-size:10.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-3);white-space:nowrap}
 
@@ -40,7 +43,7 @@
   display:flex;align-items:center;gap:11px;
   min-height:44px;padding:0 12px;border-radius:10px;
   color:var(--fg-2);text-align:left;width:100%;
-  border:1px solid transparent;transition:.15s;position:relative;
+  border:1px solid transparent;transition:var(--tr-ui);position:relative;
 }
 
 .rail-item:hover{background:var(--panel);color:var(--fg)}
@@ -51,17 +54,20 @@
 
 .rail-item .badge{margin-left:auto;font-family:var(--mono);font-size:10px;padding:2px 6px;border-radius:5px;background:var(--panel-2);color:var(--fg-3)}
 
-.rail-item .badge.is-err{background:rgba(255,107,128,.16);color:var(--err)}
+.rail-item .badge.is-err{background:var(--err-bg);color:var(--err)}
 
 /* Значок остаётся на своём x=12px: в узком пункте 44px он и так по центру, а без
    переключения выравнивания не прыгает во время анимации ширины */
 .shell.is-narrow .rail-item{padding:0 12px}
 
-.shell.is-narrow .rail-item .lbl,.shell.is-narrow .rail-item .badge{display:none}
+.shell.is-narrow .rail-item .lbl{opacity:0}
+
+.shell.is-narrow .rail-item .badge{display:none}
 
 .rail-item.is-active{background:var(--panel);color:var(--fg)}
 
-.rail-item.is-active::before{content:'';position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:0 2px 2px 0;background:var(--acc);box-shadow:0 0 12px rgba(var(--acc-rgb),.55)}
+/* Планка активного раздела: одна на рельсу, переезжает между пунктами */
+.rail-ind{position:absolute;left:10px;top:0;z-index:1;width:3px;height:0;border-radius:0 2px 2px 0;background:var(--acc);box-shadow:0 0 12px rgba(var(--acc-rgb),.55);pointer-events:none;opacity:0;transition:transform 260ms var(--ease-out),height 260ms var(--ease-out),opacity var(--t-fast) var(--ease-out)}
 
 .rail-item.is-active .ico{color:var(--acc)}
 
@@ -86,11 +92,11 @@
 
 .who span{font-size:10.5px;color:var(--fg-3);white-space:nowrap}
 
-.rail-exit{margin-left:auto;width:30px;height:30px;flex:0 0 30px;display:grid;place-items:center;border-radius:7px;color:var(--fg-3);transition:.15s}
+.rail-exit{margin-left:auto;width:30px;height:30px;flex:0 0 30px;display:grid;place-items:center;border-radius:7px;color:var(--fg-3);transition:var(--tr-ui)}
 
 .rail-exit:hover{background:var(--panel-2);color:var(--err)}
 
-.shell.is-narrow .who,.shell.is-narrow .rail-exit{display:none}
+.shell.is-narrow .who,.shell.is-narrow .rail-exit{opacity:0;pointer-events:none}
 
 /* ── Верхняя планка ─────────────────────────────────────── */
 .main{flex:1;min-width:0;display:flex;flex-direction:column}
@@ -117,7 +123,7 @@
 .sub{
   min-height:34px;padding:0 14px;border-radius:var(--r);
   display:flex;align-items:center;gap:8px;
-  font-size:13px;font-weight:500;color:var(--fg-2);white-space:nowrap;transition:.15s;position:relative;
+  font-size:13px;font-weight:500;color:var(--fg-2);white-space:nowrap;transition:var(--tr-ui);position:relative;
 }
 
 .sub:hover{color:var(--fg)}
@@ -156,7 +162,7 @@
 .rail-sub::before{content:'';position:absolute;left:21px;top:2px;bottom:8px;width:1px;background:var(--line)}
 .rail-item.is-active+.rail-sub{display:flex}
 .shell.is-narrow .rail-sub{display:none}
-.rsub{display:flex;align-items:center;gap:8px;min-height:34px;padding:0 10px 0 30px;border-radius:8px;font-size:12.5px;color:var(--fg-2);width:100%;text-align:left;transition:.14s;position:relative;white-space:nowrap}
+.rsub{display:flex;align-items:center;gap:8px;min-height:34px;padding:0 10px 0 30px;border-radius:8px;font-size:12.5px;color:var(--fg-2);width:100%;text-align:left;transition:var(--tr-ui);position:relative;white-space:nowrap}
 .rsub:focus-visible{outline-offset:-2px}
 .rsub:hover{color:var(--fg);background:var(--panel)}
 .rsub .n{font-family:var(--mono);font-size:10px;color:var(--fg-3);width:16px;flex:0 0 16px}

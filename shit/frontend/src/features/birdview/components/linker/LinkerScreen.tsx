@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '../../../../app/Icons';
 import { Select } from '../../../../app/Select';
-import { Switch } from '../../../../app/Modal';
+import { Switch, Seg } from '../../../../app/Modal';
 import { setSurroundStatus } from '../../../../app/surroundStatus';
 import { linkerApi, LinkerError } from '../../api/linker';
 import { ROTATIONS } from '../../api/linker';
@@ -23,7 +23,7 @@ import type { StreamPlayerSend } from '../shared/StreamPlayer';
 import type { PlayerMessage } from '../../../../components/webrtc/useWebRTCPlayer';
 import { describeError } from '../../../../components/webrtc/error-codes';
 import { wsUrl } from '../../constants';
-import { useToast } from '../common/Toast';
+import { useToast } from '../../../../app/Toast';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { PlanView } from './PlanView';
 import { buildGeometry } from './plan-geometry';
@@ -665,7 +665,7 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
                     )}
 
                     <div className="pills">
-                        <div className="seg" role="group" aria-label="Что показывать">
+                        <Seg role="group" aria-label="Что показывать">
                             <button
                                 type="button"
                                 className={view === 'plan' ? 'is-on' : ''}
@@ -681,7 +681,7 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
                             >
                                 Поток
                             </button>
-                        </div>
+                        </Seg>
                     </div>
                 </div>
 
@@ -734,7 +734,7 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
 
             <aside className="mod-side">
                 <div className="sv-tabs">
-                    <div className="seg" role="tablist" aria-label="Разделы параметров">
+                    <Seg role="tablist" aria-label="Разделы параметров">
                         {tabs.map(([key, title]) => (
                             <button
                                 key={key}
@@ -747,7 +747,7 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
                                 {title}
                             </button>
                         ))}
-                    </div>
+                    </Seg>
                 </div>
 
                 <div className="blk-b pad">
@@ -802,7 +802,7 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
 
                             <div className="tf">
                                 <span className="tf-cap">{params.dualOutput ? 'Основной поток' : 'Режим вывода'}</span>
-                                <div className="seg" role="group" aria-label="Режим вывода">
+                                <Seg role="group" aria-label="Режим вывода">
                                     <button
                                         type="button"
                                         className={params.viewMode === 'top' ? 'is-on' : ''}
@@ -819,7 +819,7 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
                                     >
                                         Объём
                                     </button>
-                                </div>
+                                </Seg>
                                 {/* Второй режим идёт своим потоком; плеер стены переключает их без перезапуска */}
                                 <Switch
                                     on={params.dualOutput}

@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { Icon } from '../../app/Icons';
 import type { Anchor } from '../../app/popover';
 import { elementAnchor, pointAnchor, usePopover } from '../../app/popover';
+import { reducedMotion } from '../../app/motion';
 import { DayPicker } from './DayPicker';
 import { RangeCard } from './RangeCard';
 import type { Track, ZoomLevel } from './model';
@@ -57,8 +58,42 @@ const MIN_H = 130;
 
 type Hover = { ms: number; x: number; y: number; track: Track | null };
 
+// Длительность перехода окна при смене масштаба
+const ZOOM_MS = 220;
+
+// Окно при смене масштаба доезжает до нового вокруг точки привязки; сдвиг применяется сразу
+function useZoomWindow(from: number, to: number, zoom: number) {
+    const [win, setWin] = useState({ from, to });
+    const shown = useRef(win);
+    const lastZoom = useRef(zoom);
+
+    useEffect(() => {
+        const zoomed = lastZoom.current !== zoom;
+        lastZoom.current = zoom;
+        if (!zoomed || reducedMotion()) {
+            shown.current = { from, to };
+            setWin(shown.current);
+            return;
+        }
+        const start = shown.current;
+        const t0 = performance.now();
+        let raf = 0;
+        const step = (now: number) => {
+            const k = Math.min(1, (now - t0) / ZOOM_MS);
+            const e = 1 - (1 - k) ** 3;
+            shown.current = { from: start.from + (from - start.from) * e, to: start.to + (to - start.to) * e };
+            setWin(shown.current);
+            if (k < 1) raf = requestAnimationFrame(step);
+        };
+        raf = requestAnimationFrame(step);
+        return () => cancelAnimationFrame(raf);
+    }, [from, to, zoom]);
+
+    return win;
+}
+
 export function Timeline({
-    from, to, zoom, tracks, cameraNames, selectedKey, cursorMs,
+    from: targetFrom, to: targetTo, zoom, tracks, cameraNames, selectedKey, cursorMs,
     todayKey, selection, picking, view,
     onZoom, onPan, onJumpDate, onSelect, onSeek, onSelectionChange, onCancelPick,
     onPicking, onDownload, onView,
@@ -77,6 +112,7 @@ export function Timeline({
 
     const drag = useRef<{ x: number; ms: number; moved: boolean; mode: 'pan' | 'pick' } | null>(null);
 
+    const { from, to } = useZoomWindow(targetFrom, targetTo, zoom);
     const level: ZoomLevel = ZOOMS[zoom];
     const ticks = buildTicks(from, to, level);
 

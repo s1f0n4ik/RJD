@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useToast } from '../../app/Toast';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
 import { Icon } from '../../app/Icons';
 import { krspsApi } from '../../features/krsps/api/client';
@@ -27,11 +28,6 @@ const STATUS_POLL_MS = 2000;
 const TIME_POLL_MS = 5000;
 const DEVICES_POLL_MS = 10_000;
 
-interface ToastState {
-    text: string;
-    tone: 'ok' | 'err';
-}
-
 const DOT_TONE: Record<string, string> = { ok: 'ok', wait: 'warn', err: 'err', off: '' };
 
 export default function KrspsScreen() {
@@ -47,8 +43,7 @@ export default function KrspsScreen() {
     const [synced, setSynced] = useState(false);
     const [busy, setBusy] = useState(false);
     const [dicts, setDicts] = useState<Dictionaries>({});
-    const [toast, setToast] = useState<ToastState | null>(null);
-    const toastTimer = useRef<number | null>(null);
+    const toast = useToast();
 
     const alive = useRef(true);
     useEffect(() => {
@@ -58,11 +53,7 @@ export default function KrspsScreen() {
         };
     }, []);
 
-    const showToast = useCallback((text: string, tone: 'ok' | 'err' = 'ok') => {
-        setToast({ text, tone });
-        if (toastTimer.current) window.clearTimeout(toastTimer.current);
-        toastTimer.current = window.setTimeout(() => setToast(null), 4500);
-    }, []);
+    const showToast = useCallback((text: string, tone: 'ok' | 'err' = 'ok') => toast(text, '', tone), [toast]);
 
     const refreshIntegrations = useCallback(async () => {
         try {
@@ -306,13 +297,6 @@ export default function KrspsScreen() {
                     </div>
                 </aside>
             </div>
-
-            {toast && (
-                <div className="toast">
-                    <span className={`dot ${toast.tone}`} />
-                    <div>{toast.text}</div>
-                </div>
-            )}
         </section>
     );
 }

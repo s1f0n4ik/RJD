@@ -24,7 +24,7 @@ import { Icon } from '../../app/Icons';
 import { formatDeviceDate, formatDeviceTime } from '../../app/useDeviceClock';
 import { describeError } from '../../components/webrtc/error-codes';
 import { linkerApi, type ViewMode } from '../../features/birdview/api/linker';
-import { CellFlash, CellState, useFlash } from './CellOverlays';
+import { CellFlash, CellState, LostPlate, useFlash } from './CellOverlays';
 import type { Overlays } from './model';
 
 // Сколько ждём подтверждения смены режима вращения
@@ -61,6 +61,8 @@ interface SurroundCellProps {
     onGestureLock?: (locked: boolean) => void;
     onStatus?: (status: PlayerStatus) => void;
     onStats?: (stats: PlayerStats | null) => void;
+    // Устройство молчит с этого момента; null — на связи
+    offlineSince?: number | null;
 }
 
 function num(value: number | null | undefined, digits: number): string {
@@ -86,6 +88,7 @@ export function SurroundCell({
     onGestureLock,
     onStatus,
     onStats,
+    offlineSince = null,
 }: SurroundCellProps) {
     const boxRef = useRef<HTMLDivElement>(null);
     const dual = Boolean(secondary);
@@ -211,7 +214,7 @@ export function SurroundCell({
     // Орбита живёт на соединении объёма; без второго потока — на единственном
     const surroundPlayer = secondary?.viewMode === 'surround' ? second : primary;
     const shownPlayer = dual && visible === secondary?.viewMode ? second : primary;
-    const { status, errorInfo, attempt, stats } = shownPlayer;
+    const { status, errorInfo, attempt, stats, lostAt } = shownPlayer;
 
     useEffect(() => {
         onStatus?.(status);
@@ -315,7 +318,11 @@ export function SurroundCell({
                 </div>
             )}
 
-            {!live && <CellState status={status} error={errorInfo} attempt={attempt} />}
+            {!live && (offlineSince !== null
+                ? <LostPlate text="устройство не отвечает" since={offlineSince} />
+                : lostAt !== null
+                    ? <LostPlate text="нет сигнала" since={lostAt} title={errorInfo?.text} />
+                    : <CellState status={status} error={errorInfo} attempt={attempt} />)}
             {live && flash && <CellFlash flash={flash} onClose={hideFlash} />}
 
             {overlays.time && (

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Icon } from '../../../../app/Icons';
-import { useToast } from '../common/Toast';
+import { useToast } from '../../../../app/Toast';
 
 // Блок «Шаблон и снимки»: размер шахматки, снимки, запуск расчёта
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '../../../../app/Icons';
-import { Switch } from '../../../../app/Modal';
+import { Switch, Seg } from '../../../../app/Modal';
 import { Select } from '../../../../app/Select';
 import { linkerApi } from '../../api/linker';
 import type {
@@ -251,7 +251,7 @@ export function ModelSize({
 
     return (
         <>
-            <div className="seg" role="group" aria-label="Размер модели">
+            <Seg role="group" aria-label="Размер модели">
                 <button
                     type="button"
                     className={model.stretch ? '' : 'is-on'}
@@ -274,7 +274,7 @@ export function ModelSize({
                 >
                     По сторонам
                 </button>
-            </div>
+            </Seg>
 
             {model.stretch ? (
                 <>
