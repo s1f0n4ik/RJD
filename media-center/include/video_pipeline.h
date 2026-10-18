@@ -1,6 +1,7 @@
 #pragma once 
 
 #include <mutex>
+#include <chrono>
 #include <atomic>
 #include <optional>
 #include <unordered_map>
@@ -180,12 +181,13 @@ public:
 	// Ключ потока: stream_N или correction
 	const std::string& get_stream_key() const { return m_parameters.name; }
 
-	// Сессии живут на потоке вебсокета камеры, читать оттуда же
 	bool has_webrtc_session(const std::string& session_id) const {
+		std::lock_guard<std::mutex> lock(m_sessions_mutex);
 		return m_webrtc_sessions.count(session_id) > 0;
 	}
 
 	size_t webrtc_session_count() const {
+		std::lock_guard<std::mutex> lock(m_sessions_mutex);
 		return m_webrtc_sessions.size();
 	}
 
@@ -227,6 +229,10 @@ protected:
 
 	std::mutex m_pipeline_mutex;
 	std::mutex m_teardown_mutex;
+	// Защищает m_webrtc_sessions и m_pending_teardown_clients
+	mutable std::mutex m_sessions_mutex;
+	// Будится, когда клиент уходит из m_pending_teardown_clients
+	std::condition_variable m_sessions_cv;
 	// Словарь сессий webrtcbin
 	// Ключ - клиент, с которым установлена сессия
 	// Ключ — идентификатор сессии
@@ -405,7 +411,8 @@ public:
 
 	~UNV12EncodingPipeline() override;
 
-	void push_frame(cv::Mat frame);
+	// captured — время снятия кадра для PTS; пустое — метку ставит appsrc в момент подачи
+	void push_frame(cv::Mat frame, std::chrono::steady_clock::time_point captured = {});
 
 	// Кадр RGBA в dma-buf без копии; release зовётся, когда кодек отпустил буфер
 	void push_dmabuf(int fd, size_t size, int stride, std::function<void()> release);

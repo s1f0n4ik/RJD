@@ -210,6 +210,12 @@ namespace neural {
 		return -1;
 	}
 
+	// Доля площади рамки внутри области картинки тайла
+	inline float tile_share(const FTilePlacement& p, const FDetection& d) {
+		const cv::Rect box(d.x1_coord, d.y1_coord, d.x2_coord - d.x1_coord, d.y2_coord - d.y1_coord);
+		return box.area() > 0 ? static_cast<float>((box & p.dst).area()) / box.area() : 0.f;
+	}
+
 	inline const char* fit_str(ETileFit f) { return f == ETileFit::STRETCH ? "stretch" : "letterbox"; }
 
 	inline boost::json::object serialize_stream(const FVideoStream& s) {

@@ -145,14 +145,28 @@ bool UCameraPipeline::teardown(bool is_blocking)
 
     m_is_playing = false;
 
-    // Удаление всех сессий, отправление клиентам сообщения о закрытии
-    for (const auto& [id, session] : m_webrtc_sessions) {
+    // Удаление всех сессий, отправление клиентам сообщения о закрытии; сессии забираются под мьютексом, закрываются без него
+    std::map<std::string, std::unique_ptr<UWebRTCSession>> sessions;
+    {
+        std::lock_guard<std::mutex> sessions_lock(m_sessions_mutex);
+        sessions.swap(m_webrtc_sessions);
+    }
+    for (const auto& [id, session] : sessions) {
         broadcast_session_closed(session->get_client_id(), varan::signaling::CODE_SESSION_RESTARTED,
             "session closed by stream teardown");
         session->teardown();
     }
-    m_webrtc_sessions.clear();
+    sessions.clear();
     m_tees.clear();
+
+    // Сессии, закрытые клиентом, дорываются в главном контексте до перевода конвейера в NULL
+    if (!g_main_context_is_owner(g_main_context_default())) {
+        std::unique_lock<std::mutex> sessions_lock(m_sessions_mutex);
+        if (!m_sessions_cv.wait_for(sessions_lock, std::chrono::seconds(5),
+                [this] { return m_pending_teardown_clients.empty(); })) {
+            if (m_logger) m_logger->warn("teardown(): client sessions still tearing down after 5 s");
+        }
+    }
 
     // Останавливаем сетевые потоки
     //gst_element_send_event(m_pipeline, gst_event_new_flush_start());
@@ -673,6 +687,7 @@ bool UCameraPipeline::create_webrtc_session(
         return false;
     }
 
+    std::lock_guard<std::mutex> sessions_lock(m_sessions_mutex);
     if (m_pending_teardown_clients.count(client_id)) {
         description = "Previous session of " + client_id + " is still tearing down, try again later.";
         code = varan::signaling::CODE_SESSION_CREATE_FAILED;
@@ -691,20 +706,24 @@ bool UCameraPipeline::create_webrtc_session(
 }
 
 bool UCameraPipeline::close_webrtc_session(const std::string& session_id, std::string& description, int& code) {
-    auto it = m_webrtc_sessions.find(session_id);
-    if (it == m_webrtc_sessions.end()) {
-        description = "Cannot close session " + session_id + ": session doesn't exist!";
-        code = varan::signaling::CODE_SESSION_NOT_FOUND;
-        return false;
+    std::unique_ptr<UWebRTCSession> session;
+    {
+        std::lock_guard<std::mutex> sessions_lock(m_sessions_mutex);
+        auto it = m_webrtc_sessions.find(session_id);
+        if (it == m_webrtc_sessions.end()) {
+            description = "Cannot close session " + session_id + ": session doesn't exist!";
+            code = varan::signaling::CODE_SESSION_NOT_FOUND;
+            return false;
+        }
+
+        session = std::move(it->second);
+        m_webrtc_sessions.erase(it);
+
+        // Пока сессия рвётся, новую этому клиенту не создаём: разбор и создание
+        // сходятся на одном tee и мешают друг другу
+        m_pending_teardown_clients.insert(session->get_client_id());
     }
-
-    std::unique_ptr<UWebRTCSession> session = std::move(it->second);
-    m_webrtc_sessions.erase(it);
-
-    // Пока сессия рвётся, новую этому клиенту не создаём: разбор и создание
-    // сходятся на одном tee и мешают друг другу
     const std::string client_id = session->get_client_id();
-    m_pending_teardown_clients.insert(client_id);
 
     bool needs_restart = session->is_timeout_triggered();
 
@@ -724,7 +743,11 @@ bool UCameraPipeline::close_webrtc_session(const std::string& session_id, std::s
         [](gpointer data) -> gboolean {
             auto* ctx = static_cast<TeardownCtx*>(data);
             ctx->session->teardown();
-            ctx->pipeline->m_pending_teardown_clients.erase(ctx->client_id);
+            {
+                std::lock_guard<std::mutex> sessions_lock(ctx->pipeline->m_sessions_mutex);
+                ctx->pipeline->m_pending_teardown_clients.erase(ctx->client_id);
+            }
+            ctx->pipeline->m_sessions_cv.notify_all();
             delete ctx;
             return G_SOURCE_REMOVE;
         },
@@ -749,6 +772,8 @@ bool UCameraPipeline::process_webrtc_session(
     std::string& description,
     int& code
 ) {
+    // Сессия под мьютексом до конца обработки
+    std::lock_guard<std::mutex> sessions_lock(m_sessions_mutex);
     // Проверяем есть ли сессия
     auto it_client = m_webrtc_sessions.find(session_id);
     if (it_client == m_webrtc_sessions.end()) {

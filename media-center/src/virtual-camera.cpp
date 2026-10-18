@@ -73,9 +73,9 @@ namespace neural {
         }
     }
 
-    void UVirtualCamera::push_frame(cv::Mat frame) {
+    void UVirtualCamera::push_frame(cv::Mat frame, std::chrono::steady_clock::time_point captured) {
         if (m_nv12_pipeline) {
-            m_nv12_pipeline->push_frame(std::move(frame));
+            m_nv12_pipeline->push_frame(std::move(frame), captured);
             return;
         }
     }

@@ -196,6 +196,7 @@ bool UNV12EncodingPipeline::create_webrtc_session(
 		return false;
 	}
 
+	std::lock_guard<std::mutex> sessions_lock(m_sessions_mutex);
 	auto [it, inserted] = m_webrtc_sessions.emplace(session_id, std::move(session));
 
 	auto ret = it->second->create_branch(m_probe.codec_name);
@@ -229,7 +230,7 @@ void UNV12EncodingPipeline::set_stream_size(int width, int height, int fps) {
 	m_is_set = true;
 }
 
-void UNV12EncodingPipeline::push_frame(cv::Mat frame) {
+void UNV12EncodingPipeline::push_frame(cv::Mat frame, std::chrono::steady_clock::time_point captured) {
 	if (!m_appsrc) return;
 
 	if (!m_is_playing) {
@@ -297,6 +298,16 @@ void UNV12EncodingPipeline::push_frame(cv::Mat frame) {
 	//GST_BUFFER_DTS(buffer) = pts;
 	//GST_BUFFER_DURATION(buffer) = duration;
 	//++m_frame_count;
+
+	// PTS = running time в момент снятия кадра; appsrc с do-timestamp не трогает заданные метки
+	if (captured != std::chrono::steady_clock::time_point{}) {
+		const GstClockTime now = gst_element_get_current_running_time(m_appsrc);
+		const auto age = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - captured).count();
+		if (GST_CLOCK_TIME_IS_VALID(now) && age >= 0 && static_cast<GstClockTime>(age) <= now) {
+			GST_BUFFER_PTS(buffer) = now - static_cast<GstClockTime>(age);
+			GST_BUFFER_DTS(buffer) = GST_BUFFER_PTS(buffer);
+		}
+	}
 
 	GstFlowReturn flow = gst_app_src_push_buffer(GST_APP_SRC(m_appsrc), buffer);
 	if (flow != GST_FLOW_OK) {

@@ -605,6 +605,9 @@ namespace neural {
             value.store(old == 0.f ? sample : old * 0.9f + sample * 0.1f);
         }
 
+        // Рамка с меньшей долей площади в своём тайле склеена моделью через шов тайлов
+        constexpr float kMinTileShare = 0.9f;
+
         bool has_area(const FDetection& d) {
             return d.x2_coord > d.x1_coord && d.y2_coord > d.y1_coord;
         }
@@ -646,6 +649,13 @@ namespace neural {
             auto& dets = inferred.result.detections;
             if (m_config.thresholds.require_mask && m_classifier->segmentation())
                 std::erase_if(dets, [](const FDetection& d) { return d.polygons.empty(); });
+            if (inferred.tiles) {
+                const auto& tiles = *inferred.tiles;
+                std::erase_if(dets, [&](const FDetection& d) {
+                    const int i = tile_of(tiles, d);
+                    return i >= 0 && tile_share(tiles[i], d) < kMinTileShare;
+                });
+            }
             ema(m_det_count, static_cast<float>(std::count_if(dets.begin(), dets.end(),
                 [this](const FDetection& d) { return d.confidence >= m_config.thresholds.confidence; })));
             deliver(job.seq, std::move(inferred));
@@ -791,7 +801,7 @@ namespace neural {
 
             std::lock_guard<std::mutex> lk(m_resource_mutex);
             if (ensure_streamer(rgb_pixels.cols, rgb_pixels.rows)) {
-                m_streamer->push_frame(std::move(rgb_pixels));
+                m_streamer->push_frame(std::move(rgb_pixels), inferred.at);
             }
         }
     }

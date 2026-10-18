@@ -235,7 +235,7 @@ namespace neural {
 
 			bool set_parameters(int width, int height, int fps);
 
-			void push_frame(cv::Mat frame);
+			void push_frame(cv::Mat frame, std::chrono::steady_clock::time_point captured = {});
 
 			// Кадр RGBA в dma-buf без копии; release зовётся, когда кодек отпустил буфер
 			void push_dmabuf(int fd, size_t size, int stride, std::function<void()> release);

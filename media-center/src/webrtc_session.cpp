@@ -122,6 +122,19 @@ bool UWebRTCSession::create_branch(const std::string& codec) {
 	);
 	if (m_logger) m_logger->debug(std::string("added turn server 172.25.78.169:3478: ") + (ret_turn ? "success" : "failed"));
 
+	// Без UPnP: libnice не пробрасывает порты на роутере и не заводит объект IGD на сессию
+	GstWebRTCICE* ice = nullptr;
+	g_object_get(m_webrtcbin, "ice-agent", &ice, nullptr);
+	if (ice) {
+		GObject* agent = nullptr;
+		g_object_get(ice, "agent", &agent, nullptr);
+		if (agent) {
+			g_object_set(agent, "upnp", FALSE, nullptr);
+			g_object_unref(agent);
+		}
+		gst_object_unref(ice);
+	}
+
 	if (m_pay) {
 		gst_bin_add_many(GST_BIN(m_pipeline), m_queue, m_pay, m_webrtcbin, nullptr);
 	}

@@ -339,6 +339,8 @@ bool UCameraStreamPipeline::initialize() {
 		"latency", m_parameters.latency,
 		"protocols", m_parameters.use_udp ? GST_RTSP_LOWER_TRANS_UDP : GST_RTSP_LOWER_TRANS_TCP,
 		"tcp-timeout", (guint64)5 * GST_SECOND,
+		// Время приёма на каждый пакет TCP
+		"tcp-timestamp", TRUE,
 		nullptr
 	);
 
@@ -593,11 +595,13 @@ bool UCameraStreamPipeline::create_decoder_branch(GstElement* tee) {
 		nullptr
 	);
 
+	// На EOS не ждать, пока заберут кадр
 	g_object_set(appsink,
 		"emit-signals", TRUE,
 		"sync", FALSE,
 		"max-buffers", 1,
 		"drop", TRUE,
+		"wait-on-eos", FALSE,
 		nullptr
 	);
 
@@ -1010,6 +1014,7 @@ bool UCameraStreamPipeline::create_webrtc_session(
 		return false;
 	}
 
+	std::lock_guard<std::mutex> sessions_lock(m_sessions_mutex);
 	auto [it, inserted] = m_webrtc_sessions.emplace(session_id, std::move(session));
 
 	auto ret = it->second->create_branch(m_probe.codec_name);
