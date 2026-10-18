@@ -16,6 +16,9 @@ DEFAULT_LIMITS = {"images_limit_gb": 25.0, "db_limit_gb": 1.0}
 TARGET_RATIO = 0.9
 # Потолок пачек удаления записей за цикл: длинную чистку продолжит следующий
 MAX_BATCHES_PER_CYCLE = 20
+# Окно правдоподобного времени устройства, как в разборе времени шлюза: 2025–2050
+WALL_MIN_MS = int(datetime(2025, 1, 1, tzinfo=timezone.utc).timestamp() * 1000)
+WALL_MAX_MS = int(datetime(2051, 1, 1, tzinfo=timezone.utc).timestamp() * 1000)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS detections(
@@ -127,6 +130,7 @@ class Journal:
         self.conn.executemany(
             "INSERT OR REPLACE INTO journal_settings(key, value) VALUES (?, ?)", list(legacy_limits.items())
         )
+        self._repair_time()
         self.conn.commit()
         rows = self.conn.execute("SELECT COUNT(*) FROM detections").fetchone()[0]
         logger.info("journal opened: %s, %d detection(s)", self.db_path, rows)
@@ -137,6 +141,35 @@ class Journal:
             self.conn = None
 
     # Старая база media-center с её кадрами уходит в legacy-<дата>; возвращает её лимиты
+    # События со временем вне окна получают время приёма, треки и обнаружения — границы по своим событиям
+    def _repair_time(self) -> None:
+        window = [WALL_MIN_MS, WALL_MAX_MS]
+        fixed = self.conn.execute(
+            "UPDATE events SET ts = received_at, sadko_time = 0 WHERE ts < ? OR ts >= ?", window
+        ).rowcount
+        if fixed == 0:
+            return
+        self.conn.execute(
+            "UPDATE tracks SET "
+            "first_ts = COALESCE((SELECT MIN(ts) FROM events WHERE track_id = tracks.id), first_ts), "
+            "last_ts = COALESCE((SELECT MAX(ts) FROM events WHERE track_id = tracks.id), last_ts) "
+            "WHERE first_ts < ? OR first_ts >= ? OR last_ts < ? OR last_ts >= ?",
+            window * 2,
+        )
+        self.conn.execute(
+            "UPDATE detections SET "
+            "started_at = COALESCE((SELECT MIN(first_ts) FROM tracks WHERE detection_id = detections.id), started_at) "
+            "WHERE started_at < ? OR started_at >= ?",
+            window,
+        )
+        self.conn.execute(
+            "UPDATE detections SET "
+            "ended_at = COALESCE((SELECT MAX(last_ts) FROM tracks WHERE detection_id = detections.id), ended_at) "
+            "WHERE ended_at < ? OR ended_at >= ?",
+            window,
+        )
+        logger.warning("journal time repaired: %d event(s) out of the 2025-2050 window got their receive time", fixed)
+
     def _move_legacy(self) -> dict:
         if not self.db_path.exists():
             return {}

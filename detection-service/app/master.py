@@ -15,7 +15,7 @@ import detection_ingress_pb2 as pb
 import frame_ingress_pb2 as gw
 
 from app.config import settings
-from app.journal import Journal, now_ms
+from app.journal import WALL_MAX_MS, WALL_MIN_MS, Journal, now_ms
 from app.rules import IskraSettings, RsmSettings, RulesStore
 
 logger = logging.getLogger(__name__)
@@ -638,6 +638,10 @@ class Master:
         ack = pb.Ack()
         if message.HasField("packet"):
             packet = message.packet
+            # Время устройства вне окна заменяется временем приёма
+            if not WALL_MIN_MS <= packet.ts < WALL_MAX_MS:
+                packet.ts = received_at
+                packet.sadko_time = False
             device = self._session(packet.device_id, packet.session)
             device.packets += 1
             device.delay_ms = packet.delay_ms

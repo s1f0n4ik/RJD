@@ -62,6 +62,10 @@ MEASURE_CHUNK = 32
 # Источники, которым можно верить. sadko — нынешнее имя, can — прежнее
 TRUSTED_SOURCES = ("sadko", "can")
 
+# Окно правдоподобного настенного времени, как в разборе времени шлюза: 2025–2050
+WALL_MIN_MS = int(datetime(2025, 1, 1, tzinfo=timezone.utc).timestamp() * 1000)
+WALL_MAX_MS = int(datetime(2051, 1, 1, tzinfo=timezone.utc).timestamp() * 1000)
+
 
 @dataclass
 class FSession:
@@ -208,7 +212,8 @@ class SegmentIndex:
         for sources in (TRUSTED_SOURCES, ("system",), ("none",)):
             trusted = sources is TRUSTED_SOURCES
 
-            if trusted and session.time_source in TRUSTED_SOURCES:
+            if (trusted and session.time_source in TRUSTED_SOURCES
+                    and WALL_MIN_MS <= session.started_wall_ms < WALL_MAX_MS):
                 return session.started_wall_ms - session.started_mono_ms, True
 
             if has_marks:
@@ -216,8 +221,9 @@ class SegmentIndex:
                     conn,
                     "SELECT wall_ms - mono_ms AS base FROM time_marks"
                     f" WHERE session_uid=? AND time_source IN ({_places(sources)})"
+                    " AND wall_ms >= ? AND wall_ms < ?"
                     " ORDER BY mono_ms LIMIT 1;",
-                    (session.uid, *sources),
+                    (session.uid, *sources, WALL_MIN_MS, WALL_MAX_MS),
                 )
                 if base is not None:
                     return base, trusted
@@ -226,8 +232,9 @@ class SegmentIndex:
                 conn,
                 "SELECT wall_start_ms - mono_start_ms AS base FROM segments"
                 f" WHERE session_uid=? AND time_source IN ({_places(sources)})"
+                " AND wall_start_ms >= ? AND wall_start_ms < ?"
                 " ORDER BY mono_start_ms LIMIT 1;",
-                (session.uid, *sources),
+                (session.uid, *sources, WALL_MIN_MS, WALL_MAX_MS),
             )
             if base is not None:
                 return base, trusted
