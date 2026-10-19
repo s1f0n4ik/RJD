@@ -277,6 +277,63 @@ export function gapsWithin(track: Track, from: number, to: number): Gap[] {
     return track.gaps.filter(gap => gap.end_ms > from && gap.start_ms < to);
 }
 
+// Куски и разрывы уже этой доли окна, идущие подряд, рисуются одним плотным блоком
+const DENSE_PERCENT = 0.25;
+
+// Плотный блок: частые разрывы, неразличимые на этом масштабе
+export interface Dense {
+    start_ms: number;
+    end_ms: number;
+    gaps: number;
+    gap_ms: number;
+}
+
+// Что дорожка рисует в окне
+export interface Stripes {
+    runs: Run[];
+    gaps: Gap[];
+    dense: Dense[];
+}
+
+export function trackStripes(track: Track, from: number, to: number): Stripes {
+    const out: Stripes = { runs: [], gaps: [], dense: [] };
+    const narrow = ((to - from) * DENSE_PERCENT) / 100;
+    const isGap = (item: Run | Gap): item is Gap => 'kind' in item;
+    const put = (item: Run | Gap) => (isGap(item) ? out.gaps.push(item) : out.runs.push(item));
+
+    const items = [...track.runs, ...track.gaps]
+        .filter(item => item.end_ms > from && item.start_ms < to)
+        .sort((a, b) => a.start_ms - b.start_ms);
+
+    let group: Array<Run | Gap> = [];
+    const flush = () => {
+        const gaps = group.filter(isGap);
+        if (group.length > 1 && gaps.length) {
+            out.dense.push({
+                start_ms: group[0].start_ms,
+                end_ms: group[group.length - 1].end_ms,
+                gaps: gaps.length,
+                gap_ms: gaps.reduce((sum, gap) => sum + gap.end_ms - gap.start_ms, 0),
+            });
+        } else {
+            group.forEach(put);
+        }
+        group = [];
+    };
+
+    for (const item of items) {
+        if (item.end_ms - item.start_ms < narrow) {
+            group.push(item);
+            continue;
+        }
+        flush();
+        put(item);
+    }
+    flush();
+
+    return out;
+}
+
 // Оценка размера куска по средней плотности записи на дорожке
 export function estimateBytes(track: Track, ms: number): number {
     if (!track.recorded_ms) return 0;

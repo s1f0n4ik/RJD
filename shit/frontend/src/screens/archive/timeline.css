@@ -285,6 +285,14 @@
   background: repeating-linear-gradient(45deg, rgba(var(--acc-rgb), .4) 0 5px, rgba(var(--acc-rgb), .14) 5px 10px);
 }
 
+/* Частые разрывы мельче пары пикселей: запись под красной штриховкой */
+.tl-run.is-dense {
+  background: repeating-linear-gradient(45deg, color-mix(in srgb,var(--err) 55%,transparent) 0 3px, transparent 3px 7px), rgba(var(--acc-rgb), .3);
+}
+.tl-row.is-sel .tl-run.is-dense {
+  background: repeating-linear-gradient(45deg, color-mix(in srgb,var(--err) 60%,transparent) 0 3px, transparent 3px 7px), rgba(var(--acc-rgb), .45);
+}
+
 /* Запись на неподключённом диске пула: серая штриховка */
 .tl-run.is-gone {
   background: repeating-linear-gradient(45deg, color-mix(in srgb,var(--fg-2) 30%,transparent) 0 5px, color-mix(in srgb,var(--fg-2) 8%,transparent) 5px 10px);

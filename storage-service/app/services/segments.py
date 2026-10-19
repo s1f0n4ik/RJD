@@ -20,6 +20,7 @@ import re
 import sqlite3
 import subprocess
 import time
+from bisect import bisect_right
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -1250,15 +1251,15 @@ def _merge_runs(items: list[dict]) -> list[tuple[int, int, Optional[str]]]:
 
 def _find_gaps(items: list[dict], runs: list[tuple[int, int, Optional[str]]]) -> list[dict]:
     """Пропуски между кусками: kind=power на границе сессий, record внутри одной."""
-    sessions_at = [(item["start_ms"], item["session_uid"]) for item in items]
+    starts = [item["start_ms"] for item in items]
 
     gaps = []
     for left, right in zip(runs, runs[1:]):
         # Куски одной записи на разных дисках идут встык
         if right[0] - left[1] <= GAP_THRESHOLD_MS:
             continue
-        before = _session_at(sessions_at, left[1])
-        after = _session_at(sessions_at, right[0])
+        before = _session_at(items, starts, left[1])
+        after = _session_at(items, starts, right[0])
         gaps.append({
             "start_ms": left[1],
             "end_ms": right[0],
@@ -1267,14 +1268,10 @@ def _find_gaps(items: list[dict], runs: list[tuple[int, int, Optional[str]]]) ->
     return gaps
 
 
-def _session_at(sessions_at: list[tuple[int, str]], ms: int) -> str:
-    found = ""
-    for start, uid in sessions_at:
-        if start <= ms:
-            found = uid
-        else:
-            break
-    return found
+def _session_at(items: list[dict], starts: list[int], ms: int) -> str:
+    """Сессия последнего сегмента, начавшегося не позже ms; items отсортированы по началу."""
+    found = bisect_right(starts, ms) - 1
+    return items[found]["session_uid"] if found >= 0 else ""
 
 
 index = SegmentIndex(Path(settings.ARCHIVE_DB_PATH))

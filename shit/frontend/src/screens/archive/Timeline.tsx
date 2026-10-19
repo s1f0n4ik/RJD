@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { Icon } from '../../app/Icons';
@@ -10,7 +10,7 @@ import { RangeCard } from './RangeCard';
 import type { Track, ZoomLevel } from './model';
 import {
     ZOOMS, buildTicks, dateKey, fmtDateLong, fmtDuration,
-    fmtTime, frameUrl, goneAt, isAvailable, isRecorded, msAt, percentIn, trackKey,
+    fmtTime, frameUrl, goneAt, isAvailable, isRecorded, msAt, percentIn, trackKey, trackStripes,
 } from './model';
 import './timeline.css';
 
@@ -115,6 +115,7 @@ export function Timeline({
     const { from, to } = useZoomWindow(targetFrom, targetTo, zoom);
     const level: ZoomLevel = ZOOMS[zoom];
     const ticks = buildTicks(from, to, level);
+    const stripes = useMemo(() => tracks.map(track => trackStripes(track, from, to)), [tracks, from, to]);
 
     const msFromX = useCallback((clientX: number) => {
         const box = canvas.current?.getBoundingClientRect();
@@ -396,11 +397,12 @@ export function Timeline({
 
                     <div className="tl-body">
                     <div className="tl-rows" ref={rows} onScroll={syncScroll}>
-                        {tracks.map(track => {
+                        {tracks.map((track, row) => {
                             const key = trackKey(track);
+                            const { runs, gaps, dense } = stripes[row];
                             return (
                                 <div key={key} className={`tl-row${key === selectedKey ? ' is-sel' : ''}`}>
-                                    {track.runs.map((run, index) => {
+                                    {runs.map((run, index) => {
                                         const left = percentIn(run.start_ms, from, to);
                                         const width = percentIn(run.end_ms, from, to) - left;
                                         // Запись на неподключённом диске: есть в индексе, но не смотрится
@@ -427,7 +429,7 @@ export function Timeline({
                                     })}
 
                                     {/* Разрыв приходит настоящими границами и может выходить за окно */}
-                                    {track.gaps.map((gap, index) => {
+                                    {gaps.map((gap, index) => {
                                         const left = Math.max(0, percentIn(gap.start_ms, from, to));
                                         const right = Math.min(100, percentIn(gap.end_ms, from, to));
                                         if (right <= left) return null;
@@ -449,6 +451,20 @@ export function Timeline({
                                                     </span>
                                                 )}
                                             </Fragment>
+                                        );
+                                    })}
+
+                                    {dense.map((block, index) => {
+                                        const left = Math.max(0, percentIn(block.start_ms, from, to));
+                                        const right = Math.min(100, percentIn(block.end_ms, from, to));
+
+                                        return (
+                                            <i
+                                                key={`d${index}`}
+                                                className="tl-run is-dense"
+                                                style={{ left: `${left}%`, width: `${right - left}%` }}
+                                                title={`разрывов: ${block.gaps} · без записи ${fmtDuration(block.gap_ms)}`}
+                                            />
                                         );
                                     })}
 
