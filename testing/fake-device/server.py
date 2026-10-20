@@ -29,15 +29,17 @@ for cfg in CONFIGS.values():
         "model_path": "/home/orangepi/varan/neural/models/fake.rknn",
         "thresholds": {"nms": 0.45, "confidence": 0.4},
         "tracker": {"type": "iou", "iou_threshold": 0.5, "min_hits": 5, "max_lost": 12, "move_threshold": 0.1},
-        "model_width": 640, "model_height": 640, "fps": 20,
+        "fps": 20,
+        "model": {"file": "fake.rknn", "input_width": 640, "input_height": 640, "class_count": 80,
+                  "layout": "SINGLE", "quantized": True, "weight_bytes": 4700000},
     })
 
 STREAMS = [{
-    "id": "fake_stream", "name": "Поддельный поток", "config_id": "fake-config", "width": 640, "height": 640,
+    "id": "fake_stream", "name": "Поддельный поток", "width": 640, "height": 640,
     "rows": 1, "cols": 1, "row_fr": [], "col_fr": [],
     "tiles": [{"camera": "camera_f1", "row": 0, "col": 0, "row_span": 1, "col_span": 1, "crop": [0, 0, 1, 1], "fit": "letterbox"}],
 }, {
-    "id": "fake_broken", "name": "Поток с ошибкой", "config_id": "railway_camera", "width": 640, "height": 640,
+    "id": "fake_broken", "name": "Поток с ошибкой", "width": 640, "height": 640,
     "rows": 1, "cols": 1, "row_fr": [], "col_fr": [],
     "tiles": [{"camera": "camera_f1", "row": 0, "col": 0, "row_span": 1, "col_span": 1, "crop": [0, 0, 1, 1], "fit": "stretch"}],
 }]
@@ -146,7 +148,7 @@ async def neural_status():
 async def configurations(id: str | None = None):
     if id:
         return ok(CONFIGS[id]) if id in CONFIGS else JSONResponse({"error": "not found"}, status_code=404)
-    return ok({"configurations": [{"id": k, "name": v["name"]} for k, v in CONFIGS.items()]})
+    return ok({"configurations": [{"id": k, "name": v["name"], "model": v.get("model")} for k, v in CONFIGS.items()]})
 
 
 @app.get("/neural/classes")

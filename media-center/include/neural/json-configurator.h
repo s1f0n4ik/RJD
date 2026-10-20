@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <vector>
 #include <optional>
 
@@ -98,6 +99,25 @@ namespace neural {
 					}
 				}
 
+				if (auto* zs = obj.if_contains("zones"); zs && zs->is_array()) {
+					for (const auto& zv : zs->as_array()) {
+						if (!zv.is_object()) continue;
+						const auto& zo = zv.as_object();
+						FZoneInfo z;
+						if (auto* v = zo.if_contains("id"); v && v->is_int64()) z.id = static_cast<int>(v->as_int64());
+						if (z.id < 1) continue;
+						if (auto* v = zo.if_contains("name"); v && v->is_string()) z.name = v->as_string().c_str();
+						if (auto* v = zo.if_contains("color"); v && v->is_string()) z.color = v->as_string().c_str();
+						if (auto* v = zo.if_contains("threshold"); v && v->is_number())
+							z.threshold = std::clamp(static_cast<float>(v->to_number<double>()), 0.f, 1.f);
+						info.zones.push_back(std::move(z));
+					}
+				}
+				if (auto* v = obj.if_contains("zone_enter_frames"); v && v->is_int64())
+					info.zone_enter_frames = std::max(1, static_cast<int>(v->as_int64()));
+				if (auto* v = obj.if_contains("zone_leave_s"); v && v->is_number())
+					info.zone_leave_s = std::max(0.f, static_cast<float>(v->to_number<double>()));
+
 				if (auto* cls = obj.if_contains("classes"); cls && cls->is_object()) {
 					for (const auto& [key_str, cv] : cls->as_object()) {
 						if (!cv.is_object()) continue;
@@ -151,7 +171,8 @@ namespace neural {
 		const std::unordered_set<std::string>& allowed_fields() const override {
 			static const std::unordered_set<std::string> fields = {
 				"name", "model_path", "fps",
-				"thresholds", "classes", "superclasses", "tracker"
+				"thresholds", "classes", "superclasses", "tracker", "model",
+				"zones", "zone_enter_frames", "zone_leave_s"
 			};
 			return fields;
 		}

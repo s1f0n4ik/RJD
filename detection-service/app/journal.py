@@ -99,9 +99,22 @@ CREATE INDEX IF NOT EXISTS idx_event_image ON events(device_id, session, image_r
 
 EVENT_GPS = ("lat", "lon", "alt", "speed", "course")
 
+# Столбцы, появившиеся после первой схемы: старая база получает их при открытии
+ADDED_COLUMNS = {
+    "detections": [("zone_id", "INTEGER"), ("zone_name", "TEXT"), ("zone_priority", "INTEGER"), ("image_zone_priority", "INTEGER")],
+    "events": [("zone_id", "INTEGER"), ("zone_name", "TEXT"), ("zone_priority", "INTEGER")],
+}
+
 
 def now_ms() -> int:
     return int(time.time() * 1000)
+
+
+# Зона трека для строки журнала; вне зон — пусто
+def zone_values(track) -> list:
+    if not track.zone_id:
+        return [None, None, None]
+    return [track.zone_id, track.zone_name or None, track.zone_priority or None]
 
 
 class Journal:
@@ -124,6 +137,7 @@ class Journal:
         self.conn.execute("PRAGMA synchronous=NORMAL")
         self.conn.execute("PRAGMA busy_timeout=5000")
         self.conn.executescript(SCHEMA)
+        self._add_columns()
         self.conn.executemany(
             "INSERT OR IGNORE INTO journal_settings(key, value) VALUES (?, ?)", list(DEFAULT_LIMITS.items())
         )
@@ -139,6 +153,13 @@ class Journal:
         if self.conn is not None:
             self.conn.close()
             self.conn = None
+
+    def _add_columns(self) -> None:
+        for table, columns in ADDED_COLUMNS.items():
+            have = {row[1] for row in self.conn.execute(f"PRAGMA table_info({table})")}
+            for name, kind in columns:
+                if name not in have:
+                    self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
 
     # Старая база media-center с её кадрами уходит в legacy-<дата>; возвращает её лимиты
     # События со временем вне окна получают время приёма, треки и обнаружения — границы по своим событиям
@@ -226,14 +247,23 @@ class Journal:
         gps = packet.gps
         cur = self.conn.execute(
             "INSERT INTO detections(device_id, camera_id, config_id, class_id, class_name, superclass, "
-            "started_at, lat, lon, gps_valid, late) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "started_at, lat, lon, gps_valid, late, zone_id, zone_name, zone_priority) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 packet.device_id, packet.camera_id, packet.config_id, track.class_id, track.class_name,
                 track.superclass or None, packet.ts,
                 gps.lat if gps.valid else None, gps.lon if gps.valid else None, int(gps.valid), int(late),
+                *zone_values(track),
             ],
         )
         return cur.lastrowid
+
+    # Самая высокая зона обнаружения за жизнь
+    def set_detection_zone(self, detection_id: int, track) -> None:
+        self.conn.execute(
+            "UPDATE detections SET zone_id = ?, zone_name = ?, zone_priority = ? WHERE id = ?",
+            [*zone_values(track), detection_id],
+        )
 
     def close_detection(self, detection_id: int, ended_at: int, reason: str) -> None:
         self.conn.execute(
@@ -252,9 +282,12 @@ class Journal:
         self.conn.commit()
         return cur.rowcount
 
-    def set_detection_image(self, detection_id: int, image_id: int) -> None:
+    # Превью — снимок самой высокой зоны, при равных — ранний; снимок вне зон ставится, только пока превью нет
+    def link_image(self, detection_id: int, image_id: int, zone_priority: int) -> None:
         self.conn.execute(
-            "UPDATE detections SET image_id = ? WHERE id = ? AND image_id IS NULL", [image_id, detection_id]
+            "UPDATE detections SET image_id = ?, image_zone_priority = ? WHERE id = ? AND (image_id IS NULL "
+            "OR (? > 0 AND (COALESCE(image_zone_priority, 0) = 0 OR ? < image_zone_priority)))",
+            [image_id, zone_priority or None, detection_id, zone_priority, zone_priority],
         )
 
     # Трек уже был (связь вернулась после закрытия) — переходит к новому обнаружению
@@ -278,13 +311,15 @@ class Journal:
         gps = packet.gps
         self.conn.execute(
             "INSERT INTO events(track_id, device_id, session, packet_id, event, ts, confidence, x, y, w, h, "
-            "frame_w, frame_h, lat, lon, alt, speed, course, gps_valid, sadko_time, image_ref, received_at, late) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "frame_w, frame_h, lat, lon, alt, speed, course, gps_valid, sadko_time, image_ref, received_at, late, "
+            "zone_id, zone_name, zone_priority) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 track_row, packet.device_id, packet.session, packet.id, event, packet.ts, track.confidence,
                 *box, packet.width, packet.height,
                 *(getattr(gps, f) if gps.valid else None for f in EVENT_GPS),
                 int(gps.valid), int(packet.sadko_time), packet.image_id or None, received_at, int(late),
+                *zone_values(track),
             ],
         )
 
@@ -320,13 +355,15 @@ class Journal:
         ).fetchone()
         return self.frames_dir / row[0] if row and row[0] else None
 
-    def detections_for_image(self, device_id: str, session: int, device_image_id: int) -> list[int]:
+    # Обнаружения снимка и приоритет зоны их трека в момент снимка; 0 — вне зон
+    def detections_for_image(self, device_id: str, session: int, device_image_id: int) -> list[tuple[int, int]]:
         return [
-            row[0]
+            (row[0], row[1] or 0)
             for row in self.conn.execute(
-                "SELECT DISTINCT tracks.detection_id FROM events JOIN tracks ON tracks.id = events.track_id "
+                "SELECT tracks.detection_id, MIN(NULLIF(events.zone_priority, 0)) FROM events "
+                "JOIN tracks ON tracks.id = events.track_id "
                 "WHERE events.device_id = ? AND events.session = ? AND events.image_ref = ? "
-                "AND tracks.detection_id IS NOT NULL",
+                "AND tracks.detection_id IS NOT NULL GROUP BY tracks.detection_id",
                 [device_id, session, device_image_id],
             )
         ]

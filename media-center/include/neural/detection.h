@@ -17,4 +17,6 @@ struct FDetection
     std::vector<float> mask_coefficients;
     // Внешние контуры маски в тех же координатах, что и рамка; пусто у моделей без масок
     std::vector<std::vector<cv::Point>> polygons;
+    // Зона каталога на этом кадре; 0 — вне зон
+    int zone = 0;
 };

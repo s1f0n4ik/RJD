@@ -72,12 +72,17 @@ class ModelTable(BaseModel):
     classes: dict[int, Number] = {}
     # Место суперкласса в списке конфигурации → число; строки нет — место + 1
     superclasses: dict[int, Number] = {}
+    # id зоны каталога → число; строки нет — id; 0 — вне зон, без строки пусто
+    zones: dict[int, Number] = {}
 
     def class_no(self, class_id: int) -> int:
         return self.classes.get(class_id, class_id + 1)
 
     def superclass_no(self, place: int) -> int:
         return self.superclasses.get(place, place + 1)
+
+    def zone_no(self, zone_id: int) -> int:
+        return self.zones.get(zone_id, zone_id)
 
 
 class RsmDictionaries(BaseModel):
@@ -185,6 +190,9 @@ class IskraSettings(BaseModel):
 
     def code(self, config_id: str, class_id: int) -> int:
         return known(self.dictionaries.code, self.table.models.get(config_id, ModelTable()).class_no(class_id))
+
+    def zone(self, config_id: str, zone_id: int) -> int:
+        return known(self.dictionaries.zone, self.table.models.get(config_id, ModelTable()).zone_no(zone_id))
 
     def camera_mask(self, camera_id: str) -> int:
         return sum(1 << (c.bit - 1) for c in self.table.cameras if c.camera_id and c.camera_id == camera_id)

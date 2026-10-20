@@ -65,6 +65,10 @@ class Detection:
     gps: Optional[tuple[float, float]] = None
     # Искра: запись уже собрана
     recorded: bool = False
+    # Самая высокая зона за жизнь; приоритет 1 — выше всех, 0 — вне зон
+    zone_id: int = 0
+    zone_name: str = ""
+    zone_priority: int = 0
 
 
 @dataclass
@@ -74,6 +78,8 @@ class Track:
     camera_id: str
     last_ts: int
     box: Box
+    # Устойчивая зона трека из последнего такта
+    zone_id: int = 0
 
 
 @dataclass
@@ -172,6 +178,14 @@ class Outbox:
         self.send: Callable[[Outgoing], None] = lambda message: None
 
 
+# Зона трека выше зоны обнаружения поднимает её
+def raise_zone(detection: Detection, track) -> bool:
+    if not track.zone_priority or (detection.zone_priority and track.zone_priority >= detection.zone_priority):
+        return False
+    detection.zone_id, detection.zone_name, detection.zone_priority = track.zone_id, track.zone_name, track.zone_priority
+    return True
+
+
 def gw_detection(detection: Detection, track=None) -> "gw.Detection":
     d = gw.Detection(detection_id=detection.id, cid=detection.class_id, cls=detection.class_name, scls=detection.superclass)
     if track is not None:
@@ -229,7 +243,8 @@ class Rules:
         key = (packet.device_id, packet.session, track.track_id)
         box: Box = tuple(track.box) if len(track.box) == 4 else (0, 0, 0, 0)
         state = self.tracks.get(key)
-        if state is None:
+        fresh = state is None
+        if fresh:
             # «Удалён» трека без открытого обнаружения ничего не открывает
             if track.event == pb.TRACK_EVENT_REMOVED:
                 logger.info("track #%d of %s removed with no open detection, skipped", track.track_id, packet.device_id[:8])
@@ -240,17 +255,25 @@ class Rules:
         detection = state.detection
         detection.last_ts = max(detection.last_ts, packet.ts)
 
+        events = [] if track.event == NO_EVENT else [EVENT_NAMES.get(track.event, str(track.event))]
+        # Смена устойчивой зоны трека — событие мастера
+        if not fresh and track.zone_id != state.zone_id:
+            events.append("zone")
+        state.zone_id = track.zone_id
+        if raise_zone(detection, track):
+            self.journal.set_detection_zone(detection.id, track)
+            self.on_zone_raised(detection, packet)
+
         # Такт без события живёт только в памяти
-        if track.event == NO_EVENT:
+        if not events:
             return
         self.journal.touch_track(state.row_id, packet.ts)
-        self.journal.add_event(
-            state.row_id, packet, track, EVENT_NAMES.get(track.event, str(track.event)), received_at, late
-        )
+        for event in events:
+            self.journal.add_event(state.row_id, packet, track, event, received_at, late)
         if packet.image_id:
             image = self.journal.image_id(packet.device_id, packet.session, packet.image_id)
             if image is not None:
-                self.journal.set_detection_image(detection.id, image)
+                self.journal.link_image(detection.id, image, track.zone_priority)
         if track.event == pb.TRACK_EVENT_REMOVED:
             self._drop_track(key, state, packet.ts, "removed")
 
@@ -287,6 +310,7 @@ class Rules:
                 superclass=track.superclass, superclass_id=track.superclass_id, confidence=track.confidence, late=late,
                 opened=time.monotonic(), opened_ts=packet.ts,
                 gps=(packet.gps.lat, packet.gps.lon) if packet.gps.valid else None,
+                zone_id=track.zone_id, zone_name=track.zone_name, zone_priority=track.zone_priority,
             )
             self.detections[detection_id] = detection
             self.opened_total += 1
@@ -301,7 +325,7 @@ class Rules:
             detection.removed_ts = None
             detection.deadline = 0.0
 
-        state = Track(self.journal.add_track(detection.id, packet, track), detection, packet.camera_id, packet.ts, box)
+        state = Track(self.journal.add_track(detection.id, packet, track), detection, packet.camera_id, packet.ts, box, track.zone_id)
         detection.tracks.add(key)
         self.tracks[key] = state
         return state
@@ -389,6 +413,10 @@ class Rules:
         pass
 
     def on_closed(self, detection: Detection, ended_at: int) -> None:
+        pass
+
+    # Зона обнаружения поднялась в такте packet
+    def on_zone_raised(self, detection: Detection, packet) -> None:
         pass
 
     def _shot(self, packet) -> None:
@@ -523,23 +551,31 @@ class IskraRules(Rules):
 
     def _record(self, detection: Detection) -> None:
         detection.recorded = True
-        if detection.late:
-            return
+        if not detection.late:
+            self._send_new_record(detection, detection.opened_ts, detection.gps)
+
+    # Запись 28163 с самой высокой зоной обнаружения на момент ts
+    def _send_new_record(self, detection: Detection, ts: int, gps: Optional[tuple[float, float]]) -> None:
         # Код пусто — только журнал
         code = self.settings.code(detection.config_id, detection.class_id)
         if not self.settings.modbus.enabled or not code:
             self.feed.filtered("modbus")
             return
-        # Зону слот пока не ставит — пусто
         record = gw.Record(code=code, frame_id=detection.id & 0xFFFFFFFF, camera_mask=self.settings.camera_mask(detection.camera_id),
-                           count=1, ts=detection.opened_ts)
-        if detection.gps is not None:
-            record.gps.CopyFrom(gw.GpsData(lat=detection.gps[0], lon=detection.gps[1], valid=True))
-        request = self._request(gw.TRACK_EVENT_CONFIRMED, detection.opened_ts, detection.camera_id, detection.config_id,
+                           zone=self.settings.zone(detection.config_id, detection.zone_id), count=1, ts=ts)
+        if gps is not None:
+            record.gps.CopyFrom(gw.GpsData(lat=gps[0], lon=gps[1], valid=True))
+        request = self._request(gw.TRACK_EVENT_CONFIRMED, ts, detection.camera_id, detection.config_id,
                                 [gw_detection(detection)], "modbus")
         request.record.CopyFrom(record)
         self.pending[detection.id] = request
         self._send_record(detection.id, request)
+
+    # Обострение после записи по потолку — ещё одна запись с тем же стоп-кадром
+    def on_zone_raised(self, detection: Detection, packet) -> None:
+        if detection.recorded and not detection.late:
+            gps = (packet.gps.lat, packet.gps.lon) if packet.gps.valid else detection.gps
+            self._send_new_record(detection, packet.ts, gps)
 
     def _send_record(self, detection_id: int, request) -> None:
         record = request.record
@@ -655,8 +691,8 @@ class Master:
             self._session(image.device_id, image.session)
             image_id = self.journal.add_image(image, received_at)
             if image_id is not None:
-                for detection_id in self.journal.detections_for_image(image.device_id, image.session, image.id):
-                    self.journal.set_detection_image(detection_id, image_id)
+                for detection_id, zone_priority in self.journal.detections_for_image(image.device_id, image.session, image.id):
+                    self.journal.link_image(detection_id, image_id, zone_priority)
                 self.rules.on_image(image)
             ack.image_ids.append(image.id)
             device_id = image.device_id

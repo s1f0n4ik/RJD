@@ -1,4 +1,5 @@
 #include "neural/input-editor.h"
+#include "neural/draw-detections.h"
 
 #include "signaling_definers.h"
 
@@ -133,8 +134,9 @@ namespace neural {
 			stream = *saved;
 		}
 		if (stream.id.empty()) stream.id = "editor";
+		std::string config_id = stream.legacy_config_id;
 		if (auto* v = meta.if_contains("config_id"); v && v->is_string() && !v->as_string().empty())
-			stream.config_id = v->as_string().c_str();
+			config_id = v->as_string().c_str();
 
 		int fps = DEFAULT_FPS;
 		if (auto* v = meta.if_contains("fps"); v && v->is_int64()) fps = std::clamp<int>((int)v->as_int64(), 1, 30);
@@ -143,7 +145,7 @@ namespace neural {
 		int width = stream.width;
 		int height = stream.height;
 		std::string size_source = "stream";
-		if (!stream.config_id.empty() && m_loader->probe_model_size(stream.config_id, width, height))
+		if (!config_id.empty() && m_loader->probe_model_size(config_id, width, height))
 			size_source = "model";
 		stream.width = width;
 		stream.height = height;
@@ -163,6 +165,8 @@ namespace neural {
 			return;
 		}
 		m_client_id = client_id;
+		m_config_id = config_id;
+		set_zone_draw(stream, config_id);
 
 		auto reply = session_meta();
 		reply["size_source"] = size_source;
@@ -180,7 +184,6 @@ namespace neural {
 		if (!v || !v->is_object()) { on_error(TYPE_UPDATE, "missing stream object", &client_id); return; }
 
 		FVideoStream stream = parse_stream(*v, m_stream.id);
-		if (stream.config_id.empty()) stream.config_id = m_stream.config_id;
 		if (stream.name.empty()) stream.name = m_stream.name;
 		// Размер полотна задан при open и меняется только новым open
 		stream.width = m_width;
@@ -191,6 +194,7 @@ namespace neural {
 
 		m_stream = stream;
 		m_composer->set_stream(stream);
+		set_zone_draw(stream, m_config_id);
 
 		auto reply = session_meta();
 		send_message(make_socket_message(TYPE_UPDATE, true, &client_id, &m_name, &reply));
@@ -234,7 +238,8 @@ namespace neural {
 
 		m_composer = std::make_unique<UCanvasComposer>(
 			m_context, m_storage, width, height, stream,
-			[this](cv::Mat rgba, FCanvasInfo) {
+			[this](cv::Mat rgba, FCanvasInfo tiles) {
+				if (tiles) draw_zones(rgba, *tiles);
 				// Сборщик останавливается раньше, чем исчезает вывод (см. close_session)
 				if (m_streamer) m_streamer->push_frame(std::move(rgba));
 			},
@@ -261,8 +266,35 @@ namespace neural {
 			m_streamer.reset();
 		}
 		m_client_id.clear();
+		m_config_id.clear();
 		m_width = 0;
 		m_height = 0;
+		std::lock_guard<std::mutex> lk(m_zones_mutex);
+		m_zone_draw.clear();
+	}
+
+	void UInputEditor::set_zone_draw(const FVideoStream& stream, const std::string& config_id) {
+		std::map<std::string, std::vector<FZoneDraw>> draw;
+		const auto cameras = stream.zones.find(config_id);
+		const auto cfg = cameras != stream.zones.end() ? m_loader->configuration(config_id) : std::optional<FConfigInfo>{};
+		if (cfg) {
+			for (auto z = cfg->zones.rbegin(); z != cfg->zones.rend(); ++z)
+				for (const auto& [camera, polygons] : cameras->second)
+					for (const auto& p : polygons)
+						if (p.zone == z->id) draw[camera].push_back({ p.points, hex_to_rgb(z->color) });
+		}
+		std::lock_guard<std::mutex> lk(m_zones_mutex);
+		m_zone_draw = std::move(draw);
+	}
+
+	void UInputEditor::draw_zones(cv::Mat& rgba, const std::vector<FTilePlacement>& tiles) {
+		std::lock_guard<std::mutex> lk(m_zones_mutex);
+		for (const auto& t : tiles) {
+			if (t.state != ETileState::OK) continue;
+			const auto it = m_zone_draw.find(t.camera);
+			if (it == m_zone_draw.end()) continue;
+			for (const auto& z : it->second) draw_zone(rgba, t.dst, zone_to_canvas(t, z.points), z.color);
+		}
 	}
 
 	boost::json::object UInputEditor::session_meta() const {
@@ -270,6 +302,7 @@ namespace neural {
 		o["id_stream"] = EDITOR_STREAM_ID;
 		o["width"] = m_width;
 		o["height"] = m_height;
+		o["config_id"] = m_config_id;
 		o["stream"] = serialize_stream(m_stream);
 		o["tiles"] = tiles_json();
 		return o;

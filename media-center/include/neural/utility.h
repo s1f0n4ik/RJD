@@ -36,14 +36,26 @@ namespace neural {
 	};
 
 	struct FSuperclass {
-		std::string key; 
-		std::string name; 
-		std::string color; 
+		std::string key;
+		std::string name;
+		std::string color;
+	};
+
+	// Зона каталога конфигурации; приоритет — место в списке, первая выше всех
+	struct FZoneInfo {
+		// С 1; 0 — вне зон
+		int id = 0;
+		std::string name;
+		std::string color;
+		// Доля площади детекции в зоне 0..1; 0 — достаточно одного пикселя
+		float threshold = 0.f;
 	};
 
 	struct FNeuralExports {
 		std::string id;
 		std::string name;
+		// Описание модели из записи конфигурации; null — модель не прочитана
+		boost::json::value model;
 	};
 
 	struct FStreamingDesc {
@@ -65,12 +77,17 @@ namespace neural {
 		std::shared_ptr<FTrackerConfig> tracker_config;
 		std::vector<FClassInfo> classes;
 		std::vector<FSuperclass> superclasses;   // группы для отрисовки
+		std::vector<FZoneInfo> zones;
+		// Трек переходит в зону выше, когда она держится столько кадров подряд
+		int zone_enter_frames = 2;
+		// Трек уходит в зону ниже, когда зоны выше нет столько секунд
+		float zone_leave_s = 1.f;
 	};
 
 	// Дескриптор слота: видеопоток задаёт и камеры, и конфигурацию
 	struct FNeuralCoreConfig {
 		std::string   stream_id;
-		// Конфигурация видеопотока; заполняется загрузчиком
+		// Конфигурация слота; пара (stream_id, config_id) уникальна
 		std::string   config_id;
 		// Кадров слота в полёте одновременно = контекстов NPU на слот
 		int depth = 1;
@@ -81,6 +98,9 @@ namespace neural {
 		// События трека, на которые берётся снимок кадра камеры
 		std::vector<std::string> image_mask{ "confirmed" };
 	};
+
+	// Пункт маски снимка: устойчивая зона трека поднялась по приоритету
+	inline const std::string IMAGE_ZONE_UP = "zone_up";
 
 	// Строки JSON-массива; прочие элементы пропускаются
 	inline std::vector<std::string> json_strings(const boost::json::array& arr) {

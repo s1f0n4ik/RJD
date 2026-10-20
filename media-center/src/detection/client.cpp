@@ -69,6 +69,9 @@ namespace detection {
                 r->set_superclass_id(t.detection.scid);
                 r->set_confidence(static_cast<float>(t.detection.cf));
                 for (int v : t.detection.box) r->add_box(v);
+                r->set_zone_id(t.zone_id);
+                r->set_zone_priority(t.zone_priority);
+                r->set_zone_name(t.zone_name);
             }
             out.set_image_id(p.image_id);
         }

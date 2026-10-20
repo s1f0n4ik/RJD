@@ -97,6 +97,18 @@ namespace neural {
 		cv::addWeighted(layer, alpha, area, 1.0 - alpha, 0.0, area);
 	}
 
+	// Зона на полотне: заливка и контур цветом зоны, всё вне clip отрезано
+	inline void draw_zone(cv::Mat& canvas, const cv::Rect& clip, std::vector<cv::Point> polygon, cv::Scalar color, double fill_alpha = 0.2) {
+		const cv::Rect area_rect = clip & cv::Rect(0, 0, canvas.cols, canvas.rows);
+		if (area_rect.empty() || polygon.size() < 3) return;
+		for (auto& p : polygon) p -= area_rect.tl();
+		cv::Mat area = canvas(area_rect);
+		const std::vector<std::vector<cv::Point>> polygons{ std::move(polygon) };
+		fill_polygons(area, polygons, color, fill_alpha);
+		color[3] = 255;
+		cv::polylines(area, polygons, true, color, 2, cv::LINE_AA);
+	}
+
 	// styles идёт параллельно detections; пустой — все рамки сплошные
 	// Детекция с контурами рисуется контуром с заливкой fill_alpha вместо рамки
 	inline void draw_detections_grouped(

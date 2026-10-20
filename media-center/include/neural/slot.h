@@ -13,6 +13,7 @@
 #include "neural/canvas-composer.h"
 #include "neural/video-stream.h"
 #include "neural/utility.h"
+#include "neural/zone-map.h"
 #include "neural/tracker/tracker-interface.h"
 #include "gateway/frame.h"
 #include "detection/client.h"
@@ -60,6 +61,9 @@ namespace neural {
         const std::string& config_id() const { return m_config.id; }
         const FVideoStream& video() const { return m_video; }
         const std::string& video_id() const { return m_video.id; }
+        // Ключ слота в сообщениях рамок: <поток>/<конфигурация>
+        std::string source_id() const { return m_video.id + "/" + m_config.id; }
+        std::string source_name() const { return (m_video.name.empty() ? m_video.id : m_video.name) + " · " + (m_config.name.empty() ? m_config.id : m_config.name); }
         // Размещение тайлов последнего тика; пустой — полотно ещё не собиралось
         FCanvasInfo tiles() const;
         int canvas_width() const { return m_canvas_width.load(); }
@@ -134,6 +138,13 @@ namespace neural {
 
         void log_events(const std::vector<FTrackEventRecord>& events);
 
+        // Растр зон камеры под размер её кадра; nullptr — у камеры нет зон
+        const UZoneMap* zone_map(const std::string& camera, const cv::Size& size);
+        // Шаг устойчивых зон подтверждённых треков; true — у кого-то зона поднялась
+        bool update_zones(const std::vector<FTrack>& tracks, std::chrono::steady_clock::time_point at);
+        // Устойчивая зона трека; у пробного — зона его детекции
+        int track_zone(const FTrack& t) const;
+
         gateway::FGatewayDetection make_gateway_detection(int class_id, double confidence, const FDetection& box) const;
 
         // Снимок для мастера: кадр камеры, на котором посчитаны рамки
@@ -159,6 +170,8 @@ namespace neural {
         int m_fps_limit = 10;
         // События, на которые берётся снимок кадра камеры
         uint32_t m_image_events = EVENT_NONE;
+        // Снимок при подъёме устойчивой зоны трека
+        bool m_image_zone_up = false;
 
         birdview::UEGLContextManager* m_context;
         FFrameStorage<IFrame>* m_storage;
@@ -213,6 +226,9 @@ namespace neural {
         int m_fps_count = 0;
         // Сглаженное отставание по камерам; доступ только под m_deliver_mutex
         std::map<std::string, float> m_camera_lag;
+        // Растры зон по камерам и устойчивые зоны треков по номеру; доступ только под m_deliver_mutex
+        std::map<std::string, UZoneMap> m_zone_maps;
+        std::map<std::int64_t, FZoneTrack> m_zone_tracks;
 
         std::atomic<float> m_infer_ms{ 0.f };
         std::atomic<float> m_wait_ms{ 0.f };

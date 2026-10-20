@@ -26,6 +26,11 @@ namespace detection {
         std::optional<neural::ETrackEvent> event; // пусто — в такте события не было
         neural::ETrackState state = neural::ETrackState::TENTATIVE;
         gateway::FGatewayDetection detection;
+        // Устойчивая зона трека; 0 — вне зон
+        int zone_id = 0;
+        // Место зоны в каталоге с 1; 0 — вне зон
+        int zone_priority = 0;
+        std::string zone_name;
     };
 
     // Все треки одной камеры за такт слота и удалённые в нём

@@ -39,6 +39,7 @@ namespace neural {
 		};
 
 		enum class EDeleteResult { OK, NOT_FOUND, IN_USE, FAILED };
+		enum class ESaveResult { OK, INVALID, CONFLICT, FAILED };
 
 	public:
 		UNeuralLoader() = delete;
@@ -65,23 +66,30 @@ namespace neural {
 		std::vector<FNeuralExports> list_configurations() const;
 		// Полный JSON конкретного конфига (для GET ?id=...).
 		boost::json::value get_configuration_full(const std::string& id) const;
-		bool import_configurations(const boost::json::value& json, EImportMode mode);
+		// Разобранная конфигурация с диска; nullopt — нет такой
+		std::optional<FConfigInfo> configuration(const std::string& id) const;
+		// false — причина в err
+		bool import_configurations(const boost::json::value& json, EImportMode mode, std::string* err = nullptr);
 		// Удаляет конфигурацию из файла; IN_USE — её видеопоток занят слотом
 		EDeleteResult delete_configuration(const std::string& id);
 
 		// Видеопотоки
 		std::vector<FVideoStream> list_streams() const;
 		std::optional<FVideoStream> get_stream(const std::string& id) const;
-		// Создаёт или заменяет поток; false — причина в err
-		bool save_stream(const FVideoStream& stream, std::string* err = nullptr);
+		// Создаёт или заменяет поток; CONFLICT — новый размер не подходит модели слота на потоке; причина в err
+		ESaveResult save_stream(const FVideoStream& stream, std::string* err = nullptr);
 		EDeleteResult delete_stream(const std::string& id);
-		// Размер входа модели конфигурации; false — конфигурации или модели нет
-		bool probe_model_size(const std::string& config_id, int& width, int& height) const;
+		// Размер входа модели конфигурации из её описания, без описания — из файла модели с записью описания
+		bool probe_model_size(const std::string& config_id, int& width, int& height);
+		// Описание модели по файлу через пул NPU; nullopt — модель не открылась
+		std::optional<FModelInfo> probe_model(const std::string& model_path) const;
+		// Переписывает описание модели в конфигурации, если оно разошлось с загруженной
+		void sync_model(const std::string& config_id, const FModelInfo& info);
 		// Поток «камера как есть» с id <config>_<camera>; создаётся, если его ещё нет
 		std::string ensure_camera_stream(const std::string& config_id, const std::string& camera);
 
-		// State
-		bool write_state(const std::vector<FNeuralCoreConfig>& active);
+		// State; false — причина в err
+		bool write_state(const std::vector<FNeuralCoreConfig>& active, std::string* err = nullptr);
 		boost::json::object get_state_raw() const;
 		bool reload_from_state();
 
@@ -131,6 +139,8 @@ namespace neural {
 		void cleanup_after_failure();
 		void supervisor_loop();
 		bool load_state();
+		// Запись состояния без проверок
+		bool persist_state(const std::vector<FNeuralCoreConfig>& active);
 
 		// Синхронизированное время для слотов из общего сервиса varan::time_sync;
 		// пустой снимок, пока шлюз ни разу не ответил.
@@ -160,6 +170,8 @@ namespace neural {
 
 		mutable std::mutex m_loader_mutex;
 		mutable std::mutex m_streams_mutex;
+		// Запись файла конфигураций: REST и супервизор
+		std::mutex m_configs_mutex;
 		std::thread m_supervisor;
 		std::atomic<bool> m_supervisor_running{ false };
 		std::mutex m_supervisor_cv_mutex;

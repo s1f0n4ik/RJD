@@ -101,6 +101,7 @@ namespace signaling {
 	inline constexpr int CODE_NEURAL_STREAMER       = 6007;  // стример слота не поднялся
 	inline constexpr int CODE_NEURAL_NO_STREAM      = 6008;  // stream_id нет в streams.json
 	inline constexpr int CODE_NEURAL_CANVAS         = 6009;  // сборщик полотна не поднялся
+	inline constexpr int CODE_NEURAL_SIZE           = 6010;  // вход модели не совпадает с размером полотна потока
 
 	// Строковый код потока по числовому: пока живут оба формата
 	inline const char* legacy_stream_code(int code) {

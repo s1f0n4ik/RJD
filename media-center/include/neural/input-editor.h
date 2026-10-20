@@ -4,6 +4,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -56,6 +57,10 @@ namespace neural {
 		bool open_session(const FVideoStream& stream, int width, int height, int fps, std::string& err);
 		void close_session();
 
+		// Многоугольники зон конфигурации сессии для полотна
+		void set_zone_draw(const FVideoStream& stream, const std::string& config_id);
+		void draw_zones(cv::Mat& rgba, const std::vector<FTilePlacement>& tiles);
+
 		boost::json::object session_meta() const;
 		boost::json::array tiles_json() const;
 		void touch();
@@ -71,10 +76,20 @@ namespace neural {
 		mutable std::mutex m_session_mutex;
 		std::string m_client_id;
 		FVideoStream m_stream;
+		// Конфигурация сессии: размер полотна и зоны
+		std::string m_config_id;
 		int m_width = 0;
 		int m_height = 0;
 		std::unique_ptr<UCanvasComposer> m_composer;
 		std::unique_ptr<UVirtualCamera> m_streamer;
+
+		struct FZoneDraw {
+			std::vector<cv::Point2f> points;
+			cv::Scalar color;
+		};
+		// Камера → многоугольники зон, нижние по приоритету первыми
+		std::map<std::string, std::vector<FZoneDraw>> m_zone_draw;
+		std::mutex m_zones_mutex;
 
 		std::atomic<std::chrono::steady_clock::time_point::rep> m_last_activity{ 0 };
 		std::thread m_watchdog;

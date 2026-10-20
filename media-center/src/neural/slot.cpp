@@ -40,6 +40,7 @@ namespace neural {
         , m_depth(std::max(1, core_config.depth))
         , m_fps_limit(std::max(1, core_config.fps))
         , m_image_events(event_mask_from_types(core_config.image_mask))
+        , m_image_zone_up(std::find(core_config.image_mask.begin(), core_config.image_mask.end(), IMAGE_ZONE_UP) != core_config.image_mask.end())
         , m_context(context)
         , m_storage(storage)
         , m_track_ids(track_ids)
@@ -185,6 +186,12 @@ namespace neural {
         {
             std::lock_guard<std::mutex> lk(m_resource_mutex);
             if (!ensure_classifier()) return false;
+            const auto& info = m_classifier->info();
+            if (info.input_width > 0 && info.input_height > 0 && (info.input_width != m_video.width || info.input_height != m_video.height)) {
+                set_error(signaling::CODE_NEURAL_SIZE, "model expects " + std::to_string(info.input_width) + "x" + std::to_string(info.input_height) +
+                    ", stream canvas is " + std::to_string(m_video.width) + "x" + std::to_string(m_video.height));
+                return false;
+            }
         }
 
         const auto cameras = stream_cameras(m_video);
@@ -303,6 +310,47 @@ namespace neural {
         for (auto& [cam, tracker] : m_trackers) if (tracker) tracker->reset();
         m_pending.clear();
         m_camera_lag.clear();
+        m_zone_maps.clear();
+        m_zone_tracks.clear();
+    }
+
+    const UZoneMap* USlot::zone_map(const std::string& camera, const cv::Size& size) {
+        if (m_config.zones.empty()) return nullptr;
+        const auto by_config = m_video.zones.find(m_config.id);
+        if (by_config == m_video.zones.end()) return nullptr;
+        const auto polygons = by_config->second.find(camera);
+        if (polygons == by_config->second.end()) return nullptr;
+        auto it = m_zone_maps.find(camera);
+        if (it == m_zone_maps.end() || it->second.frame() != size)
+            it = m_zone_maps.insert_or_assign(camera, UZoneMap(m_config.zones, polygons->second, size)).first;
+        return it->second.empty() ? nullptr : &it->second;
+    }
+
+    bool USlot::update_zones(const std::vector<FTrack>& tracks, std::chrono::steady_clock::time_point at) {
+        bool up = false;
+        for (const auto& t : tracks) {
+            // Пробный трек живёт сырой зоной, в потере зона заморожена
+            if (t.id < 0 || t.lost_frames > 0) continue;
+            auto [it, fresh] = m_zone_tracks.try_emplace(t.id);
+            auto& s = it->second;
+            if (fresh) {
+                s.zone = t.detection.zone;
+                s.held = at;
+                continue;
+            }
+            const int before = s.zone;
+            const auto step = step_zone(s, t.detection.zone, at, m_config.zones, m_config.zone_enter_frames, m_config.zone_leave_s);
+            if (step == EZoneStep::SAME) continue;
+            up = up || step == EZoneStep::UP;
+            m_logger.debug("Zone: track=" + std::to_string(t.id) + " " + std::to_string(before) + " -> " + std::to_string(s.zone));
+        }
+        return up;
+    }
+
+    int USlot::track_zone(const FTrack& t) const {
+        if (t.id >= 0)
+            if (const auto it = m_zone_tracks.find(t.id); it != m_zone_tracks.end()) return it->second.zone;
+        return t.detection.zone;
     }
 
     inline std::string serialize_detection(const FDetection& d) {
@@ -378,8 +426,8 @@ namespace neural {
 
         boost::json::object meta;
         meta["detections"] = std::move(dets_arr);
-        meta["source"] = m_video.id;
-        meta["source_name"] = m_video.name;
+        meta["source"] = source_id();
+        meta["source_name"] = source_name();
         meta["lag_ms"] = lag_ms;
         meta["fps"] = m_fps.load();
 
@@ -436,8 +484,8 @@ namespace neural {
 
         boost::json::object meta;
         meta["tracks"] = std::move(tracks_arr);
-        meta["source"] = m_video.id;
-        meta["source_name"] = m_video.name;
+        meta["source"] = source_id();
+        meta["source_name"] = source_name();
         meta["lag_ms"] = lag_ms;
         meta["fps"] = m_fps.load();
 
@@ -502,8 +550,16 @@ namespace neural {
         packet.height = resolution.height;
 
         const auto record = [this](const FTrack& t, std::optional<ETrackEvent> event) {
-            return detection::FTrackRecord{ std::max<std::int64_t>(t.id, 0), event, t.state,
+            detection::FTrackRecord r{ std::max<std::int64_t>(t.id, 0), event, t.state,
                 make_gateway_detection(t.class_id, t.confidence, t.detection) };
+            const int zone = track_zone(t);
+            const int rank = zone_rank(m_config.zones, zone);
+            if (rank != INT_MAX) {
+                r.zone_id = zone;
+                r.zone_priority = rank;
+                r.zone_name = m_config.zones[rank - 1].name;
+            }
+            return r;
         };
         const auto same_box = [](const FDetection& a, const FDetection& b) {
             return a.x1_coord == b.x1_coord && a.y1_coord == b.y1_coord && a.x2_coord == b.x2_coord && a.y2_coord == b.y2_coord;
@@ -729,16 +785,19 @@ namespace neural {
             // Одна камера в нескольких тайлах даёт дубли в зоне перекрытия
             if (tile_count[camera] > 1) dets = apply_nms(dets, m_config.thresholds.nms);
             const cv::Size& size = resolution[camera];
+            if (const auto* zones = zone_map(camera, size))
+                for (auto& d : dets) d.zone = zones->zone_of(d);
 
             auto& tracker = m_trackers[camera];
             if (tracker) {
                 auto update_result = tracker->update(dets, FTrackerFrame{ size.width, size.height, inferred.at, visible[camera] });
                 if (update_result.has_events()) log_events(update_result.events);
+                const bool zone_up = update_zones(tracker->tracks(), inferred.at);
 
                 // Такт уходит мастеру, пока у камеры есть треки или в нём удалён последний
                 if (!tracker->tracks().empty() || update_result.has_events()) {
-                    const bool want_image = m_composer && std::any_of(update_result.events.begin(), update_result.events.end(),
-                        [this](const FTrackEventRecord& e) { return event_matches_mask(e.event, m_image_events); });
+                    const bool want_image = m_composer && ((m_image_zone_up && zone_up) || std::any_of(update_result.events.begin(), update_result.events.end(),
+                        [this](const FTrackEventRecord& e) { return event_matches_mask(e.event, m_image_events); }));
 
                     std::uint64_t image_id = 0;
                     if (m_master) {
@@ -760,6 +819,9 @@ namespace neural {
                         });
                     }
                 }
+
+                for (const auto& e : update_result.events)
+                    if (e.event == ETrackEvent::REMOVED) m_zone_tracks.erase(e.track.id);
 
                 send_tracks(camera, tracker->tracks(), size, lag_of(camera));
                 total_tracks += static_cast<int>(tracker->tracks().size());

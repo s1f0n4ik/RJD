@@ -126,6 +126,13 @@ def _gps(conn: sqlite3.Connection, row: sqlite3.Row) -> Optional[dict]:
     }
 
 
+# Зона строки журнала; вне зон — None
+def _zone(row: sqlite3.Row) -> Optional[dict]:
+    if not row["zone_id"]:
+        return None
+    return {"id": row["zone_id"], "name": row["zone_name"], "priority": row["zone_priority"]}
+
+
 def _item(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
     return {
         "id": row["id"],
@@ -135,6 +142,7 @@ def _item(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
         "class_id": row["class_id"],
         "class_name": row["class_name"],
         "superclass": row["superclass"],
+        "zone": _zone(row),
         "started_at": row["started_at"],
         "ended_at": row["ended_at"],
         "closed_reason": row["closed_reason"],
@@ -209,10 +217,14 @@ def get_detection(detection_id: int):
                 "image_id": r["id"], "ts": r["ts"], "track_no": r["track_no"],
                 "box": [r["x"], r["y"], r["w"], r["h"]] if r["w"] is not None else None,
                 "frame_w": r["frame_w"], "frame_h": r["frame_h"], "confidence": r["confidence"],
+                "zone": _zone(r), "zone_up": bool(r["zone_up"]),
                 "url": f"/api/journal/image/{r['id']}.jpg",
             }
             for r in conn.execute(
-                "SELECT i.id, MIN(e.ts) AS ts, t.track_no, e.x, e.y, e.w, e.h, e.frame_w, e.frame_h, e.confidence "
+                "SELECT i.id, MIN(e.ts) AS ts, t.track_no, e.x, e.y, e.w, e.h, e.frame_w, e.frame_h, e.confidence, "
+                "e.zone_id, e.zone_name, e.zone_priority, "
+                "EXISTS(SELECT 1 FROM events z WHERE z.track_id = e.track_id AND z.device_id = i.device_id "
+                "AND z.session = i.session AND z.image_ref = i.device_image_id AND z.event = 'zone') AS zone_up "
                 "FROM events e JOIN tracks t ON t.id = e.track_id JOIN images i ON i.device_id = e.device_id "
                 "AND i.session = e.session AND i.device_image_id = e.image_ref "
                 "WHERE t.detection_id = ? GROUP BY i.id ORDER BY ts", [detection_id])

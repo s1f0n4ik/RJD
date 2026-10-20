@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <map>
 #include <memory>
 #include <set>
 #include <string>
@@ -31,12 +32,22 @@ namespace neural {
 		ETileFit fit = ETileFit::LETTERBOX;
 	};
 
+	// Многоугольник зоны каталога на кадре камеры, точки в долях кадра [0..1]
+	struct FZonePolygon {
+		int zone = 0;
+		std::vector<cv::Point2f> points;
+	};
+
+	// Многоугольники зон камер одной конфигурации: камера → многоугольники
+	using FCameraZones = std::map<std::string, std::vector<FZonePolygon>>;
+
 	// Видеопоток: полотно размером с вход модели, собранное из тайлов камер
 	struct FVideoStream {
 		std::string id;
 		std::string name;
-		std::string config_id;
-		// Размер входа модели конфигурации на момент сохранения
+		// Конфигурация из старого streams.json; только читается и переносится в слоты
+		std::string legacy_config_id;
+		// Размер полотна; слот ставится только с моделью такого входа
 		int width = 640;
 		int height = 640;
 		int rows = 1;
@@ -45,6 +56,8 @@ namespace neural {
 		std::vector<float> row_fr;
 		std::vector<float> col_fr;
 		std::vector<FStreamTile> tiles;
+		// Зоны по конфигурациям: конфигурация → камера → многоугольники
+		std::map<std::string, FCameraZones> zones;
 	};
 
 	enum class ETileState { OK, NO_CAMERA, STALLED };
@@ -118,6 +131,15 @@ namespace neural {
 				if (a.camera == b.camera && a.crop == b.crop)
 					return fail("duplicate tile: " + a.camera);
 			}
+		for (const auto& [config, cameras] : s.zones)
+			for (const auto& [camera, polygons] : cameras)
+				for (const auto& z : polygons) {
+					if (z.zone < 1) return fail("zone id must be positive: " + config + "/" + camera);
+					if (z.points.size() < 3) return fail("zone polygon needs 3 points: " + config + "/" + camera);
+					for (const auto& p : z.points)
+						if (p.x < 0.f || p.y < 0.f || p.x > 1.0001f || p.y > 1.0001f)
+							return fail("zone point outside frame: " + config + "/" + camera);
+				}
 		return true;
 	}
 
@@ -202,6 +224,18 @@ namespace neural {
 		return out;
 	}
 
+	// Точки зоны в долях кадра камеры - пиксели полотна; за окном тайла уходят за его край
+	inline std::vector<cv::Point> zone_to_canvas(const FTilePlacement& p, const std::vector<cv::Point2f>& points) {
+		std::vector<cv::Point> out;
+		out.reserve(points.size());
+		const float cw = std::max(1e-6f, p.crop.width);
+		const float ch = std::max(1e-6f, p.crop.height);
+		for (const auto& pt : points)
+			out.emplace_back(static_cast<int>(std::lround(p.dst.x + (pt.x - p.crop.x) / cw * p.dst.width)),
+				static_cast<int>(std::lround(p.dst.y + (pt.y - p.crop.y) / ch * p.dst.height)));
+		return out;
+	}
+
 	// Индекс тайла, которому принадлежит рамка: по центру внутри ячейки; -1 — пустая область
 	inline int tile_of(const std::vector<FTilePlacement>& tiles, const FDetection& d) {
 		const cv::Point c((d.x1_coord + d.x2_coord) / 2, (d.y1_coord + d.y2_coord) / 2);
@@ -222,7 +256,6 @@ namespace neural {
 		boost::json::object o;
 		o["id"] = s.id;
 		o["name"] = s.name;
-		o["config_id"] = s.config_id;
 		o["width"] = s.width;
 		o["height"] = s.height;
 		o["rows"] = s.rows;
@@ -250,6 +283,27 @@ namespace neural {
 			tiles.push_back(std::move(to));
 		}
 		o["tiles"] = std::move(tiles);
+		boost::json::object zones;
+		for (const auto& [config, cameras] : s.zones) {
+			boost::json::object by_camera;
+			for (const auto& [camera, polygons] : cameras) {
+				boost::json::array list;
+				for (const auto& z : polygons) {
+					boost::json::array flat;
+					for (const auto& p : z.points) {
+						flat.emplace_back(std::round(p.x * 1e4) / 1e4);
+						flat.emplace_back(std::round(p.y * 1e4) / 1e4);
+					}
+					boost::json::object zo;
+					zo["zone"] = z.zone;
+					zo["points"] = std::move(flat);
+					list.push_back(std::move(zo));
+				}
+				by_camera[camera] = std::move(list);
+			}
+			zones[config] = std::move(by_camera);
+		}
+		o["zones"] = std::move(zones);
 		return o;
 	}
 
@@ -269,7 +323,7 @@ namespace neural {
 		const auto& o = v.as_object();
 		if (auto* x = o.if_contains("id"); x && x->is_string() && s.id.empty()) s.id = x->as_string().c_str();
 		if (auto* x = o.if_contains("name"); x && x->is_string()) s.name = x->as_string().c_str();
-		if (auto* x = o.if_contains("config_id"); x && x->is_string()) s.config_id = x->as_string().c_str();
+		if (auto* x = o.if_contains("config_id"); x && x->is_string()) s.legacy_config_id = x->as_string().c_str();
 		if (auto* x = o.if_contains("width"); x && x->is_int64()) s.width = (int)x->as_int64();
 		if (auto* x = o.if_contains("height"); x && x->is_int64()) s.height = (int)x->as_int64();
 		if (auto* x = o.if_contains("rows"); x && x->is_int64()) s.rows = (int)x->as_int64();
@@ -301,17 +355,38 @@ namespace neural {
 				s.tiles.push_back(std::move(t));
 			}
 		}
+		if (auto* zs = o.if_contains("zones"); zs && zs->is_object()) {
+			for (const auto& [config, cv] : zs->as_object()) {
+				if (!cv.is_object()) continue;
+				auto& cameras = s.zones[std::string(config)];
+				for (const auto& [camera, lv] : cv.as_object()) {
+					if (!lv.is_array()) continue;
+					auto& polygons = cameras[std::string(camera)];
+					for (const auto& zv : lv.as_array()) {
+						if (!zv.is_object()) continue;
+						const auto& zo = zv.as_object();
+						FZonePolygon z;
+						if (auto* x = zo.if_contains("zone"); x && x->is_int64()) z.zone = static_cast<int>(x->as_int64());
+						if (auto* pts = zo.if_contains("points"); pts && pts->is_array()) {
+							const auto& a = pts->as_array();
+							for (size_t i = 0; i + 1 < a.size(); i += 2)
+								if (a[i].is_number() && a[i + 1].is_number())
+									z.points.emplace_back(static_cast<float>(a[i].to_number<double>()), static_cast<float>(a[i + 1].to_number<double>()));
+						}
+						polygons.push_back(std::move(z));
+					}
+				}
+			}
+		}
 		return s;
 	}
 
 	// Поток «камера как есть»: один тайл на всё полотно
-	inline FVideoStream stream_from_camera(const std::string& id, const std::string& config_id,
-		const std::string& camera, int width, int height)
+	inline FVideoStream stream_from_camera(const std::string& id, const std::string& camera, int width, int height)
 	{
 		FVideoStream s;
 		s.id = id;
 		s.name = camera;
-		s.config_id = config_id;
 		s.width = width;
 		s.height = height;
 		FStreamTile t;

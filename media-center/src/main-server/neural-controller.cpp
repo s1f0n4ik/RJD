@@ -82,7 +82,7 @@ static boost::json::array rect_json(const cv::Rect& r) {
     return a;
 }
 
-// Сериализация списка дескрипторов слотов; config_id — производный от видеопотока
+// Сериализация списка дескрипторов слотов
 static boost::json::array serialize_descs(
     const std::vector<varan::neural::FNeuralCoreConfig>& descs)
 {
@@ -140,6 +140,7 @@ UNeuralController::get_configurations(const http::request<http::string_body>& re
             boost::json::object item;
             item["id"] = c.id;
             item["name"] = c.name;
+            item["model"] = c.model;
             arr.push_back(std::move(item));
         }
         boost::json::object data;
@@ -179,8 +180,9 @@ UNeuralController::post_configurations(const http::request<http::string_body>& r
         if (!data || !data->is_object())
             return json_error(m_logger, req, http::status::bad_request, "missing 'data' object", tag);
 
-        if (!m_loader->import_configurations(*data, mode))
-            return json_error(m_logger, req, http::status::internal_server_error, "import failed", tag);
+        std::string err;
+        if (!m_loader->import_configurations(*data, mode, &err))
+            return json_error(m_logger, req, http::status::bad_request, err, tag);
     }
     catch (const std::exception& e) {
         return json_error(m_logger, req, http::status::bad_request, e.what(), tag);
@@ -241,7 +243,7 @@ UNeuralController::get_streams(const http::request<http::string_body>& req) {
 }
 
 // ─── POST /neural/streams ───────────────────────────────────
-// Тело — объект видеопотока с id; без width/height размер берётся у модели конфигурации
+// Тело — объект видеопотока с id; без width/height размер берётся у модели конфигурации config_id
 http::response<http::string_body>
 UNeuralController::post_stream(const http::request<http::string_body>& req) {
     const std::string tag = "POST /neural/streams";
@@ -258,18 +260,23 @@ UNeuralController::post_stream(const http::request<http::string_body>& req) {
         const auto& o = v.as_object();
         if (!o.contains("width") || !o.contains("height")) {
             int w = 0, h = 0;
-            if (m_loader->probe_model_size(stream.config_id, w, h)) {
+            if (m_loader->probe_model_size(stream.legacy_config_id, w, h)) {
                 stream.width = w;
                 stream.height = h;
             }
         }
 
         std::string err;
-        if (!m_loader->save_stream(stream, &err))
-            return json_error(m_logger, req, http::status::bad_request, err, tag);
+        using R = varan::neural::UNeuralLoader::ESaveResult;
+        switch (m_loader->save_stream(stream, &err)) {
+        case R::OK: break;
+        case R::CONFLICT: return json_error(m_logger, req, http::status::conflict, err, tag);
+        case R::INVALID: return json_error(m_logger, req, http::status::bad_request, err, tag);
+        default: return json_error(m_logger, req, http::status::internal_server_error, err, tag);
+        }
 
         boost::json::object body;
-        body["data"] = varan::neural::serialize_stream(stream);
+        body["data"] = varan::neural::serialize_stream(m_loader->get_stream(stream.id).value_or(stream));
         return json_ok(m_logger, req, body, tag);
     }
     catch (const std::exception& e) {
@@ -317,8 +324,8 @@ UNeuralController::get_state(const http::request<http::string_body>& req) {
 
 // ─── POST /neural/state ─────────────────────────────────────
 // [
-//     { "stream_id": "railway_camera_1", "depth": 2 },
-//     { "stream_id": "lpr_gate" }
+//     { "stream_id": "railway_camera_1", "config_id": "railway_camera", "depth": 2 },
+//     { "stream_id": "lpr_gate", "config_id": "lpr" }
 // ]
 // depth — кадров слота в полёте одновременно (контекстов NPU), по умолчанию 1.
 // Старое тело { config_id, camera_layout | camera_matrix } принимается: поток
@@ -347,17 +354,18 @@ UNeuralController::post_state(const http::request<http::string_body>& req) {
 
             if (auto* sid = eo.if_contains("stream_id"); sid && sid->is_string())
                 d.stream_id = sid->as_string().c_str();
+            if (auto* cid = eo.if_contains("config_id"); cid && cid->is_string())
+                d.config_id = cid->as_string().c_str();
 
             if (d.stream_id.empty()) {
-                if (!eo.contains("config_id") || !eo.at("config_id").is_string())
+                if (d.config_id.empty())
                     return json_error(m_logger, req, http::status::bad_request,
                         "missing stream_id", tag);
-                const std::string config_id = eo.at("config_id").as_string().c_str();
                 const std::string camera = legacy_camera(eo);
                 if (camera.empty())
                     return json_error(m_logger, req, http::status::bad_request,
                         "missing stream_id (legacy body has no camera)", tag);
-                d.stream_id = m_loader->ensure_camera_stream(config_id, camera);
+                d.stream_id = m_loader->ensure_camera_stream(d.config_id, camera);
             }
 
             if (auto* c = eo.if_contains("depth"); c && c->is_int64())
@@ -388,9 +396,10 @@ UNeuralController::post_state(const http::request<http::string_body>& req) {
         return json_error(m_logger, req, http::status::bad_request, e.what(), tag);
     }
 
-    // Одна камера в нескольких слотах допустима; дубль слота отсекает write_state
-    if (!m_loader->write_state(active)) {
-        return json_error(m_logger, req, http::status::bad_request, "invalid state", tag);
+    // Один поток в нескольких слотах допустим; дубль пары и чужой размер отсекает write_state
+    std::string err;
+    if (!m_loader->write_state(active, &err)) {
+        return json_error(m_logger, req, http::status::bad_request, err, tag);
     }
 
     if (!m_loader->restart()) {
@@ -691,6 +700,10 @@ UNeuralController::get_event_types(const http::request<http::string_body>& req) 
             item["type"] = varan::neural::track_event_str(e);
             events.push_back(std::move(item));
         }
+        // Не событие трекера: подъём устойчивой зоны трека, только для маски снимка
+        boost::json::object zone_up;
+        zone_up["type"] = varan::neural::IMAGE_ZONE_UP;
+        events.push_back(std::move(zone_up));
         boost::json::object data;
         data["events"] = std::move(events);
         boost::json::object body;
