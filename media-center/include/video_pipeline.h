@@ -368,8 +368,8 @@ private:
 
 	bool create_record_branch(GstElement* tee);
 
-	// Открытие фрагмента из format-location: строка индекса с моментом старта, мимо шины
-	void on_fragment_opened(const std::string& path, const FRecordRoot& root);
+	// Открытие фрагмента из format-location-full: строка индекса мимо шины; lag_ms — насколько первый кадр старше текущего момента
+	void on_fragment_opened(const std::string& path, const FRecordRoot& root, std::int64_t lag_ms);
 
 	// Закрытие фрагмента по сообщению шины; duration_ns — длина фрагмента от сплитера
 	void on_fragment_closed(const char* location, std::uint64_t duration_ns);
@@ -406,8 +406,11 @@ private:
 		std::string volume_id;
 		// Метка тома; пусто — запись без пула
 		std::filesystem::path marker;
-		std::int64_t mono_ms = 0;
-		std::int64_t wall_ms = 0;
+		// Время первого кадра фрагмента: от него считается конец
+		std::int64_t first_mono_ms = 0;
+		std::int64_t first_wall_ms = 0;
+		// Начало строки индекса; конец не может быть раньше
+		std::int64_t start_mono_ms = 0;
 	};
 	std::mutex m_fragment_mutex;
 	std::unordered_map<std::string, FFragment> m_fragments;

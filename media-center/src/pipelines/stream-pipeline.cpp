@@ -172,6 +172,25 @@ constexpr gint64 kTargetGraceUs = 10 * G_TIME_SPAN_SECOND;
 // На сколько фрагмент может быть длиннее заданного сегмента: сплитер режет по ключевому кадру
 constexpr std::int64_t kDurationSlackMs = 5000;
 
+// Первый кадр старше этого — буфер, застрявший в сплитере до заморозки, а не текущая группа кадров
+constexpr std::int64_t kStaleLagMs = 3000;
+
+// На сколько мс первый кадр фрагмента старше текущего момента конвейера; 0 — не определить
+std::int64_t first_sample_lag_ms(GstElement* splitmux, GstSample* sample) {
+	if (!sample) return 0;
+	GstBuffer* buffer = gst_sample_get_buffer(sample);
+	const GstSegment* segment = gst_sample_get_segment(sample);
+	if (!buffer || !segment) return 0;
+
+	const GstClockTime stamp = GST_BUFFER_PTS_IS_VALID(buffer) ? GST_BUFFER_PTS(buffer) : GST_BUFFER_DTS(buffer);
+	if (!GST_CLOCK_TIME_IS_VALID(stamp)) return 0;
+
+	const GstClockTime first = gst_segment_to_running_time(segment, GST_FORMAT_TIME, stamp);
+	const GstClockTime now = gst_element_get_current_running_time(splitmux);
+	if (!GST_CLOCK_TIME_IS_VALID(first) || !GST_CLOCK_TIME_IS_VALID(now) || now < first) return 0;
+	return static_cast<std::int64_t>((now - first) / GST_MSECOND);
+}
+
 // Имена элементов ветки записи: по ним узнаются её ошибки и после сноса ветки
 constexpr const char* kRecordQueueName = "record_queue";
 constexpr const char* kSplitmuxName = "splitmux";
@@ -709,9 +728,11 @@ bool UCameraStreamPipeline::create_record_branch(GstElement* tee)
 	);
 
 	// Переботка записи фрагмента
-	g_signal_connect(splitmux, "format-location",
-		G_CALLBACK(+[](GstElement*, guint, gpointer data) -> gchar* {
+	// Вариант full отдаёт первый кадр фрагмента: по нему ставится время строки
+	g_signal_connect(splitmux, "format-location-full",
+		G_CALLBACK(+[](GstElement* splitmux, guint, GstSample* first_sample, gpointer data) -> gchar* {
 			auto self = static_cast<UCameraStreamPipeline*>(data);
+			const std::int64_t lag_ms = first_sample_lag_ms(splitmux, first_sample);
 
 			// Корень выбирается на каждый сегмент: смена диска пула идёт на границе
 			const auto root = self->resolve_record_root();
@@ -749,7 +770,7 @@ bool UCameraStreamPipeline::create_record_branch(GstElement* tee)
 			oss << self->m_parameters.camera_name << "_" << make_start_timestamp() << ".mp4";
 
 			auto save_path = record_dir / oss.str();
-			self->on_fragment_opened(save_path.string(), *root);
+			self->on_fragment_opened(save_path.string(), *root, lag_ms);
 			return g_strdup(save_path.c_str());
 		}),
 		this
@@ -843,15 +864,22 @@ void UCameraStreamPipeline::set_segment_writer(std::shared_ptr<varan::archive::U
 	}
 }
 
-void UCameraStreamPipeline::on_fragment_opened(const std::string& path, const FRecordRoot& root) {
+void UCameraStreamPipeline::on_fragment_opened(const std::string& path, const FRecordRoot& root, std::int64_t lag_ms) {
 	const archive::FTimeStamp stamp = archive::now_stamp();
+	const std::int64_t first_mono = stamp.mono_ms - lag_ms;
+	const std::int64_t first_wall = stamp.wall_ms - lag_ms;
+	// Старый буфер после заморозки на таймлайн не идёт: строка начинается сейчас
+	const bool stale = lag_ms > kStaleLagMs;
+	const std::int64_t start_mono = stale ? stamp.mono_ms : first_mono;
+	const std::int64_t start_wall = stale ? stamp.wall_ms : first_wall;
 	{
 		std::lock_guard<std::mutex> lock(m_fragment_mutex);
-		m_fragments[path] = FFragment{ root.volume_id, root.marker, stamp.mono_ms, stamp.wall_ms };
+		m_fragments[path] = FFragment{ root.volume_id, root.marker, first_mono, first_wall, start_mono };
 		m_current_fragment = path;
 	}
 
-	m_logger->debug("fragment opened: " + path + " (time source " + archive::to_string(stamp.source) + ")");
+	m_logger->debug("fragment opened: " + path + " (first frame " + std::to_string(lag_ms) + " ms ago"
+		+ (stale ? ", stale" : "") + ", time source " + archive::to_string(stamp.source) + ")");
 
 	if (!m_segment_writer) {
 		m_logger->warn("fragment opened but archive index is off: " + path);
@@ -864,8 +892,8 @@ void UCameraStreamPipeline::on_fragment_opened(const std::string& path, const FR
 	event.stream_key = m_parameters.name;
 	event.path = path;
 	event.volume_id = root.volume_id;
-	event.mono_ms = stamp.mono_ms;
-	event.wall_ms = stamp.wall_ms;
+	event.mono_ms = start_mono;
+	event.wall_ms = start_wall;
 	event.source = stamp.source;
 	m_segment_writer->enqueue(std::move(event));
 }
@@ -896,10 +924,11 @@ void UCameraStreamPipeline::on_fragment_closed(const char* location, std::uint64
 	event.stream_key = m_parameters.name;
 	event.path = location;
 
-	if (sane && fragment) {
+	// Конец считается от первого кадра и не может оказаться раньше начала строки
+	if (sane && fragment && fragment->first_mono_ms + duration_ms >= fragment->start_mono_ms) {
 		event.has_end = true;
-		event.mono_ms = fragment->mono_ms + duration_ms;
-		event.wall_ms = fragment->wall_ms + duration_ms;
+		event.mono_ms = fragment->first_mono_ms + duration_ms;
+		event.wall_ms = fragment->first_wall_ms + duration_ms;
 	}
 
 	std::error_code ec;

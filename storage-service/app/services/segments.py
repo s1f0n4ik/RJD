@@ -911,8 +911,7 @@ class SegmentIndex:
         alive: dict[str, bool] = {}
         gone = []
         for path, row in known.items():
-            # Строка пустого файла остаётся ради причины разрыва
-            if os.path.exists(path) or (row["error"] or "").startswith("empty"):
+            if os.path.exists(path):
                 continue
             volume_id = self._volume_of(row)
             # Том мог исчезнуть после опроса пула — тогда файл не удалён, а недоступен
@@ -922,10 +921,19 @@ class SegmentIndex:
                 gone.append(path)
         if not gone:
             return 0
-        conn.executemany("DELETE FROM segments WHERE path=?;", [(p,) for p in gone])
+
+        # Строка с причиной остаётся нулевой длины: причина разрыва не теряется
+        kept = [p for p in gone if known[p]["error"]]
+        dropped = [p for p in gone if not known[p]["error"]]
+        conn.executemany(
+            "UPDATE segments SET mono_end_ms=mono_start_ms, wall_end_ms=wall_start_ms, size_bytes=0,"
+            " closed=1, verified=1 WHERE path=? AND NOT (closed=1 AND mono_end_ms IS mono_start_ms);",
+            [(p,) for p in kept],
+        )
+        conn.executemany("DELETE FROM segments WHERE path=?;", [(p,) for p in dropped])
         for path in gone:
             known.pop(path, None)
-        return len(gone)
+        return len(dropped)
 
     def _drop_empty(self, conn: sqlite3.Connection, known: dict) -> int:
         """

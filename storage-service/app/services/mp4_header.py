@@ -11,6 +11,12 @@ logger = logging.getLogger(__name__)
 # Заголовок фрагментного mp4 лежит в начале файла: ftyp, free, moov
 HEADER_BYTES = 256 * 1024
 
+# Кадр длиннее этого — разрыв записи внутри файла, мс; как порог разрыва таймлайна
+HOLE_MS = 2_000
+
+# Разрыв в первых мс файла — головной: до него старая группа кадров после заморозки; как kStaleLagMs в media-center
+LEADING_HOLE_MS = 3_000
+
 
 # Коробки уровня [start, end): имя, начало тела, конец коробки
 def _children(data: bytes, start: int, end: int):
@@ -103,13 +109,14 @@ def _tracks(data: bytes, moov: tuple[int, int]) -> dict[int, tuple[int, int]]:
     return tracks
 
 
-# Отрезки времени дорожек в одном moof: (track_ID, начало, конец) в единицах шкалы дорожки
-def _moof_spans(moof: bytes, tracks: dict[int, tuple[int, int]]) -> list[tuple[int, int, int]]:
+# Отрезки времени дорожек в одном moof: (track_ID, начало, конец, разрывы) в единицах шкалы дорожки
+def _moof_spans(moof: bytes, tracks: dict[int, tuple[int, int]]) -> list[tuple[int, int, int, list[tuple[int, int]]]]:
     spans = []
     for kind, body, stop in _children(moof, 8, len(moof)):
         if kind != b"traf":
             continue
         track_id, default, start, duration = None, 0, None, 0
+        holes: list[tuple[int, int]] = []
         for name, at, _end in _children(moof, body, stop):
             if name == b"tfhd":
                 flags = int.from_bytes(moof[at + 1:at + 4], "big")
@@ -124,16 +131,24 @@ def _moof_spans(moof: bytes, tracks: dict[int, tuple[int, int]]) -> list[tuple[i
             elif name == b"trun":
                 flags = int.from_bytes(moof[at + 1:at + 4], "big")
                 count = struct.unpack(">I", moof[at + 4:at + 8])[0]
+                hole = HOLE_MS * tracks.get(track_id, (0, 0))[0] // 1000
                 if not flags & 0x100:
+                    # Разрыв бывает отдельным фрагментом из одного кадра с длительностью по умолчанию
+                    if hole and default > hole:
+                        holes.extend((duration + i * default, duration + (i + 1) * default) for i in range(count))
                     duration += count * default
                     continue
                 cursor = at + 8 + (4 if flags & 0x01 else 0) + (4 if flags & 0x04 else 0)
                 step = 4 * sum(1 for bit in (0x100, 0x200, 0x400, 0x800) if flags & bit)
                 for _ in range(count):
-                    duration += struct.unpack(">I", moof[cursor:cursor + 4])[0]
+                    sample = struct.unpack(">I", moof[cursor:cursor + 4])[0]
+                    # Разрыв записи mp4mux кладёт длительностью кадра перед ним
+                    if hole and sample > hole:
+                        holes.append((duration, duration + sample))
+                    duration += sample
                     cursor += step
         if track_id in tracks and start is not None:
-            spans.append((track_id, start, start + duration))
+            spans.append((track_id, start, start + duration, [(start + a, start + b) for a, b in holes]))
     return spans
 
 
@@ -190,7 +205,8 @@ def content_duration_ms(path: Path) -> Optional[int]:
 
             first: dict[int, int] = {}
             last: dict[int, int] = {}
-            pending: list[tuple[int, int, int]] = []
+            holes: dict[int, list[tuple[int, int]]] = {}
+            pending: list[tuple[int, int, int, list[tuple[int, int]]]] = []
             has_data = False
             at = moov[1]
             while at + 8 <= size:
@@ -210,9 +226,10 @@ def content_duration_ms(path: Path) -> Optional[int]:
                     pending = _moof_spans(handle.read(end - at), tracks)
                 elif name == b"mdat":
                     has_data = True
-                    for track_id, start, stop in pending:
+                    for track_id, start, stop, gaps in pending:
                         first.setdefault(track_id, start)
                         last[track_id] = max(last.get(track_id, stop), stop)
+                        holes.setdefault(track_id, []).extend(gaps)
                     pending = []
                 elif name not in (b"free", b"skip", b"mfra"):
                     has_data = True
@@ -222,7 +239,17 @@ def content_duration_ms(path: Path) -> Optional[int]:
 
     if not last:
         return None if has_data else 0
-    return max((last[t] - first[t]) * 1000 // tracks[t][0] for t in last)
+
+    def from_fresh(track_id: int) -> int:
+        scale = tracks[track_id][0]
+        lead = LEADING_HOLE_MS * scale // 1000
+        # Начало — конец головного разрыва, если он есть: старая группа кадров на таймлайн не идёт
+        begin = max([b for a, b in holes.get(track_id, []) if a - first[track_id] < lead], default=first[track_id])
+        return (last[track_id] - begin) * 1000 // scale
+
+    # Кадры есть, но все до головного разрыва: пустым такой файл не считается
+    fresh = max(from_fresh(t) for t in last)
+    return fresh if fresh > 0 else None
 
 
 # Дописывает длительность в mvhd, mehd, tkhd и mdhd, не сдвигая байты файла
