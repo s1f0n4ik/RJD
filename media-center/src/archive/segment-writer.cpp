@@ -97,7 +97,11 @@ namespace {
             // mc — строку записала ветка записи, scan — нашёл storage-service
             "  origin TEXT NOT NULL DEFAULT 'mc',"
             // Том пула дисков; NULL — внутренний том
-            "  volume_id TEXT"
+            "  volume_id TEXT,"
+            // Почему запись прервалась на конце сегмента: "<код>: <подробности>"
+            "  error TEXT,"
+            // 1 — storage-service сверил строку с содержимым файла
+            "  verified INTEGER NOT NULL DEFAULT 0"
             ");"
             // Точка соответствия монотонного и настенного времени. Пишется, когда
             // источник стал лучше: по ней storage-service ставит якорь сессии,
@@ -116,8 +120,10 @@ namespace {
 
         if (!db().exec(kSchema, "schema")) return false;
 
-        // Базы прежних сборок без тома пула
+        // Базы прежних сборок без тома пула, причины прерывания и сверки
         db().add_column("segments", "volume_id", "TEXT");
+        db().add_column("segments", "error", "TEXT");
+        db().add_column("segments", "verified", "INTEGER NOT NULL DEFAULT 0");
         return db().exec("CREATE INDEX IF NOT EXISTS idx_seg_volume ON segments(volume_id);", "volume index");
     }
 
@@ -178,6 +184,7 @@ namespace {
         switch (event.kind) {
         case FSegmentEvent::EKind::OPENED:    return open_segment(event);
         case FSegmentEvent::EKind::CLOSED:    return close_segment(event);
+        case FSegmentEvent::EKind::ERROR:     return mark_error(event);
         case FSegmentEvent::EKind::TIME_MARK: return insert_mark(event);
         }
         return false;
@@ -244,7 +251,8 @@ namespace {
             "wall_start_ms=excluded.wall_start_ms,"
             "time_source=excluded.time_source,"
             "volume_id=excluded.volume_id,"
-            "mono_end_ms=NULL,wall_end_ms=NULL,size_bytes=NULL,closed=0,origin='mc';");
+            "mono_end_ms=NULL,wall_end_ms=NULL,size_bytes=NULL,closed=0,origin='mc',"
+            "error=NULL,verified=0;");
 
         if (!insert.ok()) {
             logger().error("prepare segment open: " + db().error());
@@ -270,22 +278,46 @@ namespace {
     }
 
     bool USegmentWriter::close_segment(const FSegmentEvent& event) {
+        // Неизвестный конец или размер не затирает то, что уже измерил storage-service
         db::UStatement update(db(),
-            "UPDATE segments SET mono_end_ms=?, wall_end_ms=?, size_bytes=?, closed=1 "
-            "WHERE path=?;");
+            "UPDATE segments SET mono_end_ms=COALESCE(?, mono_end_ms), "
+            "wall_end_ms=COALESCE(?, wall_end_ms), size_bytes=COALESCE(?, size_bytes), "
+            "closed=1, verified=0 WHERE path=?;");
 
         if (!update.ok()) {
             logger().error("prepare segment close: " + db().error());
             return false;
         }
 
-        update.bind(event.mono_ms)
-              .bind(event.wall_ms)
-              .bind(event.size_bytes)
-              .bind(event.path);
+        if (event.has_end) update.bind(event.mono_ms).bind(event.wall_ms);
+        else update.bind_null().bind_null();
+        if (event.size_bytes >= 0) update.bind(event.size_bytes);
+        else update.bind_null();
+        update.bind(event.path);
 
         if (!update.step_done()) {
             logger().error("close segment: " + db().error());
+            return false;
+        }
+
+        ++m_written;
+        return true;
+    }
+
+    bool USegmentWriter::mark_error(const FSegmentEvent& event) {
+        // Остаётся первая причина: следующие ошибки — уже следствие
+        db::UStatement update(db(),
+            "UPDATE segments SET error=COALESCE(error, ?) WHERE path=?;");
+
+        if (!update.ok()) {
+            logger().error("prepare segment error: " + db().error());
+            return false;
+        }
+
+        update.bind(event.error).bind(event.path);
+
+        if (!update.step_done()) {
+            logger().error("segment error: " + db().error());
             return false;
         }
 

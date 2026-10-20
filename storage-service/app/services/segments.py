@@ -50,6 +50,17 @@ SESSION_SPACING_MS = 1_000
 # Открытая строка, файл которой давно не менялся, — след обрыва питания
 OPEN_STALE_SEC = 120
 
+# Открытый фрагмент, содержимое которого не растёт столько секунд, брошен
+STALL_SEC = 30
+
+# Работа одного прохода проверки закрытых строк по содержимому, с
+VERIFY_BUDGET_SEC = 2
+
+# Расхождение заявленной и настоящей длительности, которое правится по файлу: меньшее таймлайн не покажет разрывом
+VERIFY_SLACK_MS = GAP_THRESHOLD_MS
+
+EMPTY_ERROR = "empty: no frames in file"
+
 # Потолок длительности сегмента, когда её нечем измерить
 FALLBACK_DURATION_MS = 600_000
 
@@ -97,8 +108,9 @@ class SegmentIndex:
         self.db_path = db_path
         # Файлы, которые ffprobe не смог измерить, — второй раз не пробуем
         self._unmeasurable: set[int] = set()
-        # Заголовки, уже проверенные на верную длительность
-        self._header_checked: set[int] = set()
+        # Открытые строки: id -> (содержимое мс, когда последний раз росло по monotonic)
+        self._growth: dict[int, tuple[int, float]] = {}
+        self._schema_ready = False
         # Состояние пула, публикуется пулом при каждом опросе дисков
         self.view = FVolumeView()
 
@@ -143,14 +155,17 @@ class SegmentIndex:
         )
         if self._has_table(conn, "segments"):
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(segments);")}
-            if "volume_id" not in columns:
+            for name, decl in (("volume_id", "TEXT"), ("error", "TEXT"), ("verified", "INTEGER NOT NULL DEFAULT 0")):
+                if name in columns:
+                    continue
                 try:
-                    conn.execute("ALTER TABLE segments ADD COLUMN volume_id TEXT;")
+                    conn.execute(f"ALTER TABLE segments ADD COLUMN {name} {decl};")
                 except sqlite3.OperationalError as e:
                     # Колонку уже добавил media-center
                     if "duplicate column" not in str(e):
                         raise
             conn.execute("CREATE INDEX IF NOT EXISTS idx_seg_volume ON segments(volume_id);")
+            self._schema_ready = True
         conn.commit()
 
     # ── якоря сессий ──
@@ -718,7 +733,7 @@ class SegmentIndex:
             # Строки извлечённых томов сверке не подлежат
             known = {
                 row["path"]: row for row in conn.execute(
-                    "SELECT id, path, closed, mono_start_ms, wall_start_ms, volume_id FROM segments;"
+                    "SELECT id, path, closed, mono_start_ms, wall_start_ms, volume_id, error FROM segments;"
                 )
                 if self._volume_of(row) in self.view.present
             }
@@ -732,61 +747,157 @@ class SegmentIndex:
             measured = self._measure_missing_ends(conn)
             conn.commit()
 
-            repaired = self._repair_headers(conn)
-
-            if removed or empty or closed or added or measured or repaired:
+            if removed or empty or closed or added or measured:
                 logger.info(
                     "Segment index reconciled: %d rows dropped, %d empty files removed, %d closed,"
-                    " %d found on disk, %d durations measured, %d headers repaired",
-                    removed, empty, closed, added, measured, repaired,
+                    " %d found on disk, %d durations measured",
+                    removed, empty, closed, added, measured,
                 )
             return {
                 "dropped": removed, "empty": empty, "closed": closed, "found": added,
-                "measured": measured, "repaired": repaired,
+                "measured": measured,
             }
 
         finally:
             conn.close()
 
-    def _repair_headers(self, conn: sqlite3.Connection) -> int:
-        """
-        Заголовок фрагментного mp4 не знает длительности файла: media-center
-        дописывает её по событию закрытия, но у оборванных обесточиванием
-        событие не наступает, а записанное прежними сборками осталось битым.
-        Длительность берём из строки — она уже посчитана и точнее ffprobe.
-        """
+    # Быстрый проход: открытые строки по росту содержимого, закрытые — сверка с файлом
+    def check_live(self) -> dict:
+        conn = self._connect()
+        if conn is None:
+            return {"skipped": True}
+
+        try:
+            if not self._schema_ready:
+                self._ensure_own_schema(conn)
+            if not self._has_table(conn, "segments"):
+                return {"skipped": True}
+
+            growing, stalled = self._check_open(conn)
+            verified = self._verify_closed(conn)
+            return {"growing": growing, "stalled": stalled, "verified": verified}
+
+        finally:
+            conn.close()
+
+    def _check_open(self, conn: sqlite3.Connection) -> tuple[int, int]:
         rows = [
             row for row in conn.execute(
-                "SELECT id, path, volume_id, mono_end_ms - mono_start_ms AS span FROM segments"
-                " WHERE closed=1 AND mono_end_ms IS NOT NULL;"
+                "SELECT id, path, camera_id, stream_key, mono_start_ms, mono_end_ms, volume_id"
+                " FROM segments WHERE closed=0;"
             )
-            if row["id"] not in self._header_checked and self._volume_of(row) in self.view.present
+            if self._volume_of(row) in self.view.present
         ]
-        if not rows:
-            return 0
+        now = time.monotonic()
+        growing = stalled = 0
 
-        deadline = time.monotonic() + MEASURE_BUDGET_SEC
-        repaired = 0
+        for row in rows:
+            path = row["path"]
+            try:
+                size = os.path.getsize(path)
+            except OSError:
+                continue
+            content = mp4_header.content_duration_ms(Path(path))
+            if content is None:
+                continue
+
+            last = self._growth.get(row["id"])
+            if last is None or content > last[0]:
+                self._growth[row["id"]] = (content, now)
+                growing += 1
+                # Живой край строки — конец того, что уже лежит в файле
+                if content and row["mono_end_ms"] != row["mono_start_ms"] + content:
+                    conn.execute(
+                        "UPDATE segments SET mono_end_ms=mono_start_ms+?, wall_end_ms=wall_start_ms+?"
+                        " WHERE id=? AND closed=0;",
+                        (content, content, row["id"]),
+                    )
+                    conn.commit()
+                continue
+            if now - last[1] < STALL_SEC:
+                continue
+
+            self._growth.pop(row["id"], None)
+            stalled += 1
+            if content == 0:
+                self._mark_empty(conn, path)
+                conn.commit()
+                continue
+
+            # Следующий фрагмент есть — запись шла дальше, потеряно только закрытие
+            later = conn.execute(
+                "SELECT 1 FROM segments WHERE camera_id=? AND stream_key=? AND id>? LIMIT 1;",
+                (row["camera_id"], row["stream_key"], row["id"]),
+            ).fetchone()
+            error = None if later else f"stalled: no growth for {STALL_SEC} s"
+            conn.execute(
+                "UPDATE segments SET mono_end_ms=mono_start_ms+?, wall_end_ms=wall_start_ms+?, size_bytes=?,"
+                " closed=1, verified=1, error=COALESCE(error, ?) WHERE id=? AND closed=0;",
+                (content, content, size, error, row["id"]),
+            )
+            conn.commit()
+            logger.warning("Open segment stopped growing, closed at %d ms%s: %s",
+                           content, "" if later else " (recording stopped)", path)
+
+        open_ids = {row["id"] for row in rows}
+        for row_id in set(self._growth) - open_ids:
+            del self._growth[row_id]
+        return growing, stalled
+
+    def _verify_closed(self, conn: sqlite3.Connection) -> int:
+        deadline = time.monotonic() + VERIFY_BUDGET_SEC
+        rows = conn.execute(
+            "SELECT id, path, mono_start_ms, mono_end_ms, volume_id FROM segments"
+            " WHERE closed=1 AND verified=0 ORDER BY id DESC LIMIT 500;"
+        ).fetchall()
+        done = 0
 
         for row in rows:
             if time.monotonic() > deadline:
                 break
-
-            self._header_checked.add(row["id"])
-            span = row["span"]
-            if not span or span <= 0:
+            if self._volume_of(row) not in self.view.present:
+                continue
+            path = row["path"]
+            try:
+                size = os.path.getsize(path)
+            except OSError:
                 continue
 
-            path = Path(row["path"])
-            stated = mp4_header.header_duration_ms(path)
-            # Заголовка нет вовсе или он уже верен в пределах секунды
-            if stated is None or abs(stated - span) <= 1000:
+            content = mp4_header.content_duration_ms(Path(path)) if size else 0
+            if content == 0:
+                self._mark_empty(conn, path)
+                conn.commit()
+                done += 1
+                continue
+            # Не фрагментный mp4: мерить нечем, длину держит ffprobe сверки
+            if content is None:
+                conn.execute("UPDATE segments SET verified=1 WHERE id=?;", (row["id"],))
+                conn.commit()
+                done += 1
                 continue
 
-            if mp4_header.write_duration(path, span):
-                repaired += 1
+            start, end = row["mono_start_ms"], row["mono_end_ms"]
+            claimed = end - start if end is not None else None
+            error = None
+            if claimed is not None and claimed - content > VERIFY_SLACK_MS:
+                error = f"short: claimed {claimed // 1000} s, content {content // 1000} s"
+                logger.warning("Segment is shorter than claimed (%s): %s", error, path)
+            if claimed is None or abs(claimed - content) > VERIFY_SLACK_MS:
+                end = start + content
 
-        return repaired
+            stated = mp4_header.header_duration_ms(Path(path))
+            if stated is not None and abs(stated - content) > VERIFY_SLACK_MS:
+                mp4_header.write_duration(Path(path), content)
+
+            conn.execute(
+                "UPDATE segments SET mono_end_ms=?, wall_end_ms=wall_start_ms+?-mono_start_ms, size_bytes=?,"
+                " verified=1, error=COALESCE(error, ?) WHERE id=? AND verified=0;",
+                (end, end, size, error, row["id"]),
+            )
+            conn.commit()
+            done += 1
+
+        return done
 
     def _stamp_internal(self, conn: sqlite3.Connection) -> None:
         # Строки без тома записаны во внутренний том
@@ -800,7 +911,8 @@ class SegmentIndex:
         alive: dict[str, bool] = {}
         gone = []
         for path, row in known.items():
-            if os.path.exists(path):
+            # Строка пустого файла остаётся ради причины разрыва
+            if os.path.exists(path) or (row["error"] or "").startswith("empty"):
                 continue
             volume_id = self._volume_of(row)
             # Том мог исчезнуть после опроса пула — тогда файл не удалён, а недоступен
@@ -819,11 +931,11 @@ class SegmentIndex:
         """
         Пустой файл, который давно не меняется, — след зависшей записи: в нём
         нет ни байта, играть и мерить нечего. Файл удаляется с диска, строка
-        индекса — вместе с ним. Только что открытый фрагмент тоже пуст, но он
+        индекса остаётся нулевой длины с причиной. Только что открытый фрагмент тоже пуст, но он
         моложе порога и остаётся.
         """
         now = datetime.now().timestamp()
-        gone = []
+        gone = 0
 
         for path, _camera_id, _stream_key, _volume_id in self._walk_records():
             try:
@@ -832,21 +944,26 @@ class SegmentIndex:
                 continue
             if stat.st_size or now - stat.st_mtime < OPEN_STALE_SEC:
                 continue
-            try:
-                os.remove(path)
-            except OSError as e:
-                logger.warning("Cannot remove empty segment %s: %s", path, e)
-                continue
-            gone.append(path)
+            if self._mark_empty(conn, path):
+                known.pop(path, None)
+                gone += 1
+        return gone
 
-        if not gone:
-            return 0
-
-        conn.executemany("DELETE FROM segments WHERE path=?;", [(p,) for p in gone])
-        for path in gone:
-            known.pop(path, None)
-            logger.warning("Empty segment removed: %s", path)
-        return len(gone)
+    @staticmethod
+    def _mark_empty(conn: sqlite3.Connection, path: str) -> bool:
+        # Файл без кадров удаляется, строка остаётся нулевой длины с причиной
+        try:
+            os.remove(path)
+        except OSError as e:
+            logger.warning("Cannot remove empty segment %s: %s", path, e)
+            return False
+        conn.execute(
+            "UPDATE segments SET mono_end_ms=mono_start_ms, wall_end_ms=wall_start_ms, size_bytes=0,"
+            " closed=1, verified=1, error=COALESCE(error, ?) WHERE path=?;",
+            (EMPTY_ERROR, path),
+        )
+        logger.warning("Empty segment removed, row kept: %s", path)
+        return True
 
     def _close_abandoned(self, conn: sqlite3.Connection, known: dict) -> int:
         """
@@ -938,6 +1055,7 @@ class SegmentIndex:
         не считается.
         """
         added = 0
+        now = datetime.now().timestamp()
 
         for path, camera_id, stream_key, volume_id in self._walk_records():
             if path in known:
@@ -948,9 +1066,13 @@ class SegmentIndex:
                 continue
 
             try:
-                size = os.path.getsize(path)
+                stat = os.stat(path)
             except OSError:
                 continue
+            # Пишущийся файл: строку на него заводит media-center
+            if now - stat.st_mtime < OPEN_STALE_SEC:
+                continue
+            size = stat.st_size
 
             conn.execute(
                 "INSERT OR IGNORE INTO segments("

@@ -48,8 +48,7 @@ VARAN_ROOT_ENV="${MC_VARAN_ROOT:-/home/orangepi/varan}"
 
 log "Запуск media-center на $REMOTE: rest=$REST_PORT signaling=$SIGNALING_IP:$SIGNALING_PORT gateway_gRPC=$GATEWAY_IP:$GATEWAY_PORT detection_gRPC=${DETECTION_IP:+$DETECTION_IP:$DETECTION_PORT} varan_root=$VARAN_ROOT_ENV modules=${MODULES:-none} (DISPLAY=$DISPLAY_ENV)"
 
-# -t для интерактивного вывода и корректной обработки Ctrl-C
-ssh -t "$REMOTE" "source '$GST_ENV'; \
+APP="source '$GST_ENV'; \
     export DISPLAY='$DISPLAY_ENV' XAUTHORITY='$XAUTH_ENV' XDG_RUNTIME_DIR='$XDG_ENV'; \
     cd '$REMOTE_DIR/build' && ./media-center \
         --rest-port='$REST_PORT' \
@@ -59,4 +58,12 @@ ssh -t "$REMOTE" "source '$GST_ENV'; \
         --modules='$MODULES' \
         --gateway-ip='$GATEWAY_IP' \
         --gateway-port='$GATEWAY_PORT' \
-        $DETECTION_ARGS"
+        $DETECTION_ARGS; \
+    echo \"media-center exited: \$?\"; exec bash"
+
+# mc живёт в tmux-сессии mc: закрытие терминала только отключает от неё, работающий mc не запускается второй раз
+ssh -t "$REMOTE" "if tmux has-session -t mc 2>/dev/null && pgrep -x media-center >/dev/null; then \
+        exec tmux attach-session -t mc; \
+    fi; \
+    tmux kill-session -t mc 2>/dev/null; \
+    exec tmux new-session -s mc $(printf '%q' "$APP")"

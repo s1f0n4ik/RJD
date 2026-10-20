@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <array>
 #include <fstream>
+#include <optional>
 #include <sstream>
 #include <string_view>
 #include <vector>
@@ -168,6 +169,9 @@ bool write_mp4_duration(const std::filesystem::path& path, std::int64_t duration
 // Сколько ждать, пока storage-service укажет доступный том, прежде чем писать во внутренний
 constexpr gint64 kTargetGraceUs = 10 * G_TIME_SPAN_SECOND;
 
+// На сколько фрагмент может быть длиннее заданного сегмента: сплитер режет по ключевому кадру
+constexpr std::int64_t kDurationSlackMs = 5000;
+
 // Имена элементов ветки записи: по ним узнаются её ошибки и после сноса ветки
 constexpr const char* kRecordQueueName = "record_queue";
 constexpr const char* kSplitmuxName = "splitmux";
@@ -208,13 +212,18 @@ FWriteTarget read_write_target() {
 	return { json_string(value, "volume_id"), json_string(value, "path"), json_string(value, "marker") };
 }
 
+// Метка тома читается и называет тот же том
+bool volume_alive(const std::filesystem::path& marker, const std::string& volume_id) {
+	boost::system::error_code ec;
+	const auto value = boost::json::parse(read_text(marker), ec);
+	return !ec && json_string(value, "id") == volume_id;
+}
+
 // Том цели на месте: каталог записей есть, метка читается и называет тот же том
 bool target_alive(const FWriteTarget& target) {
 	std::error_code ec;
 	if (target.path.empty() || !std::filesystem::is_directory(target.path, ec)) return false;
-	boost::system::error_code json_ec;
-	const auto marker = boost::json::parse(read_text(target.marker), json_ec);
-	return !json_ec && json_string(marker, "id") == target.volume_id;
+	return volume_alive(target.marker, target.volume_id);
 }
 
 // Каталоги камеры и потока; в цели пула корень не создаётся никогда
@@ -473,18 +482,16 @@ void UCameraStreamPipeline::on_bus_error(int code, const std::string& descriptio
 void UCameraStreamPipeline::on_bus_message(GstMessage* msg) {
 	switch (GST_MESSAGE_TYPE(msg)) {
 	case GST_MESSAGE_ELEMENT: {
-		// splitmuxsink сообщает об открытии и закрытии фрагмента только в bus
+		// Закрытие фрагмента splitmuxsink сообщает только в bus; открытие ловится в format-location
 		const GstStructure* structure = gst_message_get_structure(msg);
 		if (!structure) break;
 
-		const bool opened = gst_structure_has_name(structure, "splitmuxsink-fragment-opened");
-		const bool closed = gst_structure_has_name(structure, "splitmuxsink-fragment-closed");
-		if (opened || closed) {
+		if (gst_structure_has_name(structure, "splitmuxsink-fragment-closed")) {
 			const gchar* location = gst_structure_get_string(structure, "location");
 			// Длину фрагмента сплитер сообщает сам
 			guint64 duration_ns = 0;
-			if (closed) gst_structure_get_uint64(structure, "fragment-duration", &duration_ns);
-			on_record_fragment(location, opened, duration_ns);
+			gst_structure_get_uint64(structure, "fragment-duration", &duration_ns);
+			on_fragment_closed(location, duration_ns);
 		}
 		break;
 	}
@@ -512,14 +519,14 @@ std::optional<UCameraStreamPipeline::FRecordRoot> UCameraStreamPipeline::resolve
 	// Пула нет: пишем по пути потока, как до него
 	if (target.volume_id.empty()) {
 		m_target_lost_us.store(0);
-		return FRecordRoot{ m_parameters.record_path, "" };
+		return FRecordRoot{ m_parameters.record_path, "", {} };
 	}
 
 	if (target_alive(target)) {
 		if (m_target_lost_us.exchange(0) != 0) {
 			m_logger->info("write target is available again: " + target.path.string());
 		}
-		return FRecordRoot{ target.path, target.volume_id };
+		return FRecordRoot{ target.path, target.volume_id, target.marker };
 	}
 
 	const gint64 now = g_get_monotonic_time();
@@ -532,7 +539,7 @@ std::optional<UCameraStreamPipeline::FRecordRoot> UCameraStreamPipeline::resolve
 
 	// storage-service так и не сменил цель: пишем во внутренний том
 	m_logger->warn("write target is still unavailable, recording to " + m_parameters.record_path.string());
-	return FRecordRoot{ m_parameters.record_path, "" };
+	return FRecordRoot{ m_parameters.record_path, "", {} };
 }
 
 bool UCameraStreamPipeline::on_branch_error(GstMessage* msg) {
@@ -541,12 +548,15 @@ bool UCameraStreamPipeline::on_branch_error(GstMessage* msg) {
 	GError* err = nullptr;
 	gst_message_parse_error(msg, &err, nullptr);
 	const gchar* source = GST_OBJECT_NAME(GST_MESSAGE_SRC(msg));
-	m_logger->error(std::string("record branch error, live stays: ")
-		+ (source ? source : "unknown") + ": " + (err ? err->message : "unknown"));
+	const std::string detail = std::string(source ? source : "unknown") + ": " + (err ? err->message : "unknown");
+	m_logger->error("record branch error, live stays: " + detail);
 	if (err) g_error_free(err);
 
 	// Ветку вернёт таймер, когда цель записи снова будет доступна
-	if (m_record_branch.is_deployed.load()) destroy_branch(m_record_branch);
+	if (m_record_branch.is_deployed.load()) {
+		mark_fragment_error("record_error: " + detail);
+		destroy_branch(m_record_branch);
+	}
 	return true;
 }
 
@@ -722,6 +732,7 @@ bool UCameraStreamPipeline::create_record_branch(GstElement* tee)
 
 			if (!reason.empty()) {
 				self->m_logger->warn("format-location: " + reason + ", scheduling record branch removal");
+				self->mark_fragment_error("no_target: " + reason);
 				// Планируем удаление в главном потоке GLib — не трогаем пайплайн из колбека
 				g_idle_add([](gpointer data) -> gboolean {
 					auto self = static_cast<UCameraStreamPipeline*>(data);
@@ -738,10 +749,7 @@ bool UCameraStreamPipeline::create_record_branch(GstElement* tee)
 			oss << self->m_parameters.camera_name << "_" << make_start_timestamp() << ".mp4";
 
 			auto save_path = record_dir / oss.str();
-			{
-				std::lock_guard<std::mutex> lock(self->m_fragment_mutex);
-				self->m_fragment_volumes[save_path.string()] = root->volume_id;
-			}
+			self->on_fragment_opened(save_path.string(), *root);
 			return g_strdup(save_path.c_str());
 		}),
 		this
@@ -835,52 +843,99 @@ void UCameraStreamPipeline::set_segment_writer(std::shared_ptr<varan::archive::U
 	}
 }
 
-void UCameraStreamPipeline::on_record_fragment(const char* location, bool opened, std::uint64_t duration_ns) {
+void UCameraStreamPipeline::on_fragment_opened(const std::string& path, const FRecordRoot& root) {
+	const archive::FTimeStamp stamp = archive::now_stamp();
+	{
+		std::lock_guard<std::mutex> lock(m_fragment_mutex);
+		m_fragments[path] = FFragment{ root.volume_id, root.marker, stamp.mono_ms, stamp.wall_ms };
+		m_current_fragment = path;
+	}
+
+	m_logger->debug("fragment opened: " + path + " (time source " + archive::to_string(stamp.source) + ")");
+
+	if (!m_segment_writer) {
+		m_logger->warn("fragment opened but archive index is off: " + path);
+		return;
+	}
+
+	archive::FSegmentEvent event;
+	event.kind = archive::FSegmentEvent::EKind::OPENED;
+	event.camera_id = m_parameters.camera_name;
+	event.stream_key = m_parameters.name;
+	event.path = path;
+	event.volume_id = root.volume_id;
+	event.mono_ms = stamp.mono_ms;
+	event.wall_ms = stamp.wall_ms;
+	event.source = stamp.source;
+	m_segment_writer->enqueue(std::move(event));
+}
+
+void UCameraStreamPipeline::on_fragment_closed(const char* location, std::uint64_t duration_ns) {
 	// При переполнении диска format-location отдаёт /dev/null — это не запись
 	if (!location || *location == '\0') return;
 	if (std::string_view(location) == "/dev/null") return;
 
-	if (!m_segment_writer) {
-		m_logger->warn(std::string("fragment ") + (opened ? "opened" : "closed")
-			+ " but archive index is off: " + location);
-		return;
+	std::optional<FFragment> fragment;
+	{
+		std::lock_guard<std::mutex> lock(m_fragment_mutex);
+		const auto found = m_fragments.find(location);
+		if (found != m_fragments.end()) {
+			fragment = found->second;
+			m_fragments.erase(found);
+		}
 	}
 
-	const archive::FTimeStamp stamp = archive::now_stamp();
+	// У оборванного фрагмента длительность сплитера — мусор
+	const std::int64_t duration_ms = static_cast<std::int64_t>(duration_ns / 1'000'000);
+	const std::int64_t limit_ms = std::int64_t(m_parameters.segment_length) * 1000 + kDurationSlackMs;
+	const bool sane = duration_ms > 0 && duration_ms <= limit_ms;
 
 	archive::FSegmentEvent event;
-	event.kind = opened ? archive::FSegmentEvent::EKind::OPENED
-					    : archive::FSegmentEvent::EKind::CLOSED;
+	event.kind = archive::FSegmentEvent::EKind::CLOSED;
 	event.camera_id = m_parameters.camera_name;
 	event.stream_key = m_parameters.name;
 	event.path = location;
-	event.mono_ms = stamp.mono_ms;
-	event.wall_ms = stamp.wall_ms;
-	event.source = stamp.source;
 
-	if (opened) {
+	if (sane && fragment) {
+		event.has_end = true;
+		event.mono_ms = fragment->mono_ms + duration_ms;
+		event.wall_ms = fragment->wall_ms + duration_ms;
+	}
+
+	std::error_code ec;
+	const auto size = std::filesystem::file_size(location, ec);
+	if (!ec) event.size_bytes = static_cast<std::int64_t>(size);
+
+	// Заголовок фрагментного mp4 не знает длины файла, дописываем её
+	if (sane && !write_mp4_duration(location, duration_ms)) {
+		m_logger->warn(std::string("cannot write duration into header: ") + location);
+	}
+
+	m_logger->debug(std::string("fragment closed: ") + location + (event.has_end
+		? " (" + std::to_string(duration_ms) + " ms)"
+		: " (end unknown, duration " + std::to_string(duration_ms) + " ms)"));
+
+	if (!m_segment_writer) {
+		m_logger->warn(std::string("fragment closed but archive index is off: ") + location);
+		return;
+	}
+	m_segment_writer->enqueue(std::move(event));
+}
+
+void UCameraStreamPipeline::mark_fragment_error(const std::string& error) {
+	std::string path;
+	{
 		std::lock_guard<std::mutex> lock(m_fragment_mutex);
-		const auto found = m_fragment_volumes.find(event.path);
-		if (found != m_fragment_volumes.end()) {
-			event.volume_id = found->second;
-			m_fragment_volumes.erase(found);
-		}
+		path = m_current_fragment;
 	}
-	else {
-		std::error_code ec;
-		const auto size = std::filesystem::file_size(location, ec);
-		if (!ec) event.size_bytes = static_cast<std::int64_t>(size);
+	if (path.empty() || !m_segment_writer) return;
 
-		// Заголовок фрагментного mp4 не знает длины файла, дописываем её
-		const std::int64_t duration_ms = static_cast<std::int64_t>(duration_ns / 1'000'000);
-		if (duration_ms > 0 && !write_mp4_duration(location, duration_ms)) {
-			m_logger->warn(std::string("cannot write duration into header: ") + location);
-		}
-	}
-
-	m_logger->debug(std::string("fragment ") + (opened ? "opened: " : "closed: ") + location
-		+ " (time source " + archive::to_string(stamp.source) + ")");
-
+	archive::FSegmentEvent event;
+	event.kind = archive::FSegmentEvent::EKind::ERROR;
+	event.camera_id = m_parameters.camera_name;
+	event.stream_key = m_parameters.name;
+	event.path = path;
+	event.error = error;
 	m_segment_writer->enqueue(std::move(event));
 }
 
@@ -891,7 +946,25 @@ void UCameraStreamPipeline::set_timer_check_record_branch() {
 	m_timer_check_record_id = g_timeout_add_seconds(2, [](gpointer data) -> gboolean {
 		auto self = static_cast<UCameraStreamPipeline*>(data);
 
-		if (self->m_record_branch.is_deployed.load() || self->m_is_restarting.load()) {
+		if (self->m_is_restarting.load()) return G_SOURCE_CONTINUE;
+
+		// Пишущаяся ветка: том текущего фрагмента должен быть на месте, ошибки записи может не быть вовсе
+		if (self->m_record_branch.is_deployed.load()) {
+			FFragment fragment;
+			{
+				std::lock_guard<std::mutex> lock(self->m_fragment_mutex);
+				const auto found = self->m_fragments.find(self->m_current_fragment);
+				if (found == self->m_fragments.end()) return G_SOURCE_CONTINUE;
+				fragment = found->second;
+			}
+			if (fragment.marker.empty() || volume_alive(fragment.marker, fragment.volume_id)) {
+				return G_SOURCE_CONTINUE;
+			}
+
+			const std::string root = fragment.marker.parent_path().string();
+			self->m_logger->warn("timer_check_record_branch: volume of the current fragment is gone: " + root);
+			self->mark_fragment_error("volume_lost: " + root);
+			self->destroy_branch(self->m_record_branch);
 			return G_SOURCE_CONTINUE;
 		}
 

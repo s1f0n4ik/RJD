@@ -3,10 +3,14 @@
 #include <iostream>
 #include <filesystem>
 #include <charconv>
+#include <cerrno>
 #include <cstdlib>
 #include <cstring>
 #include <csignal>
 #include <system_error>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/file.h>
 #include <sys/resource.h>
 
 #include <EGL/egl.h>
@@ -62,6 +66,8 @@ struct AppConfig {
 };
 
 void signal_handler(int signal);
+void route_glib_to_logger();
+bool hold_instance_lock(ULogger& logger);
 bool is_valid_ipv4(const std::string& ip);
 bool parse_port(const char* str, uint16_t& port_out);
 bool parse_arguments(int argc, char* argv[], AppConfig& config, ULogger* logger = nullptr);
@@ -87,6 +93,11 @@ int main(int argc, char* argv[])
 		}
 	}
 
+	// Второй экземпляр писал бы те же камеры в те же каталоги и ту же базу
+	if (!hold_instance_lock(main_logger)) {
+		return EXIT_FAILURE;
+	}
+
 	{
 		std::ostringstream banner;
 		banner << "=== media-center start === " << ULogger::timestamp();
@@ -94,6 +105,9 @@ int main(int argc, char* argv[])
 		ULogger::set_log_dir(varan::paths().logs, banner.str());
 		main_logger.info("log files -> " + varan::paths().logs.string());
 	}
+
+	// До gst_init: предупреждения GStreamer идут в очередь логгера, а не в терминал
+	route_glib_to_logger();
 
 	setenv("GST_GL_PLATFORM", "egl", 1);
 	setenv("GST_GL_API", "gles2", 1);
@@ -254,9 +268,10 @@ int main(int argc, char* argv[])
 
 	center->start_cameras_from_config();
 
-	while (RUNNING) {
+	while (RUNNING && !rest_server.failed()) {
 		std::this_thread::sleep_for(std::chrono::milliseconds(200));
 	}
+	if (rest_server.failed()) main_logger.error("shutdown: REST server is down, stopping");
 
 	main_logger.info("shutdown: stopping neural editor");
 	if (input_editor) input_editor->stop_websocket_connection();
@@ -291,9 +306,10 @@ int main(int argc, char* argv[])
 	// закрытия должны успеть лечь в базу
 	if (segment_writer) segment_writer->stop();
 
+	const bool failed = rest_server.failed();
 	main_logger.info("shutdown: done");
 	ULogger::shutdown();
-	return 0;
+	return failed ? EXIT_FAILURE : 0;
 }
 
 bool is_valid_ipv4(const std::string& ip)
@@ -344,6 +360,70 @@ bool parse_port(const char* str, uint16_t& port_out)
 void signal_handler(int signal) {
 	std::cout << "\nCtrl+C pressed, stopping application..." << std::endl;
 	RUNNING = false;
+}
+
+bool hold_instance_lock(ULogger& logger) {
+	const auto path = varan::paths().archive / "media-center.lock";
+	// Дескриптор не закрывается: замок держится до конца процесса
+	const int fd = ::open(path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0644);
+	if (fd < 0) {
+		logger.warn("cannot open instance lock " + path.string() + ": " + std::strerror(errno));
+		return true;
+	}
+
+	if (::flock(fd, LOCK_EX | LOCK_NB) != 0) {
+		char owner[32] = {};
+		const ssize_t got = ::pread(fd, owner, sizeof(owner) - 1, 0);
+		logger.error("another media-center is running (pid " + std::string(owner, got > 0 ? std::size_t(got) : 0)
+			+ "), lock " + path.string());
+		::close(fd);
+		return false;
+	}
+
+	const std::string pid = std::to_string(::getpid());
+	if (::ftruncate(fd, 0) != 0 || ::pwrite(fd, pid.data(), pid.size(), 0) < 0) {
+		logger.warn("cannot write pid into " + path.string());
+	}
+	return true;
+}
+
+// Текст g_print и g_printerr без завершающего перевода строки
+static std::string without_newline(const gchar* text) {
+	std::string line = text ? text : "";
+	while (!line.empty() && (line.back() == '\n' || line.back() == '\r')) line.pop_back();
+	return line;
+}
+
+void route_glib_to_logger() {
+	static ULogger glib_logger("GLib", ULogger::ELoggerLevel::DEBUG);
+
+	g_log_set_writer_func(+[](GLogLevelFlags level, const GLogField* fields, gsize n_fields, gpointer) {
+		// Фатальное сообщение синхронно в терминал: процесс сейчас прервётся
+		if (level & (G_LOG_FLAG_FATAL | G_LOG_LEVEL_ERROR)) {
+			return g_log_writer_standard_streams(level, fields, n_fields, nullptr);
+		}
+
+		const char* domain = nullptr;
+		std::string message;
+		for (gsize i = 0; i < n_fields; ++i) {
+			const auto* value = static_cast<const char*>(fields[i].value);
+			if (g_strcmp0(fields[i].key, "GLIB_DOMAIN") == 0) domain = value;
+			else if (g_strcmp0(fields[i].key, "MESSAGE") == 0) {
+				message = fields[i].length < 0 ? std::string(value) : std::string(value, std::size_t(fields[i].length));
+			}
+		}
+		if (g_log_writer_default_would_drop(level, domain)) return G_LOG_WRITER_HANDLED;
+
+		const std::string line = std::string(domain ? domain : "glib") + ": " + message;
+		if (level & G_LOG_LEVEL_CRITICAL) glib_logger.error(line);
+		else if (level & G_LOG_LEVEL_WARNING) glib_logger.warn(line);
+		else if (level & (G_LOG_LEVEL_MESSAGE | G_LOG_LEVEL_INFO)) glib_logger.info(line);
+		else glib_logger.debug(line);
+		return G_LOG_WRITER_HANDLED;
+	}, nullptr, nullptr);
+
+	g_set_print_handler(+[](const gchar* text) { glib_logger.info(without_newline(text)); });
+	g_set_printerr_handler(+[](const gchar* text) { glib_logger.warn(without_newline(text)); });
 }
 
 static void print_usage(const char* exe, ULogger* logger) {

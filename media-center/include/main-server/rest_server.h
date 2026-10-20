@@ -29,7 +29,10 @@ public:
     ~URestServer();
 
     void async_start();
-    void stop(); 
+    void stop();
+
+    // REST не поднялся или упал: без него устройство невидимо для мастера
+    bool failed() const { return m_failed.load(); }
 
 private:
     void run();
@@ -43,6 +46,7 @@ private:
 
     std::thread m_thread;
     std::atomic<bool> m_running{ false };
+    std::atomic<bool> m_failed{ false };
 
     ULogger m_logger;
 };

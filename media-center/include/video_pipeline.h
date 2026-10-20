@@ -355,6 +355,8 @@ private:
 	struct FRecordRoot {
 		std::filesystem::path path;
 		std::string volume_id;
+		// Метка тома пула; пусто — без пула
+		std::filesystem::path marker;
 	};
 
 	// Куда писать очередной сегмент; пусто — цель пула недоступна и запись ждёт
@@ -366,9 +368,14 @@ private:
 
 	bool create_record_branch(GstElement* tee);
 
-	// Функция-сигнал для обработки сегмента
-	// duration_ns берётся из сообщения шины и равен длине фрагмента
-	void on_record_fragment(const char* location, bool opened, std::uint64_t duration_ns);
+	// Открытие фрагмента из format-location: строка индекса с моментом старта, мимо шины
+	void on_fragment_opened(const std::string& path, const FRecordRoot& root);
+
+	// Закрытие фрагмента по сообщению шины; duration_ns — длина фрагмента от сплитера
+	void on_fragment_closed(const char* location, std::uint64_t duration_ns);
+
+	// Причина, по которой прервалась запись текущего фрагмента
+	void mark_fragment_error(const std::string& error);
 
 	void set_timer_check_record_branch();
 
@@ -394,9 +401,18 @@ private:
 
 	// С какого момента цель пула недоступна, мкс монотонных часов; 0 — доступна
 	std::atomic<gint64> m_target_lost_us{0};
-	// Том файла фрагмента от format-location до сообщения о его открытии
+	// Фрагмент от format-location до сообщения о его закрытии
+	struct FFragment {
+		std::string volume_id;
+		// Метка тома; пусто — запись без пула
+		std::filesystem::path marker;
+		std::int64_t mono_ms = 0;
+		std::int64_t wall_ms = 0;
+	};
 	std::mutex m_fragment_mutex;
-	std::unordered_map<std::string, std::string> m_fragment_volumes;
+	std::unordered_map<std::string, FFragment> m_fragments;
+	// Последний открытый фрагмент
+	std::string m_current_fragment;
 
 	FPipelineBranch m_decoder_branch;
 

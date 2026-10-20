@@ -9,10 +9,17 @@ UListener::UListener(asio::io_context& ioc, tcp::endpoint endpoint, std::shared_
     : m_acceptor(ioc), m_socket(ioc), m_router(router)
 {
     boost::system::error_code ec;
+    auto check = [&ec](const char* step) {
+        if (ec) throw boost::system::system_error(ec, step);
+    };
     m_acceptor.open(endpoint.protocol(), ec);
+    check("open");
     m_acceptor.set_option(asio::socket_base::reuse_address(true), ec);
+    check("set_option");
     m_acceptor.bind(endpoint, ec);
+    check("bind");
     m_acceptor.listen(asio::socket_base::max_listen_connections, ec);
+    check("listen");
 }
 
 void UListener::run() 

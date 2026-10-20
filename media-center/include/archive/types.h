@@ -26,7 +26,8 @@ namespace archive {
         // Статус сегмента, открыт - media-center начал писать, сегмент не закончен
         // закрыт - сегмент полностью валидный и оконченный, его время можно брать из записи в БД
         // TIME_MARK - не сегмент, а точка соответствия mono и wall при улучшении источника
-        enum class EKind { OPENED, CLOSED, TIME_MARK };
+        // ERROR - причина, по которой запись прервалась на конце сегмента
+        enum class EKind { OPENED, CLOSED, ERROR, TIME_MARK };
 
         EKind kind = EKind::OPENED;
 
@@ -41,8 +42,13 @@ namespace archive {
         std::int64_t wall_ms = 0;
         ETimeSource source = ETimeSource::NONE;
 
-        // Только для CLOSED
-        std::int64_t size_bytes = 0;
+        // Только для CLOSED: конец в mono_ms/wall_ms; без него конец домеряет storage-service
+        bool has_end = false;
+        // Только для CLOSED; -1 — размер неизвестен
+        std::int64_t size_bytes = -1;
+
+        // Только для ERROR: "<код>: <подробности>"
+        std::string error;
     };
 
 } // namespace archive

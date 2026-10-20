@@ -34,6 +34,7 @@ namespace archive {
     private:
         bool open_segment(const FSegmentEvent& event);
         bool close_segment(const FSegmentEvent& event);
+        bool mark_error(const FSegmentEvent& event);
         bool insert_mark(const FSegmentEvent& event);
         // Старт сессии в БД - по включению записи, 
         // позволит избегать наложения времени, если оно отсутсвует на устройстве

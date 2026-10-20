@@ -202,7 +202,8 @@ void URestServer::run()
     }
     catch (const std::exception& e)
     {
-        std::cerr << "REST server error: " << e.what() << std::endl;
+        m_logger.error(std::string("REST server error on port ") + std::to_string(m_port) + ": " + e.what());
+        m_failed = true;
     }
 
     m_running = false;
@@ -210,16 +211,15 @@ void URestServer::run()
 
 void URestServer::stop()
 {
-    if (!m_running) {
-        return;
+    if (m_running) {
+        std::cout << "Stopping REST server...\n";
+
+        asio::post(m_ioc, [this] {
+            m_ioc.stop();
+        });
     }
 
-    std::cout << "Stopping REST server...\n";
-
-    asio::post(m_ioc, [this] {
-        m_ioc.stop();
-    });
-
+    // Упавший поток тоже присоединяется, иначе деструктор std::thread прервёт процесс
     if (m_thread.joinable()) {
         m_thread.join();
     }

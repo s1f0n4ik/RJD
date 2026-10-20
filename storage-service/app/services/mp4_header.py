@@ -1,6 +1,7 @@
 # Длительность в заголовке фрагментного mp4 для файлов без события закрытия
 
 import logging
+import os
 import struct
 from pathlib import Path
 from typing import Optional
@@ -74,6 +75,154 @@ def header_duration_ms(path: Path) -> Optional[int]:
     at, wide = _duration_offset(data, mvhd[0], 16, 24)
     units = struct.unpack(">Q" if wide else ">I", data[at:at + (8 if wide else 4)])[0]
     return int(units * 1000 / scale)
+
+
+# Шкала и длительность кадра по умолчанию у каждой дорожки: track_ID -> (timescale, default_duration)
+def _tracks(data: bytes, moov: tuple[int, int]) -> dict[int, tuple[int, int]]:
+    defaults: dict[int, int] = {}
+    mvex = _find(data, *moov, b"mvex")
+    if mvex is not None:
+        for kind, body, _stop in _children(data, *mvex):
+            if kind == b"trex":
+                track_id, duration = struct.unpack(">I4xI", data[body + 4:body + 16])
+                defaults[track_id] = duration
+
+    tracks: dict[int, tuple[int, int]] = {}
+    for kind, body, stop in _children(data, *moov):
+        if kind != b"trak":
+            continue
+        tkhd = _find(data, body, stop, b"tkhd")
+        mdia = _find(data, body, stop, b"mdia")
+        mdhd = _find(data, *mdia, b"mdhd") if mdia is not None else None
+        if tkhd is None or mdhd is None:
+            continue
+        track_id = struct.unpack(">I", data[tkhd[0] + (20 if data[tkhd[0]] == 1 else 12):][:4])[0]
+        scale = _timescale(data, mdhd[0])
+        if scale:
+            tracks[track_id] = (scale, defaults.get(track_id, 0))
+    return tracks
+
+
+# Отрезки времени дорожек в одном moof: (track_ID, начало, конец) в единицах шкалы дорожки
+def _moof_spans(moof: bytes, tracks: dict[int, tuple[int, int]]) -> list[tuple[int, int, int]]:
+    spans = []
+    for kind, body, stop in _children(moof, 8, len(moof)):
+        if kind != b"traf":
+            continue
+        track_id, default, start, duration = None, 0, None, 0
+        for name, at, _end in _children(moof, body, stop):
+            if name == b"tfhd":
+                flags = int.from_bytes(moof[at + 1:at + 4], "big")
+                track_id = struct.unpack(">I", moof[at + 4:at + 8])[0]
+                default = tracks.get(track_id, (0, 0))[1]
+                offset = at + 8 + (8 if flags & 0x01 else 0) + (4 if flags & 0x02 else 0)
+                if flags & 0x08:
+                    default = struct.unpack(">I", moof[offset:offset + 4])[0]
+            elif name == b"tfdt":
+                wide = moof[at] == 1
+                start = struct.unpack(">Q" if wide else ">I", moof[at + 4:at + (12 if wide else 8)])[0]
+            elif name == b"trun":
+                flags = int.from_bytes(moof[at + 1:at + 4], "big")
+                count = struct.unpack(">I", moof[at + 4:at + 8])[0]
+                if not flags & 0x100:
+                    duration += count * default
+                    continue
+                cursor = at + 8 + (4 if flags & 0x01 else 0) + (4 if flags & 0x04 else 0)
+                step = 4 * sum(1 for bit in (0x100, 0x200, 0x400, 0x800) if flags & bit)
+                for _ in range(count):
+                    duration += struct.unpack(">I", moof[cursor:cursor + 4])[0]
+                    cursor += step
+        if track_id in tracks and start is not None:
+            spans.append((track_id, start, start + duration))
+    return spans
+
+
+# Коробка в файле: (имя, конец) или None, если заголовок битый или коробка не помещается в файл
+def _box_at(handle, at: int, size: int) -> Optional[tuple[bytes, int]]:
+    handle.seek(at)
+    head = handle.read(16)
+    if len(head) < 8:
+        return None
+    box_size, name = struct.unpack(">I4s", head[:8])
+    header = 8
+    if box_size == 1:
+        if len(head) < 16:
+            return None
+        box_size, header = struct.unpack(">Q", head[8:16])[0], 16
+    elif box_size == 0:
+        box_size = size - at
+    if box_size < header or at + box_size > size or not name.isalnum():
+        return None
+    return name, at + box_size
+
+
+# Начало следующего целого moof после from_at: по сигнатуре и вложенной mfhd
+def _next_moof(handle, from_at: int, size: int) -> Optional[int]:
+    chunk = 1 << 20
+    at = from_at
+    while at < size:
+        handle.seek(at)
+        data = handle.read(chunk + 16)
+        index = data.find(b"moof")
+        while index != -1:
+            start = at + index - 4
+            if start >= from_at and data[index + 8:index + 12] == b"mfhd":
+                box = _box_at(handle, start, size)
+                if box is not None and box[0] == b"moof":
+                    return start
+            index = data.find(b"moof", index + 1)
+        at += chunk
+    return None
+
+
+# Длительность того, что реально лежит в файле, по moof/tfdt/trun; None — мерить нечем, 0 — после заголовка нет данных
+def content_duration_ms(path: Path) -> Optional[int]:
+    try:
+        with open(path, "rb") as handle:
+            size = os.fstat(handle.fileno()).st_size
+            data = handle.read(HEADER_BYTES)
+            moov = _find(data, 0, len(data), b"moov")
+            if moov is None:
+                return None
+            tracks = _tracks(data, moov)
+            if not tracks:
+                return None
+
+            first: dict[int, int] = {}
+            last: dict[int, int] = {}
+            pending: list[tuple[int, int, int]] = []
+            has_data = False
+            at = moov[1]
+            while at + 8 <= size:
+                box = _box_at(handle, at, size)
+                # Битая или обрезанная коробка: дальше ищется следующий целый фрагмент
+                if box is None:
+                    has_data = True
+                    pending = []
+                    at = _next_moof(handle, at + 8, size)
+                    if at is None:
+                        break
+                    continue
+
+                name, end = box
+                if name == b"moof":
+                    handle.seek(at)
+                    pending = _moof_spans(handle.read(end - at), tracks)
+                elif name == b"mdat":
+                    has_data = True
+                    for track_id, start, stop in pending:
+                        first.setdefault(track_id, start)
+                        last[track_id] = max(last.get(track_id, stop), stop)
+                    pending = []
+                elif name not in (b"free", b"skip", b"mfra"):
+                    has_data = True
+                at = end
+    except (OSError, struct.error):
+        return None
+
+    if not last:
+        return None if has_data else 0
+    return max((last[t] - first[t]) * 1000 // tracks[t][0] for t in last)
 
 
 # Дописывает длительность в mvhd, mehd, tkhd и mdhd, не сдвигая байты файла
