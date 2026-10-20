@@ -190,8 +190,8 @@ def _next_moof(handle, from_at: int, size: int) -> Optional[int]:
     return None
 
 
-# Длительность того, что реально лежит в файле, по moof/tfdt/trun; None — мерить нечем, 0 — после заголовка нет данных
-def content_duration_ms(path: Path) -> Optional[int]:
+# Содержимое файла по moof/tfdt/trun: (мс свежих кадров, есть ли в файле данные после заголовка); None — мерить нечем
+def measure_content(path: Path) -> Optional[tuple[int, bool]]:
     try:
         with open(path, "rb") as handle:
             size = os.fstat(handle.fileno()).st_size
@@ -238,7 +238,7 @@ def content_duration_ms(path: Path) -> Optional[int]:
         return None
 
     if not last:
-        return None if has_data else 0
+        return 0, has_data
 
     def from_fresh(track_id: int) -> int:
         scale = tracks[track_id][0]
@@ -247,9 +247,8 @@ def content_duration_ms(path: Path) -> Optional[int]:
         begin = max([b for a, b in holes.get(track_id, []) if a - first[track_id] < lead], default=first[track_id])
         return (last[track_id] - begin) * 1000 // scale
 
-    # Кадры есть, но все до головного разрыва: пустым такой файл не считается
-    fresh = max(from_fresh(t) for t in last)
-    return fresh if fresh > 0 else None
+    # Кадры до головного разрыва — данные, хоть свежих и нет: такой файл пустым не считается
+    return max(0, max(from_fresh(t) for t in last)), True
 
 
 # Дописывает длительность в mvhd, mehd, tkhd и mdhd, не сдвигая байты файла

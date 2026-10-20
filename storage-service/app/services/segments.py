@@ -797,9 +797,10 @@ class SegmentIndex:
                 size = os.path.getsize(path)
             except OSError:
                 continue
-            content = mp4_header.content_duration_ms(Path(path))
-            if content is None:
+            measured = mp4_header.measure_content(Path(path))
+            if measured is None:
                 continue
+            content, has_data = measured
 
             last = self._growth.get(row["id"])
             if last is None or content > last[0]:
@@ -819,7 +820,7 @@ class SegmentIndex:
 
             self._growth.pop(row["id"], None)
             stalled += 1
-            if content == 0:
+            if not has_data:
                 self._mark_empty(conn, path)
                 conn.commit()
                 continue
@@ -863,15 +864,16 @@ class SegmentIndex:
             except OSError:
                 continue
 
-            content = mp4_header.content_duration_ms(Path(path)) if size else 0
-            if content == 0:
-                self._mark_empty(conn, path)
+            measured = mp4_header.measure_content(Path(path)) if size else (0, False)
+            # Не фрагментный mp4: мерить нечем, длину держит ffprobe сверки
+            if measured is None:
+                conn.execute("UPDATE segments SET verified=1 WHERE id=?;", (row["id"],))
                 conn.commit()
                 done += 1
                 continue
-            # Не фрагментный mp4: мерить нечем, длину держит ffprobe сверки
-            if content is None:
-                conn.execute("UPDATE segments SET verified=1 WHERE id=?;", (row["id"],))
+            content, has_data = measured
+            if not has_data:
+                self._mark_empty(conn, path)
                 conn.commit()
                 done += 1
                 continue
@@ -880,7 +882,7 @@ class SegmentIndex:
             claimed = end - start if end is not None else None
             error = None
             if claimed is not None and claimed - content > VERIFY_SLACK_MS:
-                error = f"short: claimed {claimed // 1000} s, content {content // 1000} s"
+                error = f"short: claimed {claimed / 1000:.1f} s, content {content / 1000:.1f} s"
                 logger.warning("Segment is shorter than claimed (%s): %s", error, path)
             if claimed is None or abs(claimed - content) > VERIFY_SLACK_MS:
                 end = start + content
