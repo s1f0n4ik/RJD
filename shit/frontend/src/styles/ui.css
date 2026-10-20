@@ -659,3 +659,8 @@ select.sel:disabled{opacity:.45;cursor:not-allowed}
 .fit[data-cut]:hover .fit-full::after{animation:fit-caret .6s ease forwards}
 @keyframes fit-caret{0%,55%{opacity:1}100%{opacity:0}}
 @media (prefers-reduced-motion:reduce){.fit-full,.fit[data-cut]:hover .fit-full{transition:none}.fit-full::after{display:none}}
+
+/* Зона техзрения: пятиугольник цвета зоны (--z) и плашка с названием */
+.zone-g{display:inline-block;width:10px;height:10px;flex:0 0 10px;background:var(--z);clip-path:polygon(50% 0,100% 38%,81% 100%,19% 100%,0 38%)}
+.zone-tag{display:inline-flex;align-items:center;gap:6px;padding:2px 8px 2px 6px;border-radius:6px;border:1px solid color-mix(in srgb,var(--z) 55%,transparent);background:color-mix(in srgb,var(--z) 14%,transparent);font-size:11.5px;color:color-mix(in srgb,var(--z) 55%,var(--fg));white-space:nowrap}
+.zone-tag .zone-g{width:9px;height:9px;flex-basis:9px}

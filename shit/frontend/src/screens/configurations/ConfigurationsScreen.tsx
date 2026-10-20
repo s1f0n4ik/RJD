@@ -23,11 +23,15 @@ const LINK_POLL_MS = 2000;
 
 type PickModule = 'websocket' | 'can';
 
-// Конфигурации нейросети всех плат: классы по id, суперклассы по месту в списке
+// Конфигурации нейросети всех плат: классы по id, суперклассы по месту в списке, зоны каталога
 async function loadModels(): Promise<NeuralModel[]> {
     const configs = await listAllConfigurations();
     const metas = await Promise.all(configs.map(c =>
-        Promise.all([neuralApi.getClasses(c.id, c.device), neuralApi.getSuperclasses(c.id, c.device)]).catch(() => null)));
+        Promise.all([
+            neuralApi.getClasses(c.id, c.device),
+            neuralApi.getSuperclasses(c.id, c.device),
+            neuralApi.getConfiguration(c.id, c.device),
+        ]).catch(() => null)));
     return configs.flatMap((c, i) => {
         const m = metas[i];
         if (!m) return [];
@@ -38,6 +42,7 @@ async function loadModels(): Promise<NeuralModel[]> {
                 .map(x => ({ id: Number(x.id), name: x.name, superclass: x.superclass ?? '' }))
                 .sort((a, b) => a.id - b.id),
             superclasses: (m[1].superclasses ?? []).map(s => ({ key: s.key, name: s.name, color: s.color ?? '' })),
+            zones: (m[2].zones ?? []).map(z => ({ id: z.id, name: z.name, color: z.color })),
         }];
     });
 }

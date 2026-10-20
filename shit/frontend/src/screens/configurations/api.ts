@@ -44,12 +44,14 @@ export interface RuleModbus {
     ceiling_s: number;
 }
 
-// Числа одной конфигурации нейросети; строки нет — id + 1 (суперкласс — место + 1), 0 — пусто
+// Числа одной конфигурации нейросети; строки нет — id + 1 (суперкласс — место + 1, зона — id), 0 — пусто
 export interface ModelTable {
     // id класса → число
     classes: Record<string, number>;
     // Место суперкласса в списке конфигурации → число
     superclasses: Record<string, number>;
+    // id зоны каталога → число; 0 — вне зон, без строки пусто; нет у мастера старше зон
+    zones?: Record<string, number>;
 }
 
 export interface RsmTable {

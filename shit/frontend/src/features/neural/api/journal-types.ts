@@ -16,7 +16,14 @@ export interface JournalGps {
   course: number | null;
 }
 
-// Снимок обнаружения с рамкой трека
+// Зона техзрения; приоритет 1 — выше всех, цвет — в каталоге конфигурации
+export interface JournalZone {
+  id: number;
+  name: string | null;
+  priority: number | null;
+}
+
+// Снимок обнаружения с рамкой трека; у превью зоны нет
 export interface JournalShot {
   image_id: number;
   url: string;
@@ -26,6 +33,8 @@ export interface JournalShot {
   confidence: number | null;
   ts: number | null;
   track_no: number | null;
+  zone?: JournalZone | null;
+  zone_up?: boolean;
 }
 
 export interface JournalPreview {
@@ -46,6 +55,8 @@ export interface JournalDetection {
   class_id: number | null;
   class_name: string | null;
   superclass: string | null;
+  // Самая высокая зона за жизнь обнаружения; null — вне зон
+  zone: JournalZone | null;
   // Настенное время шлюза, закодированное как UTC
   started_at: number;
   ended_at: number | null;
@@ -78,6 +89,10 @@ export interface JournalImage {
   frame_w: number | null;
   frame_h: number | null;
   confidence: number | null;
+  // Зона трека на снимке; null — вне зон
+  zone: JournalZone | null;
+  // Снимок взят при входе трека в зону выше
+  zone_up: boolean;
   url: string;
 }
 

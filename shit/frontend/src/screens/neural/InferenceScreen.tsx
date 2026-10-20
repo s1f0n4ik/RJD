@@ -5,12 +5,14 @@ import { Select } from '../../app/Select';
 import { describeError } from '../../components/webrtc/error-codes';
 import { useToast } from '../../app/Toast';
 import { neuralApi } from '../../features/neural/api/client';
-import type { ActiveDesc, ConfigSummary, SlotStatus, StreamingDesc, TileState, VideoStream } from '../../features/neural/api/types';
+import type { ActiveDesc, ConfigSummary, ModelDesc, SlotStatus, StreamingDesc, TileState, VideoStream } from '../../features/neural/api/types';
+import { modelClasses, modelQuant, modelSize, plural } from './model-desc';
 
-/** Слот на доске: видеопоток, глубина и потолок к/с, вывод полотна с рамками, маска событий */
+/** Слот на доске: пара видеопоток + конфигурация, глубина и потолок к/с, вывод полотна с рамками, маска событий */
 interface Slot {
     key: string;
     streamId: string | null;
+    configId: string | null;
     depth: number;
     fps: number;
     streaming: StreamingDesc;
@@ -27,7 +29,10 @@ const toggle = (list: string[], item: string) => (list.includes(item) ? list.fil
 const EVENT_NAMES: Record<string, string> = {
     created: 'Создан', confirmed: 'Подтверждён', updated: 'Движение',
     lost: 'Потерян', recovered: 'Восстановлен', removed: 'Удалён',
+    zone_up: 'Вход в зону выше',
 };
+// Пункт маски снимка, которому нужны зоны конфигурации
+const ZONE_UP = 'zone_up';
 const FALLBACK_EVENTS = ['created', 'confirmed', 'updated', 'lost', 'recovered', 'removed'];
 
 const TILE_STATE_TIP: Record<TileState, string> = {
@@ -38,14 +43,14 @@ const TILE_STATE_TIP: Record<TileState, string> = {
 
 const clone = (s: Slot[]): Slot[] => s.map(x => ({ ...x, image: [...x.image], streaming: { ...x.streaming } }));
 
-const plural = (n: number, one: string, few: string, many: string) => {
-    const m10 = n % 10, m100 = n % 100;
-    if (m10 === 1 && m100 !== 11) return one;
-    if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
-    return many;
-};
-
 const fmtMb = (bytes: number) => `${(bytes / (1 << 20)).toFixed(1)} МБ`;
+const tilesText = (n: number) => `${n} ${plural(n, 'тайл', 'тайла', 'тайлов')}`;
+
+// Что конфигурации нужно от слота: трекер для снимков и число зон
+interface ConfigExtras {
+    tracker: boolean;
+    zones: number;
+}
 
 // Бэкенд отдаёт раскладку описательной фразой (output_layout_name), в строке модели нужно короткое имя
 const layoutName = (layout: string): string => {
@@ -66,7 +71,7 @@ export function InferenceScreen({ status, onRefreshStatus }: InferenceScreenProp
     const toast = useToast();
 
     const [configs, setConfigs] = useState<ConfigSummary[]>([]);
-    const [trackerBy, setTrackerBy] = useState<Record<string, boolean>>({});
+    const [extras, setExtras] = useState<Record<string, ConfigExtras>>({});
     const [videos, setVideos] = useState<VideoStream[]>([]);
     const [eventTypes, setEventTypes] = useState<string[]>(FALLBACK_EVENTS);
     const [slots, setSlots] = useState<Slot[]>([]);
@@ -82,6 +87,7 @@ export function InferenceScreen({ status, onRefreshStatus }: InferenceScreenProp
         const list: Slot[] = descs.map(d => ({
             key: uid(),
             streamId: d.stream_id || null,
+            configId: d.config_id || null,
             depth: Math.max(1, d.depth ?? 1),
             fps: Math.max(1, d.fps ?? 10),
             streaming: d.streaming ?? { enabled: false, name: '' },
@@ -97,12 +103,12 @@ export function InferenceScreen({ status, onRefreshStatus }: InferenceScreenProp
         const entries = await Promise.all(configurations.map(async c => {
             try {
                 const full = await neuralApi.getConfiguration(c.id);
-                return [c.id, !!full.tracker] as const;
+                return [c.id, { tracker: !!full.tracker, zones: full.zones?.length ?? 0 }] as const;
             } catch {
-                return [c.id, false] as const;
+                return [c.id, { tracker: false, zones: 0 }] as const;
             }
         }));
-        setTrackerBy(Object.fromEntries(entries));
+        setExtras(Object.fromEntries(entries));
     }, []);
 
     useEffect(() => {
@@ -116,19 +122,22 @@ export function InferenceScreen({ status, onRefreshStatus }: InferenceScreenProp
     const anyRunning = status?.some(s => s.running) ?? false;
 
     const videoOf = (id: string | null) => (id ? videos.find(v => v.id === id) ?? null : null);
-    const configName = (id: string) => configs.find(c => c.id === id)?.name || id;
-    // Конфигурация видеопотока удалена или ещё не назначена
-    const orphan = (v: VideoStream) => !v.config_id || !configs.some(c => c.id === v.config_id);
-    const statusOf = (s: Slot): SlotStatus | null => (s.streamId ? status?.find(st => st.stream_id === s.streamId) ?? null : null);
+    const configOf = (id: string | null) => (id ? configs.find(c => c.id === id) ?? null : null);
+    const statusOf = (s: Slot): SlotStatus | null =>
+        (s.streamId && s.configId ? status?.find(st => st.stream_id === s.streamId && st.config_id === s.configId) ?? null : null);
+    // Вход модели не совпадает с полотном потока
+    const misfit = (v: VideoStream | null, m: ModelDesc | null | undefined) =>
+        !!v && !!m && (m.input_width !== v.width || m.input_height !== v.height);
 
-    // Один видеопоток в двух слотах бэкенд отвергает целиком
+    // Ту же пару поток + конфигурация в двух слотах бэкенд отвергает целиком
     const duplicateKeys = useMemo(() => {
         const seen = new Map<string, string>();
         const dups = new Set<string>();
         for (const s of slots) {
-            if (!s.streamId) continue;
-            const first = seen.get(s.streamId);
-            if (first) { dups.add(first); dups.add(s.key); } else seen.set(s.streamId, s.key);
+            if (!s.streamId || !s.configId) continue;
+            const pair = `${s.streamId}/${s.configId}`;
+            const first = seen.get(pair);
+            if (first) { dups.add(first); dups.add(s.key); } else seen.set(pair, s.key);
         }
         return dups;
     }, [slots]);
@@ -136,10 +145,13 @@ export function InferenceScreen({ status, onRefreshStatus }: InferenceScreenProp
     const problem = useMemo(() => {
         for (const s of slots) {
             if (!s.streamId) return 'Слот без видеопотока';
-            const v = videoOf(s.streamId);
-            if (v && orphan(v)) return `Видеопоток «${v.name || v.id}»: конфигурация удалена`;
+            if (!s.configId) return 'Слот без конфигурации';
+            const c = configOf(s.configId), v = videoOf(s.streamId);
+            if (!c) return `Конфигурация «${s.configId}» удалена`;
+            if (!c.model) return `«${c.name || c.id}»: модель не прочитана`;
+            if (misfit(v, c.model)) return `«${c.name || c.id}»: модель ждёт ${modelSize(c.model)}, полотно ${v!.width}×${v!.height}`;
         }
-        if (duplicateKeys.size) return 'Один видеопоток в двух слотах';
+        if (duplicateKeys.size) return 'Одна пара поток + конфигурация в двух слотах';
         return null;
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [slots, duplicateKeys, videos, configs]);
@@ -147,13 +159,21 @@ export function InferenceScreen({ status, onRefreshStatus }: InferenceScreenProp
     const patchSlot = (key: string, p: Partial<Slot>) =>
         setSlots(list => list.map(s => (s.key === key ? { ...s, ...p } : s)));
 
+    // Конфигурация нового слота — первая с моделью под полотно, которой ещё нет на этом потоке
+    const fitConfig = (streamId: string | null): string | null => {
+        const v = videoOf(streamId);
+        if (!v) return null;
+        return configs.find(c => c.model && !misfit(v, c.model) && !slots.some(s => s.streamId === v.id && s.configId === c.id))?.id ?? null;
+    };
+
     const addSlot = (streamId: string | null = null) =>
-        setSlots(list => [...list, { key: uid(), streamId, depth: 1, fps: 10, streaming: { enabled: false, name: '' }, image: DEFAULT_IMAGE }]);
+        setSlots(list => [...list, { key: uid(), streamId, configId: fitConfig(streamId), depth: 1, fps: 10, streaming: { enabled: false, name: '' }, image: DEFAULT_IMAGE }]);
 
     const removeSlot = (key: string) => setSlots(list => list.filter(s => s.key !== key));
 
     const toDesc = (s: Slot): ActiveDesc => ({
         stream_id: s.streamId ?? '',
+        config_id: s.configId ?? '',
         depth: s.depth,
         fps: s.fps,
         streaming: { enabled: s.streaming.enabled, name: s.streaming.name },
@@ -192,18 +212,22 @@ export function InferenceScreen({ status, onRefreshStatus }: InferenceScreenProp
     const videoOptions = videos.map(v => ({
         value: v.id,
         label: v.name || v.id,
-        hint: `${orphan(v) ? 'конфигурация удалена' : configName(v.config_id)} · ${v.tiles.length} ${plural(v.tiles.length, 'тайл', 'тайла', 'тайлов')}`,
+        hint: `${v.width}×${v.height} · ${tilesText(v.tiles.length)}`,
     }));
 
-    // Каталог: видеопотоки по конфигурациям, потоки без конфигурации отдельной группой
-    const groups = useMemo(() => {
-        const out: { id: string; title: string; items: VideoStream[]; dead: boolean }[] =
-            configs.map(c => ({ id: c.id, title: c.name || c.id, items: videos.filter(v => v.config_id === c.id), dead: false }));
-        const lost = videos.filter(orphan);
-        if (lost.length) out.push({ id: '', title: 'конфигурация удалена', items: lost, dead: true });
-        return out;
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [configs, videos]);
+    // Конфигурации слота: модель не под полотно, не прочитана или пара уже стоит — выбрать нельзя
+    const configOptions = (s: Slot) => {
+        const v = videoOf(s.streamId);
+        return configs.map(c => {
+            const m = c.model;
+            const taken = slots.find(o => o.key !== s.key && o.streamId === s.streamId && o.configId === c.id);
+            const hint = !m ? 'модель не прочитана'
+                : misfit(v, m) ? `модель ждёт ${modelSize(m)}, полотно ${v!.width}×${v!.height}`
+                    : taken ? `пара уже в слоте ${slots.indexOf(taken) + 1}`
+                        : `${c.id} · ${modelSize(m)} · ${modelQuant(m)}`;
+            return { value: c.id, label: c.name || c.id, hint, disabled: c.id !== s.configId && (!m || misfit(v, m) || !!taken) };
+        });
+    };
 
     return (
         <>
@@ -238,24 +262,35 @@ export function InferenceScreen({ status, onRefreshStatus }: InferenceScreenProp
                             {slots.map(s => {
                                 const st = statusOf(s);
                                 const v = videoOf(s.streamId);
-                                const hasTracker = !!v && !!trackerBy[v.config_id];
+                                const c = configOf(s.configId);
+                                const ex = s.configId ? extras[s.configId] : undefined;
                                 const running = !!st?.running;
-                                const failed = !!st && !st.running && st.code !== 0;
                                 const dup = duplicateKeys.has(s.key);
-                                const error = failed ? describeError({ code: st!.code, description: st!.error }) : null;
+                                // Модель не под полотно: слот с такой парой бэкенд не поставит
+                                const wrong = misfit(v, c?.model);
+                                const failed = wrong || (!!st && !st.running && st.code !== 0);
+                                const error = !wrong && failed ? describeError({ code: st!.code, description: st!.error }) : null;
+                                // Модель работающего слота, иначе описание из конфигурации
+                                const model = st?.model
+                                    ? { size: `${st.model.input_width}×${st.model.input_height}`, quant: st.model.quantized ? 'int8' : 'fp16', layout: layoutName(st.layout), tip: st.layout, classes: st.model.class_count, bytes: st.model.weight_bytes }
+                                    : c?.model ? { size: modelSize(c.model), quant: modelQuant(c.model), layout: c.model.layout, tip: c.model.layout, classes: c.model.class_count, bytes: c.model.weight_bytes } : null;
+                                const events = eventTypes.filter(t => t !== ZONE_UP || !!ex?.zones);
                                 // Состояние тайлов — из статуса работающего слота, иначе по списку тайлов потока
                                 const tiles = st?.tiles?.length ? st.tiles.map(t => ({ camera: t.camera, state: t.state as TileState | null }))
                                     : (v?.tiles ?? []).map(t => ({ camera: t.camera, state: null as TileState | null }));
                                 return (
-                                    <div key={s.key} className={`card sl-card${running ? ' is-run' : failed ? ' is-err' : ''}`}>
+                                    <div key={s.key} className={`card sl-card${failed ? ' is-err' : running ? ' is-run' : ''}`}>
                                         <div className="card-h">
-                                            <h3>{v ? v.name || v.id : 'Новый слот'}</h3>
+                                            <span className="sl-title">
+                                                <h3>{v ? v.name || v.id : 'Новый слот'}</h3>
+                                                {c && <span>{c.name || c.id}</span>}
+                                            </span>
                                             {!st
                                                 ? <span className="tag is-warn">не применён</span>
                                                 : running
                                                     ? <span className="tag is-ok">работает</span>
                                                     : <span className={`tag${failed ? ' is-err' : ''}`}>остановлен</span>}
-                                            <button className="icon-btn spacer" data-tip="Убрать слот" onClick={() => removeSlot(s.key)}><Icon name="trash" size={13} /></button>
+                                            <button className="icon-btn" data-tip="Убрать слот" onClick={() => removeSlot(s.key)}><Icon name="trash" size={13} /></button>
                                         </div>
                                         <div className="card-b">
                                             <div className="tf">
@@ -268,14 +303,23 @@ export function InferenceScreen({ status, onRefreshStatus }: InferenceScreenProp
                                                     emptyText="Видеопотоков нет — создайте их в разделе «Видеопотоки»"
                                                 />
                                             </div>
+                                            <div className="tf">
+                                                <span className="tf-cap">Конфигурация{wrong && <span className="w">модель ждёт {modelSize(c!.model!)}</span>}</span>
+                                                <Select
+                                                    value={c ? c.id : ''}
+                                                    options={configOptions(s)}
+                                                    onChange={id => patchSlot(s.key, { configId: id })}
+                                                    placeholder={s.configId ? 'Конфигурация удалена' : 'Не выбрана'}
+                                                    emptyText="Конфигураций нет — создайте их в разделе «Нейросети»"
+                                                />
+                                            </div>
                                             {v && (
                                                 <div className="sl-src">
                                                     <span className="seps">
-                                                        {orphan(v) ? <span className="bad">конфигурация удалена</span> : <span>{configName(v.config_id)}</span>}
                                                         <span>{v.width}×{v.height}</span>
-                                                        <span>{v.tiles.length} {plural(v.tiles.length, 'тайл', 'тайла', 'тайлов')}</span>
+                                                        <span>{tilesText(v.tiles.length)}</span>
                                                     </span>
-                                                    <div className="tl">
+                                                    <div className="sl-tl">
                                                         {tiles.map((t, i) => (
                                                             <span key={i} className={`t${t.state && t.state !== 'ok' ? ' is-err' : ''}${t.state ? '' : ' is-idle'}`} data-tip={t.state ? TILE_STATE_TIP[t.state] : undefined}>
                                                                 <i />{t.camera}
@@ -298,12 +342,12 @@ export function InferenceScreen({ status, onRefreshStatus }: InferenceScreenProp
                                                         onChange={e => patchSlot(s.key, { streaming: { ...s.streaming, name: e.target.value } })} />
                                                 </div>
                                             )}
-                                            {hasTracker && (
+                                            {ex?.tracker && (
                                                 <div className="sl-ev">
                                                     <div className="tf">
                                                         <span className="tf-cap">Снимок на событие</span>
                                                         <div className="evs">
-                                                            {eventTypes.map(t => {
+                                                            {events.map(t => {
                                                                 const on = s.image.includes(t);
                                                                 return (
                                                                     <span
@@ -332,16 +376,22 @@ export function InferenceScreen({ status, onRefreshStatus }: InferenceScreenProp
                                                 <div><span className="k">Треков</span><span className="v">{st.tracks}</span></div>
                                             </div>
                                         )}
-                                        {st?.model && (
+                                        {model && (
                                             <div className="sl-model">
                                                 <span className="seps">
-                                                    <span>{st.model.input_width}×{st.model.input_height}</span>
-                                                    <span>{st.model.quantized ? 'int8' : 'fp16'}</span>
-                                                    <span className="tag" data-tip={st.layout}>{layoutName(st.layout)}</span>
-                                                    <span>{st.model.class_count} {plural(st.model.class_count, 'класс', 'класса', 'классов')}</span>
+                                                    <span className={wrong ? 'w' : undefined}>{model.size}</span>
+                                                    <span>{model.quant}</span>
+                                                    <span className="tag" data-tip={model.tip}>{model.layout}</span>
+                                                    <span>{modelClasses(model.classes)}</span>
                                                 </span>
                                                 <span className="spacer" />
-                                                <span className="dim">{fmtMb(st.model.weight_bytes)}</span>
+                                                <span className="dim">{fmtMb(model.bytes)}</span>
+                                            </div>
+                                        )}
+                                        {wrong && (
+                                            <div className="err-line">
+                                                <Icon name="warn" className="ico" />
+                                                <span className="seps"><span>модель ждёт {modelSize(c!.model!)}</span><span>полотно {v!.width}×{v!.height}</span></span>
                                             </div>
                                         )}
                                         {error && (
@@ -370,28 +420,21 @@ export function InferenceScreen({ status, onRefreshStatus }: InferenceScreenProp
 
                 <aside className="nv-cat">
                     <div className="eyebrow">Видеопотоки — {videos.length}</div>
-                    {groups.map(g => (
-                        <div key={g.id || 'lost'} className="sl-grp">
-                            <div className={`grp-cap${g.dead ? ' is-err' : ''}`}>{g.title}</div>
-                            {g.items.map(v => {
-                                const used = slots.filter(s => s.streamId === v.id).length;
-                                return (
-                                    <button key={v.id} className="row-item" disabled={g.dead} onClick={() => addSlot(v.id)}
-                                        data-tip={g.dead ? 'Назначьте конфигурацию в редакторе видеопотока' : undefined}>
-                                        <div className="t">
-                                            <b>{v.name || v.id}</b>
-                                            <span>{v.tiles.length} {plural(v.tiles.length, 'тайл', 'тайла', 'тайлов')} · {[...new Set(v.tiles.map(t => t.camera))].join(', ')}</span>
-                                        </div>
-                                        {used > 0 && <span className="tag is-acc">×{used}</span>}
-                                        {!g.dead && <Icon name="plus" className="ico" />}
-                                    </button>
-                                );
-                            })}
-                            {g.items.length === 0 && <div className="hint">Видеопотоков нет</div>}
-                        </div>
-                    ))}
-                    {videos.length === 0 && configs.length === 0 && <div className="hint">Конфигураций нет</div>}
-                    <div className="hint">Клик добавляет слот на этом видеопотоке; конфигурация — из потока</div>
+                    {videos.map(v => {
+                        const used = slots.filter(s => s.streamId === v.id).length;
+                        return (
+                            <button key={v.id} className="row-item" onClick={() => addSlot(v.id)}>
+                                <div className="t">
+                                    <b>{v.name || v.id}</b>
+                                    <span>{v.width}×{v.height} · {tilesText(v.tiles.length)} · {[...new Set(v.tiles.map(t => t.camera))].join(', ')}</span>
+                                </div>
+                                {used > 0 && <span className="tag is-acc">×{used}</span>}
+                                <Icon name="plus" className="ico" />
+                            </button>
+                        );
+                    })}
+                    {videos.length === 0 && <div className="hint">Видеопотоков нет</div>}
+                    <div className="hint">Клик добавляет слот на этом видеопотоке; конфигурация — первая с моделью под полотно</div>
                 </aside>
             </div>
         </>

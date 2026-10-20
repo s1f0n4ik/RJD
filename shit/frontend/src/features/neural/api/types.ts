@@ -1,9 +1,33 @@
 // Типы, повторяющие контракт media-center (neural-controller.cpp)
 
+/** Описание модели, записанное в конфигурацию при сохранении или старте слота */
+export interface ModelDesc {
+    file: string;
+    input_width: number;
+    input_height: number;
+    class_count: number;
+    /** SINGLE, SPLIT_LEVELS, SINGLE_SEG, SPLIT_LEVELS_SEG */
+    layout: string;
+    quantized: boolean;
+    weight_bytes: number;
+}
+
 /** Краткая запись из GET /neural/configurations */
 export interface ConfigSummary {
     id: string;
     name: string;
+    /** null или нет — модель не прочитана */
+    model?: ModelDesc | null;
+}
+
+/** Зона каталога конфигурации; приоритет — место в списке, первая выше всех */
+export interface ZoneDef {
+    /** С 1, не меняется; 0 — вне зон */
+    id: number;
+    name: string;
+    color: string;
+    /** Доля площади детекции в зоне 0..1; 0 — хватает пикселя */
+    threshold: number;
 }
 
 export interface ThresholdConfig {
@@ -53,6 +77,13 @@ export interface NeuralConfig {
     tracker?: TrackerConfig | null;
     superclasses: Record<string, SuperclassDef>;
     classes: Record<string, ClassDef>;
+    zones?: ZoneDef[];
+    /** Трек переходит в зону выше, когда она держится столько кадров подряд */
+    zone_enter_frames?: number;
+    /** Трек уходит в зону ниже, когда зоны выше нет столько секунд */
+    zone_leave_s?: number;
+    /** Пишет устройство, присланное отбрасывается */
+    model?: ModelDesc;
 }
 
 export type TileFit = 'letterbox' | 'stretch';
@@ -68,12 +99,19 @@ export interface StreamTile {
     fit: TileFit;
 }
 
-/** Видеопоток из GET /neural/streams: полотно размером с вход модели, собранное из тайлов */
+/** Многоугольник зоны на кадре камеры: точки x, y подряд в долях кадра */
+export interface ZonePolygon {
+    zone: number;
+    points: number[];
+}
+
+/** Зоны потока: конфигурация → камера → многоугольники */
+export type StreamZones = Record<string, Record<string, ZonePolygon[]>>;
+
+/** Видеопоток из GET /neural/streams: полотно, собранное из тайлов; слот ставится только с моделью того же входа */
 export interface VideoStream {
     id: string;
     name: string;
-    /** Пусто — конфигурация удалена, поток живёт под сохранённый размер */
-    config_id: string;
     width: number;
     height: number;
     rows: number;
@@ -82,6 +120,7 @@ export interface VideoStream {
     row_fr: number[];
     col_fr: number[];
     tiles: StreamTile[];
+    zones?: StreamZones;
 }
 
 export type TileState = 'ok' | 'no_camera' | 'stalled';
@@ -101,11 +140,10 @@ export interface StreamingDesc {
     name: string;
 }
 
-/** Дескриптор слота — элемент тела POST /neural/state; конфигурация выводится из видеопотока */
+/** Дескриптор слота — элемент тела POST /neural/state; пара (stream_id, config_id) уникальна */
 export interface ActiveDesc {
     stream_id: string;
-    /** Только в ответе GET /neural/state */
-    config_id?: string;
+    config_id: string;
     /** Кадров в полёте = контекстов NPU на слот, ≥ 1 */
     depth: number;
     /** Потолок кадров в секунду, ≥ 1 */

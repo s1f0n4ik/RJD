@@ -1,18 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Icon } from '../../app/Icons';
+import { isModalOpen, Seg } from '../../app/Modal';
 import { Select } from '../../app/Select';
 import { useToast } from '../../app/Toast';
 import { neuralApi, neuralDeviceId } from '../../features/neural/api/client';
-import type { ConfigSummary, StreamTile, TileFit, VideoStream } from '../../features/neural/api/types';
+import type { ConfigSummary, StreamTile, TileFit, VideoStream, ZoneDef, ZonePolygon } from '../../features/neural/api/types';
 import { signalingWsUrl } from '../../services/devices';
+import { CanvasGridModal, type GridCell } from './CanvasGridModal';
 import { ratio, viewFor, type EditorCamera } from './editor-cameras';
+import { modelQuant, modelSize, modelTask, plural, zoneCount } from './model-desc';
 import {
-    borderRuns, cellRect, clamp, cropForCell, edges, mergeCells, moveCrop, resizeCrop, resizeGrid, tileAt, tileCell, tileDst,
+    borderRuns, cellRect, clamp, cropForCell, edges, moveCrop, resizeCrop, svgPoint, tileAt, tileCell, tileDst,
     withCamerasOnly, zoomCrop, type Cell, type Crop, type Handle, type Rect,
 } from './stream-geometry';
 import { EDITOR_STREAM_ID, useEditorSession } from './useEditorSession';
 import { VideoBox } from './VideoBox';
-import { Seg } from '../../app/Modal';
+import { drawOrder, flatOf, ptsOf, ZoneOverlay, type ZoneState } from './ZoneOverlay';
 
 // Размеры разметки в экранных пикселях: делятся на масштаб «пикселей экрана на единицу»
 const ANCHOR_PX = 10.5;
@@ -29,46 +33,51 @@ type Drag =
     | { kind: 'wh'; i: number; h: Handle; crop: Crop; moved: boolean }
     | { kind: 'border'; vertical: boolean; i: number; e: number[]; fr: number[]; moved: boolean };
 
-const plural = (n: number, one: string, few: string, many: string) => {
-    const m10 = n % 10, m100 = n % 100;
-    if (m10 === 1 && m100 !== 11) return one;
-    if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
-    return many;
-};
+// Окна тайлов: рамки окон модели; зоны: многоугольники каталога на кадре камеры
+type Mode = 'win' | 'zones';
+
+const NO_ZONE_EDIT: Partial<ZoneState> = { poly: null, draw: null, armed: false };
 
 const fullWeights = (n: number, fr: number[]) => (fr.length === n ? [...fr] : Array.from({ length: n }, () => 1));
-
-// Координата указателя в единицах вьюбокса SVG
-function svgPoint(svg: SVGSVGElement, e: { clientX: number; clientY: number }) {
-    const p = svg.createSVGPoint();
-    p.x = e.clientX;
-    p.y = e.clientY;
-    const m = svg.getScreenCTM();
-    return m ? p.matrixTransform(m.inverse()) : p;
-}
+const fmtCrop = (v: number) => v.toFixed(2).replace('.', ',');
 
 interface StreamEditorProps {
     initial: VideoStream;
     isNew: boolean;
     configs: ConfigSummary[];
+    /** Каталоги зон по конфигурациям */
+    zonesBy: Record<string, ZoneDef[]>;
     cameras: EditorCamera[];
-    /** В скольких слотах стоит поток */
-    slots: number;
+    /** Конфигурации слотов на этом потоке */
+    slotConfigs: string[];
     onBack: () => void;
     onSaved: (stream: VideoStream) => void;
 }
 
-export function StreamEditor({ initial, isNew, configs, cameras, slots, onBack, onSaved }: StreamEditorProps) {
+export function StreamEditor({ initial, isNew, configs, zonesBy, cameras, slotConfigs, onBack, onSaved }: StreamEditorProps) {
     const toast = useToast();
-    const session = useEditorSession(initial);
+    const navigate = useNavigate();
+
+    // Конфигурация редактора: под её модель полотно и её зоны рисуются; сначала — конфигурация слота на потоке
+    const [configId, setConfigId] = useState(() =>
+        slotConfigs[0]
+        ?? configs.find(c => c.model && c.model.input_width === initial.width && c.model.input_height === initial.height)?.id
+        ?? configs[0]?.id ?? '');
+    const session = useEditorSession(initial, configId);
 
     const [S, setS] = useState<VideoStream>(initial);
     const [saved, setSaved] = useState(() => JSON.stringify(initial));
     const [created, setCreated] = useState(!isNew);
     const [sel, setSel] = useState<Cell>(() => (initial.tiles[0] ? { r: initial.tiles[0].row, c: initial.tiles[0].col } : { r: 0, c: 0 }));
-    const [multi, setMulti] = useState<Cell[]>([]);
     const [saving, setSaving] = useState(false);
     const [srcShare, setSrcShare] = useState<number | null>(null);
+    const [gridOpen, setGridOpen] = useState(false);
+    const [mode, setMode] = useState<Mode>('win');
+    const [zcam, setZcam] = useState('');
+    const [zs, setZsState] = useState<ZoneState>({ zone: 0, poly: null, armed: false, draw: null });
+    // Режим зон: кадр вне окон модели затемнён
+    const [dimOut, setDimOut] = useState(true);
+    const setZs = useCallback((p: Partial<ZoneState>) => setZsState(s => ({ ...s, ...p })), []);
 
     const sRef = useRef(S);
     sRef.current = S;
@@ -90,9 +99,14 @@ export function StreamEditor({ initial, isNew, configs, cameras, slots, onBack, 
         update(next, final);
     }, [update]);
 
+    const config = configs.find(c => c.id === configId) ?? null;
+    const catalog = zonesBy[configId] ?? [];
+    const curZone = catalog.some(z => z.id === zs.zone) ? zs.zone : catalog[0]?.id ?? 0;
+
     const dirty = JSON.stringify(S) !== saved || !created;
     const selIdx = tileAt(S, sel.r, sel.c);
     const selTile: StreamTile | null = selIdx >= 0 ? S.tiles[selIdx] : null;
+    const streamCams = [...new Set(S.tiles.map(t => t.camera).filter(Boolean))];
     const camOf = (id: string) => cameras.find(c => c.id === id) ?? null;
     const frameOf = (id: string) => {
         const c = camOf(id);
@@ -102,21 +116,23 @@ export function StreamEditor({ initial, isNew, configs, cameras, slots, onBack, 
     };
     const tileState = (cam: string) => session.tiles.find(p => p.camera === cam)?.state ?? null;
     const dead = (cam: string) => tileState(cam) === 'no_camera' || tileState(cam) === 'stalled';
+    const polysOf = (cam: string): ZonePolygon[] => S.zones?.[configId]?.[cam] ?? [];
+    const polys = polysOf(zcam);
+
+    // Слоты на потоке, чья модель не под нынешнее полотно: сохранение они отвергнут
+    const blocking = slotConfigs
+        .map(id => configs.find(c => c.id === id)?.model)
+        .filter(m => !!m && (m.input_width !== S.width || m.input_height !== S.height));
 
     const patchTile = (i: number, p: Partial<StreamTile>, final = true) =>
         commit({ ...sRef.current, tiles: sRef.current.tiles.map((t, j) => (j === i ? { ...t, ...p } : t)) }, final);
 
-    const select = (c: Cell, add = false) => {
-        if (add) setMulti(m => (m.some(x => x.r === c.r && x.c === c.c) ? m : [...m, c]));
-        else { setSel(c); setMulti([]); }
-    };
-
-    const removeSelected = useCallback(() => {
+    const removeSelected = () => {
         const s = sRef.current;
         const i = tileAt(s, sel.r, sel.c);
         if (i < 0 || !s.tiles[i].camera) return;
         commit({ ...s, tiles: s.tiles.filter((_, j) => j !== i) });
-    }, [commit, sel]);
+    };
 
     const assign = (camera: string) => {
         const s = sRef.current;
@@ -125,45 +141,107 @@ export function StreamEditor({ initial, isNew, configs, cameras, slots, onBack, 
         else commit({ ...s, tiles: [...s.tiles, { camera, row: sel.r, col: sel.c, row_span: 1, col_span: 1, crop: [0, 0, 1, 1], fit: 'letterbox' }] });
     };
 
-    const setGrid = (rows: number, cols: number) => {
-        if (rows < 1 || cols < 1 || rows > 6 || cols > 6) return;
-        commit(resizeGrid(sRef.current, rows, cols));
-        setSel(c => ({ r: Math.min(c.r, rows - 1), c: Math.min(c.c, cols - 1) }));
-        setMulti([]);
+    // Ячейка, которая начинается там же, где тайл с камерой, сохраняет камеру и окно; остальные приходят пустыми
+    const applyGrid = (rows: number, cols: number, cells: GridCell[]) => {
+        const s = sRef.current;
+        const old = (r: number, c: number) => s.tiles.find(t => t.row === r && t.col === c && t.camera);
+        const tiles: StreamTile[] = cells.map(x => {
+            const t = old(x.row, x.col);
+            return t
+                ? { ...t, row_span: x.rowSpan, col_span: x.colSpan }
+                : { camera: '', row: x.row, col: x.col, row_span: x.rowSpan, col_span: x.colSpan, crop: [0, 0, 1, 1], fit: 'letterbox' };
+        });
+        commit({ ...s, rows, cols, row_fr: rows === s.rows ? s.row_fr : [], col_fr: cols === s.cols ? s.col_fr : [], tiles });
+        const first = tiles.find(t => t.camera) ?? tiles[0];
+        setSel(first ? { r: first.row, c: first.col } : { r: 0, c: 0 });
+        setGridOpen(false);
     };
 
-    const merge = () => {
-        const res = mergeCells(sRef.current, [...multi, sel]);
-        setMulti([]);
-        if (!res) { toast('Нельзя объединить', 'В прямоугольнике больше одной камеры или ячейка торчит наружу', 'err'); return; }
-        commit(res.stream);
-        setSel(res.at);
+    const changeConfig = (id: string) => {
+        setConfigId(id);
+        session.reopen(sRef.current, id);
+        setZs(NO_ZONE_EDIT);
+        if (!zonesBy[id]?.length) setMode('win');
     };
 
-    const changeConfig = (configId: string) => {
-        const next = { ...sRef.current, config_id: configId };
-        setS(next);
-        session.reopen(next);
+    // ── Зоны ──
+    const setPolys = (list: ZonePolygon[], final: boolean) => {
+        const s = sRef.current;
+        const byCam = { ...(s.zones?.[configId] ?? {}) };
+        if (list.length) byCam[zcam] = list;
+        else delete byCam[zcam];
+        const zones = { ...(s.zones ?? {}) };
+        if (Object.keys(byCam).length) zones[configId] = byCam;
+        else delete zones[configId];
+        commit({ ...s, zones }, final);
     };
 
-    // Delete освобождает выбранную ячейку; в полях ввода клавиша своя
+    const closeDraw = () => {
+        if (!zs.draw || zs.draw.pts.length < 3) return;
+        const list = [...polys, { zone: curZone, points: flatOf(zs.draw.pts) }];
+        setPolys(list, true);
+        setZs({ poly: list.length - 1, draw: null, armed: false });
+    };
+
+    const deletePoly = () => {
+        if (zs.poly == null) return;
+        setPolys(polys.filter((_, i) => i !== zs.poly), true);
+        setZs({ poly: null });
+    };
+
+    // Выбран контур — меняется его зона, иначе зона нового контура
+    const pickZone = (id: number) => {
+        if (zs.poly != null && polys[zs.poly]) {
+            setPolys(polys.map((p, i) => (i === zs.poly ? { ...p, zone: id } : p)), true);
+            setZs({ zone: id });
+        } else setZs({ zone: id, armed: true });
+    };
+
+    const switchCam = (cam: string) => {
+        setZcam(cam);
+        setZs({ poly: null, draw: null });
+    };
+
+    const zonesBlocked = !catalog.length ? `В конфигурации «${config?.name || configId}» зон нет` : !streamCams.length ? 'Поставьте камеру в полотно' : null;
+    const toggleZones = () => {
+        if (mode === 'zones') { setMode('win'); setZs(NO_ZONE_EDIT); return; }
+        if (zonesBlocked) return;
+        setZcam(selTile?.camera || streamCams[0]);
+        setZs(NO_ZONE_EDIT);
+        setMode('zones');
+    };
+
+    // Окна: Delete освобождает ячейку. Зоны: Enter замыкает, Esc снимает по шагу, Delete удаляет контур
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
-            if (e.key !== 'Delete') return;
             const t = e.target as HTMLElement | null;
-            if (t?.closest('input, textarea, select, [contenteditable="true"]')) return;
+            if (t?.closest('input, textarea, select, [contenteditable="true"]') || isModalOpen()) return;
+            if (mode === 'win') {
+                if (e.key !== 'Delete') return;
+                removeSelected();
+            } else if (e.key === 'Enter' && zs.draw && zs.draw.pts.length >= 3) closeDraw();
+            else if (e.key === 'Escape') {
+                if (zs.draw) setZs({ draw: null });
+                else if (zs.poly != null) setZs({ poly: null });
+                else if (zs.armed) setZs({ armed: false });
+                else return;
+            } else if (e.key === 'Delete' && zs.poly != null) deletePoly();
+            else return;
             e.preventDefault();
-            removeSelected();
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-    }, [removeSelected]);
+    });
 
     const save = async () => {
         const s = sRef.current;
         if (!created && !ID_RE.test(s.id)) { toast('Нужен идентификатор', 'Латиница, цифры, «_» и «-»', 'err'); return; }
-        if (!s.config_id) { toast('Нужна конфигурация', 'Выберите конфигурацию в шапке', 'err'); return; }
         if (!s.tiles.some(t => t.camera)) { toast('Нет камер', 'Поставьте в полотно хотя бы одну камеру', 'err'); return; }
+        if (blocking.length) {
+            const n = blocking.length;
+            toast('Не сохранено', `В ${n} ${plural(n, 'слоте', 'слотах', 'слотах')} модель ${modelSize(blocking[0]!)}, полотно ${s.width}×${s.height}`, 'err');
+            return;
+        }
         setSaving(true);
         try {
             const res = await neuralApi.saveStream(withCamerasOnly({ ...s, name: s.name.trim() || s.id }));
@@ -171,7 +249,7 @@ export function StreamEditor({ initial, isNew, configs, cameras, slots, onBack, 
             setS(next);
             setSaved(JSON.stringify(next));
             setCreated(true);
-            toast('Видеопоток сохранён', slots ? 'Слот с ним перезапускается' : next.name, 'ok');
+            toast('Видеопоток сохранён', slotConfigs.length ? 'Слоты с ним перезапускаются' : next.name, 'ok');
             onSaved(res);
         } catch (e) {
             toast('Не сохранено', e instanceof Error ? e.message : String(e), 'err');
@@ -181,9 +259,8 @@ export function StreamEditor({ initial, isNew, configs, cameras, slots, onBack, 
     };
 
     const undo = () => {
-        const s = JSON.parse(saved) as VideoStream;
-        commit(s);
-        setMulti([]);
+        commit(JSON.parse(saved) as VideoStream);
+        setZs(NO_ZONE_EDIT);
     };
 
     // ── Перетаскивание: полотно и кадр камеры ──
@@ -198,8 +275,13 @@ export function StreamEditor({ initial, isNew, configs, cameras, slots, onBack, 
         const a = (e.target as Element).closest('[data-act]') as SVGElement | null;
         if (!a) return;
         const svg = e.currentTarget, p = svgPoint(svg, e), s = sRef.current, act = a.dataset.act;
+        if (mode === 'zones') {
+            const t = act === 'tile' ? s.tiles[Number(a.dataset.i)] : null;
+            if (t?.camera && t.camera !== zcam) switchCam(t.camera);
+            return;
+        }
         if (act === 'del') { removeSelected(); return; }
-        if (act === 'empty') { select({ r: Number(a.dataset.r), c: Number(a.dataset.c) }, e.shiftKey); return; }
+        if (act === 'empty') { setSel({ r: Number(a.dataset.r), c: Number(a.dataset.c) }); return; }
         if (act === 'dc' || act === 'dr') {
             const vertical = act === 'dc', i = Number(a.dataset.i);
             beginDrag(svg, e.pointerId, {
@@ -211,8 +293,8 @@ export function StreamEditor({ initial, isNew, configs, cameras, slots, onBack, 
         }
         if (act === 'tile') {
             const i = Number(a.dataset.i), t = s.tiles[i];
-            select({ r: t.row, c: t.col }, e.shiftKey);
-            if (e.shiftKey || !t.camera) return;
+            setSel({ r: t.row, c: t.col });
+            if (!t.camera) return;
             const f = frameOf(t.camera);
             beginDrag(svg, e.pointerId, { kind: 'pan', i, x0: p.x, y0: p.y, crop: t.crop, dst: tileDst(s, t, f.width, f.height), moved: false });
         }
@@ -225,7 +307,6 @@ export function StreamEditor({ initial, isNew, configs, cameras, slots, onBack, 
         const svg = e.currentTarget, p = svgPoint(svg, e), s = sRef.current, i = Number(a.dataset.i), t = s.tiles[i];
         if (!t) return;
         setSel({ r: t.row, c: t.col });
-        setMulti([]);
         if (a.dataset.act === 'win') beginDrag(svg, e.pointerId, { kind: 'win', i, x0: p.x, y0: p.y, crop: t.crop, moved: false });
         if (a.dataset.act === 'wh') beginDrag(svg, e.pointerId, { kind: 'wh', i, h: a.dataset.h as Handle, crop: t.crop, moved: false });
     };
@@ -262,6 +343,7 @@ export function StreamEditor({ initial, isNew, configs, cameras, slots, onBack, 
     // Колесо — масштаб окна; итог уходит, когда прокрутка затихла
     const wheelEnd = useRef<number | null>(null);
     const onWheel = (source: boolean) => (e: WheelEvent, svg: SVGSVGElement) => {
+        if (mode === 'zones') return;
         const a = (e.target as Element).closest(source ? '[data-act="win"]' : '[data-act="tile"]') as SVGElement | null;
         if (!a) return;
         const s = sRef.current, i = Number(a.dataset.i), t = s.tiles[i];
@@ -291,49 +373,72 @@ export function StreamEditor({ initial, isNew, configs, cameras, slots, onBack, 
         g.addEventListener('pointerup', up);
     };
 
-    // ── Шапка ──
-    const tilesCount = S.tiles.filter(t => t.camera).length;
-    const configMissing = !!S.config_id && !configs.some(c => c.id === S.config_id);
-    const configOptions = configs.map(c => ({ value: c.id, label: c.name || c.id, hint: c.id }));
+    // ── Кадр слева: камера выбранной ячейки или камера зон ──
+    const zonesOn = mode === 'zones';
+    const configOptions = configs.map(c => ({
+        value: c.id,
+        label: c.name || c.id,
+        hint: c.model ? `${modelSize(c.model)} · ${modelQuant(c.model)} · ${zoneCount(zonesBy[c.id]?.length ?? 0)}` : 'модель не прочитана',
+        muted: !c.model,
+    }));
+    const stageCam = zonesOn ? zcam : selTile?.camera || '';
+    const stageCamObj = stageCam ? camOf(stageCam) : null;
+    const stageView = stageCamObj ? viewFor(stageCamObj) : null;
+    const stageFrame = stageCam ? frameOf(stageCam) : FALLBACK_FRAME;
+    const selPoly = zs.poly != null ? polys[zs.poly] ?? null : null;
+    const stZone = catalog.find(z => z.id === (selPoly ? selPoly.zone : curZone)) ?? null;
+    const vertices = zs.draw ? zs.draw.pts.length : selPoly ? selPoly.points.length / 2 : 0;
+    const zoneOn = (z: ZoneDef) => (selPoly ? selPoly.zone === z.id : curZone === z.id);
 
-    const selCam = selTile?.camera ? camOf(selTile.camera) : null;
-    const view = selCam ? viewFor(selCam) : null;
-    const selFrame = selTile?.camera ? frameOf(selTile.camera) : FALLBACK_FRAME;
+    const zoneBtn = (
+        <button className={`btn btn--sm ve-zbtn${zonesOn ? ' is-on' : ''}`} aria-disabled={!zonesOn && !!zonesBlocked}
+            data-tip={zonesOn ? undefined : zonesBlocked ?? undefined} onClick={toggleZones}>
+            <Icon name="poly" className="ico" />Зоны
+        </button>
+    );
 
     return (
         <div className="ve">
             <div className="ve-h">
                 <button className="ve-back" onClick={onBack}><Icon name="chev" size={13} />Видеопотоки</button>
-                <input className="ve-name" value={S.name} placeholder={created ? S.id : 'Название'} aria-label="Название видеопотока"
-                    onChange={e => setS({ ...S, name: e.target.value })} />
+                <span className="ve-cfg">
+                    <Select value={config ? configId : ''} options={configOptions} onChange={changeConfig} placeholder="Конфигурация" />
+                </span>
+                <label className="ve-namebox" data-tip="Переименовать видеопоток">
+                    <input className="ve-name" value={S.name} placeholder={created ? S.id : 'Название'} aria-label="Название видеопотока"
+                        onChange={e => setS({ ...S, name: e.target.value })} />
+                    <Icon name="pen" size={14} />
+                </label>
                 {created
                     ? <span className="ve-id">{S.id}</span>
                     : <input className="tf-in ve-idin" value={S.id} placeholder="идентификатор" aria-label="Идентификатор"
                         onChange={e => setS({ ...S, id: e.target.value.trim() })} />}
-                <span className="ve-meta">
-                    <span className="ve-cfg">
-                        <Select value={configMissing ? '' : S.config_id} options={configOptions} onChange={changeConfig}
-                            placeholder={configMissing ? 'Конфигурация удалена' : 'Конфигурация'} />
-                    </span>
-                    <span data-tip="Размер входа модели конфигурации">полотно {S.width}×{S.height}</span>
-                    <span>{tilesCount} {plural(tilesCount, 'тайл', 'тайла', 'тайлов')}</span>
-                    <span>{slots ? `в ${slots} ${plural(slots, 'слоте', 'слотах', 'слотах')}` : 'не используется'}</span>
-                </span>
+                <span className="spacer" />
                 {dirty && <span className="tag is-warn">не сохранено</span>}
-                <button className="btn spacer" disabled={!created || JSON.stringify(S) === saved || saving} onClick={undo}>Отменить</button>
+                <button className="btn" disabled={!created || JSON.stringify(S) === saved || saving} onClick={undo}>Отменить</button>
                 <button className="btn btn--acc" disabled={!dirty || saving} onClick={save}>Сохранить</button>
             </div>
 
             <div className="ve-split" ref={splitRef}>
                 <section className="ve-pane" style={srcShare ? { flex: `0 0 ${(srcShare * 100).toFixed(1)}%` } : undefined}>
                     <div className="ve-pane-h">
-                        {selTile?.camera ? (
+                        {zonesOn ? (
+                            <>
+                                <Seg className="ve-camseg">
+                                    {streamCams.map(c => <button key={c} className={c === zcam ? 'is-on' : ''} onClick={() => switchCam(c)}>{c}</button>)}
+                                </Seg>
+                                <span className="spacer" />
+                                {zoneBtn}
+                            </>
+                        ) : selTile?.camera ? (
                             <>
                                 <span className="ve-cam">
                                     <Select value={selTile.camera} onChange={assign}
                                         options={cameras.map(c => ({ value: c.id, label: c.name, hint: `${c.neural.width}×${c.neural.height}` }))} />
                                 </span>
                                 <CellCap s={S} sel={sel} idx={selIdx} />
+                                <span className="spacer" />
+                                {zoneBtn}
                                 <Seg className="ve-fit">
                                     {(['letterbox', 'stretch'] as TileFit[]).map(f => (
                                         <button key={f} className={selTile.fit === f ? 'is-on' : ''} onClick={() => patchTile(selIdx, { fit: f })}>
@@ -343,58 +448,93 @@ export function StreamEditor({ initial, isNew, configs, cameras, slots, onBack, 
                                 </Seg>
                             </>
                         ) : (
-                            <><span className="eyebrow">Кадр камеры</span><CellCap s={S} sel={sel} idx={selIdx} /></>
+                            <><CellCap s={S} sel={sel} idx={selIdx} /><span className="spacer" />{zoneBtn}</>
                         )}
                     </div>
 
-                    {selTile?.camera && selCam && !dead(selTile.camera) && (
-                        view === null ? (
+                    {zonesOn ? (
+                        <div className="ve-zrow">
+                            {catalog.map((z, i) => (
+                                <button key={z.id} className={`ve-zc${zoneOn(z) ? ' is-on' : ''}`} style={{ '--z': z.color } as React.CSSProperties} onClick={() => pickZone(z.id)}>
+                                    <b>{i + 1}</b><i className="zone-g" /><span>{z.name}</span>
+                                </button>
+                            ))}
+                            <button className="ve-zlink" onClick={() => navigate(`/neural/configs?config=${encodeURIComponent(configId)}`)}>
+                                Изменить в конфигурации<Icon name="chev" />
+                            </button>
+                        </div>
+                    ) : selTile?.camera && stageCamObj && !dead(selTile.camera) && (
+                        stageView === null ? (
                             <div className="ve-view warn"><i />У камеры нет потока с назначением «Просмотр» — кадр показать нечем</div>
-                        ) : view.self ? (
-                            <div className="ve-view"><i />Просмотр: <b>{view.stream.key} · {view.stream.width}×{view.stream.height}</b> — тот же поток, что идёт в нейронку</div>
-                        ) : view.same ? (
-                            <div className="ve-view"><i />Просмотр: <b>{view.stream.key} · {view.stream.width}×{view.stream.height}</b> — пропорция как у нейронки ({selCam.neural.width}×{selCam.neural.height})</div>
+                        ) : stageView.self ? (
+                            <div className="ve-view"><i />Просмотр: <b>{stageView.stream.key} · {stageView.stream.width}×{stageView.stream.height}</b> — тот же поток, что идёт в нейронку</div>
+                        ) : stageView.same ? (
+                            <div className="ve-view"><i />Просмотр: <b>{stageView.stream.key} · {stageView.stream.width}×{stageView.stream.height}</b> — пропорция как у нейронки ({stageCamObj.neural.width}×{stageCamObj.neural.height})</div>
                         ) : (
-                            <div className="ve-view warn"><i /><span>Просмотр <b>{view.stream.width}×{view.stream.height} ({ratio(view.stream.width, view.stream.height)})</b> растянут под нейронку <b>{selCam.neural.width}×{selCam.neural.height} ({ratio(selCam.neural.width, selCam.neural.height)})</b>: картинка искажена, окно стоит точно. Без искажений — добавьте камере поток просмотра {ratio(selCam.neural.width, selCam.neural.height)}.</span></div>
+                            <div className="ve-view warn"><i /><span>Просмотр <b>{stageView.stream.width}×{stageView.stream.height} ({ratio(stageView.stream.width, stageView.stream.height)})</b> растянут под нейронку <b>{stageCamObj.neural.width}×{stageCamObj.neural.height} ({ratio(stageCamObj.neural.width, stageCamObj.neural.height)})</b>: картинка искажена, окно стоит точно. Без искажений — добавьте камере поток просмотра {ratio(stageCamObj.neural.width, stageCamObj.neural.height)}.</span></div>
                         )
                     )}
 
                     <div className="ve-stage">
-                        {!selTile?.camera ? (
+                        {!stageCam ? (
                             <Picker cameras={cameras} deviceId={deviceId} sel={sel} onPick={assign} />
-                        ) : dead(selTile.camera) ? (
-                            <div className="ve-nocam">Камеры {selTile.camera} нет в хранилище.<br />Её ячейка уходит в модель серой, остальные работают.</div>
-                        ) : selCam && view ? (
-                            <VideoBox key={`${selCam.id}:${view.stream.key}`} cameraId={selCam.id} stream={view.stream.key}
-                                signalingUrl={signalingWsUrl(deviceId, `/client/${selCam.id}`)} aspect={selFrame.width / selFrame.height}>
-                                {size => (
+                        ) : dead(stageCam) ? (
+                            <div className="ve-nocam">Камеры {stageCam} нет в хранилище.<br />Её ячейка уходит в модель серой, остальные работают.</div>
+                        ) : stageCamObj && stageView ? (
+                            <VideoBox key={`${stageCam}:${stageView.stream.key}`} cameraId={stageCam} stream={stageView.stream.key}
+                                signalingUrl={signalingWsUrl(deviceId, `/client/${stageCam}`)} aspect={stageFrame.width / stageFrame.height}>
+                                {size => zonesOn ? (
+                                    <ZoneOverlay
+                                        polys={polys} catalog={catalog} frame={stageFrame} u={stageFrame.width / size.w} dim={dimOut}
+                                        windows={S.tiles.flatMap((t, i) => (t.camera === stageCam ? [{ n: i + 1, crop: t.crop }] : []))}
+                                        zs={{ ...zs, zone: curZone }} setZs={setZs} onPolys={setPolys} onCloseDraw={closeDraw} onDelete={deletePoly}
+                                    />
+                                ) : (
                                     <SourceOverlay
-                                        s={S} cam={selTile.camera} selIdx={selIdx} frame={selFrame} u={selFrame.width / size.w}
+                                        s={S} cam={stageCam} selIdx={selIdx} frame={stageFrame} u={stageFrame.width / size.w}
+                                        polys={polysOf(stageCam)} catalog={catalog}
                                         onDown={onSourceDown} onMove={onMove} onUp={onUp} onWheel={onWheel(true)}
                                     />
                                 )}
                             </VideoBox>
                         ) : (
-                            <div className="ve-nocam">Камеры {selTile.camera} нет среди камер с назначением «Техническое зрение»</div>
+                            <div className="ve-nocam">Камеры {stageCam} нет среди камер с назначением «Техническое зрение»</div>
                         )}
                     </div>
 
                     <div className="ve-pane-f">
-                        {selTile?.camera ? (
+                        {zonesOn ? (
                             <>
-                                <span className="ve-crop">окно
-                                    {(['x', 'y', 'ш', 'в'] as const).map((k, j) => (
-                                        <CropField key={k} label={k} value={selTile.crop[j]} onCommit={v => {
-                                            const c = [...selTile.crop] as Crop;
-                                            c[j] = clamp(v, 0, 1);
-                                            c[2] = clamp(c[2], 0.05, 1 - c[0]);
-                                            c[3] = clamp(c[3], 0.05, 1 - c[1]);
-                                            patchTile(selIdx, { crop: c });
-                                        }} />
-                                    ))}
+                                {stZone && <span className="ve-zst"><i className="zone-g" style={{ '--z': stZone.color } as React.CSSProperties} />{stZone.name}</span>}
+                                {vertices > 0 && <span className="ve-zn">{vertices} {plural(vertices, 'вершина', 'вершины', 'вершин')}</span>}
+                                <span className="ve-hint">
+                                    {zs.draw ? (
+                                        <><span><kbd>Enter</kbd>замкнуть</span><span><kbd>2×щелчок</kbd>последняя вершина</span><span><kbd>Esc</kbd>отменить</span></>
+                                    ) : selPoly ? (
+                                        <><span><kbd>тянуть</kbd>сдвиг</span><span><kbd>2×щелчок</kbd>по вершине — убрать</span><span><kbd>Delete</kbd>удалить</span><span><kbd>Esc</kbd>снять</span></>
+                                    ) : (
+                                        <><span><kbd>щелчок</kbd>первая вершина</span><span><kbd>щелчок</kbd>по контуру — выбрать</span></>
+                                    )}
                                 </span>
-                                <button className="btn btn--sm" onClick={() => patchTile(selIdx, { crop: cropForCell(selTile.crop, tileCell(S, selTile), selFrame.width, selFrame.height) })}>Окно под ячейку</button>
-                                <button className="btn btn--sm" onClick={() => patchTile(selIdx, { crop: [0, 0, 1, 1] })}>Весь кадр</button>
+                                <button className={`icon-btn ve-dimbtn${dimOut ? ' is-on' : ''}`} aria-pressed={dimOut} data-tip="Затемнять вне окон модели"
+                                    onClick={() => setDimOut(v => !v)}>
+                                    <Icon name="dim" size={15} />
+                                </button>
+                            </>
+                        ) : selTile?.camera ? (
+                            <>
+                                <span className="ve-crop">
+                                    <span className="eyebrow">Окно</span>
+                                    <span className="seps">
+                                        {(['x', 'y', 'ш', 'в'] as const).map((k, j) => <span key={k}><em>{k}</em>{fmtCrop(selTile.crop[j])}</span>)}
+                                    </span>
+                                </span>
+                                <span className="spacer" />
+                                <button className="icon-btn" data-tip="Окно под ячейку"
+                                    onClick={() => patchTile(selIdx, { crop: cropForCell(selTile.crop, tileCell(S, selTile), stageFrame.width, stageFrame.height) })}>
+                                    <Icon name="gab" size={15} />
+                                </button>
+                                <button className="icon-btn" data-tip="Весь кадр" onClick={() => patchTile(selIdx, { crop: [0, 0, 1, 1] })}><Icon name="full" size={15} /></button>
                             </>
                         ) : (
                             <span className="ve-hint">Кадр камеры появится здесь, окно на нём ставится рамкой</span>
@@ -407,15 +547,9 @@ export function StreamEditor({ initial, isNew, configs, cameras, slots, onBack, 
                 <section className="ve-pane is-cnv">
                     <div className="ve-pane-h">
                         <span className="eyebrow">Полотно</span>
-                        <span className="ve-grid">
-                            <span className="ve-step"><button onClick={() => setGrid(S.rows - 1, S.cols)} aria-label="Меньше строк">−</button><b>{S.rows}</b><button onClick={() => setGrid(S.rows + 1, S.cols)} aria-label="Больше строк">+</button></span>
-                            ×
-                            <span className="ve-step"><button onClick={() => setGrid(S.rows, S.cols - 1)} aria-label="Меньше столбцов">−</button><b>{S.cols}</b><button onClick={() => setGrid(S.rows, S.cols + 1)} aria-label="Больше столбцов">+</button></span>
-                        </span>
-                        <button className="btn btn--sm" disabled={!multi.length} onClick={merge}>Объединить</button>
-                        {selTile && (selTile.row_span > 1 || selTile.col_span > 1) && (
-                            <button className="btn btn--sm" onClick={() => patchTile(selIdx, { row_span: 1, col_span: 1 })}>Разделить</button>
-                        )}
+                        {zonesOn
+                            ? <span className="ve-dim">{S.width}×{S.height}</span>
+                            : <button className="btn btn--sm" onClick={() => setGridOpen(true)}><Icon name="grid" className="ico" />Собрать полотно</button>}
                         <span className={`ve-live${session.phase === 'open' ? ' is-on' : ''}`} data-tip="Поток neural_editor с устройства — то, что увидит модель">
                             <i />{session.phase === 'open' ? 'вживую' : 'нет связи'}
                         </span>
@@ -425,10 +559,10 @@ export function StreamEditor({ initial, isNew, configs, cameras, slots, onBack, 
                             aspect={S.width / S.height} enabled={session.phase === 'open'}>
                             {size => (
                                 <CanvasOverlay
-                                    s={S} sel={sel} selIdx={selIdx} multi={multi} u={S.width / size.w} dragging={dragging}
-                                    dead={dead}
+                                    s={S} sel={sel} selIdx={selIdx} u={S.width / size.w} dragging={dragging}
+                                    zonesCam={zonesOn ? zcam : null} frameOf={frameOf} dead={dead}
                                     onDown={onCanvasDown} onMove={onMove} onUp={onUp}
-                                    onDouble={e => { if ((e.target as Element).closest('[data-act="tile"]')) removeSelected(); }}
+                                    onDouble={e => { if (!zonesOn && (e.target as Element).closest('[data-act="tile"]')) removeSelected(); }}
                                     onWheel={onWheel(false)}
                                 />
                             )}
@@ -455,15 +589,37 @@ export function StreamEditor({ initial, isNew, configs, cameras, slots, onBack, 
                         {session.phase === 'open' && session.error && <div className="ve-err">{session.error}</div>}
                     </div>
                     <div className="ve-pane-f">
-                        <span className="ve-hint">
-                            <span><kbd>shift</kbd>объединить</span>
-                            <span><kbd>Delete</kbd>освободить</span>
-                            <span><kbd>тянуть</kbd>сдвиг окна</span>
-                            <span><kbd>колесо</kbd>масштаб</span>
+                        <span className="ve-mf seps">
+                            <span>{configId || 'без конфигурации'}</span>
+                            <span className={blocking.length ? 'w' : undefined}
+                                data-tip={blocking.length ? `В ${blocking.length} ${plural(blocking.length, 'слоте', 'слотах', 'слотах')} модель ${modelSize(blocking[0]!)} — сохранить нельзя` : undefined}>
+                                {S.width}×{S.height}
+                            </span>
+                            {config?.model && <><span>{modelQuant(config.model)}</span><span>{modelTask(config.model)}</span></>}
                         </span>
+                        {zonesOn && (
+                            <>
+                                <span className="spacer" />
+                                <span className="ve-leg">
+                                    {catalog.map((z, i) => (
+                                        <span key={z.id}><i className="zone-g" style={{ '--z': z.color } as React.CSSProperties} /><b>{i + 1}</b>{z.name}</span>
+                                    ))}
+                                </span>
+                            </>
+                        )}
                     </div>
                 </section>
             </div>
+
+            {gridOpen && (
+                <CanvasGridModal
+                    rows={S.rows} cols={S.cols} width={S.width} height={S.height}
+                    cells={S.tiles.map(t => ({ row: t.row, col: t.col, rowSpan: t.row_span, colSpan: t.col_span }))}
+                    cameraAt={(r, c) => S.tiles.find(t => t.row === r && t.col === c && t.camera)?.camera ?? null}
+                    onClose={() => setGridOpen(false)}
+                    onApply={applyGrid}
+                />
+            )}
         </div>
     );
 }
@@ -473,25 +629,6 @@ function CellCap({ s, sel, idx }: { s: VideoStream; sel: Cell; idx: number }) {
     if (!t || !t.camera) return <span className="ve-cellcap"><b>Пустая ячейка</b><span>ячейка {sel.r + 1}·{sel.c + 1}</span></span>;
     const span = (a: number, n: number) => (n > 1 ? `${a + 1}–${a + n}` : String(a + 1));
     return <span className="ve-cellcap"><b>{idx + 1}</b><span>ячейка {span(t.row, t.row_span)}·{span(t.col, t.col_span)}</span></span>;
-}
-
-// Число окна с коммитом по blur/Enter; показывается с запятой
-function CropField({ label, value, onCommit }: { label: string; value: number; onCommit: (v: number) => void }) {
-    const fmt = (v: number) => v.toFixed(2).replace('.', ',');
-    const [text, setText] = useState(fmt(value));
-    const [focused, setFocused] = useState(false);
-    useEffect(() => { if (!focused) setText(fmt(value)); }, [value, focused]);
-    const commit = () => {
-        const v = parseFloat(text.replace(',', '.'));
-        if (Number.isFinite(v) && Math.abs(v - value) > 1e-4) onCommit(v);
-        else setText(fmt(value));
-    };
-    return (
-        <input className="ve-num" value={text} aria-label={label} title={label}
-            onChange={e => setText(e.target.value)} onFocus={() => setFocused(true)}
-            onBlur={() => { setFocused(false); commit(); }}
-            onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
-    );
 }
 
 function Picker({ cameras, deviceId, sel, onPick }: { cameras: EditorCamera[]; deviceId: string; sel: Cell; onPick: (id: string) => void }) {
@@ -530,9 +667,11 @@ interface CanvasOverlayProps {
     s: VideoStream;
     sel: Cell;
     selIdx: number;
-    multi: Cell[];
     u: number;
     dragging: Drag | null;
+    /** Режим зон: камера, чьи тайлы обведены; null — режим окон */
+    zonesCam: string | null;
+    frameOf: (cam: string) => { width: number; height: number };
     dead: (cam: string) => boolean;
     onDown: (e: React.PointerEvent<SVGSVGElement>) => void;
     onMove: (e: React.PointerEvent<SVGSVGElement>) => void;
@@ -556,8 +695,9 @@ function useWheel(onWheel: (e: WheelEvent, svg: SVGSVGElement) => void): RefObje
     return ref;
 }
 
-function CanvasOverlay({ s, sel, selIdx, multi, u, dragging, dead, onDown, onMove, onUp, onDouble, onWheel }: CanvasOverlayProps) {
+function CanvasOverlay({ s, sel, selIdx, u, dragging, zonesCam, frameOf, dead, onDown, onMove, onUp, onDouble, onWheel }: CanvasOverlayProps) {
     const ref = useWheel(onWheel);
+    const zones = zonesCam !== null;
     const covered = new Set<string>();
     s.tiles.forEach(t => { for (let r = t.row; r < t.row + t.row_span; r++) for (let c = t.col; c < t.col + t.col_span; c++) covered.add(`${r}:${c}`); });
     const empties: { rect: Rect; r: number; c: number }[] = [];
@@ -576,9 +716,9 @@ function CanvasOverlay({ s, sel, selIdx, multi, u, dragging, dead, onDown, onMov
                 const c = tileCell(s, t);
                 return (
                     <g key={`t${i}`}>
-                        <rect data-act="tile" data-i={i} x={c.x} y={c.y} width={c.w} height={c.h} className="hit-tile" />
+                        <rect data-act="tile" data-i={i} x={c.x} y={c.y} width={c.w} height={c.h} className={`hit-tile${zones ? ' is-pick' : ''}`} />
                         {dead(t.camera) && (
-                            <g pointer-events="none" transform={`translate(${c.x + c.w / 2},${c.y + c.h / 2}) scale(${u})`}>
+                            <g pointerEvents="none" transform={`translate(${c.x + c.w / 2},${c.y + c.h / 2}) scale(${u})`}>
                                 <rect x={-86} y={-14} width={172} height={28} rx={14} className="dark" />
                                 <circle cx={-68} cy={0} r={4} fill="var(--err)" />
                                 <text x={-56} y={4} className="lbl-t" fontSize={12}>{t.camera} · нет кадра</text>
@@ -588,37 +728,43 @@ function CanvasOverlay({ s, sel, selIdx, multi, u, dragging, dead, onDown, onMov
                 );
             })}
 
+            {/* Режим зон: тайлы камеры зон обведены по картинке */}
+            {zones && s.tiles.map((t, i) => {
+                if (t.camera !== zonesCam) return null;
+                const f = frameOf(t.camera), d = tileDst(s, t, f.width, f.height);
+                return <rect key={`z${i}`} className="zn-camt" x={d.x + u} y={d.y + u} width={d.w - 2 * u} height={d.h - 2 * u}
+                    strokeWidth={1.6 * u} strokeDasharray={`${6 * u} ${5 * u}`} pointerEvents="none" />;
+            })}
+
             {empties.map(({ rect, r, c }) => {
-                const p = 14 * u, on = sel.r === r && sel.c === c;
+                const p = 14 * u, on = !zones && sel.r === r && sel.c === c;
                 return (
-                    <g key={`e${r}:${c}`} className={`empty${on ? ' is-sel' : ''}`} data-act="empty" data-r={r} data-c={c} style={{ '--dash': 16 * u } as React.CSSProperties}>
+                    <g key={`e${r}:${c}`} className={`empty${on ? ' is-sel' : ''}`} data-act={zones ? undefined : 'empty'} data-r={r} data-c={c}
+                        pointerEvents={zones ? 'none' : undefined} style={{ '--dash': 16 * u } as React.CSSProperties}>
                         <rect className="eb" x={rect.x} y={rect.y} width={rect.w} height={rect.h} />
                         <rect className="dash" x={rect.x + p} y={rect.y + p} width={Math.max(0, rect.w - 2 * p)} height={Math.max(0, rect.h - 2 * p)}
                             rx={8 * u} fill="none" strokeWidth={2 * u} strokeDasharray={`${9 * u} ${7 * u}`} />
-                        <text className="elbl" x={rect.x + rect.w / 2} y={rect.y + rect.h / 2 + 6 * u} textAnchor="middle" fontSize={17 * u} fontWeight={600}>Добавить камеру</text>
+                        <text className="elbl" x={rect.x + rect.w / 2} y={rect.y + rect.h / 2 + 6 * u} textAnchor="middle" fontSize={Math.min(17 * u, (rect.w - 2 * p) / 9)} fontWeight={600}>Добавить камеру</text>
                     </g>
                 );
             })}
 
             {s.tiles.map((t, i) => {
                 if (!t.camera) return null;
-                const c = tileCell(s, t), on = i === selIdx, f = 11 * u;
+                const c = tileCell(s, t), on = zones ? t.camera === zonesCam : i === selIdx, f = 11 * u;
                 return (
-                    <g key={`l${i}`} pointer-events="none" className={on ? 'fade' : ''}>
+                    <g key={`l${i}`} pointerEvents="none" className={on ? 'fade' : ''}>
                         <rect x={c.x + 8 * u} y={c.y + 8 * u} width={((t.camera.length + 4) * 6.8 + 12) * u} height={20 * u} rx={4 * u} className={on ? 'chip-on' : 'chip'} />
                         <text x={c.x + 15 * u} y={c.y + 22 * u} fontSize={f} fontWeight={on ? 700 : 400} className={on ? 'chip-t-on' : 'chip-t'}>{i + 1} · {t.camera}</text>
                     </g>
                 );
             })}
 
-            {multi.map(m => {
-                const c = cellRect(s, m.r, m.c);
-                return <rect key={`m${m.r}:${m.c}`} className="multi fade" x={c.x + 3 * u} y={c.y + 3 * u} width={c.w - 6 * u} height={c.h - 6 * u} strokeWidth={2 * u} strokeDasharray={`${6 * u} ${5 * u}`} pointerEvents="none" />;
-            })}
-
-            <g key={`sel${sel.r}:${sel.c}`} className="fade" pointerEvents="none">
-                <FrameLine r={{ x: selRect.x + b, y: selRect.y + b, w: selRect.w - 2 * b, h: selRect.h - 2 * b }} u={u * 1.4} on />
-            </g>
+            {!zones && (
+                <g key={`sel${sel.r}:${sel.c}`} className="fade" pointerEvents="none">
+                    <FrameLine r={{ x: selRect.x + b, y: selRect.y + b, w: selRect.w - 2 * b, h: selRect.h - 2 * b }} u={u * 1.4} on />
+                </g>
+            )}
 
             {/* Границы поверх рамки выбора: иначе двойная рамка закрывает линии */}
             {[true, false].map(vertical => {
@@ -627,16 +773,16 @@ function CanvasOverlay({ s, sel, selIdx, multi, u, dragging, dead, onDown, onMov
                     const pos = e[i], on = dragging?.kind === 'border' && dragging.vertical === vertical && dragging.i === i;
                     return borderRuns(s, vertical, i).map(([a, z], j) => (
                         <g key={`b${vertical ? 'v' : 'h'}${i}:${j}`}>
-                            {vertical
+                            {!zones && (vertical
                                 ? <rect data-act="dc" data-i={i} x={pos - (BORDER_HIT_PX / 2) * u} y={a} width={BORDER_HIT_PX * u} height={z - a} className="hit-border v" />
-                                : <rect data-act="dr" data-i={i} x={a} y={pos - (BORDER_HIT_PX / 2) * u} width={z - a} height={BORDER_HIT_PX * u} className="hit-border h" />}
-                            <path className={`border${on ? ' is-on' : ''}`} d={vertical ? `M${pos} ${a}V${z}` : `M${a} ${pos}H${z}`} strokeWidth={2.6 * u} pointerEvents="none" />
+                                : <rect data-act="dr" data-i={i} x={a} y={pos - (BORDER_HIT_PX / 2) * u} width={z - a} height={BORDER_HIT_PX * u} className="hit-border h" />)}
+                            <path className={`border${on ? ' is-on' : ''}${zones ? ' is-faint' : ''}`} d={vertical ? `M${pos} ${a}V${z}` : `M${a} ${pos}H${z}`} strokeWidth={2.6 * u} pointerEvents="none" />
                         </g>
                     ));
                 });
             })}
 
-            {selTile?.camera && (() => {
+            {!zones && selTile?.camera && (() => {
                 const c = tileCell(s, selTile), r = 13 * u, cx = c.x + c.w - 10 * u - r, cy = c.y + 10 * u + r;
                 return (
                     <g key={`del${selIdx}`} className="del pop" data-act="del">
@@ -656,13 +802,16 @@ interface SourceOverlayProps {
     selIdx: number;
     frame: { width: number; height: number };
     u: number;
+    /** Зоны камеры — пунктиром под окнами */
+    polys: ZonePolygon[];
+    catalog: ZoneDef[];
     onDown: (e: React.PointerEvent<SVGSVGElement>) => void;
     onMove: (e: React.PointerEvent<SVGSVGElement>) => void;
     onUp: () => void;
     onWheel: (e: WheelEvent, svg: SVGSVGElement) => void;
 }
 
-function SourceOverlay({ s, cam, selIdx, frame, u, onDown, onMove, onUp, onWheel }: SourceOverlayProps) {
+function SourceOverlay({ s, cam, selIdx, frame, u, polys, catalog, onDown, onMove, onUp, onWheel }: SourceOverlayProps) {
     const ref = useWheel(onWheel);
     const W = frame.width, H = frame.height;
     const idxs = s.tiles.map((t, i) => (t.camera === cam ? i : -1)).filter(i => i >= 0).sort((a, b) => Number(a === selIdx) - Number(b === selIdx));
@@ -673,6 +822,11 @@ function SourceOverlay({ s, cam, selIdx, frame, u, onDown, onMove, onUp, onWheel
     return (
         <svg className="ve-svg src" viewBox={`0 0 ${W} ${H}`} ref={ref}
             onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
+            {drawOrder(polys, catalog).map(i => (
+                <g key={`z${i}`} className="zn-pg is-faint" pointerEvents="none" style={{ '--z': catalog.find(z => z.id === polys[i].zone)!.color } as React.CSSProperties}>
+                    <path className="l" d={`M${ptsOf(polys[i]).map(([x, y]) => `${x * W} ${y * H}`).join('L')}Z`} strokeWidth={1.4 * u} strokeDasharray={`${7 * u} ${6 * u}`} />
+                </g>
+            ))}
             <path d={hole} className="mask" fillRule="evenodd" pointerEvents="none" />
             {idxs.map(i => {
                 const k = win(i), on = i === selIdx;

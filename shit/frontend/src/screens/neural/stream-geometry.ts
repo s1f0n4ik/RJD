@@ -98,45 +98,6 @@ export function resizeCrop(start: Crop, handle: Handle, px: number, py: number):
 export const moveCrop = (start: Crop, dx: number, dy: number): Crop =>
     [clamp(start[0] + dx, 0, 1 - start[2]), clamp(start[1] + dy, 0, 1 - start[3]), start[2], start[3]];
 
-/** Новое число строк или столбцов: тайлы за краем уходят, спаны обрезаются */
-export function resizeGrid(s: VideoStream, rows: number, cols: number): VideoStream {
-    const fit = (fr: number[], old: number, n: number) => {
-        const w = weights(old, fr).slice(0, n);
-        while (w.length < n) w.push(1);
-        return w.every(v => v === 1) ? [] : w;
-    };
-    return {
-        ...s,
-        rows, cols,
-        row_fr: fit(s.row_fr, s.rows, rows),
-        col_fr: fit(s.col_fr, s.cols, cols),
-        tiles: s.tiles
-            .filter(t => t.row < rows && t.col < cols)
-            .map(t => ({ ...t, row_span: Math.min(t.row_span, rows - t.row), col_span: Math.min(t.col_span, cols - t.col) })),
-    };
-}
-
-/** Объединение выбранных ячеек в прямоугольник; null — внутри больше одной камеры или тайл торчит наружу */
-export function mergeCells(s: VideoStream, cells: Cell[]): { stream: VideoStream; at: Cell } | null {
-    let r0 = Infinity, c0 = Infinity, r1 = -1, c1 = -1;
-    for (const m of cells) {
-        const i = tileAt(s, m.r, m.c);
-        const t = i < 0 ? { row: m.r, col: m.c, row_span: 1, col_span: 1 } : s.tiles[i];
-        r0 = Math.min(r0, t.row); c0 = Math.min(c0, t.col);
-        r1 = Math.max(r1, t.row + t.row_span); c1 = Math.max(c1, t.col + t.col_span);
-    }
-    const inside = (t: StreamTile) => t.row >= r0 && t.col >= c0 && t.row + t.row_span <= r1 && t.col + t.col_span <= c1;
-    const touch = (t: StreamTile) => t.row < r1 && t.row + t.row_span > r0 && t.col < c1 && t.col + t.col_span > c0;
-    if (s.tiles.some(t => touch(t) && !inside(t))) return null;
-    const keep = s.tiles.filter(inside);
-    if (keep.length > 1) return null;
-    // Пустой объединённой ячейки у бэка нет — она живёт в тайле, которому камеру назначат позже
-    const merged: StreamTile = keep[0]
-        ? { ...keep[0], row: r0, col: c0, row_span: r1 - r0, col_span: c1 - c0 }
-        : { camera: '', row: r0, col: c0, row_span: r1 - r0, col_span: c1 - c0, crop: [0, 0, 1, 1], fit: 'letterbox' };
-    return { stream: { ...s, tiles: [...s.tiles.filter(t => !inside(t)), merged] }, at: { r: r0, c: c0 } };
-}
-
 /** Схема для записи: тайлы без камеры — это ещё не назначенные ячейки */
 export const withCamerasOnly = (s: VideoStream): VideoStream => ({ ...s, tiles: s.tiles.filter(t => t.camera) });
 
@@ -145,4 +106,13 @@ export function freeCells(s: VideoStream): Cell[] {
     const out: Cell[] = [];
     for (let r = 0; r < s.rows; r++) for (let c = 0; c < s.cols; c++) if (tileAt(s, r, c) < 0) out.push({ r, c });
     return out;
+}
+
+/** Координата указателя в единицах вьюбокса SVG */
+export function svgPoint(svg: SVGSVGElement, e: { clientX: number; clientY: number }) {
+    const p = svg.createSVGPoint();
+    p.x = e.clientX;
+    p.y = e.clientY;
+    const m = svg.getScreenCTM();
+    return m ? p.matrixTransform(m.inverse()) : p;
 }

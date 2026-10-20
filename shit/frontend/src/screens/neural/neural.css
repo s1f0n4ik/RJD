@@ -27,6 +27,13 @@
 .nv-list .row-item.is-new .nm{color:var(--fg-2)}
 .nv-list .foot{margin-top:auto;padding:16px 1px 0;display:flex;flex-direction:column;gap:8px}
 .nv-list .skel-rows{padding:0 11px;display:flex;flex-direction:column;gap:8px}
+/* Карточка конфигурации: строка модели под названием */
+.nv-list .row-item.nv-ci{display:grid;grid-template-columns:10px minmax(0,1fr) auto 26px;column-gap:9px;row-gap:2px;align-items:center;padding:7px 4px 8px 10px;min-height:0}
+.nv-ci .nv-ci-m{grid-column:2/-1;font-family:var(--mono);font-size:10.5px;color:var(--fg-3);white-space:nowrap;overflow:hidden;flex-wrap:nowrap}
+.nv-ci .nv-ci-m.seps{column-gap:15px}
+.nv-ci .nv-ci-m.seps>*:not(:last-child)::after{right:-8px}
+.nv-ci .nv-ci-m.is-bad{color:var(--err);font-family:var(--ui);font-size:11px;font-weight:600}
+.nv-list .row-item .num.w{color:var(--warn)}
 
 /* ── Блоки редактора: полоса заголовка на --input, тело без рамок, встык ── */
 .nv-stack{display:flex;flex-direction:column;gap:18px}
@@ -63,6 +70,46 @@
 .tf-row.ctl .icon-btn{width:32px;height:32px;flex:0 0 32px;border-radius:6px}
 .nv .tf.id{flex:0 0 220px}
 .nv .hint.is-err{margin:0}
+
+/* ── Описание модели под выбором файла ── */
+.nv-model{display:flex;align-items:center;gap:10px;min-height:32px;padding:0 10px;border:1px solid var(--line);border-radius:6px;background:var(--input);font-family:var(--mono);font-size:11.5px;color:var(--fg-2)}
+.nv-model .w{color:var(--warn)}
+.nv-model .tag{font-family:var(--ui);padding:1px 7px;font-size:11px}
+.nv-model.is-idle{font-family:var(--ui);font-size:12px;color:var(--fg-3);border-style:dashed}
+.nv-model.is-bad{border-color:var(--err-edge);background:color-mix(in srgb,var(--err) 7%,var(--input));color:var(--err);font-family:var(--ui);font-size:12px;font-weight:600}
+.nv-model.is-bad svg{width:14px;height:14px;flex:0 0 14px}
+
+/* ── Зоны: колонка под порогами, строки каталога ── */
+.nv-blocks .two>.nv-col{display:flex;flex-direction:column;min-width:0}
+.nv-blocks .two .nv-col>.nvb+.nvb{border-left:none;border-top:1px solid var(--line)}
+.nv-blocks .two>.nv-col+.nvb{border-left:1px solid var(--line)}
+.nv-col>.nvb:last-child{flex:1}
+.nv-zl{display:flex;flex-direction:column;gap:6px}
+.nv-zh,.nv-zr{display:grid;grid-template-columns:14px 14px minmax(0,1fr) auto 58px 50px 26px;align-items:center;gap:7px}
+.nv-zh{padding:0 6px 0 10px;font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-3)}
+.nv-zh span:nth-child(5){text-align:right}
+.nv-zr{height:40px;padding:0 4px 0 10px;border-radius:var(--r);border:1px solid var(--line);background:var(--input);transition:border-color var(--t-mid) var(--ease-out),box-shadow var(--t-mid) var(--ease-out)}
+.nv-zr:has(.nm:focus){border-color:var(--acc-dim);box-shadow:0 0 0 2px rgba(var(--acc-rgb),.15)}
+.nv-zr .no{font-family:var(--mono);font-size:12.5px;font-weight:700;color:var(--z)}
+.nv-zr .swatch{width:14px;height:14px;border:none;border-radius:0;clip-path:polygon(50% 0,100% 38%,81% 100%,19% 100%,0 38%)}
+.nv-zr .nm{min-width:0;background:none;border:none;color:var(--fg);font-size:12.5px;font-weight:600;padding:0;height:100%;text-overflow:ellipsis}
+.nv-zr .nm:focus{outline:none}
+.nv-zr .zid{font-family:var(--mono);font-size:10.5px;color:var(--fg-3);white-space:nowrap}
+.nv-zr .thr{display:flex;align-items:center;gap:4px}
+.nv-zr .thr .tf-in{height:28px;padding:0 6px;text-align:right}
+.nv-zr .thr em{font-style:normal;font-family:var(--mono);font-size:11px;color:var(--fg-3)}
+.nv-zr .ord{display:flex;gap:2px}
+.nv-zr .icon-btn{width:24px;height:26px;border-color:transparent;color:var(--fg-3)}
+.nv-zr .icon-btn:hover:not([disabled]){border-color:var(--line);color:var(--fg)}
+.nv-zr .icon-btn svg{width:12px;height:12px}
+.nv-zr .ord .up svg{transform:rotate(-90deg)}
+.nv-zr .ord .dn svg{transform:rotate(90deg)}
+.nv-zr .icon-btn.del:hover{color:var(--err)}
+.nv-zempty{display:grid;place-items:center;min-height:44px;border:1px dashed var(--line);border-radius:var(--r);font-size:12.5px;color:var(--fg-3)}
+.nv-zadd{align-self:flex-start;display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:6px;border:1px dashed var(--line-hi);font-size:12px;color:var(--fg-2)}
+.nv-zadd:hover{color:var(--fg);border-color:var(--acc-dim)}
+.nv-zadd svg{width:11px;height:11px}
+.nv-zones .tf-row{border-top:1px dashed var(--line);padding-top:12px}
 
 /* ── Суперклассы ── */
 .scls{display:flex;align-items:center;gap:10px;padding:0 6px 0 10px;height:40px;border-radius:var(--r);border:1px solid var(--line);background:var(--input)}
@@ -127,7 +174,12 @@
 .sl-card.is-err{border-color:var(--err-edge);background:linear-gradient(165deg,color-mix(in srgb,var(--err) 8%,transparent),transparent 46%),var(--panel)}
 .sl-card.is-run{border-color:var(--ok-edge);background:linear-gradient(165deg,color-mix(in srgb,var(--ok) 8%,transparent),transparent 46%),var(--panel)}
 .sl-card .card-h{gap:9px}
-.sl-card .card-h h3{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sl-card .card-h h3{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Заголовок слота: поток и конфигурация */
+.sl-title{display:flex;align-items:baseline;gap:8px;min-width:0;flex:1}
+.sl-title h3{flex:0 0 auto;max-width:62%}
+.sl-title span{font-size:12px;color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.sl-card .tf-cap .w{color:var(--err);margin-left:auto;letter-spacing:0;text-transform:none;font-family:var(--ui);font-size:11px}
 .sl-card .card-h .icon-btn{width:26px;height:26px;border-color:transparent;color:var(--fg-3)}
 .sl-card .card-h .icon-btn:hover{border-color:var(--line);color:var(--err)}
 .sl-card .card-h .icon-btn svg{width:13px;height:13px}
@@ -148,6 +200,7 @@
 .sl-model .tag{font-family:var(--mono);font-size:10.5px;padding:1px 6px;white-space:nowrap}
 .sl-model span{white-space:nowrap}
 .sl-model .dim{color:var(--fg-3)}
+.sl-model .w{color:var(--err)}
 .err-line{display:flex;align-items:flex-start;gap:9px;padding:10px 16px;border-top:1px solid color-mix(in srgb,var(--err) 30%,transparent);background:color-mix(in srgb,var(--err) 7%,transparent);color:var(--err);font-size:12.5px;line-height:1.45}
 .err-line .num{flex:0 0 auto;font-weight:600}
 .err-line .ico{width:14px;height:14px;flex:0 0 14px;margin-top:2px}
@@ -161,12 +214,12 @@
 /* ── Инференс: источник слота и каталог видеопотоков ── */
 .sl-src{display:flex;flex-direction:column;gap:6px;font-family:var(--mono);font-size:11px;color:var(--fg-3)}
 .sl-src .bad{color:var(--err)}
-.tl{display:flex;flex-wrap:wrap;gap:5px}
-.tl .t{display:inline-flex;align-items:center;gap:5px;padding:2px 7px;border-radius:5px;border:1px solid var(--line);background:var(--panel-2);font-size:10.5px;color:var(--fg-2)}
-.tl .t i{width:6px;height:6px;border-radius:50%;background:var(--ok)}
-.tl .t.is-idle i{background:var(--fg-3)}
-.tl .t.is-err{border-color:var(--err-edge);color:var(--err)}
-.tl .t.is-err i{background:var(--err)}
+.sl-tl{display:flex;flex-wrap:wrap;gap:5px}
+.sl-tl .t{display:inline-flex;align-items:center;gap:5px;padding:2px 7px;border-radius:5px;border:1px solid var(--line);background:var(--panel-2);font-size:10.5px;color:var(--fg-2)}
+.sl-tl .t i{width:6px;height:6px;border-radius:50%;background:var(--ok)}
+.sl-tl .t.is-idle i{background:var(--fg-3)}
+.sl-tl .t.is-err{border-color:var(--err-edge);color:var(--err)}
+.sl-tl .t.is-err i{background:var(--err)}
 .nv-cat .sl-grp{display:flex;flex-direction:column;gap:3px}
 .nv-cat .grp-cap{padding:10px 11px 4px;font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-3)}
 .nv-cat .grp-cap.is-err{color:var(--err)}
@@ -213,9 +266,12 @@
 .ve-name{min-width:120px;max-width:280px;height:36px;padding:0 8px;border:1px solid transparent;border-radius:var(--r);background:transparent;color:var(--fg);font:inherit;font-size:18px;font-weight:700;letter-spacing:-.01em;field-sizing:content}
 .ve-name:hover{border-color:var(--line)}
 .ve-name:focus{outline:none;border-color:var(--acc-dim);background:var(--input)}
+/* Название с карандашом: щелчок ставит курсор для переименования */
+.ve-namebox{display:inline-flex;align-items:center;gap:2px;min-width:0;cursor:text}
+.ve-namebox svg{flex:0 0 14px;color:var(--fg-3);transition:color var(--t-fast) var(--ease-out)}
+.ve-namebox:hover svg,.ve-namebox:focus-within svg{color:var(--acc)}
 .ve-id{font-family:var(--mono);font-size:11.5px;color:var(--fg-3)}
 .ve-idin{width:170px;font-family:var(--mono)}
-.ve-meta{display:flex;align-items:center;gap:14px;font-family:var(--mono);font-size:11.5px;color:var(--fg-3);white-space:nowrap}
 .ve-cfg{min-width:190px}
 .ve-h .spacer{margin-left:auto}
 
@@ -232,8 +288,34 @@
 .ve-cellcap{font-size:12.5px;color:var(--fg-2);display:inline-flex;gap:6px;align-items:baseline}
 .ve-cellcap b{color:var(--fg);font-weight:600}
 .ve-cellcap span{font-family:var(--mono);font-size:11px;color:var(--fg-3)}
-.ve-fit{margin-left:auto;padding:2px}
-.ve-fit button{min-height:26px;padding:0 10px;font-size:12px}
+.ve-fit,.ve-camseg{padding:2px}
+.ve-fit button,.ve-camseg button{min-height:26px;padding:0 10px;font-size:12px}
+/* Кнопка режима «Зоны» */
+.ve-zbtn svg{width:15px;height:15px}
+.ve-zbtn.is-on{background:rgba(var(--acc-rgb),.2);border-color:var(--acc-dim);color:var(--acc);box-shadow:0 0 12px rgba(var(--acc-rgb),.3)}
+.ve-zbtn[aria-disabled="true"]{opacity:.45;cursor:not-allowed}
+/* Зоны каталога строкой под шапкой кадра */
+.ve-zrow{display:flex;align-items:center;flex-wrap:wrap;gap:5px;min-height:42px;padding:6px 10px;border-bottom:1px solid var(--line);background:var(--surface);flex:0 0 auto}
+.ve-zc{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 9px 0 6px;border-radius:7px;border:1px solid var(--line);background:var(--panel);font-size:12px;color:var(--fg-2);white-space:nowrap;transition:var(--tr-ui)}
+.ve-zc b{font-family:var(--mono);font-size:10.5px;font-weight:700;color:var(--fg-3);min-width:9px;text-align:center}
+.ve-zc:hover{border-color:var(--line-hi);color:var(--fg)}
+.ve-zc.is-on{border-color:color-mix(in srgb,var(--z) 70%,transparent);background:color-mix(in srgb,var(--z) 15%,var(--panel));color:var(--fg);box-shadow:0 0 0 1px color-mix(in srgb,var(--z) 35%,transparent)}
+.ve-zc.is-on b{color:var(--z)}
+.ve-zlink{margin-left:auto;display:inline-flex;align-items:center;gap:4px;font-size:11.5px;color:var(--acc);white-space:nowrap}
+.ve-zlink:hover{text-decoration:underline}
+.ve-zlink svg{width:11px;height:11px}
+/* Подвал кадра в режиме зон: выбранная зона, вершины, клавиши */
+.ve-zst{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:var(--fg);white-space:nowrap}
+.ve-zn{font-family:var(--mono);font-size:11px;color:var(--fg-3);white-space:nowrap}
+.ve-pane-f .ve-zn+.ve-hint,.ve-pane-f .ve-zst+.ve-hint{margin-left:auto}
+.ve-dimbtn.is-on{border-color:var(--acc-dim);background:rgba(var(--acc-rgb),.15);color:var(--acc);box-shadow:0 0 10px rgba(var(--acc-rgb),.3)}
+/* Подвал полотна: конфигурация и модель, легенда зон */
+.ve-dim{font-family:var(--mono);font-size:11px;color:var(--fg-3)}
+.ve-mf{font-family:var(--mono);font-size:11.5px;color:var(--fg-2);white-space:nowrap}
+.ve-mf .w{color:var(--warn)}
+.ve-leg{display:flex;align-items:center;flex-wrap:wrap;gap:6px 14px;font-size:11.5px;color:var(--fg-2)}
+.ve-leg>span{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.ve-leg b{font-family:var(--mono);font-size:10.5px;color:var(--fg-3)}
 .ve-view{display:flex;align-items:center;gap:8px;min-height:32px;padding:0 14px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:11px;color:var(--fg-3);flex:0 0 auto}
 .ve-view i{width:6px;height:6px;border-radius:50%;background:var(--ok);flex:0 0 6px}
 .ve-view b{font-weight:500;color:var(--fg-2)}
@@ -243,19 +325,29 @@
 .ve-stage{flex:1;min-height:0;position:relative;display:flex;padding:16px;background:#0c0e13;overflow:hidden}
 .ve-stage:has(.ve-pick){overflow:auto}
 .ve-nocam{margin:auto;text-align:center;color:var(--fg-3);font-size:12.5px;line-height:1.6}
-.ve-crop{display:inline-flex;gap:4px;align-items:center;font-family:var(--mono);font-size:11px;color:var(--fg-3)}
-.ve-num{width:50px;height:28px;padding:0 4px;text-align:center;font-family:var(--mono);font-size:11.5px;background:var(--input);border:1px solid var(--line);border-radius:6px;color:var(--fg)}
-.ve-num:focus{outline:none;border-color:var(--acc-dim)}
+/* Окно тайла под кадром: только отображение, задаётся на кадре */
+.ve-crop{display:inline-flex;align-items:center;gap:10px;font-family:var(--mono);font-size:11.5px;color:var(--fg);font-variant-numeric:tabular-nums}
+.ve-crop em{font-style:normal;color:var(--fg-3);margin-right:5px}
 .ve-hint{font-size:11.5px;color:var(--fg-3);display:flex;gap:12px;flex-wrap:wrap}
 .ve-hint kbd{font-family:var(--mono);font-size:10px;padding:1px 5px;border:1px solid var(--line-hi);border-radius:4px;color:var(--fg-2);background:var(--panel);margin-right:4px}
 .ve-gutter{width:16px;flex:0 0 16px;cursor:col-resize;display:grid;place-items:center;touch-action:none}
 .ve-gutter i{width:4px;height:40px;border-radius:2px;background:var(--line-hi);transition:background-color var(--t-fast) var(--ease-out),height var(--t-fast) var(--ease-out)}
 .ve-gutter:hover i,.ve-gutter.is-drag i{background:var(--acc);height:56px}
-.ve-grid{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:12px;color:var(--fg-2)}
-.ve-step{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:6px;background:var(--panel);overflow:hidden}
-.ve-step b{font-weight:500;min-width:20px;text-align:center;color:var(--fg)}
-.ve-step button{width:24px;height:26px;color:var(--fg-2);font-size:14px;line-height:1}
-.ve-step button:hover{background:var(--panel-2);color:var(--fg)}
+/* Модалка «Собрать полотно»: строк и колонок строкой, под ними матрица в пропорции полотна */
+.ve-gm{width:auto;max-width:calc(100vw - 64px)}
+.ve-gm-size{font-family:var(--mono);font-size:11px;color:var(--fg-3)}
+.ve-gm-b{display:flex;flex-direction:column;align-items:center;gap:14px}
+.ve-gm-row{align-self:stretch;display:flex;align-items:center;gap:22px}
+.ve-gm-row .field{margin:0;gap:10px}
+.ve-gm-row .field label{flex:0 0 auto}
+.ve-gm-row .inp{width:72px;flex:0 0 72px}
+.ve-gm-matrix{height:min(480px,calc(88vh - 210px));max-width:calc(100vw - 130px);display:grid;gap:6px;padding:6px;background:var(--input);border:1px solid var(--line);border-radius:var(--r);touch-action:none;user-select:none}
+.ve-gm-tile{border:1px dashed var(--line);border-radius:6px;cursor:crosshair}
+.ve-gm-tile.is-taken{border-color:transparent;cursor:pointer}
+.ve-gm-tile.is-draw{background:rgba(var(--acc-rgb),.18);border-color:var(--acc)}
+.ve-gm-cell{display:grid;place-items:center;border:1px solid var(--acc);border-radius:6px;background:rgba(var(--acc-rgb),.12);color:var(--acc);font-family:var(--mono);font-size:13px;pointer-events:none}
+.ve-gm-cell span{display:flex;flex-direction:column;align-items:center;gap:2px}
+.ve-gm-cell em{font-style:normal;font-size:10.5px;color:var(--fg-2)}
 .ve-live{margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10.5px;color:var(--fg-3)}
 .ve-live i{width:7px;height:7px;border-radius:50%;background:var(--fg-3)}
 .ve-live.is-on i{background:var(--ok);box-shadow:0 0 6px var(--ok);animation:ve-blink 2s infinite}
@@ -294,7 +386,8 @@
 .ve-svg .chip-on{fill:var(--acc)}
 .ve-svg .chip-t{fill:var(--fg);font-family:var(--mono)}
 .ve-svg .chip-t-on{fill:#08101f;font-family:var(--mono)}
-.ve-svg .multi{fill:rgba(var(--acc-rgb),.12);stroke:var(--acc)}
+.ve-svg .hit-tile.is-pick{cursor:pointer}
+.ve-svg .border.is-faint{opacity:.35}
 .ve-svg .fl-under{stroke:rgba(14,16,21,.86)}
 .ve-svg .fl-on{stroke:var(--acc)}
 .ve-svg .fl-off{stroke:var(--fg)}
@@ -328,6 +421,31 @@
 .ve-svg .hit-anc:hover + .anc rect{transform:scale(1.35)}
 .ve-svg .pop{transform-box:fill-box;transform-origin:center;animation:ve-pop .24s cubic-bezier(.2,.8,.3,1.3) backwards}
 .ve-svg .fade{animation:ve-fade .2s ease-out backwards}
+/* Зоны на кадре камеры: заливка и двойной контур цвета зоны, ручки, рисование */
+.ve-svg.is-draw,.ve-svg.is-draw .zn-pg{cursor:crosshair}
+.ve-svg .zn-out{fill:transparent}
+.ve-svg .zn-pg{cursor:pointer}
+.ve-svg .zn-pg .f{fill:var(--z);fill-opacity:.2;transition:fill-opacity var(--t-fast) var(--ease-out)}
+.ve-svg .zn-pg:hover .f,.ve-svg .zn-pg.is-sel .f{fill-opacity:.32}
+.ve-svg .zn-pg .u{fill:none;stroke:rgba(14,16,21,.86);stroke-linejoin:round}
+.ve-svg .zn-pg .l{fill:none;stroke:var(--z);stroke-linejoin:round}
+.ve-svg .zn-pg.is-faint{opacity:.7;cursor:default}
+.ve-svg .zn-lt{fill:#0a0c11;font-family:var(--mono)}
+.ve-svg .zn-win{fill:none;stroke:rgba(231,233,238,.55)}
+.ve-svg .zn-mh{fill:transparent;cursor:copy}
+.ve-svg .zn-mid circle{fill:#e7e9ee;stroke:#08101f;transform-box:fill-box;transform-origin:center;transition:transform .16s cubic-bezier(.2,.8,.3,1.3)}
+.ve-svg .zn-mh:hover + .zn-mid circle{transform:scale(1.6)}
+.ve-svg .zn-dfill{fill:var(--z);fill-opacity:.12}
+.ve-svg .zn-du{fill:none;stroke:rgba(14,16,21,.86);stroke-linejoin:round}
+.ve-svg .zn-dl{fill:none;stroke:var(--z);stroke-linejoin:round}
+.ve-svg .zn-drub{stroke:var(--z);fill:none}
+.ve-svg .zn-drub2{stroke:rgba(231,233,238,.5);fill:none}
+.ve-svg .zn-dv{fill:var(--acc);stroke:#08101f}
+.ve-svg .zn-first{fill:rgba(14,16,21,.5);stroke:var(--fg-3)}
+.ve-svg .zn-first.is-ready{stroke:var(--acc);filter:drop-shadow(0 0 5px rgba(var(--acc-rgb),.85))}
+.ve-svg .zn-first.is-near{fill:rgba(var(--acc-rgb),.3)}
+.ve-svg .zn-cur{fill:none;stroke:#e7e9ee}
+.ve-svg .zn-camt{fill:none;stroke:var(--acc)}
 @keyframes ve-pop{from{opacity:0;transform:scale(.4)}}
 @keyframes ve-fade{from{opacity:0}}
 @media (prefers-reduced-motion:reduce){

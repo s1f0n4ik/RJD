@@ -32,8 +32,8 @@ export interface EditorSession {
     /** Кто держит редактор, когда phase === 'busy' */
     holder: string | null;
     update: (stream: VideoStream, final?: boolean) => void;
-    /** Переоткрыть под другую конфигурацию: размер полотна пересчитывается */
-    reopen: (stream: VideoStream) => void;
+    /** Переоткрыть под другую конфигурацию: размер полотна и зоны — по ней */
+    reopen: (stream: VideoStream, configId: string) => void;
     takeover: () => void;
     reconnect: () => void;
 }
@@ -44,7 +44,7 @@ interface EditorMessage {
     meta?: Record<string, unknown>;
 }
 
-export function useEditorSession(initial: VideoStream): EditorSession {
+export function useEditorSession(initial: VideoStream, configId: string): EditorSession {
     const [phase, setPhase] = useState<EditorPhase>('connecting');
     const [error, setError] = useState<string | null>(null);
     const [size, setSize] = useState<{ width: number; height: number } | null>(null);
@@ -56,6 +56,8 @@ export function useEditorSession(initial: VideoStream): EditorSession {
     const wsRef = useRef<WebSocket | null>(null);
     // Последняя раскладка: с ней открывается сессия и уходит отложенная правка
     const latestRef = useRef<VideoStream>(initial);
+    // Конфигурация сессии: размер полотна и зоны на нём
+    const configRef = useRef(configId);
     const lastSentRef = useRef(0);
     const pendingRef = useRef<number | null>(null);
 
@@ -68,8 +70,8 @@ export function useEditorSession(initial: VideoStream): EditorSession {
 
     const sendOpen = useCallback(() => {
         const s = latestRef.current;
-        setPhase('opening');
-        sendRaw('open', { stream: withCamerasOnly(s), stream_id: s.id, config_id: s.config_id });
+        // Сокет закрыт — открытие уйдёт при переподключении
+        if (sendRaw('open', { stream: withCamerasOnly(s), stream_id: s.id, config_id: configRef.current })) setPhase('opening');
     }, [sendRaw]);
 
     useEffect(() => {
@@ -167,8 +169,9 @@ export function useEditorSession(initial: VideoStream): EditorSession {
         else if (!pendingRef.current) pendingRef.current = window.setTimeout(flush, wait);
     }, [flush]);
 
-    const reopen = useCallback((stream: VideoStream) => {
+    const reopen = useCallback((stream: VideoStream, config: string) => {
         latestRef.current = stream;
+        configRef.current = config;
         setSize(null);
         sendOpen();
     }, [sendOpen]);

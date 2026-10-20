@@ -6,12 +6,13 @@ import { dictName, type DictEntry, type Dictionaries } from '../../features/krsp
 import { isIskraTable, type IskraCamera, type IskraTable, type ModelTable, type RsmTable } from './api';
 import type { CameraRef } from './RulesPanels';
 
-// Конфигурация нейросети с плат: классы по id, суперклассы по месту в списке
+// Конфигурация нейросети с плат: классы по id, суперклассы по месту в списке, зоны по приоритету
 export interface NeuralModel {
     id: string;
     name: string;
     classes: { id: number; name: string; superclass: string }[];
     superclasses: { key: string; name: string; color: string }[];
+    zones: { id: number; name: string; color: string }[];
 }
 
 // Конфигурация нейросети → платы, где её слот запущен
@@ -113,13 +114,19 @@ function BlockHead({ name, n, dict }: { name: string; n: number; dict: string })
 }
 
 const autoNo = (rec: Record<string, number>, i: number) => rec[String(i)] ?? i + 1;
+const zoneNo = (rec: Record<string, number>, id: number) => rec[String(id)] ?? id;
+// Строки зон: каталог и «вне зон» (id 0); без каталога строк нет
+const zoneIds = (model: NeuralModel) => (model.zones.length ? [...model.zones.map(z => z.id), 0] : []);
 
 // Заданных строк и чисел вне словаря в секции
 function sectionStats(kind: Kind, dicts: Dictionaries, model: NeuralModel | undefined, value: ModelTable, override?: Record<string, number>) {
-    const set = Object.keys(value.classes).length + (kind.sup ? Object.keys(value.superclasses).length : 0) + Object.keys(override ?? {}).length;
+    const zones = value.zones ?? {};
+    const set = Object.keys(value.classes).length + (kind.sup ? Object.keys(value.superclasses).length : 0)
+        + (kind.zones ? Object.keys(zones).length : 0) + Object.keys(override ?? {}).length;
     const outside = (key: string, n: number) => n !== 0 && !dictName(dicts, key, n);
     let off = model?.classes.filter(c => outside(kind.cls, autoNo(value.classes, c.id))).length ?? 0;
     if (kind.sup && model) off += model.superclasses.filter((_, i) => outside(kind.sup!, autoNo(value.superclasses, i))).length;
+    if (kind.zones && model) off += zoneIds(model).filter(id => outside('zone', zoneNo(zones, id))).length;
     return { set, off };
 }
 
@@ -147,6 +154,7 @@ function ModelSection({ kind, id, model, value, override, dicts, running, open, 
         body = <div className="mt-line">Конфигурации нет на платах в сети — заданные строки сохранены</div>;
     } else if (open && model) {
         const places = (key: string) => (kind.sup ? model.superclasses.findIndex(s => s.key === key) : -1);
+        const zones = value.zones ?? {};
         body = (
             <>
                 <div className="mt-blk">
@@ -229,11 +237,40 @@ function ModelSection({ kind, id, model, value, override, dicts, running, open, 
                         </div>
                     </div>
                 )}
-                {kind.zones ? (
-                    <div className="mt-line"><b>Зоны</b><span className="n">0</span>слот инференса пока не ставит зоны — зона в записи 28163 уходит пустой</div>
+                {model.zones.length > 0 && (!kind.zones ? (
+                    <div className="mt-line"><b>Зоны</b><span className="n">{model.zones.length}</span>правилами {kind.of} не используются</div>
                 ) : (
-                    <div className="mt-line"><b>Зоны</b><span className="n">0</span>правилами {kind.of} не используются</div>
-                )}
+                    <div className="mt-blk mt-zones">
+                        <BlockHead name="Зоны" n={model.zones.length} dict="zone" />
+                        <div className="mt-tab">
+                            <div className="mt-r is-head"><span>id</span><span>Зона</span><span>В записи 28163</span></div>
+                            {[...model.zones, { id: 0, name: 'Вне зон', color: '' }].map(z => {
+                                const own = zones[String(z.id)];
+                                const n = own ?? z.id;
+                                return (
+                                    <div key={z.id} className={`mt-r${z.id ? '' : ' is-out'}${n && !dictName(dicts, 'zone', n) ? ' is-off' : ''}`}>
+                                        <span className="mt-id">{z.id}</span>
+                                        <span className="mt-name">
+                                            <b>
+                                                {z.id > 0 && <i className="zone-g" style={{ '--z': z.color || NEUTRAL } as React.CSSProperties} />}
+                                                <FitText text={z.name} />
+                                            </b>
+                                        </span>
+                                        <NumberSelect
+                                            entries={dicts.zone ?? []}
+                                            value={own}
+                                            auto={z.id}
+                                            autoLabel="По умолчанию · id"
+                                            autoMark={<span className="mt-plus">{z.id ? 'id' : '0'}</span>}
+                                            empty="пусто"
+                                            onChange={v => onChange({ ...value, zones: put(zones, String(z.id), v) })}
+                                        />
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                ))}
             </>
         );
     }
@@ -299,7 +336,7 @@ function ModelsGroup({ kind, value, override, dicts, catalog, running, onChange 
         return next;
     });
     const add = (id: string) => {
-        onChange({ ...value, [id]: { classes: {}, superclasses: {} } }, override);
+        onChange({ ...value, [id]: { classes: {}, superclasses: {}, zones: {} } }, override);
         setOpen(s => new Set(s).add(id));
     };
     const remove = (id: string) => onChange(put(value, id, undefined), override && put(override, id, undefined));
@@ -538,6 +575,7 @@ export function tableUsage(table: RsmTable | IskraTable, catalog: NeuralModel[])
         const model = catalog.find(m => m.id === id);
         model?.classes.forEach(c => add(kind.cls, autoNo(t.classes, c.id)));
         if (kind.sup) model?.superclasses.forEach((_, i) => add(kind.sup!, autoNo(t.superclasses, i)));
+        if (kind.zones && model) zoneIds(model).forEach(z => add('zone', zoneNo(t.zones ?? {}, z)));
     });
     if (!isIskraTable(table)) Object.values(table.danger_override).forEach(o => Object.values(o).forEach(n => add('danger', n)));
     return usage;

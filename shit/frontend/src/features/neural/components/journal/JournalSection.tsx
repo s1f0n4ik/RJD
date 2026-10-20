@@ -6,9 +6,9 @@ import type { SelectOption } from '../../../../app/Select';
 import { useToast } from '../../../../app/Toast';
 import { journalApi } from '../../api/journal';
 import type { JournalDetection, Verdict } from '../../api/journal-types';
-import { useClassResolver } from './useClassResolver';
+import { useClassResolver, useZoneColors } from './useClassResolver';
 import { useCameraNames } from './useCameraNames';
-import { DetectionRow, detClass } from './DetectionRow';
+import { DetectionRow, ZoneTag, detClass } from './DetectionRow';
 import { FrameWithBoxes, useDetectionShots } from './FrameWithBoxes';
 import { ClassPicker, PresetSeg, VERDICT_OPTIONS } from './Filters';
 import { FilterFields, classLabel, useJournalFilters } from './JournalFilters';
@@ -40,6 +40,7 @@ export function JournalSection() {
   const { verdict, cids, deviceId, cameraId, configId } = fs;
   // классы фильтра — из выбранной конфигурации
   const { resolve, classOptions, optionsFor, legendFor, superOf, configs } = useClassResolver(configId || undefined);
+  const zoneColor = useZoneColors(configs);
   const { cameraName, deviceName, cameras, devices } = useCameraNames();
 
   const [dets, setDets] = useState<JournalDetection[]>([]);
@@ -367,6 +368,11 @@ export function JournalSection() {
             <span className="jr-count num">{shotIndex + 1} / {shots.length}</span>
           </>
         )}
+        {shot?.zone && (
+          <span className="j-shot-zone">
+            <ZoneTag zone={shot.zone} color={zoneColor(selectedDet.config_id, shot.zone.id)} />
+          </span>
+        )}
         <button
           className="icon-btn fs"
           data-tip="Открыть кадр целиком"
@@ -405,6 +411,16 @@ export function JournalSection() {
                 <span>{selClass.name}</span>
                 {selClass.superName && <span>{selClass.superName}</span>}
               </span>
+            </span>
+          </div>
+          <div className="kv">
+            <span className="k">Зона</span>
+            <span className="v">
+              {selectedDet.zone ? (
+                <ZoneTag zone={selectedDet.zone} color={zoneColor(selectedDet.config_id, selectedDet.zone.id)} />
+              ) : (
+                '—'
+              )}
             </span>
           </div>
           <div className="kv"><span className="k">Треки</span><span className="v">{trackText}</span></div>
@@ -566,6 +582,7 @@ export function JournalSection() {
                   det={d}
                   selected={d.id === selectedId}
                   resolve={resolve}
+                  zoneColor={zoneColor}
                   cameraName={cameraName}
                   onSelect={setSelectedId}
                 />
@@ -606,6 +623,7 @@ export function JournalSection() {
           det={viewerList[viewerIndex]}
           initialShot={viewer.shot}
           resolve={resolve}
+          zoneColor={zoneColor}
           cameraName={cameraName}
           hasPrev={viewerIndex > 0}
           hasNext={viewerIndex < viewerList.length - 1}

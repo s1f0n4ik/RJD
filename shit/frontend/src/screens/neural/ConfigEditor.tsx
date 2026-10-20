@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Icon } from '../../app/Icons';
 import { Switch, Seg } from '../../app/Modal';
 import { Select } from '../../app/Select';
-import type { ClassDef, ModelFile, NeuralConfig, SuperclassDef, TrackerConfig, TrackerType } from '../../features/neural/api/types';
+import type { ClassDef, ModelFile, NeuralConfig, SuperclassDef, TrackerConfig, TrackerType, ZoneDef } from '../../features/neural/api/types';
+import { modelClasses, modelMb, modelOf, modelQuant, modelSize, modelTask } from './model-desc';
 
 // Поле трекера: ключ конфигурации, подпись, знаков после запятой, пределы
 interface TrackerField { key: string; label: string; digits: number; min?: number; max?: number }
@@ -28,6 +29,10 @@ const MATCH_BY: [string, string][] = [['class', 'по классу'], ['supercla
 
 const NO_SUPER_COLOR = '#878c97';
 const NEW_COLOR = '#68a5ff';
+// Цвета новых зон по кругу
+const ZONE_COLORS = ['#ff5a5f', '#ff9a3c', '#f2d14b', '#4dc4ee', '#9f93f5', '#53cf95'];
+const ZONE_ENTER_FRAMES = 2;
+const ZONE_LEAVE_S = 1;
 
 interface ConfigEditorProps {
     value: NeuralConfig;
@@ -40,11 +45,13 @@ interface ConfigEditorProps {
     models: ModelFile[];
     onUploadModel: (file: File) => Promise<string | null>;
     trackerTypes: TrackerType[];
+    /** Сохранённая версия: с ней сверяются файл модели и id зон; null — конфигурация новая */
+    saved: NeuralConfig | null;
 }
 
 const fmtSize = (bytes: number) => bytes >= 1 << 20 ? `${(bytes / (1 << 20)).toFixed(1)} МБ` : `${Math.round(bytes / 1024)} КБ`;
 
-export function ConfigEditor({ value, onChange, creating, id, onIdChange, idError, models, onUploadModel, trackerTypes }: ConfigEditorProps) {
+export function ConfigEditor({ value, onChange, creating, id, onIdChange, idError, models, onUploadModel, trackerTypes, saved }: ConfigEditorProps) {
     const fileRef = useRef<HTMLInputElement>(null);
     const [uploading, setUploading] = useState(false);
     const [uploadErr, setUploadErr] = useState<string | null>(null);
@@ -144,30 +151,34 @@ export function ConfigEditor({ value, onChange, creating, id, onIdChange, idErro
                             </button>
                             <input ref={fileRef} type="file" accept=".rknn" style={{ display: 'none' }} onChange={e => handleFile(e.target.files?.[0])} />
                         </div>
+                        <ModelLine value={value} saved={saved} />
                         {idError && <span className="hint is-err">{idError}</span>}
                         {uploadErr && <span className="hint is-err">{uploadErr}</span>}
                     </div>
                 </div>
 
                 <div className="two">
-                    <div className="nvb">
-                        <div className="blk-h"><h3>Пороги</h3></div>
-                        <div className="blk-b">
-                            <div className="tf-row">
-                                <NumField label="Уверенность" value={value.thresholds.confidence} step={0.01} min={0} max={1} digits={2}
-                                    onCommit={v => patch({ thresholds: { ...value.thresholds, confidence: v } })} />
-                                <NumField label="NMS" value={value.thresholds.nms} step={0.01} min={0} max={1} digits={2}
-                                    onCommit={v => patch({ thresholds: { ...value.thresholds, nms: v } })} />
-                            </div>
-                            <div className="tf-row">
-                                <div className="tf" data-tip="Только для моделей с масками: детекция без контура отбрасывается">
-                                    <span className="tf-cap">Маска</span>
-                                    <Switch on={value.thresholds.require_mask ?? true}
-                                        onToggle={v => patch({ thresholds: { ...value.thresholds, require_mask: v } })}>требовать</Switch>
+                    <div className="nv-col">
+                        <div className="nvb">
+                            <div className="blk-h"><h3>Пороги</h3></div>
+                            <div className="blk-b">
+                                <div className="tf-row">
+                                    <NumField label="Уверенность" value={value.thresholds.confidence} step={0.01} min={0} max={1} digits={2}
+                                        onCommit={v => patch({ thresholds: { ...value.thresholds, confidence: v } })} />
+                                    <NumField label="NMS" value={value.thresholds.nms} step={0.01} min={0} max={1} digits={2}
+                                        onCommit={v => patch({ thresholds: { ...value.thresholds, nms: v } })} />
                                 </div>
-                                <div className="tf" />
+                                <div className="tf-row">
+                                    <div className="tf" data-tip="Только для моделей с масками: детекция без контура отбрасывается">
+                                        <span className="tf-cap">Маска</span>
+                                        <Switch on={value.thresholds.require_mask ?? true}
+                                            onToggle={v => patch({ thresholds: { ...value.thresholds, require_mask: v } })}>требовать</Switch>
+                                    </div>
+                                    <div className="tf" />
+                                </div>
                             </div>
                         </div>
+                        <Zones value={value} onChange={onChange} saved={saved} />
                     </div>
                     <div className="nvb">
                         <div className="blk-h">
@@ -221,9 +232,96 @@ export function ConfigEditor({ value, onChange, creating, id, onIdChange, idErro
     );
 }
 
+// ── Описание модели, записанное устройством при сохранении ──
+function ModelLine({ value, saved }: { value: NeuralConfig; saved: NeuralConfig | null }) {
+    const m = modelOf(value.model, value.model_path);
+    if (!m) {
+        if (!value.model_path) return null;
+        // Файл сохранён, а описания нет — устройство модель не открыло
+        if (saved?.model_path === value.model_path) {
+            return <div className="nv-model is-bad" data-tip="Слот с этой конфигурацией не ставится"><Icon name="warn" />модель не прочитана</div>;
+        }
+        return <div className="nv-model is-idle">модель прочитается при сохранении</div>;
+    }
+    const described = Object.keys(value.classes).length;
+    const mismatch = m.class_count !== described;
+    return (
+        <div className="nv-model">
+            <span className="seps">
+                <span>{modelSize(m)}</span>
+                <span>{modelQuant(m)}</span>
+                <span>{modelTask(m)}</span>
+                <span className={mismatch ? 'w' : undefined}>{modelClasses(m.class_count)}</span>
+                <span>{modelMb(m)}</span>
+            </span>
+            {mismatch && <span className="tag is-warn">описано {described}</span>}
+        </div>
+    );
+}
+
+// ── Зоны: приоритет — место в списке, id с 1 не меняется ──
+function Zones({ value, onChange, saved }: { value: NeuralConfig; onChange: (next: NeuralConfig) => void; saved: NeuralConfig | null }) {
+    const zones = value.zones ?? [];
+    const set = (next: ZoneDef[]) => onChange({ ...value, zones: next });
+    const patchZone = (i: number, p: Partial<ZoneDef>) => set(zones.map((z, j) => (j === i ? { ...z, ...p } : z)));
+    const move = (i: number, d: number) => {
+        const next = [...zones];
+        [next[i], next[i + d]] = [next[i + d], next[i]];
+        set(next);
+    };
+    const add = () => {
+        // id выше всех в каталоге и в сохранённой версии
+        const top = Math.max(0, ...zones.map(z => z.id), ...(saved?.zones ?? []).map(z => z.id));
+        set([...zones, { id: top + 1, name: `Зона ${zones.length + 1}`, color: ZONE_COLORS[zones.length % ZONE_COLORS.length], threshold: 0 }]);
+    };
+
+    return (
+        <div className="nvb nv-zones">
+            <div className="blk-h"><h3>Зоны</h3><span className="eyebrow">{zones.length}</span></div>
+            <div className="blk-b">
+                {zones.length === 0 ? <div className="nv-zempty">Зон нет</div> : (
+                    <div className="nv-zl">
+                        <div className="nv-zh">
+                            <span>№</span><span /><span>Название</span><span />
+                            <span data-tip="Доля рамки или маски внутри зоны; 0 % — хватает пикселя">Порог</span><span /><span />
+                        </div>
+                        {zones.map((z, i) => (
+                            <div key={z.id} className="nv-zr" style={{ '--z': z.color } as React.CSSProperties}>
+                                <span className="no">{i + 1}</span>
+                                <ColorSwatch color={z.color} onChange={color => patchZone(i, { color })} />
+                                <input className="nm" value={z.name} placeholder="Название" aria-label="Название зоны" onChange={e => patchZone(i, { name: e.target.value })} />
+                                <span className="zid">id {z.id}</span>
+                                <span className="thr">
+                                    <NumField bare label="Порог, %" value={Math.round(z.threshold * 100)} step={1} min={0} max={100} digits={0}
+                                        onCommit={v => patchZone(i, { threshold: v / 100 })} />
+                                    <em>%</em>
+                                </span>
+                                <span className="ord">
+                                    <button className="icon-btn up" data-tip="Выше по приоритету" disabled={i === 0} onClick={() => move(i, -1)}><Icon name="chev" /></button>
+                                    <button className="icon-btn dn" data-tip="Ниже по приоритету" disabled={i === zones.length - 1} onClick={() => move(i, 1)}><Icon name="chev" /></button>
+                                </span>
+                                <button className="icon-btn del" data-tip="Удалить зону" onClick={() => set(zones.filter((_, j) => j !== i))}><Icon name="trash" /></button>
+                            </div>
+                        ))}
+                    </div>
+                )}
+                <button className="nv-zadd" onClick={add}><Icon name="plus" />Зона</button>
+                <div className="tf-row">
+                    <NumField label="Вход, кадров подряд" value={value.zone_enter_frames ?? ZONE_ENTER_FRAMES} step={1} min={1} digits={0}
+                        onCommit={v => onChange({ ...value, zone_enter_frames: v })} />
+                    <NumField label="Выход, с" value={value.zone_leave_s ?? ZONE_LEAVE_S} step={0.1} min={0} digits={1}
+                        onCommit={v => onChange({ ...value, zone_leave_s: v })} />
+                </div>
+            </div>
+        </div>
+    );
+}
+
 // ── Числовое поле с коммитом по blur/Enter: пока печатают, значение живёт строкой ──
 interface NumFieldProps {
     label: string;
+    /** Только поле ввода, подпись уходит в aria-label */
+    bare?: boolean;
     // Нет значения — пустое поле
     value?: number;
     step: number;
@@ -234,7 +332,7 @@ interface NumFieldProps {
     onCommit: (v: number) => void;
 }
 
-function NumField({ label, value, step, min, max, digits, disabled, onCommit }: NumFieldProps) {
+function NumField({ label, bare, value, step, min, max, digits, disabled, onCommit }: NumFieldProps) {
     const show = (v?: number) => (v == null ? '' : v.toFixed(digits));
     const [text, setText] = useState(show(value));
     const [focused, setFocused] = useState(false);
@@ -253,23 +351,28 @@ function NumField({ label, value, step, min, max, digits, disabled, onCommit }: 
         if (n !== value) onCommit(n);
     };
 
+    const input = (
+        <input
+            className="tf-in"
+            type="number"
+            step={step}
+            min={min}
+            max={max}
+            value={text}
+            disabled={disabled}
+            aria-label={bare ? label : undefined}
+            onChange={e => setText(e.target.value)}
+            onFocus={() => setFocused(true)}
+            onBlur={() => { setFocused(false); commit(); }}
+            onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+            onWheel={e => e.currentTarget.blur()}
+        />
+    );
+    if (bare) return input;
     return (
         <div className="tf">
             <span className="tf-cap">{label}</span>
-            <input
-                className="tf-in"
-                type="number"
-                step={step}
-                min={min}
-                max={max}
-                value={text}
-                disabled={disabled}
-                onChange={e => setText(e.target.value)}
-                onFocus={() => setFocused(true)}
-                onBlur={() => { setFocused(false); commit(); }}
-                onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-                onWheel={e => e.currentTarget.blur()}
-            />
+            {input}
         </div>
     );
 }

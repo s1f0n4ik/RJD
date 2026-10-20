@@ -1,6 +1,6 @@
-import { memo } from 'react';
-import type { JournalDetection } from '../../api/journal-types';
-import type { ClassMeaning } from './useClassResolver';
+import { memo, type CSSProperties } from 'react';
+import type { JournalDetection, JournalZone } from '../../api/journal-types';
+import type { ClassMeaning, ZoneColor } from './useClassResolver';
 import { VERDICT_CLASS, VERDICT_LABEL } from './Filters';
 import { fmtCoord, fmtTime, reasonTag } from './format';
 
@@ -10,6 +10,7 @@ interface Props {
   det: JournalDetection;
   selected: boolean;
   resolve: Resolve;
+  zoneColor: ZoneColor;
   cameraName: (id: string) => string;
   onSelect: (id: number) => void;
 }
@@ -30,8 +31,23 @@ export function detClass(det: JournalDetection, resolve: Resolve): DetClass {
   };
 }
 
-// Класс с числом треков и метки опоздания и причины закрытия
-export function DetTags({ det, resolve }: { det: JournalDetection; resolve: Resolve }) {
+// Название зоны из журнала; пустое — по id
+export function zoneLabel(zone: JournalZone): string {
+  return zone.name || `Зона ${zone.id}`;
+}
+
+// Плашка зоны её цветом
+export function ZoneTag({ zone, color }: { zone: JournalZone; color: string }) {
+  return (
+    <span className="zone-tag" style={{ '--z': color } as CSSProperties}>
+      <i className="zone-g" />
+      {zoneLabel(zone)}
+    </span>
+  );
+}
+
+// Класс с числом треков, зона при переданном zoneColor, метки опоздания и причины закрытия
+export function DetTags({ det, resolve, zoneColor }: { det: JournalDetection; resolve: Resolve; zoneColor?: ZoneColor }) {
   const c = detClass(det, resolve);
   const reason = reasonTag(det.closed_reason);
   return (
@@ -41,13 +57,14 @@ export function DetTags({ det, resolve }: { det: JournalDetection; resolve: Reso
         {c.name}
         {det.tracks > 1 && <span className="num">×{det.tracks} тр.</span>}
       </span>
+      {zoneColor && det.zone && <ZoneTag zone={det.zone} color={zoneColor(det.config_id, det.zone.id)} />}
       {det.late && <span className="tag is-warn">опоздало</span>}
       {reason && <span className="tag">{reason}</span>}
     </>
   );
 }
 
-function DetectionRowInner({ det, selected, resolve, cameraName, onSelect }: Props) {
+function DetectionRowInner({ det, selected, resolve, zoneColor, cameraName, onSelect }: Props) {
   const vd = VERDICT_CLASS[det.verdict];
 
   return (
@@ -55,7 +72,7 @@ function DetectionRowInner({ det, selected, resolve, cameraName, onSelect }: Pro
       <span className="j-ts">{fmtTime(det.started_at)}</span>
       <span className="j-cam">{cameraName(det.camera_id)}</span>
       <span className="j-obj">
-        <DetTags det={det} resolve={resolve} />
+        <DetTags det={det} resolve={resolve} zoneColor={zoneColor} />
       </span>
       <span className="j-tr">{det.gps ? `${fmtCoord(det.gps.lat)}, ${fmtCoord(det.gps.lon)}` : '—'}</span>
       <span className={`vd ${vd.vd}`}>

@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { Icon } from '../../../../app/Icons';
 import { Modal } from '../../../../app/Modal';
 import { journalApi } from '../../api/journal';
 import type { JournalDetection, Verdict } from '../../api/journal-types';
-import type { ClassMeaning } from './useClassResolver';
-import { detClass } from './DetectionRow';
+import type { ClassMeaning, ZoneColor } from './useClassResolver';
+import { ZoneTag, detClass, zoneLabel } from './DetectionRow';
 import { VERDICT_CLASS, VERDICT_LABEL } from './Filters';
 import { useDetectionShots } from './FrameWithBoxes';
 import { fmtCoord, fmtDateTime, fmtTime } from './format';
@@ -14,6 +14,7 @@ interface Props {
   // Снимок, на котором открыть; null — превью
   initialShot: number | null;
   resolve: (configId: string | null, cid: number) => ClassMeaning;
+  zoneColor: ZoneColor;
   cameraName: (id: string) => string;
   hasPrev: boolean;
   hasNext: boolean;
@@ -28,6 +29,7 @@ export function FrameViewer({
   det,
   initialShot,
   resolve,
+  zoneColor,
   cameraName,
   hasPrev,
   hasNext,
@@ -157,6 +159,10 @@ export function FrameViewer({
                     <div className="kv"><span className="k">Время</span><span className="v">{shot.ts != null ? fmtTime(shot.ts) : '—'}</span></div>
                     <div className="kv"><span className="k">Трек</span><span className="v">{shot.track_no != null ? `#${shot.track_no}` : '—'}</span></div>
                     <div className="kv"><span className="k">Уверенность</span><span className="v">{shot.confidence != null ? shot.confidence.toFixed(2) : '—'}</span></div>
+                    <div className="kv">
+                      <span className="k">Зона</span>
+                      <span className="v">{shot.zone ? <ZoneTag zone={shot.zone} color={zoneColor(det.config_id, shot.zone.id)} /> : '—'}</span>
+                    </div>
                     {w > 0 && h > 0 && (
                       <div className="kv"><span className="k">Размер</span><span className="v">{w}×{h}</span></div>
                     )}
@@ -206,10 +212,21 @@ export function FrameViewer({
                 key={s.image_id}
                 type="button"
                 className={i === index ? 'is-on' : ''}
-                data-tip={[s.track_no != null ? `#${s.track_no}` : '', s.ts != null ? fmtTime(s.ts) : ''].filter(Boolean).join(' · ')}
+                data-tip={[
+                  s.track_no != null ? `#${s.track_no}` : '',
+                  s.ts != null ? fmtTime(s.ts) : '',
+                  s.zone ? `зона «${zoneLabel(s.zone)}»` : '',
+                  s.zone_up ? 'вход в зону выше' : '',
+                ].filter(Boolean).join(' · ')}
                 onClick={() => setIndex(i)}
               >
                 <img src={s.url} alt="" loading="lazy" />
+                {s.zone && (
+                  <span className="fv-shot-zone" style={{ '--z': zoneColor(det.config_id, s.zone.id) } as CSSProperties}>
+                    <i className="zone-g" />
+                    {zoneLabel(s.zone)}
+                  </span>
+                )}
               </button>
             ))}
           </div>

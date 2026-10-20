@@ -132,3 +132,32 @@ export function useClassResolver(configId?: string) {
 
   return { resolve, classOptions, optionsFor, legendFor, superOf, configs, loading };
 }
+
+export type ZoneColor = (configId: string | null, zoneId: number) => string;
+
+// Цвет зоны по паре config_id + id зоны из каталога полной конфигурации; не нашёлся — нейтральный
+export function useZoneColors(configs: DeviceConfig[]): ZoneColor {
+  const [byConfig, setByConfig] = useState<Record<string, Map<number, string>>>({});
+
+  useEffect(() => {
+    let alive = true;
+    Promise.all(
+      configs.map((c) =>
+        neuralApi
+          .getConfiguration(c.id, c.device)
+          .then((full) => [c.id, new Map((full.zones ?? []).map((z) => [z.id, z.color]))] as const)
+          .catch(() => [c.id, new Map<number, string>()] as const),
+      ),
+    ).then((entries) => {
+      if (alive) setByConfig(Object.fromEntries(entries));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [configs]);
+
+  return useCallback(
+    (configId: string | null, zoneId: number) => (configId && byConfig[configId]?.get(zoneId)) || UNKNOWN.color,
+    [byConfig],
+  );
+}

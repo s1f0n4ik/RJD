@@ -53,7 +53,7 @@ export const neuralApi = {
     // ── Конфигурации ──
     listConfigurations: (device?: string) => get<{ configurations: ConfigSummary[] }>('/neural/configurations', device),
 
-    getConfiguration: (id: string) => get<NeuralConfig>(`/neural/configurations?id=${encodeURIComponent(id)}`),
+    getConfiguration: (id: string, device?: string) => get<NeuralConfig>(`/neural/configurations?id=${encodeURIComponent(id)}`, device),
 
     /** POST /neural/configurations — { mode, data: { <id>: config } } */
     importConfigurations: (data: Record<string, NeuralConfig>, mode: ImportMode) =>
@@ -136,4 +136,11 @@ export async function configMeta(configId: string) {
     const found = (await listAllConfigurations()).find(c => c.id === configId);
     if (!found) throw new Error(`Configuration ${configId} not found on any device`);
     return Promise.all([neuralApi.getClasses(configId, found.device), neuralApi.getSuperclasses(configId, found.device)]);
+}
+
+// Полная конфигурация с устройства, где она есть: каталог зон и описание модели
+export async function configFull(configId: string) {
+    const found = (await listAllConfigurations()).find(c => c.id === configId);
+    if (!found) throw new Error(`Configuration ${configId} not found on any device`);
+    return neuralApi.getConfiguration(configId, found.device);
 }

@@ -6,23 +6,17 @@ import { Select } from '../../app/Select';
 import { ConfirmModal } from '../../features/birdview/components/common/ConfirmModal';
 import { useToast } from '../../app/Toast';
 import { neuralApi } from '../../features/neural/api/client';
-import type { ConfigSummary, VideoStream } from '../../features/neural/api/types';
+import type { ConfigSummary, VideoStream, ZoneDef } from '../../features/neural/api/types';
 import { loadEditorCameras, type EditorCamera } from './editor-cameras';
+import { modelQuant, modelSize, plural } from './model-desc';
 import { cellRect, freeCells, tileCell } from './stream-geometry';
 import { StreamEditor } from './StreamEditor';
 
 // Новый видеопоток до сохранения; id вводится в шапке редактора
 const NEW_ID = '_new';
 
-const plural = (n: number, one: string, few: string, many: string) => {
-    const m10 = n % 10, m100 = n % 100;
-    if (m10 === 1 && m100 !== 11) return one;
-    if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
-    return many;
-};
-
-const blankStream = (configId: string): VideoStream => ({
-    id: '', name: '', config_id: configId, width: 640, height: 640,
+const blankStream = (): VideoStream => ({
+    id: '', name: '', width: 640, height: 640,
     rows: 1, cols: 1, row_fr: [], col_fr: [], tiles: [],
 });
 
@@ -35,7 +29,9 @@ export function VideoStreamsScreen() {
     const [streams, setStreams] = useState<VideoStream[] | null>(null);
     const [configs, setConfigs] = useState<ConfigSummary[]>([]);
     const [cameras, setCameras] = useState<EditorCamera[]>([]);
-    const [usage, setUsage] = useState<Record<string, number>>({});
+    // Конфигурации слотов по потокам
+    const [usage, setUsage] = useState<Record<string, string[]>>({});
+    const [zonesBy, setZonesBy] = useState<Record<string, ZoneDef[]>>({});
     const [toDelete, setToDelete] = useState<VideoStream | null>(null);
     const [fromCamera, setFromCamera] = useState(false);
 
@@ -47,9 +43,11 @@ export function VideoStreamsScreen() {
         ]);
         setStreams(list);
         setConfigs(cfgs);
-        const map: Record<string, number> = {};
-        for (const d of state) map[d.stream_id] = (map[d.stream_id] ?? 0) + 1;
+        const map: Record<string, string[]> = {};
+        for (const d of state) map[d.stream_id] = [...(map[d.stream_id] ?? []), d.config_id];
         setUsage(map);
+        const zones = await Promise.all(cfgs.map(c => neuralApi.getConfiguration(c.id).then(full => [c.id, full.zones ?? []] as const).catch(() => [c.id, []] as const)));
+        setZonesBy(Object.fromEntries(zones));
     }, []);
 
     useEffect(() => {
@@ -72,9 +70,9 @@ export function VideoStreamsScreen() {
 
     const editing = useMemo(() => {
         if (!editId || !streams) return null;
-        if (editId === NEW_ID) return blankStream(configs[0]?.id ?? '');
+        if (editId === NEW_ID) return blankStream();
         return streams.find(s => s.id === editId) ?? null;
-    }, [editId, streams, configs]);
+    }, [editId, streams]);
 
     if (editId && editing) {
         return (
@@ -84,8 +82,9 @@ export function VideoStreamsScreen() {
                 initial={editing}
                 isNew={editId === NEW_ID}
                 configs={configs}
+                zonesBy={zonesBy}
                 cameras={cameras}
-                slots={usage[editing.id] ?? 0}
+                slotConfigs={usage[editing.id] ?? []}
                 onBack={() => { open(null); reload(); }}
                 onSaved={s => {
                     setStreams(prev => [...(prev ?? []).filter(x => x.id !== s.id), s]);
@@ -113,8 +112,7 @@ export function VideoStreamsScreen() {
                     </div>
                 </div>
                 {(streams ?? []).map(s => {
-                    const used = usage[s.id] ?? 0;
-                    const lost = !s.config_id || !configs.some(c => c.id === s.config_id);
+                    const used = usage[s.id]?.length ?? 0;
                     const tiles = s.tiles.length;
                     return (
                         <div key={s.id} className="vcard" role="button" tabIndex={0} onClick={() => open(s.id)}
@@ -129,16 +127,13 @@ export function VideoStreamsScreen() {
                                         : <span className="icon-btn" data-tip="Удалить видеопоток" onClick={e => { e.stopPropagation(); setToDelete(s); }}><Icon name="trash" size={13} /></span>}
                                 </div>
                                 <div className="meta">
-                                    {lost ? <span className="bad">без конфигурации</span> : <span>{s.config_id}</span>}
-                                    <span className="sep">·</span><span>{s.width}×{s.height}</span>
+                                    <span>{s.width}×{s.height}</span>
                                     <span className="sep">·</span><span>{tiles} {plural(tiles, 'тайл', 'тайла', 'тайлов')}</span>
                                 </div>
                                 <div className="row">
-                                    {lost
-                                        ? <span className="pill err"><span className="dot" />конфигурация удалена</span>
-                                        : used
-                                            ? <span className="pill ok"><span className="dot" />в {used} {plural(used, 'слоте', 'слотах', 'слотах')}</span>
-                                            : <span className="pill"><span className="dot" />не используется</span>}
+                                    {used
+                                        ? <span className="pill ok"><span className="dot" />в {used} {plural(used, 'слоте', 'слотах', 'слотах')}</span>
+                                        : <span className="pill"><span className="dot" />не используется</span>}
                                 </div>
                             </div>
                         </div>
@@ -201,16 +196,19 @@ function FromCameraModal({ cameras, configs, onClose, onCreated }: {
 }) {
     const toast = useToast();
     const [camera, setCamera] = useState(cameras[0]?.id ?? '');
-    const [config, setConfig] = useState(configs[0]?.id ?? '');
+    const [config, setConfig] = useState(configs.find(c => c.model)?.id ?? '');
     const [busy, setBusy] = useState(false);
     const id = `${config}_${camera}`;
     const cam = cameras.find(c => c.id === camera);
+    // Полотно под вход модели конфигурации
+    const model = configs.find(c => c.id === config)?.model;
 
     const create = async () => {
+        if (!model) return;
         setBusy(true);
         try {
             const s = await neuralApi.saveStream({
-                id, name: cam?.name ?? camera, config_id: config, rows: 1, cols: 1, row_fr: [], col_fr: [],
+                id, name: cam?.name ?? camera, width: model.input_width, height: model.input_height, rows: 1, cols: 1, row_fr: [], col_fr: [],
                 tiles: [{ camera, row: 0, col: 0, row_span: 1, col_span: 1, crop: [0, 0, 1, 1], fit: 'letterbox' }],
             });
             toast('Видеопоток создан', s.name || s.id, 'ok');
@@ -226,7 +224,7 @@ function FromCameraModal({ cameras, configs, onClose, onCreated }: {
         <Modal title="Видеопоток из камеры" onClose={onClose} footer={
             <>
                 <button className="btn btn--ghost spacer" onClick={onClose}>Отмена</button>
-                <button className="btn btn--acc" disabled={busy || !camera || !config} onClick={create}>Создать</button>
+                <button className="btn btn--acc" disabled={busy || !camera || !model} onClick={create}>Создать</button>
             </>
         }>
             <div className="vl-form">
@@ -234,10 +232,11 @@ function FromCameraModal({ cameras, configs, onClose, onCreated }: {
                     <Select value={camera} onChange={setCamera} options={cameras.map(c => ({ value: c.id, label: c.name, hint: `${c.neural.width}×${c.neural.height}` }))} />
                 </div>
                 <div className="tf"><span className="tf-cap">Конфигурация</span>
-                    <Select value={config} onChange={setConfig} options={configs.map(c => ({ value: c.id, label: c.name || c.id, hint: c.id }))} />
+                    <Select value={config} onChange={setConfig}
+                        options={configs.map(c => ({ value: c.id, label: c.name || c.id, hint: c.model ? `${modelSize(c.model)} · ${modelQuant(c.model)}` : 'модель не прочитана', disabled: !c.model }))} />
                 </div>
                 <div className="tf"><span className="tf-cap">Идентификатор</span><input className="tf-in is-ro" value={id} readOnly /></div>
-                <div className="hint">Один тайл на всё полотно, кадр целиком, вписать. Потом поток можно править в редакторе.</div>
+                <div className="hint">Один тайл на всё полотно размером со вход модели, кадр целиком, вписать. Потом поток можно править в редакторе.</div>
             </div>
         </Modal>
     );

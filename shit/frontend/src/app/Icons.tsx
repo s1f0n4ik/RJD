@@ -1,5 +1,5 @@
 // Спрайт иконок макета: один набор на всё приложение, толщина линии единая
-export type IconName = 'home' | 'grid' | 'arch' | 'cam' | 'eye' | '360' | 'gate' | 'menu' | 'cursor' | 'zone' | 'img' | 'gab' | 'cal' | 'play' | 'pause' | 'prev' | 'next' | 'swap' | 'bus' | 'clock' | 'tune' | 'chev' | 'dev' | 'kit' | 'plus' | 'search' | 'exit' | 'warn' | 'box' | 'map' | 'full' | 'trash' | 'save' | 'x' | 'empty' | 'lock' | 'undist' | 'refresh' | 'dots' | 'link' | 'unlink' | 'down' | 'grip' | 'list' | 'unfull' | 'undo' | 'eraser' | 'reset' | 'playhead';
+export type IconName = 'home' | 'grid' | 'arch' | 'cam' | 'eye' | '360' | 'gate' | 'menu' | 'cursor' | 'zone' | 'img' | 'gab' | 'cal' | 'play' | 'pause' | 'prev' | 'next' | 'swap' | 'bus' | 'clock' | 'tune' | 'chev' | 'dev' | 'kit' | 'plus' | 'search' | 'exit' | 'warn' | 'box' | 'map' | 'full' | 'trash' | 'save' | 'x' | 'empty' | 'lock' | 'undist' | 'refresh' | 'dots' | 'link' | 'unlink' | 'down' | 'grip' | 'list' | 'unfull' | 'undo' | 'eraser' | 'reset' | 'playhead' | 'poly' | 'pen' | 'dim';
 
 export function IconSprite() {
   return (
@@ -54,6 +54,9 @@ export function IconSprite() {
     <symbol id="i-eraser" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M10.4 19.5 4.6 13.7a1.6 1.6 0 0 1 0-2.3l7.1-7.1a1.6 1.6 0 0 1 2.3 0l4.7 4.7a1.6 1.6 0 0 1 0 2.3l-7.7 7.7z"/><path d="M10 19.5h9.5M9.2 8.6l6.9 6.9"/></symbol>
     <symbol id="i-reset" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="3.2" y="5.2" width="17.6" height="13.6" rx="1.6"/><path d="M15.4 12.6a3.4 3.4 0 1 1-1.1-2.5"/><path d="M15.8 8.4v2.8h-2.8"/></symbol>
     <symbol id="i-playhead" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M5.5 6.5h-2v11h2M18.5 6.5h2v11h-2M12 9v11"/><path d="M9.4 4h5.2L12 7.4z" fill="currentColor"/></symbol>
+    <symbol id="i-poly" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round"><path d="M5.5 7.5 14 4l5.5 7-3 8.5-10-1.5z"/><g fill="currentColor" stroke="none"><circle cx="5.5" cy="7.5" r="2"/><circle cx="14" cy="4" r="2"/><circle cx="19.5" cy="11" r="2"/><circle cx="16.5" cy="19.5" r="2"/><circle cx="6.5" cy="18" r="2"/></g></symbol>
+    <symbol id="i-pen" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13 7 4 4"/></symbol>
+    <symbol id="i-dim" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round"><path d="M3 5h18v14H3zM8 9v6h8V9z" fill="currentColor" fillOpacity=".35" fillRule="evenodd"/></symbol>
       </defs>
     </svg>
   );

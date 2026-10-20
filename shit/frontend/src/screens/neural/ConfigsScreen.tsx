@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Icon } from '../../app/Icons';
 import { ConfirmModal } from '../../features/birdview/components/common/ConfirmModal';
 import { useToast } from '../../app/Toast';
@@ -6,6 +7,7 @@ import { neuralApi } from '../../features/neural/api/client';
 import type { ConfigSummary, ModelFile, NeuralConfig, TrackerType } from '../../features/neural/api/types';
 import { ConfigEditor } from './ConfigEditor';
 import { ImportModal } from './ImportModal';
+import { modelSize, modelQuant, modelStem, plural } from './model-desc';
 
 const blankConfig = (): NeuralConfig => ({
     name: '',
@@ -18,12 +20,8 @@ const blankConfig = (): NeuralConfig => ({
 
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 
-const plural = (n: number, one: string, few: string, many: string) => {
-    const m10 = n % 10, m100 = n % 100;
-    if (m10 === 1 && m100 !== 11) return one;
-    if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
-    return many;
-};
+// Загруженная конфигурация с умолчаниями порогов
+const withDefaults = (cfg: NeuralConfig): NeuralConfig => ({ ...blankConfig(), ...cfg, thresholds: { ...blankConfig().thresholds, ...cfg.thresholds } });
 
 // Сводка по конфигурации для списка: число классов и цвет первого суперкласса
 interface ListMeta {
@@ -33,6 +31,7 @@ interface ListMeta {
 
 export function ConfigsScreen() {
     const toast = useToast();
+    const [params] = useSearchParams();
 
     const [items, setItems] = useState<ConfigSummary[]>([]);
     const [loading, setLoading] = useState(true);
@@ -41,7 +40,8 @@ export function ConfigsScreen() {
     const [models, setModels] = useState<ModelFile[]>([]);
     const [trackerTypes, setTrackerTypes] = useState<TrackerType[]>([{ type: 'iou', name: 'IoU' }]);
 
-    const [selectedId, setSelectedId] = useState<string | null>(null);
+    // ?config= открывает конфигурацию сразу: так ведёт ссылка из редактора видеопотока
+    const [selectedId, setSelectedId] = useState<string | null>(() => params.get('config'));
     const [creating, setCreating] = useState(false);
     const [original, setOriginal] = useState<NeuralConfig | null>(null);
     const [draft, setDraft] = useState<NeuralConfig | null>(null);
@@ -78,7 +78,6 @@ export function ConfigsScreen() {
         try {
             const descs = await neuralApi.getState();
             const map: Record<string, number> = {};
-            // Конфигурация слота выводится из его видеопотока
             for (const d of descs) if (d.config_id) map[d.config_id] = (map[d.config_id] ?? 0) + 1;
             setUsage(map);
         } catch {
@@ -106,7 +105,7 @@ export function ConfigsScreen() {
         neuralApi.getConfiguration(selectedId)
             .then(cfg => {
                 if (cancelled) return;
-                const full: NeuralConfig = { ...blankConfig(), ...cfg, thresholds: { ...blankConfig().thresholds, ...cfg.thresholds } };
+                const full = withDefaults(cfg);
                 setOriginal(full);
                 setDraft(clone(full));
             })
@@ -161,10 +160,13 @@ export function ConfigsScreen() {
         try {
             await neuralApi.importConfigurations({ [id]: draft }, 'merge');
             toast(creating ? 'Конфигурация создана' : 'Конфигурация сохранена', draft.name || id, 'ok');
-            setCreating(false);
-            setOriginal(clone(draft));
-            await reloadList();
+            // Описание модели пишет устройство при сохранении
+            const fresh = withDefaults(await neuralApi.getConfiguration(id).catch(() => draft));
+            setOriginal(fresh);
+            setDraft(clone(fresh));
             setSelectedId(id);
+            setCreating(false);
+            await reloadList();
         } catch (e) {
             setErr(e instanceof Error ? e.message : String(e));
         } finally {
@@ -239,6 +241,7 @@ export function ConfigsScreen() {
                                     models={models}
                                     onUploadModel={uploadModel}
                                     trackerTypes={trackerTypes}
+                                    saved={creating ? null : original}
                                 />
                             )}
                         </>
@@ -269,10 +272,12 @@ export function ConfigsScreen() {
                     const m = meta[c.id];
                     const inUse = (usage[c.id] ?? 0) > 0;
                     const isSel = !creating && c.id === selectedId;
+                    const model = c.model ?? null;
+                    const mismatch = !!m && !!model && model.class_count !== m.classes;
                     return (
                         <div
                             key={c.id}
-                            className={`row-item${isSel ? ' is-sel' : ''}`}
+                            className={`row-item nv-ci${isSel ? ' is-sel' : ''}`}
                             role="button"
                             tabIndex={0}
                             onClick={() => selectExisting(c.id)}
@@ -280,15 +285,20 @@ export function ConfigsScreen() {
                         >
                             <span className="chip-col" style={{ background: m?.color ?? 'var(--line-hi)' }} />
                             <span className="nm">{c.name || c.id}</span>
-                            {m && <span className="num">{m.classes} кл.</span>}
+                            {m && (mismatch
+                                ? <span className="num w" data-tip={`В модели ${model!.class_count} классов, описано ${m.classes}`}>{m.classes}/{model!.class_count} кл.</span>
+                                : <span className="num">{m.classes} кл.</span>)}
                             <button
                                 className="icon-btn"
                                 disabled={inUse}
-                                data-tip={inUse ? 'Видеопоток конфигурации стоит в слоте' : 'Удалить'}
+                                data-tip={inUse ? 'Конфигурация стоит в слоте' : 'Удалить'}
                                 onClick={e => { e.stopPropagation(); if (!inUse) setToDelete(c); }}
                             >
                                 <Icon name="trash" size={13} />
                             </button>
+                            {model
+                                ? <span className="nv-ci-m seps"><span>{modelStem(model)}</span><span>{modelSize(model)}</span><span>{modelQuant(model)}</span></span>
+                                : <span className="nv-ci-m is-bad">модель не прочитана</span>}
                         </div>
                     );
                 })}
