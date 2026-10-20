@@ -295,15 +295,42 @@ export interface Stripes {
     dense: Dense[];
 }
 
+// Первый элемент, кончающийся после ms: куски и разрывы приходят по порядку и не перекрываются
+function firstEndingAfter(items: Array<Run | Gap>, ms: number): number {
+    let lo = 0;
+    let hi = items.length;
+    while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (items[mid].end_ms > ms) hi = mid;
+        else lo = mid + 1;
+    }
+    return lo;
+}
+
 export function trackStripes(track: Track, from: number, to: number): Stripes {
     const out: Stripes = { runs: [], gaps: [], dense: [] };
     const narrow = ((to - from) * DENSE_PERCENT) / 100;
     const isGap = (item: Run | Gap): item is Gap => 'kind' in item;
     const put = (item: Run | Gap) => (isGap(item) ? out.gaps.push(item) : out.runs.push(item));
 
-    const items = [...track.runs, ...track.gaps]
-        .filter(item => item.end_ms > from && item.start_ms < to)
-        .sort((a, b) => a.start_ms - b.start_ms);
+    // Куски и разрывы окна по порядку начала
+    const { runs, gaps } = track;
+    let r = firstEndingAfter(runs, from);
+    let g = firstEndingAfter(gaps, from);
+    const items: Array<Run | Gap> = [];
+    for (;;) {
+        const run = r < runs.length && runs[r].start_ms < to ? runs[r] : null;
+        const gap = g < gaps.length && gaps[g].start_ms < to ? gaps[g] : null;
+        if (run && (!gap || run.start_ms <= gap.start_ms)) {
+            items.push(run);
+            r++;
+        } else if (gap) {
+            items.push(gap);
+            g++;
+        } else {
+            break;
+        }
+    }
 
     let group: Array<Run | Gap> = [];
     const flush = () => {

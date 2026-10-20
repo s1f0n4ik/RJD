@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { Icon } from '../../app/Icons';
@@ -7,7 +7,8 @@ import { elementAnchor, pointAnchor, usePopover } from '../../app/popover';
 import { reducedMotion } from '../../app/motion';
 import { DayPicker } from './DayPicker';
 import { RangeCard } from './RangeCard';
-import type { Track, ZoomLevel } from './model';
+import { TrackLane } from './TrackLane';
+import type { Stripes, Track, ZoomLevel } from './model';
 import {
     ZOOMS, buildTicks, dateKey, fmtDateLong, fmtDuration,
     fmtTime, frameUrl, goneAt, isAvailable, isRecorded, msAt, percentIn, trackKey, trackStripes,
@@ -116,6 +117,12 @@ export function Timeline({
     const level: ZoomLevel = ZOOMS[zoom];
     const ticks = buildTicks(from, to, level);
     const stripes = useMemo(() => tracks.map(track => trackStripes(track, from, to)), [tracks, from, to]);
+
+    // Подсказка у холста дорожки под указателем; узкий разрыв ловится с запасом 0,2 % окна
+    const hoverRow = hover?.track ? tracks.indexOf(hover.track) : -1;
+    const hoverTitle = hover && hoverRow >= 0
+        ? stripeTitle(stripes[hoverRow], hover.ms, (to - from) * 0.002)
+        : undefined;
 
     const msFromX = useCallback((clientX: number) => {
         const box = canvas.current?.getBoundingClientRect();
@@ -273,8 +280,19 @@ export function Timeline({
 
             <div className="tl-head">
                 <div className="tl-now">
-                    <b>{cursorMs === null ? '—' : fmtTime(cursorMs)}</b>
-                    <span>{cursorMs === null ? 'курсор не поставлен' : fmtDateLong(cursorMs)}</span>
+                    <div className="tl-now-t">
+                        <b>{cursorMs === null ? '—' : fmtTime(cursorMs)}</b>
+                        <span>{cursorMs === null ? 'курсор не поставлен' : fmtDateLong(cursorMs)}</span>
+                    </div>
+                    <button
+                        type="button"
+                        className="tl-goto"
+                        title="К ползунку"
+                        disabled={cursorMs === null}
+                        onClick={() => cursorMs !== null && onPan(cursorMs - (targetFrom + targetTo) / 2)}
+                    >
+                        <Icon name="playhead" size={15} />
+                    </button>
                 </div>
 
                 {/* Курсор задаёт дату, только пока он в окне */}
@@ -399,72 +417,50 @@ export function Timeline({
                     <div className="tl-rows" ref={rows} onScroll={syncScroll}>
                         {tracks.map((track, row) => {
                             const key = trackKey(track);
-                            const { runs, gaps, dense } = stripes[row];
+                            const lane = stripes[row];
                             return (
                                 <div key={key} className={`tl-row${key === selectedKey ? ' is-sel' : ''}`}>
-                                    {runs.map((run, index) => {
-                                        const left = percentIn(run.start_ms, from, to);
-                                        const width = percentIn(run.end_ms, from, to) - left;
-                                        // Запись на неподключённом диске: есть в индексе, но не смотрится
-                                        const gone = !isAvailable(run);
-                                        const shownLeft = Math.max(0, left);
-                                        const shownRight = Math.min(100, left + width);
+                                    <TrackLane
+                                        stripes={lane}
+                                        from={from}
+                                        to={to}
+                                        selected={key === selectedKey}
+                                        trusted={track.trusted}
+                                        title={row === hoverRow ? hoverTitle : undefined}
+                                    />
+
+                                    {/* Запись на неподключённом диске: есть в индексе, но не смотрится */}
+                                    {lane.runs.filter(run => !isAvailable(run)).map((run, index) => {
+                                        const left = Math.max(0, percentIn(run.start_ms, from, to));
+                                        const right = Math.min(100, percentIn(run.end_ms, from, to));
+                                        if (right - left <= GAP_LABEL_MIN_PERCENT) return null;
 
                                         return (
-                                            <Fragment key={`r${index}`}>
-                                                <i
-                                                    className={`tl-run${gone ? ' is-gone' : track.trusted ? '' : ' is-doubt'}`}
-                                                    style={{ left: `${left}%`, width: `${width}%` }}
-                                                />
-                                                {gone && shownRight - shownLeft > GAP_LABEL_MIN_PERCENT && (
-                                                    <span
-                                                        className="tl-gap-lab is-gone"
-                                                        style={{ left: `${(shownLeft + shownRight) / 2}%` }}
-                                                    >
-                                                        диск «{run.disk || 'без имени'}» не подключён
-                                                    </span>
-                                                )}
-                                            </Fragment>
+                                            <span
+                                                key={`r${index}`}
+                                                className="tl-gap-lab is-gone"
+                                                style={{ left: `${(left + right) / 2}%` }}
+                                            >
+                                                диск «{run.disk || 'без имени'}» не подключён
+                                            </span>
                                         );
                                     })}
 
                                     {/* Разрыв приходит настоящими границами и может выходить за окно */}
-                                    {gaps.map((gap, index) => {
+                                    {lane.gaps.map((gap, index) => {
                                         const left = Math.max(0, percentIn(gap.start_ms, from, to));
                                         const right = Math.min(100, percentIn(gap.end_ms, from, to));
-                                        if (right <= left) return null;
+                                        if (right - left <= GAP_LABEL_MIN_PERCENT) return null;
 
                                         return (
-                                            <Fragment key={`g${index}`}>
-                                                <i
-                                                    className="tl-gap"
-                                                    style={{ left: `${left}%`, width: `${right - left}%` }}
-                                                    title={`${fmtTime(gap.start_ms)} → ${fmtTime(gap.end_ms)}`}
-                                                />
-                                                {right - left > GAP_LABEL_MIN_PERCENT && (
-                                                    <span
-                                                        className="tl-gap-lab seps"
-                                                        style={{ left: `${(left + right) / 2}%` }}
-                                                    >
-                                                        <span>разрыв</span>
-                                                        <span>{fmtDuration(gap.end_ms - gap.start_ms)}</span>
-                                                    </span>
-                                                )}
-                                            </Fragment>
-                                        );
-                                    })}
-
-                                    {dense.map((block, index) => {
-                                        const left = Math.max(0, percentIn(block.start_ms, from, to));
-                                        const right = Math.min(100, percentIn(block.end_ms, from, to));
-
-                                        return (
-                                            <i
-                                                key={`d${index}`}
-                                                className="tl-run is-dense"
-                                                style={{ left: `${left}%`, width: `${right - left}%` }}
-                                                title={`разрывов: ${block.gaps} · без записи ${fmtDuration(block.gap_ms)}`}
-                                            />
+                                            <span
+                                                key={`g${index}`}
+                                                className="tl-gap-lab seps"
+                                                style={{ left: `${(left + right) / 2}%` }}
+                                            >
+                                                <span>разрыв</span>
+                                                <span>{fmtDuration(gap.end_ms - gap.start_ms)}</span>
+                                            </span>
                                         );
                                     })}
 
@@ -534,6 +530,18 @@ export function Timeline({
             )}
         </div>
     );
+}
+
+// Разрыв или плотный блок под моментом ms
+function stripeTitle({ gaps, dense }: Stripes, ms: number, near: number): string | undefined {
+    const hit = (item: { start_ms: number; end_ms: number }) =>
+        item.start_ms - near <= ms && ms < item.end_ms + near;
+
+    const block = dense.find(hit);
+    if (block) return `разрывов: ${block.gaps} · без записи ${fmtDuration(block.gap_ms)}`;
+
+    const gap = gaps.find(hit);
+    return gap ? `${fmtTime(gap.start_ms)} → ${fmtTime(gap.end_ms)}` : undefined;
 }
 
 // Кадр запрашивается, только когда мышь остановилась

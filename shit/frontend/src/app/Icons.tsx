@@ -1,5 +1,5 @@
 // Спрайт иконок макета: один набор на всё приложение, толщина линии единая
-export type IconName = 'home' | 'grid' | 'arch' | 'cam' | 'eye' | '360' | 'gate' | 'menu' | 'cursor' | 'zone' | 'img' | 'gab' | 'cal' | 'play' | 'pause' | 'prev' | 'next' | 'swap' | 'bus' | 'clock' | 'tune' | 'chev' | 'dev' | 'kit' | 'plus' | 'search' | 'exit' | 'warn' | 'box' | 'map' | 'full' | 'trash' | 'save' | 'x' | 'empty' | 'lock' | 'undist' | 'refresh' | 'dots' | 'link' | 'unlink' | 'down' | 'grip' | 'list' | 'unfull' | 'undo' | 'eraser' | 'reset';
+export type IconName = 'home' | 'grid' | 'arch' | 'cam' | 'eye' | '360' | 'gate' | 'menu' | 'cursor' | 'zone' | 'img' | 'gab' | 'cal' | 'play' | 'pause' | 'prev' | 'next' | 'swap' | 'bus' | 'clock' | 'tune' | 'chev' | 'dev' | 'kit' | 'plus' | 'search' | 'exit' | 'warn' | 'box' | 'map' | 'full' | 'trash' | 'save' | 'x' | 'empty' | 'lock' | 'undist' | 'refresh' | 'dots' | 'link' | 'unlink' | 'down' | 'grip' | 'list' | 'unfull' | 'undo' | 'eraser' | 'reset' | 'playhead';
 
 export function IconSprite() {
   return (
@@ -53,6 +53,7 @@ export function IconSprite() {
     <symbol id="i-undo" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M5 10h9.5a4.5 4.5 0 1 1 0 9H9"/><path d="M8.5 6 4.5 10l4 4"/></symbol>
     <symbol id="i-eraser" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M10.4 19.5 4.6 13.7a1.6 1.6 0 0 1 0-2.3l7.1-7.1a1.6 1.6 0 0 1 2.3 0l4.7 4.7a1.6 1.6 0 0 1 0 2.3l-7.7 7.7z"/><path d="M10 19.5h9.5M9.2 8.6l6.9 6.9"/></symbol>
     <symbol id="i-reset" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="3.2" y="5.2" width="17.6" height="13.6" rx="1.6"/><path d="M15.4 12.6a3.4 3.4 0 1 1-1.1-2.5"/><path d="M15.8 8.4v2.8h-2.8"/></symbol>
+    <symbol id="i-playhead" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M5.5 6.5h-2v11h2M18.5 6.5h2v11h-2M12 9v11"/><path d="M9.4 4h5.2L12 7.4z" fill="currentColor"/></symbol>
       </defs>
     </svg>
   );

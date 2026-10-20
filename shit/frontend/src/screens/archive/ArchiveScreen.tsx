@@ -5,6 +5,7 @@ import { useSystem } from '../../app/SystemContext';
 import { useDeviceClock } from '../../app/useDeviceClock';
 import { ArchivePlayer } from './ArchivePlayer';
 import { DownloadModal } from './DownloadModal';
+import { FullscreenBar } from './FullscreenBar';
 import { Timeline } from './Timeline';
 import type { TimelineView } from './Timeline';
 import type { ArchiveShape, ArchiveState, Segment, Track } from './model';
@@ -20,6 +21,10 @@ import './archive.css';
 
 const REFRESH_MS = 10_000;
 const SPEEDS = [0.5, 1, 2, 4];
+
+// Удержание ±10 с: первый повтор через HOLD_DELAY_MS, дальше шаг каждые HOLD_STEP_MS
+const HOLD_DELAY_MS = 300;
+const HOLD_STEP_MS = 100;
 
 // Сколько времени сегментов держим у выбранной дорожки и за сколько до края
 // подгружаем следующую порцию
@@ -53,6 +58,8 @@ export function ArchiveScreen() {
     const [speed, setSpeed] = useState(1);
 
     const [sideOpen, setSideOpen] = useState(true);
+    const stage = useRef<HTMLDivElement | null>(null);
+    const [fullscreen, setFullscreen] = useState(false);
     const [picking, setPicking] = useState(false);
     const [selection, setSelection] = useState<{ from: number; to: number } | null>(null);
 
@@ -207,12 +214,66 @@ export function ArchiveScreen() {
         if (cursorMs !== null) setSeek({ ms: cursorMs, token: Date.now() });
     }, [cursorMs, selectedKey]);
 
+    // Удержание шагает по таймеру, поэтому курсор читается из ref, а не из замыкания
+    const cursorRef = useRef(cursorMs);
+    cursorRef.current = cursorMs;
+
     const jump = useCallback((deltaSec: number) => {
-        if (cursorMs === null) return;
-        const ms = cursorMs + deltaSec * 1000;
+        const at = cursorRef.current;
+        if (at === null) return;
+        const ms = at + deltaSec * 1000;
+        cursorRef.current = ms;
         setCursorMs(ms);
         setSeek({ ms, token: Date.now() });
-    }, [cursorMs]);
+    }, []);
+
+    const holdTimer = useRef(0);
+    const stopHold = useCallback(() => {
+        window.clearTimeout(holdTimer.current);
+        window.clearInterval(holdTimer.current);
+    }, []);
+    useEffect(() => stopHold, [stopHold]);
+
+    // Нажатие — шаг сразу, удержание — повтор, пока кнопку держат и указатель на ней
+    const holdProps = (deltaSec: number) => ({
+        onPointerDown: (event: React.PointerEvent) => {
+            if (event.button !== 0) return;
+            stopHold();
+            jump(deltaSec);
+            holdTimer.current = window.setTimeout(() => {
+                holdTimer.current = window.setInterval(() => jump(deltaSec), HOLD_STEP_MS);
+            }, HOLD_DELAY_MS);
+        },
+        onPointerUp: stopHold,
+        onPointerLeave: stopHold,
+        onPointerCancel: stopHold,
+        // Щелчок с клавиатуры — один шаг
+        onClick: (event: React.MouseEvent) => {
+            if (event.detail === 0) jump(deltaSec);
+        },
+    });
+
+    // В полном экране ползунок, ушедший за край окна, перелистывает окно за собой
+    const lastCursor = useRef(cursorMs);
+    useEffect(() => {
+        const prev = lastCursor.current;
+        lastCursor.current = cursorMs;
+        if (!fullscreen || prev === null || cursorMs === null || prev < from || prev >= to) return;
+        const windows = Math.floor((cursorMs - from) / span);
+        if (windows) setCenter(value => value + windows * span);
+    }, [cursorMs, fullscreen, from, to, span]);
+
+    // Полный экран закрывают и мимо кнопки — клавишей Esc
+    useEffect(() => {
+        const onChange = () => setFullscreen(document.fullscreenElement === stage.current);
+        document.addEventListener('fullscreenchange', onChange);
+        return () => document.removeEventListener('fullscreenchange', onChange);
+    }, []);
+
+    const toggleFullscreen = () => {
+        if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+        else stage.current?.requestFullscreen?.().catch(() => {});
+    };
 
     const atCursor = cursorMs === null ? null : segmentAt(segments, cursorMs);
     // Файл извлечённого диска не скачать
@@ -254,12 +315,67 @@ export function ArchiveScreen() {
     } : null;
     const diskPercent = disk?.total_bytes ? Math.round(disk.used_bytes / disk.total_bytes * 1000) / 10 : 0;
 
+    // Кнопки кадра одни: внизу кадра в обычном режиме и в карточке в полном экране
+    const transport = (
+        <>
+            <button type="button" className="arch-vbtn" title="Назад 10 секунд" {...holdProps(-10)}>
+                <Icon name="prev" />
+            </button>
+            <button
+                type="button"
+                className="arch-vbtn is-main"
+                onClick={() => setPlaying(value => !value)}
+                title={playing ? 'Пауза' : 'Воспроизвести'}
+            >
+                <Icon name={playing ? 'pause' : 'play'} />
+            </button>
+            <button type="button" className="arch-vbtn" title="Вперёд 10 секунд" {...holdProps(10)}>
+                <Icon name="next" />
+            </button>
+        </>
+    );
+
+    const cursorTime = (
+        <span className="arch-vtime">
+            {cursorMs === null ? '—' : fmtTime(cursorMs)}
+            <small> / {cursorMs === null ? '' : fmtDate(cursorMs)}</small>
+        </span>
+    );
+
+    const tools = (
+        <>
+            <button
+                type="button"
+                className="arch-vspeed"
+                onClick={() => setSpeed(SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length])}
+            >
+                ×{String(speed).replace('.', ',')}
+            </button>
+            <a
+                className={`arch-vbtn${currentSegment ? '' : ' is-off'}`}
+                href={currentSegment && selected ? segmentUrl(selected, currentSegment, true) : undefined}
+                download
+                title="Скачать текущий сегмент"
+            >
+                <Icon name="save" />
+            </a>
+            <button
+                type="button"
+                className="arch-vbtn"
+                onClick={toggleFullscreen}
+                title={fullscreen ? 'Свернуть' : 'Во весь экран'}
+            >
+                <Icon name={fullscreen ? 'unfull' : 'full'} />
+            </button>
+        </>
+    );
+
     return (
         <div className="screen arch">
             {view !== 'full' && (
                 <div className="arch-body">
                     <div className="arch-left">
-                        <div className="arch-stage">
+                        <div className="arch-stage" ref={stage}>
                             <ArchivePlayer
                                 track={selected}
                                 segments={segments}
@@ -272,54 +388,25 @@ export function ArchiveScreen() {
                                 onSeekTo={ms => handleSeek(selected, ms)}
                             />
 
-                            <div className="arch-ctl">
-                                <div className="arch-ctl-group">
-                                    <button type="button" className="arch-vbtn" onClick={() => jump(-10)} title="Назад 10 секунд">
-                                        <Icon name="prev" />
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className="arch-vbtn is-main"
-                                        onClick={() => setPlaying(value => !value)}
-                                        title={playing ? 'Пауза' : 'Воспроизвести'}
-                                    >
-                                        <Icon name={playing ? 'pause' : 'play'} />
-                                    </button>
-                                    <button type="button" className="arch-vbtn" onClick={() => jump(10)} title="Вперёд 10 секунд">
-                                        <Icon name="next" />
-                                    </button>
-                                    <span className="arch-vtime">
-                                        {cursorMs === null ? '—' : fmtTime(cursorMs)}
-                                        <small> / {cursorMs === null ? '' : fmtDate(cursorMs)}</small>
-                                    </span>
+                            {fullscreen ? (
+                                <FullscreenBar
+                                    track={selected}
+                                    from={from}
+                                    to={to}
+                                    level={ZOOMS[zoom]}
+                                    cursorMs={cursorMs}
+                                    playing={playing}
+                                    transport={transport}
+                                    tools={<>{cursorTime}{tools}</>}
+                                    onSeek={ms => handleSeek(selected, ms)}
+                                    onPage={windows => setCenter(value => value + windows * span)}
+                                />
+                            ) : (
+                                <div className="arch-ctl">
+                                    <div className="arch-ctl-group">{transport}{cursorTime}</div>
+                                    <div className="arch-ctl-group">{tools}</div>
                                 </div>
-
-                                <div className="arch-ctl-group">
-                                    <button
-                                        type="button"
-                                        className="arch-vspeed"
-                                        onClick={() => setSpeed(SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length])}
-                                    >
-                                        ×{String(speed).replace('.', ',')}
-                                    </button>
-                                    <a
-                                        className={`arch-vbtn${currentSegment ? '' : ' is-off'}`}
-                                        href={currentSegment && selected ? segmentUrl(selected, currentSegment, true) : undefined}
-                                        download
-                                        title="Скачать текущий сегмент"
-                                    >
-                                        <Icon name="save" />
-                                    </a>
-                                    <button
-                                        type="button"
-                                        className="arch-vbtn"
-                                        onClick={() => document.querySelector('.arch-stage')?.requestFullscreen?.()}
-                                        title="Во весь экран"
-                                    >
-                                        <Icon name="full" />
-                                    </button>
-                                </div>
-                            </div>
+                            )}
                         </div>
                     </div>
 

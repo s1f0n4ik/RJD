@@ -197,6 +197,15 @@ export default function TranslationScreen() {
         setSwitchKey(`${fallback ? 'fallback' : layout.name}#${switchSeq.current}`);
     };
 
+    const [fullscreen, setFullscreen] = useState(false);
+
+    // Полный экран закрывают и мимо кнопки — клавишей Esc
+    useEffect(() => {
+        const onChange = () => setFullscreen(Boolean(document.fullscreenElement));
+        document.addEventListener('fullscreenchange', onChange);
+        return () => document.removeEventListener('fullscreenchange', onChange);
+    }, []);
+
     const toggleFullscreen = () => {
         if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
         else document.documentElement.requestFullscreen?.().catch(() => {});
@@ -267,8 +276,8 @@ export default function TranslationScreen() {
                 <button className="icon-btn tr-plain" title="Обновить все потоки" onClick={reloadStreams}>
                     <Icon name="refresh" />
                 </button>
-                <button className="icon-btn tr-plain" title="Во весь экран" onClick={toggleFullscreen}>
-                    <Icon name="full" />
+                <button className="icon-btn tr-plain" title={fullscreen ? 'Свернуть' : 'Во весь экран'} onClick={toggleFullscreen}>
+                    <Icon name={fullscreen ? 'unfull' : 'full'} />
                 </button>
                 <button className="icon-btn tr-plain" title="Выйти в редактор" onClick={exit}>
                     <Icon name="x" />

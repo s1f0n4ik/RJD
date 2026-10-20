@@ -41,11 +41,29 @@
 
 .tl-now {
   display: flex;
-  flex-direction: column;
-  gap: 1px;
+  align-items: center;
+  gap: 10px;
   padding-right: 12px;
   border-right: 1px solid var(--line);
 }
+
+.tl-now-t { display: flex; flex-direction: column; gap: 1px }
+
+/* К ползунку: окно встаёт курсором по центру */
+.tl-goto {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+  color: var(--fg-2);
+  transition: var(--tr-ui);
+}
+
+.tl-goto:hover:not(:disabled) { border-color: var(--line-hi); color: var(--fg) }
+.tl-goto:disabled { opacity: .35; cursor: default }
 
 .tl-now b {
   font-family: var(--mono);
@@ -277,40 +295,10 @@
 .tl-row { position: relative; height: 38px; border-bottom: 1px solid color-mix(in srgb,var(--line) 60%,transparent) }
 .tl-row.is-sel { background: rgba(var(--acc-rgb), .07) }
 
-.tl-run { position: absolute; top: 7px; bottom: 7px; border-radius: 3px; background: rgba(var(--acc-rgb), .45) }
-.tl-row.is-sel .tl-run { background: rgba(var(--acc-rgb), .62) }
+/* Куски, разрывы и плотные блоки рисует холст TrackLane */
+.tl-lane { position: absolute; inset: 0; width: 100%; height: 100% }
 
-/* Недостоверное время — штриховка: видно раньше, чем прочитана подпись */
-.tl-run.is-doubt {
-  background: repeating-linear-gradient(45deg, rgba(var(--acc-rgb), .4) 0 5px, rgba(var(--acc-rgb), .14) 5px 10px);
-}
-
-/* Частые разрывы мельче пары пикселей: запись под красной штриховкой */
-.tl-run.is-dense {
-  background: repeating-linear-gradient(45deg, color-mix(in srgb,var(--err) 55%,transparent) 0 3px, transparent 3px 7px), rgba(var(--acc-rgb), .3);
-}
-.tl-row.is-sel .tl-run.is-dense {
-  background: repeating-linear-gradient(45deg, color-mix(in srgb,var(--err) 60%,transparent) 0 3px, transparent 3px 7px), rgba(var(--acc-rgb), .45);
-}
-
-/* Запись на неподключённом диске пула: серая штриховка */
-.tl-run.is-gone {
-  background: repeating-linear-gradient(45deg, color-mix(in srgb,var(--fg-2) 30%,transparent) 0 5px, color-mix(in srgb,var(--fg-2) 8%,transparent) 5px 10px);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb,var(--fg-2) 24%,transparent);
-}
-.tl-row.is-sel .tl-run.is-gone {
-  background: repeating-linear-gradient(45deg, color-mix(in srgb,var(--fg-2) 42%,transparent) 0 5px, color-mix(in srgb,var(--fg-2) 12%,transparent) 5px 10px);
-}
 .tl-gap-lab.is-gone { color: var(--fg-2) }
-
-.tl-gap {
-  position: absolute;
-  top: 7px;
-  bottom: 7px;
-  background: repeating-linear-gradient(45deg, color-mix(in srgb,var(--err) 26%,transparent) 0 5px, transparent 5px 10px);
-  border-left: 1px solid color-mix(in srgb,var(--err) 45%,transparent);
-  border-right: 1px solid color-mix(in srgb,var(--err) 45%,transparent);
-}
 
 .tl-gap-lab {
   position: absolute;
