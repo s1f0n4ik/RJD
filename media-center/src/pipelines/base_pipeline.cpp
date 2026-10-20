@@ -18,6 +18,8 @@ UCameraPipeline::UCameraPipeline(
 
 UCameraPipeline::~UCameraPipeline() {
     teardown();
+    // Закрытия, не дорванные к разрушению, не тронут мёртвый конвейер
+    drain_session_closures();
     // Очищаем callback
     m_send_callback = nullptr;
 }
@@ -161,11 +163,7 @@ bool UCameraPipeline::teardown(bool is_blocking)
 
     // Сессии, закрытые клиентом, дорываются в главном контексте до перевода конвейера в NULL
     if (!g_main_context_is_owner(g_main_context_default())) {
-        std::unique_lock<std::mutex> sessions_lock(m_sessions_mutex);
-        if (!m_sessions_cv.wait_for(sessions_lock, std::chrono::seconds(5),
-                [this] { return m_pending_teardown_clients.empty(); })) {
-            if (m_logger) m_logger->warn("teardown(): client sessions still tearing down after 5 s");
-        }
+        drain_session_closures();
     }
 
     // Останавливаем сетевые потоки
@@ -490,6 +488,38 @@ void UCameraPipeline::invalidate_bus_watch() {
     m_bus_watch.reset();
 }
 
+void UCameraPipeline::drain_session_closures() {
+    std::shared_ptr<FSessionClosures> closures;
+    {
+        std::lock_guard<std::mutex> sessions_lock(m_sessions_mutex);
+        closures = m_closures;
+    }
+
+    // Из главного контекста отложенные закрытия не выполнятся
+    const auto wait = g_main_context_is_owner(g_main_context_default())
+        ? std::chrono::seconds(0) : std::chrono::seconds(5);
+
+    {
+        std::unique_lock<std::mutex> lock(closures->mutex);
+        if (closures->cv.wait_for(lock, wait, [&] { return closures->pending.empty(); })) {
+            return;
+        }
+
+        closures->abandoned = true;
+        if (m_logger) m_logger->warn("drain_session_closures(): abandoned "
+            + std::to_string(closures->pending.size() - closures->running)
+            + " client session(s) waiting for main context");
+
+        // Закрытие, начатое на самом таймауте, дожидаемся
+        if (!closures->cv.wait_for(lock, std::chrono::seconds(5), [&] { return closures->running == 0; })) {
+            if (m_logger) m_logger->error("drain_session_closures(): client session teardown still running after 5 s");
+        }
+    }
+
+    std::lock_guard<std::mutex> sessions_lock(m_sessions_mutex);
+    m_closures = std::make_shared<FSessionClosures>();
+}
+
 void UCameraPipeline::on_bus_error(int code, const std::string& description, bool is_probe) {
     broadcast_error(code, description);
     // Не рестартим
@@ -688,7 +718,8 @@ bool UCameraPipeline::create_webrtc_session(
     }
 
     std::lock_guard<std::mutex> sessions_lock(m_sessions_mutex);
-    if (m_pending_teardown_clients.count(client_id)) {
+    std::lock_guard<std::mutex> closures_lock(m_closures->mutex);
+    if (m_closures->pending.count(client_id)) {
         description = "Previous session of " + client_id + " is still tearing down, try again later.";
         code = varan::signaling::CODE_SESSION_CREATE_FAILED;
         return false;
@@ -707,6 +738,7 @@ bool UCameraPipeline::create_webrtc_session(
 
 bool UCameraPipeline::close_webrtc_session(const std::string& session_id, std::string& description, int& code) {
     std::unique_ptr<UWebRTCSession> session;
+    std::shared_ptr<FSessionClosures> closures;
     {
         std::lock_guard<std::mutex> sessions_lock(m_sessions_mutex);
         auto it = m_webrtc_sessions.find(session_id);
@@ -721,37 +753,50 @@ bool UCameraPipeline::close_webrtc_session(const std::string& session_id, std::s
 
         // Пока сессия рвётся, новую этому клиенту не создаём: разбор и создание
         // сходятся на одном tee и мешают друг другу
-        m_pending_teardown_clients.insert(session->get_client_id());
+        closures = m_closures;
+        std::lock_guard<std::mutex> closures_lock(closures->mutex);
+        closures->pending.insert(session->get_client_id());
     }
     const std::string client_id = session->get_client_id();
 
     bool needs_restart = session->is_timeout_triggered();
 
-    struct TeardownCtx {
-        UCameraPipeline* pipeline;
+    struct FTeardownTask {
+        std::shared_ptr<FSessionClosures> closures;
         std::unique_ptr<UWebRTCSession> session;
         std::string client_id;
     };
 
-    auto* ctx = new TeardownCtx{
-        this,
+    auto* task = new FTeardownTask{
+        std::move(closures),
         std::move(session),
         client_id
     };
 
     g_main_context_invoke(nullptr,
         [](gpointer data) -> gboolean {
-            auto* ctx = static_cast<TeardownCtx*>(data);
-            ctx->session->teardown();
+            std::unique_ptr<FTeardownTask> task(static_cast<FTeardownTask*>(data));
+            auto& closures = *task->closures;
             {
-                std::lock_guard<std::mutex> sessions_lock(ctx->pipeline->m_sessions_mutex);
-                ctx->pipeline->m_pending_teardown_clients.erase(ctx->client_id);
+                std::lock_guard<std::mutex> lock(closures.mutex);
+                if (closures.abandoned) {
+                    // ponytail: брошенная сессия утекает вместе со ссылкой на остановленный конвейер; лечится логгером сессии в shared_ptr
+                    (void)task->session.release();
+                    return G_SOURCE_REMOVE;
+                }
+                ++closures.running;
             }
-            ctx->pipeline->m_sessions_cv.notify_all();
-            delete ctx;
+            task->session->teardown();
+            task->session.reset();
+            {
+                std::lock_guard<std::mutex> lock(closures.mutex);
+                --closures.running;
+                closures.pending.erase(task->client_id);
+            }
+            closures.cv.notify_all();
             return G_SOURCE_REMOVE;
         },
-        ctx
+        task
     );
 
     if (needs_restart) {

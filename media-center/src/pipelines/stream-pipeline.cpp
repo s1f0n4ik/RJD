@@ -766,10 +766,19 @@ bool UCameraStreamPipeline::create_record_branch(GstElement* tee)
 			}
 
 			// Генерация имени файла по времени
-			std::ostringstream oss;
-			oss << self->m_parameters.camera_name << "_" << make_start_timestamp() << ".mp4";
+			const std::string stem = self->m_parameters.camera_name + "_" + make_start_timestamp();
+			auto save_path = record_dir / (stem + ".mp4");
 
-			auto save_path = record_dir / oss.str();
+			// Существующий файл не перезаписывается, к имени добавляется _1, _2…
+			std::error_code ec;
+			for (int n = 1; std::filesystem::exists(save_path, ec); ++n) {
+				save_path = record_dir / (stem + "_" + std::to_string(n) + ".mp4");
+			}
+			if (save_path.stem().string() != stem) {
+				self->m_logger->warn("format-location: " + stem + ".mp4 already exists, writing "
+					+ save_path.filename().string());
+			}
+
 			self->on_fragment_opened(save_path.string(), *root, lag_ms);
 			return g_strdup(save_path.c_str());
 		}),

@@ -72,6 +72,19 @@ protected:
 		bool use_probe_handler;
 	};
 
+	// Закрытия сессий, отложенные в главный контекст; задачи держат его дольше конвейера
+	struct FSessionClosures {
+		std::mutex mutex;
+		// Будится, когда закрытие завершилось
+		std::condition_variable cv;
+		// Клиенты, чьи сессии ещё не дорваны
+		std::set<std::string> pending;
+		// Закрытий, выполняющихся прямо сейчас
+		size_t running = 0;
+		// Конвейер не дождался: не начатые закрытия сессию не трогают
+		bool abandoned = false;
+	};
+
 	// Владелец наблюдателя за шиной, снимается вместе с областью видимости
 	// У пробной трубы локальный, у основного конвейера поле объекта
 	class FBusWatch {
@@ -217,6 +230,9 @@ protected:
 	// Првоверка шины на существуюший пайплайн
 	void invalidate_bus_watch();
 
+	// Ждёт закрытий, отложенных в главный контекст; не дождавшись, бросает не начатые
+	void drain_session_closures();
+
 protected:
 	GstElement* m_pipeline = nullptr;
 
@@ -229,10 +245,10 @@ protected:
 
 	std::mutex m_pipeline_mutex;
 	std::mutex m_teardown_mutex;
-	// Защищает m_webrtc_sessions и m_pending_teardown_clients
+	// Защищает m_webrtc_sessions и указатель m_closures
 	mutable std::mutex m_sessions_mutex;
-	// Будится, когда клиент уходит из m_pending_teardown_clients
-	std::condition_variable m_sessions_cv;
+	// Состояние закрытий; после брошенных закрытий заменяется свежим
+	std::shared_ptr<FSessionClosures> m_closures = std::make_shared<FSessionClosures>();
 	// Словарь сессий webrtcbin
 	// Ключ - клиент, с которым установлена сессия
 	// Ключ — идентификатор сессии
@@ -248,9 +264,6 @@ protected:
 	std::atomic<bool> m_has_initialized{false};
 	std::atomic<bool> m_is_playing{false};
 	std::atomic<EPipelineStatus> m_status{ EPipelineStatus::NONE };
-
-	// Удержание клиентов во время удаления сессий
-	std::set<std::string> m_pending_teardown_clients;
 
 	// Поток для рестарта
 	std::thread m_restart_thread;

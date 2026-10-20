@@ -729,6 +729,7 @@ class SegmentIndex:
                 return {"skipped": True}
 
             self._stamp_internal(conn)
+            conn.commit()
 
             # Строки извлечённых томов сверке не подлежат
             known = {
@@ -739,6 +740,7 @@ class SegmentIndex:
             }
 
             removed = self._drop_missing(conn, known)
+            conn.commit()
             empty = self._drop_empty(conn, known)
             closed = self._close_abandoned(conn, known)
             added = self._add_found(conn, known)
@@ -955,6 +957,7 @@ class SegmentIndex:
             if stat.st_size or now - stat.st_mtime < OPEN_STALE_SEC:
                 continue
             if self._mark_empty(conn, path):
+                conn.commit()
                 known.pop(path, None)
                 gone += 1
         return gone
@@ -1008,6 +1011,7 @@ class SegmentIndex:
                 " wall_end_ms=wall_start_ms+?, size_bytes=?, closed=1 WHERE id=?;",
                 (duration_ms, duration_ms, stat.st_size, row["id"]),
             )
+            conn.commit()
             closed += 1
 
         return closed
@@ -1038,7 +1042,8 @@ class SegmentIndex:
                     break
 
                 chunk = rows[start:start + MEASURE_CHUNK]
-                durations = pool.map(_probe_duration_ms, [row["path"] for row in chunk])
+                # Замеры пачки до записи: транзакция не ждёт ffprobe
+                durations = list(pool.map(_probe_duration_ms, [row["path"] for row in chunk]))
 
                 for row, duration_ms in zip(chunk, durations):
                     if duration_ms is None:
@@ -1064,7 +1069,7 @@ class SegmentIndex:
         накопилось до появления индекса. Время берётся из имени и достоверным
         не считается.
         """
-        added = 0
+        found = []
         now = datetime.now().timestamp()
 
         for path, camera_id, stream_key, volume_id in self._walk_records():
@@ -1082,18 +1087,17 @@ class SegmentIndex:
             # Пишущийся файл: строку на него заводит media-center
             if now - stat.st_mtime < OPEN_STALE_SEC:
                 continue
-            size = stat.st_size
+            found.append((camera_id, stream_key, path, wall_ms, stat.st_size, volume_id))
 
-            conn.execute(
-                "INSERT OR IGNORE INTO segments("
-                "session_uid,camera_id,stream_key,path,"
-                "mono_start_ms,wall_start_ms,time_source,size_bytes,closed,origin,volume_id)"
-                " VALUES('',?,?,?,0,?, 'none',?,1,'scan',?);",
-                (camera_id, stream_key, path, wall_ms, size, volume_id),
-            )
-            added += 1
-
-        return added
+        # Обход идёт без открытой транзакции, находки пишутся разом
+        conn.executemany(
+            "INSERT OR IGNORE INTO segments("
+            "session_uid,camera_id,stream_key,path,"
+            "mono_start_ms,wall_start_ms,time_source,size_bytes,closed,origin,volume_id)"
+            " VALUES('',?,?,?,0,?, 'none',?,1,'scan',?);",
+            found,
+        )
+        return len(found)
 
     def _walk_records(self):
         """Видеофайлы под корнем записей: <камера>/<поток>/файл и старая плоская раскладка."""
