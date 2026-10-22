@@ -35,15 +35,18 @@ interface Props {
     cameraNames: Map<string, string>;
 }
 
-// Строка сетки: 'in' — только что пришла и проявляется
-type RowState = 'load' | 'done' | 'in' | 'error';
+// Сутки: 'in' — только что пришли и проявляются
+type DayState = 'load' | 'done' | 'in' | 'error';
 
-// Ответы по неделям живут минуту: повторно открытый календарь рисуется сразу
+// Ответы по суткам живут минуту: повторно открытый календарь рисуется сразу
 const CACHE_MS = 60_000;
-const weekCache = new Map<string, { at: number; days: DaySummary[]; offline: string[] }>();
+const dayCache = new Map<string, { at: number; day: DaySummary | null; offline: string[] }>();
+
+// Сутки запрашиваются по одним, столько сразу: тяжёлый день не держит очередь
+const PARALLEL = 3;
 
 export function Calendar({ month, onMonth, todayKey, from, to, onPick, cameraNames }: Props) {
-    const [rows, setRows] = useState<Map<number, RowState>>(new Map());
+    const [states, setStates] = useState<Map<string, DayState>>(new Map());
     const [days, setDays] = useState<Map<string, DaySummary>>(new Map());
     const [offline, setOffline] = useState<string[]>([]);
     const [attempt, setAttempt] = useState(0);
@@ -53,54 +56,52 @@ export function Calendar({ month, onMonth, todayKey, from, to, onPick, cameraNam
     const cells = useMemo(() => buildMonth(month), [month]);
     const [year, monthNumber] = month.split('-').map(Number);
 
-    // Месяц грузится по неделям, первой — неделя выбранного дня, дальше по удалённости от неё
+    // Месяц грузится по суткам: первыми — выбранный день и его соседи, будущие дни не запрашиваются
     useEffect(() => {
-        let alive = true;
-        const weeks = weekRanges(cells);
-        const target = [from, todayKey].find(key => key && key.startsWith(month)) ?? `${month}-01`;
-        const targetRow = Math.floor(cells.findIndex(cell => cell.key === target) / 7);
-        const order = [...weeks].sort((a, b) => Math.abs(a.row - targetRow) - Math.abs(b.row - targetRow));
+        const abort = new AbortController();
+        const keys = cells.filter(cell => cell.inMonth).map(cell => cell.key);
+        const target = [from, todayKey].find(key => key && key.startsWith(month)) ?? keys[0];
+        const distance = (key: string) => Math.abs(dayStartMs(key) - dayStartMs(target));
 
-        const states = new Map<number, RowState>();
+        const initial = new Map<string, DayState>();
         const known = new Map<string, DaySummary>();
         const unreached = new Set<string>();
-        weeks.forEach(week => {
-            const hit = weekCache.get(week.key);
-            if (hit && Date.now() - hit.at < CACHE_MS) {
-                states.set(week.row, 'done');
-                hit.days.forEach(day => known.set(day.date, day));
+        keys.forEach(key => {
+            const hit = dayCache.get(key);
+            if (todayKey && key > todayKey) {
+                initial.set(key, 'done');
+            } else if (hit && Date.now() - hit.at < CACHE_MS) {
+                initial.set(key, 'done');
+                if (hit.day) known.set(key, hit.day);
                 hit.offline.forEach(id => unreached.add(id));
             } else {
-                states.set(week.row, 'load');
+                initial.set(key, 'load');
             }
         });
-        setRows(states);
+        setStates(initial);
         setDays(known);
         setOffline([...unreached]);
 
-        (async () => {
-            for (const week of order) {
-                if (states.get(week.row) === 'done') continue;
+        const queue = keys.filter(key => initial.get(key) === 'load').sort((a, b) => distance(a) - distance(b));
+        const worker = async () => {
+            for (let key = queue.shift(); key && !abort.signal.aborted; key = queue.shift()) {
                 try {
-                    const data = await fetchDays(week.from, week.to);
-                    if (!alive) return;
-                    // Остров, задевший соседнюю неделю, приходит и её днём — берём только свои сутки
-                    const own = data.days.filter(day => day.date >= week.from && day.date <= week.to);
-                    weekCache.set(week.key, { at: Date.now(), days: own, offline: data.offline_devices ?? [] });
-                    setDays(current => {
-                        const next = new Map(current);
-                        own.forEach(day => next.set(day.date, day));
-                        return next;
-                    });
-                    setOffline(current => [...new Set([...current, ...(data.offline_devices ?? [])])]);
-                    setRows(current => new Map(current).set(week.row, 'in'));
+                    const data = await fetchDays(key, key, abort.signal);
+                    // Остров через полночь приходит и соседним днём — берём только свои сутки
+                    const day = data.days.find(item => item.date === key) ?? null;
+                    const off = data.offline_devices ?? [];
+                    dayCache.set(key, { at: Date.now(), day, offline: off });
+                    if (day) setDays(current => new Map(current).set(key, day));
+                    if (off.length) setOffline(current => [...new Set([...current, ...off])]);
+                    setStates(current => new Map(current).set(key, 'in'));
                 } catch {
-                    if (alive) setRows(current => new Map(current).set(week.row, 'error'));
+                    if (!abort.signal.aborted) setStates(current => new Map(current).set(key, 'error'));
                 }
             }
-        })();
+        };
+        for (let i = 0; i < PARALLEL; i++) worker();
 
-        return () => { alive = false; };
+        return () => abort.abort();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [cells, attempt]);
 
@@ -118,7 +119,7 @@ export function Calendar({ month, onMonth, todayKey, from, to, onPick, cameraNam
         setTip({ key, anchor: { left: outer.left, right: outer.right, top: box.top, bottom: box.bottom } });
     }, []);
 
-    const failed = [...rows.values()].includes('error');
+    const failed = [...states.values()].includes('error');
     const tipDay = tip && days.get(tip.key);
 
     return (
@@ -140,12 +141,12 @@ export function Calendar({ month, onMonth, todayKey, from, to, onPick, cameraNam
             >
                 {cells.map((cell, index) => {
                     const summary = cell.inMonth ? days.get(cell.key) : undefined;
-                    const row = rows.get(Math.floor(index / 7));
+                    const state = states.get(cell.key);
                     const classes = ['arch-cal-d'];
 
                     if (!cell.inMonth) classes.push('is-out');
-                    else if (row === 'load') classes.push('is-wait');
-                    else if (row === 'in') classes.push('is-in');
+                    else if (state === 'load') classes.push('is-wait');
+                    else if (state === 'in') classes.push('is-in');
                     if (summary) classes.push('has');
                     if (todayKey && cell.key > todayKey) classes.push('is-future');
 
@@ -188,7 +189,7 @@ export function Calendar({ month, onMonth, todayKey, from, to, onPick, cameraNam
                         type="button"
                         className="btn btn--sm"
                         onClick={() => {
-                            weekCache.forEach((week, key) => { if (week.offline.length) weekCache.delete(key); });
+                            dayCache.forEach((day, key) => { if (day.offline.length) dayCache.delete(key); });
                             setAttempt(value => value + 1);
                         }}
                     >
@@ -205,28 +206,17 @@ export function Calendar({ month, onMonth, todayKey, from, to, onPick, cameraNam
 }
 
 function unreachedText(failed: boolean, offline: string[]): string {
-    if (failed) return 'Архив ответил не за все недели, их дни здесь не показаны.';
+    if (failed) return 'Архив ответил не за все сутки, они здесь не показаны.';
     const names = offline.map(id => `«${id}»`).join(', ');
     return offline.length > 1
         ? `Нет ответа от ${names}. Их записи здесь не показаны.`
         : `Нет ответа от ${names}. Его записи здесь не показаны.`;
 }
 
-// Строки сетки как запросы: от первого до последнего дня месяца в строке
-function weekRanges(cells: Array<{ key: string; inMonth: boolean }>) {
-    const weeks = [];
-    for (let row = 0; row < 6; row++) {
-        const own = cells.slice(row * 7, row * 7 + 7).filter(cell => cell.inMonth);
-        if (!own.length) continue;
-        const from = own[0].key;
-        const to = own[own.length - 1].key;
-        weeks.push({ row, from, to, key: `${from}_${to}` });
-    }
-    return weeks;
-}
-
 // Дуги кольца: синие — запись, серые — запись только на неподключённом диске
 function Arcs({ day, index }: { day: DaySummary; index: number }) {
+    // Старое устройство не передаёт часы записи: кольцо целиком и тусклое
+    if (!day.tracks?.length) return <Arc from={0} to={24} kind="s" index={index} />;
     const start = dayStartMs(day.date);
     const runs = day.tracks.flatMap(track => track.runs);
     const recorded = unionRuns(runs.filter(isAvailable));
@@ -245,7 +235,7 @@ function Arcs({ day, index }: { day: DaySummary; index: number }) {
     );
 }
 
-function Arc({ from, to, kind, index }: { from: number; to: number; kind: 'r' | 'g'; index: number }) {
+function Arc({ from, to, kind, index }: { from: number; to: number; kind: 'r' | 'g' | 's'; index: number }) {
     const style = { ['--i' as string]: index };
     if (to - from >= 23.99) {
         return <circle className={`arch-cal-arc ${kind}`} pathLength={100} style={style} cx="18" cy="18" r={RING} transform="rotate(-90 18 18)" />;
@@ -272,11 +262,12 @@ function DayTip({ day, anchor, cameraNames }: { day: DaySummary; anchor: Anchor;
     const pct = (ms: number) => Math.min(100, Math.max(0, ((ms - start) / DAY_MS) * 100));
     const [, month, date] = day.date.split('-').map(Number);
     const weekday = WEEK[(new Date(start).getUTCDay() + 6) % 7];
-    const total = unionRuns(day.tracks.flatMap(track => track.runs))
+    const tracks = day.tracks ?? [];
+    const total = unionRuns(tracks.flatMap(track => track.runs))
         .reduce((sum, run) => sum + run.end_ms - run.start_ms, 0);
 
-    const rows = day.tracks.map(track => {
-        const twins = day.tracks.filter(t => t.camera_id === track.camera_id && t.device_id === track.device_id).length > 1;
+    const rows = tracks.map(track => {
+        const twins = tracks.filter(t => t.camera_id === track.camera_id && t.device_id === track.device_id).length > 1;
         const name = cameraNames.get(track.camera_id) || track.camera_id;
         return { track, name: twins ? `${name} · ${track.stream_key.replace('stream_', 'канал ')}` : name };
     }).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
@@ -285,20 +276,23 @@ function DayTip({ day, anchor, cameraNames }: { day: DaySummary; anchor: Anchor;
         <div className="arch-cal-tip" ref={ref}>
             <div className="arch-cal-tip-h">
                 <b>{date} {MONTHS_OF[month - 1]}, {weekday}</b>
-                <span>{fmtHoursShort(total)} записи</span>
+                <span>{tracks.length ? `${fmtHoursShort(total)} записи` : 'запись есть'}</span>
                 {!day.trusted && <em>время недостоверно</em>}
             </div>
-            <div className="arch-cal-axis">
-                <span />
-                <div>
-                    <i style={{ left: 0 }}>00</i>
-                    <i style={{ left: '25%' }}>06</i>
-                    <i style={{ left: '50%' }}>12</i>
-                    <i style={{ left: '75%' }}>18</i>
-                    <i style={{ left: '100%' }}>24</i>
+            {!tracks.length && <div className="arch-cal-cam"><span className="n">Камер с записью: {day.track_count}</span></div>}
+            {tracks.length > 0 && (
+                <div className="arch-cal-axis">
+                    <span />
+                    <div>
+                        <i style={{ left: 0 }}>00</i>
+                        <i style={{ left: '25%' }}>06</i>
+                        <i style={{ left: '50%' }}>12</i>
+                        <i style={{ left: '75%' }}>18</i>
+                        <i style={{ left: '100%' }}>24</i>
+                    </div>
+                    <span />
                 </div>
-                <span />
-            </div>
+            )}
             {rows.map(({ track, name }) => (
                 <div key={`${track.device_id}/${track.camera_id}/${track.stream_key}`} className="arch-cal-cam">
                     <span className="n">{name}</span>

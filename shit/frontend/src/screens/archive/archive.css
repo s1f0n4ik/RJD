@@ -130,9 +130,10 @@
 .arch-cal-dial .t { fill: none; stroke: rgba(255, 255, 255, .07); stroke-width: 3 }
 .arch-cal-d.is-on .arch-cal-dial .t { stroke: rgba(8, 16, 31, .2) }
 
-.arch-cal-arc { fill: none; stroke-width: 3; stroke-dasharray: 100 100; animation: arch-cal-draw 620ms var(--ease-out) both; animation-delay: calc(var(--i, 0) * 40ms + 80ms) }
+.arch-cal-arc { fill: none; stroke-width: 3; stroke-dasharray: 100 100; animation: arch-cal-draw 620ms var(--ease-out) 80ms both }
 .arch-cal-arc.r { stroke: rgba(var(--sc), .9) }
 .arch-cal-arc.g { stroke: color-mix(in srgb,var(--fg-2) 45%,transparent) }
+.arch-cal-arc.s { stroke: rgba(var(--sc), .4) }
 .arch-cal-d.is-on .arch-cal-arc.g { stroke: rgba(8, 16, 31, .45) }
 
 @keyframes arch-cal-draw { from { stroke-dashoffset: 100 } }
@@ -141,7 +142,7 @@
 .arch-cal-dot { position: absolute; top: 3px; right: 3px; width: 5px; height: 5px; border-radius: 50%; background: var(--warn); box-shadow: 0 0 6px var(--warn) }
 .arch-cal-d.is-on .arch-cal-dot { background: #7a5600; box-shadow: none }
 
-/* Неделя ещё считается: кольца мерцают волной слева направо */
+/* Сутки ещё считаются: кольца мерцают волной слева направо */
 .arch-cal-d.is-wait .arch-cal-dial .t {
   stroke: rgba(255, 255, 255, .13);
   animation: arch-cal-wait 1.1s ease-in-out infinite;
@@ -150,8 +151,8 @@
 
 @keyframes arch-cal-wait { 50% { stroke: rgba(255, 255, 255, .03) } }
 
-/* Неделя пришла: кольца вырастают по очереди, дуги прорисовываются следом */
-.arch-cal-d.is-in .arch-cal-dial { animation: arch-cal-in 420ms var(--ease-out) both; animation-delay: calc(var(--k, 0) * 40ms) }
+/* Сутки пришли: кольцо вырастает, дуги прорисовываются следом */
+.arch-cal-d.is-in .arch-cal-dial { animation: arch-cal-in 420ms var(--ease-out) both }
 
 @keyframes arch-cal-in { from { opacity: .25; transform: scale(.78) } }
 
@@ -901,6 +902,9 @@
 .del-note.is-disk svg { color: var(--warn) }
 .del-note.is-live { border-color: var(--acc-edge); background: color-mix(in srgb,var(--acc) 7%,transparent) }
 .del-note.is-live svg { color: var(--acc) }
+.del-note.is-err { border-color: var(--err-edge); background: color-mix(in srgb,var(--err) 7%,transparent) }
+.del-note.is-err svg { color: var(--err) }
+.del-note div { min-width: 0; overflow-wrap: anywhere }
 
 /* Удержание: заливка идёт 1,5 с, отпустил раньше — встряска */
 .del-hold {

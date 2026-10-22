@@ -4,9 +4,13 @@ import { Icon } from '../../app/Icons';
 import { Modal } from '../../app/Modal';
 import type { DeletePlan, DeleteResult, Track } from './model';
 import {
-    dateKey, deleteRange, estimateBytes, fmtBytes, fmtDate, fmtDuration, fmtTime, goneWithin, isAvailable,
-    previewDelete, recordedWithin, trackKey,
+    DeviceOutdated, dateKey, deleteRange, estimateBytes, fmtBytes, fmtDate, fmtDuration, fmtTime, goneWithin,
+    isAvailable, previewDelete, recordedWithin, trackKey,
 } from './model';
+
+const failureText = (device: string, e: unknown) => (e instanceof DeviceOutdated
+    ? `«${device}» не умеет удалять записи: на нём старая версия архива (storage-service).`
+    : `«${device}» не ответило: ${e instanceof Error ? e.message : String(e)}.`);
 
 // Удержание кнопки удаления, мс
 const HOLD_MS = 1500;
@@ -32,6 +36,8 @@ export function DeleteModal({ tracks, cameraNames, range, preselected, onClose, 
     );
     // Итоги устройства по дорожкам; пока их нет, строки показывают оценку по форме архива
     const [plans, setPlans] = useState<Map<string, DeletePlan>>(new Map());
+    // Устройства, которые не посчитали файлы: их камеры выключены
+    const [failed, setFailed] = useState<Map<string, string>>(new Map());
     const [chosen, setChosen] = useState<Set<string>>(() => new Set(preselected));
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -57,7 +63,9 @@ export function DeleteModal({ tracks, cameraNames, range, preselected, onClose, 
                         return next;
                     });
                 })
-                .catch(e => { if (alive) setError(String(e)); });
+                .catch(e => {
+                    if (alive) setFailed(current => new Map(current).set(deviceId, failureText(list[0].device_name || deviceId, e)));
+                });
         });
         return () => { alive = false; };
     }, [touched, range.from, range.to]);
@@ -65,10 +73,11 @@ export function DeleteModal({ tracks, cameraNames, range, preselected, onClose, 
     const rows = touched.map(track => {
         const key = trackKey(track);
         const plan = plans.get(key) ?? null;
+        const down = failed.has(track.device_id);
         const recorded = recordedWithin(track, range.from, range.to) + goneWithin(track, range.from, range.to);
-        const deletable = plan ? plan.files > 0 : recorded > 0;
+        const deletable = !down && (plan ? plan.files > 0 : recorded > 0);
         return {
-            track, key, plan, recorded, deletable,
+            track, key, plan, recorded, deletable, down,
             name: cameraNames.get(track.camera_id) || track.camera_id,
             on: chosen.has(key) && deletable,
         };
@@ -120,7 +129,9 @@ export function DeleteModal({ tracks, cameraNames, range, preselected, onClose, 
                 kept_open: sum.kept_open + r.kept_open,
             }), { removed: 0, bytes: 0, deferred: 0, kept_open: 0 }));
         } catch (e) {
-            setError(String(e));
+            setError(e instanceof DeviceOutdated
+                ? 'Устройство не умеет удалять записи: на нём старая версия архива (storage-service).'
+                : `Удаление не прошло: ${e instanceof Error ? e.message : String(e)}`);
             setBusy(false);
         }
     };
@@ -184,7 +195,7 @@ export function DeleteModal({ tracks, cameraNames, range, preselected, onClose, 
                         <i className="is-end">{fmtTime(ctx.to)}</i>
                     </div>
 
-                    {rows.map(({ track, key, plan, recorded, deletable, name, on }) => (
+                    {rows.map(({ track, key, plan, recorded, deletable, down, name, on }) => (
                         <button
                             type="button"
                             key={key}
@@ -202,7 +213,9 @@ export function DeleteModal({ tracks, cameraNames, range, preselected, onClose, 
                                     </b>
                                     <span>{track.camera_id} · {track.stream_key.replace('stream_', 'канал ')}</span>
                                 </span>
-                                {plan ? (
+                                {down ? (
+                                    <span className="dm-num seps"><span>недоступно</span></span>
+                                ) : plan ? (
                                     <span className="dm-num seps del-in">
                                         {plan.files ? (
                                             <>
@@ -250,7 +263,16 @@ export function DeleteModal({ tracks, cameraNames, range, preselected, onClose, 
                     </div>
                 )}
 
-                {error && <div className="sect dm-err">{error}</div>}
+                {(failed.size > 0 || error) && (
+                    <div className="sect del-notes">
+                        {[...failed.values(), ...(error ? [error] : [])].map(text => (
+                            <div key={text} className="del-note is-err">
+                                <Icon name="warn" size={15} />
+                                <div>{text}</div>
+                            </div>
+                        ))}
+                    </div>
+                )}
             </div>
         </Modal>
     );

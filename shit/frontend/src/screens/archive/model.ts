@@ -85,7 +85,8 @@ export interface DaySummary {
     segment_count: number;
     track_count: number;
     trusted: boolean;
-    tracks: DayTrack[];
+    // Нет у суток от старого storage-service: есть только факт записи
+    tracks?: DayTrack[];
 }
 
 export interface ArchiveState {
@@ -112,8 +113,8 @@ export const DAY_MS = 86_400_000;
 
 // ── запросы ──
 
-async function getJson<T>(url: string): Promise<T> {
-    const response = await fetch(url);
+async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
+    const response = await fetch(url, { signal });
     if (!response.ok) throw new Error(`${url} → ${response.status}`);
     return response.json() as Promise<T>;
 }
@@ -138,8 +139,8 @@ export function fetchSegments(track: Track, fromMs: number, toMs: number) {
     return getJson<{ segments: Segment[] }>(`/api/archive/segments?${query}`);
 }
 
-export const fetchDays = (from: string, to: string) =>
-    getJson<{ days: DaySummary[]; offline_devices: string[] }>(`/api/archive/days?from=${from}&to=${to}`);
+export const fetchDays = (from: string, to: string, signal?: AbortSignal) =>
+    getJson<{ days: DaySummary[]; offline_devices: string[] }>(`/api/archive/days?from=${from}&to=${to}`, signal);
 
 export const fetchState = () =>
     getJson<ArchiveState>('/api/archive/state');
@@ -464,7 +465,10 @@ export interface DeletePlan {
     open_from: number | null;
 }
 
-export function previewDelete(
+// Устройство со storage-service, где удаления ещё нет
+export class DeviceOutdated extends Error {}
+
+export async function previewDelete(
     deviceId: string,
     tracks: Array<{ camera: string; stream: string }>,
     fromMs: number,
@@ -474,7 +478,10 @@ export function previewDelete(
     tracks.forEach(track => params.append('track', `${track.camera}:${track.stream}`));
     params.set('from_ms', String(Math.round(fromMs)));
     params.set('to_ms', String(Math.round(toMs)));
-    return getJson(storagePath(deviceId, `/api/archive/delete/preview?${params.toString()}`));
+    const response = await fetch(storagePath(deviceId, `/api/archive/delete/preview?${params.toString()}`));
+    if (response.status === 404) throw new DeviceOutdated();
+    if (!response.ok) throw new Error(`устройство ответило ${response.status}`);
+    return response.json();
 }
 
 // Удаление закрытых сегментов дорожек, задетых диапазоном
@@ -489,7 +496,8 @@ export async function deleteRange(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tracks, from_ms: Math.round(fromMs), to_ms: Math.round(toMs) }),
     });
-    if (!response.ok) throw new Error((await response.text()) || `${response.status}`);
+    if (response.status === 404) throw new DeviceOutdated();
+    if (!response.ok) throw new Error((await response.text()) || `устройство ответило ${response.status}`);
     return response.json();
 }
 
