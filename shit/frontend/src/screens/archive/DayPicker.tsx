@@ -12,10 +12,11 @@ import { dateKey, dayStartMs, weekdayShort } from './model';
 interface Props {
     date: string;
     todayKey: string | null;
+    cameraNames: Map<string, string>;
     onChange: (date: string) => void;
 }
 
-export function DayPicker({ date, todayKey, onChange }: Props) {
+export function DayPicker({ date, todayKey, cameraNames, onChange }: Props) {
     const [open, setOpen] = useState(false);
     const [month, setMonth] = useState(() => date.slice(0, 7));
     const box = useRef<HTMLDivElement | null>(null);
@@ -76,6 +77,7 @@ export function DayPicker({ date, todayKey, onChange }: Props) {
                         todayKey={todayKey}
                         from={date}
                         to={date}
+                        cameraNames={cameraNames}
                         onPick={key => { onChange(key); setOpen(false); }}
                     />
                 </div>,

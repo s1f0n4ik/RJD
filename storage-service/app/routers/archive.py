@@ -199,6 +199,37 @@ async def archive_cut(req: ExportRequest):
     return {"job_id": job.id}
 
 
+class DeleteRequest(BaseModel):
+    tracks: list[TrackRef]
+    from_ms: int
+    to_ms: int
+
+
+@router.post("/archive/delete")
+async def archive_delete(req: DeleteRequest):
+    """Удалить из архива закрытые сегменты дорожек, задетые диапазоном; файлы стираются в фоне, с извлечённых дисков — при подключении."""
+    if req.to_ms <= req.from_ms:
+        raise HTTPException(status_code=400, detail="to_ms must be greater than from_ms")
+    if not req.tracks:
+        raise HTTPException(status_code=400, detail="tracks must not be empty")
+
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(
+        None, index.delete_range, [(t.camera, t.stream) for t in req.tracks], req.from_ms, req.to_ms,
+    )
+    asyncio.create_task(_sweep_deleted())
+    return result
+
+
+# Файлы стираются после текущей склейки: она могла начать читать их до удаления строк
+async def _sweep_deleted():
+    try:
+        async with jobs.device_lock():
+            await asyncio.get_running_loop().run_in_executor(None, index.sweep_pending)
+    except Exception:
+        logger.exception("Sweeping files of deleted archive range failed")
+
+
 @router.get("/archive/zip")
 async def archive_zip(
     track: list[str] = Query(..., description="camera:stream, повторяется"),

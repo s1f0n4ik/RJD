@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 
 import { Modal, Seg } from '../../app/Modal';
 import { useDownloads } from '../../app/DownloadsContext';
+import { flyToPill } from '../../app/DownloadsPill';
 import type { Anchor } from '../../app/popover';
 import { elementAnchor, usePopover } from '../../app/popover';
 import { Calendar } from './Calendar';
@@ -155,10 +156,12 @@ export function DownloadModal({
         return next;
     });
 
-    const submit = async () => {
+    // from — где была кнопка: оттуда жетон склейки летит в плашку шапки
+    const submit = async (from: DOMRect) => {
         if (!picked.length || busy) return;
         setBusy(true);
         setError(null);
+        const titles: string[] = [];
 
         const byDevice = new Map<string, typeof picked>();
         picked.forEach(row => {
@@ -190,7 +193,9 @@ export function DownloadModal({
                     title,
                     subtitle,
                 }));
+                titles.push(title);
             }
+            if (titles.length) flyToPill(from, titles.length === 1 ? titles[0] : `${titles.length} склейки`);
             onClose();
         } catch (e) {
             setError(String(e));
@@ -222,7 +227,12 @@ export function DownloadModal({
                         <span>{outputs}</span>
                     </div>
                     <button type="button" className="btn btn--ghost" onClick={onClose}>Отмена</button>
-                    <button type="button" className="btn btn--acc" onClick={submit} disabled={!picked.length || busy}>
+                    <button
+                        type="button"
+                        className="btn btn--acc"
+                        onClick={event => submit(event.currentTarget.getBoundingClientRect())}
+                        disabled={!picked.length || busy}
+                    >
                         Скачать
                     </button>
                 </>
@@ -265,6 +275,7 @@ export function DownloadModal({
                             todayKey={todayKey}
                             from={fromDate}
                             to={toDate}
+                            cameraNames={cameraNames}
                             onPick={pickDay}
                         />
                     </div>,

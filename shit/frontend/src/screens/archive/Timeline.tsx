@@ -39,8 +39,10 @@ interface Props {
     onSeek: (track: Track | null, ms: number) => void;
     onSelectionChange: (range: { from: number; to: number } | null) => void;
     onCancelPick: () => void;
-    onPicking: () => void;
-    onDownload: (fixedRange: boolean) => void;
+    onPicking: (on: boolean) => void;
+    // null — окно выгрузки без заданного диапазона
+    onDownload: (range: { from: number; to: number } | null) => void;
+    onDelete: (range: { from: number; to: number }) => void;
     onView: (view: TimelineView) => void;
 }
 
@@ -97,7 +99,7 @@ export function Timeline({
     from: targetFrom, to: targetTo, zoom, tracks, cameraNames, selectedKey, cursorMs,
     todayKey, selection, picking, view,
     onZoom, onPan, onJumpDate, onSelect, onSeek, onSelectionChange, onCancelPick,
-    onPicking, onDownload, onView,
+    onPicking, onDownload, onDelete, onView,
 }: Props) {
     const canvas = useRef<HTMLDivElement | null>(null);
     const root = useRef<HTMLDivElement | null>(null);
@@ -229,7 +231,16 @@ export function Timeline({
         const state = drag.current;
         drag.current = null;
         setDragging(false);
-        if (!state || state.moved || picking) return;
+        if (!state) return;
+
+        // Выбор диапазона одноразовый: после протяжки остаётся карточка, клик без протяжки — обычная перемотка
+        if (state.mode === 'pick') {
+            onPicking(false);
+            if (state.moved) return;
+            onSelectionChange(null);
+        } else if (state.moved) {
+            return;
+        }
 
         // Клик без протяжки — перемотка. Курсор можно ставить и в пустоту:
         // плеер тогда честно скажет, что записи здесь нет
@@ -284,15 +295,6 @@ export function Timeline({
                         <b>{cursorMs === null ? '—' : fmtTime(cursorMs)}</b>
                         <span>{cursorMs === null ? 'курсор не поставлен' : fmtDateLong(cursorMs)}</span>
                     </div>
-                    <button
-                        type="button"
-                        className="tl-goto"
-                        title="К ползунку"
-                        disabled={cursorMs === null}
-                        onClick={() => cursorMs !== null && onPan(cursorMs - (targetFrom + targetTo) / 2)}
-                    >
-                        <Icon name="playhead" size={15} />
-                    </button>
                 </div>
 
                 {/* Курсор задаёт дату, только пока он в окне */}
@@ -303,6 +305,7 @@ export function Timeline({
                             : from + (to - from) / 2,
                     )}
                     todayKey={todayKey}
+                    cameraNames={cameraNames}
                     onChange={onJumpDate}
                 />
 
@@ -327,14 +330,23 @@ export function Timeline({
                 </div>
 
                 <div className="tl-tools">
-                    <button type="button" className="tl-tool" onClick={() => onDownload(false)}>
+                    <button
+                        type="button"
+                        className="tl-tool"
+                        disabled={cursorMs === null}
+                        onClick={() => cursorMs !== null && onPan(cursorMs - (targetFrom + targetTo) / 2)}
+                    >
+                        <Icon name="playhead" size={13} />
+                        К ползунку
+                    </button>
+                    <button type="button" className="tl-tool" onClick={() => onDownload(null)}>
                         <Icon name="save" size={13} />
                         Скачать
                     </button>
                     <button
                         type="button"
                         className={`tl-tool${picking ? ' is-on' : ''}`}
-                        onClick={onPicking}
+                        onClick={() => onPicking(!picking)}
                     >
                         <Icon name="cursor" size={13} />
                         Выбор диапазона
@@ -525,7 +537,8 @@ export function Timeline({
                     cameraNames={cameraNames}
                     multi={view === 'full'}
                     onCancel={onCancelPick}
-                    onDownload={() => onDownload(true)}
+                    onDownload={() => onDownload(selection)}
+                    onDelete={() => onDelete(selection)}
                 />
             )}
         </div>

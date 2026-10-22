@@ -186,11 +186,13 @@ async def archive_days(
                 "segment_count": 0,
                 "track_count": 0,
                 "trusted": True,
+                "tracks": [],
             })
             target["recorded_ms"] += day.get("recorded_ms", 0)
             target["bytes"] += day.get("bytes", 0)
             target["segment_count"] += day.get("segment_count", 0)
             target["track_count"] += day.get("track_count", 0)
+            target["tracks"].extend({**track, "device_id": device["id"]} for track in day.get("tracks") or [])
             if not day.get("trusted", True):
                 target["trusted"] = False
 

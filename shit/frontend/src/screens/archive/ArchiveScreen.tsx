@@ -4,11 +4,12 @@ import { Icon } from '../../app/Icons';
 import { useSystem } from '../../app/SystemContext';
 import { useDeviceClock } from '../../app/useDeviceClock';
 import { ArchivePlayer } from './ArchivePlayer';
+import { DeleteModal } from './DeleteModal';
 import { DownloadModal } from './DownloadModal';
 import { FullscreenBar } from './FullscreenBar';
 import { Timeline } from './Timeline';
 import type { TimelineView } from './Timeline';
-import type { ArchiveShape, ArchiveState, Segment, Track } from './model';
+import type { ArchiveShape, ArchiveState, DeleteResult, Segment, Track } from './model';
 import {
     DAY_MS, DEFAULT_ZOOM, ZOOMS, dateKey, dayStartMs, fetchSegments,
     fetchShape, fetchState, fmtBytes, fmtDate, fmtDuration, fmtTime,
@@ -63,8 +64,10 @@ export function ArchiveScreen() {
     const [picking, setPicking] = useState(false);
     const [selection, setSelection] = useState<{ from: number; to: number } | null>(null);
 
-    // Окно выгрузки открывается и из шапки таймлайна, и из карточки диапазона
-    const [downloadOpen, setDownloadOpen] = useState(false);
+    // Окно выгрузки открывается и из шапки таймлайна, и из карточки диапазона; range — диапазон карточки
+    const [download, setDownload] = useState<{ range: { from: number; to: number } | null } | null>(null);
+    const [removal, setRemoval] = useState<{ range: { from: number; to: number }; preselected: string[] } | null>(null);
+    const [notice, setNotice] = useState<string | null>(null);
 
     // Окно встаёт на последнюю запись, а не на сейчас: на изделии с
     // недостоверным временем сегодняшних суток в архиве может не быть вовсе
@@ -285,23 +288,48 @@ export function ArchiveScreen() {
         setPicking(false);
     }, []);
 
-    // Вход из карточки диапазона не даёт выбирать диапазон заново
-    const [fixedRange, setFixedRange] = useState(false);
-
-    const openDownload = useCallback((fixed: boolean) => {
-        setFixedRange(fixed);
-        setDownloadOpen(true);
+    // Диапазон уходит в окно, с таймлайна выделение снимается сразу
+    const openDownload = useCallback((range: { from: number; to: number } | null) => {
+        setDownload({ range });
+        setSelection(null);
+        setPicking(false);
     }, []);
 
+    const openRemoval = useCallback((range: { from: number; to: number }) => {
+        const inside = tracks.filter(track => track.runs.some(run => run.end_ms > range.from && run.start_ms < range.to));
+        const preselected = view === 'full'
+            ? inside.map(trackKey)
+            : selected && inside.includes(selected) ? [trackKey(selected)] : [];
+        setRemoval({ range, preselected });
+        setSelection(null);
+        setPicking(false);
+    }, [tracks, selected, view]);
+
+    const handleDeleted = useCallback((result: DeleteResult) => {
+        setRemoval(null);
+        loadedSpan.current = null;
+        loadShape(false);
+        loadState();
+        const later = result.deferred ? ` · с неподключённых дисков — при подключении: ${result.deferred}` : '';
+        setNotice(`Удалено файлов: ${result.removed} · ≈ ${fmtBytes(result.bytes)}${later}`);
+    }, [loadShape, loadState]);
+
+    useEffect(() => {
+        if (!notice) return;
+        const timer = window.setTimeout(() => setNotice(null), 6000);
+        return () => window.clearTimeout(timer);
+    }, [notice]);
+
     const preselected = useMemo(() => {
-        if (selection) {
+        const range = download?.range;
+        if (range) {
             const inside = tracks
-                .filter(track => recordedWithin(track, selection.from, selection.to) > 0)
+                .filter(track => recordedWithin(track, range.from, range.to) > 0)
                 .map(trackKey);
             if (inside.length) return inside;
         }
         return selected ? [trackKey(selected)] : [];
-    }, [selection, tracks, selected]);
+    }, [download, tracks, selected]);
 
     const windowRecorded = tracks.reduce((sum, track) => sum + track.recorded_ms, 0);
     const windowGaps = tracks.reduce((sum, track) => sum + track.gaps.length, 0);
@@ -500,23 +528,44 @@ export function ArchiveScreen() {
                 onSeek={handleSeek}
                 onSelectionChange={setSelection}
                 onCancelPick={cancelPicking}
-                onPicking={() => setPicking(value => !value)}
+                onPicking={setPicking}
                 onDownload={openDownload}
+                onDelete={openRemoval}
                 onView={setView}
             />
 
-            {downloadOpen && (
+            {download && (
                 <DownloadModal
                     tracks={tracks}
                     cameraNames={cameraNames}
-                    selection={selection}
-                    fixedRange={fixedRange}
+                    selection={download.range}
+                    fixedRange={!!download.range}
                     preselected={preselected}
                     todayKey={clock.unixMs === null ? null : dateKey(clock.unixMs)}
                     archiveFrom={shape?.first_ms ?? null}
                     archiveTo={shape?.last_ms ?? null}
-                    onClose={() => setDownloadOpen(false)}
+                    onClose={() => setDownload(null)}
                 />
+            )}
+
+            {removal && (
+                <DeleteModal
+                    tracks={tracks}
+                    cameraNames={cameraNames}
+                    range={removal.range}
+                    preselected={removal.preselected}
+                    onClose={() => setRemoval(null)}
+                    onDeleted={handleDeleted}
+                />
+            )}
+
+            {notice && !error && (
+                <div className="arch-toast">
+                    <span>{notice}</span>
+                    <button type="button" onClick={() => setNotice(null)} aria-label="Закрыть">
+                        <Icon name="x" size={12} />
+                    </button>
+                </div>
             )}
 
             {(error || (loading && !shape)) && (

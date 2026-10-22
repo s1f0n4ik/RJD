@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
+import { Icon } from '../../app/Icons';
 import type { Anchor } from '../../app/popover';
 import { usePopover } from '../../app/popover';
+import { isAdmin, useRole } from '../../app/role';
 import type { Track } from './model';
 import {
     estimateBytes, fmtBytes, fmtDuration, fmtTime, gapsWithin, goneWithin, recordedWithin, trackKey,
@@ -19,6 +21,7 @@ interface Props {
     multi: boolean;
     onCancel: () => void;
     onDownload: () => void;
+    onDelete: () => void;
 }
 
 interface Piece {
@@ -45,10 +48,29 @@ function measure(track: Track, from: number, to: number, name: string): Piece {
 }
 
 export function RangeCard({
-    anchor, range, tracks, selected, cameraNames, multi, onCancel, onDownload,
+    anchor, range, tracks, selected, cameraNames, multi, onCancel, onDownload, onDelete,
 }: Props) {
     const ref = usePopover<HTMLDivElement>(anchor, { side: 'top', align: 'center' });
     const [off, setOff] = useState<Set<string>>(new Set());
+    const admin = isAdmin(useRole());
+
+    // Нажатие вне карточки и Esc убирают её вместе с диапазоном; само нажатие не перехватывается
+    const cancel = useRef(onCancel);
+    cancel.current = onCancel;
+    useEffect(() => {
+        const onDown = (event: MouseEvent) => {
+            if (!ref.current?.contains(event.target as Node)) cancel.current();
+        };
+        const onKey = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') cancel.current();
+        };
+        document.addEventListener('mousedown', onDown, true);
+        document.addEventListener('keydown', onKey);
+        return () => {
+            document.removeEventListener('mousedown', onDown, true);
+            document.removeEventListener('keydown', onKey);
+        };
+    }, [ref]);
 
     // Новый диапазон — снова все дорожки включены
     useEffect(() => setOff(new Set()), [range.from, range.to]);
@@ -129,6 +151,11 @@ export function RangeCard({
                     )}
 
                     <div className="rc-foot">
+                        {admin && (
+                            <button type="button" className="btn btn--sm btn--err rc-del" onClick={onDelete} data-tip="Удалить записи" aria-label="Удалить записи">
+                                <Icon name="trash" size={14} />
+                            </button>
+                        )}
                         <button type="button" className="btn btn--sm" onClick={onCancel}>Отменить</button>
                         <button type="button" className="btn btn--sm btn--acc" onClick={onDownload}>
                             Скачать
@@ -161,6 +188,11 @@ export function RangeCard({
                     )}
 
                     <div className="rc-foot">
+                        {admin && (
+                            <button type="button" className="btn btn--sm btn--err rc-del" onClick={onDelete} data-tip="Удалить записи" aria-label="Удалить записи">
+                                <Icon name="trash" size={14} />
+                            </button>
+                        )}
                         <button type="button" className="btn btn--sm" onClick={onCancel}>Отменить</button>
                         <button type="button" className="btn btn--sm btn--acc" onClick={onDownload}>
                             Скачать

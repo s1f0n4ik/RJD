@@ -69,6 +69,15 @@ export interface ArchiveShape {
     offline_devices: string[];
 }
 
+// Дорожка в сутках календаря: куски записи, обрезанные по границам суток
+export interface DayTrack {
+    camera_id: string;
+    stream_key: string;
+    device_id: string;
+    recorded_ms: number;
+    runs: Run[];
+}
+
 export interface DaySummary {
     date: string;
     recorded_ms: number;
@@ -76,6 +85,7 @@ export interface DaySummary {
     segment_count: number;
     track_count: number;
     trusted: boolean;
+    tracks: DayTrack[];
 }
 
 export interface ArchiveState {
@@ -129,7 +139,7 @@ export function fetchSegments(track: Track, fromMs: number, toMs: number) {
 }
 
 export const fetchDays = (from: string, to: string) =>
-    getJson<{ days: DaySummary[] }>(`/api/archive/days?from=${from}&to=${to}`);
+    getJson<{ days: DaySummary[]; offline_devices: string[] }>(`/api/archive/days?from=${from}&to=${to}`);
 
 export const fetchState = () =>
     getJson<ArchiveState>('/api/archive/state');
@@ -272,6 +282,32 @@ export const recordedWithin = (track: Track, from: number, to: number) =>
 export const goneWithin = (track: Track, from: number, to: number) =>
     overlap(track.runs.filter(run => !isAvailable(run)), from, to);
 
+// Объединение кусков: перекрывающиеся и смежные сливаются
+export function unionRuns(runs: Run[]): Array<{ start_ms: number; end_ms: number }> {
+    const sorted = [...runs].sort((a, b) => a.start_ms - b.start_ms);
+    const out: Array<{ start_ms: number; end_ms: number }> = [];
+    for (const run of sorted) {
+        const last = out[out.length - 1];
+        if (last && run.start_ms <= last.end_ms) last.end_ms = Math.max(last.end_ms, run.end_ms);
+        else out.push({ start_ms: run.start_ms, end_ms: run.end_ms });
+    }
+    return out;
+}
+
+// Вычитание отрезков: что остаётся от base после удаления cut
+export function subtractRuns(
+    base: Array<{ start_ms: number; end_ms: number }>,
+    cut: Array<{ start_ms: number; end_ms: number }>,
+): Array<{ start_ms: number; end_ms: number }> {
+    return cut.reduce((left, c) => left.flatMap(r => {
+        if (r.end_ms <= c.start_ms || r.start_ms >= c.end_ms) return [r];
+        const parts = [];
+        if (r.start_ms < c.start_ms) parts.push({ start_ms: r.start_ms, end_ms: c.start_ms });
+        if (r.end_ms > c.end_ms) parts.push({ start_ms: c.end_ms, end_ms: r.end_ms });
+        return parts;
+    }), base);
+}
+
 // Разрывы, попавшие в диапазон: о них предупреждаем до склейки
 export function gapsWithin(track: Track, from: number, to: number): Gap[] {
     return track.gaps.filter(gap => gap.end_ms > from && gap.start_ms < to);
@@ -407,6 +443,30 @@ export interface ExportRequest {
 // Склейка: по файлу на дорожку, несколько дорожек уходят архивом
 export const startCut = (deviceId: string, request: ExportRequest) =>
     postJson(storagePath(deviceId, '/api/archive/cut'), request);
+
+// Итог удаления на устройстве: deferred — файлы на извлечённых дисках, kept_open — пишущиеся
+export interface DeleteResult {
+    removed: number;
+    bytes: number;
+    deferred: number;
+    kept_open: number;
+}
+
+// Удаление закрытых сегментов дорожек, задетых диапазоном
+export async function deleteRange(
+    deviceId: string,
+    tracks: Array<{ camera: string; stream: string }>,
+    fromMs: number,
+    toMs: number,
+): Promise<DeleteResult> {
+    const response = await fetch(storagePath(deviceId, '/api/archive/delete'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tracks, from_ms: Math.round(fromMs), to_ms: Math.round(toMs) }),
+    });
+    if (!response.ok) throw new Error((await response.text()) || `${response.status}`);
+    return response.json();
+}
 
 // Исходные сегменты архивом: zip собирается на лету, качает сам браузер
 export function zipUrl(

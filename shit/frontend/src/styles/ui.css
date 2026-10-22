@@ -495,15 +495,31 @@ select.sel:disabled{opacity:.45;cursor:not-allowed}
 
 /* ── выгрузки: плашка в шапке и список ── */
 
-.pill--job{border-color:rgba(var(--acc-rgb),.45);color:var(--fg);cursor:pointer}
+.pill--job{max-width:320px;overflow:hidden;border-color:rgba(var(--acc-rgb),.45);color:var(--fg);cursor:pointer;animation:pill-in 280ms var(--ease-out)}
 
 .pill--job:hover{border-color:var(--acc)}
 
 .pill--job.is-done{border-color:var(--ok-edge)}
 
+/* Плашка раскрывается из нуля, по прилёте жетона вздрагивает */
+@keyframes pill-in{from{max-width:0;padding-left:0;padding-right:0;opacity:0}}
+
+.pill--job.is-bump{animation:pill-bump 460ms var(--ease-out)}
+
+@keyframes pill-bump{0%{transform:scale(1);box-shadow:0 0 0 0 rgba(var(--acc-rgb),.6)}30%{transform:scale(1.08)}100%{transform:scale(1);box-shadow:0 0 0 12px rgba(var(--acc-rgb),0)}}
+
 .ring{width:15px;height:15px;flex:0 0 15px;border-radius:50%;background:conic-gradient(var(--acc) var(--p,0%),rgba(255,255,255,.1) 0)}
 
+.ring.is-wait{background:conic-gradient(var(--acc) 0 24%,rgba(255,255,255,.1) 0);animation:ring-wait .9s linear infinite}
+
+@keyframes ring-wait{to{transform:rotate(1turn)}}
+
 .pill--job.is-done .ring{background:var(--ok)}
+
+/* Жетон выгрузки на пути из окна в плашку */
+.dl-token{position:fixed;left:0;top:0;z-index:700;display:flex;align-items:center;gap:7px;height:30px;padding:0 13px;border-radius:15px;background:var(--acc);color:#08101f;font-size:12px;font-weight:600;white-space:nowrap;box-shadow:0 10px 26px rgba(0,0,0,.5),0 0 18px var(--acc-glow);pointer-events:none;will-change:transform}
+
+@media (prefers-reduced-motion:reduce){.pill--job,.pill--job.is-bump{animation:none}.ring.is-wait{animation-duration:2.4s}}
 
 /* Координаты ставит app/popover.ts после отрисовки */
 .dl-pop{position:fixed;visibility:hidden;z-index:95;width:392px;background:var(--panel);border:1px solid var(--line-hi);border-radius:var(--r-lg);box-shadow:var(--shadow-lg);overflow:hidden}

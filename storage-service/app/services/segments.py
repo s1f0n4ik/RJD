@@ -71,6 +71,12 @@ MEASURE_BUDGET_SEC = 60
 MEASURE_WORKERS = 4
 MEASURE_CHUNK = 32
 
+# Зазор, через который куски календаря сшиваются: на циферблате суток он всё равно не виден
+CALENDAR_MERGE_MS = 120_000
+
+# Строк за одну транзакцию удаления диапазона
+DELETE_BATCH = 500
+
 # Источники, которым можно верить. sadko — нынешнее имя, can — прежнее
 TRUSTED_SOURCES = ("sadko", "can")
 
@@ -151,6 +157,14 @@ class SegmentIndex:
             "  anchor_ms INTEGER NOT NULL,"
             "  trusted INTEGER NOT NULL DEFAULT 0,"
             "  computed_at INTEGER"
+            ");"
+        )
+        # Файлы, строки которых удалены из архива вручную; стираются, когда их том подключён
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS pending_delete("
+            "  path TEXT PRIMARY KEY,"
+            "  volume_id TEXT,"
+            "  queued_at INTEGER NOT NULL"
             ");"
         )
         if self._has_table(conn, "segments"):
@@ -585,6 +599,136 @@ class SegmentIndex:
         finally:
             conn.close()
 
+    # Закрытые сегменты дорожек, задетые диапазоном, уходят из индекса, их файлы — в очередь на стирание
+    def delete_range(self, tracks: Iterable[tuple[str, str]], from_ms: int, to_ms: int) -> dict:
+        wanted = set(tracks)
+        result = {"removed": 0, "bytes": 0, "deferred": 0, "kept_open": 0}
+        conn = self._connect()
+        if conn is None:
+            return result
+
+        try:
+            self._ensure_own_schema(conn)
+            if not self._has_table(conn, "segments"):
+                return result
+
+            sessions = self._load_sessions(conn)
+            by_track: dict[tuple[str, str], list[dict]] = {}
+            for row in self._rows_in_window(conn, sessions, from_ms, to_ms):
+                key = (row["camera_id"], row["stream_key"])
+                if key in wanted:
+                    by_track.setdefault(key, []).append(row)
+
+            doomed = []
+            for items in by_track.values():
+                items.sort(key=lambda item: item["start_ms"])
+                _fill_missing_ends(items)
+                for item in items:
+                    if item["end_ms"] <= from_ms or item["start_ms"] >= to_ms:
+                        continue
+                    if item["closed"]:
+                        doomed.append(item)
+                    else:
+                        result["kept_open"] += 1
+
+            now = int(time.time() * 1000)
+            for start in range(0, len(doomed), DELETE_BATCH):
+                batch = doomed[start:start + DELETE_BATCH]
+                conn.executemany(
+                    "INSERT OR IGNORE INTO pending_delete(path, volume_id, queued_at) VALUES(?,?,?);",
+                    [(item["path"], item["volume_id"], now) for item in batch],
+                )
+                conn.execute(
+                    f"DELETE FROM segments WHERE id IN ({_places(batch)});",
+                    [item["id"] for item in batch],
+                )
+                conn.commit()
+
+            result["removed"] = len(doomed)
+            result["bytes"] = sum(item["size_bytes"] for item in doomed)
+            result["deferred"] = sum(1 for item in doomed if not item["available"])
+            logger.warning(
+                "Archive range %d..%d deleted for %s: %d rows, %d bytes, %d files wait for their disk, %d open kept",
+                from_ms, to_ms, sorted(wanted), result["removed"], result["bytes"], result["deferred"], result["kept_open"],
+            )
+            return result
+        finally:
+            conn.close()
+
+    # Стирает файлы удалённых диапазонов на подключённых томах; файлы извлечённых ждут возвращения тома
+    def sweep_pending(self) -> int:
+        conn = self._connect()
+        if conn is None:
+            return 0
+        try:
+            self._ensure_own_schema(conn)
+            return self._sweep_pending(conn)
+        finally:
+            conn.close()
+
+    def _sweep_pending(self, conn: sqlite3.Connection) -> int:
+        alive: dict[str, bool] = {}
+        done = []
+        for row in conn.execute("SELECT path, volume_id FROM pending_delete;").fetchall():
+            volume_id = row["volume_id"] or self.view.internal_id
+            if volume_id not in alive:
+                alive[volume_id] = volume_id in self.view.present and self.view.alive(volume_id)
+            if not alive[volume_id]:
+                continue
+            try:
+                os.remove(row["path"])
+            except FileNotFoundError:
+                pass
+            except OSError as e:
+                logger.warning("Cannot remove file of deleted range %s: %s", row["path"], e)
+                continue
+            done.append((row["path"],))
+
+        if done:
+            conn.executemany("DELETE FROM pending_delete WHERE path=?;", done)
+            conn.commit()
+            logger.info("Removed %d files of deleted archive ranges", len(done))
+        return len(done)
+
+    # Строки окна одним запросом: время нормализует SQLite по якорям сессий из временной таблицы
+    def _light_rows(
+        self, conn: sqlite3.Connection, sessions: list[FSession], window_start: int, window_end: int
+    ) -> list[dict]:
+        conn.execute(
+            "CREATE TEMP TABLE IF NOT EXISTS anchors(uid TEXT PRIMARY KEY, anchor_ms INTEGER, trusted INTEGER);"
+        )
+        conn.execute("DELETE FROM temp.anchors;")
+        conn.executemany(
+            "INSERT INTO temp.anchors VALUES(?,?,?);",
+            [(s.uid, s.anchor_ms, int(s.trusted)) for s in sessions],
+        )
+        conn.commit()
+
+        cursor = conn.execute(
+            "SELECT camera_id, stream_key, volume_id, size_bytes, st, en, tr FROM ("
+            " SELECT s.camera_id, s.stream_key, s.volume_id, s.size_bytes,"
+            "  CASE WHEN a.uid IS NULL THEN s.wall_start_ms ELSE s.mono_start_ms + a.anchor_ms END AS st,"
+            "  CASE WHEN a.uid IS NULL THEN s.wall_end_ms ELSE s.mono_end_ms + a.anchor_ms END AS en,"
+            "  COALESCE(a.trusted, 0) AS tr"
+            " FROM segments s LEFT JOIN temp.anchors a ON a.uid = s.session_uid"
+            " WHERE a.uid IS NOT NULL OR s.session_uid IS NULL OR s.session_uid = ''"
+            ") WHERE st < ? AND COALESCE(en, st + ?) > ?;",
+            (window_end, FALLBACK_DURATION_MS, window_start),
+        )
+        offline = self.view.offline
+        return [
+            {
+                "camera_id": row["camera_id"],
+                "stream_key": row["stream_key"],
+                "start_ms": row["st"],
+                "end_ms": row["en"],
+                "size_bytes": row["size_bytes"] or 0,
+                "trusted": bool(row["tr"]),
+                "available": (row["volume_id"] or self.view.internal_id) not in offline,
+            }
+            for row in cursor
+        ]
+
     # ── календарь и сводка ──
 
     def days(self, date_from: str, date_to: str) -> list[dict]:
@@ -604,43 +748,52 @@ class SegmentIndex:
             sessions = self._load_sessions(conn)
             self._persist_anchors(conn, sessions)
 
-            rows = self._rows_in_window(conn, sessions, window_start, window_end)
-
-            # Концы достраиваем так же, как в выборке дня, иначе календарь и
-            # экран дня показывают разное число записанных часов
             by_track: dict[tuple[str, str], list[dict]] = {}
-            for row in rows:
+            for row in self._light_rows(conn, sessions, window_start, window_end):
                 by_track.setdefault((row["camera_id"], row["stream_key"]), []).append(row)
 
             by_day: dict[str, dict] = {}
-            for track_key, items in by_track.items():
+
+            def day_of(key: str) -> dict:
+                return by_day.setdefault(key, {
+                    "date": key, "recorded_ms": 0, "bytes": 0, "segment_count": 0,
+                    "trusted": True, "tracks": {},
+                })
+
+            def track_of(day: dict, camera_id: str, stream_key: str) -> dict:
+                return day["tracks"].setdefault((camera_id, stream_key), {
+                    "camera_id": camera_id, "stream_key": stream_key, "recorded_ms": 0, "runs": [],
+                })
+
+            for (camera_id, stream_key), items in sorted(by_track.items()):
                 items.sort(key=lambda x: x["start_ms"])
+                # Концы достраиваются так же, как в выборке окна таймлайна
                 _fill_missing_ends(items)
 
                 for item in items:
-                    # Сегмент может пересекать полночь — раскладываем по суткам
-                    for key, covered in _split_by_day(item["start_ms"], item["end_ms"]):
-                        day = by_day.setdefault(key, {
-                            "date": key,
-                            "recorded_ms": 0,
-                            "bytes": 0,
-                            "segment_count": 0,
-                            "tracks": set(),
-                            "trusted": True,
-                        })
-                        day["recorded_ms"] += covered
-                        day["tracks"].add(track_key)
+                    for key, start, end in _day_pieces(item["start_ms"], item["end_ms"]):
+                        day = day_of(key)
+                        track_of(day, camera_id, stream_key)["recorded_ms"] += end - start
                         if not item["trusted"]:
                             day["trusted"] = False
+                    day = day_of(_date_key(item["start_ms"]))
+                    day["bytes"] += item["size_bytes"]
+                    day["segment_count"] += 1
 
-                    key = _date_key(item["start_ms"])
-                    by_day[key]["bytes"] += item["size_bytes"]
-                    by_day[key]["segment_count"] += 1
+                for start, end, available in _calendar_runs(items):
+                    for key, piece_start, piece_end in _day_pieces(start, end):
+                        track_of(day_of(key), camera_id, stream_key)["runs"].append(
+                            {"start_ms": piece_start, "end_ms": piece_end, "available": available}
+                        )
 
             result = []
             for key in sorted(by_day):
                 day = by_day[key]
-                day["track_count"] = len(day.pop("tracks"))
+                tracks = list(day.pop("tracks").values())
+                spans = sorted((run["start_ms"], run["end_ms"]) for track in tracks for run in track["runs"])
+                day["recorded_ms"] = sum(end - start for start, end in _union(spans))
+                day["track_count"] = len(tracks)
+                day["tracks"] = tracks
                 result.append(day)
             return result
         finally:
@@ -731,6 +884,8 @@ class SegmentIndex:
             self._stamp_internal(conn)
             conn.commit()
 
+            swept = self._sweep_pending(conn)
+
             # Строки извлечённых томов сверке не подлежат
             known = {
                 row["path"]: row for row in conn.execute(
@@ -757,7 +912,7 @@ class SegmentIndex:
                 )
             return {
                 "dropped": removed, "empty": empty, "closed": closed, "found": added,
-                "measured": measured,
+                "measured": measured, "swept": swept,
             }
 
         finally:
@@ -1071,9 +1226,11 @@ class SegmentIndex:
         """
         found = []
         now = datetime.now().timestamp()
+        # Файлы удалённых диапазонов в архив не возвращаются
+        pending = {row["path"] for row in conn.execute("SELECT path FROM pending_delete;")}
 
         for path, camera_id, stream_key, volume_id in self._walk_records():
-            if path in known:
+            if path in known or path in pending:
                 continue
 
             wall_ms = _wall_from_filename(path)
@@ -1207,6 +1364,11 @@ class SegmentIndex:
                 " WHERE volume_id=? AND substr(path, 1, ?) = ?;",
                 (new_prefix, len(old_prefix) + 1, volume_id, len(old_prefix), old_prefix),
             )
+            conn.execute(
+                "UPDATE OR IGNORE pending_delete SET path = ? || substr(path, ?)"
+                " WHERE volume_id=? AND substr(path, 1, ?) = ?;",
+                (new_prefix, len(old_prefix) + 1, volume_id, len(old_prefix), old_prefix),
+            )
             conn.commit()
             return cursor.rowcount
         finally:
@@ -1330,19 +1492,40 @@ def _probe_duration_ms(path: str) -> Optional[int]:
         return None
 
 
-def _split_by_day(start_ms: int, end_ms: int) -> list[tuple[str, int]]:
-    """Отрезок → сколько его пришлось на каждые сутки, которые он задел."""
+# Отрезок → его куски по суткам: ключ суток, начало и конец куска
+def _day_pieces(start_ms: int, end_ms: int) -> list[tuple[str, int, int]]:
     parts = []
     cursor = start_ms
 
     while cursor < end_ms:
-        day_start = (cursor // DAY_MS) * DAY_MS
-        day_end = day_start + DAY_MS
-        edge = min(end_ms, day_end)
-        parts.append((_date_key(cursor), edge - cursor))
+        edge = min(end_ms, (cursor // DAY_MS + 1) * DAY_MS)
+        parts.append((_date_key(cursor), cursor, edge))
         cursor = edge
 
     return parts
+
+
+# Сегменты дорожки → куски для календаря: соседние с одинаковой доступностью сшиваются через короткие зазоры
+def _calendar_runs(items: list[dict]) -> list[tuple[int, int, bool]]:
+    runs: list[list] = []
+    for item in items:
+        last = runs[-1] if runs else None
+        if last and last[2] == item["available"] and item["start_ms"] - last[1] <= CALENDAR_MERGE_MS:
+            last[1] = max(last[1], item["end_ms"])
+        else:
+            runs.append([item["start_ms"], item["end_ms"], item["available"]])
+    return [(start, end, available) for start, end, available in runs]
+
+
+# Объединение отрезков, отсортированных по началу
+def _union(spans: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    out: list[list[int]] = []
+    for start, end in spans:
+        if out and start <= out[-1][1]:
+            out[-1][1] = max(out[-1][1], end)
+        else:
+            out.append([start, end])
+    return [(start, end) for start, end in out]
 
 
 def _fill_missing_ends(items: list[dict]) -> None:

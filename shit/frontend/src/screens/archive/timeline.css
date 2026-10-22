@@ -49,22 +49,6 @@
 
 .tl-now-t { display: flex; flex-direction: column; gap: 1px }
 
-/* К ползунку: окно встаёт курсором по центру */
-.tl-goto {
-  width: 26px;
-  height: 26px;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--line);
-  border-radius: var(--r);
-  background: var(--panel);
-  color: var(--fg-2);
-  transition: var(--tr-ui);
-}
-
-.tl-goto:hover:not(:disabled) { border-color: var(--line-hi); color: var(--fg) }
-.tl-goto:disabled { opacity: .35; cursor: default }
-
 .tl-now b {
   font-family: var(--mono);
   font-size: 17px;
@@ -116,7 +100,8 @@
   transition: var(--tr-ui);
 }
 
-.tl-tool:hover { border-color: var(--line-hi); color: var(--fg) }
+.tl-tool:hover:not(:disabled) { border-color: var(--line-hi); color: var(--fg) }
+.tl-tool:disabled { opacity: .35; cursor: default }
 .tl-tool.is-on { background: rgba(var(--acc-rgb), .16); border-color: rgba(var(--acc-rgb), .45); color: var(--fg) }
 
 /* ── поле ── */
@@ -535,5 +520,9 @@
 }
 
 .rc-foot .btn { flex: 1 }
+.rc-foot .rc-del { flex: 0 0 34px; padding: 0; justify-content: center }
+.rc { animation: rc-in 160ms var(--ease-out) }
+
+@keyframes rc-in { from { opacity: 0; transform: translateY(4px) } }
 
 .rc-note { display: block; margin-top: 6px; text-align: center; font-size: 10.5px; color: var(--fg-3) }
