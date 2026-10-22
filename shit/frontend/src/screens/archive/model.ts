@@ -452,6 +452,31 @@ export interface DeleteResult {
     kept_open: number;
 }
 
+// Что удалит устройство по дорожке: закрытые файлы целиком, часть на извлечённых дисках, пишущийся файл
+export interface DeletePlan {
+    camera: string;
+    stream: string;
+    files: number;
+    bytes: number;
+    from_ms: number | null;
+    to_ms: number | null;
+    gone: { files: number; from_ms: number; to_ms: number; disk: string } | null;
+    open_from: number | null;
+}
+
+export function previewDelete(
+    deviceId: string,
+    tracks: Array<{ camera: string; stream: string }>,
+    fromMs: number,
+    toMs: number,
+): Promise<{ tracks: DeletePlan[] }> {
+    const params = new URLSearchParams();
+    tracks.forEach(track => params.append('track', `${track.camera}:${track.stream}`));
+    params.set('from_ms', String(Math.round(fromMs)));
+    params.set('to_ms', String(Math.round(toMs)));
+    return getJson(storagePath(deviceId, `/api/archive/delete/preview?${params.toString()}`));
+}
+
 // Удаление закрытых сегментов дорожек, задетых диапазоном
 export async function deleteRange(
     deviceId: string,

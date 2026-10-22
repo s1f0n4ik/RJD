@@ -130,7 +130,7 @@
 .arch-cal-dial .t { fill: none; stroke: rgba(255, 255, 255, .07); stroke-width: 3 }
 .arch-cal-d.is-on .arch-cal-dial .t { stroke: rgba(8, 16, 31, .2) }
 
-.arch-cal-arc { fill: none; stroke-width: 3; stroke-dasharray: 100 100; animation: arch-cal-draw 560ms var(--ease-out) both; animation-delay: calc(var(--i, 0) * 12ms) }
+.arch-cal-arc { fill: none; stroke-width: 3; stroke-dasharray: 100 100; animation: arch-cal-draw 620ms var(--ease-out) both; animation-delay: calc(var(--i, 0) * 40ms + 80ms) }
 .arch-cal-arc.r { stroke: rgba(var(--sc), .9) }
 .arch-cal-arc.g { stroke: color-mix(in srgb,var(--fg-2) 45%,transparent) }
 .arch-cal-d.is-on .arch-cal-arc.g { stroke: rgba(8, 16, 31, .45) }
@@ -141,12 +141,19 @@
 .arch-cal-dot { position: absolute; top: 3px; right: 3px; width: 5px; height: 5px; border-radius: 50%; background: var(--warn); box-shadow: 0 0 6px var(--warn) }
 .arch-cal-d.is-on .arch-cal-dot { background: #7a5600; box-shadow: none }
 
-.arch-cal-grid.is-load .arch-cal-d:not(.is-out) .arch-cal-dial .t {
+/* Неделя ещё считается: кольца мерцают волной слева направо */
+.arch-cal-d.is-wait .arch-cal-dial .t {
   stroke: rgba(255, 255, 255, .13);
   animation: arch-cal-wait 1.1s ease-in-out infinite;
+  animation-delay: calc(var(--k, 0) * 90ms);
 }
 
-@keyframes arch-cal-wait { 50% { stroke: rgba(255, 255, 255, .04) } }
+@keyframes arch-cal-wait { 50% { stroke: rgba(255, 255, 255, .03) } }
+
+/* Неделя пришла: кольца вырастают по очереди, дуги прорисовываются следом */
+.arch-cal-d.is-in .arch-cal-dial { animation: arch-cal-in 420ms var(--ease-out) both; animation-delay: calc(var(--k, 0) * 40ms) }
+
+@keyframes arch-cal-in { from { opacity: .25; transform: scale(.78) } }
 
 .arch-cal-err {
   display: flex;
@@ -223,7 +230,7 @@
 @keyframes arch-lane-in { from { clip-path: inset(0 100% 0 0) } }
 
 @media (prefers-reduced-motion: reduce) {
-  .arch-pop, .arch-cal-grid.is-next, .arch-cal-grid.is-prev, .arch-cal-arc, .arch-cal-tip, .arch-cal-lane i { animation: none }
+  .arch-pop, .arch-cal-grid.is-next, .arch-cal-grid.is-prev, .arch-cal-arc, .arch-cal-tip, .arch-cal-lane i, .arch-cal-d.is-in .arch-cal-dial { animation: none }
 }
 
 /* ── кадр и оверлей ── */
@@ -852,6 +859,27 @@
 .del-ln .s { top: -1px; bottom: -1px; z-index: 2; border-left: 1.5px dashed var(--save); border-right: 1.5px dashed var(--save) }
 .dm-trk:not(.is-on) .del-ln .d { display: none }
 .dm-trk:not(.is-on) .del-ln .r { background: rgba(var(--acc-rgb), .18) }
+.del-ln .d { animation: arch-lane-in 420ms var(--ease-out) both }
+
+/* Пока устройство считает файлы: оценка по форме архива приглушена, граница мерцает */
+.dm-num.is-guess { opacity: .6 }
+
+.del-wait {
+  font-family: var(--ui);
+  font-size: 12px;
+  font-weight: 500;
+  color: transparent;
+  background: linear-gradient(90deg, var(--fg-3) 30%, var(--fg) 50%, var(--fg-3) 70%) 0 0 / 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: del-wait 1.2s linear infinite;
+}
+
+@keyframes del-wait { from { background-position: 110% 0 } to { background-position: -110% 0 } }
+
+.del-in { animation: del-in 260ms var(--ease-out) both }
+
+@keyframes del-in { from { opacity: 0; transform: translateY(2px) } }
 
 .del-notes { display: flex; flex-direction: column; gap: 8px }
 
@@ -918,5 +946,6 @@
 @keyframes del-shake { 20% { transform: translateX(-5px) } 40% { transform: translateX(5px) } 60% { transform: translateX(-3px) } 80% { transform: translateX(2px) } }
 
 @media (prefers-reduced-motion: reduce) {
-  .del-hold.is-shake { animation: none }
+  .del-hold.is-shake, .del-ln .d, .del-in { animation: none }
+  .del-wait { animation-duration: 3s }
 }

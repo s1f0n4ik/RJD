@@ -35,31 +35,74 @@ interface Props {
     cameraNames: Map<string, string>;
 }
 
-type Load = { status: 'load' } | { status: 'done'; days: Map<string, DaySummary>; offline: string[] } | { status: 'error' };
+// Строка сетки: 'in' — только что пришла и проявляется
+type RowState = 'load' | 'done' | 'in' | 'error';
+
+// Ответы по неделям живут минуту: повторно открытый календарь рисуется сразу
+const CACHE_MS = 60_000;
+const weekCache = new Map<string, { at: number; days: DaySummary[]; offline: string[] }>();
 
 export function Calendar({ month, onMonth, todayKey, from, to, onPick, cameraNames }: Props) {
-    const [load, setLoad] = useState<Load>({ status: 'load' });
+    const [rows, setRows] = useState<Map<number, RowState>>(new Map());
+    const [days, setDays] = useState<Map<string, DaySummary>>(new Map());
+    const [offline, setOffline] = useState<string[]>([]);
     const [attempt, setAttempt] = useState(0);
     const [slide, setSlide] = useState<'next' | 'prev' | null>(null);
     const [tip, setTip] = useState<{ key: string; anchor: Anchor } | null>(null);
 
-    useEffect(() => {
-        const [year, monthNumber] = month.split('-').map(Number);
-        let alive = true;
-
-        setLoad({ status: 'load' });
-        fetchDays(`${month}-01`, dateKey(Date.UTC(year, monthNumber, 0)))
-            .then(data => {
-                if (alive) setLoad({ status: 'done', days: new Map(data.days.map(day => [day.date, day])), offline: data.offline_devices ?? [] });
-            })
-            .catch(() => alive && setLoad({ status: 'error' }));
-
-        return () => { alive = false; };
-    }, [month, attempt]);
-
     const cells = useMemo(() => buildMonth(month), [month]);
     const [year, monthNumber] = month.split('-').map(Number);
-    const days = load.status === 'done' ? load.days : null;
+
+    // Месяц грузится по неделям, первой — неделя выбранного дня, дальше по удалённости от неё
+    useEffect(() => {
+        let alive = true;
+        const weeks = weekRanges(cells);
+        const target = [from, todayKey].find(key => key && key.startsWith(month)) ?? `${month}-01`;
+        const targetRow = Math.floor(cells.findIndex(cell => cell.key === target) / 7);
+        const order = [...weeks].sort((a, b) => Math.abs(a.row - targetRow) - Math.abs(b.row - targetRow));
+
+        const states = new Map<number, RowState>();
+        const known = new Map<string, DaySummary>();
+        const unreached = new Set<string>();
+        weeks.forEach(week => {
+            const hit = weekCache.get(week.key);
+            if (hit && Date.now() - hit.at < CACHE_MS) {
+                states.set(week.row, 'done');
+                hit.days.forEach(day => known.set(day.date, day));
+                hit.offline.forEach(id => unreached.add(id));
+            } else {
+                states.set(week.row, 'load');
+            }
+        });
+        setRows(states);
+        setDays(known);
+        setOffline([...unreached]);
+
+        (async () => {
+            for (const week of order) {
+                if (states.get(week.row) === 'done') continue;
+                try {
+                    const data = await fetchDays(week.from, week.to);
+                    if (!alive) return;
+                    // Остров, задевший соседнюю неделю, приходит и её днём — берём только свои сутки
+                    const own = data.days.filter(day => day.date >= week.from && day.date <= week.to);
+                    weekCache.set(week.key, { at: Date.now(), days: own, offline: data.offline_devices ?? [] });
+                    setDays(current => {
+                        const next = new Map(current);
+                        own.forEach(day => next.set(day.date, day));
+                        return next;
+                    });
+                    setOffline(current => [...new Set([...current, ...(data.offline_devices ?? [])])]);
+                    setRows(current => new Map(current).set(week.row, 'in'));
+                } catch {
+                    if (alive) setRows(current => new Map(current).set(week.row, 'error'));
+                }
+            }
+        })();
+
+        return () => { alive = false; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [cells, attempt]);
 
     const step = (delta: number) => {
         setTip(null);
@@ -75,8 +118,8 @@ export function Calendar({ month, onMonth, todayKey, from, to, onPick, cameraNam
         setTip({ key, anchor: { left: outer.left, right: outer.right, top: box.top, bottom: box.bottom } });
     }, []);
 
-    const unreached = load.status === 'error' || (load.status === 'done' && load.offline.length > 0);
-    const tipDay = tip && days?.get(tip.key);
+    const failed = [...rows.values()].includes('error');
+    const tipDay = tip && days.get(tip.key);
 
     return (
         <>
@@ -92,14 +135,17 @@ export function Calendar({ month, onMonth, todayKey, from, to, onPick, cameraNam
 
             <div
                 key={month}
-                className={`arch-cal-grid${slide ? ` is-${slide}` : ''}${load.status === 'load' ? ' is-load' : ''}`}
+                className={`arch-cal-grid${slide ? ` is-${slide}` : ''}`}
                 onMouseLeave={() => setTip(null)}
             >
                 {cells.map((cell, index) => {
-                    const summary = cell.inMonth ? days?.get(cell.key) : undefined;
+                    const summary = cell.inMonth ? days.get(cell.key) : undefined;
+                    const row = rows.get(Math.floor(index / 7));
                     const classes = ['arch-cal-d'];
 
                     if (!cell.inMonth) classes.push('is-out');
+                    else if (row === 'load') classes.push('is-wait');
+                    else if (row === 'in') classes.push('is-in');
                     if (summary) classes.push('has');
                     if (todayKey && cell.key > todayKey) classes.push('is-future');
 
@@ -114,6 +160,7 @@ export function Calendar({ month, onMonth, todayKey, from, to, onPick, cameraNam
                             key={cell.key}
                             type="button"
                             className={classes.join(' ')}
+                            style={{ ['--k' as string]: index % 7 }}
                             onClick={() => { setTip(null); onPick(cell.key); }}
                             onMouseEnter={event => {
                                 if (summary) showTip(cell.key, event.currentTarget);
@@ -123,7 +170,7 @@ export function Calendar({ month, onMonth, todayKey, from, to, onPick, cameraNam
                             <span className="arch-cal-dial">
                                 <svg viewBox="0 0 36 36" aria-hidden="true">
                                     <circle className="t" cx="18" cy="18" r={RING} />
-                                    {summary && <Arcs day={summary} index={index} />}
+                                    {summary && <Arcs day={summary} index={index % 7} />}
                                 </svg>
                                 <b>{cell.day}</b>
                             </span>
@@ -133,11 +180,18 @@ export function Calendar({ month, onMonth, todayKey, from, to, onPick, cameraNam
                 })}
             </div>
 
-            {unreached && (
+            {(failed || offline.length > 0) && (
                 <div className="arch-cal-err">
                     <Icon name="warn" size={14} />
-                    <span>{unreachedText(load)}</span>
-                    <button type="button" className="btn btn--sm" onClick={() => setAttempt(value => value + 1)}>
+                    <span>{unreachedText(failed, offline)}</span>
+                    <button
+                        type="button"
+                        className="btn btn--sm"
+                        onClick={() => {
+                            weekCache.forEach((week, key) => { if (week.offline.length) weekCache.delete(key); });
+                            setAttempt(value => value + 1);
+                        }}
+                    >
                         Повторить
                     </button>
                 </div>
@@ -150,12 +204,25 @@ export function Calendar({ month, onMonth, todayKey, from, to, onPick, cameraNam
     );
 }
 
-function unreachedText(load: Load): string {
-    if (load.status !== 'done') return 'Архив не ответил, дни с записями не показаны.';
-    const names = load.offline.map(id => `«${id}»`).join(', ');
-    return load.offline.length > 1
+function unreachedText(failed: boolean, offline: string[]): string {
+    if (failed) return 'Архив ответил не за все недели, их дни здесь не показаны.';
+    const names = offline.map(id => `«${id}»`).join(', ');
+    return offline.length > 1
         ? `Нет ответа от ${names}. Их записи здесь не показаны.`
         : `Нет ответа от ${names}. Его записи здесь не показаны.`;
+}
+
+// Строки сетки как запросы: от первого до последнего дня месяца в строке
+function weekRanges(cells: Array<{ key: string; inMonth: boolean }>) {
+    const weeks = [];
+    for (let row = 0; row < 6; row++) {
+        const own = cells.slice(row * 7, row * 7 + 7).filter(cell => cell.inMonth);
+        if (!own.length) continue;
+        const from = own[0].key;
+        const to = own[own.length - 1].key;
+        weeks.push({ row, from, to, key: `${from}_${to}` });
+    }
+    return weeks;
 }
 
 // Дуги кольца: синие — запись, серые — запись только на неподключённом диске

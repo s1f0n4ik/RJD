@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Icon } from '../../app/Icons';
 import { Modal } from '../../app/Modal';
-import type { DeleteResult, Segment, Track } from './model';
+import type { DeletePlan, DeleteResult, Track } from './model';
 import {
-    dateKey, deleteRange, fetchSegments, fmtBytes, fmtDate, fmtDuration, fmtTime, isAvailable, trackKey,
+    dateKey, deleteRange, estimateBytes, fmtBytes, fmtDate, fmtDuration, fmtTime, goneWithin, isAvailable,
+    previewDelete, recordedWithin, trackKey,
 } from './model';
 
 // Удержание кнопки удаления, мс
@@ -19,28 +20,7 @@ interface Props {
     onDeleted: (result: DeleteResult) => void;
 }
 
-// Что уйдёт у дорожки: все задетые закрытые сегменты целиком, пишущийся остаётся
-interface Plan {
-    files: number;
-    bytes: number;
-    from: number;
-    to: number;
-    gone: Segment[];
-    open: Segment | null;
-}
-
-function planOf(segments: Segment[], from: number, to: number): Plan {
-    const hit = segments.filter(s => s.end_ms > from && s.start_ms < to);
-    const doomed = hit.filter(s => s.closed);
-    return {
-        files: doomed.length,
-        bytes: doomed.reduce((sum, s) => sum + (s.size_bytes || 0), 0),
-        from: doomed.length ? Math.min(...doomed.map(s => s.start_ms)) : from,
-        to: doomed.length ? Math.max(...doomed.map(s => s.end_ms)) : to,
-        gone: doomed.filter(s => s.available === false),
-        open: hit.find(s => !s.closed) ?? null,
-    };
-}
+const keyOf = (deviceId: string, camera: string, stream: string) => `${deviceId}/${camera}/${stream}`;
 
 export function DeleteModal({ tracks, cameraNames, range, preselected, onClose, onDeleted }: Props) {
     // Окно работает с дорожками на момент открытия: опрос формы архива его не перестраивает
@@ -50,32 +30,57 @@ export function DeleteModal({ tracks, cameraNames, range, preselected, onClose, 
         () => opened.filter(track => track.runs.some(run => run.end_ms > range.from && run.start_ms < range.to)),
         [opened, range.from, range.to],
     );
-    const [plans, setPlans] = useState<Map<string, Plan> | null>(null);
+    // Итоги устройства по дорожкам; пока их нет, строки показывают оценку по форме архива
+    const [plans, setPlans] = useState<Map<string, DeletePlan>>(new Map());
     const [chosen, setChosen] = useState<Set<string>>(() => new Set(preselected));
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         let alive = true;
-        Promise.all(touched.map(track =>
-            fetchSegments(track, range.from, range.to).then(data => [trackKey(track), planOf(data.segments, range.from, range.to)] as const),
-        ))
-            .then(list => { if (alive) setPlans(new Map(list)); })
-            .catch(e => { if (alive) setError(String(e)); });
+        const byDevice = new Map<string, Track[]>();
+        touched.forEach(track => byDevice.set(track.device_id, [...(byDevice.get(track.device_id) ?? []), track]));
+
+        byDevice.forEach((list, deviceId) => {
+            const refs = list.map(track => ({ camera: track.camera_id, stream: track.stream_key }));
+            previewDelete(deviceId, refs, range.from, range.to)
+                .then(data => {
+                    if (!alive) return;
+                    setPlans(current => {
+                        const next = new Map(current);
+                        refs.forEach(ref => {
+                            const plan = data.tracks.find(p => p.camera === ref.camera && p.stream === ref.stream);
+                            next.set(keyOf(deviceId, ref.camera, ref.stream), plan ?? {
+                                ...ref, files: 0, bytes: 0, from_ms: null, to_ms: null, gone: null, open_from: null,
+                            });
+                        });
+                        return next;
+                    });
+                })
+                .catch(e => { if (alive) setError(String(e)); });
+        });
         return () => { alive = false; };
     }, [touched, range.from, range.to]);
 
     const rows = touched.map(track => {
         const key = trackKey(track);
-        const plan = plans?.get(key) ?? null;
-        return { track, key, plan, name: cameraNames.get(track.camera_id) || track.camera_id, on: chosen.has(key) && !!plan?.files };
+        const plan = plans.get(key) ?? null;
+        const recorded = recordedWithin(track, range.from, range.to) + goneWithin(track, range.from, range.to);
+        const deletable = plan ? plan.files > 0 : recorded > 0;
+        return {
+            track, key, plan, recorded, deletable,
+            name: cameraNames.get(track.camera_id) || track.camera_id,
+            on: chosen.has(key) && deletable,
+        };
     });
     const picked = rows.filter(row => row.on);
-    const bounds = picked.length
-        ? { from: Math.min(...picked.map(row => row.plan!.from)), to: Math.max(...picked.map(row => row.plan!.to)) }
+    const counted = picked.every(row => row.plan);
+    const exact = picked.map(row => row.plan).filter((plan): plan is DeletePlan => !!plan && plan.files > 0);
+    const bounds = counted && exact.length
+        ? { from: Math.min(...exact.map(p => p.from_ms!)), to: Math.max(...exact.map(p => p.to_ms!)) }
         : null;
-    const files = picked.reduce((sum, row) => sum + row.plan!.files, 0);
-    const bytes = picked.reduce((sum, row) => sum + row.plan!.bytes, 0);
+    const files = exact.reduce((sum, plan) => sum + plan.files, 0);
+    const bytes = picked.reduce((sum, row) => sum + (row.plan ? row.plan.bytes : estimateBytes(row.track, row.recorded)), 0);
 
     // Полосы показывают выделение с запасом: видно, насколько удаление шире выделенного
     const ctx = useMemo(() => {
@@ -93,7 +98,7 @@ export function DeleteModal({ tracks, cameraNames, range, preselected, onClose, 
     });
 
     const submit = async () => {
-        if (!picked.length || busy) return;
+        if (!files || busy) return;
         setBusy(true);
         setError(null);
 
@@ -120,8 +125,14 @@ export function DeleteModal({ tracks, cameraNames, range, preselected, onClose, 
         }
     };
 
-    const gone = picked.filter(row => row.plan!.gone.length);
-    const writing = rows.filter(row => chosen.has(row.key) && row.plan?.open);
+    const gone = picked.filter(row => row.plan?.gone);
+    const writing = rows.filter(row => chosen.has(row.key) && row.plan?.open_from != null);
+
+    const label = busy
+        ? 'Удаляем…'
+        : !counted
+            ? 'Считаем файлы…'
+            : files ? `Удалить ${files} ${plural(files, 'файл', 'файла', 'файлов')}` : 'Нечего удалять';
 
     return (
         <Modal
@@ -136,11 +147,7 @@ export function DeleteModal({ tracks, cameraNames, range, preselected, onClose, 
                         <span>{picked.length} {plural(picked.length, 'камера', 'камеры', 'камер')}</span>
                     </div>
                     <button type="button" className="btn btn--ghost" onClick={onClose}>Отмена</button>
-                    <HoldButton
-                        disabled={!files || busy}
-                        label={busy ? 'Удаляем…' : files ? `Удалить ${files} ${plural(files, 'файл', 'файла', 'файлов')}` : 'Нечего удалять'}
-                        onHold={submit}
-                    />
+                    <HoldButton disabled={!counted || !files || busy} label={label} onHold={submit} />
                 </>
             )}
         >
@@ -152,8 +159,17 @@ export function DeleteModal({ tracks, cameraNames, range, preselected, onClose, 
                         <b>{span(range.from, range.to)}</b>
                         <em>{fmtDuration(range.to - range.from)}</em>
                         <span>Удалится</span>
-                        <b className="is-del">{bounds ? span(bounds.from, bounds.to) : '—'}</b>
-                        <em>{bounds ? 'по границам файлов' : ''}</em>
+                        {counted ? (
+                            <>
+                                <b className="is-del del-in">{bounds ? span(bounds.from, bounds.to) : '—'}</b>
+                                <em className="del-in">{bounds ? 'по границам файлов' : ''}</em>
+                            </>
+                        ) : (
+                            <>
+                                <b className="del-wait">уточняем по файлам</b>
+                                <em />
+                            </>
+                        )}
                     </div>
                 </div>
 
@@ -168,12 +184,12 @@ export function DeleteModal({ tracks, cameraNames, range, preselected, onClose, 
                         <i className="is-end">{fmtTime(ctx.to)}</i>
                     </div>
 
-                    {rows.map(({ track, key, plan, name, on }) => (
+                    {rows.map(({ track, key, plan, recorded, deletable, name, on }) => (
                         <button
                             type="button"
                             key={key}
                             className={`dm-trk${on ? ' is-on' : ''}`}
-                            disabled={!plan?.files}
+                            disabled={!deletable}
                             onClick={() => toggle(key)}
                         >
                             <span className="dm-trk-h">
@@ -181,22 +197,27 @@ export function DeleteModal({ tracks, cameraNames, range, preselected, onClose, 
                                 <span className="dm-nm">
                                     <b>
                                         {name}
-                                        {!!plan?.gone.length && <span className="del-chip is-disk">«{plan.gone[0].disk || 'диск'}» не подключён</span>}
-                                        {plan?.open && <span className="del-chip is-live">пишется</span>}
+                                        {plan?.gone && <span className="del-chip is-disk del-in">«{plan.gone.disk}» не подключён</span>}
+                                        {plan?.open_from != null && <span className="del-chip is-live del-in">пишется</span>}
                                     </b>
                                     <span>{track.camera_id} · {track.stream_key.replace('stream_', 'канал ')}</span>
                                 </span>
-                                <span className="dm-num seps">
-                                    {!plan && <span>считаем…</span>}
-                                    {plan && !plan.files && <span>удалять нечего</span>}
-                                    {plan && !!plan.files && (
-                                        <>
-                                            <span>{fmtTime(plan.from).slice(0, 5)} — {fmtTime(plan.to).slice(0, 5)}</span>
-                                            <span>{plan.files} {plural(plan.files, 'файл', 'файла', 'файлов')}</span>
-                                            <span>≈ {fmtBytes(plan.bytes)}</span>
-                                        </>
-                                    )}
-                                </span>
+                                {plan ? (
+                                    <span className="dm-num seps del-in">
+                                        {plan.files ? (
+                                            <>
+                                                <span>{short(plan.from_ms!, plan.to_ms!)}</span>
+                                                <span>{plan.files} {plural(plan.files, 'файл', 'файла', 'файлов')}</span>
+                                                <span>≈ {fmtBytes(plan.bytes)}</span>
+                                            </>
+                                        ) : <span>удалять нечего</span>}
+                                    </span>
+                                ) : (
+                                    <span className="dm-num seps is-guess">
+                                        <span>≈ {fmtDuration(recorded)}</span>
+                                        <span>≈ {fmtBytes(estimateBytes(track, recorded))}</span>
+                                    </span>
+                                )}
                             </span>
                             <Lane track={track} plan={plan} range={range} ctx={ctx} />
                         </button>
@@ -204,13 +225,13 @@ export function DeleteModal({ tracks, cameraNames, range, preselected, onClose, 
                 </div>
 
                 {(gone.length > 0 || writing.length > 0) && (
-                    <div className="sect del-notes">
+                    <div className="sect del-notes del-in">
                         {gone.map(({ key, name, plan }) => (
                             <div key={key} className="del-note is-disk">
                                 <Icon name="warn" size={15} />
                                 <div>
-                                    <b>«{plan!.gone[0].disk || 'Диск'}» не подключён.</b>
-                                    {' '}Записи «{name}» за {fmtTime(plan!.gone[0].start_ms).slice(0, 5)} — {fmtTime(plan!.gone[plan!.gone.length - 1].end_ms).slice(0, 5)}
+                                    <b>«{plan!.gone!.disk}» не подключён.</b>
+                                    {' '}Записи «{name}» за {short(plan!.gone!.from_ms, plan!.gone!.to_ms)}
                                     {' '}уйдут из архива сейчас, а файлы удалятся с диска, когда его подключат к этому устройству.
                                     {' '}Если диск подключат к другому устройству, файлы там останутся.
                                 </div>
@@ -221,7 +242,7 @@ export function DeleteModal({ tracks, cameraNames, range, preselected, onClose, 
                                 <Icon name="clock" size={15} />
                                 <div>
                                     <b>{writing.length > 1 ? 'Пишутся сейчас:' : 'Пишется сейчас:'}</b>
-                                    {' '}{writing.map(({ name, plan }) => `«${name}» с ${fmtTime(plan!.open!.start_ms)}`).join(', ')}.
+                                    {' '}{writing.map(({ name, plan }) => `«${name}» с ${fmtTime(plan!.open_from!)}`).join(', ')}.
                                     {' '}{writing.length > 1 ? 'Эти файлы ещё не закрыты и останутся.' : 'Этот файл ещё не закрыт и останется.'}
                                 </div>
                             </div>
@@ -238,7 +259,7 @@ export function DeleteModal({ tracks, cameraNames, range, preselected, onClose, 
 // Полоса дорожки: запись, неподключённый диск, что уйдёт, пишущийся файл и выделение пунктиром
 function Lane({ track, plan, range, ctx }: {
     track: Track;
-    plan: Plan | null;
+    plan: DeletePlan | null;
     range: { from: number; to: number };
     ctx: { from: number; to: number };
 }) {
@@ -252,8 +273,8 @@ function Lane({ track, plan, range, ctx }: {
     return (
         <span className="del-ln">
             {track.runs.map(run => box(isAvailable(run) ? 'r' : 'g', run.start_ms, run.end_ms, run.start_ms))}
-            {plan?.open && box('o', plan.open.start_ms, plan.open.end_ms, 'open')}
-            {!!plan?.files && box('d', plan.from, plan.to, 'del')}
+            {plan?.open_from != null && box('o', plan.open_from, Math.max(plan.open_from, range.to), 'open')}
+            {!!plan?.files && box('d', plan.from_ms!, plan.to_ms!, 'del')}
             {box('s', range.from, range.to, 'sel')}
         </span>
     );
@@ -320,6 +341,14 @@ function HoldButton({ disabled, label, onHold }: { disabled: boolean; label: str
 function span(from: number, to: number): string {
     const sameDay = dateKey(from) === dateKey(to);
     return `${fmtDate(from)} ${fmtTime(from)} — ${sameDay ? '' : `${fmtDate(to)} `}${fmtTime(to)}`;
+}
+
+// Границы без секунд; дата — только когда отрезок переходит через сутки
+function short(from: number, to: number): string {
+    const hm = (ms: number) => fmtTime(ms).slice(0, 5);
+    if (dateKey(from) === dateKey(to)) return `${hm(from)} — ${hm(to)}`;
+    const dm = (ms: number) => fmtDate(ms).slice(0, 5);
+    return `${dm(from)} ${hm(from)} — ${dm(to)} ${hm(to)}`;
 }
 
 function plural(count: number, one: string, few: string, many: string): string {

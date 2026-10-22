@@ -205,6 +205,27 @@ class DeleteRequest(BaseModel):
     to_ms: int
 
 
+@router.get("/archive/delete/preview")
+async def archive_delete_preview(
+    track: list[str] = Query(..., description="camera:stream, повторяется"),
+    from_ms: int = Query(...),
+    to_ms: int = Query(...),
+):
+    """Что удалит POST /archive/delete с теми же дорожками и диапазоном: итоги по дорожкам без списка файлов."""
+    if to_ms <= from_ms:
+        raise HTTPException(status_code=400, detail="to_ms must be greater than from_ms")
+
+    pairs = []
+    for item in track:
+        camera, _, stream = item.partition(":")
+        if not camera or not stream:
+            raise HTTPException(status_code=400, detail="track must be camera:stream")
+        pairs.append((camera, stream))
+
+    loop = asyncio.get_running_loop()
+    return {"tracks": await loop.run_in_executor(None, index.delete_preview, pairs, from_ms, to_ms)}
+
+
 @router.post("/archive/delete")
 async def archive_delete(req: DeleteRequest):
     """Удалить из архива закрытые сегменты дорожек, задетые диапазоном; файлы стираются в фоне, с извлечённых дисков — при подключении."""

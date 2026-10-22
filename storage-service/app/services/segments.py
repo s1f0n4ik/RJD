@@ -77,6 +77,16 @@ CALENDAR_MERGE_MS = 120_000
 # Строк за одну транзакцию удаления диапазона
 DELETE_BATCH = 500
 
+# Сегменты в настенном времени изделия по якорям из temp.anchors; строки неизвестных сессий отброшены
+_NORMALIZED = (
+    "SELECT s.id, s.camera_id, s.stream_key, s.path, s.volume_id, s.size_bytes, s.closed,"
+    " CASE WHEN a.uid IS NULL THEN s.wall_start_ms ELSE s.mono_start_ms + a.anchor_ms END AS st,"
+    " CASE WHEN a.uid IS NULL THEN s.wall_end_ms ELSE s.mono_end_ms + a.anchor_ms END AS en,"
+    " COALESCE(a.trusted, 0) AS tr"
+    " FROM segments s LEFT JOIN temp.anchors a ON a.uid = s.session_uid"
+    " WHERE a.uid IS NOT NULL OR s.session_uid IS NULL OR s.session_uid = ''"
+)
+
 # Источники, которым можно верить. sadko — нынешнее имя, can — прежнее
 TRUSTED_SOURCES = ("sadko", "can")
 
@@ -599,12 +609,83 @@ class SegmentIndex:
         finally:
             conn.close()
 
+    # Якоря сессий во временной таблице: по ней время нормализует сам SQLite
+    @staticmethod
+    def _anchor_table(conn: sqlite3.Connection, sessions: list[FSession]) -> None:
+        conn.execute(
+            "CREATE TEMP TABLE IF NOT EXISTS anchors(uid TEXT PRIMARY KEY, anchor_ms INTEGER, trusted INTEGER);"
+        )
+        conn.execute("DELETE FROM temp.anchors;")
+        conn.executemany(
+            "INSERT INTO temp.anchors VALUES(?,?,?);",
+            [(s.uid, s.anchor_ms, int(s.trusted)) for s in sessions],
+        )
+        conn.commit()
+
+    # Строки нужных дорожек, задетые диапазоном: одна выборка и для превью удаления, и для самого удаления
+    @staticmethod
+    def _touched_sql(pairs: list[tuple[str, str]]) -> tuple[str, list]:
+        sql = (
+            f"SELECT * FROM ({_NORMALIZED})"
+            f" WHERE (camera_id, stream_key) IN (VALUES {','.join('(?,?)' for _ in pairs)})"
+            " AND st < ? AND COALESCE(en, st + ?) > ?"
+        )
+        return sql, [value for pair in pairs for value in pair]
+
+    # Что уйдёт по каждой дорожке: число и объём закрытых файлов, их границы, часть на извлечённых дисках, пишущийся файл
+    def delete_preview(self, tracks: Iterable[tuple[str, str]], from_ms: int, to_ms: int) -> list[dict]:
+        pairs = sorted(set(tracks))
+        conn = self._connect()
+        if conn is None or not pairs:
+            return []
+
+        try:
+            self._ensure_own_schema(conn)
+            if not self._has_table(conn, "segments"):
+                return []
+
+            self._anchor_table(conn, self._load_sessions(conn))
+            touched, params = self._touched_sql(pairs)
+            groups = conn.execute(
+                "SELECT camera_id, stream_key, closed, volume_id, COUNT(*) AS n, SUM(COALESCE(size_bytes, 0)) AS b,"
+                f" MIN(st) AS lo, MAX(COALESCE(en, st)) AS hi FROM ({touched})"
+                " GROUP BY camera_id, stream_key, closed, volume_id;",
+                [*params, to_ms, FALLBACK_DURATION_MS, from_ms],
+            ).fetchall()
+
+            plans: dict[tuple[str, str], dict] = {}
+            for row in groups:
+                plan = plans.setdefault((row["camera_id"], row["stream_key"]), {
+                    "camera": row["camera_id"], "stream": row["stream_key"], "files": 0, "bytes": 0,
+                    "from_ms": None, "to_ms": None, "gone": None, "open_from": None,
+                })
+                if not row["closed"]:
+                    plan["open_from"] = row["lo"] if plan["open_from"] is None else min(plan["open_from"], row["lo"])
+                    continue
+
+                plan["files"] += row["n"]
+                plan["bytes"] += row["b"]
+                plan["from_ms"] = row["lo"] if plan["from_ms"] is None else min(plan["from_ms"], row["lo"])
+                plan["to_ms"] = row["hi"] if plan["to_ms"] is None else max(plan["to_ms"], row["hi"])
+
+                disk = self.view.offline.get(row["volume_id"] or self.view.internal_id)
+                if disk is not None:
+                    gone = plan["gone"] or {"files": 0, "from_ms": row["lo"], "to_ms": row["hi"], "disk": disk}
+                    gone["files"] += row["n"]
+                    gone["from_ms"] = min(gone["from_ms"], row["lo"])
+                    gone["to_ms"] = max(gone["to_ms"], row["hi"])
+                    plan["gone"] = gone
+
+            return list(plans.values())
+        finally:
+            conn.close()
+
     # Закрытые сегменты дорожек, задетые диапазоном, уходят из индекса, их файлы — в очередь на стирание
     def delete_range(self, tracks: Iterable[tuple[str, str]], from_ms: int, to_ms: int) -> dict:
-        wanted = set(tracks)
+        pairs = sorted(set(tracks))
         result = {"removed": 0, "bytes": 0, "deferred": 0, "kept_open": 0}
         conn = self._connect()
-        if conn is None:
+        if conn is None or not pairs:
             return result
 
         try:
@@ -612,44 +693,37 @@ class SegmentIndex:
             if not self._has_table(conn, "segments"):
                 return result
 
-            sessions = self._load_sessions(conn)
-            by_track: dict[tuple[str, str], list[dict]] = {}
-            for row in self._rows_in_window(conn, sessions, from_ms, to_ms):
-                key = (row["camera_id"], row["stream_key"])
-                if key in wanted:
-                    by_track.setdefault(key, []).append(row)
+            self._anchor_table(conn, self._load_sessions(conn))
+            touched, params = self._touched_sql(pairs)
+            rows = conn.execute(
+                f"SELECT id, path, volume_id, closed, COALESCE(size_bytes, 0) AS b FROM ({touched});",
+                [*params, to_ms, FALLBACK_DURATION_MS, from_ms],
+            ).fetchall()
 
-            doomed = []
-            for items in by_track.values():
-                items.sort(key=lambda item: item["start_ms"])
-                _fill_missing_ends(items)
-                for item in items:
-                    if item["end_ms"] <= from_ms or item["start_ms"] >= to_ms:
-                        continue
-                    if item["closed"]:
-                        doomed.append(item)
-                    else:
-                        result["kept_open"] += 1
+            doomed = [row for row in rows if row["closed"]]
+            result["kept_open"] = len(rows) - len(doomed)
 
             now = int(time.time() * 1000)
             for start in range(0, len(doomed), DELETE_BATCH):
                 batch = doomed[start:start + DELETE_BATCH]
                 conn.executemany(
                     "INSERT OR IGNORE INTO pending_delete(path, volume_id, queued_at) VALUES(?,?,?);",
-                    [(item["path"], item["volume_id"], now) for item in batch],
+                    [(row["path"], row["volume_id"] or self.view.internal_id, now) for row in batch],
                 )
                 conn.execute(
                     f"DELETE FROM segments WHERE id IN ({_places(batch)});",
-                    [item["id"] for item in batch],
+                    [row["id"] for row in batch],
                 )
                 conn.commit()
 
             result["removed"] = len(doomed)
-            result["bytes"] = sum(item["size_bytes"] for item in doomed)
-            result["deferred"] = sum(1 for item in doomed if not item["available"])
+            result["bytes"] = sum(row["b"] for row in doomed)
+            result["deferred"] = sum(
+                1 for row in doomed if (row["volume_id"] or self.view.internal_id) in self.view.offline
+            )
             logger.warning(
                 "Archive range %d..%d deleted for %s: %d rows, %d bytes, %d files wait for their disk, %d open kept",
-                from_ms, to_ms, sorted(wanted), result["removed"], result["bytes"], result["deferred"], result["kept_open"],
+                from_ms, to_ms, pairs, result["removed"], result["bytes"], result["deferred"], result["kept_open"],
             )
             return result
         finally:
@@ -690,44 +764,36 @@ class SegmentIndex:
             logger.info("Removed %d files of deleted archive ranges", len(done))
         return len(done)
 
-    # Строки окна одним запросом: время нормализует SQLite по якорям сессий из временной таблицы
-    def _light_rows(
-        self, conn: sqlite3.Connection, sessions: list[FSession], window_start: int, window_end: int
-    ) -> list[dict]:
-        conn.execute(
-            "CREATE TEMP TABLE IF NOT EXISTS anchors(uid TEXT PRIMARY KEY, anchor_ms INTEGER, trusted INTEGER);"
-        )
-        conn.execute("DELETE FROM temp.anchors;")
-        conn.executemany(
-            "INSERT INTO temp.anchors VALUES(?,?,?);",
-            [(s.uid, s.anchor_ms, int(s.trusted)) for s in sessions],
-        )
-        conn.commit()
+    # Острова записи окна: SQLite достраивает концы как _fill_missing_ends и сшивает сегменты через короткие зазоры
+    def _day_islands(self, conn: sqlite3.Connection, window_start: int, window_end: int) -> list[sqlite3.Row]:
+        offline = list(self.view.offline)
+        gone = f"COALESCE(volume_id, ?) IN ({_places(offline)})" if offline else "0"
+        gone_params = [self.view.internal_id, *offline] if offline else []
 
-        cursor = conn.execute(
-            "SELECT camera_id, stream_key, volume_id, size_bytes, st, en, tr FROM ("
-            " SELECT s.camera_id, s.stream_key, s.volume_id, s.size_bytes,"
-            "  CASE WHEN a.uid IS NULL THEN s.wall_start_ms ELSE s.mono_start_ms + a.anchor_ms END AS st,"
-            "  CASE WHEN a.uid IS NULL THEN s.wall_end_ms ELSE s.mono_end_ms + a.anchor_ms END AS en,"
-            "  COALESCE(a.trusted, 0) AS tr"
-            " FROM segments s LEFT JOIN temp.anchors a ON a.uid = s.session_uid"
-            " WHERE a.uid IS NOT NULL OR s.session_uid IS NULL OR s.session_uid = ''"
-            ") WHERE st < ? AND COALESCE(en, st + ?) > ?;",
-            (window_end, FALLBACK_DURATION_MS, window_start),
-        )
-        offline = self.view.offline
-        return [
-            {
-                "camera_id": row["camera_id"],
-                "stream_key": row["stream_key"],
-                "start_ms": row["st"],
-                "end_ms": row["en"],
-                "size_bytes": row["size_bytes"] or 0,
-                "trusted": bool(row["tr"]),
-                "available": (row["volume_id"] or self.view.internal_id) not in offline,
-            }
-            for row in cursor
-        ]
+        return conn.execute(
+            "WITH r AS ("
+            f" SELECT camera_id, stream_key, st, en, tr, COALESCE(size_bytes, 0) AS sz, {gone} AS gone"
+            f" FROM ({_NORMALIZED}) WHERE st < ? AND COALESCE(en, st + ?) > ?"
+            "), t AS ("
+            " SELECT *, LEAD(st) OVER w AS nx,"
+            "  COALESCE(AVG(en - st) OVER (PARTITION BY camera_id, stream_key), ?) AS typ"
+            " FROM r WINDOW w AS (PARTITION BY camera_id, stream_key ORDER BY st)"
+            "), f AS ("
+            " SELECT camera_id, stream_key, st, tr, sz, gone,"
+            "  CASE WHEN en IS NOT NULL THEN en WHEN nx IS NULL THEN st + typ ELSE st + MIN(nx - st, 2 * typ) END AS en"
+            " FROM t"
+            "), g AS ("
+            " SELECT *, CASE WHEN gone = LAG(gone) OVER w AND st - LAG(en) OVER w <= ? THEN 0 ELSE 1 END AS brk"
+            " FROM f WINDOW w AS (PARTITION BY camera_id, stream_key ORDER BY st)"
+            "), i AS ("
+            " SELECT *, SUM(brk) OVER (PARTITION BY camera_id, stream_key ORDER BY st ROWS UNBOUNDED PRECEDING) AS isl"
+            " FROM g"
+            ")"
+            " SELECT camera_id, stream_key, gone, MIN(st) AS lo, MAX(en) AS hi, SUM(en - st) AS rec,"
+            "  SUM(sz) AS sz, COUNT(*) AS n, MIN(tr) AS tr"
+            " FROM i GROUP BY camera_id, stream_key, isl ORDER BY camera_id, stream_key, lo;",
+            [*gone_params, window_end, FALLBACK_DURATION_MS, window_start, FALLBACK_DURATION_MS, CALENDAR_MERGE_MS],
+        ).fetchall()
 
     # ── календарь и сводка ──
 
@@ -747,10 +813,7 @@ class SegmentIndex:
 
             sessions = self._load_sessions(conn)
             self._persist_anchors(conn, sessions)
-
-            by_track: dict[tuple[str, str], list[dict]] = {}
-            for row in self._light_rows(conn, sessions, window_start, window_end):
-                by_track.setdefault((row["camera_id"], row["stream_key"]), []).append(row)
+            self._anchor_table(conn, sessions)
 
             by_day: dict[str, dict] = {}
 
@@ -765,26 +828,19 @@ class SegmentIndex:
                     "camera_id": camera_id, "stream_key": stream_key, "recorded_ms": 0, "runs": [],
                 })
 
-            for (camera_id, stream_key), items in sorted(by_track.items()):
-                items.sort(key=lambda x: x["start_ms"])
-                # Концы достраиваются так же, как в выборке окна таймлайна
-                _fill_missing_ends(items)
-
-                for item in items:
-                    for key, start, end in _day_pieces(item["start_ms"], item["end_ms"]):
-                        day = day_of(key)
-                        track_of(day, camera_id, stream_key)["recorded_ms"] += end - start
-                        if not item["trusted"]:
-                            day["trusted"] = False
-                    day = day_of(_date_key(item["start_ms"]))
-                    day["bytes"] += item["size_bytes"]
-                    day["segment_count"] += 1
-
-                for start, end, available in _calendar_runs(items):
-                    for key, piece_start, piece_end in _day_pieces(start, end):
-                        track_of(day_of(key), camera_id, stream_key)["runs"].append(
-                            {"start_ms": piece_start, "end_ms": piece_end, "available": available}
-                        )
+            # Остров, задевший несколько суток, делится между ними пропорционально длине куска
+            for row in self._day_islands(conn, window_start, window_end):
+                span = max(1, row["hi"] - row["lo"])
+                for key, start, end in _day_pieces(row["lo"], row["hi"]):
+                    share = (end - start) / span
+                    day = day_of(key)
+                    track = track_of(day, row["camera_id"], row["stream_key"])
+                    track["recorded_ms"] += min(end - start, round(row["rec"] * share))
+                    track["runs"].append({"start_ms": start, "end_ms": end, "available": not row["gone"]})
+                    day["bytes"] += round(row["sz"] * share)
+                    day["segment_count"] += round(row["n"] * share)
+                    if not row["tr"]:
+                        day["trusted"] = False
 
             result = []
             for key in sorted(by_day):
@@ -1503,18 +1559,6 @@ def _day_pieces(start_ms: int, end_ms: int) -> list[tuple[str, int, int]]:
         cursor = edge
 
     return parts
-
-
-# Сегменты дорожки → куски для календаря: соседние с одинаковой доступностью сшиваются через короткие зазоры
-def _calendar_runs(items: list[dict]) -> list[tuple[int, int, bool]]:
-    runs: list[list] = []
-    for item in items:
-        last = runs[-1] if runs else None
-        if last and last[2] == item["available"] and item["start_ms"] - last[1] <= CALENDAR_MERGE_MS:
-            last[1] = max(last[1], item["end_ms"])
-        else:
-            runs.append([item["start_ms"], item["end_ms"], item["available"]])
-    return [(start, end, available) for start, end, available in runs]
 
 
 # Объединение отрезков, отсортированных по началу
