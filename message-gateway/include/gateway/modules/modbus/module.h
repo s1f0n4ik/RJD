@@ -82,6 +82,7 @@ namespace varan {
             void arm_gap();
             void parse();
             void drop(std::size_t n);
+            void log_junk();
             void flush_garbage();
             void housekeeping();
 
@@ -109,6 +110,8 @@ namespace varan {
             unsigned m_gen = 0;
             std::array<std::uint8_t, 512> m_chunk{};
             std::vector<std::uint8_t> m_buf;
+            // Отброшенные байты до следующего кадра — одной строкой в лог
+            std::vector<std::uint8_t> m_junk;
             // Буфер начинается с границы кадра
             bool m_aligned = true;
             // Адрес чужого ведомого, чей ответ ждём следом, -1 — не ждём

@@ -34,17 +34,99 @@ namespace gateway {
             return d[n - 2] == (crc & 0xFF) && d[n - 1] == (crc >> 8);
         }
 
-        std::string hex(const std::uint8_t* d, std::size_t n) {
+        std::string hex(const std::uint8_t* d, std::size_t n, std::size_t limit = HEX_BYTES) {
             std::string out;
             char buf[4];
-            for (std::size_t i = 0; i < n && i < HEX_BYTES; ++i) {
+            for (std::size_t i = 0; i < n && i < limit; ++i) {
                 std::snprintf(buf, sizeof(buf), i ? " %02X" : "%02X", d[i]);
                 out += buf;
             }
-            if (n > HEX_BYTES) {
+            if (n > limit) {
                 out += " …";
             }
             return out;
+        }
+
+        const char* FRAME_TAG = "modbus:frame";
+
+        const char* exception_name(std::uint8_t code) {
+            switch (code) {
+            case EX_ILLEGAL_FUNCTION: return "illegal function";
+            case EX_ILLEGAL_ADDRESS: return "illegal address";
+            case EX_ILLEGAL_VALUE: return "illegal value";
+            default: return "unknown";
+            }
+        }
+
+        // Запрос ведущего словами: функция, регистры
+        std::string request_text(const std::uint8_t* f, std::size_t n) {
+            char buf[48];
+            const unsigned reg = n >= 4 ? be16(f + 2) : 0u;
+            const unsigned val = n >= 6 ? be16(f + 4) : 0u;
+            switch (f[1]) {
+            case 0x03: std::snprintf(buf, sizeof(buf), "read holding 0x%04Xx%u", reg, val); break;
+            case FC_READ_INPUT: std::snprintf(buf, sizeof(buf), "read 0x%04Xx%u", reg, val); break;
+            case FC_WRITE_SINGLE: std::snprintf(buf, sizeof(buf), "write 0x%04X = %u", reg, val); break;
+            case FC_WRITE_MULTIPLE: std::snprintf(buf, sizeof(buf), "write 0x%04Xx%u", reg, val); break;
+            case 0x11: return "report slave id";
+            default: std::snprintf(buf, sizeof(buf), "function 0x%02X", f[1]); break;
+            }
+            return buf;
+        }
+
+        // Ответ ведомого словами; значения — только до 8 регистров
+        std::string response_text(const std::uint8_t* f, std::size_t n) {
+            char buf[48];
+            if (f[1] & 0x80) {
+                std::snprintf(buf, sizeof(buf), "exception %02X (%s)", f[2], exception_name(f[2]));
+                return buf;
+            }
+            switch (f[1]) {
+            case 0x03:
+            case FC_READ_INPUT: {
+                const std::size_t bytes = f[2];
+                std::string s = "response " + std::to_string(bytes) + " bytes";
+                if (bytes / 2 <= 8 && 3 + bytes <= n) {
+                    s += ":";
+                    for (std::size_t i = 0; i < bytes / 2; ++i) {
+                        s += " " + std::to_string(be16(f + 3 + 2 * i));
+                    }
+                }
+                return s;
+            }
+            case FC_WRITE_SINGLE:
+                std::snprintf(buf, sizeof(buf), "ack 0x%04X = %u", unsigned{ be16(f + 2) }, unsigned{ be16(f + 4) });
+                return buf;
+            case FC_WRITE_MULTIPLE:
+                std::snprintf(buf, sizeof(buf), "ack 0x%04Xx%u", unsigned{ be16(f + 2) }, unsigned{ be16(f + 4) });
+                return buf;
+            default:
+                std::snprintf(buf, sizeof(buf), "function 0x%02X", f[1]);
+                return buf;
+            }
+        }
+
+        // Строка кадра: направление, адрес, функция, разбор, все байты
+        void log_frame(const char* dir, const std::uint8_t* f, std::size_t n, const std::string& text, bool warn = false) {
+            char head[16];
+            std::snprintf(head, sizeof(head), "%s %u %02X ", dir, unsigned{ f[0] }, f[1]);
+            const std::string line = head + text + " | " + hex(f, n, n);
+            if (warn) {
+                ULog::warn(FRAME_TAG, line);
+            }
+            else {
+                ULog::info(FRAME_TAG, line);
+            }
+        }
+
+        // Запрос с неверным CRC: принятые и посчитанные байты CRC в порядке линии
+        void log_bad_crc(const std::uint8_t* f, std::size_t n) {
+            const std::uint16_t crc = modbus_crc(f, n - 2);
+            char head[24];
+            std::snprintf(head, sizeof(head), "RX bad CRC: %u %02X ", unsigned{ f[0] }, f[1]);
+            char tail[48];
+            std::snprintf(tail, sizeof(tail), ", CRC %02X %02X instead of %02X %02X", f[n - 2], f[n - 1], crc & 0xFF, crc >> 8);
+            ULog::warn(FRAME_TAG, head + request_text(f, n) + tail + " | " + hex(f, n, n));
         }
 
         std::string describe(const FModbusConfig& c) {
@@ -160,6 +242,7 @@ namespace gateway {
         }
         m_connected = false;
         m_buf.clear();
+        m_junk.clear();
     }
 
     void AModbusModule::schedule_retry() {
@@ -217,9 +300,23 @@ namespace gateway {
     }
 
     void AModbusModule::drop(std::size_t n) {
+        m_junk.insert(m_junk.end(), m_buf.begin(), m_buf.begin() + static_cast<std::ptrdiff_t>(n));
         m_buf.erase(m_buf.begin(), m_buf.begin() + static_cast<std::ptrdiff_t>(n));
         m_garbage += static_cast<std::int64_t>(n);
         m_aligned = false;
+        // Шум без пауз — строкой на каждые MAX_ADU байт
+        if (m_junk.size() >= MAX_ADU) {
+            log_junk();
+        }
+    }
+
+    void AModbusModule::log_junk() {
+        if (m_junk.empty()) {
+            return;
+        }
+        ULog::warn(FRAME_TAG, "RX garbage " + std::to_string(m_junk.size()) + " bytes | " +
+            hex(m_junk.data(), m_junk.size(), m_junk.size()));
+        m_junk.clear();
     }
 
     void AModbusModule::flush_garbage() {
@@ -230,6 +327,7 @@ namespace gateway {
                 return;
             }
         }
+        log_junk();
         m_aligned = true;
     }
 
@@ -246,6 +344,8 @@ namespace gateway {
                         return;
                     }
                     if (crc_ok(m_buf.data(), len)) {
+                        log_junk();
+                        log_frame("RX", m_buf.data(), len, "foreign " + response_text(m_buf.data(), len));
                         m_buf.erase(m_buf.begin(), m_buf.begin() + static_cast<std::ptrdiff_t>(len));
                         m_expect = -1;
                         m_aligned = true;
@@ -268,6 +368,7 @@ namespace gateway {
             if (!crc_ok(m_buf.data(), len)) {
                 if (m_aligned) {
                     ++m_crc_errors;
+                    log_bad_crc(m_buf.data(), len);
                 }
                 drop(1);
                 continue;
@@ -276,6 +377,7 @@ namespace gateway {
             m_buf.erase(m_buf.begin(), m_buf.begin() + static_cast<std::ptrdiff_t>(len));
             m_aligned = true;
             m_expect = -1;
+            log_junk();
             on_request(frame.data(), frame.size());
             if (!m_port) {
                 return;
@@ -288,18 +390,20 @@ namespace gateway {
         const std::uint8_t addr = f[0];
         const std::uint8_t fc = f[1];
         if (addr != 0 && addr != cfg.slave) {
+            log_frame("RX", f, n, "foreign " + request_text(f, n));
             ++m_foreign;
             m_foreign_last = addr;
             m_expect = addr;
             return;
         }
 
+        const bool broadcast = addr == 0;
+        log_frame("RX", f, n, (broadcast ? "broadcast " : "") + request_text(f, n));
         m_last_master_mono = mono_ms();
         if (!m_master_online) {
             m_master_online = true;
             ULog::info(TAG, "Master is online");
         }
-        const bool broadcast = addr == 0;
         if (broadcast) {
             ++m_broadcasts;
         }
@@ -382,6 +486,7 @@ namespace gateway {
             rsp.push_back(static_cast<std::uint8_t>(crc & 0xFF));
             rsp.push_back(static_cast<std::uint8_t>(crc >> 8));
             ex.tx = hex(rsp.data(), rsp.size());
+            log_frame("TX", rsp.data(), rsp.size(), response_text(rsp.data(), rsp.size()), exc != 0);
             boost::system::error_code ec;
             boost::asio::write(*m_port, boost::asio::buffer(rsp), ec);
             if (ec) {

@@ -316,6 +316,23 @@ ip link set can0 up type can bitrate 250000
 `no_tiles`, `tile_fault`, `no_devices`, `backend_unavailable`) уходят в статус
 модуля кодом и текстом для страницы.
 
+**Лог кадров** (`[modbus:frame]`, всегда): строка на каждый кадр линии —
+направление, адрес, функция в hex, разбор и все байты через пробел. Запросы к
+нам и чужим адресам (`foreign`), ответы чужих ведомых, широковещательные
+(`broadcast`), наши ответы (`TX`); отклонённое — WARN: неверный CRC (принятые
+и посчитанные байты CRC), мусор одной строкой до следующего кадра, исключения.
+Значения регистров в ответе — до 8 регистров. Поэтому ротация лога шлюза в
+compose — 5 × 50 МБ.
+
+```
+INFO  [modbus:frame] RX 19 04 read 0x1006x2 | 13 04 10 06 00 02 96 78
+INFO  [modbus:frame] TX 19 04 response 4 bytes: 1023 1 | 13 04 04 03 FF 00 01 …
+WARN  [modbus:frame] TX 19 91 exception 01 (illegal function) | 13 91 01 2C 55
+INFO  [modbus:frame] RX 18 04 foreign read 0x1000x62 | 12 04 10 00 00 3E 75 2A
+WARN  [modbus:frame] RX bad CRC: 19 04 read 0x1006x2, CRC 12 34 instead of 96 78 | 13 04 10 06 00 02 12 34
+WARN  [modbus:frame] RX garbage 3 bytes | FF 00 13
+```
+
 Статус модуля (`/status`, `modules[0]`): `connection` (порт, скорость,
 чётность, фаза переподключения), `slave`, `master` (на связи, если запросы шли
 за последние 15 с), `slave` (адрес, идентификатор, версия, `limit_records`, `max_records`), `block` (значения `0x1000–0x1006`; `0x1006` — отправленное ведущему, настоящее — `queue.visible`), `state.registers`

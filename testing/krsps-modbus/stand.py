@@ -543,6 +543,11 @@ class Stand:
         c1 = module()["counters"]
         self.check("ошибок CRC +1", c1["crc_errors"] == c0["crc_errors"] + 1, (c0["crc_errors"], c1["crc_errors"]))
         self.check("мусорные байты посчитаны", c1["garbage_bytes"] >= c0["garbage_bytes"] + 7, (c0["garbage_bytes"], c1["garbage_bytes"]))
+        logs = self.gw.logs()
+        lines = ["RX garbage 5 bytes | AA 55 AA 55 FF", "RX bad CRC: 20 04 read 0x1000x2, CRC", "RX garbage 2 bytes | 13 37",
+                 "RX 20 04 read 0x1000x2 | 14 04 10 00 00 02", "TX 20 04 response 4 bytes: 20 1 | 14 04 04 00 14 00 01"]
+        missing = [s for s in lines if s not in logs]
+        self.check("лог кадров: мусор, CRC, запрос и ответ", not missing, missing or None)
 
     def foreign(self):
         self.section("чужой адрес")
@@ -556,6 +561,11 @@ class Stand:
         self.check("чужие запросы посчитаны, адрес 21", c1["foreign"] == c0["foreign"] + 2 and c1["foreign_last"] == 21, c1)
         self.check("ответы чужого ведомого не ошибки", c1["crc_errors"] == c0["crc_errors"] and c1["garbage_bytes"] == c0["garbage_bytes"], (c0, c1))
         self.check("свой запрос после чужих обслужен", self.m.read(0x1000, 2) == [20, 1])
+        logs = self.gw.logs()
+        lines = ["RX 21 04 foreign read 0x1000x2", "RX 21 04 foreign response 4 bytes: 7 1",
+                 "RX 21 06 foreign write 0x1000 = 0", "RX 21 06 foreign ack 0x1000 = 0"]
+        missing = [s for s in lines if s not in logs]
+        self.check("лог кадров: чужие запросы и ответы", not missing, missing or None)
 
     def broadcast(self):
         self.section("широковещательная запись")

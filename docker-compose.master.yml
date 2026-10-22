@@ -101,11 +101,12 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
+    # Лог кадров Modbus: строка на кадр
     logging:
       driver: "json-file"
       options:
-        max-size: "10m"
-        max-file: "3"
+        max-size: "50m"
+        max-file: "5"
 
   # ========== Мастер обнаружений (треки устройств, журнал, АС КРСПС) ==========
   # HTTP 8003, gRPC 50052; устройства ходят сюда через --detection-ip/--detection-port
