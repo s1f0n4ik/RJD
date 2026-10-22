@@ -127,7 +127,8 @@ def _moof_spans(moof: bytes, tracks: dict[int, tuple[int, int]]) -> list[tuple[i
                     default = struct.unpack(">I", moof[offset:offset + 4])[0]
             elif name == b"tfdt":
                 wide = moof[at] == 1
-                start = struct.unpack(">Q" if wide else ">I", moof[at + 4:at + (12 if wide else 8)])[0]
+                # 64-битное время со знаком: отрицательное время декодирования mp4mux пишет как 2^64 - n
+                start = struct.unpack(">q" if wide else ">I", moof[at + 4:at + (12 if wide else 8)])[0]
             elif name == b"trun":
                 flags = int.from_bytes(moof[at + 1:at + 4], "big")
                 count = struct.unpack(">I", moof[at + 4:at + 8])[0]
@@ -273,11 +274,11 @@ def write_duration(path: Path, duration_ms: int) -> bool:
                 return False
 
             movie_units = int(duration_ms * movie_scale / 1000)
+            writes: list[tuple[int, bool, int]] = []
 
             def put(body: int, narrow: int, wide_off: int, units: int) -> None:
                 at, wide = _duration_offset(data, body, narrow, wide_off)
-                handle.seek(at)
-                handle.write(struct.pack(">Q" if wide else ">I", units))
+                writes.append((at, wide, units))
 
             put(mvhd[0], 16, 24, movie_units)
 
@@ -306,6 +307,14 @@ def write_duration(path: Path, duration_ms: int) -> bool:
                 media_scale = _timescale(data, mdhd[0])
                 if media_scale:
                     put(mdhd[0], 16, 24, int(duration_ms * media_scale / 1000))
+
+            # Значение не влезает в поле — файл не трогается целиком
+            if any(units >= 1 << (64 if wide else 32) for _at, wide, units in writes):
+                logger.warning("Duration %d ms does not fit the header of %s", duration_ms, path)
+                return False
+            for at, wide, units in writes:
+                handle.seek(at)
+                handle.write(struct.pack(">Q" if wide else ">I", units))
 
         return True
     except OSError as e:
