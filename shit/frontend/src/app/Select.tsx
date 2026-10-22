@@ -11,6 +11,8 @@ export interface SelectOption {
     muted?: boolean;
     /** Цветная точка перед подписью: состояние варианта */
     dot?: 'ok' | 'warn' | 'err' | 'acc';
+    /** Цветная метка перед подписью: собственный цвет варианта */
+    color?: string;
 }
 
 interface SelectProps {
@@ -149,6 +151,7 @@ export function Select({ value, options, onChange, disabled, placeholder, emptyT
                 onClick={() => (open ? setOpen(false) : openPopup())}
             >
                 {selected?.dot && <span className={`dot ${selected.dot}`} />}
+                {selected?.color && <span className="chip-col" style={{ background: selected.color }} />}
                 <span className="uisel-val">
                     {display ?? (selected ? selected.label : <span className="muted">{placeholder ?? '—'}</span>)}
                 </span>
@@ -186,6 +189,7 @@ export function Select({ value, options, onChange, disabled, placeholder, emptyT
                         >
                             <span className="lbl">
                                 {option.dot && <span className={`dot ${option.dot}`} />}
+                                {option.color && <span className="chip-col" style={{ background: option.color }} />}
                                 <span className="lbl-t">{option.label}</span>
                             </span>
                             {option.hint && <span className="hint-t">{option.hint}</span>}

@@ -1,8 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Icon } from '../../app/Icons';
 import { Switch, Seg } from '../../app/Modal';
+import { EASE_OUT, reducedMotion } from '../../app/motion';
 import { Select } from '../../app/Select';
 import type { ClassDef, ModelFile, NeuralConfig, SuperclassDef, TrackerConfig, TrackerType, ZoneDef } from '../../features/neural/api/types';
+import { ClassModal } from './ClassModal';
+import { ColorSwatch } from './ColorPicker';
 import { modelClasses, modelMb, modelOf, modelQuant, modelSize, modelTask } from './model-desc';
 
 // Поле трекера: ключ конфигурации, подпись, знаков после запятой, пределы
@@ -450,19 +453,44 @@ function KeyField({ value, onCommit }: { value: string; onCommit: (v: string) =>
     );
 }
 
-function ColorSwatch({ color, onChange, large }: { color: string; onChange: (c: string) => void; large?: boolean }) {
-    return (
-        <span className={`swatch${large ? ' lg' : ''}`} style={{ background: color }} data-tip="Цвет">
-            <input type="color" value={/^#[0-9a-f]{6}$/i.test(color) ? color : NEW_COLOR} onChange={e => onChange(e.target.value)} />
-        </span>
-    );
-}
-
-// ── Классы по группам суперклассов; перетаскивание меняет суперкласс ──
+// ── Классы по группам суперклассов; перетаскивание меняет суперкласс, нажатие открывает правку ──
 function Classes({ value, onChange }: { value: NeuralConfig; onChange: (next: NeuralConfig) => void }) {
-    const [selected, setSelected] = useState<string | null>(null);
+    // Правится класс id; origin — узел, из которого выросло окно
+    const [editing, setEditing] = useState<{ id: string; origin: HTMLElement } | null>(null);
     const [dragId, setDragId] = useState<string | null>(null);
     const [overGroup, setOverGroup] = useState<string | null>(null);
+    const listRef = useRef<HTMLDivElement>(null);
+    // Рамки чипов до правки и чип, который вспыхнет после неё
+    const flip = useRef<{ rects: Map<string, DOMRect>; flash: string | null } | null>(null);
+
+    const snapshot = (flash: string | null) => {
+        const rects = new Map<string, DOMRect>();
+        listRef.current?.querySelectorAll<HTMLElement>('.cls[data-id]').forEach(el => rects.set(el.dataset.id!, el.getBoundingClientRect()));
+        flip.current = { rects, flash };
+    };
+
+    // Чипы доезжают со старых мест на новые, правленый вспыхивает
+    useLayoutEffect(() => {
+        const f = flip.current;
+        if (!f) return;
+        flip.current = null;
+        listRef.current?.querySelectorAll<HTMLElement>('.cls[data-id]').forEach(el => {
+            const id = el.dataset.id!;
+            const from = f.rects.get(id);
+            if (from && !reducedMotion()) {
+                const to = el.getBoundingClientRect();
+                const dx = from.left - to.left;
+                const dy = from.top - to.top;
+                if (dx || dy) el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], { duration: id === f.flash ? 380 : 260, easing: EASE_OUT });
+            }
+            if (id === f.flash) {
+                el.classList.remove('is-flash');
+                void el.offsetWidth;
+                el.classList.add('is-flash');
+                el.addEventListener('animationend', () => el.classList.remove('is-flash'), { once: true });
+            }
+        });
+    });
 
     const ids = Object.keys(value.classes).sort((a, b) => Number(a) - Number(b) || a.localeCompare(b));
     const superKeys = Object.keys(value.superclasses);
@@ -478,19 +506,26 @@ function Classes({ value, onChange }: { value: NeuralConfig; onChange: (next: Ne
     const patchClass = (id: string, p: Partial<ClassDef>) =>
         onChange({ ...value, classes: { ...value.classes, [id]: { ...value.classes[id], ...p } } });
 
-    const addClass = (superclass: string) => {
+    const addClass = (superclass: string, origin: HTMLElement) => {
         const nums = ids.map(Number).filter(n => !Number.isNaN(n));
         const nextId = String(nums.length ? Math.max(...nums) + 1 : 0);
         const color = superclass ? value.superclasses[superclass].color : NEW_COLOR;
         onChange({ ...value, classes: { ...value.classes, [nextId]: { name: '', server_id: '', superclass, color } } });
-        setSelected(nextId);
+        setEditing({ id: nextId, origin });
     };
 
     const removeClass = (id: string) => {
+        snapshot(null);
+        setEditing(null);
         const classes = { ...value.classes };
         delete classes[id];
         onChange({ ...value, classes });
-        if (selected === id) setSelected(null);
+    };
+
+    const applyClass = (id: string, next: ClassDef) => {
+        snapshot(id);
+        setEditing(null);
+        patchClass(id, next);
     };
 
     const drop = (key: string) => {
@@ -509,14 +544,14 @@ function Classes({ value, onChange }: { value: NeuralConfig; onChange: (next: Ne
                 <span className="eyebrow">{ids.length}</span>
                 <span className="tag spacer"><Icon name="grip" size={12} />перетаскивание меняет суперкласс</span>
             </div>
-            <div className="blk-b" style={{ gap: 16 }}>
+            <div className="blk-b" style={{ gap: 16 }} ref={listRef}>
                 {groups.map(g => (
                     <div className="grp" key={g.key || '__none'}>
                         <div className="grp-h">
                             <span className="swatch" style={{ background: g.color }} />
                             <span className="eyebrow">{g.name}</span>
                             <span className="n">{g.ids.length}</span>
-                            <button className="icon-btn" data-tip="Добавить класс" onClick={() => addClass(g.key)}><Icon name="plus" size={12} /></button>
+                            <button className="icon-btn" data-tip="Добавить класс" onClick={e => addClass(g.key, e.currentTarget)}><Icon name="plus" size={12} /></button>
                         </div>
                         <div
                             className={`drop${overGroup === g.key && dragId ? ' is-over' : ''}`}
@@ -535,13 +570,11 @@ function Classes({ value, onChange }: { value: NeuralConfig; onChange: (next: Ne
                                                 key={id}
                                                 id={id}
                                                 cls={c}
-                                                selected={selected === id}
+                                                selected={editing?.id === id}
                                                 dragging={dragId === id}
-                                                onSelect={() => setSelected(sel => (sel === id ? null : id))}
+                                                onOpen={origin => setEditing({ id, origin })}
                                                 onDragStart={() => setDragId(id)}
                                                 onDragEnd={() => { setDragId(null); setOverGroup(null); }}
-                                                onPatch={p => patchClass(id, p)}
-                                                onRemove={() => removeClass(id)}
                                             />
                                         );
                                     })}
@@ -551,6 +584,17 @@ function Classes({ value, onChange }: { value: NeuralConfig; onChange: (next: Ne
                     </div>
                 ))}
             </div>
+            {editing && value.classes[editing.id] && (
+                <ClassModal
+                    key={editing.id}
+                    id={editing.id}
+                    value={value}
+                    origin={editing.origin}
+                    onApply={next => applyClass(editing.id, next)}
+                    onRemove={() => removeClass(editing.id)}
+                    onClose={() => setEditing(null)}
+                />
+            )}
         </div>
     );
 }
@@ -560,46 +604,25 @@ interface ClassChipProps {
     cls: ClassDef;
     selected: boolean;
     dragging: boolean;
-    onSelect: () => void;
+    onOpen: (origin: HTMLElement) => void;
     onDragStart: () => void;
     onDragEnd: () => void;
-    onPatch: (p: Partial<ClassDef>) => void;
-    onRemove: () => void;
 }
 
-function ClassChip({ id, cls, selected, dragging, onSelect, onDragStart, onDragEnd, onPatch, onRemove }: ClassChipProps) {
+function ClassChip({ id, cls, selected, dragging, onOpen, onDragStart, onDragEnd }: ClassChipProps) {
     return (
-        <>
-            <button
-                type="button"
-                className={`cls${selected ? ' is-sel' : ''}${dragging ? ' is-drag' : ''}`}
-                draggable
-                onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; onDragStart(); }}
-                onDragEnd={onDragEnd}
-                onClick={onSelect}
-            >
-                <i className="sw-col" style={{ background: cls.color }} />
-                <span className={`t${cls.name ? '' : ' is-empty'}`}>{cls.name || 'без названия'}</span>
-                <span className="num">{id.padStart(2, '0')}</span>
-            </button>
-            {selected && (
-                <div className="cls-edit">
-                    <ColorSwatch large color={cls.color} onChange={color => onPatch({ color })} />
-                    <div className="tf">
-                        <span className="tf-cap">Название</span>
-                        <input className="tf-in" value={cls.name} autoFocus onChange={e => onPatch({ name: e.target.value })} />
-                    </div>
-                    <div className="tf">
-                        <span className="tf-cap">server_id</span>
-                        <input className="tf-in" value={cls.server_id} onChange={e => onPatch({ server_id: e.target.value })} />
-                    </div>
-                    <div className="tf n">
-                        <span className="tf-cap">id</span>
-                        <input className="tf-in is-ro" value={id} readOnly />
-                    </div>
-                    <button className="icon-btn" data-tip="Удалить класс" onClick={onRemove}><Icon name="trash" size={14} /></button>
-                </div>
-            )}
-        </>
+        <button
+            type="button"
+            data-id={id}
+            className={`cls${selected ? ' is-sel' : ''}${dragging ? ' is-drag' : ''}`}
+            draggable
+            onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; onDragStart(); }}
+            onDragEnd={onDragEnd}
+            onClick={e => onOpen(e.currentTarget)}
+        >
+            <i className="sw-col" style={{ background: cls.color }} />
+            <span className={`t${cls.name ? '' : ' is-empty'}`}>{cls.name || 'без названия'}</span>
+            <span className="num">{id.padStart(2, '0')}</span>
+        </button>
     );
 }

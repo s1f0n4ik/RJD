@@ -121,10 +121,9 @@
 .scls .icon-btn{width:26px;height:26px;border-color:transparent;color:var(--fg-3)}
 .scls .icon-btn:hover{border-color:var(--line);color:var(--err)}
 .scls .icon-btn svg{width:13px;height:13px}
-/* Цвет: нативный выбор поверх плашки */
+/* Цвет: образец открывает окно своего цвета */
 .swatch{position:relative;width:14px;height:14px;border-radius:4px;flex:0 0 14px;border:1px solid rgba(255,255,255,.12);cursor:pointer}
-.swatch input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;padding:0;border:0}
-.swatch.lg{width:32px;height:32px;flex:0 0 32px;border-radius:6px;border-color:var(--line)}
+.swatch.is-open{box-shadow:0 0 0 2px var(--panel),0 0 0 3px var(--acc)}
 
 /* ── Классы по группам ── */
 .grp{display:flex;flex-direction:column;gap:9px}
@@ -147,11 +146,45 @@
 .cls .t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cls .t.is-empty{color:var(--fg-3);font-style:italic}
 .cls .num{font-size:10.5px;color:var(--fg-3)}
-.cls-edit{grid-column:1/-1;display:flex;gap:8px;align-items:flex-end;padding:10px;border:1px solid var(--acc-dim);border-radius:var(--r);background:var(--panel)}
-.cls-edit .tf{flex:1}
-.cls-edit .tf.n{flex:0 0 64px}
-.cls-edit .icon-btn{width:32px;height:32px;flex:0 0 32px;border-radius:6px}
-.cls-edit .icon-btn svg{width:14px;height:14px}
+/* Применённый класс вспыхивает на новом месте */
+.cls.is-flash{animation:cls-flash 900ms var(--ease-out)}
+@keyframes cls-flash{0%{border-color:var(--acc);box-shadow:0 0 0 3px rgba(var(--acc-rgb),.55),0 0 18px rgba(var(--acc-rgb),.45)}100%{box-shadow:0 0 0 0 rgba(var(--acc-rgb),0)}}
+
+/* ── Модалка класса: окно вырастает из чипа скриптом, общий вход окна выключен ── */
+.cls-modal{--modal-w:440px}
+.overlay:not([hidden])>.modal.cls-modal{animation:none}
+.cls-modal .modal-h{gap:10px}
+.cls-modal .modal-h h3{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cls-modal .cm-sw{order:-1;width:14px;height:14px;flex:0 0 14px;border-radius:4px;border:1px solid rgba(255,255,255,.14);transition:background-color var(--t-mid) var(--ease-out)}
+.cls-modal .cm-id{font-family:var(--mono);font-size:11px;color:var(--fg-3);padding:2px 7px;border:1px solid var(--line);border-radius:5px;white-space:nowrap}
+.cls-modal .cm-body{display:flex;flex-direction:column;gap:14px}
+.cls-modal .tf.cm-n{flex:0 0 72px}
+.cls-modal .cm-del{color:var(--fg-3)}
+.cls-modal .cm-del:hover{color:var(--err);background:var(--err-bg)}
+.cls-modal .cm-del.is-arm{color:var(--err);border-color:var(--err-edge);background:var(--err-bg)}
+
+/* Палитра: цвет суперкласса, набор приложения, свой цвет */
+.cm-pal{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.cm-pal button{position:relative;width:26px;height:26px;border-radius:7px;background:var(--c);border:1px solid rgba(255,255,255,.1);transition:transform var(--t-fast) var(--ease-out),box-shadow var(--t-fast) var(--ease-out)}
+.cm-pal button:hover{transform:translateY(-1px)}
+.cm-pal button.is-on,.cm-pal button.is-open{box-shadow:0 0 0 2px var(--panel),0 0 0 4px var(--acc),0 0 12px rgba(var(--acc-rgb),.5)}
+.cm-pal .cm-sup{display:grid;place-items:center;color:rgba(12,14,18,.75)}
+.cm-pal .cm-sep{width:1px;height:18px;background:var(--line);margin:0 3px}
+.cm-pal .cm-own{display:grid;place-items:center;background:var(--input);border:1px dashed var(--line-hi);color:var(--fg-3)}
+.cm-pal .cm-own:hover{border-color:var(--fg-3);color:var(--fg-2)}
+.cm-pal .cm-own.is-set{background:var(--c);border:1px solid rgba(255,255,255,.1);color:rgba(12,14,18,.7)}
+.cm-pal .ico{pointer-events:none}
+
+/* ── Окно своего цвета: облик попапа селекта; ручки как у .tf-range, поле HEX как .tf-in ── */
+.cpk{position:fixed;z-index:530;visibility:hidden;width:240px;padding:10px;display:flex;flex-direction:column;gap:12px;background:var(--panel-2);border:1px solid var(--line-hi);border-radius:var(--r);box-shadow:var(--shadow-lg);animation:uisel-in .14s ease}
+.cpk-sv{position:relative;height:136px;border-radius:6px;border:1px solid var(--line);background:linear-gradient(to top,#000,transparent),linear-gradient(to right,#fff,transparent),var(--h);cursor:crosshair;touch-action:none}
+.cpk-sv b{position:absolute;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;background:var(--c);border:2px solid var(--fg);box-shadow:0 0 0 1px rgba(0,0,0,.45),0 1px 4px rgba(0,0,0,.5);pointer-events:none}
+.cpk-hue{position:relative;height:8px;margin:0 7px;border-radius:4px;border:1px solid var(--line);background:linear-gradient(to right,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00);cursor:pointer;touch-action:none}
+.cpk-hue::before{content:'';position:absolute;left:-7px;right:-7px;top:-8px;bottom:-8px}
+.cpk-hue b{position:absolute;top:50%;width:14px;height:14px;margin-left:-7px;transform:translateY(-50%);border-radius:50%;background:var(--fg);box-shadow:0 1px 4px rgba(0,0,0,.5);pointer-events:none}
+.cpk-row{display:flex;align-items:flex-end;gap:8px}
+.cpk-sw{width:32px;height:32px;flex:0 0 32px;border-radius:6px;background:var(--c);border:1px solid var(--line)}
+.cpk .tf-in{text-transform:uppercase}
 
 /* ── Импорт: строки найденных конфигураций ── */
 .imp-row{display:flex;align-items:center;gap:10px;min-height:40px;padding:0 10px;border-radius:var(--r);border:1px solid var(--line);background:var(--input)}

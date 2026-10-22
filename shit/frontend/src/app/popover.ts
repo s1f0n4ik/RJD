@@ -12,7 +12,7 @@ export interface PopoverOptions {
     // Предпочтительная сторона от якоря
     side?: 'top' | 'bottom' | 'left' | 'right';
     // Выравнивание по второй оси
-    align?: 'center' | 'start';
+    align?: 'center' | 'start' | 'end';
     // Зазор между якорем и попапом
     gap?: number;
     // Отступ от кромки окна
@@ -59,7 +59,7 @@ export function placePopover(
 
         left = align === 'center'
             ? (anchor.left + anchor.right) / 2 - size.width / 2
-            : anchor.left;
+            : align === 'end' ? anchor.right - size.width : anchor.left;
     } else {
         const before = anchor.left - gap - size.width;
         const after = anchor.right + gap;
@@ -72,7 +72,7 @@ export function placePopover(
 
         top = align === 'center'
             ? (anchor.top + anchor.bottom) / 2 - size.height / 2
-            : anchor.top;
+            : align === 'end' ? anchor.bottom - size.height : anchor.top;
     }
 
     return {

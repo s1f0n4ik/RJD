@@ -59,17 +59,25 @@ body.ui-new .home .scroll::-webkit-scrollbar{display:none}
 
 .tile.is-off .foot{color:var(--warn)}
 
-.svc{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)}
-
-.svc:last-child{border-bottom:none}
-
-.svc .nm{font-size:13px}
-
-.svc .val{margin-left:auto;font-family:var(--mono);font-size:11.5px;color:var(--fg-2)}
-
-.svc.is-warn .val{color:var(--warn)}
-
-.svc.is-err .val{color:var(--err)}
+/* Устройство: шапка, четыре показателя, сеть и платформа, модули */
+.home-dev{display:flex;flex-direction:column;gap:9px;padding:12px 0;border-bottom:1px solid var(--line)}
+.home-dev:first-child{padding-top:2px}
+.home-dev:last-child{border-bottom:none;padding-bottom:2px}
+.home-dev-h{display:flex;align-items:center;gap:9px;min-width:0}
+.home-dev-h b{font-size:13px;font-weight:600}
+.home-dev.is-off .home-dev-h b{color:var(--fg-2)}
+.home-dev-ip{font-family:var(--mono);font-size:11px;color:var(--fg-3)}
+.home-dev-r{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--fg-3);white-space:nowrap}
+.home-dev-net{font-family:var(--mono);font-size:11px;color:var(--fg-2);white-space:nowrap}
+.home-dev-off{font-size:12px;color:var(--err)}
+.home-dev-m{display:grid;grid-template-columns:1fr 1fr;gap:4px 16px}
+.home-met{display:grid;grid-template-columns:40px minmax(0,1fr) auto;align-items:center;gap:9px;min-height:20px}
+.home-met-k{font-size:11px;color:var(--fg-3);white-space:nowrap}
+.home-met-v{font-family:var(--mono);font-size:11px;color:var(--fg-2);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.home-met-v.is-warn{color:var(--warn)}
+.home-met-v.is-err{color:var(--err)}
+.home-dev-tags{display:flex;flex-wrap:wrap;gap:5px}
+.home-dev-tags .tag{padding:2px 7px;font-size:11px}
 
 .disk + .disk{margin-top:16px}
 
@@ -125,7 +133,11 @@ body.ui-new .home .scroll::-webkit-scrollbar{display:none}
 
 .card-none span{font-size:12px;line-height:1.4;color:var(--fg-3)}
 
-/* Последние обнаружения: строка ведёт в журнал */
-.home-det{margin:0 -8px;padding:8px;border-radius:6px;transition:background-color var(--t-fast) var(--ease-out)}
+/* Последние обнаружения: время, камера, класс справа; строка ведёт в журнал */
+.home-det{display:flex;align-items:center;gap:10px;min-height:30px;margin:0 -8px;padding:0 8px;border-radius:6px;border-bottom:1px solid var(--line);font-size:12px;color:var(--fg-2);transition:background-color var(--t-fast) var(--ease-out)}
+.home-det:last-child{border-bottom:none}
 .home-det:hover{background:var(--panel-2)}
+.home-det-t{flex:0 0 58px;font-family:var(--mono);font-size:11px;color:var(--fg-3)}
+.home-det-c{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.home-det .tag{margin-left:auto;flex:0 0 auto}
 .home-lnk:hover{color:var(--acc)}

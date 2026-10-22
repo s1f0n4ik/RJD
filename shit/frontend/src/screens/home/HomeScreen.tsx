@@ -9,8 +9,10 @@ import { detClass } from '../../features/neural/components/journal/DetectionRow'
 import { fmtTime } from '../../features/neural/components/journal/format';
 import { useCameraNames } from '../../features/neural/components/journal/useCameraNames';
 import { useClassResolver } from '../../features/neural/components/journal/useClassResolver';
-import type { Device } from '../../services/devices';
-import { formatBytes, formatPair } from '../devices/model';
+import { getRouting } from '../../services/devices';
+import {
+    deviceMetrics, formatBytes, formatPair, lastSeenTime, MODULE_LABEL, netParts, sinceLabel, uptimeLabel, type RoutingSlot,
+} from '../devices/model';
 import { disksLabel, usePools } from '../settings/pool';
 import './home.css';
 import { useFlash } from '../../app/motion';
@@ -30,10 +32,8 @@ const plural = (n: number, one: string, few: string, many: string) => {
     return many;
 };
 
-const maxTemp = (device: Device) => {
-    const zones = device.telemetry?.temperature ?? [];
-    return zones.length ? Math.max(...zones.map(z => z.celsius)) : null;
-};
+// Показатели карточки устройства и их короткие подписи
+const METRIC_LABEL: Record<string, string> = { cpu: 'ЦП', mem: 'ОЗУ', temp: '°C', ping: 'Откл.' };
 
 export function HomeScreen() {
     const role = useRole();
@@ -47,6 +47,7 @@ export function HomeScreen() {
     const linker = useLinkerStatus();
     const neural = useNeuralSummary();
 
+    const routing = getRouting();
     const online = devices.filter(d => d.status === 'online');
     const liveCameras = cameras.filter(isLive).length;
     const deadCameras = cameras.length - liveCameras;
@@ -164,7 +165,7 @@ export function HomeScreen() {
                                 <h3>Устройства</h3>
                                 <span className="eyebrow">опрос 10 с</span>
                             </div>
-                            <div className="card-b" style={{ paddingTop: 4, paddingBottom: 8 }}>
+                            <div className="card-b" style={{ paddingTop: 10, paddingBottom: 10 }}>
                                 {devices.length === 0 && (
                                     <div className="card-none">
                                         <b>Устройства не добавлены</b>
@@ -175,23 +176,61 @@ export function HomeScreen() {
                                     </div>
                                 )}
                                 {devices.map(device => {
-                                    const temp = maxTemp(device);
-                                    const cpu = device.telemetry?.cpu?.percent;
                                     const offline = device.status !== 'online';
-                                    const details = [
-                                        cpu != null ? `${Math.round(cpu)} %` : null,
-                                        temp != null ? `${Math.round(temp)} °C` : null,
-                                        device.ping_ms != null ? `${device.ping_ms} мс` : null,
-                                    ].filter((v): v is string => v !== null);
+                                    const net = netParts(device);
+                                    const platform = device.telemetry?.platform;
                                     return (
-                                        <div key={device.id} className={`svc${offline ? ' is-err' : ''}`}>
-                                            <span className={`dot ${offline ? 'err' : 'ok'}`} />
-                                            <span className="nm">{device.name}</span>
-                                            <span className="val seps">
-                                                {offline || details.length === 0
-                                                    ? <span>{offline ? 'не в сети' : 'в сети'}</span>
-                                                    : details.map(d => <span key={d}>{d}</span>)}
-                                            </span>
+                                        <div key={device.id} className={`home-dev${offline ? ' is-off' : ''}`}>
+                                            <div className="home-dev-h">
+                                                <span className={`dot ${offline ? 'err' : 'ok'}`} />
+                                                <b>{device.name}</b>
+                                                <span className="home-dev-ip">{device.ip}</span>
+                                                {!offline && <span className="home-dev-r">{uptimeLabel(device.telemetry?.uptime_sec)}</span>}
+                                            </div>
+                                            {offline ? (
+                                                <span className="home-dev-off seps">
+                                                    <span>не в сети {sinceLabel(device.last_seen)}</span>
+                                                    <span>последний ответ {lastSeenTime(device.last_seen)}</span>
+                                                </span>
+                                            ) : (
+                                                <>
+                                                    <div className="home-dev-m">
+                                                        {deviceMetrics(device).filter(m => m.key in METRIC_LABEL).map(m => (
+                                                            <div className="home-met" key={m.key}>
+                                                                <span className="home-met-k">{METRIC_LABEL[m.key]}</span>
+                                                                <span className="bar sm">
+                                                                    <i className={m.tone === 'dim' ? '' : `is-${m.tone}`} style={{ width: `${m.pct}%` }} />
+                                                                </span>
+                                                                <span className={`home-met-v${m.tone === 'warn' || m.tone === 'err' ? ` is-${m.tone}` : ''}`}>{m.value}</span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                    <div className="home-dev-h">
+                                                        <span className="home-dev-net">
+                                                            {net ? (
+                                                                <>
+                                                                    <span className="net-rx">↓ {net.rx}</span> <span className="net-tx">↑ {net.tx}</span> Мбит/с
+                                                                </>
+                                                            ) : '—'}
+                                                        </span>
+                                                        {platform?.label && (
+                                                            <span className="home-dev-r seps">
+                                                                <span>{platform.label}</span>
+                                                                {platform.npu_cores > 0 && <span>NPU {platform.npu_cores}</span>}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </>
+                                            )}
+                                            <div className="home-dev-tags">
+                                                {device.modules.map(module => (
+                                                    <span key={module} className={`tag is-acc${routing[module as RoutingSlot] === device.id ? '' : ' is-mute'}`}>
+                                                        {MODULE_LABEL[module] ?? module}
+                                                    </span>
+                                                ))}
+                                                {routing.cameras === device.id && <span className="tag is-acc">новые камеры</span>}
+                                                {device.telemetry?.version && <span className="tag">{device.telemetry.version}</span>}
+                                            </div>
                                         </div>
                                     );
                                 })}
@@ -278,16 +317,14 @@ export function HomeScreen() {
                                     <h3>Последние обнаружения</h3>
                                     <Link className="eyebrow home-lnk" to="/neural/journal">Журнал ›</Link>
                                 </div>
-                                <div className="card-b" style={{ paddingTop: 6 }}>
+                                <div className="card-b" style={{ paddingTop: 4, paddingBottom: 6 }}>
                                     {detections.map(item => {
                                         const cls = detClass(item, resolve);
                                         return (
-                                            <Link className="kv home-det" key={item.id} to="/neural/journal" state={{ open: item.id }}>
-                                                <span className="k num">{fmtTime(item.started_at)}</span>
-                                                <span className="v seps">
-                                                    <span>{cameraName(item.camera_id)}</span>
-                                                    <span className="tag"><i className="sw-col" style={{ background: cls.color }} />{cls.name}</span>
-                                                </span>
+                                            <Link className="home-det" key={item.id} to="/neural/journal" state={{ open: item.id }}>
+                                                <span className="home-det-t">{fmtTime(item.started_at)}</span>
+                                                <span className="home-det-c">{cameraName(item.camera_id)}</span>
+                                                <span className="tag"><i className="sw-col" style={{ background: cls.color }} />{cls.name}</span>
                                             </Link>
                                         );
                                     })}
