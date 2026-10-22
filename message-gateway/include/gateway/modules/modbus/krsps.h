@@ -65,8 +65,8 @@ namespace varan {
             // Настройки порта 0x8000–0x8008; код исключения
             virtual std::uint8_t on_settings(std::uint16_t start, const std::uint16_t* values, std::uint16_t count,
                 FExchange& ex);
-            // Время и координаты ведущего после разбора
-            virtual void on_master_time(std::int64_t unix_s) {}
+            // Время и координаты ведущего после разбора; время возвращает прыжок источника времени, мс
+            virtual std::int64_t on_master_time(std::int64_t unix_s) { return 0; }
             virtual void on_master_gps(double lat, double lon) {}
 
             // Запись в очередь; utc_ms = 0 — текущее время ведущего или платы

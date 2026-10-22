@@ -37,6 +37,8 @@ namespace varan {
             // Садко шлёт их раз в 0,5 с, так что двухсекундная тишина — это уже
             // потеря связи, а не пауза.
             static constexpr std::int64_t GPS_STALE_MS = 2000;
+            // Расхождение нового времени с ожидаемым, выше которого модуль пишет прыжок в лог
+            static constexpr std::int64_t TIME_JUMP_MS = 2000;
 
             void set_tz_offset_min(int minutes) {
                 std::lock_guard<std::mutex> lock(m_mutex);
@@ -48,13 +50,24 @@ namespace varan {
                 return m_tz_offset_min;
             }
 
-            // source — подпись источника в /time: "can" | "modbus"
-            void update_time(std::int64_t unix_ms, const char* source = "can") {
+            // source — подпись источника в /time: "can" | "modbus"; возвращает прыжок: новое минус ожидаемое, 0 — первое значение
+            std::int64_t update_time(std::int64_t unix_ms, const char* source = "can") {
                 std::lock_guard<std::mutex> lock(m_mutex);
+                const std::int64_t mono = mono_ms();
+                const std::int64_t jump = m_has_can_time ? unix_ms - (m_can_unix_ms + (mono - m_can_time_mono)) : 0;
                 m_can_unix_ms = unix_ms;
-                m_can_time_mono = mono_ms();
+                m_can_time_mono = mono;
                 m_has_can_time = true;
                 m_time_source = source;
+                return jump;
+            }
+
+            // Прыжок для лога: величина, новое и ожидаемое время в UTC
+            static std::string jump_text(std::int64_t unix_ms, std::int64_t jump) {
+                char buf[24];
+                std::snprintf(buf, sizeof(buf), "%+.1f s", jump / 1000.0);
+                return std::string(buf) + ", new " + iso_with_offset(unix_ms, 0) + ", expected " +
+                    iso_with_offset(unix_ms - jump, 0);
             }
 
             // stale_ms — тишина, после которой координаты недостоверны

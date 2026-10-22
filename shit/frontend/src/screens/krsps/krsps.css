@@ -240,6 +240,33 @@
 .mb-reg.is-ok .v{color:var(--ok)}
 .mb-reg.is-err{border-color:var(--err-edge);background:color-mix(in srgb,var(--err) 9%,transparent)}
 .mb-reg.is-err .v{color:var(--err)}
+.mb-q{font-size:10.5px;color:var(--warn);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* Ограничение 0x1006: тумблер и число в одной рамке */
+.mb-lim-row{transition:padding-bottom var(--t-mid) var(--ease-out)}
+.mb-lim-row:has(.mb-lim.is-err){padding-bottom:22px}
+.mb-lim-fc{position:relative}
+.mb-lim{display:flex;align-items:center;height:34px;box-sizing:border-box;border:1px solid var(--line);border-radius:var(--r);background:var(--input);transition:var(--tr-ui)}
+.mb-lim:hover{border-color:var(--line-hi)}
+.mb-lim:has(.mb-lim-in:focus){border-color:var(--acc);box-shadow:0 0 0 3px rgba(var(--acc-rgb),.14)}
+.mb-lim .sw{align-self:stretch;padding:0 10px 0 9px}
+.mb-lim .sw:disabled{cursor:not-allowed;opacity:.45}
+.mb-lim .sw:focus-visible{outline:none}
+.mb-lim .sw:focus-visible i{box-shadow:0 0 0 2px rgba(var(--acc-rgb),.5)}
+.mb-lim-sep{width:1px;align-self:stretch;margin:7px 0;background:var(--line);transition:var(--tr-ui)}
+.mb-lim-in{flex:1 1 0;width:0;min-width:0;height:100%;padding:0 11px;border:0;background:transparent;color:var(--fg);font:inherit;font-size:13px;font-variant-numeric:tabular-nums;text-align:right;outline:none;
+  transition:color var(--t-mid) var(--ease-out),opacity var(--t-mid) var(--ease-out),transform var(--t-mid) var(--ease-out)}
+.mb-lim.is-trim .mb-lim-in{color:var(--acc)}
+.mb-lim.is-off{background:transparent;border-style:dashed}
+.mb-lim.is-off:hover{border-color:var(--line)}
+.mb-lim.is-off .mb-lim-sep{opacity:.4}
+.mb-lim.is-off .mb-lim-in{color:var(--fg-3);opacity:.45;transform:translateX(3px);pointer-events:none;user-select:none}
+.mb-lim.is-err,.mb-lim.is-err:has(.mb-lim-in:focus){border-color:var(--err);box-shadow:0 0 0 3px color-mix(in srgb,var(--err) 13%,transparent)}
+.mb-lim.is-err .mb-lim-in{color:var(--err)}
+.mb-lim.is-shake{animation:mb-lim-shake 260ms var(--ease-out)}
+@keyframes mb-lim-shake{20%{transform:translateX(-3px)}45%{transform:translateX(3px)}70%{transform:translateX(-2px)}}
+.mb-lim-hint{position:absolute;left:0;top:100%;margin:6px 0 0;font-size:12px;color:var(--err);white-space:nowrap;transition:opacity var(--t-mid) var(--ease-out)}
+.mb-lim-hint:empty{opacity:0}
 
 /* Modbus RTU · пакет 28163: тона полей — служебные, номер, время, место, обнаружение, стоп-кадр */
 .mb-t{--tone:var(--fg-3)}

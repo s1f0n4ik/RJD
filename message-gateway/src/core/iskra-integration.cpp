@@ -241,8 +241,8 @@ namespace varan {
             return { s };
         }
 
-        void UIskraModbusModule::on_master_time(std::int64_t unix_s) {
-            m_time.update_time(unix_s * 1000, "modbus");
+        std::int64_t UIskraModbusModule::on_master_time(std::int64_t unix_s) {
+            return m_time.update_time(unix_s * 1000, "modbus");
         }
 
         void UIskraModbusModule::on_master_gps(double lat, double lon) {

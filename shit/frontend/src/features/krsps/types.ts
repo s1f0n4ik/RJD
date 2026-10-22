@@ -241,6 +241,7 @@ export interface GwModbusExchange {
   tx: string;
   detail: {
     count?: number;
+    queued?: number;
     state?: number;
     records?: number[];
     first?: number;
@@ -260,9 +261,10 @@ export interface GwModbusExchange {
 
 // Модуль Modbus RTU Искры; age_ms = -1 — событий ещё не было
 export interface GwModbusModule extends Omit<GwModule, 'log'> {
-  slave: { address: number; device_id: number; version: number };
+  // limit_records — 0x1006 не больше max_records; у шлюза без ограничения полей нет
+  slave: { address: number; device_id: number; version: number; limit_records?: boolean; max_records?: number };
   master: { online: boolean; age_ms: number };
-  // Значения 0x1000–0x1006
+  // Значения 0x1000–0x1006; 0x1006 — отправленное ведущему, настоящее — queue.visible
   block: number[];
   state: { registers: GwStateRegister[] };
   time: { synced: boolean; offset_ms: number; unix_s: number; age_ms: number; updates: number; invalid: number };
@@ -367,5 +369,7 @@ export interface GwModbusConfigPatch {
   slave?: number;
   device_id?: number;
   version?: number;
+  limit_records?: boolean;
+  max_records?: number;
   enabled?: boolean;
 }

@@ -47,7 +47,7 @@ namespace varan {
         protected:
             std::vector<const AModbusPacket*> packets() const override { return { &m_packet }; }
             std::vector<FStateRegister> state_registers() const override;
-            void on_master_time(std::int64_t unix_s) override;
+            std::int64_t on_master_time(std::int64_t unix_s) override;
             void on_master_gps(double lat, double lon) override;
 
         private:

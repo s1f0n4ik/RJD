@@ -91,20 +91,24 @@ namespace varan {
 
             void connect() {
                 std::lock_guard<std::mutex> lock(m_mutex);
+                m_started = true;
                 start_locked();
             }
 
             void disconnect() {
                 std::lock_guard<std::mutex> lock(m_mutex);
+                m_started = false;
                 stop_locked();
             }
 
-            // Применяет новую конфигурацию и переподключается, если включено.
+            // Применяет новую конфигурацию; переподключается, только если транспорт запущен
             void reconfigure(const FWsConfig& config) {
                 std::lock_guard<std::mutex> lock(m_mutex);
                 stop_locked();
                 m_config = config;
-                start_locked();
+                if (m_started) {
+                    start_locked();
+                }
             }
 
         private:
@@ -129,6 +133,7 @@ namespace varan {
             boost::asio::io_context& m_ioc;
             mutable std::mutex m_mutex;
             FWsConfig m_config;
+            bool m_started = false;
             std::shared_ptr<UWebSocketClient> m_client;
         };
 

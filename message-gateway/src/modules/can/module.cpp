@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 
 namespace varan {
     namespace gateway {
@@ -150,7 +151,11 @@ namespace varan {
                 m_log.push(frame, false, ts, "", err);
                 return;
             }
-            m_time.update_time(t.unix_ms);
+            const std::int64_t jump = m_time.update_time(t.unix_ms);
+            if (std::abs(jump) > UTimeSource::TIME_JUMP_MS) {
+                ULog::warn(TAG, "Sadko time jumped by " + UTimeSource::jump_text(t.unix_ms, jump) + ", frame " +
+                    UCanLog::hex_data(frame.data, frame.dlc) + " " + to_string(t.layout));
+            }
             // Скорость идёт вместе с временем, а координаты — отдельным
             // сообщением: обновляем её, сохранив последние координаты.
             const auto snap = m_time.snapshot_struct();

@@ -73,6 +73,8 @@ namespace varan {
             int slave = 20;                     // адрес ведомого
             int device_id = 20;                 // регистр 0x1000
             int version = 1;                    // регистр 0x1001
+            bool limit_records = true;          // регистр 0x1006 не больше max_records
+            int max_records = 1023;
             bool enabled = true;
         };
 
@@ -262,6 +264,8 @@ namespace varan {
             o["slave"] = c.slave;
             o["device_id"] = c.device_id;
             o["version"] = c.version;
+            o["limit_records"] = c.limit_records;
+            o["max_records"] = c.max_records;
             o["enabled"] = c.enabled;
             return o;
         }
@@ -277,6 +281,8 @@ namespace varan {
                 if (auto* v = o.if_contains("slave"))     t.slave = v->to_number<int>();
                 if (auto* v = o.if_contains("device_id")) t.device_id = v->to_number<int>();
                 if (auto* v = o.if_contains("version"))   t.version = v->to_number<int>();
+                if (auto* v = o.if_contains("limit_records")) t.limit_records = v->as_bool();
+                if (auto* v = o.if_contains("max_records"))   t.max_records = v->to_number<int>();
                 if (auto* v = o.if_contains("enabled"))   t.enabled = v->as_bool();
             }
             catch (const std::exception& e) {
@@ -299,6 +305,7 @@ namespace varan {
             if (t.slave < 1 || t.slave > 247) { err = "slave must be 1..247"; return false; }
             if (t.device_id < 0 || t.device_id > 0xFFFF) { err = "device_id must be 0..65535"; return false; }
             if (t.version < 0 || t.version > 0xFFFF) { err = "version must be 0..65535"; return false; }
+            if (t.max_records < 1 || t.max_records > 0xFFFF) { err = "max_records must be 1..65535"; return false; }
 
             c = t;
             return true;

@@ -102,7 +102,7 @@ function exchangeNote(e: GwModbusExchange): string[] {
   if (e.exception) return [`исключение ${hex(e.exception, 2)}`, EXCEPTION[e.exception] ?? ''];
   switch (e.kind) {
     case 'state':
-      return [`записей ${d.count}`, `состояние ${d.state}`];
+      return [`записей ${d.count}`, d.queued != null && d.queued !== d.count ? `в очереди ${d.queued}` : '', `состояние ${d.state}`];
     case 'records':
       return [d.records?.length ? d.records.join(', ') : 'окно пустое'];
     case 'mark':
@@ -284,6 +284,80 @@ const NumField: React.FC<{
   );
 };
 
+// Ограничение 0x1006: тумблер и число в одной рамке; trim — ограничение сейчас срезает очередь
+const LimitField: React.FC<{
+  on: boolean;
+  value: number;
+  trim: boolean;
+  disabled: boolean;
+  onSave: (patch: GwModbusConfigPatch) => void;
+}> = ({ on, value, trim, disabled, onSave }) => {
+  const [local, setLocal] = useState(on);
+  const [text, setText] = useState(String(value));
+  const [error, setError] = useState('');
+  const [shake, setShake] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+  const focusNext = useRef(false);
+  useEffect(() => setLocal(on), [on]);
+  useEffect(() => setText(String(value)), [value]);
+  // Фокус в число после включения, когда поле снова доступно
+  useEffect(() => {
+    if (focusNext.current && local && !disabled) {
+      focusNext.current = false;
+      input.current?.focus();
+      input.current?.select();
+    }
+  }, [local, disabled]);
+
+  const toggle = () => {
+    const next = !local;
+    setLocal(next);
+    if (next) {
+      focusNext.current = true;
+    } else {
+      setText(String(value));
+      setError('');
+    }
+    onSave({ limit_records: next });
+  };
+  const commit = () => {
+    const n = parseInt(text, 10);
+    if (!Number.isFinite(n) || n < 1 || n > 65535) {
+      setError('Не больше записей — от 1 до 65 535');
+      setShake(false);
+      requestAnimationFrame(() => setShake(true));
+      return;
+    }
+    setError('');
+    if (n !== value) onSave({ max_records: n });
+  };
+
+  const cls = ['mb-lim', !local && 'is-off', local && trim && 'is-trim', error && 'is-err', shake && 'is-shake'].filter(Boolean).join(' ');
+  return (
+    <div className="fc mb-lim-fc" style={{ flex: '0 0 150px' }}>
+      <span className="cap">Не больше записей</span>
+      <div className={cls} onAnimationEnd={() => setShake(false)}>
+        <button type="button" role="switch" aria-checked={local} aria-label="Ограничивать 0x1006" className={`sw${local ? ' is-on' : ''}`} disabled={disabled} onClick={toggle}>
+          <i />
+        </button>
+        <span className="mb-lim-sep" />
+        <input
+          ref={input}
+          className="mb-lim-in"
+          value={text}
+          inputMode="numeric"
+          aria-label="Не больше записей"
+          disabled={!local}
+          onChange={(e) => setText(e.target.value.replace(/\D/g, '').slice(0, 5))}
+          onBlur={commit}
+          onKeyDown={blurOnEnter}
+        />
+      </div>
+      <p className="mb-lim-hint">{error}</p>
+    </div>
+  );
+};
+
 function SegPick<T extends string | number>({ value, options, disabled, onPick }: {
   value: T;
   options: Array<[T, string]>;
@@ -411,7 +485,7 @@ const ModbusModulePanel: React.FC<Props> = ({ module, title, devices, tzMin, dic
           <summary>
             <Icon name="chev" size={12} />
             Подключение и регистры устройства
-            <Seps parts={summary} />
+            <Seps parts={[...summary, slave.limit_records && `0x1006 ≤ ${slave.max_records}`]} />
           </summary>
           <div className="msg-b">
             <div>
@@ -449,10 +523,22 @@ const ModbusModulePanel: React.FC<Props> = ({ module, title, devices, tzMin, dic
                   </div>
                 </div>
               </div>
-              <div className="form" style={{ marginTop: 14 }}>
+              <div className="form mb-lim-row" style={{ marginTop: 14 }}>
                 <NumField cap="Адрес" value={slave.address} min={1} max={247} width={76} disabled={busy} onCommit={(v) => onSave({ slave: v })} onError={setFormError} />
                 <NumField cap="Идентификатор" value={slave.device_id} min={0} max={65535} width={108} disabled={busy} onCommit={(v) => onSave({ device_id: v })} onError={setFormError} />
                 <NumField cap="Версия" value={slave.version} min={0} max={65535} width={76} disabled={busy} onCommit={(v) => onSave({ version: v })} onError={setFormError} />
+                {slave.max_records != null && (
+                  <>
+                    <span className="vsep" />
+                    <LimitField
+                      on={!!slave.limit_records}
+                      value={slave.max_records}
+                      trim={queue.visible > slave.max_records}
+                      disabled={busy}
+                      onSave={onSave}
+                    />
+                  </>
+                )}
               </div>
               {formError && <p className="hint is-err">{formError}</p>}
               {c.error && (
@@ -478,6 +564,7 @@ const ModbusModulePanel: React.FC<Props> = ({ module, title, devices, tzMin, dic
                   <span className="a">0x{hex(0x1000 + i)}</span>
                   <span className="v">{v}</span>
                   <span className="c">{BLOCK_CAPS[i]}</span>
+                  {i === 6 && queue.visible > v && <span className="mb-q">в очереди {formatInt(queue.visible)}</span>}
                 </div>
               ))}
               {state.registers.map((r) => (

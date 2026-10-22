@@ -475,6 +475,11 @@ class Stand:
         self.check("без букв полушарий координаты не меняются", module()["gps"]["invalid"] == before + 1
                    and abs(t["gps"]["lat"] + 12.0464) < 1e-5, t["gps"])
         self.m.write_time_gps(self.master_now())
+        self.m.write_time_gps(self.master_now() + 10)
+        self.m.write_time_gps(self.master_now())
+        logs = self.gw.logs()
+        self.check("прыжок времени +10 с и обратно — в логе с регистрами", "Master time jumped by +" in logs
+                   and "Master time jumped by -" in logs and "0x2008..0x200B =" in logs, logs[-800:])
 
     def marks(self):
         self.section("отметка прочитанных")
@@ -632,7 +637,18 @@ class Stand:
         write_queue(self.work / "modbus-queue.bin", 1, [(n, utc, iskra_regs(n, utc)) for n in range(1, 65536)])
         self.gw.start()
         self.check("порт открыт", self.connected())
-        self.check("подняты 65535 видимых", self.visible() == 65535)
+        self.check("подняты 65535 видимых, 0x1006 = 1023 по ограничению", module()["queue"]["visible"] == 65535
+                   and self.visible() == 1023 and module()["block"][6] == 1023, module()["block"])
+        rest("PUT", "/config/modbus", {"limit_records": False})
+        self.check("без ограничения 0x1006 = 65535", self.visible() == 65535)
+        try:
+            rest("PUT", "/config/modbus", {"max_records": 0})
+            self.check("максимум 0 отвергнут", False)
+        except urllib.error.HTTPError as e:
+            self.check("максимум 0 отвергнут: 400", e.code == 400, e.code)
+        rest("PUT", "/config/modbus", {"limit_records": True, "max_records": 5})
+        self.check("при максимуме 5 в 0x1006 — 5", self.visible() == 5)
+        rest("PUT", "/config/modbus", {"max_records": 1023})
         self.m.write_time_gps(self.master_now())
         self.push(code=3, frame_id=300, camera_mask=1, zone=1, count=1)
         q = module()["queue"]

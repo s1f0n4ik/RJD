@@ -1,8 +1,11 @@
 #include "gateway/modules/modbus/krsps.h"
+#include "gateway/core/timesource.h"
 #include "gateway/utility/clock.h"
 #include "gateway/utility/log.h"
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 
 namespace varan {
 namespace gateway {
@@ -30,6 +33,12 @@ namespace gateway {
         // Диапазон регистров [start, start + count) задевает [from, to)
         bool overlaps(int start, int count, int from, int to) {
             return start < to && from < start + count;
+        }
+
+        // Значение 0x1006: записей в очереди, при ограничении не больше максимума
+        std::uint16_t reported_count(std::size_t visible, const FModbusConfig& cfg) {
+            const std::size_t limit = cfg.limit_records ? static_cast<std::size_t>(cfg.max_records) : 65535;
+            return static_cast<std::uint16_t>(std::min<std::size_t>(visible, limit));
         }
 
     } // namespace
@@ -138,11 +147,12 @@ namespace gateway {
         const FModbusConfig cfg = config();
         const auto states = state_registers();
         const std::uint16_t visible = m_queue.visible();
+        const std::uint16_t reported = reported_count(visible, cfg);
         // Идентификатор, версия, длина записи, регистров окна, регистров команд, регистров состояния, записей, состояние
         std::vector<std::uint16_t> block{
             static_cast<std::uint16_t>(cfg.device_id), static_cast<std::uint16_t>(cfg.version), record_length(),
             static_cast<std::uint16_t>(UModbusQueue::WINDOW), COMMAND_REGS,
-            static_cast<std::uint16_t>(std::max<std::size_t>(states.size(), 1)), visible };
+            static_cast<std::uint16_t>(std::max<std::size_t>(states.size(), 1)), reported };
         for (const auto& s : states) {
             block.push_back(s.value);
         }
@@ -158,7 +168,8 @@ namespace gateway {
         }
         if (overlaps(start, count, STATE_BLOCK + STATE_FIXED - 1, STATE_BLOCK + static_cast<int>(block.size()))) {
             ex.kind = "state";
-            ex.detail["count"] = visible;
+            ex.detail["count"] = reported;
+            ex.detail["queued"] = visible;
             ex.detail["state"] = block[STATE_FIXED];
         }
         if (start + count > RECORDS) {
@@ -261,7 +272,14 @@ namespace gateway {
             return;
         }
         ex.detail["unix_s"] = unix_s;
-        on_master_time(unix_s);
+        const std::int64_t jump = on_master_time(unix_s);
+        if (std::abs(jump) > UTimeSource::TIME_JUMP_MS) {
+            const std::uint16_t* r = &m_holding[MASTER_TIME - SPACE_BEGIN];
+            char regs[24];
+            std::snprintf(regs, sizeof(regs), "%04X %04X %04X %04X", r[0], r[1], r[2], r[3]);
+            ULog::warn(TAG, "Master time jumped by " + UTimeSource::jump_text(unix_s * 1000, jump) +
+                ", 0x2008..0x200B = " + regs);
+        }
         ++m_time_updates;
         {
             std::lock_guard<std::mutex> lock(m_info_mutex);
@@ -324,9 +342,11 @@ namespace gateway {
         auto& slave = m["slave"].as_object();
         slave["device_id"] = cfg.device_id;
         slave["version"] = cfg.version;
+        slave["limit_records"] = cfg.limit_records;
+        slave["max_records"] = cfg.max_records;
 
         m["block"] = json::array{ cfg.device_id, cfg.version, record_length(), UModbusQueue::WINDOW, COMMAND_REGS,
-            std::max<std::size_t>(states.size(), 1), std::min<std::size_t>(snap.visible, 65535) };
+            std::max<std::size_t>(states.size(), 1), reported_count(snap.visible, cfg) };
 
         json::array registers;
         for (std::size_t i = 0; i < states.size(); ++i) {
