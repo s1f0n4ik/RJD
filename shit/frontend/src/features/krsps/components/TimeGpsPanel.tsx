@@ -40,6 +40,7 @@ function coord(v: number, pos: string, neg: string): string {
 const SOURCE_NOTE: Record<string, string> = {
   can: 'шина CAN',
   modbus: 'АС КРСПС по Modbus',
+  ntp: 'часы сервиса, выверены по NTP',
   server: 'часы сервиса, шина молчит',
   none: 'нет данных, шина молчит',
 };
@@ -82,13 +83,16 @@ const TimeGpsPanel: React.FC<Props> = ({ time, offsetMs, synced, onTimeUpdate })
   const gps = time?.gps;
   const fromCan = time?.source.time === 'can';
   const fromModbus = time?.source.time === 'modbus';
-  const syncTone = !synced ? 'warn' : fromCan || fromModbus ? 'ok' : '';
+  const fromNtp = time?.source.time === 'ntp';
+  const syncTone = !synced ? 'warn' : fromCan || fromModbus || fromNtp ? 'ok' : '';
   const syncLabel = !synced
     ? 'ожидание шлюза'
     : fromCan
     ? 'синхронизировано по шине CAN'
     : fromModbus
     ? 'синхронизировано по АС КРСПС'
+    : fromNtp
+    ? 'синхронизировано по NTP'
     : 'часы шлюза';
 
   return (

@@ -25,6 +25,8 @@ namespace gateway {
         // Время получено шлюзом от Садко. Каким транспортом тот подключён —
         // CAN, Modbus, TCP — неважно, важен источник
         bool sadko_time = false;
+        // Садко нет, но часы шлюза выверены по NTP — время верное
+        bool ntp_time = false;
         double lat = 0.0;
         double lon = 0.0;
         double alt = 0.0;

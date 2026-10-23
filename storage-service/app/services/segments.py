@@ -87,8 +87,9 @@ _NORMALIZED = (
     " WHERE a.uid IS NOT NULL OR s.session_uid IS NULL OR s.session_uid = ''"
 )
 
-# Источники, которым можно верить. sadko — нынешнее имя, can — прежнее
-TRUSTED_SOURCES = ("sadko", "can")
+# Источники, которым можно верить, ступенями от лучшей: внутри ступени берётся самая ранняя метка.
+# sadko — нынешнее имя, can — прежнее; ntp — часы шлюза, выверенные по NTP
+TRUSTED_TIERS = (("sadko", "can"), ("ntp",))
 
 # Окно правдоподобного настенного времени, как в разборе времени шлюза: 2025–2050
 WALL_MIN_MS = int(datetime(2025, 1, 1, tzinfo=timezone.utc).timestamp() * 1000)
@@ -245,14 +246,15 @@ class SegmentIndex:
         снято при старте процесса, когда шлюз ещё молчал, и с временем самих
         сегментов может расходиться на пояс.
 
-        can — прежнее имя источника Садко, старые базы читаются наравне.
+        can — прежнее имя источника Садко, старые базы читаются наравне. ntp
+        доверен, но ниже Садко: поздняя метка Садко перебивает раннюю ntp.
         """
         has_marks = self._has_table(conn, "time_marks")
 
-        for sources in (TRUSTED_SOURCES, ("system",), ("none",)):
-            trusted = sources is TRUSTED_SOURCES
+        for sources in (*TRUSTED_TIERS, ("system",), ("none",)):
+            trusted = sources in TRUSTED_TIERS
 
-            if (trusted and session.time_source in TRUSTED_SOURCES
+            if (trusted and session.time_source in sources
                     and WALL_MIN_MS <= session.started_wall_ms < WALL_MAX_MS):
                 return session.started_wall_ms - session.started_mono_ms, True
 

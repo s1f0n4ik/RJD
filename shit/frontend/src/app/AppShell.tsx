@@ -179,8 +179,8 @@ export function AppShell({ username, role, onLogout }: AppShellProps) {
                                 </span>
                             )}
                             <span
-                                className={`pill num${source === 'can' ? '' : ' is-dim'}`}
-                                title={source === 'can' ? 'Время изделия' : 'Время сервера, шина молчит'}
+                                className={`pill num${source && source !== 'server' ? '' : ' is-dim'}`}
+                                title={source === 'can' || source === 'modbus' ? 'Время изделия' : source === 'ntp' ? 'Время сервера, выверено по NTP' : 'Время сервера, шина молчит'}
                             >
                                 {formatDeviceTime(unixMs)}
                             </span>

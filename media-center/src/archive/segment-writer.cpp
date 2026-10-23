@@ -41,6 +41,10 @@ namespace {
             stamp.wall_ms = time_sync::now_ms();
             stamp.source = ETimeSource::SADKO;
         }
+        else if (time_sync::ntp()) {
+            stamp.wall_ms = time_sync::now_ms();
+            stamp.source = ETimeSource::NTP;
+        }
         else if (time_sync::synced()) {
             // Шлюз на связи, но время у него своё — берём его же, чтобы метки
             // всех устройств изделия хотя бы совпадали между собой

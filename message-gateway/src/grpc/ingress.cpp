@@ -70,6 +70,7 @@ namespace varan {
                 reply.set_unix_ms(s.unix_ms);
                 reply.set_tz_offset_min(s.tz_offset_min);
                 reply.set_can_time(s.can_time);
+                reply.set_ntp_time(s.ntp_time);
                 auto* gps = reply.mutable_gps();
                 gps->set_lat(s.lat);
                 gps->set_lon(s.lon);

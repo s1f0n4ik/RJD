@@ -49,6 +49,13 @@ inline bool trusted() {
 	return s.synced && s.base.sadko_time;
 }
 
+// Садко нет, но часы шлюза выверены по NTP
+inline bool ntp() {
+	auto& s = detail::state();
+	std::lock_guard<std::mutex> lock(s.mutex);
+	return s.synced && !s.base.sadko_time && s.base.ntp_time;
+}
+
 inline std::int64_t mono_ms() {
 	static const std::chrono::steady_clock::time_point started =
 		std::chrono::steady_clock::now();

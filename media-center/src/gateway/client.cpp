@@ -59,6 +59,7 @@ namespace gateway {
                     t.unix_ms = reply.unix_ms();
                     // В proto поле осталось can_time: пакет неизменен
                     t.sadko_time = reply.can_time();
+                    t.ntp_time = reply.ntp_time();
                     t.lat = reply.gps().lat();
                     t.lon = reply.gps().lon();
                     t.alt = reply.gps().alt();

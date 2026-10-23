@@ -10,12 +10,14 @@ namespace archive {
     enum class ETimeSource {
         NONE,    // шлюз молчит: тикают системные часы, доверия ноль
         SYSTEM,  // шлюз ответил, использует свое системное время
-        SADKO    // время от Садко — единственное достоверное
+        NTP,     // часы шлюза выверены по NTP — время верное
+        SADKO    // время от Садко — достовернее всего
     };
 
     inline const char* to_string(ETimeSource source) {
         switch (source) {
         case ETimeSource::SADKO:  return "sadko";
+        case ETimeSource::NTP:    return "ntp";
         case ETimeSource::SYSTEM: return "system";
         default:                  return "none";
         }

@@ -10,8 +10,10 @@
 
 import { useEffect, useState } from 'react';
 
-// Откуда взято время: шина Садко или собственные часы шлюза
-export type TimeSource = 'can' | 'server';
+// Откуда взято время: шина Садко, АС КРСПС по Modbus, часы шлюза — выверенные по NTP или нет
+export type TimeSource = 'can' | 'modbus' | 'ntp' | 'server';
+
+const SOURCES: readonly TimeSource[] = ['can', 'modbus', 'ntp'];
 
 export interface DeviceClock {
     /** Время изделия в миллисекундах, уже в поясе; null — шлюз недоступен */
@@ -42,7 +44,7 @@ async function sync(): Promise<void> {
         if (!Number.isFinite(unixMs)) throw new Error('bad unix_ms');
 
         deltaMs = unixMs - Date.now();
-        source = data?.source?.time === 'can' ? 'can' : 'server';
+        source = SOURCES.find(s => s === data?.source?.time) ?? 'server';
     } catch {
         // Своё время не подставляем: интерфейс покажет прочерк
         deltaMs = null;

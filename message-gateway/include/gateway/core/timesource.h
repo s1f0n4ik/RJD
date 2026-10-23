@@ -6,6 +6,10 @@
 #include <mutex>
 #include <cstdint>
 
+#if defined(__linux__)
+#include <sys/timex.h>
+#endif
+
 #include <boost/json.hpp>
 
 #include "gateway/utility/clock.h"
@@ -24,6 +28,10 @@ namespace varan {
         // подряд получили бы одну метку. Поэтому запоминаем момент приёма по
         // монотонным часам и при выдаче добавляем то, что натикало с тех пор:
         // время остаётся временем Садко, но идёт непрерывно.
+        //
+        // Серверные часы бывают двух сортов: выверенные по NTP (источник "ntp",
+        // время верное) и невыверенные (источник "server": после загрузки платы
+        // без батарейки часов они идут от последнего сохранённого значения).
         //
         // По шине время идёт в UTC; наружу снимок отдаётся уже сдвинутым на
         // настроенный пользователем пояс — потребители (media-center, панель)
@@ -93,6 +101,7 @@ namespace varan {
                 s.unix_ms = utc_ms + static_cast<std::int64_t>(m_tz_offset_min) * 60000;
                 s.tz_offset_min = m_tz_offset_min;
                 s.can_time = m_has_can_time;
+                s.ntp_time = !m_has_can_time && ntp_synced();
 
                 if (m_has_can_gps) {
                     s.lat = m_lat;
@@ -118,6 +127,9 @@ namespace varan {
                     std::lock_guard<std::mutex> lock(m_mutex);
                     if (s.can_time) {
                         time_src = m_time_source;
+                    }
+                    else if (s.ntp_time) {
+                        time_src = "ntp";
                     }
                     gps_src = m_has_can_gps ? m_gps_source : "none";
                     if (m_has_can_gps) {
@@ -152,6 +164,17 @@ namespace varan {
             }
 
         private:
+            // Часы сервера выверены по NTP — тот же признак, что у timedatectl: ядро сняло STA_UNSYNC, ошибка меньше 16 с
+            static bool ntp_synced() {
+#if defined(__linux__)
+                timex tx{};
+                if (adjtimex(&tx) < 0) return false;
+                return !(tx.status & STA_UNSYNC) && tx.maxerror < 16'000'000;
+#else
+                return false;
+#endif
+            }
+
             // ms уже сдвинуты на пояс — форматируем gmtime и дописываем офсет
             static std::string iso_with_offset(std::int64_t ms, int tz_offset_min) {
                 const std::time_t t = static_cast<std::time_t>(ms / 1000);

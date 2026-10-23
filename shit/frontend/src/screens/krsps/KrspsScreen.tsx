@@ -288,8 +288,8 @@ export default function KrspsScreen() {
                                 <span className="nm">{s.label}</span>
                                 {s.id === 'time' && time && (
                                     <>
-                                        <span className="sub">{timeSource === 'can' ? 'шина CAN' : timeSource === 'modbus' ? 'Modbus' : 'системное'}</span>
-                                        <span className={`dot ${timeSource === 'can' || timeSource === 'modbus' ? 'ok' : 'warn'}`} />
+                                        <span className="sub">{timeSource === 'can' ? 'шина CAN' : timeSource === 'modbus' ? 'Modbus' : timeSource === 'ntp' ? 'NTP' : 'системное'}</span>
+                                        <span className={`dot ${timeSource === 'can' || timeSource === 'modbus' || timeSource === 'ntp' ? 'ok' : 'warn'}`} />
                                     </>
                                 )}
                             </button>
