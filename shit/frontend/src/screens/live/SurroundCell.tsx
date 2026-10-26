@@ -63,6 +63,8 @@ interface SurroundCellProps {
     onStats?: (stats: PlayerStats | null) => void;
     // Устройство молчит с этого момента; null — на связи
     offlineSince?: number | null;
+    // false — без жестов орбиты и кнопок ячейки: касания достаются карусели
+    interactive?: boolean;
 }
 
 function num(value: number | null | undefined, digits: number): string {
@@ -89,6 +91,7 @@ export function SurroundCell({
     onStatus,
     onStats,
     offlineSince = null,
+    interactive = true,
 }: SurroundCellProps) {
     const boxRef = useRef<HTMLDivElement>(null);
     const dual = Boolean(secondary);
@@ -238,7 +241,7 @@ export function SurroundCell({
     const gesture = useOrbitGesture({
         videoRef: surroundPlayer.videoRef,
         send: surroundPlayer.send,
-        enabled: !dual || visible === 'surround',
+        enabled: interactive && (!dual || visible === 'surround'),
         onGestureLock,
     });
 
@@ -297,14 +300,16 @@ export function SurroundCell({
                 />
             )}
 
-            <div
-                ref={gesture.layerRef}
-                className={`orbit-gest${gesture.dragging ? ' is-drag' : ''}`}
-                onPointerDown={gesture.onPointerDown}
-                onPointerMove={gesture.onPointerMove}
-                onPointerUp={gesture.onPointerUp}
-                onPointerCancel={gesture.onPointerUp}
-            />
+            {interactive && (
+                <div
+                    ref={gesture.layerRef}
+                    className={`orbit-gest${gesture.dragging ? ' is-drag' : ''}`}
+                    onPointerDown={gesture.onPointerDown}
+                    onPointerMove={gesture.onPointerMove}
+                    onPointerUp={gesture.onPointerUp}
+                    onPointerCancel={gesture.onPointerUp}
+                />
+            )}
 
             {(overlays.name || (live && overlays.stats)) && (
                 <div className="cell-bar">
@@ -334,7 +339,7 @@ export function SurroundCell({
 
             {/* Бадж смены вида — последним: остаётся крайним справа и не съезжает,
                 когда рядом появляется кнопка вращения в режиме объёма */}
-            <div className="cellv-tools" onDoubleClick={event => event.stopPropagation()}>
+            {interactive && <div className="cellv-tools" onDoubleClick={event => event.stopPropagation()}>
                 {/* В режиме «сверху» орбиты нет — устройство отказывает */}
                 {visible !== 'top' && (
                     <button
@@ -356,7 +361,7 @@ export function SurroundCell({
                         <Icon name="map" />
                     </button>
                 )}
-            </div>
+            </div>}
         </div>
     );
 }

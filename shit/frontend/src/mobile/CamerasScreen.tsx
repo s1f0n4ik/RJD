@@ -27,7 +27,7 @@ const num = (value: number | null | undefined, digits: number) =>
     (value === null || value === undefined ? '—' : value.toFixed(digits).replace('.', ','));
 
 // Самый лёгкий смотрибельный поток: телефону хватает подпотока
-function lightestStream(camera: CPPCamera): string | undefined {
+export function lightestStream(camera: CPPCamera): string | undefined {
     return Object.entries(camera.streams ?? {})
         .filter(([, s]) => s.purposes?.includes('view'))
         .sort((a, b) => (a[1].width || 1e9) - (b[1].width || 1e9))[0]?.[0];

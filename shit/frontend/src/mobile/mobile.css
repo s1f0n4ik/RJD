@@ -401,3 +401,61 @@
   .m-dv2{display:grid;grid-template-columns:1fr 1fr;gap:0 4px;padding-top:16px}
   .m-dv2 .m-dv{margin:0 12px 12px}
 }
+
+/* ── Трансляция: карусель по ячейкам отображения ───────── */
+
+.m-car-page{flex:1;min-width:0;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;overscroll-behavior:contain;font-size:15px}
+
+.m-car-page>*{flex-shrink:0}
+
+.m-car{position:relative;background:#000}
+
+.m-car-blank{aspect-ratio:16/9;display:grid;place-items:center;background:var(--input)}
+
+.m-car-blank .empty{padding:12px}
+
+.m-car-track{display:flex;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;overscroll-behavior-x:contain;scrollbar-width:none}
+
+.m-car-track::-webkit-scrollbar{display:none}
+
+.m-car-slide{flex:0 0 100%;aspect-ratio:16/9;position:relative;overflow:hidden;scroll-snap-align:center;scroll-snap-stop:always}
+
+.m-car-slide .cellv-video{object-fit:contain}
+
+.m-car-slide .empty{position:absolute;inset:0;padding:12px;gap:6px}
+
+.m-car-slide .empty .ico{width:24px;height:24px}
+
+.m-car-idle{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;background:var(--panel);color:var(--fg-3);font-size:12.5px}
+
+.m-car-idle .ico{width:26px;height:26px;color:var(--line-hi)}
+
+/* Слой над кадром выше кнопок и жестов ячеек */
+.m-car-ov{position:absolute;inset:0;z-index:15;pointer-events:none}
+
+.m-car-cnt{position:absolute;right:10px;top:8px;padding:3px 8px;border-radius:6px;background:color-mix(in srgb,var(--bg) 72%,transparent);border:1px solid rgba(255,255,255,.14);font-family:var(--mono);font-size:11px;color:var(--fg)}
+
+.m-car-ov .m-vbtn{position:absolute;right:10px;bottom:10px;pointer-events:auto}
+
+.m-car-dots{position:absolute;left:0;right:0;bottom:16px;display:flex;justify-content:center;gap:6px}
+
+.m-car-dots i{width:6px;height:6px;border-radius:3px;background:rgba(255,255,255,.32);transition:width var(--t-fast) var(--ease-out),background var(--t-fast) var(--ease-out)}
+
+.m-car-dots i.is-on{width:18px;background:var(--fg)}
+
+.m-car-dots i.is-off{background:color-mix(in srgb,var(--err) 60%,transparent)}
+
+.m-car-cell{flex:0 0 34px;font-family:var(--mono);font-size:11px;color:var(--fg-3)}
+
+/* Полный экран: кнопкой, а на телефоне ещё и поворотом */
+.m-car.is-full{position:fixed;inset:0;z-index:50;display:flex}
+
+.m-car.is-full .m-car-track{flex:1}
+
+.m-car.is-full .m-car-slide{aspect-ratio:auto;height:100%}
+
+@media (orientation:landscape) and (max-height:520px){
+  .m-car{position:fixed;inset:0;z-index:50;display:flex}
+  .m-car .m-car-track{flex:1}
+  .m-car .m-car-slide{aspect-ratio:auto;height:100%}
+}

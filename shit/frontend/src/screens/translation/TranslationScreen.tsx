@@ -30,6 +30,8 @@ import '../../styles/tokens.css';
 import '../../styles/ui.css';
 import './translation.css';
 import { useFlash } from '../../app/motion';
+import { PHONE_QUERY, useIsMobile } from '../../mobile/useIsMobile';
+import { TranslationCarousel } from '../../mobile/TranslationCarousel';
 
 const SOURCES_POLL_MS = 10_000;
 
@@ -58,6 +60,7 @@ export default function TranslationScreen() {
 
     const [cameras, setCameras] = useState<CPPCamera[]>([]);
     const [virtual, setVirtual] = useState<VirtualStream[]>([]);
+    const [sourcesLoaded, setSourcesLoaded] = useState(false);
 
     const [layout, setLayout] = useState<LayoutState>(() => emptyLayout());
     const [switchKey, setSwitchKey] = useState('init');
@@ -81,6 +84,7 @@ export default function TranslationScreen() {
                 if (!alive) return;
                 setCameras(list.filter(camera => !isProbeCamera(camera.id)));
                 setVirtual(streams);
+                setSourcesLoaded(true);
             } catch {
                 // Молчим: планка и так покажет, что в эфире ноль ячеек
             }
@@ -198,6 +202,7 @@ export default function TranslationScreen() {
     };
 
     const [fullscreen, setFullscreen] = useState(false);
+    const mobile = useIsMobile(PHONE_QUERY);
 
     // Полный экран закрывают и мимо кнопки — клавишей Esc
     useEffect(() => {
@@ -213,7 +218,8 @@ export default function TranslationScreen() {
 
     const exit = () => {
         if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-        window.location.href = '/new/live';
+        // С мобильной оболочки выход на главную, с настольной — в редактор
+        window.location.href = mobile ? '/app' : '/app/live';
     };
 
     // Молчащие устройства текущего отображения: одна полоса вместо тревоги в каждой ячейке
@@ -253,7 +259,7 @@ export default function TranslationScreen() {
                         />
                     </div>
                 ) : (
-                    <span className="tr-name">{fallback ? 'временная сетка' : layout.name}</span>
+                    <span className="tr-name">{!fallback ? layout.name : mobile ? 'все камеры' : 'временная сетка'}</span>
                 )}
 
                 <span ref={flashAir} className={`pill${counts.live < counts.total ? ' warn' : ' ok'}`}>
@@ -279,7 +285,7 @@ export default function TranslationScreen() {
                 <button className="icon-btn tr-plain" title={fullscreen ? 'Свернуть' : 'Во весь экран'} onClick={toggleFullscreen}>
                     <Icon name={fullscreen ? 'unfull' : 'full'} />
                 </button>
-                <button className="icon-btn tr-plain" title="Выйти в редактор" onClick={exit}>
+                <button className="icon-btn tr-plain tr-exit" title={mobile ? 'На главную' : 'Выйти в редактор'} onClick={exit}>
                     <Icon name="x" />
                 </button>
             </div>
@@ -294,8 +300,14 @@ export default function TranslationScreen() {
             {fallback && (
                 <div className="banner" style={{ borderRadius: 0, borderLeft: 'none', borderRight: 'none' }}>
                     <Icon name="warn" />
-                    Отображения не настроены — показана временная сетка, изменения не сохраняются.
-                    <button className="btn btn--sm" onClick={exit}>Создать отображение</button>
+                    {mobile ? (
+                        'Отображения не настроены, листаются все камеры и модули.'
+                    ) : (
+                        <>
+                            Отображения не настроены — показана временная сетка, изменения не сохраняются.
+                            <button className="btn btn--sm" onClick={exit}>Создать отображение</button>
+                        </>
+                    )}
                 </div>
             )}
 
@@ -311,7 +323,23 @@ export default function TranslationScreen() {
             )}
 
             <div className="tr-body">
-                <aside className={`tr-drawer${drawerOpen ? ' is-open' : ''}`} aria-hidden={!drawerOpen}>
+                {mobile ? (
+                    <TranslationCarousel
+                        layout={layout}
+                        sources={sources}
+                        cameras={cameras}
+                        loaded={sourcesLoaded && !loading}
+                        all={fallback}
+                        switchKey={switchKey}
+                        signalingUrlOf={signalingUrlOf}
+                        deviceTimeMs={unixMs}
+                        correctionLinks={correctionLinks}
+                        onCorrectedChange={setCorrected}
+                        onDetectionsChange={setDetections}
+                    />
+                ) : (
+                    <>
+                    <aside className={`tr-drawer${drawerOpen ? ' is-open' : ''}`} aria-hidden={!drawerOpen}>
                         <div className="eyebrow tr-cap">Отображения</div>
                         {layouts.length === 0 && <p className="hint">Сохранённых отображений нет.</p>}
                         {layouts.map(item => (
@@ -359,26 +387,28 @@ export default function TranslationScreen() {
                         <button className="btn btn--sm btn--wide tr-collapse" onClick={closeDrawer}>
                             Свернуть
                         </button>
-                </aside>
+                    </aside>
 
-                <Wall
-                    grid={layout.grid}
-                    layout={layout}
-                    sources={sources}
-                    switchKey={switchKey}
-                    signalingUrlOf={signalingUrlOf}
-                    deviceTimeMs={unixMs}
-                    editable
-                    pickedSource={armed}
-                    onPickPlace={cellId => { if (armed) assign(cellId, armed); setArmed(null); }}
-                    onAssign={assign}
-                    onSwap={swap}
-                    onCorrectedChange={setCorrected}
-                    onDetectionsChange={setDetections}
-                    onStreamChange={setStream}
-                    onLiveCount={handleLiveCount}
-                    correctionLinks={correctionLinks}
-                />
+                    <Wall
+                        grid={layout.grid}
+                        layout={layout}
+                        sources={sources}
+                        switchKey={switchKey}
+                        signalingUrlOf={signalingUrlOf}
+                        deviceTimeMs={unixMs}
+                        editable
+                        pickedSource={armed}
+                        onPickPlace={cellId => { if (armed) assign(cellId, armed); setArmed(null); }}
+                        onAssign={assign}
+                        onSwap={swap}
+                        onCorrectedChange={setCorrected}
+                        onDetectionsChange={setDetections}
+                        onStreamChange={setStream}
+                        onLiveCount={handleLiveCount}
+                        correctionLinks={correctionLinks}
+                    />
+                    </>
+                )}
             </div>
         </div>
     );

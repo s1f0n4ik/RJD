@@ -111,6 +111,9 @@ export function Timeline({
     const [hover, setHover] = useState<Hover | null>(null);
     const [tip, setTip] = useState<{ track: Track; anchor: Anchor } | null>(null);
     const [dragging, setDragging] = useState(false);
+
+    // Пустой список камер значит обрыв связи, а не то, что удалены все
+    const isDeleted = (cameraId: string) => cameraNames.size > 0 && !cameraNames.has(cameraId);
     const [pickAnchor, setPickAnchor] = useState<Anchor | null>(null);
 
     const drag = useRef<{ x: number; ms: number; moved: boolean; mode: 'pan' | 'pick' } | null>(null);
@@ -368,8 +371,7 @@ export function Timeline({
                     <div className="tl-names-body" ref={names}>
                         {tracks.map(track => {
                             const key = trackKey(track);
-                            // Пустой список камер значит обрыв связи, а не то, что удалены все
-                            const deleted = cameraNames.size > 0 && !cameraNames.has(track.camera_id);
+                            const deleted = isDeleted(track.camera_id);
                             const name = cameraNames.get(track.camera_id) || track.camera_id;
 
                             return (
@@ -382,10 +384,7 @@ export function Timeline({
                                     onMouseLeave={() => setTip(null)}
                                 >
                                     {deleted ? (
-                                        <span
-                                            className="tl-st is-gone"
-                                            title="Камера удалена из конфигурации, записи остались"
-                                        />
+                                        <span className="tl-st is-gone" />
                                     ) : (
                                         <span className={`tl-st${track.segment_count ? '' : ' is-off'}`} />
                                     )}
@@ -395,7 +394,6 @@ export function Timeline({
                                             <span className="seps">
                                                 <span>{track.camera_id}</span>
                                                 <span>{track.stream_key.replace('stream_', 'канал ')}</span>
-                                                {deleted && <span>удалена</span>}
                                             </span>
                                         </span>
                                     </span>
@@ -526,7 +524,13 @@ export function Timeline({
             </div>
 
             {hover?.track && <Peek hover={hover} track={hover.track} />}
-            {tip && <NameTip tip={tip} name={cameraNames.get(tip.track.camera_id)} />}
+            {tip && (
+                <NameTip
+                    tip={tip}
+                    name={cameraNames.get(tip.track.camera_id)}
+                    deleted={isDeleted(tip.track.camera_id)}
+                />
+            )}
 
             {selection && pickAnchor && (
                 <RangeCard
@@ -616,13 +620,14 @@ function Peek({ hover, track }: { hover: Hover; track: Track }) {
 }
 
 // Подробности камеры при наведении на имя
-function NameTip({ tip, name }: { tip: { track: Track; anchor: Anchor }; name?: string }) {
+function NameTip({ tip, name, deleted }: { tip: { track: Track; anchor: Anchor }; name?: string; deleted: boolean }) {
     const { track } = tip;
     const ref = usePopover<HTMLDivElement>(tip.anchor, { side: 'right', align: 'start' });
 
     return createPortal(
         <div className="tl-tip" ref={ref}>
             <b>{name || track.camera_id}</b>
+            {deleted && <div className="r"><span>Камера</span><span>удалена, записи остались</span></div>}
             <div className="r"><span>Идентификатор</span><span>{track.camera_id}</span></div>
             <div className="r"><span>Поток</span><span>{track.stream_key}</span></div>
             <div className="r"><span>Устройство</span><span>{track.device_name}</span></div>
