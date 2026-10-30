@@ -115,6 +115,7 @@ def main(backup: Path) -> None:
 
     api_check(backup, v1["hash"])
     sync_check()
+    cameras_check(backup)
     print("config-check: OK", TMP)
 
 
@@ -122,6 +123,69 @@ def main(backup: Path) -> None:
 
 
 
+def cameras_check(backup: Path) -> None:
+    import tarfile
+    import httpx
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from app.routers import devices as devices_router, machine_config
+    from app.services import config_store, config_sync
+    from app.services.devices import registry
+
+    store = config_store.get_store()
+    store.set_active("stand-102")
+    device_id = store.effective()["entities"]["binding"]["board-1"]["body"]["device_id"]
+    registry._devices[device_id] = {"id": device_id, "ip": "board", "name": "Стенд", "modules": ["neural", "birdview"]}
+
+    # Часть cameras повторяет nvr/configurations.json платы: первая отправка ничего не меняет
+    with tarfile.open(backup) as tar:
+        member = next(m for m in tar.getmembers() if m.name.endswith("varan/nvr/configurations.json"))
+        nvr = json.load(tar.extractfile(member))
+    bodies = {k: {key: e["body"] for key, e in v.items()} for k, v in store.effective()["entities"].items()}
+    part = config_sync.PART_BUILDERS["cameras"](bodies, "board-1")
+    assert sorted(part, key=lambda c: c["camera"]["id"]) == sorted(nvr["cameras"], key=lambda c: c["camera"]["id"])
+
+    board = {"cameras": None}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        package = json.loads(request.content)
+        board["cameras"] = {c["camera"]["id"]: c for c in package["parts"]["cameras"]}
+        return httpx.Response(200, json={"data": {"revision": package["revision"]}})
+
+    config_sync.sync._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    app = FastAPI()
+    app.include_router(devices_router.router, prefix="/api")
+    client = TestClient(app)
+    stream = {"channel": 1, "substream": 1, "purposes": ["view", "record"], "latency": 200,
+              "use_udp": False, "reconnect": 5, "record_path": "/storage/x", "segment": 60}
+    camera = {"id": "camera_new", "display_name": "Новая", "description": "", "ip_adress": "10.1.1.1",
+              "port": "554", "user": "admin", "password": "secret", "production": 2, "streams": {"stream_1": stream}}
+
+    r = client.post(f"/api/cameras?device={device_id}", json=camera)
+    assert r.status_code == 200, r.text
+    saved = board["cameras"]["camera_new"]
+    assert saved["streams"]["stream_1"]["reconnect_delay"] == 5 and saved["streams"]["stream_1"]["segment_length"] == 60
+    assert client.post(f"/api/cameras?device={device_id}", json=camera).status_code == 409
+    taken = {**camera, "id": "camera_other"}
+    assert client.post(f"/api/cameras?device={device_id}", json=taken).json()["error"]["message"] == "Camera is already added"
+    assert client.post("/api/cameras?device=nope", json=camera).status_code == 404
+    bad = {**camera, "id": "camera_bad", "ip_adress": "10.1.1.2", "streams": {"main": stream}}
+    assert client.post(f"/api/cameras?device={device_id}", json=bad).status_code == 400
+
+    r = client.patch("/api/cameras/camera_new", json={"meta": {"display_name": "Переименована"}})
+    assert r.status_code == 200 and board["cameras"]["camera_new"]["camera"]["display_name"] == "Переименована"
+    critical = {k: camera[k] for k in ("ip_adress", "port", "user", "production", "streams")}
+    critical["ip_adress"] = "10.1.1.3"
+    client.patch("/api/cameras/camera_new", json={"critical": critical})
+    moved = board["cameras"]["camera_new"]["camera"]
+    assert moved["ip_adress"] == "10.1.1.3" and moved["password"] == "secret" and moved["display_name"] == "Переименована"
+
+    r = client.post(f"/api/cameras?device={device_id}&replaces={device_id}:camera_new", json={**camera, "ip_adress": "10.1.1.3"})
+    assert r.status_code == 200 and "camera_new" in board["cameras"], r.text
+    assert client.delete("/api/cameras/camera_new?device=elsewhere").status_code == 409
+    assert client.delete(f"/api/cameras/camera_new?device={device_id}").status_code == 200
+    assert "camera_new" not in board["cameras"]
+    assert store.passport("stand-102").get(("camera", "camera_new")) is None
 
 
 def sync_check() -> None:

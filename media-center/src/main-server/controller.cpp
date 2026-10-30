@@ -214,6 +214,9 @@ UController::post_camera(const http::request<http::string_body>& req)
         auto obj_streams = obj[fields::STREAMS].as_object();
         // Проверка уникальности имени камер
         std::string id = obj[fields::ID].as_string().c_str();
+        if (!id.starts_with("__probe_")) {
+            throw std::runtime_error("Camera configuration is managed by the master: only __probe_ cameras can be created here");
+        }
         if (m_media_center->camera_exists(id)) {
             throw std::runtime_error("Camera with id \"" + id + "\" already exists!");
         }
@@ -274,203 +277,6 @@ UController::post_camera(const http::request<http::string_body>& req)
             throw std::runtime_error("Camera \"" + id + "\" cannot be added");
         }
 
-    }
-    catch (const std::exception& e) {
-        log_error(m_logger, tag, e.what());
-
-        res.result(http::status::bad_request);
-        json::object error;
-        error[fields::ERROR_CODE] = 402;
-        error[fields::ERROR_MESSAGE] = "Bad Request";
-        error[fields::ERROR_DETAILS] = e.what();
-
-        res.body() = json::serialize(create_answer_message(std::nullopt, std::nullopt, error));
-    }
-
-    res.prepare_payload();
-    return res;
-}
-
-// PATCH /camera?id=
-// Body (все поля опциональны):
-// { "display_name":"...", "description":"...", "streams": { ... } }
-http::response<http::string_body>
-UController::patch_camera(const http::request<http::string_body>& req)
-{
-    const std::string tag = "PATCH /camera?id=";
-    log_request(m_logger, req, tag);
-
-    http::response<http::string_body> res{ http::status::created, req.version() };
-    res.set(http::field::content_type, "application/json");
-    res.keep_alive(req.keep_alive());
-
-    try {
-        json::object body;
-        // Парсинг строки URL
-        std::string_view target = req.target();
-        std::unordered_map<std::string, std::string> selectors;
-        std::set<std::string> fields;
-
-        if (auto pos = target.find('?'); pos != std::string_view::npos) {
-            std::string_view query = target.substr(pos + 1);
-            parse_query(query, selectors, fields);
-        }
-
-        // Поиск камеры
-        std::optional<std::string> camera_id;
-        std::shared_ptr<UCamera> found_camera = nullptr;
-        if (selectors.empty()) {
-            throw std::runtime_error("The request body is empty when trying to patch a camera. "
-                "Please specify the camera name as a query parameter, for example: ?id=camera_name.");
-        }
-        else {
-            for (const auto& [field, value] : selectors) {
-                if (field == fields::ID) {
-                    found_camera = m_media_center->get_camera(value);
-                    if (!found_camera) {
-                        res.result(http::status::not_found);
-                        json::object error;
-                        error[fields::ERROR_CODE] = 404;
-                        error[fields::ERROR_MESSAGE] = "Not Found";
-                        error[fields::ERROR_DETAILS] = "Camera \"" + value + "\" does not exist";
-                        res.body() = json::serialize(create_answer_message(std::nullopt, std::nullopt, error));
-                        res.prepare_payload();
-                        return res;
-                    }
-                    camera_id = value;
-                    break;
-                }
-            }
-        }
-        // Проверка прошла, можно приступить к JSON body
-        // Парсинг тела json
-        json::value jv = json::parse(req.body());
-        if (!jv.is_object()) {
-            throw std::runtime_error("Invalid JSON body");
-        }
-        json::object obj = jv.as_object();
-        // Проверка структуры тела JSON
-        bool has_meta = obj.contains("meta");
-        bool has_critical = obj.contains("critical");
-
-        if (!has_meta && !has_critical) {
-            throw std::runtime_error("Empty PATCH: no meta or critical section provided");
-        }
-        // Назначение опциональные параметры
-        std::optional<FCameraData> patch_camera_options = std::nullopt;
-        std::optional<std::map<std::string, FPipelineConfig>> patch_streams_data = std::nullopt;
-        // Получаем текущие данные с камеры
-        auto current_data = found_camera->get_data();
-        auto current_camera_options = current_data.camera;
-        // Проверяем структуру каждого блока
-        if (has_meta) {
-            if (!obj["meta"].is_object()) {
-                throw std::runtime_error("meta must be an object");
-            }
-            auto meta = obj["meta"].as_object();
-
-            std::optional<std::string> display_name;
-            std::optional<std::string> description;
-
-            if (meta.contains(fields::DISPLAY_NAME) && meta[fields::DISPLAY_NAME].is_string()) {
-                display_name = meta[fields::DISPLAY_NAME].as_string().c_str();
-            }
-
-            if (meta.contains(fields::DESCRIPTION) && meta[fields::DESCRIPTION].is_string()) {
-                description = meta[fields::DESCRIPTION].as_string().c_str();
-            }
-
-            if (!display_name && !description) {
-                throw std::runtime_error("No fields at meta block to update were provided");
-            }
-            // Обновление метаданных
-            current_camera_options.display_name = display_name ? display_name.value() : current_camera_options.display_name;
-            current_camera_options.description = description ? description.value() : current_camera_options.description;
-            // Применяем его к нашим баранам
-            patch_camera_options = current_camera_options;
-        }
-        if (has_critical) {
-            if (!obj["critical"].is_object()) {
-                throw std::runtime_error("critical must be an object");
-            }
-            auto crit = obj["critical"].as_object();
-
-            // Проверка всех обязательных полей
-            for (const auto& field : m_post_camera_fields) {
-                if (field == fields::DISPLAY_NAME || field == fields::DESCRIPTION || field == fields::ID || field == fields::PASSWORD) {
-                    continue;
-                }
-
-                if (!crit.contains(field)) {
-                    throw std::runtime_error("critical missing field: " + field);
-                }
-            }
-            if (!crit[fields::STREAMS].is_object()) {
-                throw std::runtime_error("Stream field is not json object!");
-            }
-            auto obj_streams = crit[fields::STREAMS].as_object();
-
-            auto prod = int_to_count_enum<ERtspType>(get_json_value<int64_t>(crit[fields::PRODUCTION], fields::PRODUCTION));
-            if (prod == std::nullopt) {
-                throw std::runtime_error("Not supported camera production!");
-            }
-            // Получение ссылки
-            std::string ip_adress = get_json_value<std::string>(crit[fields::IP_ADRESS], fields::IP_ADRESS);
-            std::string port = get_json_value<std::string>(crit[fields::PORT], fields::PORT);
-            std::string user = get_json_value<std::string>(crit[fields::USER], fields::USER);
-            std::string password = crit.contains(fields::PASSWORD) ? get_json_value<std::string>(crit[fields::PASSWORD], fields::PASSWORD) 
-                                                                   : current_camera_options.password;
-            // Тип камеры больше не принимается: назначения живут на потоках
-            if (crit.contains(fields::CAMERA_TYPE) && m_logger) {
-                m_logger->send(tag + ": field <type> is obsolete and ignored, purposes are taken from streams");
-            }
-
-            FCameraData camera_data = {
-                *camera_id, 
-                patch_camera_options ? patch_camera_options.value().display_name : current_camera_options.display_name,
-                patch_camera_options ? patch_camera_options.value().description : current_camera_options.description,
-                ip_adress, port, user, password, prod.value()
-            };
-
-            std::map<std::string, FPipelineConfig> pipelines;
-            // Парсинг объекта pipeline
-            for (auto const& [name_stream, stream] : obj_streams) {
-                if (!stream.is_object()) {
-                    throw std::runtime_error("Stream \"" + std::string(name_stream) + "\" is not json object!");
-                }
-                const auto& stream_obj = stream.as_object();
-                // Проверка полей стримов
-                for (const auto& field : m_post_stream_fields) {
-                    if (!stream_obj.contains(field)) {
-                        throw std::runtime_error("Stream \"" + std::string(name_stream) + "\" does not contain the required field <" + field + ">");
-                    }
-                }
-
-                const std::string name(name_stream);
-                pipelines[name] = parse_stream_config(name, stream_obj);
-            }
-
-            if (const auto error = m_media_center->validate_streams(pipelines)) {
-                throw std::runtime_error(*error);
-            }
-
-            patch_camera_options = camera_data;
-            patch_streams_data = pipelines;
-        }
-        // Изменяем pipeline
-        if (m_media_center->update_camera(*camera_id, patch_camera_options, patch_streams_data, true)) {
-            json::object body;
-            body[fields::RESULT] = "success";
-            body[fields::ERROR_DETAILS] = "Camera \"" + *camera_id + "\" successfully updated";
-
-            auto answer = create_answer_message(body, std::nullopt, std::nullopt);
-            const std::string body_str = json::serialize(answer);
-            if (m_logger) m_logger->send(tag + " → " + body_str);
-            res.body() = body_str;
-        }
-        else {
-            throw std::runtime_error("cannot update camera");
-        }
     }
     catch (const std::exception& e) {
         log_error(m_logger, tag, e.what());
@@ -616,6 +422,9 @@ UController::delete_camera(const http::request<http::string_body>& req) {
         else {
             for (const auto& [field, value] : selectors) {
                 if (field == fields::ID) {
+                    if (!value.starts_with("__probe_")) {
+                        throw std::runtime_error("Camera configuration is managed by the master: only __probe_ cameras can be deleted here");
+                    }
                     auto exists = m_media_center->camera_exists(value);
                     if (!exists) {
                         throw std::runtime_error("Camera with name " + value + " doesn't exist in nvr!");

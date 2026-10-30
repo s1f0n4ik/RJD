@@ -513,6 +513,7 @@ namespace nvr {
             return pipeline;
         }
 
+    public:
         static json::object serialize_camera_config(const FCameraStreamsData& data) {
             json::object streams_obj;
 

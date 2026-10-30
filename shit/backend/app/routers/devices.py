@@ -11,6 +11,9 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
 from app.config import settings
+from app.services.config_cameras import camera_entry, patched_entry
+from app.services.config_store import get_store
+from app.services.config_sync import sync as config_sync
 from app.services.devices import registry
 
 router = APIRouter()
@@ -180,14 +183,6 @@ def _device_name(device_id: str) -> str:
     return device["name"] if device else device_id
 
 
-def _conflict(message: str, details: str) -> JSONResponse:
-    return JSONResponse(status_code=409, content={
-        "data": None,
-        "meta": None,
-        "error": {"code": 409, "message": message, "details": details},
-    })
-
-
 # Камеры проверяемого устройства: с занятым id и с адресом, уже добавленным на других устройствах
 async def _probe_conflicts(passport: dict) -> tuple[list[str], list[str]]:
     _, data = await _fetch_data(passport, "/camera")
@@ -203,9 +198,38 @@ async def _probe_conflicts(passport: dict) -> tuple[list[str], list[str]]:
     return conflicts, duplicates
 
 
+def _error(status: int, message: str, details: str) -> JSONResponse:
+    return JSONResponse(status_code=status, content={
+        "data": None,
+        "meta": None,
+        "error": {"code": status, "message": message, "details": details},
+    })
+
+
+# Действующие камеры профиля и место привязанного устройства
+def _config_cameras() -> tuple[str, dict[str, dict], dict[str, str]]:
+    eff = get_store().effective()
+    if not eff["profile"]:
+        raise HTTPException(status_code=409, detail="No active configuration profile")
+    cameras = {key: e["body"] for key, e in eff["entities"].get("camera", {}).items()}
+    places = {e["body"].get("device_id"): key for key, e in eff["entities"].get("binding", {}).items()}
+    return eff["profile"]["id"], cameras, places
+
+
+def _place_name(place: str) -> str:
+    entity = get_store().effective()["entities"].get("place", {}).get(place)
+    return (entity or {}).get("body", {}).get("name") or place
+
+
+async def _apply(saved: str) -> JSONResponse:
+    if error := await config_sync.push_checked():
+        return _error(502, "Saved in the profile, but the device did not apply it", error)
+    return JSONResponse(content={"data": {"result": "success", "details": saved}, "meta": None, "error": None})
+
+
 @router.post("/cameras")
 async def create_camera(request: Request, device: str, replaces: Optional[str] = None):
-    """Новая камера на устройстве; её id и адрес не должны быть заняты."""
+    """Новая камера на месте устройства; её id и адрес не должны быть заняты."""
     target = registry.get(device)
     if not target:
         raise HTTPException(status_code=404, detail="Device not found")
@@ -217,20 +241,8 @@ async def create_camera(request: Request, device: str, replaces: Optional[str] =
     except (ValueError, AttributeError):
         raise HTTPException(status_code=400, detail="Invalid camera payload")
 
-    # Заменяемая камера (перенос или смена id) в проверках не участвует
-    replaced = tuple(replaces.split(":", 1)) if replaces else None
-    others = [c for c in _cached_cameras() if (c[0], c[1]) != replaced]
-
-    taken = [owner for owner, other_id, _ in others if other_id == camera_id and owner != device]
-    if taken:
-        logger.warning(f"Camera id={camera_id} rejected for {device}: taken on {taken[0]}")
-        return _conflict("Camera id is taken on another device", _device_name(taken[0]))
-
-    same = [(owner, other_id) for owner, other_id, other in others if _address(other) == _address(camera)]
-    if same:
-        owner, other_id = same[0]
-        logger.warning(f"Camera {':'.join(_address(camera))} rejected for {device}: added as {other_id} on {owner}")
-        return _conflict("Camera is already added", f"{other_id} · {_device_name(owner)}")
+    if not camera_id.startswith(PROBE_PREFIX):
+        return await _save_camera(camera, camera_id, device, replaces)
 
     url = f"http://{target['ip']}:{settings.DEVICE_MC_PORT}/camera"
     try:
@@ -244,6 +256,64 @@ async def create_camera(request: Request, device: str, replaces: Optional[str] =
         status_code=upstream.status_code,
         media_type=upstream.headers.get("content-type"),
     )
+
+
+async def _save_camera(camera: dict, camera_id: str, device: str, replaces: Optional[str]) -> JSONResponse:
+    profile_id, cameras, places = _config_cameras()
+    place = places.get(device)
+    if not place:
+        return _error(409, "Device is not bound to a place of the active profile", _device_name(device))
+    try:
+        entry = camera_entry(camera, place)
+    except ValueError as e:
+        return _error(400, "Bad Request", str(e))
+
+    # Заменяемая камера (перенос или смена id) в проверках не участвует
+    replaced_device, _, replaced_id = (replaces or "").partition(":")
+    others = {key: body for key, body in cameras.items() if key not in (camera_id, replaced_id)}
+    if camera_id in cameras and camera_id != replaced_id:
+        logger.warning(f"Camera id={camera_id} rejected for {place}: already in the profile")
+        return _error(409, "Camera id is taken", _place_name(cameras[camera_id].get("place")))
+    same = [key for key, body in others.items() if _address(body["camera"]) == _address(entry["camera"])]
+    if same:
+        logger.warning(f"Camera {':'.join(_address(entry['camera']))} rejected for {place}: added as {same[0]}")
+        return _error(409, "Camera is already added", f"{same[0]} · {_place_name(cameras[same[0]].get('place'))}")
+
+    store = get_store()
+    store.put(profile_id, "camera", camera_id, entry)
+    # Смена id убирает прежнюю камеру, только если она стояла на месте того же устройства
+    if replaced_id and replaced_id != camera_id and cameras.get(replaced_id, {}).get("place") == places.get(replaced_device):
+        store.remove(profile_id, "camera", replaced_id)
+    return await _apply(f"Camera {camera_id} saved")
+
+
+@router.patch("/cameras/{camera_id}")
+async def patch_camera(camera_id: str, request: Request):
+    profile_id, cameras, _ = _config_cameras()
+    if camera_id not in cameras:
+        return _error(404, "Not Found", f"Camera {camera_id} does not exist")
+    try:
+        entry = patched_entry(cameras[camera_id], json.loads(await request.body()))
+    except ValueError as e:
+        return _error(400, "Bad Request", str(e))
+    others = {key: body for key, body in cameras.items() if key != camera_id}
+    same = [key for key, body in others.items() if _address(body["camera"]) == _address(entry["camera"])]
+    if same:
+        return _error(409, "Camera is already added", f"{same[0]} · {_place_name(cameras[same[0]].get('place'))}")
+    get_store().put(profile_id, "camera", camera_id, entry)
+    return await _apply(f"Camera {camera_id} updated")
+
+
+@router.delete("/cameras/{camera_id}")
+async def delete_camera(camera_id: str, device: Optional[str] = None):
+    profile_id, cameras, places = _config_cameras()
+    if camera_id not in cameras:
+        return _error(404, "Not Found", f"Camera {camera_id} does not exist")
+    # Камера с тем же id на другом устройстве — не та, что в профиле
+    if device and cameras[camera_id].get("place") != places.get(device):
+        return _error(409, "Camera belongs to another place", _place_name(cameras[camera_id].get("place")))
+    get_store().remove(profile_id, "camera", camera_id)
+    return await _apply(f"Camera {camera_id} deleted")
 
 
 @router.get("/recordings")

@@ -38,12 +38,7 @@ function streamsChanged(streams: StreamForm[], original: Camera): boolean {
     });
 }
 
-/**
- * Сохранение камеры. Для новой — создание на выбранном устройстве. Для
- * существующей — PATCH владельцу, а если оператор выбрал другое устройство,
- * камера переезжает: создаётся на целевом и удаляется у прежнего владельца.
- * PATCH тут не годится — камера принадлежит тому, кто её держит.
- */
+// Сохранение камеры в мастере; перенос на другое устройство меняет место той же записи
 export async function saveCamera(
     form: CameraFormData,
     cameraId: string,
@@ -63,15 +58,7 @@ export async function saveCamera(
             cameraId,
         );
         await api.createCamera(payload, migrationTarget, `${ownerDevice}:${cameraId}`);
-        try {
-            await api.deleteCamera(cameraId, ownerDevice);
-            return { message: `Камера ${cameraId} перенесена на другое устройство` };
-        } catch {
-            return {
-                message: `Камера ${cameraId} создана на новом устройстве`,
-                warning: `Не удалена на прежнем — удалите ${cameraId} на старом устройстве вручную`,
-            };
-        }
+        return { message: `Камера ${cameraId} перенесена на другое устройство` };
     }
 
     const body: CameraPatchBody = {};
@@ -99,7 +86,7 @@ export async function saveCamera(
         } as CameraPatchBody['critical'];
     }
 
-    const result = await api.updateCamera(cameraId, body, ownerDevice);
+    const result = await api.updateCamera(cameraId, body);
     if ((result as any)?.noop) return { message: 'Изменений нет' };
     return { message: `Камера ${cameraId} обновлена` };
 }

@@ -51,8 +51,6 @@ URestServer::URestServer(
         [controller](const auto& req) { return controller->get_camera(req); });
     m_router->add_route(http::verb::post, "/camera",
         [controller](const auto& req) { return controller->post_camera(req); });
-    m_router->add_route(http::verb::patch, "/camera",
-        [controller](const auto& req) { return controller->patch_camera(req); });
     m_router->add_route(http::verb::delete_, "/camera",
         [controller](const auto& req) { return controller->delete_camera(req); });
     m_router->add_route(http::verb::post, "/probe",

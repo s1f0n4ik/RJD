@@ -261,6 +261,9 @@ int main(int argc, char* argv[])
 
 	// Конфигурация от мастера: части регистрируют модули, применение — через REST
 	auto machine_config = std::make_shared<varan::UMachineConfig>();
+	machine_config->register_part("cameras", [center](const boost::json::value& part) {
+		return center->apply_cameras(part);
+	});
 
 	auto rest_server = URestServer{ config.rest_port, center, linker_360, loader, machine_config, config.modules, device_info };
 	rest_server.async_start();

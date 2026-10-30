@@ -276,6 +276,82 @@ namespace neural {
         return m_cameras.find(name) == m_cameras.end() ? false : true;
     }
 
+    std::string UMediaCenter::apply_cameras(const boost::json::value& part) {
+        if (!part.is_array()) return "cameras must be an array";
+
+        std::map<std::string, FCameraConfiguration> wanted;
+        for (const auto& item : part.as_array()) {
+            if (!item.is_object()) return "camera entry must be an object";
+            try {
+                bool legacy = false;
+                auto config = UCameraConfigirationManager::parse_camera_config(item.as_object(), legacy);
+                if (config.camera.id.empty() || config.camera.id.starts_with("__probe_")) {
+                    return "camera id <" + config.camera.id + "> is not allowed";
+                }
+                const auto id = config.camera.id;
+                wanted.emplace(id, std::move(config));
+            }
+            catch (const std::exception& e) {
+                return std::string("bad camera entry: ") + e.what();
+            }
+        }
+
+        std::map<std::string, FCameraConfiguration> current;
+        for (auto& config : m_config_manager.get_all_configs()) {
+            const auto id = config.camera.id;
+            current.emplace(id, std::move(config));
+        }
+
+        auto canonical = [](const FCameraConfiguration& config) {
+            return boost::json::serialize(UCameraConfigirationManager::serialize_camera_config(config_to_streams_data(config)));
+        };
+
+        size_t added = 0, updated = 0, removed = 0;
+        for (const auto& [id, _] : current) {
+            if (wanted.count(id)) continue;
+            if (camera_exists(id)) remove_camera_async(id, true);
+            else m_config_manager.remove_camera(id);
+            ++removed;
+        }
+
+        for (const auto& [id, config] : wanted) {
+            const auto found = current.find(id);
+            if (found != current.end() && canonical(found->second) == canonical(config)) continue;
+
+            const bool runnable = !validate_streams(config.streams).has_value();
+            const bool running = camera_exists(id);
+            // Камеры с назначениями незагруженного модуля только записываются, как при старте
+            if (!runnable) {
+                if (running) remove_camera_async(id, false);
+                if (!m_config_manager.add_or_update_camera(config_to_streams_data(config))) {
+                    return "camera <" + id + "> cannot be saved";
+                }
+                m_logger.warn("apply_cameras(): camera id=" + id + " saved but not started (module not loaded)");
+            }
+            else if (!running) {
+                if (!add_camera_async(config.camera, config.streams, true)) return "camera <" + id + "> cannot be started";
+            }
+            else {
+                // Различие только в имени и описании не перезапускает камеру
+                auto meta_only = found != current.end() ? found->second : config;
+                meta_only.camera.display_name = config.camera.display_name;
+                meta_only.camera.description = config.camera.description;
+                const bool streams_same = found != current.end() && canonical(meta_only) == canonical(config);
+                const bool ok = streams_same
+                    ? update_camera(id, config.camera, std::nullopt, true)
+                    : update_camera(id, config.camera, config.streams, true);
+                if (!ok) return "camera <" + id + "> cannot be updated";
+            }
+            if (found == current.end()) ++added;
+            else ++updated;
+        }
+
+        m_logger.info("apply_cameras(): added " + std::to_string(added) + ", updated " + std::to_string(updated)
+            + ", removed " + std::to_string(removed) + ", unchanged "
+            + std::to_string(wanted.size() - added - updated));
+        return {};
+    }
+
     std::shared_ptr<UCamera> UMediaCenter::get_camera(const std::string& id) {
         // Читается из потоков инференса на каждый кадр, добавление и удаление идут под тем же мьютексом
         std::lock_guard<std::mutex> lk(m_mutex);

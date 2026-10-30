@@ -11,6 +11,12 @@ from app.services.devices import registry
 
 logger = logging.getLogger(__name__)
 
+def _cameras_part(bodies: dict[str, dict[str, Any]], place: str) -> list[dict]:
+    return [
+        {k: v for k, v in body.items() if k != "place"}
+        for _, body in sorted(bodies.get("camera", {}).items())
+        if body.get("place") == place
+    ]
 
 
 
@@ -24,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 # Части пакета платы по порядку применения: имя → сборщик из тел действующей конфигурации и места
 PART_BUILDERS: dict[str, Callable[[dict[str, dict[str, Any]], str], Any]] = {
+    "cameras": _cameras_part,
 }
 # Пауза перед повтором той же ревизии после ошибки
 RETRY_AFTER_S = 60.0

@@ -37,6 +37,9 @@ public:
 
 	bool camera_exists(std::string name);
 
+	// Часть cameras пакета мастера: пустая строка — применено, иначе причина отказа
+	std::string apply_cameras(const boost::json::value& part);
+
 	void start_cameras_from_config();
 
 	void initialize_cameras();

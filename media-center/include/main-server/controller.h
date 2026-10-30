@@ -26,11 +26,9 @@ public:
     boost::beast::http::response<boost::beast::http::string_body>
         get_camera(const boost::beast::http::request<boost::beast::http::string_body>& req);
 
+    // Создание и удаление только пробных камер __probe_: настоящие приходят пакетом мастера
     boost::beast::http::response<boost::beast::http::string_body>
         post_camera(const boost::beast::http::request<boost::beast::http::string_body>& req);
-
-    boost::beast::http::response<boost::beast::http::string_body>
-        patch_camera(const boost::beast::http::request<boost::beast::http::string_body>& req);
 
     boost::beast::http::response<boost::beast::http::string_body>
         delete_camera(const boost::beast::http::request<boost::beast::http::string_body>& req);

@@ -124,16 +124,21 @@ class ApiClient {
         });
     }
 
-    async updateCamera(id: string, updates: CameraPatchBody, deviceId: string) {
+    // Камеры правит мастер: он хранит конфигурацию и сам раздаёт её устройствам
+    async updateCamera(id: string, updates: CameraPatchBody) {
         if (!updates.meta && !updates.critical) return { ok: true, noop: true };
-        return this.fetch(cameraUrl(deviceId, id), {
+        return this.fetch(`/api/cameras/${encodeURIComponent(id)}`, {
             method: 'PATCH',
             body: JSON.stringify(updates),
         });
     }
 
+    // Пробные камеры живут только на устройстве, остальные удаляет мастер
     async deleteCamera(id: string, deviceId: string): Promise<void> {
-        await this.fetch(cameraUrl(deviceId, id), { method: 'DELETE' });
+        const url = id.startsWith('__probe_')
+            ? cameraUrl(deviceId, id)
+            : `/api/cameras/${encodeURIComponent(id)}?device=${encodeURIComponent(deviceId)}`;
+        await this.fetch(url, { method: 'DELETE' });
     }
 
     /**
