@@ -114,6 +114,7 @@ def main(backup: Path) -> None:
     assert digest({"b": 1, "a": 2}) == digest({"a": 2, "b": 1})
 
     api_check(backup, v1["hash"])
+    sync_check()
     print("config-check: OK", TMP)
 
 
@@ -123,6 +124,49 @@ def main(backup: Path) -> None:
 
 
 
+def sync_check() -> None:
+    import asyncio
+    import hashlib
+    import httpx
+    from app.services import config_store, config_sync
+
+    store = config_store.get_store()
+    model = next(sha for sha in store.assets())
+    board = {"revision": "", "assets": set(), "puts": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/config/assets":
+            sha = request.url.params["sha256"]
+            assert hashlib.sha256(request.content).hexdigest() == sha
+            board["assets"].add(sha)
+            return httpx.Response(200, json={"data": {"sha256": sha}})
+        package = json.loads(request.content)
+        board["puts"] += 1
+        missing = [s for s in package["assets"] if s not in board["assets"]]
+        if missing:
+            return httpx.Response(409, json={"error": "missing assets", "missing_assets": missing})
+        board["revision"] = package["revision"]
+        return httpx.Response(200, json={"data": {"revision": package["revision"]}})
+
+    config_sync.PART_BUILDERS["probe"] = lambda bodies, place: {"_assets": {"m.rknn": model}}
+    sync = config_sync.ConfigSync()
+    sync._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    bound = next(iter(store.effective()["entities"]["binding"].values()))["body"]["device_id"]
+
+    async def run() -> None:
+        sync.on_polled({"id": bound, "ip": "board"}, {"config_revision": board["revision"]})
+        sync.on_polled({"id": "stranger", "ip": "other"}, {"config_revision": ""})
+        await asyncio.sleep(0.2)
+        status = {s["device_id"]: s for s in sync.status()}
+        assert status[bound]["state"] == "ok" and model in board["assets"], status
+        assert board["puts"] == 2 and "stranger" not in status
+        sync.on_polled({"id": bound, "ip": "board"}, {"config_revision": board["revision"]})
+        await asyncio.sleep(0.1)
+        assert board["puts"] == 2, "same revision must not be pushed again"
+        await sync.close()
+
+    asyncio.run(run())
+    del config_sync.PART_BUILDERS["probe"]
 
 
 def api_check(backup: Path, expected_hash: str) -> None:

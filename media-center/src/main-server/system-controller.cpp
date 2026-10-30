@@ -31,10 +31,12 @@ static std::string read_first_line(const std::filesystem::path& path) {
 USystemController::USystemController(
     const varan::FModuleSet& modules,
     const varan::FDeviceInfo& device,
+    std::shared_ptr<varan::UMachineConfig> config,
     ULogger* logger
 )
     : m_modules(modules)
     , m_device(device)
+    , m_config(std::move(config))
     , m_logger(logger)
 {
 }
@@ -117,6 +119,8 @@ json::object USystemController::collect() {
     info["hostname"] = hostname;
 
     info["version"] = std::string(varan::version::string);
+    // Ревизия применённой конфигурации: по ней мастер решает, слать ли пакет
+    info["config_revision"] = m_config ? m_config->revision() : std::string();
 
     json::array modules;
     for (const auto& name : m_modules.names()) {

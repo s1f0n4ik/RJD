@@ -4,6 +4,7 @@
 #include <memory>
 
 #include "main-server/controller.h"
+#include "main-server/config-controller.h"
 #include "main-server/linker-controller.h"
 #include "main-server/calibration-controller.h"
 #include "main-server/neural-controller.h"
@@ -21,6 +22,7 @@ public:
         std::shared_ptr<varan::neural::UMediaCenter> media_center,
         std::shared_ptr<varan::birdview::ULinker> linker,
         std::shared_ptr<varan::neural::UNeuralLoader> loader,
+        std::shared_ptr<varan::UMachineConfig> config,
         const varan::FModuleSet& modules,
         const varan::FDeviceInfo& device,
         ULogger::ELoggerLevel level = ULogger::ELoggerLevel::DEBUG

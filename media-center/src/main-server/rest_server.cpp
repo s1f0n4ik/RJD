@@ -14,6 +14,7 @@ URestServer::URestServer(
     std::shared_ptr<UMediaCenter> media_center,
     std::shared_ptr<varan::birdview::ULinker> linker,
     std::shared_ptr<varan::neural::UNeuralLoader> loader,
+    std::shared_ptr<varan::UMachineConfig> config,
     const varan::FModuleSet& modules,
     const varan::FDeviceInfo& device,
     ULogger::ELoggerLevel level
@@ -26,9 +27,18 @@ URestServer::URestServer(
     m_router = std::make_shared<URouter>();
 
     // Паспорт устройства: по этой ручке мастер находит и опрашивает устройство
-    auto system_ctrl = std::make_shared<USystemController>(modules, device, &m_logger);
+    auto system_ctrl = std::make_shared<USystemController>(modules, device, config, &m_logger);
     m_router->add_route(http::verb::get, "/system/info",
         [system_ctrl](const auto& r) { return system_ctrl->get_info(r); });
+
+    // Конфигурация от мастера: пакет с ревизией и файлы по sha256
+    auto config_ctrl = std::make_shared<UConfigController>(config, &m_logger);
+    m_router->add_route(http::verb::get, "/config",
+        [config_ctrl](const auto& r) { return config_ctrl->get_config(r); });
+    m_router->add_route(http::verb::put, "/config",
+        [config_ctrl](const auto& r) { return config_ctrl->put_config(r); });
+    m_router->add_route(http::verb::put, "/config/assets",
+        [config_ctrl](const auto& r) { return config_ctrl->put_asset(r); });
 
     auto controller = std::make_shared<UController>(media_center, &m_logger);
 

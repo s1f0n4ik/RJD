@@ -13,6 +13,7 @@ from starlette.background import BackgroundTask
 from app.services.config_bundle import export_profile, load_profile
 from app.services.config_import import import_backups
 from app.services.config_store import KINDS, PASSPORT_ONLY, ConfigError, get_store
+from app.services.config_sync import sync
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -154,6 +155,9 @@ def delete_version(profile_id: str, version_id: int):
     return {"ok": True}
 
 
+@router.get("/config/status")
+def config_status():
+    return {"devices": sync.status()}
 
 
 @router.get("/config/effective")

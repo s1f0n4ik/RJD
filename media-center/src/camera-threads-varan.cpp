@@ -19,6 +19,7 @@
 #include <GLES2/gl2ext.h>
 
 #include "console_utility.h"
+#include "core/machine-config.h"
 #include "core/modules.h"
 #include "core/paths.h"
 #include "core/time-sync.h"
@@ -258,7 +259,10 @@ int main(int argc, char* argv[])
 		input_editor->start_websocket_connection();
 	}
 
-	auto rest_server = URestServer{ config.rest_port, center, linker_360, loader, config.modules, device_info };
+	// Конфигурация от мастера: части регистрируют модули, применение — через REST
+	auto machine_config = std::make_shared<varan::UMachineConfig>();
+
+	auto rest_server = URestServer{ config.rest_port, center, linker_360, loader, machine_config, config.modules, device_info };
 	rest_server.async_start();
 
 	// Запуск Линкера

@@ -4,6 +4,7 @@
 #include <boost/json.hpp>
 #include <string>
 
+#include "core/machine-config.h"
 #include "core/modules.h"
 #include "core/platform.h"
 #include "logger.h"
@@ -15,6 +16,7 @@ public:
     USystemController(
         const varan::FModuleSet& modules,
         const varan::FDeviceInfo& device,
+        std::shared_ptr<varan::UMachineConfig> config,
         ULogger* logger = nullptr
     );
 
@@ -27,6 +29,7 @@ private:
 private:
     varan::FModuleSet m_modules;
     varan::FDeviceInfo m_device;
+    std::shared_ptr<varan::UMachineConfig> m_config;
 
     // Прошлый снимок /proc/stat: загрузка CPU считается по дельте между вызовами
     uint64_t m_prev_cpu_total = 0;

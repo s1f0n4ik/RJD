@@ -9,6 +9,7 @@ from app.routers import loaders, status, streams, auth, layouts, devices, device
 from app.routers import time as time_router
 from app.services.websocket_manager import manager, websocket_endpoint
 from app.services.devices import registry
+from app.services.config_sync import sync as config_sync
 
 # Настройка логирования
 logging.basicConfig(
@@ -21,9 +22,11 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Lifecycle events"""
     logger.info(f"🚀 Starting {settings.APP_NAME}")
+    registry.add_listener(config_sync.on_polled)
     registry.start_polling()
     yield
     await registry.close()
+    await config_sync.close()
     logger.info("👋 Application shutdown complete")
 
 # Создание FastAPI приложения

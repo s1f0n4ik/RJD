@@ -12,7 +12,7 @@ import logging
 import socket
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import httpx
 
@@ -39,6 +39,8 @@ class DeviceRegistry:
         self._state: dict[str, dict] = {}
         self._poll_task: Optional[asyncio.Task] = None
         self._client: Optional[httpx.AsyncClient] = None
+        # Подписчики успешного опроса: (устройство, ответ /system/info)
+        self._listeners: list[Callable[[dict, dict], None]] = []
         self._load()
 
     # ── Персистентность ──
@@ -178,6 +180,9 @@ class DeviceRegistry:
         if not self._poll_task:
             self._poll_task = asyncio.create_task(self._poll_loop())
 
+    def add_listener(self, listener: Callable[[dict, dict], None]) -> None:
+        self._listeners.append(listener)
+
     async def _poll_loop(self) -> None:
         while True:
             try:
@@ -209,6 +214,12 @@ class DeviceRegistry:
             if isinstance(modules, list) and modules != device.get("modules"):
                 device["modules"] = modules
                 self._save()
+
+            for listener in self._listeners:
+                try:
+                    listener(device, info)
+                except Exception as e:
+                    logger.error(f"Poll listener failed for {device['id']}: {e}")
 
             await self._refresh_cameras(device, base)
         except Exception:

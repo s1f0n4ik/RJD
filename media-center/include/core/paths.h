@@ -47,6 +47,12 @@ struct FPaths {
 		std::filesystem::path linker_state_root;
 	} surround;
 
+	// Конфигурация, присланная мастером: кэш файлов по sha256 и применённый пакет
+	struct FConfig {
+		std::filesystem::path assets;
+		std::filesystem::path applied;
+	} config;
+
 	// Индекс архивных записей: тоже свой том, отдельно от рабочего корня
 	std::filesystem::path archive;
 	// Файл цели записи, который ведёт storage-service: том и каталог для сегментов
@@ -96,6 +102,9 @@ inline void init_paths(
 	p.surround.projection_root      = surround_root / "projection";
 	p.surround.linker_state_root    = surround_root / "linker";
 
+	p.config.assets  = varan_root / "config" / "assets";
+	p.config.applied = varan_root / "config" / "applied.json";
+
 	p.archive = archive_dir;
 	p.write_target = archive_dir / "target.json";
 	p.logs = varan_root / "logs";
@@ -126,6 +135,7 @@ inline std::vector<std::filesystem::path> required_directories() {
 		p.surround.presets_models,
 		p.surround.projection_root,
 		p.surround.linker_state_root,
+		p.config.assets,
 		p.logs,
 	};
 }
