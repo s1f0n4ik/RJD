@@ -1,4 +1,5 @@
 #include "neural/loader.h"
+#include "core/machine-config.h"
 #include "core/paths.h"
 #include "core/time-sync.h"
 #include "neural/npu-pool.h"
@@ -136,72 +137,6 @@ namespace neural {
         auto it = streams.find(id);
         if (it == streams.end()) return std::nullopt;
         return it->second;
-    }
-
-    static std::string size_str(int width, int height) {
-        return std::to_string(width) + "x" + std::to_string(height);
-    }
-
-    UNeuralLoader::ESaveResult UNeuralLoader::save_stream(const FVideoStream& input, std::string* err) {
-        if (!is_valid_stream(input, err)) return ESaveResult::INVALID;
-
-        // Многоугольники зон, которых нет в каталоге своей конфигурации, отбрасываются
-        FVideoStream stream = input;
-        {
-            for (auto it = stream.zones.begin(); it != stream.zones.end(); ) {
-                const auto cfg = configuration(it->first);
-                std::set<int> known;
-                if (cfg) for (const auto& z : cfg->zones) known.insert(z.id);
-                for (auto& [camera, polygons] : it->second)
-                    std::erase_if(polygons, [&](const FZonePolygon& z) { return !known.contains(z.zone); });
-                std::erase_if(it->second, [](const auto& kv) { return kv.second.empty(); });
-                it = it->second.empty() ? stream.zones.erase(it) : std::next(it);
-            }
-        }
-
-        // Конфигурации слотов на этом потоке
-        std::vector<std::string> configs;
-        {
-            std::lock_guard<std::mutex> lk(m_loader_mutex);
-            for (const auto& d : m_active_descs)
-                if (d.stream_id == stream.id) configs.push_back(d.config_id);
-        }
-        for (const auto& config_id : configs) {
-            int width = 0, height = 0;
-            if (probe_model_size(config_id, width, height) && (width != stream.width || height != stream.height)) {
-                if (err) *err = "stream is used by a slot of '" + config_id + "' with model input " + size_str(width, height);
-                return ESaveResult::CONFLICT;
-            }
-        }
-
-        {
-            std::lock_guard<std::mutex> lk(m_streams_mutex);
-            auto streams = read_streams();
-            streams[stream.id] = stream;
-            if (!write_streams(streams)) {
-                if (err) *err = "cannot write " + m_streams_path.string();
-                return ESaveResult::FAILED;
-            }
-        }
-        // Слоты на этом потоке пересобираются с новой раскладкой
-        const bool used = !configs.empty();
-        if (used && m_supervisor_running.load()) restart();
-        m_logger.info("save_stream(): '" + stream.id + "' saved" + (used ? ", slot restart requested" : ""));
-        return ESaveResult::OK;
-    }
-
-    UNeuralLoader::EDeleteResult UNeuralLoader::delete_stream(const std::string& id) {
-        {
-            std::lock_guard<std::mutex> lk(m_loader_mutex);
-            for (const auto& d : m_active_descs)
-                if (d.stream_id == id) return EDeleteResult::IN_USE;
-        }
-        std::lock_guard<std::mutex> lk(m_streams_mutex);
-        auto streams = read_streams();
-        if (!streams.erase(id)) return EDeleteResult::NOT_FOUND;
-        if (!write_streams(streams)) return EDeleteResult::FAILED;
-        m_logger.info("delete_stream(): '" + id + "' removed");
-        return EDeleteResult::OK;
     }
 
     // Описание модели в записи конфигурации
@@ -364,49 +299,6 @@ namespace neural {
 
     bool UNeuralLoader::reload_from_state() { return load_state(); }
 
-    // Запись сохранения состояния в файл
-    bool UNeuralLoader::write_state(const std::vector<FNeuralCoreConfig>& active, std::string* err) {
-        const auto fail = [&](const std::string& message) {
-            m_logger.error("write_state(): " + message);
-            if (err) *err = message;
-            return false;
-        };
-        const auto streams = [this] {
-            std::lock_guard<std::mutex> lk(m_streams_mutex);
-            return read_streams();
-        }();
-        const auto current = get_active_descriptors();
-        // Старый фронт присылает слот без конфигурации: она берётся у слота того же потока или из старого потока
-        std::vector<FNeuralCoreConfig> resolved = active;
-        for (auto& d : resolved) {
-            if (!d.config_id.empty()) continue;
-            const auto same = std::find_if(current.begin(), current.end(), [&](const auto& c) { return c.stream_id == d.stream_id; });
-            if (same != current.end()) d.config_id = same->config_id;
-            else if (auto it = streams.find(d.stream_id); it != streams.end()) d.config_id = it->second.legacy_config_id;
-        }
-        for (const auto& d : resolved) {
-            if (d.stream_id.empty()) return fail("empty stream_id");
-            auto it = streams.find(d.stream_id);
-            if (it == streams.end()) return fail("stream '" + d.stream_id + "' not found");
-            if (d.config_id.empty()) return fail("slot on stream '" + d.stream_id + "' has no configuration");
-            if (get_configuration_full(d.config_id).is_null()) return fail("configuration '" + d.config_id + "' not found");
-            int width = 0, height = 0;
-            if (!probe_model_size(d.config_id, width, height))
-                return fail("model of configuration '" + d.config_id + "' is not readable");
-            if (width != it->second.width || height != it->second.height)
-                return fail("model of '" + d.config_id + "' expects " + size_str(width, height) +
-                    ", stream '" + d.stream_id + "' canvas is " + size_str(it->second.width, it->second.height));
-        }
-
-        // Та же модель на тех же камерах — дубль слота
-        for (size_t i = 0; i < resolved.size(); ++i)
-            for (size_t j = i + 1; j < resolved.size(); ++j)
-                if (resolved[i].stream_id == resolved[j].stream_id && resolved[i].config_id == resolved[j].config_id)
-                    return fail("duplicate slot: stream '" + resolved[i].stream_id + "', configuration '" + resolved[i].config_id + "'");
-
-        return persist_state(resolved);
-    }
-
     bool UNeuralLoader::persist_state(const std::vector<FNeuralCoreConfig>& resolved) {
         try {
             boost::json::array arr;
@@ -490,114 +382,10 @@ namespace neural {
         }
     }
 
-    // Каталог зон записи конфигурации; пустая строка — каталог годен
-    static std::string zones_error(const boost::json::object& obj) {
-        if (auto* v = obj.if_contains("zone_enter_frames"); v && (!v->is_int64() || v->as_int64() < 1))
-            return "zone_enter_frames must be integer >= 1";
-        if (auto* v = obj.if_contains("zone_leave_s"); v && (!v->is_number() || v->to_number<double>() < 0))
-            return "zone_leave_s must be number >= 0";
-        const auto* zs = obj.if_contains("zones");
-        if (!zs) return {};
-        if (!zs->is_array()) return "zones must be array";
-        std::set<std::int64_t> ids;
-        for (const auto& zv : zs->as_array()) {
-            if (!zv.is_object()) return "zone must be object";
-            const auto& zo = zv.as_object();
-            const auto* id = zo.if_contains("id");
-            if (!id || !id->is_int64() || id->as_int64() < 1) return "zone id must be integer >= 1";
-            if (!ids.insert(id->as_int64()).second) return "duplicate zone id " + std::to_string(id->as_int64());
-            const auto* t = zo.if_contains("threshold");
-            if (t && (!t->is_number() || t->to_number<double>() < 0 || t->to_number<double>() > 1))
-                return "zone threshold must be in 0..1";
-        }
-        return {};
-    }
-
     std::optional<FConfigInfo> UNeuralLoader::configuration(const std::string& id) const {
         UJsonNeuralConfiguration configurator;
         if (!configurator.read(m_config_path)) return std::nullopt;
         return configurator.load_config(id);
-    }
-
-    bool UNeuralLoader::import_configurations(const boost::json::value& json, EImportMode mode, std::string* err) {
-        const auto fail = [&](const std::string& message) {
-            m_logger.error("import: " + message);
-            if (err) *err = message;
-            return false;
-        };
-        if (!json.is_object()) return fail("not object");
-
-        for (const auto& [id, v] : json.as_object()) {
-            if (!v.is_object()) return fail("'" + std::string(id) + "' not object");
-            const auto& obj = v.as_object();
-            if (!obj.contains("model_path")) return fail("missing model_path in " + std::string(id));
-            if (!obj.contains("classes")) return fail("missing classes in " + std::string(id));
-            if (const auto zerr = zones_error(obj); !zerr.empty()) return fail(std::string(id) + ": " + zerr);
-        }
-
-        std::lock_guard<std::mutex> lk(m_configs_mutex);
-        try {
-            boost::json::object final_obj;
-            if (mode == EImportMode::REPLACE_ALL) {
-                final_obj = json.as_object();
-            }
-            else {
-                if (std::filesystem::exists(m_config_path)) {
-                    std::ifstream f(m_config_path);
-                    std::stringstream ss; ss << f.rdbuf();
-                    auto existing = boost::json::parse(ss.str());
-                    if (existing.is_object()) final_obj = existing.as_object();
-                }
-                for (const auto& [k, v] : json.as_object()) final_obj[std::string(k)] = v;
-            }
-
-            // Описание модели берётся из файла модели, присланное отбрасывается
-            for (const auto& [k, v] : json.as_object()) {
-                auto& entry = final_obj[std::string(k)].as_object();
-                entry.erase("model");
-                const auto* path = entry.if_contains("model_path");
-                const auto info = path && path->is_string() ? probe_model(path->as_string().c_str()) : std::optional<FModelInfo>{};
-                if (info) entry["model"] = model_json(*info);
-                else m_logger.warn("import: model of '" + std::string(k) + "' not readable, saved without description");
-            }
-
-            std::filesystem::create_directories(m_config_path.parent_path());
-            std::ofstream f(m_config_path);
-            f << boost::json::serialize(final_obj);
-        }
-        catch (const std::exception& e) {
-            return fail(e.what());
-        }
-        return true;
-    }
-
-    UNeuralLoader::EDeleteResult UNeuralLoader::delete_configuration(const std::string& id) {
-        {
-            // Конфигурация занята, пока она стоит в слоте
-            std::lock_guard<std::mutex> lk(m_loader_mutex);
-            for (const auto& d : m_active_descs)
-                if (d.config_id == id) return EDeleteResult::IN_USE;
-        }
-        std::lock_guard<std::mutex> lk(m_configs_mutex);
-        try {
-            if (!std::filesystem::exists(m_config_path)) return EDeleteResult::NOT_FOUND;
-            std::ifstream f(m_config_path);
-            std::stringstream ss; ss << f.rdbuf();
-            auto v = boost::json::parse(ss.str());
-            if (!v.is_object()) return EDeleteResult::NOT_FOUND;
-            auto& obj = v.as_object();
-            if (!obj.contains(id)) return EDeleteResult::NOT_FOUND;
-            obj.erase(id);
-
-            std::ofstream out(m_config_path);
-            out << boost::json::serialize(obj);
-            m_logger.info("delete_configuration(): '" + id + "' removed");
-            return EDeleteResult::OK;
-        }
-        catch (const std::exception& e) {
-            m_logger.error("delete_configuration(): " + std::string(e.what()));
-            return EDeleteResult::FAILED;
-        }
     }
 
     // Запуск всех ядер конфигураий сразу
@@ -866,6 +654,120 @@ namespace neural {
             cleanup_after_failure();
         }
         m_logger.info("supervisor: exiting");
+    }
+
+    static boost::json::value read_json_file(const std::filesystem::path& path) {
+        try {
+            std::ifstream f(path);
+            if (!f) return nullptr;
+            std::stringstream ss; ss << f.rdbuf();
+            return boost::json::parse(ss.str());
+        }
+        catch (...) {
+            return nullptr;
+        }
+    }
+
+    static std::string pretty(const boost::json::value& value) {
+        std::ostringstream oss;
+        pretty_print(oss, value);
+        return oss.str();
+    }
+
+    std::string UNeuralLoader::apply_config(const boost::json::value& part) {
+        if (!part.is_object()) return "neural must be an object";
+        const auto& p = part.as_object();
+        const auto* configs_v = p.if_contains("configurations");
+        const auto* streams_v = p.if_contains("streams");
+        const auto* slots_v = p.if_contains("slots");
+        if (!configs_v || !configs_v->is_object() || !streams_v || !streams_v->is_object() || !slots_v || !slots_v->is_array())
+            return "neural needs configurations, streams and slots";
+
+        const auto current_v = read_json_file(m_config_path);
+        const boost::json::object current = current_v.is_object() ? current_v.as_object() : boost::json::object{};
+        boost::json::object configs;
+        for (const auto& [key, v] : configs_v->as_object()) {
+            const std::string id(key);
+            if (!v.is_object()) return "configuration <" + id + "> must be an object";
+            auto entry = v.as_object();
+            const auto* file = entry.if_contains("model_file");
+            if (!file || !file->is_string()) return "configuration <" + id + "> has no model_file";
+            const std::string name(file->as_string());
+            if (name.empty() || name.find('/') != std::string::npos || name == "." || name == "..")
+                return "configuration <" + id + ">: bad model file name <" + name + ">";
+            std::string sha;
+            if (const auto* assets = entry.if_contains("_assets"); assets && assets->is_object())
+                if (const auto* s = assets->as_object().if_contains(name); s && s->is_string()) sha = s->as_string().c_str();
+            if (sha.empty()) return "configuration <" + id + "> has no file for <" + name + ">";
+
+            bool replaced = false;
+            if (auto error = place_asset(paths().neural.models / name, sha, replaced); !error.empty()) return error;
+            entry.erase("model_file");
+            entry.erase("_assets");
+            const auto model_path = (paths().neural.models / name).string();
+            entry["model_path"] = model_path;
+            // Описание модели остаётся, пока файл модели тот же
+            if (const auto* old = current.if_contains(id); old && old->is_object() && !replaced) {
+                const auto& oo = old->as_object();
+                const auto* op = oo.if_contains("model_path");
+                if (op && op->is_string() && op->as_string() == model_path)
+                    if (const auto* m = oo.if_contains("model")) entry["model"] = *m;
+            }
+            configs[id] = std::move(entry);
+        }
+
+        boost::json::object streams_now, streams_new;
+        for (const auto& [key, v] : streams_v->as_object()) {
+            const std::string id(key);
+            const auto stream = parse_stream(v, id);
+            std::string err;
+            if (!is_valid_stream(stream, &err)) return "stream <" + id + ">: " + err;
+            streams_new[id] = serialize_stream(stream);
+        }
+        {
+            std::lock_guard<std::mutex> lk(m_streams_mutex);
+            for (const auto& [id, s] : read_streams()) streams_now[id] = serialize_stream(s);
+        }
+
+        const auto slots_now = read_json_file(m_state_path);
+        const bool configs_changed = configs != current;
+        const bool streams_changed = streams_new != streams_now;
+        const bool slots_changed = !slots_now.is_array() || slots_now.as_array() != slots_v->as_array();
+
+        if (configs_changed) {
+            std::lock_guard<std::mutex> lk(m_configs_mutex);
+            if (auto error = write_durable(m_config_path, boost::json::serialize(configs)); !error.empty()) return error;
+        }
+        if (streams_changed) {
+            std::lock_guard<std::mutex> lk(m_streams_mutex);
+            if (auto error = write_durable(m_streams_path, pretty(streams_new)); !error.empty()) return error;
+        }
+        if (slots_changed) {
+            if (auto error = write_durable(m_state_path, pretty(*slots_v)); !error.empty()) return error;
+        }
+
+        m_logger.info("apply_config(): configurations " + std::string(configs_changed ? "changed" : "unchanged")
+            + ", streams " + (streams_changed ? "changed" : "unchanged")
+            + ", slots " + (slots_changed ? "changed" : "unchanged"));
+        // Слоты пересобираются, только если изменилось то, на чём они стоят
+        std::set<std::string> used_streams, used_configs;
+        for (const auto& s : slots_v->as_array()) {
+            if (!s.is_object()) continue;
+            if (const auto* v = s.as_object().if_contains("stream_id"); v && v->is_string()) used_streams.insert(v->as_string().c_str());
+            if (const auto* v = s.as_object().if_contains("config_id"); v && v->is_string()) used_configs.insert(v->as_string().c_str());
+        }
+        const auto touched = [](const boost::json::object& a, const boost::json::object& b, const std::set<std::string>& used) {
+            for (const auto& id : used) {
+                const auto* x = a.if_contains(id);
+                const auto* y = b.if_contains(id);
+                if ((x == nullptr) != (y == nullptr) || (x && *x != *y)) return true;
+            }
+            return false;
+        };
+        if (!slots_changed && !touched(configs, current, used_configs) && !touched(streams_new, streams_now, used_streams)) return {};
+        if (slots_changed || m_supervisor_running.load()) restart();
+        else reload_from_state();
+        return {};
     }
 
 } // namespace neural

@@ -33,15 +33,6 @@ namespace neural {
 	class UNeuralLoader {
 	public:
 
-		enum class EImportMode {
-			MERGE,
-			REPLACE_ALL,
-		};
-
-		enum class EDeleteResult { OK, NOT_FOUND, IN_USE, FAILED };
-		enum class ESaveResult { OK, INVALID, CONFLICT, FAILED };
-
-	public:
 		UNeuralLoader() = delete;
 		UNeuralLoader(
 			const std::string& ip_address,
@@ -68,17 +59,10 @@ namespace neural {
 		boost::json::value get_configuration_full(const std::string& id) const;
 		// Разобранная конфигурация с диска; nullopt — нет такой
 		std::optional<FConfigInfo> configuration(const std::string& id) const;
-		// false — причина в err
-		bool import_configurations(const boost::json::value& json, EImportMode mode, std::string* err = nullptr);
-		// Удаляет конфигурацию из файла; IN_USE — её видеопоток занят слотом
-		EDeleteResult delete_configuration(const std::string& id);
 
 		// Видеопотоки
 		std::vector<FVideoStream> list_streams() const;
 		std::optional<FVideoStream> get_stream(const std::string& id) const;
-		// Создаёт или заменяет поток; CONFLICT — новый размер не подходит модели слота на потоке; причина в err
-		ESaveResult save_stream(const FVideoStream& stream, std::string* err = nullptr);
-		EDeleteResult delete_stream(const std::string& id);
 		// Размер входа модели конфигурации из её описания, без описания — из файла модели с записью описания
 		bool probe_model_size(const std::string& config_id, int& width, int& height);
 		// Описание модели по файлу через пул NPU; nullopt — модель не открылась
@@ -88,9 +72,9 @@ namespace neural {
 		// Поток «камера как есть» с id <config>_<camera>; создаётся, если его ещё нет
 		std::string ensure_camera_stream(const std::string& config_id, const std::string& camera);
 
-		// State; false — причина в err
-		bool write_state(const std::vector<FNeuralCoreConfig>& active, std::string* err = nullptr);
 		boost::json::object get_state_raw() const;
+		// Часть neural пакета мастера: конфигурации, видеопотоки и слоты; пустая строка — применено
+		std::string apply_config(const boost::json::value& part);
 		bool reload_from_state();
 
 		void set_sender_provider(FCameraSenderProvider provider);

@@ -49,33 +49,37 @@ const send = <T,>(path: string, method: string, body?: unknown): Promise<T> =>
     fetch(url(path), { method, headers: body === undefined ? undefined : jsonHeaders, body: body === undefined ? undefined : JSON.stringify(body) })
         .then(res => unwrap<T>(res));
 
+// Конфигурацию техзрения хранит мастер: запись идёт в него с устройством подраздела
+const master = (path: string, query: Record<string, string> = {}) =>
+    `${API_HOST}/api${path}?${new URLSearchParams({ ...query, device: neuralDeviceId() })}`;
+
 export const neuralApi = {
     // ── Конфигурации ──
     listConfigurations: (device?: string) => get<{ configurations: ConfigSummary[] }>('/neural/configurations', device),
 
     getConfiguration: (id: string, device?: string) => get<NeuralConfig>(`/neural/configurations?id=${encodeURIComponent(id)}`, device),
 
-    /** POST /neural/configurations — { mode, data: { <id>: config } } */
+    /** POST /api/neural/configurations — { mode, data: { <id>: config } } */
     importConfigurations: (data: Record<string, NeuralConfig>, mode: ImportMode) =>
-        send<unknown>('/neural/configurations', 'POST', { mode, data }),
+        send<unknown>(master('/neural/configurations'), 'POST', { mode, data }),
 
-    /** DELETE /neural/configurations?id= — 409, если конфигурация занята слотом */
-    deleteConfiguration: (id: string) => send<unknown>(`/neural/configurations?id=${encodeURIComponent(id)}`, 'DELETE'),
+    /** DELETE /api/neural/configurations?id= — 409, если конфигурация занята слотом */
+    deleteConfiguration: (id: string) => send<unknown>(master('/neural/configurations', { id }), 'DELETE'),
 
     // ── Видеопотоки ──
     listStreams: () => get<{ streams: VideoStream[] }>('/neural/streams'),
 
-    /** POST /neural/streams — создать или заменить; без width/height размер берётся у модели конфигурации */
-    saveStream: (stream: Partial<VideoStream> & { id: string }) => send<VideoStream>('/neural/streams', 'POST', stream),
+    /** POST /api/neural/streams — создать или заменить; без width/height размер берётся у модели конфигурации */
+    saveStream: (stream: Partial<VideoStream> & { id: string }) => send<VideoStream>(master('/neural/streams'), 'POST', stream),
 
-    /** DELETE /neural/streams?id= — 409, если поток занят слотом */
-    deleteStream: (id: string) => send<unknown>(`/neural/streams?id=${encodeURIComponent(id)}`, 'DELETE'),
+    /** DELETE /api/neural/streams?id= — 409, если поток занят слотом */
+    deleteStream: (id: string) => send<unknown>(master('/neural/streams', { id }), 'DELETE'),
 
     // ── Состояние слотов ──
     getState: () => get<ActiveDesc[]>('/neural/state'),
 
-    /** POST /neural/state — тело это массив дескрипторов напрямую */
-    setState: (descs: ActiveDesc[]) => send<unknown>('/neural/state', 'POST', descs),
+    /** POST /api/neural/state — тело это массив дескрипторов напрямую */
+    setState: (descs: ActiveDesc[]) => send<unknown>(master('/neural/state'), 'POST', descs),
 
     getStatus: () => get<SlotStatus[]>('/neural/status'),
 
@@ -90,16 +94,16 @@ export const neuralApi = {
     getSuperclasses: (configId: string, device?: string) =>
         get<{ config_id: string; superclasses: (SuperclassDef & { key: string })[] }>(`/neural/superclasses?config_id=${encodeURIComponent(configId)}`, device),
 
-    getTrackerTypes: () => get<{ types: TrackerType[] }>('/neural/tracker-types'),
+    getTrackerTypes: () => get<{ types: TrackerType[] }>(master('/neural/tracker-types')),
 
     getEventTypes: () => get<{ events: TrackEventType[] }>('/neural/event-types'),
 
     // ── Модели ──
-    listModels: () => get<ModelFile[]>('/neural/models'),
+    listModels: () => get<ModelFile[]>(master('/neural/models')),
 
-    /** POST /neural/models?filename=*.rknn — тело это бинарь файла */
+    /** POST /api/neural/models?filename=*.rknn — тело это бинарь файла */
     uploadModel: (file: File) =>
-        fetch(url(`/neural/models?filename=${encodeURIComponent(file.name)}`), {
+        fetch(master('/neural/models', { filename: file.name }), {
             method: 'POST',
             headers: { 'Content-Type': 'application/octet-stream' },
             body: file,

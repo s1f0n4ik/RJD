@@ -116,11 +116,97 @@ def main(backup: Path) -> None:
     api_check(backup, v1["hash"])
     sync_check()
     cameras_check(backup)
+    neural_check(backup)
     print("config-check: OK", TMP)
 
 
 
 
+def neural_check(backup: Path) -> None:
+    import tarfile
+    import httpx
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from app.routers import neural_config
+    from app.services import config_store, config_sync
+    from app.services.devices import registry
+
+    store = config_store.get_store()
+    eff = store.effective()
+    device_id = eff["entities"]["binding"]["board-1"]["body"]["device_id"]
+    bodies = {k: {key: e["body"] for key, e in v.items()} for k, v in eff["entities"].items()}
+    part = config_sync.PART_BUILDERS["neural"](bodies, "board-1")
+
+    # Плата восстановит из части ровно свои файлы: первая отправка ничего не пересоберёт
+    with tarfile.open(backup) as tar:
+        def read(name: str):
+            return json.load(tar.extractfile(next(m for m in tar.getmembers() if m.name.endswith(name))))
+        configs, streams, slots = read("varan/neural/configurations.json"), read("varan/neural/streams.json"), read("varan/neural/loader_state.json")
+        root = read("meta.json")["varan_root"]
+    for config_id, body in part["configurations"].items():
+        restored = {k: v for k, v in body.items() if k not in ("model_file", "_assets")}
+        restored["model_path"] = f"{root}/neural/models/{body['model_file']}"
+        if "model" in configs[config_id]:
+            restored["model"] = configs[config_id]["model"]
+        assert restored == configs[config_id], config_id
+    assert part["streams"] == streams and part["slots"] == slots
+
+    calls = {"puts": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/neural/tracker-types":
+            return httpx.Response(200, json={"data": {"types": [{"type": "iou", "name": "IoU", "defaults": {"min_hits": 3, "max_lost": 12}}]}})
+        package = json.loads(request.content)
+        calls["puts"] += 1
+        calls["neural"] = package["parts"]["neural"]
+        return httpx.Response(200, json={"data": {"revision": package["revision"]}})
+
+    config_sync.sync._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    registry._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    app = FastAPI()
+    app.include_router(neural_config.router, prefix="/api")
+    client = TestClient(app)
+    q = f"device={device_id}"
+
+    assert client.post(f"/api/neural/models?filename=x.bin&{q}", content=b"x").status_code == 400
+    r = client.post(f"/api/neural/models?filename=fresh.rknn&{q}", content=b"fresh-model")
+    assert r.status_code == 200 and r.json()["data"]["path"].endswith("/neural/models/fresh.rknn"), r.text
+    names = [m["filename"] for m in client.get(f"/api/neural/models?{q}").json()["data"]]
+    assert "fresh.rknn" in names and "yolo11n-format-1.rknn" in names
+
+    cfg = {k: v for k, v in configs["railway_camera"].items() if k != "model"}
+    cfg["model_path"] = "/anywhere/fresh.rknn"
+    r = client.post(f"/api/neural/configurations?{q}", json={"mode": "merge", "data": {"fresh_cfg": cfg}})
+    assert r.status_code == 200, r.text
+    assert calls["neural"]["configurations"]["fresh_cfg"]["model_file"] == "fresh.rknn"
+    missing = {**cfg, "model_path": "/x/absent.rknn"}
+    assert client.post(f"/api/neural/configurations?{q}", json={"mode": "merge", "data": {"bad": missing}}).status_code == 400
+
+    stream = {k: v for k, v in streams["stroyka"].items()}
+    bad_zone = {**stream, "id": "zoned", "zones": {"railway_camera": {"camera_3": [{"zone": 99, "points": [0, 0, 1, 0, 1, 1]}]}}}
+    assert "not in the catalog" in client.post(f"/api/neural/streams?{q}", json=bad_zone).json()["detail"]
+    r = client.post(f"/api/neural/streams?{q}", json={**stream, "id": "copy", "zones": {}})
+    assert r.status_code == 200 and "copy" in calls["neural"]["streams"], r.text
+
+    slot = dict(slots[0])
+    wrong = {**slot, "stream_id": "copy", "config_id": "rsm-1000-yolo11n"}
+    small = {**stream, "id": "small", "width": 320, "height": 320, "zones": {}}
+    client.post(f"/api/neural/streams?{q}", json=small)
+    assert "expects" in client.post(f"/api/neural/state?{q}", json=[slot, {**wrong, "stream_id": "small"}]).json()["detail"]
+    r = client.post(f"/api/neural/state?{q}", json=[slot, {**slot, "stream_id": "copy"}])
+    assert r.status_code == 200 and [s["stream_id"] for s in calls["neural"]["slots"]] == ["copy", "stroyka"], r.text
+    assert client.post(f"/api/neural/state?{q}", json=[slot, slot]).status_code == 400
+    assert client.delete(f"/api/neural/configurations?id={slot['config_id']}&{q}").status_code == 409
+    assert client.delete(f"/api/neural/streams?id=copy&{q}").status_code == 409
+    client.post(f"/api/neural/state?{q}", json=[slot])
+    assert calls["neural"]["slots"] == slots
+    assert client.delete(f"/api/neural/streams?id=copy&{q}").status_code == 200
+    assert client.delete(f"/api/neural/configurations?id=fresh_cfg&{q}").status_code == 200
+
+    store.put("stand-102", "tracker_defaults", "iou", {"min_hits": 5})
+    types = client.get(f"/api/neural/tracker-types?{q}").json()["data"]["types"]
+    assert types[0]["defaults"] == {"min_hits": 5, "max_lost": 12}
+    store.reset("stand-102", "tracker_defaults", "iou")
 
 
 def cameras_check(backup: Path) -> None:

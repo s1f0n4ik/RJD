@@ -264,6 +264,11 @@ int main(int argc, char* argv[])
 	machine_config->register_part("cameras", [center](const boost::json::value& part) {
 		return center->apply_cameras(part);
 	});
+	if (loader) {
+		machine_config->register_part("neural", [loader](const boost::json::value& part) {
+			return loader->apply_config(part);
+		});
+	}
 
 	auto rest_server = URestServer{ config.rest_port, center, linker_360, loader, machine_config, config.modules, device_info };
 	rest_server.async_start();

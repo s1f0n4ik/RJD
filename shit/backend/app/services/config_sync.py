@@ -19,11 +19,29 @@ def _cameras_part(bodies: dict[str, dict[str, Any]], place: str) -> list[dict]:
     ]
 
 
+def _has_module(bodies: dict[str, dict[str, Any]], place: str, module: str) -> bool:
+    return module in ((bodies.get("place", {}).get(place) or {}).get("modules") or [])
 
 
+def _strip_place(body: dict) -> dict:
+    return {k: v for k, v in body.items() if k != "place"}
 
 
 # Конфигурации — все, видеопотоки и слоты — своего места
+def _neural_part(bodies: dict[str, dict[str, Any]], place: str) -> Optional[dict]:
+    if not _has_module(bodies, place, "neural"):
+        return None
+    return {
+        "configurations": dict(sorted(bodies.get("neural_config", {}).items())),
+        "streams": {
+            key: _strip_place(body) for key, body in sorted(bodies.get("video_stream", {}).items())
+            if body.get("place") == place
+        },
+        "slots": [
+            _strip_place(body) for _, body in sorted(bodies.get("neural_slot", {}).items())
+            if body.get("place") == place
+        ],
+    }
 
 
 
@@ -31,6 +49,7 @@ def _cameras_part(bodies: dict[str, dict[str, Any]], place: str) -> list[dict]:
 # Части пакета платы по порядку применения: имя → сборщик из тел действующей конфигурации и места
 PART_BUILDERS: dict[str, Callable[[dict[str, dict[str, Any]], str], Any]] = {
     "cameras": _cameras_part,
+    "neural": _neural_part,
 }
 # Пауза перед повтором той же ревизии после ошибки
 RETRY_AFTER_S = 60.0

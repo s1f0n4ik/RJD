@@ -26,32 +26,6 @@ load_config_info(const std::string& config_id) {
     return configurator.load_config(config_id);
 }
 
-// Первая камера из старого тела дескриптора: camera_layout или camera_matrix
-static std::string legacy_camera(const boost::json::object& eo) {
-    if (auto* cl = eo.if_contains("camera_layout"); cl && cl->is_object()) {
-        const auto& o = cl->as_object();
-        if (auto* s = o.if_contains("single"); s && s->is_string() && !s->as_string().empty())
-            return s->as_string().c_str();
-        for (const char* key : { "tiles", "regions" }) {
-            auto* arr = o.if_contains(key);
-            if (!arr || !arr->is_array()) continue;
-            for (const auto& t : arr->as_array()) {
-                if (!t.is_object()) continue;
-                if (auto* c = t.as_object().if_contains("camera"); c && c->is_string() && !c->as_string().empty())
-                    return c->as_string().c_str();
-            }
-        }
-    }
-    if (auto* cm = eo.if_contains("camera_matrix"); cm && cm->is_array()) {
-        for (const auto& row : cm->as_array()) {
-            if (!row.is_array()) continue;
-            for (const auto& c : row.as_array())
-                if (c.is_string() && !c.as_string().empty()) return c.as_string().c_str();
-        }
-    }
-    return {};
-}
-
 // Хелпер: достать query-параметр из URL (?key=value)
 static std::string extract_query_param(const std::string_view target, const std::string& key) {
     auto pos = target.find('?');
@@ -155,64 +129,6 @@ UNeuralController::get_configurations(const http::request<http::string_body>& re
     }
 }
 
-// ─── POST /neural/configurations ────────────────────────────
-http::response<http::string_body>
-UNeuralController::post_configurations(const http::request<http::string_body>& req) {
-    const std::string tag = "POST /neural/configurations";
-    log_request(m_logger, req, tag);
-
-    try {
-        auto v = boost::json::parse(req.body());
-        if (!v.is_object())
-            return json_error(m_logger, req, http::status::bad_request, "body must be object", tag);
-        const auto& obj = v.as_object();
-
-        auto mode = varan::neural::UNeuralLoader::EImportMode::MERGE;
-        if (auto* m = obj.if_contains("mode"); m && m->is_string()) {
-            std::string s = m->as_string().c_str();
-            if (s == "replace") mode = varan::neural::UNeuralLoader::EImportMode::REPLACE_ALL;
-            else if (s != "merge")
-                return json_error(m_logger, req, http::status::bad_request,
-                    "mode must be 'merge' or 'replace'", tag);
-        }
-
-        auto* data = obj.if_contains("data");
-        if (!data || !data->is_object())
-            return json_error(m_logger, req, http::status::bad_request, "missing 'data' object", tag);
-
-        std::string err;
-        if (!m_loader->import_configurations(*data, mode, &err))
-            return json_error(m_logger, req, http::status::bad_request, err, tag);
-    }
-    catch (const std::exception& e) {
-        return json_error(m_logger, req, http::status::bad_request, e.what(), tag);
-    }
-    return json_ok(m_logger, req, boost::json::object{}, tag);
-}
-
-// ─── DELETE /neural/configurations?id= ───────────────────────
-http::response<http::string_body>
-UNeuralController::delete_configuration(const http::request<http::string_body>& req) {
-    const std::string tag = "DELETE /neural/configurations";
-    log_request(m_logger, req, tag);
-
-    const std::string id = extract_query_param(req.target(), "id");
-    if (id.empty())
-        return json_error(m_logger, req, http::status::bad_request, "id query param required", tag);
-
-    using R = varan::neural::UNeuralLoader::EDeleteResult;
-    switch (m_loader->delete_configuration(id)) {
-    case R::OK:
-        return json_ok(m_logger, req, boost::json::object{}, tag);
-    case R::IN_USE:
-        return json_error(m_logger, req, http::status::conflict, "configuration is used by a slot", tag);
-    case R::NOT_FOUND:
-        return json_error(m_logger, req, http::status::not_found, "configuration '" + id + "' not found", tag);
-    default:
-        return json_error(m_logger, req, http::status::internal_server_error, "delete failed", tag);
-    }
-}
-
 // ─── GET /neural/streams ────────────────────────────────────
 // Без ?id → список видеопотоков; с ?id=xxx → один
 http::response<http::string_body>
@@ -242,71 +158,6 @@ UNeuralController::get_streams(const http::request<http::string_body>& req) {
     }
 }
 
-// ─── POST /neural/streams ───────────────────────────────────
-// Тело — объект видеопотока с id; без width/height размер берётся у модели конфигурации config_id
-http::response<http::string_body>
-UNeuralController::post_stream(const http::request<http::string_body>& req) {
-    const std::string tag = "POST /neural/streams";
-    log_request(m_logger, req, tag);
-
-    try {
-        auto v = boost::json::parse(req.body());
-        if (!v.is_object())
-            return json_error(m_logger, req, http::status::bad_request, "body must be object", tag);
-        auto stream = varan::neural::parse_stream(v);
-        if (stream.id.empty())
-            return json_error(m_logger, req, http::status::bad_request, "missing id", tag);
-
-        const auto& o = v.as_object();
-        if (!o.contains("width") || !o.contains("height")) {
-            int w = 0, h = 0;
-            if (m_loader->probe_model_size(stream.legacy_config_id, w, h)) {
-                stream.width = w;
-                stream.height = h;
-            }
-        }
-
-        std::string err;
-        using R = varan::neural::UNeuralLoader::ESaveResult;
-        switch (m_loader->save_stream(stream, &err)) {
-        case R::OK: break;
-        case R::CONFLICT: return json_error(m_logger, req, http::status::conflict, err, tag);
-        case R::INVALID: return json_error(m_logger, req, http::status::bad_request, err, tag);
-        default: return json_error(m_logger, req, http::status::internal_server_error, err, tag);
-        }
-
-        boost::json::object body;
-        body["data"] = varan::neural::serialize_stream(m_loader->get_stream(stream.id).value_or(stream));
-        return json_ok(m_logger, req, body, tag);
-    }
-    catch (const std::exception& e) {
-        return json_error(m_logger, req, http::status::bad_request, e.what(), tag);
-    }
-}
-
-// ─── DELETE /neural/streams?id= ─────────────────────────────
-http::response<http::string_body>
-UNeuralController::delete_stream(const http::request<http::string_body>& req) {
-    const std::string tag = "DELETE /neural/streams";
-    log_request(m_logger, req, tag);
-
-    const std::string id = extract_query_param(req.target(), "id");
-    if (id.empty())
-        return json_error(m_logger, req, http::status::bad_request, "id query param required", tag);
-
-    using R = varan::neural::UNeuralLoader::EDeleteResult;
-    switch (m_loader->delete_stream(id)) {
-    case R::OK:
-        return json_ok(m_logger, req, boost::json::object{}, tag);
-    case R::IN_USE:
-        return json_error(m_logger, req, http::status::conflict, "stream is used by a slot", tag);
-    case R::NOT_FOUND:
-        return json_error(m_logger, req, http::status::not_found, "stream '" + id + "' not found", tag);
-    default:
-        return json_error(m_logger, req, http::status::internal_server_error, "delete failed", tag);
-    }
-}
-
 // ─── GET /neural/state ──────────────────────────────────────
 http::response<http::string_body>
 UNeuralController::get_state(const http::request<http::string_body>& req) {
@@ -320,93 +171,6 @@ UNeuralController::get_state(const http::request<http::string_body>& req) {
     catch (const std::exception& e) {
         return json_error(m_logger, req, http::status::internal_server_error, e.what(), tag);
     }
-}
-
-// ─── POST /neural/state ─────────────────────────────────────
-// [
-//     { "stream_id": "railway_camera_1", "config_id": "railway_camera", "depth": 2 },
-//     { "stream_id": "lpr_gate", "config_id": "lpr" }
-// ]
-// depth — кадров слота в полёте одновременно (контекстов NPU), по умолчанию 1.
-// Старое тело { config_id, camera_layout | camera_matrix } принимается: поток
-// «камера как есть» создаётся с id <config>_<camera>
-http::response<http::string_body>
-UNeuralController::post_state(const http::request<http::string_body>& req) {
-    const std::string tag = "POST /neural/state";
-    log_request(m_logger, req, tag);
-
-    std::vector<varan::neural::FNeuralCoreConfig> active;
-    try {
-        auto v = boost::json::parse(req.body());
-
-        // Тело теперь — массив напрямую, не объект с ключом "active"
-        if (!v.is_array())
-            return json_error(m_logger, req, http::status::bad_request,
-                "body must be array", tag);
-
-        for (const auto& entry : v.as_array()) {
-            if (!entry.is_object())
-                return json_error(m_logger, req, http::status::bad_request,
-                    "each entry must be object", tag);
-
-            const auto& eo = entry.as_object();
-            varan::neural::FNeuralCoreConfig d;
-
-            if (auto* sid = eo.if_contains("stream_id"); sid && sid->is_string())
-                d.stream_id = sid->as_string().c_str();
-            if (auto* cid = eo.if_contains("config_id"); cid && cid->is_string())
-                d.config_id = cid->as_string().c_str();
-
-            if (d.stream_id.empty()) {
-                if (d.config_id.empty())
-                    return json_error(m_logger, req, http::status::bad_request,
-                        "missing stream_id", tag);
-                const std::string camera = legacy_camera(eo);
-                if (camera.empty())
-                    return json_error(m_logger, req, http::status::bad_request,
-                        "missing stream_id (legacy body has no camera)", tag);
-                d.stream_id = m_loader->ensure_camera_stream(d.config_id, camera);
-            }
-
-            if (auto* c = eo.if_contains("depth"); c && c->is_int64())
-                d.depth = std::max(1, static_cast<int>(c->as_int64()));
-            // fps — потолок кадров в секунду для слота
-            if (auto* c = eo.if_contains("fps"); c && c->is_int64())
-                d.fps = std::max(1, static_cast<int>(c->as_int64()));
-
-            // streaming — { enabled, name }
-            if (auto* s = eo.if_contains("streaming"); s && s->is_object()) {
-                const auto& so = s->as_object();
-                bool enabled = false;
-                if (auto* e = so.if_contains("enabled"); e && e->is_bool()) enabled = e->as_bool();
-                if (enabled) {
-                    varan::neural::FStreamingDesc sd;
-                    if (auto* n = so.if_contains("name"); n && n->is_string())
-                        sd.name = n->as_string().c_str();
-                    d.streaming = std::move(sd);
-                }
-            }
-
-            varan::neural::read_event_masks(eo, d);
-
-            active.push_back(std::move(d));
-        }
-    }
-    catch (const std::exception& e) {
-        return json_error(m_logger, req, http::status::bad_request, e.what(), tag);
-    }
-
-    // Один поток в нескольких слотах допустим; дубль пары и чужой размер отсекает write_state
-    std::string err;
-    if (!m_loader->write_state(active, &err)) {
-        return json_error(m_logger, req, http::status::bad_request, err, tag);
-    }
-
-    if (!m_loader->restart()) {
-        return json_error(m_logger, req, http::status::bad_request, "state saved but restart failed", tag);
-    }
-
-    return json_ok(m_logger, req, boost::json::object{}, tag);
 }
 
 // ─── GET /neural/status ─────────────────────────────────────
@@ -758,70 +522,6 @@ UNeuralController::get_models(const http::request<http::string_body>& req) {
     catch (const std::exception& e) {
         return json_error(m_logger, req,
             http::status::internal_server_error, e.what(), tag);
-    }
-}
-
-http::response<http::string_body>
-UNeuralController::post_model(const http::request<http::string_body>& req) {
-    const std::string tag = "POST /neural/models";
-    log_request(m_logger, req, tag);
-
-    try {
-        namespace fs = std::filesystem;
-
-        // Имя файла — из query-параметра
-        const std::string filename = extract_query_param(req.target(), "filename");
-        if (filename.empty()) {
-            return json_error(m_logger, req, http::status::bad_request, "filename query param required", tag);
-        }
-
-        // Безопасность: только .rknn, без path traversal
-        const fs::path requested(filename);
-        if (requested.extension() != ".rknn") {
-            return json_error(m_logger, req, http::status::bad_request, "only .rknn files are allowed", tag);
-        }
-        if (requested.has_parent_path()) {
-            return json_error(m_logger, req, http::status::bad_request, "filename must not contain path separators", tag);
-        }
-
-        const fs::path target_path = varan::paths().neural.models / requested.filename();
-
-        // Создаём директорию если нет
-        fs::create_directories(varan::paths().neural.models);
-
-        // Пишем файл
-        const auto& body = req.body();
-        if (body.empty()) {
-            return json_error(m_logger, req, http::status::bad_request, "empty body", tag);
-        }
-
-        std::ofstream out(target_path, std::ios::binary | std::ios::trunc);
-        if (!out.is_open()) {
-            return json_error(m_logger, req, http::status::internal_server_error,
-                "cannot open file for writing: " + target_path.string(), tag);
-        }
-
-        out.write(body.data(), static_cast<std::streamsize>(body.size()));
-        out.close();
-
-        if (!out) {
-            return json_error(m_logger, req, http::status::internal_server_error, "write failed", tag);
-        }
-
-        if (m_logger) m_logger->info(tag + ": saved " + target_path.string() +
-            " (" + std::to_string(body.size()) + " bytes)");
-
-        boost::json::object data;
-        data["filename"] = requested.filename().string();
-        data["size"] = static_cast<int64_t>(body.size());
-        data["path"] = target_path.string();
-
-        boost::json::object resp_body;
-        resp_body["data"] = std::move(data);
-        return json_ok(m_logger, req, resp_body, tag);
-    }
-    catch (const std::exception& e) {
-        return json_error(m_logger, req, http::status::internal_server_error, e.what(), tag);
     }
 }
 

@@ -31,25 +31,10 @@ public:
         get_configurations(const boost::beast::http::request<boost::beast::http::string_body>& req);
 
     boost::beast::http::response<boost::beast::http::string_body>
-        post_configurations(const boost::beast::http::request<boost::beast::http::string_body>& req);
-
-    boost::beast::http::response<boost::beast::http::string_body>
-        delete_configuration(const boost::beast::http::request<boost::beast::http::string_body>& req);
-
-    boost::beast::http::response<boost::beast::http::string_body>
         get_streams(const boost::beast::http::request<boost::beast::http::string_body>& req);
 
     boost::beast::http::response<boost::beast::http::string_body>
-        post_stream(const boost::beast::http::request<boost::beast::http::string_body>& req);
-
-    boost::beast::http::response<boost::beast::http::string_body>
-        delete_stream(const boost::beast::http::request<boost::beast::http::string_body>& req);
-
-    boost::beast::http::response<boost::beast::http::string_body>
         get_state(const boost::beast::http::request<boost::beast::http::string_body>& req);
-
-    boost::beast::http::response<boost::beast::http::string_body>
-        post_state(const boost::beast::http::request<boost::beast::http::string_body>& req);
 
     boost::beast::http::response<boost::beast::http::string_body>
         get_status(const boost::beast::http::request<boost::beast::http::string_body>& req);
@@ -83,9 +68,6 @@ public:
 
     boost::beast::http::response<boost::beast::http::string_body>
         get_models(const boost::beast::http::request<boost::beast::http::string_body>& req);
-
-    boost::beast::http::response<boost::beast::http::string_body>
-        post_model(const boost::beast::http::request<boost::beast::http::string_body>& req);
 
     boost::beast::http::response<boost::beast::http::string_body> 
         get_camera_config(const boost::beast::http::request<boost::beast::http::string_body>& req);
