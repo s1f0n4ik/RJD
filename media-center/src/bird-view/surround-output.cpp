@@ -1,4 +1,5 @@
 #include "bird-view/surround-output.h"
+#include "bird-view/linker-config.h"
 #include "core/paths.h"
 #include "bird-view/surround-bake.h"
 #include "bird-view/surround-model.h"
@@ -38,7 +39,7 @@ namespace birdview {
 		if (m_orbit_state) m_orbit_state->store(manual);
 	}
 
-	void USurroundOutput::apply_visuals(const boost::json::object& cfg) {
+	bool USurroundOutput::apply_visuals(const boost::json::object& cfg, std::string& error) {
 		boost::json::object orbit, model;
 		if (auto* v = js::obj(cfg, "orbit")) orbit = *v;
 		if (auto* v = js::obj(cfg, "model")) model = *v;
@@ -78,16 +79,16 @@ namespace birdview {
 					if (m_logger) m_logger->info("apply_visuals(): model <" + source + "> loaded");
 				}
 				else {
-					if (m_logger) m_logger->error("apply_visuals(): model <" + source
-						+ "> failed: " + model_error + ", box fallback");
-					m_renderer.clear_model_mesh();
+					error = "model <" + source + "> failed: " + model_error;
+					return false;
 				}
 			}
 			m_loaded_model_source = source;
 		}
+		return true;
 	}
 
-	bool USurroundOutput::apply_bake(const boost::json::object& cfg) {
+	bool USurroundOutput::apply_bake(const boost::json::object& cfg, std::string& error) {
 		USurroundBaker baker(m_logger);
 		FSurroundMachine machine;
 		FSurroundBake bake;
@@ -99,6 +100,8 @@ namespace birdview {
 		{
 			boost::json::object machine_obj;
 			if (auto entry = m_store->read_export_entry(m_export_id)) {
+				if (!effective_cfg.contains("preset"))
+					if (const auto* preset = entry->if_contains("preset")) effective_cfg["preset"] = *preset;
 				if (auto* m = js::obj(*entry, "machine")) machine_obj = *m;
 				if (!machine_obj.contains("rect")) {
 					if (auto* imgs = js::arr(*entry, "images"); imgs && !imgs->empty()
@@ -128,8 +131,7 @@ namespace birdview {
 		}
 
 		if (!ok || !m_renderer.set_camera_attributes(bake.camera_attributes)) {
-			if (m_logger) m_logger->error("apply_bake(): bake failed: "
-				+ bake_error + ", grid only");
+			error = "surround bake failed: " + bake_error;
 			return false;
 		}
 
@@ -153,8 +155,7 @@ namespace birdview {
 		// Без surround-блока в экспорте остаётся сетка первого блока
 		bool interactive = false;
 		if (auto cfg = m_store->read_surround_cfg(m_export_id)) {
-			apply_visuals(*cfg);
-			apply_bake(*cfg);
+			if (!apply_visuals(*cfg, error) || !apply_bake(*cfg, error)) return false;
 
 			// Стартовый режим орбиты, дальше его меняют тумблер и кнопка плеера
 			if (auto* o = js::obj(*cfg, "orbit")) {
@@ -191,12 +192,9 @@ namespace birdview {
 
 		// Живые изменения ручки: лёгкие - сеттеры, тяжёлые - перепечка
 		if (const unsigned dirty = m_dirty ? m_dirty->exchange(0) : 0) {
-			if (auto cfg = m_store->read_surround_cfg(m_export_id)) {
-				apply_visuals(*cfg);
-				if (dirty & SURROUND_DIRTY_BAKE) {
-					keys_changed = apply_bake(*cfg);
-				}
-			}
+			std::string error;
+			keys_changed = apply_config(dirty, error);
+			if (!error.empty() && m_logger) m_logger->error("apply_live_changes(): " + error);
 		}
 
 		if (m_orbit_mode_request) {
@@ -205,6 +203,20 @@ namespace birdview {
 			}
 		}
 		return keys_changed;
+	}
+
+	bool USurroundOutput::apply_config(unsigned changes, std::string& error) {
+		const auto cfg = m_store->read_surround_cfg(m_export_id);
+		if (!cfg) {
+			error = "surround block not found";
+			return false;
+		}
+		if (!apply_visuals(*cfg, error)) return false;
+		if (changes & LINKER_CONFIG_ORBIT) {
+			const auto* orbit = js::obj(*cfg, "orbit");
+			set_orbit(orbit && js::flag(*orbit, "interactive", false));
+		}
+		return (changes & LINKER_CONFIG_GEOMETRY) ? apply_bake(*cfg, error) : false;
 	}
 
 	void USurroundOutput::bind_camera(USurroundCamera& camera) {

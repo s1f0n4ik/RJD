@@ -1,4 +1,5 @@
 #include "bird-view/top-output.h"
+#include "bird-view/linker-config.h"
 #include "core/paths.h"
 #include "bird-view/top-bake.h"
 #include "bird-view/surround-output.h"
@@ -29,7 +30,7 @@ namespace birdview {
 	{
 	}
 
-	void UTopOutput::apply_visuals(const boost::json::object& cfg) {
+	bool UTopOutput::apply_visuals(const boost::json::object& cfg, std::string& error) {
 		boost::json::object model;
 		if (auto* v = js::obj(cfg, "model")) model = *v;
 
@@ -121,13 +122,13 @@ namespace birdview {
 					if (m_logger) m_logger->info("apply_visuals(): model <" + source + "> loaded");
 				}
 				else {
-					if (m_logger) m_logger->error("apply_visuals(): model <" + source
-						+ "> failed: " + model_error + ", box fallback");
-					m_renderer.clear_model_mesh();
+					error = "model <" + source + "> failed: " + model_error;
+					return false;
 				}
 			}
 			m_loaded_model_source = source;
 		}
+		return true;
 	}
 
 	void UTopOutput::rebuild_photo_pairs() {
@@ -178,7 +179,7 @@ namespace birdview {
 		if (m_generation >= TOP_BAKE_GENERATION) {
 			boost::json::object cfg;
 			if (auto c = m_store->read_top_cfg(m_export_id)) cfg = *c;
-			apply_visuals(cfg);
+			if (!apply_visuals(cfg, error)) return false;
 			rebuild_photo_pairs();
 
 			// Пользовательское разрешение: вписывание с полями вместо растяжения
@@ -210,19 +211,28 @@ namespace birdview {
 	}
 
 	bool UTopOutput::apply_live_changes() {
-		if (m_generation < TOP_BAKE_GENERATION) return false;
-
 		if (const unsigned dirty = m_dirty ? m_dirty->exchange(0) : 0) {
-			boost::json::object cfg;
-			if (auto c = m_store->read_top_cfg(m_export_id)) cfg = *c;
-			if (dirty & TOP_DIRTY_VISUAL) {
-				apply_visuals(cfg);
+			std::string error;
+			apply_config(dirty, error);
+			if (!error.empty() && m_logger) m_logger->error("apply_live_changes(): " + error);
+		}
+		return false;
+	}
+
+	bool UTopOutput::apply_config(unsigned changes, std::string& error) {
+		if (m_generation < TOP_BAKE_GENERATION) {
+			error = "top settings require current generation maps";
+			return false;
+		}
+		boost::json::object cfg;
+		if (auto current = m_store->read_top_cfg(m_export_id)) cfg = *current;
+		if ((changes & LINKER_CONFIG_VISUAL) && !apply_visuals(cfg, error)) return false;
+		if (changes & LINKER_CONFIG_GEOMETRY) {
+			if (!m_renderer.reload_weights()) {
+				error = "cannot reload top weights";
+				return false;
 			}
-			if (dirty & TOP_DIRTY_WEIGHTS) {
-				// Коммит слайдера шва перепёк файлы весов активной версии
-				m_renderer.reload_weights();
-				rebuild_photo_pairs();
-			}
+			rebuild_photo_pairs();
 		}
 		return false;
 	}

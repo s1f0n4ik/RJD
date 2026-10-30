@@ -136,20 +136,20 @@ namespace birdview {
         if (m_logger) m_logger->info("load_export(): version <" + version_key + ">");
 
         for (const auto& [key, cam_v] : cams_v->as_object()) {
-            if (!cam_v.is_object()) continue;
+            if (!cam_v.is_object()) return false;
             std::string cam_key(key);
 
             int rw = 0, rh = 0;
             GLuint remap_tex = gl_maps::load_gl_map(
                 m_maps_dir / (cam_key + "_remap.bin"), rw, rh, m_logger);
-            if (!remap_tex) continue;
+            if (!remap_tex) return false;
 
             int ww = 0, wh = 0;
             GLuint weight_tex = gl_maps::load_gl_map(
                 m_maps_dir / (cam_key + "_weight.bin"), ww, wh, m_logger);
             if (!weight_tex) {
                 glDeleteTextures(1, &remap_tex);
-                continue;
+                return false;
             }
 
             FCameraGL c{};
@@ -166,13 +166,13 @@ namespace birdview {
                 for (const auto& image : images) {
                     if (!std::filesystem::exists(image.path)) {
                         if (m_logger) m_logger->warn("load_export(): path of overlay image " + image.path.string() + " doesn't exists!");
-                        continue;
+                        return false;
                     }
                     // Загрузка изображений
                     cv::Mat img = cv::imread(image.path.string(), cv::IMREAD_UNCHANGED);
                     if (img.empty()) {
                         if (m_logger) m_logger->warn("load_export(): cannot read image: " + image.path.string());
-                        continue;
+                        return false;
                     }
 
                     cv::Mat rgba;
@@ -186,7 +186,7 @@ namespace birdview {
                         cv::cvtColor(img, rgba, cv::COLOR_GRAY2RGBA);
                     }
                     else {
-                        continue;
+                        return false;
                     }
 
                     if (rgba.cols != image.rect.width || rgba.rows != image.rect.height) {
@@ -223,6 +223,7 @@ namespace birdview {
             }
             catch (const std::exception& error) {
                 if (m_logger) m_logger->error("Error: " + std::string(error.what()));
+                return false;
             }
         }
         else {

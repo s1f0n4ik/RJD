@@ -5,6 +5,8 @@
 #include <memory>
 #include <mutex>
 #include <functional>
+#include <future>
+#include <map>
 #include <optional>
 #include <utility>
 
@@ -207,6 +209,9 @@ namespace birdview {
 		// текущего поколения, она сразу активна. Синхронный, секунды
 		bool recalc_top(const std::string& export_id, std::string& error);
 
+		// Часть surround пакета мастера: калибровки, связи, пресеты, проекции, вывод; пустая строка — применено
+		std::string apply_config(const boost::json::value& part);
+
 		std::vector<FExportInfo> list_exports();
 		boost::json::object get_state_raw();
 
@@ -222,8 +227,17 @@ namespace birdview {
 		std::filesystem::path get_models_list_path();
 
 	private:
+		using COutputReady = std::function<void(std::string)>;
+
+		struct FConfigRequest {
+			std::map<std::string, unsigned> changes;
+			std::promise<std::string> completion;
+		};
+
+		bool start_output(COutputReady ready);
+
 		// Общий кадровый цикл: основной режим по view_mode, второй при dual_output
-		void processing_loop(uint32_t fps);
+		void processing_loop(uint32_t fps, const COutputReady& ready);
 
 		// Режим вывода по имени; bindings нужны только surround
 		std::unique_ptr<IOutputMode> make_output_mode(const std::string& view_mode,
@@ -251,6 +265,7 @@ namespace birdview {
 		mutable std::mutex m_mutex;
 		std::thread m_worker;
 		std::atomic<bool> m_running{ false };
+		std::shared_ptr<FConfigRequest> m_config_request;
 
 		// fps из конфига процесса. Служит значением по умолчанию, когда
 		// у конфигурации своего не задано

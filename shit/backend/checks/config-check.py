@@ -117,9 +117,52 @@ def main(backup: Path) -> None:
     sync_check()
     cameras_check(backup)
     neural_check(backup)
+    surround_check(backup)
     print("config-check: OK", TMP)
 
 
+def surround_check(backup: Path) -> None:
+    import tarfile
+    from app.services import config_store, config_sync
+
+    store = config_store.get_store()
+    bodies = {k: {key: e["body"] for key, e in v.items()} for k, v in store.effective()["entities"].items()}
+    part = config_sync.PART_BUILDERS["surround"](bodies, "board-1")
+    with tarfile.open(backup) as tar:
+        def read(name: str):
+            return json.load(tar.extractfile(next(m for m in tar.getmembers() if m.name.endswith(name))))
+        calib, links = read("surround_view/calibration/calibration_settings.json"), read("surround_view/calibration/links.json")
+        presets, exports = read("surround_view/presets/presets.json"), read("surround_view/projection/projection.json")
+        state = read("surround_view/linker/state.json")
+
+    # Те же сравнения, что делает ULinker::apply_config: первая отправка ничего не перепечёт
+    def strip_paths(o: dict) -> dict:
+        o = copy.deepcopy(o)
+        for image in o.get("images") or []:
+            image.pop("path", None)
+        return o
+
+    def core(o: dict) -> dict:
+        o = strip_paths({k: v for k, v in o.items() if k not in ("surround", "top", "versions", "active_version", "_assets")})
+        for cam in (o.get("cameras") or {}).values():
+            for k in ("remap", "weight", "region", "center", "region_poly"):
+                cam.pop(k, None)
+        return o
+
+    for key, entry in part["calibrations"].items():
+        restored = dict(entry)
+        if "new_K" in restored:
+            restored["undist_map_x"], restored["undist_map_y"] = f"{key}_map_x.bin", f"{key}_map_y.bin"
+        assert restored == calib[key], key
+    assert part["links"] == links
+    assert {k: {x: y for x, y in v.items() if x != "_assets"} for k, v in part["presets"].items()} == {k: strip_paths(v) for k, v in presets.items()}
+    for key, entry in part["projections"].items():
+        assert core(entry) == core(exports[key]), key
+        assert entry.get("surround") == exports[key].get("surround") and entry.get("top") == exports[key].get("top"), key
+    assert part["output"]["active"] == state["active"]
+    assert part["output"]["configs"] == {k: {x: y for x, y in v.items() if x != "view_mode"} for k, v in state["configs"].items()}
+    shas = config_sync._asset_shas(part)
+    assert shas and shas <= set(store.assets()), "surround files must be in the library"
 
 
 def neural_check(backup: Path) -> None:

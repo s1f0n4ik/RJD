@@ -269,6 +269,11 @@ int main(int argc, char* argv[])
 			return loader->apply_config(part);
 		});
 	}
+	if (linker_360) {
+		machine_config->register_part("surround", [linker_360](const boost::json::value& part) {
+			return linker_360->apply_config(part);
+		});
+	}
 
 	auto rest_server = URestServer{ config.rest_port, center, linker_360, loader, machine_config, config.modules, device_info };
 	rest_server.async_start();

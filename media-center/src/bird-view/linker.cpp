@@ -1,4 +1,5 @@
 #include "bird-view/linker.h"
+#include "bird-view/linker-config.h"
 #include "core/paths.h"
 #include "bird-view/output-mode.h"
 #include "bird-view/top-output.h"
@@ -492,128 +493,6 @@ namespace birdview {
 		}
 		return true;
 	}
-
-	namespace {
-
-		// Вид проверки одного поля ручки /linker/surround
-		enum class EFieldKind {
-			NumPositive,     // число строго больше нуля
-			NumNonNegative,  // число, ноль допустим
-			NumAny,          // любое число
-			NumAlpha,        // число в [0..1]
-			Flag,            // bool
-			SourceName,      // имя файла модели, пустое снимает модель
-		};
-
-		struct FSurroundField {
-			const char* group;   // nullptr — ключ верхнего уровня
-			const char* key;
-			EFieldKind kind;
-			unsigned dirty;
-		};
-
-		// Правила всех полей в одном месте: тип, диапазон и тяжесть применения
-		const FSurroundField SURROUND_FIELDS[] = {
-			{ "machine", "length", EFieldKind::NumPositive,   SURROUND_DIRTY_BAKE },
-			{ "machine", "width",  EFieldKind::NumPositive,   SURROUND_DIRTY_BAKE },
-			{ "machine", "height", EFieldKind::NumPositive,   SURROUND_DIRTY_BAKE },
-			{ "bowl", "floor",     EFieldKind::NumPositive,   SURROUND_DIRTY_BAKE },
-			{ "bowl", "wall",      EFieldKind::NumPositive,   SURROUND_DIRTY_BAKE },
-			{ "bowl", "plate",     EFieldKind::NumPositive,   SURROUND_DIRTY_BAKE },
-			{ "bowl", "blend",     EFieldKind::NumPositive,   SURROUND_DIRTY_BAKE },
-			// Ноль допустим: вертикальная стенка и прямые углы
-			{ "bowl", "outer",     EFieldKind::NumNonNegative, SURROUND_DIRTY_BAKE },
-			{ "bowl", "corner",    EFieldKind::NumNonNegative, SURROUND_DIRTY_BAKE },
-			{ "orbit", "distance", EFieldKind::NumPositive,   SURROUND_DIRTY_VISUAL },
-			// Высота глаза в метрах, ноль - уровень пола; наклон в градусах, плюс вниз
-			{ "orbit", "height",   EFieldKind::NumNonNegative, SURROUND_DIRTY_VISUAL },
-			{ "orbit", "pitch",    EFieldKind::NumAny,        SURROUND_DIRTY_VISUAL },
-			{ "orbit", "speed",    EFieldKind::NumNonNegative, SURROUND_DIRTY_VISUAL },
-			// Дефолт ручного управления на отображении, применяется и живьём
-			{ "orbit", "interactive", EFieldKind::Flag,       SURROUND_DIRTY_VISUAL },
-			{ "model", "length",   EFieldKind::NumNonNegative, SURROUND_DIRTY_VISUAL },
-			{ "model", "width",    EFieldKind::NumNonNegative, SURROUND_DIRTY_VISUAL },
-			{ "model", "height",   EFieldKind::NumNonNegative, SURROUND_DIRTY_VISUAL },
-			{ "model", "alpha",    EFieldKind::NumAlpha,      SURROUND_DIRTY_VISUAL },
-			{ "model", "rotation", EFieldKind::NumAny,        SURROUND_DIRTY_VISUAL },
-			{ "model", "source",   EFieldKind::SourceName,    SURROUND_DIRTY_VISUAL },
-			// Множитель к вписыванию в габарит; работает, пока stretch выключен
-			{ "model", "scale",    EFieldKind::NumPositive,   SURROUND_DIRTY_VISUAL },
-			// Каждая сторона тянется своей величиной, вписывание не равномерное
-			{ "model", "stretch",  EFieldKind::Flag,          SURROUND_DIRTY_VISUAL },
-			{ nullptr, "plate",       EFieldKind::Flag,           SURROUND_DIRTY_VISUAL },
-			{ nullptr, "wireframe",   EFieldKind::Flag,           SURROUND_DIRTY_VISUAL },
-			{ nullptr, "photometric", EFieldKind::Flag,           SURROUND_DIRTY_VISUAL },
-			{ nullptr, "plate_length", EFieldKind::NumNonNegative, SURROUND_DIRTY_VISUAL },
-			{ nullptr, "plate_width",  EFieldKind::NumNonNegative, SURROUND_DIRTY_VISUAL },
-		};
-
-		bool check_surround_field(const FSurroundField& rule,
-			const boost::json::value& v, std::string& error)
-		{
-			const std::string name = rule.key;
-			switch (rule.kind) {
-			case EFieldKind::NumPositive:
-			case EFieldKind::NumNonNegative:
-			case EFieldKind::NumAny:
-			case EFieldKind::NumAlpha: {
-				if (!v.is_number()) {
-					error = name + " must be a number";
-					return false;
-				}
-				const double d = v.to_number<double>();
-				if (rule.kind == EFieldKind::NumPositive && d <= 0.0) {
-					error = name + " out of range";
-					return false;
-				}
-				if ((rule.kind == EFieldKind::NumNonNegative
-					|| rule.kind == EFieldKind::NumAlpha) && d < 0.0) {
-					error = name + " out of range";
-					return false;
-				}
-				if (rule.kind == EFieldKind::NumAlpha && d > 1.0) {
-					error = name + " out of range";
-					return false;
-				}
-				return true;
-			}
-			case EFieldKind::Flag:
-				if (!v.is_bool()) {
-					error = name + " must be a bool";
-					return false;
-				}
-				return true;
-			case EFieldKind::SourceName: {
-				if (!v.is_string()) {
-					error = name + " must be a string";
-					return false;
-				}
-				// Имя уходит в путь; пустая строка снимает модель
-				const std::string src = v.as_string().c_str();
-				for (char c : src) {
-					const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
-						|| (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.';
-					if (!ok) {
-						error = name + " contains invalid characters";
-						return false;
-					}
-				}
-				if (src.find("..") != std::string::npos) {
-					error = name + " contains invalid characters";
-					return false;
-				}
-				return true;
-			}
-			}
-			return true;
-		}
-
-		bool is_surround_group(const std::string& key) {
-			return key == "machine" || key == "bowl" || key == "orbit" || key == "model";
-		}
-
-	} // namespace
-
 	bool ULinker::set_surround(const std::string& export_id,
 		const boost::json::object& payload, std::string& error)
 	{
@@ -666,7 +545,7 @@ namespace birdview {
 					? SURROUND_DIRTY_BAKE : SURROUND_DIRTY_VISUAL;
 
 				const auto& group = kv.value().as_object();
-				for (const auto& rule : SURROUND_FIELDS) {
+				for (const auto& rule : surround_fields()) {
 					if (!rule.group || key != rule.group) continue;
 					if (auto* v = group.if_contains(rule.key)) {
 						if (!check_surround_field(rule, *v, error)) return false;
@@ -676,7 +555,7 @@ namespace birdview {
 			}
 
 			const FSurroundField* rule = nullptr;
-			for (const auto& r : SURROUND_FIELDS) {
+			for (const auto& r : surround_fields()) {
 				if (!r.group && key == r.key) { rule = &r; break; }
 			}
 			if (!rule) {
@@ -864,24 +743,6 @@ namespace birdview {
 
 	namespace {
 
-		// Правила полей ручки /linker/top: та же таблица, что у surround
-		const FSurroundField TOP_FIELDS[] = {
-			{ "model", "length",   EFieldKind::NumNonNegative, TOP_DIRTY_VISUAL },
-			{ "model", "width",    EFieldKind::NumNonNegative, TOP_DIRTY_VISUAL },
-			{ "model", "height",   EFieldKind::NumNonNegative, TOP_DIRTY_VISUAL },
-			{ "model", "alpha",    EFieldKind::NumAlpha,       TOP_DIRTY_VISUAL },
-			{ "model", "rotation", EFieldKind::NumAny,         TOP_DIRTY_VISUAL },
-			{ "model", "source",   EFieldKind::SourceName,     TOP_DIRTY_VISUAL },
-			{ "model", "scale",    EFieldKind::NumPositive,    TOP_DIRTY_VISUAL },
-			{ "model", "stretch",  EFieldKind::Flag,           TOP_DIRTY_VISUAL },
-			// Ширина шва применяется перепечкой весов, не dirty-флагом
-			{ nullptr, "blend",        EFieldKind::NumPositive,    0 },
-			{ nullptr, "photometric",  EFieldKind::Flag,           TOP_DIRTY_VISUAL },
-			{ nullptr, "plate",        EFieldKind::Flag,           TOP_DIRTY_VISUAL },
-			{ nullptr, "plate_length", EFieldKind::NumNonNegative, TOP_DIRTY_VISUAL },
-			{ nullptr, "plate_width",  EFieldKind::NumNonNegative, TOP_DIRTY_VISUAL },
-		};
-
 		// Выровненный размер канваса с учётом поворота: разрешение по умолчанию
 		void top_natural_size(const boost::json::object& entry, int rotation,
 			int& out_w, int& out_h)
@@ -991,7 +852,7 @@ namespace birdview {
 				}
 				dirty |= TOP_DIRTY_VISUAL;
 				const auto& group = kv.value().as_object();
-				for (const auto& rule : TOP_FIELDS) {
+				for (const auto& rule : top_fields()) {
 					if (!rule.group || key != rule.group) continue;
 					if (auto* v = group.if_contains(rule.key)) {
 						if (!check_surround_field(rule, *v, error)) return false;
@@ -1001,7 +862,7 @@ namespace birdview {
 			}
 
 			const FSurroundField* rule = nullptr;
-			for (const auto& r : TOP_FIELDS) {
+			for (const auto& r : top_fields()) {
 				if (!r.group && key == r.key) { rule = &r; break; }
 			}
 			if (!rule) {
@@ -1452,6 +1313,10 @@ namespace birdview {
 	}
 
 	bool ULinker::async_start() {
+		return start_output({});
+	}
+
+	bool ULinker::start_output(COutputReady ready) {
 		{
 			std::lock_guard<std::mutex> lk(m_mutex);
 			if (m_export_id.empty()) {
@@ -1463,9 +1328,22 @@ namespace birdview {
 			m_logger.warn("async_start(): already running");
 			return true;
 		}
-		m_worker = std::thread([this] {
+		m_worker = std::thread([this, ready = std::move(ready)]() mutable {
+			auto report = [&](std::string error) {
+				if (ready) {
+					auto callback = std::move(ready);
+					callback(std::move(error));
+				}
+			};
 			while (m_running.load()) {
-				processing_loop(m_fps);
+				try {
+					processing_loop(m_fps, report);
+				}
+				catch (const std::exception& error) {
+					m_logger.error("processing_loop(): " + std::string(error.what()));
+					report(error.what());
+				}
+				report("output initialization failed");
 				m_logger.warn("processing stream ended!");
 				if (m_running.load()) {
 					std::this_thread::sleep_for(std::chrono::seconds(5));
@@ -1476,8 +1354,14 @@ namespace birdview {
 	}
 
 	void ULinker::stop() {
-		if (!m_running.exchange(false)) return;
+		m_running.store(false);
 		if (m_worker.joinable()) m_worker.join();
+		std::shared_ptr<FConfigRequest> request;
+		{
+			std::lock_guard lock(m_mutex);
+			request = std::exchange(m_config_request, {});
+		}
+		if (request) request->completion.set_value("output stopped before applying configuration");
 	}
 
 	std::unique_ptr<IOutputMode> ULinker::make_output_mode(const std::string& view_mode,
@@ -1507,11 +1391,12 @@ namespace birdview {
 		constexpr GLuint64 READBACK_WAIT_NS = 1000000000ull;
 	}
 
-	void ULinker::processing_loop(uint32_t fps) {
+	void ULinker::processing_loop(uint32_t fps, const COutputReady& ready) {
 		using clock = std::chrono::high_resolution_clock;
 
 		if (!m_context_manager || !m_context_manager->make_current(&m_logger)) {
 			m_logger.error("processing_loop(): cannot make context current");
+			ready("cannot make EGL context current");
 			return;
 		}
 
@@ -1524,12 +1409,14 @@ namespace birdview {
 		}
 		if (export_id_copy.empty()) {
 			m_logger.error("processing_loop(): no active export, abort");
+			ready("no active export");
 			m_context_manager->undone_current(&m_logger);
 			return;
 		}
 
 		if (m_websocket.ip_adress.empty() || m_websocket.port.empty()) {
 			m_logger.error("processing_loop(): websocket is incorrect, aborted starting connection!");
+			ready("invalid output websocket configuration");
 			m_context_manager->undone_current(&m_logger);
 			return;
 		}
@@ -1589,6 +1476,7 @@ namespace birdview {
 				}
 				if (out.ring) out.ring->destroy();
 				m_context_manager->destroy_render_target(out.target);
+				out.mode.reset();
 			}
 			{
 				std::lock_guard<std::mutex> lk(m_mutex);
@@ -1596,6 +1484,10 @@ namespace birdview {
 			}
 			m_context_manager->undone_current(&m_logger);
 		};
+		struct FCleanup {
+			std::function<void()> finish;
+			~FCleanup() { finish(); }
+		} cleanup{ teardown };
 
 		for (auto& out : outputs) {
 			out.mode = make_output_mode(out.view_mode, export_id_copy, bindings);
@@ -1605,7 +1497,7 @@ namespace birdview {
 			std::string mode_error;
 			if (!out.mode->prepare(outW, outH, mode_error)) {
 				m_logger.error("processing_loop(): " + out.view_mode + ": " + mode_error);
-				teardown();
+				ready(out.view_mode + ": " + mode_error);
 				return;
 			}
 			out.keys = out.mode->camera_keys();
@@ -1627,7 +1519,7 @@ namespace birdview {
 
 				if (!m_context_manager->create_render_target(out.target, outW, outH, &m_logger)) {
 					m_logger.error("processing_loop(): cannot init render FBO for " + out.view_mode);
-					teardown();
+					ready("cannot initialize render target for " + out.view_mode);
 					return;
 				}
 			}
@@ -1640,7 +1532,7 @@ namespace birdview {
 				|| !out.streamer->start()) {
 				m_logger.error("processing_loop(): streamer failed for " + out.view_mode
 					+ ", stream_id=" + out.stream_id);
-				teardown();
+				ready("cannot start streamer for " + out.view_mode);
 				return;
 			}
 			m_logger.info("processing_loop(): streamer started, stream_id=" + out.stream_id
@@ -1656,6 +1548,8 @@ namespace birdview {
 				m_secondary = { out.stream_id, out.view_mode, outW, outH };
 			}
 		}
+
+		ready({});
 
 		const auto frame_time = std::chrono::microseconds(1000000 / fps);
 		const float dt = 1.0f / static_cast<float>(fps);
@@ -1675,6 +1569,30 @@ namespace birdview {
 			next_frame += frame_time;
 			const auto work_start = clock::now();
 
+			std::shared_ptr<FConfigRequest> request;
+			{
+				std::lock_guard lock(m_mutex);
+				request = std::exchange(m_config_request, {});
+			}
+			if (request) {
+				std::string error;
+				for (auto& out : outputs) {
+					const auto change = request->changes.find(out.view_mode);
+					if (change == request->changes.end()) continue;
+					try {
+						if (out.mode->apply_config(change->second, error)) {
+							out.keys = out.mode->camera_keys();
+							if (&out == &outputs.front()) {
+								std::lock_guard lock(m_mutex);
+								m_camera_keys = out.keys;
+							}
+						}
+					}
+					catch (const std::exception& failure) { error = failure.what(); }
+					if (!error.empty()) break;
+				}
+				request->completion.set_value(std::move(error));
+			}
 			for (auto& out : outputs) {
 				// Перепечка меняет состав камер — ключи перечитываются
 				if (out.mode->apply_live_changes()) {
@@ -1773,7 +1691,6 @@ namespace birdview {
 			std::this_thread::sleep_until(next_frame);
 		}
 
-		teardown();
 	}
 
 	std::filesystem::path ULinker::get_configurations_path() {
@@ -1790,6 +1707,47 @@ namespace birdview {
 
 	std::filesystem::path ULinker::get_models_list_path() {
 		return varan::paths().surround.presets_models;
+	}
+
+	std::string ULinker::apply_config(const boost::json::value& part) {
+		ULinkerConfig config(m_store, &m_logger,
+			[this](const FLinkerConfigUpdate& update) {
+				if (update.restart) stop();
+			},
+			[this](const FLinkerConfigUpdate& update) -> std::string {
+				if (update.restart) {
+					if (js::str(m_store.read_state(), "active").empty()) {
+						std::lock_guard lock(m_mutex);
+						m_export_id.clear();
+						m_camera_keys.clear();
+						m_cameras_purpose.clear();
+						m_params = {};
+						m_out_width = m_out_height = 0;
+						return {};
+					}
+					if (!reload_from_state()) return "cannot load configured output";
+					if (!update.resume) return {};
+					auto completion = std::make_shared<std::promise<std::string>>();
+					auto future = completion->get_future();
+					if (!start_output([completion](std::string error) { completion->set_value(std::move(error)); }))
+						return "cannot start configured output";
+					if (future.wait_for(std::chrono::seconds(30)) != std::future_status::ready)
+						return "output initialization timed out";
+					return future.get();
+				}
+				if (!m_running.load() || update.changes.empty()) return {};
+				auto request = std::make_shared<FConfigRequest>();
+				request->changes = update.changes;
+				auto future = request->completion.get_future();
+				{
+					std::lock_guard lock(m_mutex);
+					m_config_request = request;
+				}
+				if (future.wait_for(std::chrono::seconds(30)) != std::future_status::ready)
+					return "live output update timed out";
+				return future.get();
+			});
+		return config.apply(part, m_running.load());
 	}
 
 }; // birdview

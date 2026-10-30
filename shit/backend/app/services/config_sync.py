@@ -44,12 +44,27 @@ def _neural_part(bodies: dict[str, dict[str, Any]], place: str) -> Optional[dict
     }
 
 
+def _surround_part(bodies: dict[str, dict[str, Any]], place: str) -> Optional[dict]:
+    if not _has_module(bodies, place, "birdview"):
+        return None
+
+    def mine(kind: str) -> dict:
+        return {key: _strip_place(body) for key, body in sorted(bodies.get(kind, {}).items()) if body.get("place") == place}
+
+    return {
+        "calibrations": mine("calibration"),
+        "links": mine("correction_link"),
+        "presets": mine("preset"),
+        "projections": mine("projection"),
+        "output": bodies.get("surround_output", {}).get(place) or {"active": None, "configs": {}},
+    }
 
 
 # Части пакета платы по порядку применения: имя → сборщик из тел действующей конфигурации и места
 PART_BUILDERS: dict[str, Callable[[dict[str, dict[str, Any]], str], Any]] = {
     "cameras": _cameras_part,
     "neural": _neural_part,
+    "surround": _surround_part,
 }
 # Пауза перед повтором той же ревизии после ошибки
 RETRY_AFTER_S = 60.0

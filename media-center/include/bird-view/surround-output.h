@@ -55,6 +55,7 @@ namespace birdview {
 		bool prepare(int& out_width, int& out_height, std::string& error) override;
 		std::vector<std::string> camera_keys() const override { return m_camera_keys; }
 		bool apply_live_changes() override;
+		bool apply_config(unsigned changes, std::string& error) override;
 		void bind_camera(USurroundCamera& camera) override;
 		void render_frame(std::vector<NPFrame>& frames, float dt, EGLDisplay display) override;
 
@@ -63,10 +64,10 @@ namespace birdview {
 		void set_orbit(bool manual);
 
 		// Лёгкие параметры сцены: и на старте, и на живом изменении ручкой
-		void apply_visuals(const boost::json::object& cfg);
+		bool apply_visuals(const boost::json::object& cfg, std::string& error);
 
 		// Печка UV чаши; публикует позы и обновляет состав камер
-		bool apply_bake(const boost::json::object& cfg);
+		bool apply_bake(const boost::json::object& cfg, std::string& error);
 
 	private:
 		USurroundRenderer m_renderer;

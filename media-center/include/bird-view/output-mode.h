@@ -30,6 +30,9 @@ namespace birdview {
 		// и кадровое пространство надо пересоздать
 		virtual bool apply_live_changes() { return false; }
 
+		// Применение пакета в потоке рендера; true — изменился состав камер
+		virtual bool apply_config(unsigned changes, std::string& error) = 0;
+
 		// Колбэки управления с сигналинга стримера; top их не потребляет
 		virtual void bind_camera(USurroundCamera& camera) { (void)camera; }
 

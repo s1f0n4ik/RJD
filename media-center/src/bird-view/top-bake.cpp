@@ -1,5 +1,6 @@
 #include "bird-view/top-bake.h"
 #include "core/paths.h"
+#include "core/machine-config.h"
 #include "bird-view/linker-store.h"
 
 #include "calibration/json-projection.h"
@@ -45,21 +46,8 @@ namespace birdview {
 		bool write_json_file(const std::filesystem::path& path,
 			const boost::json::object& root, std::string& error)
 		{
-			try {
-				const auto parent = path.parent_path();
-				if (!parent.empty()) std::filesystem::create_directories(parent);
-				std::ofstream f(path);
-				if (!f) {
-					error = "cannot open " + path.string() + " for writing";
-					return false;
-				}
-				f << boost::json::serialize(root);
-				return true;
-			}
-			catch (const std::exception& e) {
-				error = e.what();
-				return false;
-			}
+			error = write_durable(path, boost::json::serialize(root));
+			return error.empty();
 		}
 
 		cv::Rect region_aabb(const std::vector<cv::Point2f>& pts) {
@@ -531,14 +519,12 @@ namespace birdview {
 			weights[i].convertTo(weight_u8, CV_8UC1, 255.0);
 
 			if (!gl_maps::save_remap(dir / remap_name, cam.remap)) {
-				if (m_logger) m_logger->error("save_export(): cannot write "
-					+ (dir / remap_name).string());
-				continue;
+				error = "cannot write " + (dir / remap_name).string();
+				return false;
 			}
 			if (!gl_maps::save_weight(dir / weight_name, weight_u8)) {
-				if (m_logger) m_logger->error("save_export(): cannot write "
-					+ (dir / weight_name).string());
-				continue;
+				error = "cannot write " + (dir / weight_name).string();
+				return false;
 			}
 
 			boost::json::object cam_obj;

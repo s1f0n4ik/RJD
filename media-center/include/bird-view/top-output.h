@@ -33,11 +33,12 @@ namespace birdview {
 		bool prepare(int& out_width, int& out_height, std::string& error) override;
 		std::vector<std::string> camera_keys() const override;
 		bool apply_live_changes() override;
+		bool apply_config(unsigned changes, std::string& error) override;
 		void render_frame(std::vector<NPFrame>& frames, float dt, EGLDisplay display) override;
 
 	private:
 		// Лёгкие параметры: сцена, модель, подложка, фотонормализация
-		void apply_visuals(const boost::json::object& cfg);
+		bool apply_visuals(const boost::json::object& cfg, std::string& error);
 
 		// Пары точек фотонормализации из карт активной версии на диске
 		void rebuild_photo_pairs();
