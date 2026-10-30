@@ -11,7 +11,7 @@ export const PROJ_METHOD = {
     GET_LIST: 'get_list',
     SET_PRESET: 'set_preset',
     APPLY_WARP: 'apply_warp',
-    SAVE_LUT: 'save_lut',
+    SAVE_LUT: 'export',
     RESET_WARP: 'reset_warp',
 } as const;
 

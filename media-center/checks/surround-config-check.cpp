@@ -4,11 +4,14 @@
 #include <cstdlib>
 #include <fstream>
 #include <unistd.h>
+#include <opencv2/calib3d.hpp>
 
 #include "bird-view/linker-config.h"
 #include "bird-view/top-bake.h"
+#include "bird-view/surround-bake.h"
 #include "core/machine-config.h"
 #include "core/paths.h"
+#include "calibration/remap.h"
 
 namespace json = boost::json;
 using namespace varan;
@@ -43,11 +46,60 @@ namespace {
 		})").as_object();
 	}
 
-	json::object calibration(const std::string& camera, double focal) {
+	json::object make_calibration(const std::string& camera, double focal) {
 		const json::object matrix{ { "rows", 3 }, { "cols", 3 }, { "type", 6 },
 			{ "data", json::array{ focal, 0, 16, 0, focal, 16, 0, 0, 1 } } };
 		return { { "id", camera }, { "width", 32 }, { "height", 32 }, { "camera_matrix", matrix }, { "new_K", matrix },
 			{ "distortion_coeffs", json::object{ { "rows", 4 }, { "cols", 1 }, { "type", 6 }, { "data", json::array{ 0, 0, 0, 0 } } } } };
+	}
+
+	void check_camera_pose(const std::filesystem::path& root) {
+		const cv::Mat k = (cv::Mat_<double>(3, 3) << 80, 0, 128, 0, 80, 128, 0, 0, 1);
+		const cv::Mat d = cv::Mat::zeros(4, 1, CV_64F);
+		const cv::Vec3d rotation(-1.2, 0, 0), translation(0, 0, 5);
+		const std::vector<cv::Point3f> world{ {-1,0,-1}, {1,0,-1}, {1,0,1}, {-1,0,1} };
+		std::vector<cv::Point2f> rectified, raw;
+		cv::projectPoints(world, rotation, translation, k, cv::Mat(), rectified);
+		cv::fisheye::projectPoints(world, raw, rotation, translation, k, d);
+		json::object config = json::parse(R"({"preset":"pose","calibration":{"camera":"pose"},
+			"machine":{"length":4,"width":4,"height":2,"rect":[64,64,128,128]}})").as_object();
+		json::object source = make_calibration("camera", 80);
+		source["width"] = source["height"] = 256;
+		source.at("camera_matrix").as_object()["data"] = json::array{80,0,128,0,80,128,0,0,1};
+		source["new_K"] = source.at("camera_matrix");
+		FSurroundBakedCamera reference;
+		for (int mode = 0; mode < 3; ++mode) {
+			json::array points, destination;
+			for (size_t i = 0; i < world.size(); ++i) {
+				cv::Point2f point = mode == 0 ? rectified[i] : raw[i];
+				if (mode == 2) {
+					const double x = point.x - 128, y = point.y - 128;
+					const double radius = std::hypot(x, y), theta = radius / 128 * CV_PI / 2;
+					const double sx = std::sin(theta) * x / radius, sy = std::sin(theta) * y / radius;
+					point = { static_cast<float>((0.5 + std::atan2(sx, std::cos(theta)) / CV_PI) * 256),
+						static_cast<float>((0.5 + std::asin(sy) / CV_PI) * 256) };
+				}
+				points.push_back(json::array{point.x / 256, point.y / 256});
+				destination.push_back(json::array{128 + world[i].x * 32, 128 + world[i].z * 32});
+			}
+			if (mode > 0) { source.erase("new_K"); source["points_raw"] = true; }
+			if (mode == 2) { source.erase("points_raw"); source["correction"] = json::object{{"type","panorama"},{"radius",128}}; }
+			write(root / "pose-calibration.json", json::object{{"pose",source}});
+			write(root / "pose-preset.json", json::object{{"pose",json::object{
+				{"name","pose"},{"canvas",json::object{{"width",256},{"height",256}}},
+				{"cameras",json::object{{"front",json::object{{"name","front"},{"src_points",points},{"dst_points",destination}}}}}}}});
+			USurroundBaker baker;
+			FSurroundBake baked;
+			std::string error;
+			const bool ok = baker.bake(config, root / "pose-preset.json", root / "pose-calibration.json",
+				{{"front",std::string("camera")}}, {}, baked, error);
+			if (!ok) std::fprintf(stderr, "Pose: %s\n", error.c_str());
+			CHECK(ok && baked.cameras.size() == 1);
+			const auto& camera = baked.cameras.front();
+			CHECK(std::isfinite(camera.reprojection_error) && camera.reprojection_error < 0.1);
+			if (mode == 0) reference = camera;
+			else for (int i = 0; i < 3; ++i) CHECK(std::abs(camera.pnp_position[i] - reference.pnp_position[i]) < 0.02);
+		}
 	}
 
 }
@@ -58,6 +110,7 @@ int main(int argc, char** argv) {
 	CHECK(root);
 	init_paths(root, std::filesystem::path(root) / "archive");
 	for (const auto& path : required_directories()) std::filesystem::create_directories(path);
+	check_camera_pose(root);
 	ULinkerStore store(paths().surround.projection_root, "projection.json", paths().surround.linker_state_root, "state.json", nullptr);
 	int preparations = 0, applications = 0;
 	std::string failure;
@@ -71,6 +124,25 @@ int main(int argc, char** argv) {
 		return machine.apply(json::object{ { "revision", revision }, { "parts", json::object{ { "surround", body } } } });
 	};
 	auto body = package();
+	calibration::URemapBuilder remaps;
+	cv::Mat mx, my, expected_x, expected_y;
+	auto source_calibration = make_calibration("camera_1", 12);
+	CHECK(remaps.build(source_calibration, mx, my).empty());
+	cv::Mat k = (cv::Mat_<double>(3, 3) << 12, 0, 16, 0, 12, 16, 0, 0, 1);
+	cv::fisheye::initUndistortRectifyMap(k, cv::Mat::zeros(4, 1, CV_64F), cv::Mat::eye(3, 3, CV_64F), k,
+		cv::Size(32, 32), CV_16SC2, expected_x, expected_y);
+	CHECK(cv::norm(mx, expected_x, cv::NORM_INF) == 0 && cv::norm(my, expected_y, cv::NORM_INF) == 0);
+	source_calibration["correction"] = json::object{ { "type", "panorama" }, { "radius", 16 } };
+	CHECK(remaps.build(source_calibration, mx, my).empty());
+	CHECK(mx.type() == CV_32FC1 && std::abs(mx.at<float>(16, 16) - 16) < 1e-5);
+	CHECK(std::abs(mx.at<float>(16, 24) - 24) < 1e-5 && std::abs(my.at<float>(16, 24) - 16) < 1e-5);
+	source_calibration.at("correction").as_object()["type"] = "fov";
+	source_calibration.at("correction").as_object()["fov"] = 90;
+	CHECK(remaps.build(source_calibration, mx, my).empty());
+	CHECK(std::abs(mx.at<float>(16, 24) - (16 + std::tan(CV_PI / 8))) < 1e-5);
+	const auto valid_map = mx.clone();
+	source_calibration.at("correction").as_object()["type"] = "unknown";
+	CHECK(!remaps.build(source_calibration, mx, my).empty() && cv::norm(mx, valid_map, cv::NORM_INF) == 0);
 	CHECK(apply(body, "initial").ok);
 	CHECK(preparations == 1 && applications == 1 && last.restart && last.resume);
 	CHECK(std::filesystem::exists(paths().surround.projection_root / "test/v2/front_remap.bin"));
@@ -78,6 +150,44 @@ int main(int argc, char** argv) {
 	CHECK(config.apply(body, true).empty());
 	CHECK(preparations == 1 && applications == 1);
 	CHECK(std::filesystem::last_write_time(store.exports_index_path()) == initial_time);
+	const auto metadata_remap_path = paths().surround.projection_root / "test/v2/front_remap.bin";
+	const auto metadata_weight_path = paths().surround.projection_root / "test/v2/front_weight.bin";
+	const auto metadata_remap_time = std::filesystem::last_write_time(metadata_remap_path);
+	const auto metadata_weight_time = std::filesystem::last_write_time(metadata_weight_path);
+	const auto metadata_projection = read(store.exports_index_path());
+	auto& preset = body.at("presets").as_object().at("preset").as_object();
+	preset["name"] = "renamed";
+	CHECK(apply(body, "preset-name").ok);
+	CHECK(!last.restart && last.changes.empty());
+	CHECK(std::filesystem::last_write_time(metadata_remap_path) == metadata_remap_time);
+	CHECK(std::filesystem::last_write_time(metadata_weight_path) == metadata_weight_time);
+	CHECK(read(store.exports_index_path()) == metadata_projection);
+	preset["editor"] = json::object{ { "step", 50 }, { "zones", json::object{ { "front", json::array{ "zone" } } } } };
+	CHECK(apply(body, "preset-editor").ok && !last.restart && last.changes.empty());
+	CHECK(read(paths().surround.presets_json).at("preset").as_object().at("editor") == preset.at("editor"));
+	CHECK(std::filesystem::last_write_time(metadata_remap_path) == metadata_remap_time);
+	CHECK(std::filesystem::last_write_time(metadata_weight_path) == metadata_weight_time);
+	CHECK(read(store.exports_index_path()) == metadata_projection);
+	preset["name"] = "stand";
+	preset.erase("editor");
+	CHECK(apply(body, "preset-metadata-restored").ok && !last.restart && last.changes.empty());
+	CHECK(std::filesystem::last_write_time(metadata_remap_path) == metadata_remap_time);
+	CHECK(std::filesystem::last_write_time(metadata_weight_path) == metadata_weight_time);
+	CHECK(read(store.exports_index_path()) == metadata_projection);
+
+	auto explicit_calibration = body;
+	explicit_calibration.at("calibrations").as_object()["selected"] = make_calibration("camera_1", 12);
+	explicit_calibration.at("projections").as_object().at("test").as_object().at("surround").as_object()["calibration"] = json::object{ { "camera_1", "selected" } };
+	explicit_calibration.at("presets").as_object().at("preset").as_object().at("cameras").as_object().at("front").as_object()["calibration"] = "selected";
+	CHECK(apply(explicit_calibration, "selected-calibration").ok);
+	const auto selected_remap_time = std::filesystem::last_write_time(metadata_remap_path);
+	explicit_calibration.at("calibrations").as_object()["unused"] = make_calibration("camera_1", 30);
+	CHECK(apply(explicit_calibration, "unused-calibration").ok && !last.restart && last.changes.empty());
+	CHECK(std::filesystem::last_write_time(metadata_remap_path) == selected_remap_time);
+	explicit_calibration.at("calibrations").as_object().erase("unused");
+	CHECK(apply(explicit_calibration, "unused-calibration-removed").ok && !last.restart && last.changes.empty());
+	CHECK(std::filesystem::last_write_time(metadata_remap_path) == selected_remap_time);
+	CHECK(apply(body, "selected-calibration-restored").ok);
 
 	auto& projection = body.at("projections").as_object().at("test").as_object();
 	projection.at("surround").as_object().erase("extrinsics");
@@ -135,15 +245,23 @@ int main(int argc, char** argv) {
 	CHECK(apply(body, "replacement").ok && last.restart);
 	CHECK(sha256_file(paths().surround.presets_images / "image.png") == sha);
 
-	body.at("calibrations").as_object()["first"] = calibration("camera_1", 12);
-	body.at("calibrations").as_object()["second"] = calibration("camera_2", 25);
+	body.at("calibrations").as_object()["first"] = make_calibration("camera_1", 12);
+	body.at("calibrations").as_object()["second"] = make_calibration("camera_2", 25);
 	CHECK(apply(body, "calibrations").ok && last.restart);
+	auto& custom = body.at("calibrations").as_object().at("first").as_object();
+	custom["correction"] = json::object{ { "type", "panorama" }, { "radius", 16 } };
+	CHECK(apply(body, "panorama").ok && last.restart);
+	const auto custom_remap = sha256_file(remap_path);
+	custom.at("correction").as_object()["radius"] = 12;
+	CHECK(apply(body, "panorama-radius").ok && last.restart && sha256_file(remap_path) != custom_remap);
+	custom.erase("correction");
+	CHECK(apply(body, "fisheye-restored").ok && last.restart);
 	const auto first_remap = sha256_file(remap_path);
 	body.at("output").as_object().at("configs").as_object().at("test").as_object().at("cameras").as_object()["front"] = "camera_2";
 	CHECK(apply(body, "binding").ok && last.restart);
 	CHECK(sha256_file(remap_path) != first_remap);
 	const auto second_remap = sha256_file(remap_path);
-	body.at("calibrations").as_object()["second"] = calibration("camera_2", 30);
+	body.at("calibrations").as_object()["second"] = make_calibration("camera_2", 30);
 	CHECK(apply(body, "implicit-calibration").ok && last.restart);
 	CHECK(sha256_file(remap_path) != second_remap);
 	const auto geometry_time = std::filesystem::last_write_time(remap_path);

@@ -5,20 +5,27 @@
  * отдаёт полезную нагрузку и в корне — поэтому везде разбор через `?? `.
  */
 
-import { modulePath } from '../../../services/devices';
+import { moduleDeviceId, modulePath } from '../../../services/devices';
 import { birdviewStream } from './cameras';
 
 // Путь ручки линкера на устройстве модуля birdview — для fetch мимо fetchJson
 export const linkerPath = (path: string) => modulePath('birdview', path);
+
+export const masterPath = (path: string) => {
+    const [pathname, query] = path.split('?');
+    const params = new URLSearchParams(query);
+    params.set('device', moduleDeviceId('birdview'));
+    return `/api${pathname}?${params}`;
+};
 
 async function fetchJson<T>(
     method: 'GET' | 'POST' | 'DELETE',
     path: string,
     body?: unknown,
 ): Promise<T> {
-    // Ручки /linker/* живут на устройстве, назначенном модулю birdview
-    if (path.startsWith('/linker/')) {
-        path = modulePath('birdview', path);
+    if (path.startsWith('/linker/') || path.startsWith('/calibration/')) {
+        const runtime = ['/linker/start', '/linker/stop', '/linker/restart', '/linker/view-mode'].includes(path.split('?')[0]);
+        path = method === 'GET' || runtime ? linkerPath(path) : masterPath(path);
     }
     const opts: RequestInit = {
         method,
@@ -37,7 +44,7 @@ async function fetchJson<T>(
         let reason = text;
         try {
             const parsed = JSON.parse(text);
-            reason = parsed.error ?? parsed.description ?? parsed.message ?? text;
+            reason = parsed.detail ?? parsed.error ?? parsed.description ?? parsed.message ?? text;
         } catch {
             // Ответ не json — берём тело целиком
         }
@@ -356,6 +363,11 @@ function toRect(v: unknown): { x: number; y: number; w: number; h: number } | nu
 }
 
 export const linkerApi = {
+    saveCalibration: (key: string, source: unknown) =>
+        fetchJson('POST', '/calibration/configuration', { config_key: key, source }),
+
+    saveProjectionSource: (id: string, name: string, source: unknown) =>
+        fetchJson('POST', '/linker/projection', { id, name, source }),
     async getExports(): Promise<LinkerExport[]> {
         const json = await fetchJson<any>('GET', '/linker/exports');
         const list = json.data?.exports ?? json.exports ?? [];
@@ -597,7 +609,7 @@ export const linkerApi = {
 
     /** Библиотека загруженных моделей .glb. */
     async listModels(): Promise<SurroundModelFile[]> {
-        const json = await fetchJson<any>('GET', '/linker/models');
+        const json = await fetchJson<any>('GET', masterPath('/linker/models'));
         const list = json.data?.models ?? json.models ?? [];
         return (Array.isArray(list) ? list : [])
             .map((m: any): SurroundModelFile => ({
@@ -614,11 +626,11 @@ export const linkerApi = {
     async uploadModel(file: File): Promise<string> {
         const form = new FormData();
         form.append('model', file, file.name);
-        const res = await fetch('/linker/upload-model', { method: 'POST', body: form });
+        const res = await fetch(masterPath('/linker/upload-model'), { method: 'POST', body: form });
         const json = await res.json().catch(() => ({}));
         if (!res.ok) {
             throw new LinkerError(res.status,
-                json.error ?? json.description ?? `${res.status}`);
+                json.detail ?? json.error ?? json.description ?? `${res.status}`);
         }
         return String(json.data?.filename ?? file.name);
     },

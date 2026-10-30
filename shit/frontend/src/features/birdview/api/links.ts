@@ -5,6 +5,7 @@
  */
 
 import { modulePath } from '../../../services/devices';
+import { masterPath } from './linker';
 
 /** Конфигурация калибровки из calibration_settings.json. */
 export interface CalibrationConfigInfo {
@@ -67,7 +68,7 @@ export async function fetchCalibrationLinks(): Promise<CalibrationLinksData> {
 }
 
 export async function saveCalibrationLinks(links: CalibrationLinks): Promise<void> {
-    const res = await fetch(modulePath('birdview', '/calibration/links'), {
+    const res = await fetch(masterPath('/calibration/links'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({ links }),
@@ -76,7 +77,8 @@ export async function saveCalibrationLinks(links: CalibrationLinks): Promise<voi
         const text = await res.text().catch(() => '');
         let reason = text;
         try {
-            reason = JSON.parse(text).error ?? text;
+            const json = JSON.parse(text);
+            reason = json.detail ?? json.error ?? text;
         } catch {
             // Ответ не json — берём тело целиком
         }

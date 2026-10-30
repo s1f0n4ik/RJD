@@ -119,7 +119,7 @@ namespace constants {
 	inline const std::string META_CONFIGURATION_CONFIG_ITEM = "config_item";  // config_item
 
 	inline const std::string METHOD_CONFIGURATION_LOAD = "load";              // load
-	inline const std::string METHOD_CONFIGURATION_SAVE = "save";              // save
+	inline const std::string METHOD_CONFIGURATION_EXPORT = "export";
 	inline const std::string METHOD_CONFIGURATION_GET_ITEM = "get_item";      // get_item
 	inline const std::string METHOD_CONFIGURATION_GET_LIST = "get_list";      // get_list
 
@@ -203,7 +203,7 @@ namespace constants {
 	inline const std::string METHOD_PROJECTION_GET_LIST = "get_list";             // get_list
 	inline const std::string METHOD_PROJECTION_SET_PRESET = "set_preset";         // set_preset
 	inline const std::string METHOD_PROJECTION_APPLY_WARP = "apply_warp";         // apply_warp
-	inline const std::string METHOD_PROJECTION_SAVE_LUT = "save_lut";             // save_lut
+	inline const std::string METHOD_PROJECTION_EXPORT = "export";
 	inline const std::string METHOD_PROJECTION_RESET_WARP = "reset_warp";         // reset_warp
 
 	inline const  std::string META_PROJECTION_CONFIG_KEY = "config_key";         // config_key

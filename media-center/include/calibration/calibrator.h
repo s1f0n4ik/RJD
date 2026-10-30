@@ -1,5 +1,7 @@
 #pragma once
 
+#include "calibration/remap.h"
+
 #include "bird-view/egl-context.h"
 #include "utility/frame-storage.h"
 #include "core/image-handler.h"
@@ -114,7 +116,9 @@ namespace calibration {
 
 	private:
 
-		void handle_save_lut(const std::string& client_id, const boost::json::object& meta, COnError on_error = nullptr);
+		void handle_export_projection(const std::string& client_id, const boost::json::object& meta, COnError on_error = nullptr);
+
+		boost::json::object calibration_source(bool include_correction);
 
 		bool extract_canvas_dst_points(
 			const std::string& camera_key,
@@ -124,21 +128,14 @@ namespace calibration {
 			std::string& str_err
 		);
 
-		// Запись нормированных точек камеры в активный пресет и на диск
-		bool save_src_points(
+		// Нормированные точки и параметры коррекции места в памяти сессии
+		bool update_src_points(
 			const std::string& camera_key,
 			const std::vector<cv::Point2f>& normalized_src_points
 		);
 
 		// Секторные веса превью для всех камер с warp; лок пресета берёт вызывающий
 		bool rebuild_warp_extras();
-
-		bool save_stitching_export(
-			const std::filesystem::path& export_root,
-			const std::string& id,
-			const std::string& display_name,
-			std::string& error
-		);
 
 		bool get_image_to_build(cv::Mat& out, std::string& error);
 
@@ -173,6 +170,8 @@ namespace calibration {
 		FCameraMatrixParameters m_custom_parameters;
 
 		FUndistortMaps m_undistort;
+		URemapBuilder m_remap_builder;
+		boost::json::object m_correction_source;
 		std::mutex m_undistort_mutex;
 		// Ключ конфигурации последнего load; ручной пересчёт коррекции его
 		// стирает - картам он больше не соответствует
@@ -204,6 +203,7 @@ namespace calibration {
 			cv::Mat weight;  // CV_32FC1, canvas size, секторные веса 0..1
 		};
 		std::unordered_map<std::string, FWarpExtras> m_warp_extras;
+		std::unordered_map<std::string, boost::json::object> m_warp_calibrations;
 
 		// активный пресет в памяти
 		std::optional<FProjectionPreset> m_active_preset;

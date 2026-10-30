@@ -33,8 +33,13 @@ namespace calibration {
 	}
 
 	void UCalibrator::on_signaling_message(const std::string& msg) {
+		boost::json::value request_method;
 		auto on_error = [&](const std::string& type, const std::string& err, const std::string* client_id) {
-			send_message(make_socket_error(type, err, client_id, &m_name));
+			if (request_method.is_string() && (type == constants::TYPE_CALIBRATION_CONFIGURATION || type == constants::TYPE_PROJECTION_CONFIGURATION)) {
+				boost::json::object details{ { "method", request_method }, { "description", err } };
+				send_message(make_socket_message(type, false, client_id, &m_name, &details));
+			}
+			else send_message(make_socket_error(type, err, client_id, &m_name));
 			m_logger.error(err);
 		};
 
@@ -66,6 +71,7 @@ namespace calibration {
 			const boost::json::object* meta = nullptr;
 			if (auto* v = json_object.if_contains("meta"); v && v->is_object()) {
 				meta = &v->as_object(); // ссылка на оригинал
+				if (const auto* method = meta->if_contains("method")) request_method = *method;
 			}
 			else {
 				on_error(constants::TYPE_MESSAGE, "Error with message: missing or invalid meta!", &client_id);
@@ -456,7 +462,7 @@ namespace calibration {
 					return;
 				}
 				catch (const std::exception& error) {
-					send_message(make_socket_error(type, "Error with computing image correction: " + std::string(error.what()), &client_id, &m_name));
+					on_error(type, "Error with computing image correction: " + std::string(error.what()), &client_id);
 					return;
 				}
 			}
@@ -466,7 +472,7 @@ namespace calibration {
 					return;
 				}
 				catch (const std::exception& error) {
-					send_message(make_socket_error(type, "Error with handle projection: " + std::string(error.what()), &client_id, &m_name));
+					on_error(type, "Error with handle projection: " + std::string(error.what()), &client_id);
 					return;
 				}
 			}
@@ -904,6 +910,7 @@ namespace calibration {
 		m_undistort.ready = true;
 		// Карты пересчитаны руками: ключ загруженной конфигурации им не соответствует
 		m_loaded_calibration_key.clear();
+		m_correction_source.clear();
 	}
 
 	bool UCalibrator::restart_streamer(
@@ -1047,6 +1054,33 @@ namespace calibration {
 		send_message(make_socket_message(constants::TYPE_SWITCH_CAMERA, false, nullptr, &m_name, &send_meta));
 	}
 
+	boost::json::object UCalibrator::calibration_source(bool include_correction) {
+		std::scoped_lock lock(m_pattern_mutex, m_calibration_mutex, m_undistort_mutex);
+		boost::json::object source{
+			{ "id", m_camera_id }, { "width", m_raw_image.width }, { "height", m_raw_image.height } };
+		if (m_pattern.recieved) {
+			source["pattern_width"] = m_pattern.width;
+			source["pattern_height"] = m_pattern.height;
+			source["pattern_size"] = m_pattern.size;
+		}
+		if (m_calibration.ready) {
+			source["rms"] = m_calibration.rms;
+			source["alpha"] = m_custom_parameters.alpha;
+			source["zoom"] = m_custom_parameters.zoom;
+			source["shift_x"] = m_custom_parameters.shift_x;
+			source["shift_y"] = m_custom_parameters.shift_y;
+			source["camera_matrix"] = SBinary::make_json_object_mat(m_calibration.camera_matrix);
+			source["distortion_coeffs"] = SBinary::make_json_object_mat(m_calibration.distortion_coeffs);
+		}
+		if (include_correction && m_undistort.ready) {
+			if (!m_correction_source.empty()) source["correction"] = m_correction_source;
+			else if (!m_undistort.custom_camera_matrix.empty())
+				source["new_K"] = SBinary::make_json_object_mat(m_undistort.custom_camera_matrix);
+		}
+		else source["points_raw"] = true;
+		return source;
+	}
+
 	void UCalibrator::handle_calibration_configuration(const std::string& client_id, const boost::json::object& meta, COnError on_error) {
 		std::string method;
 		if (auto* v = meta.if_contains(constants::META_CONFIGURATION_METHOD); v && v->is_string()) {
@@ -1099,13 +1133,9 @@ namespace calibration {
 				return;
 			}
 		}
-		else if (method == constants::METHOD_CONFIGURATION_SAVE) {
+		else if (method == constants::METHOD_CONFIGURATION_EXPORT) {
 			if (m_camera_id.empty()) {
 				if (on_error) on_error(constants::TYPE_CALIBRATION_CONFIGURATION, "Error: save cinfigurations: no camera_id at server!", &client_id);
-				return;
-			}
-			if (!m_calibration_config.read(varan::paths().surround.calibration_settings)) {
-				if (on_error) on_error(constants::TYPE_CALIBRATION_CONFIGURATION, "Error: cannot read configuration file at server!", &client_id);
 				return;
 			}
 
@@ -1134,56 +1164,15 @@ namespace calibration {
 				}
 			}
 
-			boost::json::object obj_t;
-			// обязательные поля
-			obj_t[constants::JSON_ID] = m_camera_id;
-			obj_t[constants::JSON_WIDTH] = m_raw_image.width;
-			obj_t[constants::JSON_HEIGHT] = m_raw_image.height;
-
-			if (auto* v = meta.if_contains(constants::JSON_NAME); v && v->is_string()) {
-				obj_t[constants::JSON_NAME] = v->as_string();
-			}
-
-			// Если есть паттерн
-			if (m_pattern.recieved) {
-				obj_t[constants::JSON_PATTERN_WIDTH] = m_pattern.width;
-				obj_t[constants::JSON_PATTERN_HEIGHT] = m_pattern.height;
-				obj_t[constants::JSON_PATTERN_SIZE] = m_pattern.size;
-			}
-
-			if (m_calibration.ready) {
-				// Кастомные поля
-				obj_t[constants::META_ALPHA] = m_custom_parameters.alpha;
-				obj_t[constants::META_ZOOM] = m_custom_parameters.zoom;
-				obj_t[constants::META_SHIFT_X] = m_custom_parameters.shift_x;
-				obj_t[constants::META_SHIFT_Y] = m_custom_parameters.shift_y;
-				// Основа калибровки
-				obj_t[constants::JSON_RMS] = m_calibration.rms;
-				obj_t[constants::JSON_CAMERA_MATRIX] = SBinary::make_json_object_mat(m_calibration.camera_matrix);
-				obj_t[constants::JSON_DISTORTION_COEFFS] = SBinary::make_json_object_mat(m_calibration.distortion_coeffs);
-			}
-
-			// Если была проделана коррекция изображений
-			if (m_undistort.ready) {
-				obj_t[constants::JSON_NEW_K] = SBinary::make_json_object_mat(m_undistort.custom_camera_matrix);
-				auto filename_map_x = std::filesystem::path(key + "_map_x.bin");
-				auto filename_map_y = std::filesystem::path(key + "_map_y.bin");
-				if (SBinary::save_mat_to_binary(varan::paths().surround.calibration_maps / filename_map_x, m_undistort.matrix_x, &m_logger)) {
-					obj_t[constants::JSON_UNDISTORTION_MAP_X] = filename_map_x.string();
-				}
-				if (SBinary::save_mat_to_binary(varan::paths().surround.calibration_maps / filename_map_y, m_undistort.matrix_y, &m_logger)) {
-					obj_t[constants::JSON_UNDISTORTION_MAP_Y] = filename_map_y.string();
-				}
-			}
-
-			m_calibration_config.add_json_item(key, obj_t);
-			m_calibration_config.save(varan::paths().surround.calibration_settings);
+			auto source = calibration_source(true);
+			if (const auto* name = meta.if_contains("name")) source["name"] = *name;
 
 			boost::json::object send_meta;
-			send_meta[constants::META_CONFIGURATION_METHOD] = constants::METHOD_CONFIGURATION_SAVE;
+			send_meta[constants::META_CONFIGURATION_METHOD] = constants::METHOD_CONFIGURATION_EXPORT;
 			send_meta[constants::META_CONFIGURATION_CONFIG_KEY] = key;
+			send_meta["source"] = std::move(source);
 			send_message(make_socket_message(constants::TYPE_CALIBRATION_CONFIGURATION, true, &client_id, &m_name, &send_meta));
-			m_logger.info("handle_calibration_configuration(): saved configuration <" + key + ">");
+			m_logger.info("handle_calibration_configuration(): exported configuration <" + key + ">");
 			return;
 		}
 		else if (method == constants::METHOD_CONFIGURATION_LOAD) {
@@ -1272,13 +1261,11 @@ namespace calibration {
 			}
 
 			// Поля undistortion
-			if (UJsonCalibrationConfiguration::contains_undistortion_fields(obj)) {
+			if (obj.contains(constants::JSON_UNDISTORTION_MAP_X) && obj.contains(constants::JSON_UNDISTORTION_MAP_Y)) {
 				try {
-					m_undistort.custom_camera_matrix = SBinary::json_object_to_mat(obj.at(constants::JSON_NEW_K).as_object());
-
-					if (m_undistort.custom_camera_matrix.empty()) {
-						throw std::runtime_error("new_k matrix is empty after parsing");
-					}
+					m_undistort.custom_camera_matrix.release();
+					if (const auto* matrix = obj.if_contains(constants::JSON_NEW_K); matrix && matrix->is_object())
+						m_undistort.custom_camera_matrix = SBinary::json_object_to_mat(matrix->as_object());
 
 					const auto filename_map_x = std::string(obj.at(constants::JSON_UNDISTORTION_MAP_X).as_string());
 					const auto filename_map_y = std::string(obj.at(constants::JSON_UNDISTORTION_MAP_Y).as_string());
@@ -1301,6 +1288,9 @@ namespace calibration {
 			}
 
 			// Ключ уходит в пресет при warp и дальше в surround.calibration экспорта
+			m_correction_source = {};
+			if (const auto* correction = obj.if_contains("correction"); correction && correction->is_object())
+				m_correction_source = correction->as_object();
 			m_loaded_calibration_key = key;
 
 			boost::json::object send_meta;
@@ -1521,108 +1511,30 @@ namespace calibration {
 
 	void UCalibrator::compute_panorama_remap(const std::string& client_id, int radius) {
 		if (!m_calibration.ready) {
-			send_message(make_socket_error(
-				constants::TYPE_COMPUTE_PANORAMA_REMAP,
-				"Cannot compute panorama remap: calibration not ready!",
-				&client_id, &m_name));
+			send_message(make_socket_error(constants::TYPE_COMPUTE_PANORAMA_REMAP,
+				"Calibration is not ready", &client_id, &m_name));
 			return;
 		}
-
-		const int src_w = m_raw_image.width;
-		const int src_h = m_raw_image.height;
-
-		if (src_w <= 0 || src_h <= 0) {
-			send_message(make_socket_error(
-				constants::TYPE_COMPUTE_PANORAMA_REMAP,
-				"Invalid source image dimensions!",
-				&client_id, &m_name));
-			return;
-		}
-
-		// Радиус fisheye круга — по умолчанию вписан в высоту
-		float R = (radius > 0) ? static_cast<float>(radius)
-			: static_cast<float>(std::min(src_w, src_h)) * 0.5f;
-
-		// Центр fisheye на исходном кадре
-		const float cx = src_w * 0.5f;
-		const float cy = src_h * 0.5f;
-
-		// Выходное изображение того же размера
-		const int dst_w = src_w;
-		const int dst_h = src_h;
-
-		// Угол обзора fisheye (180° для типичного fisheye-объектива)
-		const float fov = static_cast<float>(CV_PI); // 180°
-
-		cv::Mat map1(dst_h, dst_w, CV_32FC1);
-		cv::Mat map2(dst_h, dst_w, CV_32FC1);
-
-		// Развёртка в горизонтальную панораму:
-		//   x: угол по горизонтали от -π/2 до +π/2 (если fov = π)
-		//   y: вертикаль — от верха круга к низу
-		//
-		//   theta_h = (x / dst_w - 0.5) * fov       — азимут (горизонтальный угол)
-		//   theta_v = (0.5 - y / dst_h) * fov       — высота (вертикальный угол)
-		//
-		// Проецируем сферическое направление обратно на fisheye (equidistant projection):
-		//   r на исходнике = R * angle_from_axis / (fov/2)
-		//   где angle_from_axis — угол отклонения от оптической оси
-		for (int y = 0; y < dst_h; ++y) {
-			float* row1 = map1.ptr<float>(y);
-			float* row2 = map2.ptr<float>(y);
-
-			// Вертикальный угол: верх кадра = +fov/2, низ = -fov/2
-			const float theta_v = -(0.5f - static_cast<float>(y) / dst_h) * fov;
-
-			for (int x = 0; x < dst_w; ++x) {
-				// Горизонтальный угол: левый край = -fov/2, правый = +fov/2
-				const float theta_h = (static_cast<float>(x) / dst_w - 0.5f) * fov;
-
-				// Направление взгляда в 3D (сфера)
-				const float sx = std::sin(theta_h) * std::cos(theta_v);
-				const float sy = std::sin(theta_v);
-				const float sz = std::cos(theta_h) * std::cos(theta_v);
-
-				// Если точка за плоскостью объектива — невалидно
-				if (sz <= 0.0f) {
-					row1[x] = -1.0f;
-					row2[x] = -1.0f;
-					continue;
-				}
-
-				// Угол отклонения от оптической оси (z)
-				const float angle = std::acos(sz);
-
-				// Проекция на fisheye (equidistant model): r = R * angle / (fov/2)
-				const float r = R * angle / (fov * 0.5f);
-
-				// Азимут на плоскости fisheye
-				const float phi = std::atan2(sy, sx);
-
-				const float src_x = cx + r * std::cos(phi);
-				const float src_y = cy + r * std::sin(phi);
-
-				row1[x] = src_x;
-				row2[x] = src_y;
+		auto source = calibration_source(false);
+		const double actual_radius = radius > 0 ? radius : std::min(m_raw_image.width, m_raw_image.height) * 0.5;
+		const boost::json::object correction{ { "type", "panorama" }, { "radius", actual_radius } };
+		source["correction"] = correction;
+		std::string error;
+		{
+			std::lock_guard lock(m_undistort_mutex);
+			error = m_remap_builder.build(source, m_undistort.matrix_x, m_undistort.matrix_y);
+			if (error.empty()) {
+				m_correction_source = correction;
+				m_undistort.ready = true;
+				m_loaded_calibration_key.clear();
 			}
 		}
-
-		m_undistort.matrix_x = std::move(map1);
-		m_undistort.matrix_y = std::move(map2);
-		m_undistort.ready = true;
-
-		m_logger.debug("compute_panorama_remap(): generated remap maps for radius=" +
-			std::to_string(static_cast<int>(R)) +
-			" src=" + std::to_string(src_w) + "x" + std::to_string(src_h));
-
-		boost::json::object send_meta;
-		send_meta[constants::META_WIDTH] = src_w;
-		send_meta[constants::META_HEIGHT] = src_h;
-		send_meta["radius"] = static_cast<int>(R);
-
-		send_message(make_socket_message(
-			constants::TYPE_COMPUTE_PANORAMA_REMAP, true,
-			&client_id, &m_name, &send_meta));
+		if (!error.empty()) {
+			send_message(make_socket_error(constants::TYPE_COMPUTE_PANORAMA_REMAP, error, &client_id, &m_name));
+			return;
+		}
+		boost::json::object meta{ { "width", m_raw_image.width }, { "height", m_raw_image.height }, { "radius", actual_radius } };
+		send_message(make_socket_message(constants::TYPE_COMPUTE_PANORAMA_REMAP, true, &client_id, &m_name, &meta));
 	}
 
 	// Хелпер
@@ -1667,48 +1579,22 @@ namespace calibration {
 	}
 
 	void UCalibrator::build_fisheye_dewarp_LUT(const std::string& client_id, int width, int height, float fov_deg) {
-		if (!m_undistort.matrix_x.empty()) m_undistort.matrix_x.release();
-		if (!m_undistort.matrix_y.empty()) m_undistort.matrix_y.release();
-
-		m_undistort.matrix_x.create(height, width, CV_32F);
-		m_undistort.matrix_y.create(height, width, CV_32F);
-
-		float cx = width * 0.5f;
-		float cy = height * 0.5f;
-
-		float fov = fov_deg * CV_PI / 180.0f;
-
-		// условный "фокус" под FOV
-		float f = width / fov;
-
-		for (int y = 0; y < height; y++) {
-			for (int x = 0; x < width; x++) {
-
-				float nx = (x - cx);
-				float ny = (y - cy);
-
-				float r = sqrt(nx * nx + ny * ny);
-
-				if (r < 1e-6f) {
-					m_undistort.matrix_x.at<float>(y, x) = cx;
-					m_undistort.matrix_y.at<float>(y, x) = cy;
-					continue;
-				}
-
-				// fisheye angle approximation
-				float theta = r / f;
-
-				// rectilinear projection
-				float scale = tan(theta) / r;
-
-				float src_x = cx + nx * scale;
-				float src_y = cy + ny * scale;
-
-				m_undistort.matrix_x.at<float>(y, x) = src_x;
-				m_undistort.matrix_y.at<float>(y, x) = src_y;
+		const boost::json::object correction{ { "type", "fov" }, { "fov", fov_deg }, { "width", width }, { "height", height } };
+		const boost::json::object source{ { "width", width }, { "height", height }, { "correction", correction } };
+		std::string error;
+		{
+			std::lock_guard lock(m_undistort_mutex);
+			error = m_remap_builder.build(source, m_undistort.matrix_x, m_undistort.matrix_y);
+			if (error.empty()) {
+				m_correction_source = correction;
+				m_undistort.ready = true;
+				m_loaded_calibration_key.clear();
 			}
 		}
-		m_undistort.ready = true;
+		if (!error.empty()) {
+			send_message(make_socket_error(constants::TYPE_UNDISTORT_COMPUTE, error, &client_id, &m_name));
+			return;
+		}
 		send_message(make_socket_message(constants::TYPE_UNDISTORT_COMPUTE, true, &client_id, &m_name));
 	}
 } // calibration

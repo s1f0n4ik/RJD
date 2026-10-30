@@ -19,6 +19,7 @@ import { SaveConfigModal } from './SaveConfigModal';
 import { useDistortion } from './useDistortion';
 import { useSnapshots } from './useSnapshots';
 import { useCalibrationProcess } from './useCalibrationProcess';
+import { linkerApi } from '../../api/linker';
 import '../../../../screens/surround/calibration.css';
 
 // Экран «Калибровка». Здесь же диспетчер основного WS: подписки на 16 типов
@@ -309,14 +310,19 @@ export function CalibrationScreen({
             }
 
             switch (msg.meta.method) {
-                case 'save':
-                    setSaving(false);
-                    if (msg.ret) {
-                        setSaveOpen(false);
-                        toast('Сохранено', msg.meta.config_key ?? '', 'ok');
-                    } else {
-                        toast('Ошибка', msg.meta.description ?? '', 'err');
+                case 'export':
+                    if (!msg.ret || !msg.meta.source || !msg.meta.config_key) {
+                        setSaving(false);
+                        toast('Ошибка', msg.meta.description ?? 'Нет исходников калибровки', 'err');
+                        break;
                     }
+                    void linkerApi.saveCalibration(String(msg.meta.config_key), msg.meta.source)
+                        .then(() => {
+                            setSaveOpen(false);
+                            toast('Сохранено', msg.meta?.config_key ?? '', 'ok');
+                        })
+                        .catch(error => toast('Ошибка', String(error instanceof Error ? error.message : error), 'err'))
+                        .finally(() => setSaving(false));
                     break;
 
                 case 'get_list':
@@ -526,7 +532,7 @@ export function CalibrationScreen({
                     onSubmit={(key, name) => {
                         setSaving(true);
                         ws.sendMessage('calibration_configuration', {
-                            method: 'save',
+                            method: 'export',
                             config_key: key,
                             name,
                         });

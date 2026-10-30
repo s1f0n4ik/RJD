@@ -64,18 +64,12 @@ URestServer::URestServer(
         [linker_ctrl](const auto& r) { return linker_ctrl->get_exports(r); });
     m_router->add_route(http::verb::get, "/linker/export",
         [linker_ctrl](const auto& r) { return linker_ctrl->get_export(r); });
-    m_router->add_route(http::verb::delete_, "/linker/export",
-        [linker_ctrl](const auto& r) { return linker_ctrl->delete_export(r); });
     m_router->add_route(http::verb::get, "/linker/presets",
         [linker_ctrl](const auto& r) { return linker_ctrl->get_presets(r); });
     m_router->add_route(http::verb::get, "/linker/preset",
         [linker_ctrl](const auto& r) { return linker_ctrl->get_preset(r); });
-    m_router->add_route(http::verb::delete_, "/linker/preset",
-        [linker_ctrl](const auto& r) { return linker_ctrl->delete_preset(r); });
     m_router->add_route(http::verb::get, "/linker/state", 
         [linker_ctrl](const auto& r) { return linker_ctrl->get_state(r); });
-    m_router->add_route(http::verb::post, "/linker/state", 
-        [linker_ctrl](const auto& r) { return linker_ctrl->post_state(r); });
     m_router->add_route(http::verb::get, "/linker/status", 
         [linker_ctrl](const auto& r) { return linker_ctrl->get_status(r); });
     m_router->add_route(http::verb::post, "/linker/start", 
@@ -84,24 +78,12 @@ URestServer::URestServer(
         [linker_ctrl](const auto& r) { return linker_ctrl->post_restart(r); });
     m_router->add_route(http::verb::post, "/linker/stop", 
         [linker_ctrl](const auto& r) { return linker_ctrl->post_stop(r); });
-    m_router->add_route(http::verb::post, "/linker/exports",
-        [linker_ctrl](const auto& r) { return linker_ctrl->post_exports(r); });
-    m_router->add_route(http::verb::post, "/linker/upload",
-        [linker_ctrl](const auto& r) {return linker_ctrl->post_upload_image(r); });
-    m_router->add_route(http::verb::post, "/linker/upload-model",
-        [linker_ctrl](const auto& r) {return linker_ctrl->post_upload_model(r); });
     m_router->add_route(http::verb::get, "/linker/models",
         [linker_ctrl](const auto& r) {return linker_ctrl->get_models(r); });
     m_router->add_route(http::verb::get, "/linker/image",
         [linker_ctrl](const auto& r) { return linker_ctrl->get_image(r); });
-    m_router->add_route(http::verb::post, "/linker/surround-camera",
-        [linker_ctrl](const auto& r) { return linker_ctrl->post_surround_camera(r); });
-    m_router->add_route(http::verb::post, "/linker/surround",
-        [linker_ctrl](const auto& r) { return linker_ctrl->post_surround(r); });
     m_router->add_route(http::verb::get, "/linker/surround",
         [linker_ctrl](const auto& r) { return linker_ctrl->get_surround(r); });
-    m_router->add_route(http::verb::post, "/linker/top",
-        [linker_ctrl](const auto& r) { return linker_ctrl->post_top(r); });
     m_router->add_route(http::verb::get, "/linker/top",
         [linker_ctrl](const auto& r) { return linker_ctrl->get_top(r); });
     m_router->add_route(http::verb::post, "/linker/top-version",
@@ -110,17 +92,11 @@ URestServer::URestServer(
         [linker_ctrl](const auto& r) { return linker_ctrl->post_recalc(r); });
     m_router->add_route(http::verb::post, "/linker/view-mode",
         [linker_ctrl](const auto& r) { return linker_ctrl->post_view_mode(r); });
-    m_router->add_route(http::verb::post, "/linker/dual-output",
-        [linker_ctrl](const auto& r) { return linker_ctrl->post_dual_output(r); });
-    m_router->add_route(http::verb::post, "/linker/rotation",
-        [linker_ctrl](const auto& r) { return linker_ctrl->post_rotation(r); });
 
     // Сопоставление камер birdview и конфигураций калибровки
     auto calibration_ctrl = std::make_shared<UCalibrationController>(&m_logger);
     m_router->add_route(http::verb::get, "/calibration/links",
         [calibration_ctrl](const auto& r) { return calibration_ctrl->get_links(r); });
-    m_router->add_route(http::verb::post, "/calibration/links",
-        [calibration_ctrl](const auto& r) { return calibration_ctrl->post_links(r); });
     }
 
     // Маршруты для Нейронки — только при загруженном модуле neural

@@ -716,11 +716,11 @@ namespace birdview {
 
 			cv::Mat remap_norm;
 			if (has_calib) {
-				// src нормированы на кадре камеры; в пиксели по размеру записи
+				const auto point_size = calib_maps.undist_x.empty() ? calib_maps.raw_size : calib_maps.undist_x.size();
 				std::vector<cv::Point2f> src_abs = cam.src_points;
 				for (auto& p : src_abs) {
-					p.x *= static_cast<float>(calib_maps.raw_size.width);
-					p.y *= static_cast<float>(calib_maps.raw_size.height);
+					p.x *= static_cast<float>(point_size.width);
+					p.y *= static_cast<float>(point_size.height);
 				}
 				cv::Mat mx, my;
 				if (!build_warp_remap(src_abs, cam.dst_points, canvas, mx, my, error)) {

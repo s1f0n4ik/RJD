@@ -1,6 +1,7 @@
 #include "bird-view/surround-bake.h"
 #include "calibration/json-projection.h"
 #include "calibration/constants.h"
+#include "calibration/remap.h"
 
 #include <algorithm>
 #include <fstream>
@@ -55,6 +56,8 @@ namespace birdview {
 		struct FCalibEntry {
 			cv::Mat K, D, new_K;
 			cv::Size image_size;
+			boost::json::object source;
+			bool points_raw = false;
 		};
 
 		// Запись калибровки камеры: по явному ключу или первая с совпавшим id
@@ -125,6 +128,8 @@ namespace birdview {
 				static_cast<int>(w->to_number<int64_t>()),
 				static_cast<int>(h->to_number<int64_t>())
 			};
+			out.source = *entry;
+			if (const auto* raw = entry->if_contains("points_raw")) out.points_raw = raw->as_bool();
 			return true;
 		}
 
@@ -307,6 +312,40 @@ namespace birdview {
 					(cam.dst_points[i].x - cx) * scale,
 					0.0f,
 					(cam.dst_points[i].y - cy) * scale);
+			}
+			if (calib.source.contains("correction")) {
+				calibration::URemapBuilder builder;
+				cv::Mat map_x, map_y;
+				if (auto failure = builder.build(calib.source, map_x, map_y); !failure.empty()) {
+					error = "camera <" + camera_id + ">: " + failure;
+					return false;
+				}
+				cv::Mat float_x, float_y;
+				cv::convertMaps(map_x, map_y, float_x, float_y, CV_32FC1);
+				cv::Mat sample_x(1, static_cast<int>(image_points.size()), CV_32FC1), sample_y(sample_x.size(), CV_32FC1);
+				for (size_t i = 0; i < cam.src_points.size(); ++i) {
+					sample_x.at<float>(0, i) = std::clamp(cam.src_points[i].x * map_x.cols, 0.0f, static_cast<float>(map_x.cols - 1));
+					sample_y.at<float>(0, i) = std::clamp(cam.src_points[i].y * map_x.rows, 0.0f, static_cast<float>(map_x.rows - 1));
+				}
+				cv::Mat raw_x, raw_y;
+				cv::remap(float_x, raw_x, sample_x, sample_y, cv::INTER_LINEAR);
+				cv::remap(float_y, raw_y, sample_x, sample_y, cv::INTER_LINEAR);
+				for (size_t i = 0; i < image_points.size(); ++i) {
+					image_points[i] = { raw_x.at<float>(0, i), raw_y.at<float>(0, i) };
+					const auto& point = image_points[i];
+					if (!std::isfinite(point.x) || !std::isfinite(point.y) || point.x < 0 || point.y < 0
+						|| point.x >= calib.image_size.width || point.y >= calib.image_size.height) {
+						error = "camera <" + camera_id + ">: marked point is outside the correction map";
+						return false;
+					}
+				}
+				calib.points_raw = true;
+			}
+			if (calib.points_raw) {
+				std::vector<cv::Point2f> rectified;
+				cv::fisheye::undistortPoints(image_points, rectified, calib.K, calib.D, cv::Mat::eye(3, 3, CV_64F), calib.K);
+				image_points = std::move(rectified);
+				calib.new_K = calib.K;
 			}
 
 			cv::Mat R, tvec;

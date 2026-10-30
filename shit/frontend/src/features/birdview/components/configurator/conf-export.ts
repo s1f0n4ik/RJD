@@ -1,6 +1,6 @@
 import { confState } from '../../state/conf-store';
 import { cameraZonesOrdered, zoneRotationFor } from './conf-canvas';
-import { linkerPath } from '../../api/linker';
+import { masterPath } from '../../api/linker';
 
 // Сборка и отправка конфигурации birdview.
 // Модель редактора метровая, наружу уходят пиксели канваса: всё умножается на
@@ -211,9 +211,9 @@ export async function saveExport(params: ExportParams): Promise<ExportResult> {
         if (img.file) form.append('images', img.file, img.name);
     });
 
-    const res = await fetch(linkerPath('/linker/exports'), { method: 'POST', body: form });
+    const res = await fetch(masterPath('/linker/exports'), { method: 'POST', body: form });
     const json = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+    if (!res.ok) throw new Error(json.detail ?? json.error ?? `HTTP ${res.status}`);
 
     return result;
 }

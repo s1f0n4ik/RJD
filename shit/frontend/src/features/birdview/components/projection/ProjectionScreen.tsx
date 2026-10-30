@@ -460,32 +460,24 @@ export function ProjectionScreen({
                 }
 
                 case PROJ_METHOD.SAVE_LUT: {
-                    setLutSaving(false);
-                    if (msg.ret !== true) {
-                        const err = meta.description ?? 'Сервер вернул ошибку';
-                        log.log(`save_lut failed: ${err}`, 'err');
-                        toast('Не сохранено', err, 'err');
+                    if (msg.ret !== true || !meta.source) {
+                        setLutSaving(false);
+                        toast('Не сохранено', meta.description ?? 'Нет исходников проекции', 'err');
                         return;
                     }
-                    log.log(`save_lut ok: id=${meta.id ?? '?'}`, 'ok');
-                    toast('Сохранено', `Конфигурация <${meta.id ?? ''}>`, 'ok');
-                    setLutOpen(false);
-
-                    // Перезапись живой конфигурации: рестарт вывода за оператором
-                    const savedId = String(meta.id ?? '');
-                    if (savedId) {
-                        void linkerApi.getStatus()
-                            .then(st => {
-                                if (st.running && st.exportId === savedId) {
-                                    toast(
-                                        'Конфигурация в эфире',
-                                        'Перезапустите вывод в линкере, чтобы применить новые карты',
-                                        'info',
-                                    );
-                                }
-                            })
-                            .catch(() => {});
-                    }
+                    const id = String(meta.id ?? '');
+                    void linkerApi.saveProjectionSource(id, String(meta.name ?? ''), meta.source)
+                        .then(() => {
+                            log.log(`projection saved: id=${id}`, 'ok');
+                            toast('Сохранено', `Конфигурация <${id}>`, 'ok');
+                            setLutOpen(false);
+                        })
+                        .catch(error => {
+                            const text = error instanceof Error ? error.message : String(error);
+                            log.log(text, 'err');
+                            toast('Не сохранено', text, 'err');
+                        })
+                        .finally(() => setLutSaving(false));
                     return;
                 }
 

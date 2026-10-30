@@ -13,6 +13,7 @@
 
 #include "bird-view/top-bake.h"
 #include "calibration/utility.h"
+#include "calibration/remap.h"
 #include "core/machine-config.h"
 #include "core/paths.h"
 
@@ -111,11 +112,21 @@ namespace varan::birdview {
 			for (const auto& kv : entries) {
 				if (!kv.value().is_object()) throw std::runtime_error("calibration must be an object");
 				boost::json::object geometry;
-				for (const char* key : { "id", "width", "height", "camera_matrix", "distortion_coeffs", "new_K" })
+				for (const char* key : { "id", "width", "height", "camera_matrix", "distortion_coeffs", "new_K", "correction", "points_raw" })
 					if (const auto* value = kv.value().as_object().if_contains(key)) geometry[key] = *value;
 				result[kv.key()] = std::move(geometry);
 			}
 			return result;
+		}
+
+		boost::json::object preset_geometry(boost::json::object entries) {
+			for (auto& kv : entries) {
+				if (!kv.value().is_object()) throw std::runtime_error("preset must be an object");
+				auto& entry = kv.value().as_object();
+				entry.erase("name");
+				entry.erase("editor");
+			}
+			return entries;
 		}
 
 		boost::json::object with_derived(const boost::json::object& source, const boost::json::object& derived) {
@@ -190,17 +201,9 @@ namespace varan::birdview {
 		std::string build_maps(const boost::json::object& entry,
 			const std::filesystem::path& map_x, const std::filesystem::path& map_y) {
 			using calibration::utility::SBinary;
-			const auto* k = js::obj(entry, "camera_matrix");
-			const auto* d = js::obj(entry, "distortion_coeffs");
-			const auto* p = js::obj(entry, "new_K");
-			const int width = static_cast<int>(js::num(entry, "width", 0));
-			const int height = static_cast<int>(js::num(entry, "height", 0));
-			if (!k || !d || !p || width <= 0 || height <= 0)
-				return "camera_matrix, distortion_coeffs, new_K and size are required";
 			cv::Mat mx, my;
-			cv::fisheye::initUndistortRectifyMap(SBinary::json_object_to_mat(*k),
-				SBinary::json_object_to_mat(*d), cv::Mat::eye(3, 3, CV_64F),
-				SBinary::json_object_to_mat(*p), cv::Size(width, height), CV_16SC2, mx, my);
+			calibration::URemapBuilder builder;
+			if (auto error = builder.build(entry, mx, my); !error.empty()) return error;
 			if (!SBinary::save_mat_to_binary(map_x, mx, nullptr)
 				|| !SBinary::save_mat_to_binary(map_y, my, nullptr)) return "cannot write undistort maps";
 			return {};
@@ -391,7 +394,7 @@ namespace varan::birdview {
 					}
 					else if (value.rows != 3 || value.cols != 3) return std::string(key) + " must be 3x3";
 				}
-				if (entry.contains("new_K")) {
+				if (entry.contains("new_K") || entry.contains("correction")) {
 					const std::string key(kv.key());
 					const auto x = paths.calibration_maps / (key + "_map_x.bin");
 					const auto y = paths.calibration_maps / (key + "_map_y.bin");
@@ -399,7 +402,7 @@ namespace varan::birdview {
 					entry["undist_map_y"] = y.filename().string();
 					const auto* before = js::obj(calib_now, key.c_str());
 					bool changed = !before || !std::filesystem::exists(x) || !std::filesystem::exists(y);
-					for (const char* field_name : { "width", "height", "camera_matrix", "distortion_coeffs", "new_K" })
+					for (const char* field_name : { "width", "height", "camera_matrix", "distortion_coeffs", "new_K", "correction" })
 						changed = changed || (before && field(*before, field_name) != field(entry, field_name));
 					if (changed) maps_needed.insert(key);
 				}
@@ -420,7 +423,7 @@ namespace varan::birdview {
 					|| fps->to_number<double>() < 1 || fps->to_number<double>() > 60)) return "correction fps must be within 1..60";
 			}
 			const auto calib_changed = changed_entries(calibration_geometry(calib_now), calibration_geometry(calib_new));
-			const auto presets_changed = changed_entries(presets_now, presets_new);
+			const auto presets_changed = changed_entries(preset_geometry(presets_now), preset_geometry(presets_new));
 			for (const auto& kv : *configs) {
 				const std::string id(kv.key());
 				if (!projections.contains(id) || !kv.value().is_object()) return "output <" + id + "> must reference a projection";
@@ -465,16 +468,31 @@ namespace varan::birdview {
 						for (const auto& camera : *cameras)
 							if (camera.value().is_object()) used_calibrations.insert(js::str(camera.value().as_object(), "calibration"));
 				for (const auto& key : used_calibrations) geometry = geometry || calib_changed.contains(key) || maps_needed.contains(key);
-				std::set<std::string> used_cameras;
+				const auto* surround = js::obj(src, "surround");
+				const auto* surround_calibrations = surround ? js::obj(*surround, "calibration") : nullptr;
+				const auto* top = js::obj(src, "top");
+				const auto* top_calibrations = top ? js::obj(*top, "calibration") : nullptr;
+				if (!top_calibrations || top_calibrations->empty()) top_calibrations = surround_calibrations;
+				const auto* preset = js::obj(presets_new, js::str(src, "preset").c_str());
+				const auto* preset_cameras = preset ? js::obj(*preset, "cameras") : nullptr;
+				std::set<std::string> fallback_cameras;
 				if (next_output)
 					if (const auto* bindings = js::obj(*next_output, "cameras"))
 						for (const auto& binding : *bindings)
-							if (binding.value().is_string()) used_cameras.insert(binding.value().as_string().c_str());
+							if (binding.value().is_string()) {
+								const std::string camera_id(binding.value().as_string());
+								bool top_explicit = top_calibrations && !js::str(*top_calibrations, camera_id.c_str()).empty();
+								if (!top_explicit && preset_cameras)
+									if (const auto* camera = js::obj(*preset_cameras, std::string(binding.key()).c_str()))
+										top_explicit = !js::str(*camera, "calibration").empty();
+								const bool surround_explicit = surround_calibrations && !js::str(*surround_calibrations, camera_id.c_str()).empty();
+								if (!top_explicit || (surround && !surround_explicit)) fallback_cameras.insert(camera_id);
+							}
 				for (const auto& key : calib_changed) {
 					const auto* old_calibration = js::obj(calib_now, key.c_str());
 					const auto* new_calibration = js::obj(calib_new, key.c_str());
-					if ((old_calibration && used_cameras.contains(js::str(*old_calibration, "id")))
-						|| (new_calibration && used_cameras.contains(js::str(*new_calibration, "id")))) geometry = true;
+					if ((old_calibration && fallback_cameras.contains(js::str(*old_calibration, "id")))
+						|| (new_calibration && fallback_cameras.contains(js::str(*new_calibration, "id")))) geometry = true;
 				}
 				if (geometry) recalc.insert(id);
 				auto entry = src;

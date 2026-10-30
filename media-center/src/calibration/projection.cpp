@@ -90,6 +90,7 @@ namespace calibration {
                 // Сброс настроек
                 m_warped_mats.clear();
                 m_warp_extras.clear();
+                m_warp_calibrations.clear();
                 m_saved_to_warp_camera_images.clear();
             }
 
@@ -232,6 +233,7 @@ namespace calibration {
 
                 {
                     std::lock_guard<std::mutex> lock(m_active_preset_mutex);
+                    m_warp_calibrations.erase(camera_key);
                     m_warped_mats[camera_key] = std::make_pair(std::move(proj_map_x), std::move(proj_map_y));
 
                     // Секторные веса зависят от всех камер разом: новая зона
@@ -262,11 +264,10 @@ namespace calibration {
                     return;
                 }
 
-                // Точки запоминаем в пресете только после удачной сборки, чтобы на диск
-                // не попадала разметка, которая не даёт результата
-                if (!save_src_points(camera_key, normalized_src_points)) {
-                    m_logger.warn("handle_projection_configuration(): cannot save src_points for camera <"
-                        + camera_key + ">");
+                if (!update_src_points(camera_key, normalized_src_points)) {
+                    if (on_error) on_error(constants::TYPE_PROJECTION_CONFIGURATION,
+                        "Cannot capture source points for camera <" + camera_key + ">", &client_id);
+                    return;
                 }
 
                 // Отправляем канвас
@@ -276,7 +277,7 @@ namespace calibration {
                 send_meta[constants::META_PROJECTION_CAMERA_ID] = m_camera_id;
                 // Ключ коррекции по правилу записи в пресет; без него фронт
                 // стирает метку у места
-                if (m_undistort.ready && !m_loaded_calibration_key.empty()) {
+                if (m_apply_undistort.load() && m_undistort.ready && !m_loaded_calibration_key.empty()) {
                     send_meta["calibration"] = m_loaded_calibration_key;
                 }
 
@@ -301,6 +302,7 @@ namespace calibration {
                 std::lock_guard<std::mutex> lock(m_active_preset_mutex);
                 m_warped_mats.clear();
                 m_warp_extras.clear();
+                m_warp_calibrations.clear();
                 m_saved_to_warp_camera_images.clear();
             }
             {
@@ -319,8 +321,8 @@ namespace calibration {
         }
 
         // ----------------------- Сохранение LUT в OpenGL формате --------------------------
-        if (method == constants::METHOD_PROJECTION_SAVE_LUT) {
-            handle_save_lut(client_id, meta, on_error);
+        if (method == constants::METHOD_PROJECTION_EXPORT) {
+            handle_export_projection(client_id, meta, on_error);
             return;
         }
 
@@ -445,13 +447,8 @@ namespace calibration {
         }
         if (m_warped_mats.empty()) {
             m_warp_extras.clear();
+            m_warp_calibrations.clear();
             return true;
-        }
-
-        const cv::Size raw{ m_raw_image.width, m_raw_image.height };
-        if (raw.width <= 0 || raw.height <= 0) {
-            m_logger.error("rebuild_warp_extras(): invalid snapshot size");
-            return false;
         }
 
         std::vector<std::string> keys;
@@ -461,6 +458,15 @@ namespace calibration {
         cv::Size canvas{ 0, 0 };
 
         for (const auto& [key, maps] : m_warped_mats) {
+            cv::Size raw{ m_raw_image.width, m_raw_image.height };
+            if (const auto source = m_warp_calibrations.find(key); source != m_warp_calibrations.end()) {
+                raw.width = source->second.at("width").to_number<int>();
+                raw.height = source->second.at("height").to_number<int>();
+            }
+            if (raw.width <= 0 || raw.height <= 0) {
+                m_logger.error("rebuild_warp_extras(): invalid snapshot size for <" + key + ">");
+                return false;
+            }
             const cv::Mat& mx = maps.first;
             const cv::Mat& my = maps.second;
             if (mx.empty() || my.empty() || mx.size() != my.size()) {
@@ -550,21 +556,21 @@ namespace calibration {
         return true;
     }
 
-    bool UCalibrator::save_src_points(
+    bool UCalibrator::update_src_points(
         const std::string& camera_key,
         const std::vector<cv::Point2f>& normalized_src_points)
     {
-        FProjectionPreset preset_copy;
+        auto calibration = calibration_source(m_apply_undistort.load());
         {
             std::lock_guard<std::mutex> lock_preset(m_active_preset_mutex);
             if (!m_active_preset) {
-                m_logger.warn("save_src_points(): no active projection preset");
+                m_logger.warn("update_src_points(): no active projection preset");
                 return false;
             }
 
             auto cam_it = m_active_preset->cameras.find(camera_key);
             if (cam_it == m_active_preset->cameras.end()) {
-                m_logger.warn("save_src_points(): camera <" + camera_key + "> not found in active preset");
+                m_logger.warn("update_src_points(): camera <" + camera_key + "> not found in active preset");
                 return false;
             }
 
@@ -575,27 +581,16 @@ namespace calibration {
             }
             // Ключ конфигурации коррекции по правилу компоновки карт: живые
             // undistort-карты сессии из load - пишется, иначе стирается
-            if (m_undistort.ready && !m_loaded_calibration_key.empty()) {
+            if (m_apply_undistort.load() && m_undistort.ready && !m_loaded_calibration_key.empty()) {
                 cam_it->second.calibration_key = m_loaded_calibration_key;
             }
             else {
                 cam_it->second.calibration_key.clear();
             }
-            preset_copy = *m_active_preset;
+            m_warp_calibrations[camera_key] = std::move(calibration);
         }
 
-        // Свежий файл перед мёржем: пресет параллельно правит конфигуратор,
-        // и мёрж в старую копию затирал бы его габарит и картинки
-        if (!m_projection_config.read(varan::paths().surround.presets_json)) {
-            m_logger.warn("save_src_points(): cannot re-read presets before merge");
-        }
-
-        // Пресет писать под локом нельзя: запись на диск держала бы обработку кадров
-        if (!m_projection_config.save_preset(preset_copy)) {
-            return false;
-        }
-
-        return m_projection_config.save(varan::paths().surround.presets_json);
+        return true;
     }
 
     bool UCalibrator::get_image_to_build(cv::Mat& out, std::string& error) {
@@ -635,255 +630,50 @@ namespace calibration {
         return true;
     }
 
-    bool UCalibrator::save_stitching_export(
-        const std::filesystem::path& export_root,
-        const std::string& id,
-        const std::string& display_name,
-        std::string& error
-    ) {
-        std::ostringstream oss;
-        oss << "save_stitching_export(): begin export, id=<" << id << ">, name=<" << display_name
-            << ">, root=<" << export_root << ">";
-        m_logger.info(oss.str());
-
-        // Снапшот всего, что нам нужно из активного пресета.
-        cv::Size canvas_size;
-        boost::json::array overlay_images;
-        std::unordered_map<std::string, FProjectionCamera> cams_copy;
-        std::string preset_key;
-        {
-            std::lock_guard<std::mutex> preset_lk(m_active_preset_mutex);
-            if (!m_active_preset) {
-                error = "save_stitching_export(): no active projection preset";
-                return false;
-            }
-            canvas_size = m_active_preset->canvas_size;
-            cams_copy = m_active_preset->cameras;
-            preset_key = m_active_preset->key;
-            try {
-                overlay_images = m_projection_config.serialize_images(m_active_preset->images);
-            }
-            catch (...) {
-                m_logger.warn("save_stitching_export(): cannot serialize images from active preset!");
-            }
-        }
-
-        // Габарит и метры мира из пресета: печка и схема линкера читают их
-        // из записи экспорта, модель пресета этот блок не разбирает
-        boost::json::value machine_block;
-        bool has_machine = false;
-        try {
-            std::ifstream pf(varan::paths().surround.presets_json);
-            if (pf) {
-                std::stringstream pss; pss << pf.rdbuf();
-                auto pv = boost::json::parse(pss.str());
-                if (pv.is_object()) {
-                    if (auto* p = pv.as_object().if_contains(preset_key); p && p->is_object()) {
-                        if (auto* m = p->as_object().if_contains("machine"); m && m->is_object()) {
-                            machine_block = *m;
-                            has_machine = true;
-                        }
-                    }
-                }
-            }
-        }
-        catch (...) {
-            m_logger.warn("save_stitching_export(): cannot read machine block from presets");
-        }
-        if (canvas_size.width <= 0 || canvas_size.height <= 0) {
-            error = "save_stitching_export(): invalid canvas size";
-            return false;
-        }
-        if (id.empty()) {
-            error = "save_stitching_export(): empty id";
-            return false;
-        }
-
-        m_logger.debug(
-            "save_stitching_export(): preset snapshot acquired, canvas=" +
-            std::to_string(canvas_size.width) + "x" +
-            std::to_string(canvas_size.height) +
-            ", cameras=" + std::to_string(cams_copy.size())
-        );
-
-        // Размер raw, к которому будут нормализованы remap-координаты.
-        const cv::Size raw_size{ m_raw_image.width, m_raw_image.height };
-
-        m_logger.debug("save_stitching_export(): raw image size=" + std::to_string(raw_size.width) + "x" + std::to_string(raw_size.height));
-
-        // Undistort-карты текущей сессии. У UCalibrator одна камера за раз,
-        // поэтому только текущие m_undistort.matrix_x/y релевантны.
-        cv::Mat undist_x, undist_y;
-        if (m_undistort.ready && !m_undistort.matrix_x.empty() && !m_undistort.matrix_y.empty()) {
-            std::lock_guard<std::mutex> ulk(m_undistort_mutex);
-            undist_x = m_undistort.matrix_x;
-            undist_y = m_undistort.matrix_y;
-
-            m_logger.debug(
-                "save_stitching_export(): undistort maps copied, size=" +
-                std::to_string(undist_x.cols) + "x" +
-                std::to_string(undist_x.rows)
-            );
-
-            m_logger.debug("undist_x type=" + std::to_string(m_undistort.matrix_x.type()));
-            m_logger.debug("undist_y type=" + std::to_string(m_undistort.matrix_y.type()));
-        }
-        else {
-            m_logger.warn("save_stitching_export(): undistort maps are not ready");
-        }
-
-        // Композиция remap на камеру; веса и запись индекса делает печка
-        birdview::UTopBaker baker(&m_logger);
-        std::vector<birdview::FTopBakeCamera> baked;
-
-        for (const auto& [cam_key, cam] : cams_copy) {
-            auto warp_it = m_warped_mats.find(cam_key);
-            if (warp_it == m_warped_mats.end()) {
-                m_logger.warn("save_stitching_export(): skip <" + cam_key + ">, no warp");
-                continue;
-            }
-
-            cv::Mat remap_norm;
-            std::string compose_error;
-            if (!baker.compose_remap_to_raw(
-                warp_it->second.first, warp_it->second.second,
-                undist_x, undist_y,
-                raw_size, remap_norm, compose_error)
-            ){
-                m_logger.error("save_stitching_export(): compose failed for <" + cam_key
-                    + ">: " + compose_error);
-                continue;
-            }
-
-            birdview::FTopBakeCamera item;
-            item.key = cam_key;
-            // Имя места из пресета. По нему линкер показывает, какую камеру куда
-            // ставить: ключи вроде left_front оператору ничего не говорят
-            item.name = cam.name;
-            item.camera_id = cam.camera_id;
-            item.remap = std::move(remap_norm);
-            item.region = !cam.canvas_region.empty()
-                ? cam.canvas_region : birdview::UTopBaker::hull_of(cam.dst_points);
-            baked.push_back(std::move(item));
-
-            m_logger.info("save_stitching_export(): composed camera <" + cam_key + ">");
-        }
-
-        // Имя, картинки, габарит и ключ пресета кладутся поверх записи;
-        // ключ нужен пересчёту в линкере, чтобы найти src-точки
-        boost::json::object patch;
-        patch["name"] = display_name;
-        patch["images"] = overlay_images;
-        patch["preset"] = preset_key;
-        if (has_machine) patch["machine"] = machine_block;
-
-        // Карта калибровки из пресета: surround-печка ищет по ней записи камер
-        boost::json::object calib_map;
-        for (const auto& [cam_key, cam] : cams_copy) {
-            if (!cam.camera_id.empty() && !cam.calibration_key.empty()) {
-                calib_map[cam.camera_id] = cam.calibration_key;
-            }
-        }
-
-        if (!baker.save_export(export_root, constants::LINKER_CONFIGURATION_INDEX,
-            id, canvas_size, baked, patch, calib_map, error)) {
-            m_logger.error("save_stitching_export(): " + error);
-            return false;
-        }
-
-        m_logger.info("save_stitching_export(): exported " + std::to_string(baked.size())
-            + " cameras under id <" + id + ">");
-        return true;
-    }
-
-    void UCalibrator::handle_save_lut(
-        const std::string& client_id, 
-        const boost::json::object& meta, 
-        COnError on_error
-    ) {
-        // 1) Парсим id и name из meta.
-        std::string id;
-        if (auto* v = meta.if_contains(constants::META_PROJECTION_ID); v && v->is_string()) {
-            id = v->as_string();
-        }
-        else {
-            if (on_error) on_error(constants::TYPE_PROJECTION_CONFIGURATION,
-                "Error: missing or invalid <id> at meta block!",
-                &client_id);
+    void UCalibrator::handle_export_projection(const std::string& client_id,
+        const boost::json::object& meta, COnError on_error) {
+        const auto* id_value = meta.if_contains("id");
+        const auto* name_value = meta.if_contains("name");
+        if (!id_value || !id_value->is_string() || id_value->as_string().empty()
+            || !name_value || !name_value->is_string()) {
+            if (on_error) on_error(constants::TYPE_PROJECTION_CONFIGURATION, "id and name are required", &client_id);
             return;
         }
-        if (id.empty()) {
-            if (on_error) on_error(constants::TYPE_PROJECTION_CONFIGURATION,
-                "Error: <id> cannot be empty",
-                &client_id);
-            return;
-        }
-
-        // Защита от path-traversal: id используется как имя подкаталога.
-        // Допускаем только [a-zA-Z0-9_-].
+        const std::string id(id_value->as_string());
         for (char c : id) {
-            const bool ok = (c >= 'a' && c <= 'z')
-                || (c >= 'A' && c <= 'Z')
-                || (c >= '0' && c <= '9')
-                || c == '_' || c == '-';
-            if (!ok) {
-                if (on_error) on_error(constants::TYPE_PROJECTION_CONFIGURATION,
-                    "Error: <id> contains invalid characters (allowed: a-z, A-Z, 0-9, _, -)",
-                    &client_id);
+            if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-')) {
+                if (on_error) on_error(constants::TYPE_PROJECTION_CONFIGURATION, "Invalid projection id", &client_id);
                 return;
             }
         }
-
-        std::string display_name;
-        if (auto* v = meta.if_contains(constants::META_PROJECTION_NAME); v && v->is_string()) {
-            display_name = v->as_string();
-        }
-        else {
-            if (on_error) on_error(constants::TYPE_PROJECTION_CONFIGURATION,
-                "Error: missing or invalid <name> at meta block!",
-                &client_id);
-            return;
-        }
-
-        // 2) Проверка готовности: все камеры активного пресета должны иметь warp + extras.
-        {
-            std::lock_guard<std::mutex> preset_lk(m_active_preset_mutex);
+        boost::json::object source;
+        try {
+            std::lock_guard lock(m_active_preset_mutex);
             if (!m_active_preset) {
-                if (on_error) on_error(constants::TYPE_PROJECTION_CONFIGURATION,
-                    "Error: no active projection preset on server!",
-                    &client_id);
-                return;
+                throw std::runtime_error("No active preset");
             }
-            for (const auto& [cam_key, cam] : m_active_preset->cameras) {
-                if (m_warped_mats.find(cam_key) == m_warped_mats.end() ||
-                    m_warp_extras.find(cam_key) == m_warp_extras.end())
-                {
-                    if (on_error) on_error(constants::TYPE_PROJECTION_CONFIGURATION,
-                        "Error: camera <" + cam_key + "> has no applied warp",
-                        &client_id);
-                    return;
+            source["preset_key"] = m_active_preset->key;
+            source["canvas"] = boost::json::object{ { "width", m_active_preset->canvas_size.width }, { "height", m_active_preset->canvas_size.height } };
+            boost::json::object cameras;
+            for (const auto& [key, camera] : m_active_preset->cameras) {
+                const auto calibration = m_warp_calibrations.find(key);
+                if (!m_warped_mats.contains(key) || !m_warp_extras.contains(key) || calibration == m_warp_calibrations.end()) {
+                    throw std::runtime_error("Camera <" + key + "> has no applied warp");
                 }
+                boost::json::array src, dst;
+                for (const auto& point : camera.src_points) src.push_back(boost::json::array{ point.x, point.y });
+                for (const auto& point : camera.dst_points) dst.push_back(boost::json::array{ point.x, point.y });
+                cameras[key] = boost::json::object{ { "camera_id", camera.camera_id },
+                    { "src_points", src }, { "dst_points", dst }, { "calibration_source", calibration->second } };
             }
+            source["cameras"] = std::move(cameras);
         }
-
-        // 3) Экспорт.
-        std::string error;
-        if (!save_stitching_export(varan::paths().surround.projection_root, id, display_name, error)) {
-            if (on_error) on_error(constants::TYPE_PROJECTION_CONFIGURATION,
-                "Error: failed to save stitching export <" + id + ">:" + error,
-                &client_id);
+        catch (const std::exception& error) {
+            if (on_error) on_error(constants::TYPE_PROJECTION_CONFIGURATION, error.what(), &client_id);
             return;
         }
-
-        // 4) Ответ клиенту.
-        boost::json::object send_meta;
-        send_meta[constants::META_PROJECTION_METHOD] = constants::METHOD_PROJECTION_SAVE_LUT;
-        send_meta[constants::META_PROJECTION_ID] = id;
-        send_meta[constants::META_PROJECTION_NAME] = display_name;
-
-        send_message(make_socket_message(constants::TYPE_PROJECTION_CONFIGURATION, true, &client_id, &m_name, &send_meta));
-        m_logger.info("save_lut: exported configuration <" + id + ">");
-        return;
+        boost::json::object response{ { "method", constants::METHOD_PROJECTION_EXPORT }, { "id", id }, { "name", *name_value }, { "source", source } };
+        send_message(make_socket_message(constants::TYPE_PROJECTION_CONFIGURATION, true, &client_id, &m_name, &response));
     }
 
     bool UCalibrator::send_canvas_as_binary(const std::string& client_id, const boost::json::object& meta, std::string& error) {

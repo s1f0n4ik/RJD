@@ -4,7 +4,7 @@ import { Modal } from '../../../../app/Modal';
 import { useToast } from '../../../../app/Toast';
 import { PresetPreview } from './PresetPreview';
 import type { PresetPreviewData } from './PresetPreview';
-import { linkerPath } from '../../api/linker';
+import { linkerPath, masterPath } from '../../api/linker';
 
 // Загрузка сохранённого пресета в конфигуратор. Пресеты лежат в своём файле и
 // принадлежат конфигуратору; экспорты сборки — другая сущность
@@ -46,7 +46,7 @@ export function LoadPresetModal({ dirty, onLoad, onClose }: LoadPresetModalProps
 
         setDeleteBusy(true);
         try {
-            const res = await fetch(linkerPath(`/linker/preset?key=${encodeURIComponent(key)}`), {
+            const res = await fetch(masterPath(`/linker/preset?key=${encodeURIComponent(key)}`), {
                 method: 'DELETE',
             });
             if (!res.ok) {
