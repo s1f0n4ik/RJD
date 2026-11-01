@@ -189,7 +189,7 @@ export default function ConfigurationsScreen() {
         return () => {
             stop = true;
         };
-    }, [itemId]);
+    }, [itemId, state?.transition?.phase === 'repairing']);
 
     const dirty = rules && draft ? countDiff(draft, rules.settings) : 0;
     const tableError = settingsError(draft?.dictionaries);
@@ -230,10 +230,24 @@ export default function ConfigurationsScreen() {
             const s = await configurationsApi.select(id);
             if (alive.current) {
                 setState(s);
-                showToast('Конфигурация переключена');
+                showToast(s.transition?.phase === 'complete' ? 'Конфигурация переключена' : 'Переключение продолжается');
             }
         } catch (e) {
             if (alive.current) showToast(e instanceof Error ? e.message : 'Ошибка запроса', 'err');
+        } finally {
+            if (alive.current) setBusy(false);
+        }
+    };
+
+    const recover = async (action: 'repair' | 'retry', profileId?: string) => {
+        if (!state?.transition) return;
+        setBusy(true);
+        try {
+            await configurationsApi.recover(action, state.transition.id, profileId);
+            const next = await configurationsApi.list();
+            if (alive.current) setState(next);
+        } catch (error) {
+            if (alive.current) showToast(error instanceof Error ? error.message : 'Ошибка восстановления', 'err');
         } finally {
             if (alive.current) setBusy(false);
         }
@@ -263,6 +277,11 @@ export default function ConfigurationsScreen() {
     const master = state.master;
     const live = !!item?.active && !!link;
     const off = !item?.active;
+    const transitioning = !!state.transition && state.transition.phase !== 'complete';
+    const repairing = state.transition?.phase === 'repairing';
+    const recoveryAvailable = repairing || !!state.transition?.error;
+    const transitionLabel = { stopping: 'Остановка модулей', loading: 'Загрузка конфигурации', starting: 'Запуск модулей', repairing: 'Исправление паспорта', complete: '' };
+    const deliveryError = state.delivery?.find(d => ['gateway', 'detection'].includes(d.device_id) && d.state === 'error')?.error;
     const gwUp = !!link?.gateway.connected;
     const devs = link?.devices ?? [];
     const online = devs.filter(d => d.connected);
@@ -379,6 +398,15 @@ export default function ConfigurationsScreen() {
 
     return (
         <section className="screen mod-screen cf-screen">
+            {transitioning && <div className="notice" role="status">
+                <p>{transitionLabel[state.transition!.phase]}{state.transition?.error ? `: ${state.transition.error}. Повтор выполняется автоматически.` : repairing ? '. Модули остановлены. Исправьте и сохраните настройки, затем повторите переход.' : '…'}</p>
+                {recoveryAvailable && <div>
+                    {!repairing && <button className="btn" disabled={busy} onClick={() => recover('repair')}>Исправить паспорт</button>}
+                    <button className="btn btn--acc" disabled={busy || (repairing && !!dirty)} onClick={() => recover('retry')}>Повторить переход</button>
+                    {state.transition?.previous_profile_id && state.transition.previous_profile_id !== state.transition.profile_id && <button className="btn" disabled={busy} onClick={() => recover('retry', state.transition!.previous_profile_id!)}>Вернуться: {state.transition.previous_profile_name || state.transition.previous_profile_id}</button>}
+                </div>}
+            </div>}
+            {!transitioning && deliveryError && <div className="notice" role="alert"><p>Конфигурация сохранена, применение не завершено: {deliveryError}</p></div>}
             <div className="mod">
                 <div className="mod-body">
                     {!state.gateway ? (
@@ -405,7 +433,7 @@ export default function ConfigurationsScreen() {
                                 {item.active ? (
                                     <span className="pill ok cf-bar-end"><span className="dot" />активна</span>
                                 ) : (
-                                    <button className="btn btn--acc cf-bar-end" disabled={busy} onClick={() => setPending(item)}>Сделать активной</button>
+                                    <button className="btn btn--acc cf-bar-end" disabled={busy || (transitioning && !repairing)} onClick={() => setPending(item)}>Сделать активной</button>
                                 )}
                             </div>
                             <div className="cr-body">
@@ -482,7 +510,7 @@ export default function ConfigurationsScreen() {
                                     </span>
                                     <span className="spacer" />
                                     <button className="btn" disabled={busy || !dirty} onClick={() => setDraft(clone(rules.settings))}>Сбросить</button>
-                                    <button className="btn btn--acc" disabled={busy || !dirty || !!tableError} onClick={save}>Сохранить</button>
+                                    <button className="btn btn--acc" disabled={busy || (transitioning && !repairing) || !dirty || !!tableError} onClick={save}>Сохранить</button>
                                 </div>
                             )}
                         </>
@@ -522,6 +550,7 @@ export default function ConfigurationsScreen() {
                     }
                 >
                     <div className="modal-b">
+                        <p>Камеры, запись, техзрение, 360 и модули АС КРСПС временно остановятся. После загрузки конфигурации работа возобновится.</p>
                         <div className="kv"><span className="k">Сейчас</span><span className="v">{active?.title ?? '—'}</span></div>
                         <div className="kv">
                             <span className="k">Модули АС КРСПС</span>

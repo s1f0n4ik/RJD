@@ -129,7 +129,7 @@ export default function KrspsScreen() {
     }, [refreshIntegrations, refreshDevices]);
 
     // Словари мастера для активной конфигурации: числа модулей расшифровываются по ним
-    const ruleId = integrations?.active ?? status?.id ?? '';
+    const ruleId = status?.id ?? integrations?.active ?? '';
     useEffect(() => {
         if (!ruleId) return;
         let stop = false;
@@ -194,11 +194,12 @@ export default function KrspsScreen() {
     const timeSource = time?.source.time;
 
     const selectedModule = status.modules.find(m => m.id === section) ?? null;
-    const activeId = integrations?.active ?? status.id;
+    const activeId = status.id;
     const activeItem = integrations?.items.find(i => i.id === activeId);
 
     return (
         <section className="screen mod-screen">
+            {status.repairing && <div className="notice" role="status"><p>Модули остановлены. Изменения сохраняются в паспорт без применения.</p><button className="btn" onClick={() => navigate('/configurations/link')}>К восстановлению</button></div>}
             <div className="mod">
                 <div className="mod-body">
                     <PanelBoundary resetKey={section}>

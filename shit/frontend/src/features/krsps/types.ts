@@ -297,6 +297,7 @@ export interface GwModbusModule extends Omit<GwModule, 'log'> {
 
 // Полный снимок активной конфигурации со всеми её модулями (/status, /config).
 export interface GwStatus {
+  repairing?: boolean;
   id: string;
   title: string;
   description: string;

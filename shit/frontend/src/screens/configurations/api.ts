@@ -159,7 +159,18 @@ export interface CfMaster {
     available: CfRule[];
 }
 
+export interface CfTransition {
+    id: string;
+    profile_id: string;
+    previous_profile_id?: string | null;
+    previous_profile_name?: string | null;
+    phase: 'stopping' | 'loading' | 'starting' | 'repairing' | 'complete';
+    error: string | null;
+}
+
 export interface CfState {
+    transition?: CfTransition | null;
+    delivery?: { device_id: string; state: string; error?: string | null }[];
     gateway: boolean;
     active: string;
     items: CfItem[];
@@ -183,6 +194,13 @@ async function unwrap<T>(res: Response): Promise<T> {
 }
 
 export const configurationsApi = {
+    async recover(action: 'repair' | 'retry', transitionId: string, profileId?: string): Promise<void> {
+        await unwrap(await fetch(`/api/config/transition/${action}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transition_id: transitionId, profile_id: profileId }),
+        }));
+    },
     async list(): Promise<CfState> {
         return unwrap<CfState>(await fetch('/api/configurations'));
     },

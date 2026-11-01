@@ -24,7 +24,7 @@ async function unwrap<T>(res: Response): Promise<T> {
     let detail = res.statusText;
     try {
       const body = await res.json();
-      detail = body?.error ?? body?.message ?? detail;
+      detail = body?.detail ?? body?.error ?? body?.message ?? detail;
     } catch {
       /* тело не JSON — оставляем statusText */
     }
@@ -42,13 +42,13 @@ export const krspsApi = {
 
 
   async getStatus(): Promise<GwStatus> {
-    return unwrap<GwStatus>(await fetch(url('/status')));
+    return unwrap<GwStatus>(await fetch(`${API_HOST}/api/configurations/gateway/status`));
   },
 
   // Обновление настроек WebSocket-модуля активной конфигурации.
   async updateWsConfig(patch: GwWsConfigPatch): Promise<GwStatus> {
     return unwrap<GwStatus>(
-      await fetch(url('/config/websocket'), {
+      await fetch(`${API_HOST}/api/configurations/gateway/websocket`, {
         method: 'PUT',
         headers: jsonHeaders,
         body: JSON.stringify(patch),
@@ -59,7 +59,7 @@ export const krspsApi = {
   // Обновление настроек CAN-модуля активной конфигурации.
   async updateCanConfig(patch: GwCanConfigPatch): Promise<GwStatus> {
     return unwrap<GwStatus>(
-      await fetch(url('/config/can'), {
+      await fetch(`${API_HOST}/api/configurations/gateway/can`, {
         method: 'PUT',
         headers: jsonHeaders,
         body: JSON.stringify(patch),
@@ -70,7 +70,7 @@ export const krspsApi = {
   // Обновление настроек Modbus-модуля активной конфигурации.
   async updateModbusConfig(patch: GwModbusConfigPatch): Promise<GwStatus> {
     return unwrap<GwStatus>(
-      await fetch(url('/config/modbus'), {
+      await fetch(`${API_HOST}/api/configurations/gateway/modbus`, {
         method: 'PUT',
         headers: jsonHeaders,
         body: JSON.stringify(patch),
