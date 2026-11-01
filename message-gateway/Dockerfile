@@ -31,7 +31,8 @@ COPY . .
 RUN cmake -B build -S . \
     -DCMAKE_BUILD_TYPE=Release
 
-RUN cmake --build build -j
+ARG BUILD_JOBS=2
+RUN cmake --build build --parallel ${BUILD_JOBS}
 
 # Рантайм-библиотеки бинаря собираются в один каталог. Имена пакетов в Ubuntu
 # версионированные, поэтому список берётся у самого бинаря, а не выписывается.

@@ -52,7 +52,13 @@ namespace varan {
             void restore_state();
             // Записать текущие настройки всех интеграций.
             // Зовётся после каждой удачной правки по REST.
-            void persist_state();
+            bool persist_state();
+            URouter::FResponse handle_runtime(const URouter::FRequest& req, bool write);
+            URouter::FResponse handle_apply_config(const URouter::FRequest& req, bool validate_only = false);
+            std::mutex m_runtime_mutex;
+            boost::json::object m_runtime{{"transition_id", ""}, {"state", "running"}};
+            std::string m_revision;
+            std::atomic_bool m_modules_allowed{true};
 
             std::shared_ptr<IIntegration> active() const;
             std::shared_ptr<IIntegration> find_integration(const std::string& id) const;

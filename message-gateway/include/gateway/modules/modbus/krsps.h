@@ -53,6 +53,7 @@ namespace varan {
         // Записи до первого времени от ведущего скрыты, затем сдвигаются на разницу его времени и часов платы
         class AKrspsModule : public AModbusModule {
         public:
+            bool wait_stopped() override { return m_queue.flush(); }
             AKrspsModule(boost::asio::io_context& ioc, FModbusConfig config, std::string queue_file);
 
         protected:

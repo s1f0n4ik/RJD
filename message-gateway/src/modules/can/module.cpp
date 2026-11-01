@@ -8,6 +8,12 @@
 
 namespace varan {
     namespace gateway {
+        bool UCanModule::prepare_config(const boost::json::object& source, boost::json::object& normalized, std::string& error) const {
+            FCanConfig config;
+            if (!apply_json(config, source, error)) return false;
+            normalized = varan::gateway::to_json(config);
+            return true;
+        }
 
         namespace json = boost::json;
 
@@ -99,6 +105,13 @@ namespace varan {
         bool UCanModule::connected() const {
             std::lock_guard<std::mutex> lock(m_mutex);
             return m_bus && m_bus->connected();
+        }
+
+        void UCanModule::reset_runtime() {
+            std::lock_guard lock(m_payload_mutex);
+            m_detections.clear();
+            m_session = 0;
+            m_last_payload = {};
         }
 
         // Приём кадров с шины. Интересуют только сообщения стороннего устройства:

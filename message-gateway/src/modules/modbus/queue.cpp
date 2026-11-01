@@ -2,6 +2,7 @@
 #include "gateway/utility/log.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
@@ -71,10 +72,10 @@ namespace varan {
                 const auto slash = path.find_last_of('/');
                 const std::string dir = slash == std::string::npos ? "." : (slash == 0 ? "/" : path.substr(0, slash));
                 const int dfd = ::open(dir.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-                if (dfd >= 0) {
-                    ::fsync(dfd);
-                    ::close(dfd);
-                }
+                if (dfd < 0) { err = "cannot open queue directory"; return false; }
+                const bool durable = ::fsync(dfd) == 0;
+                ::close(dfd);
+                if (!durable) { err = "cannot fsync queue directory"; return false; }
                 return true;
 #else
                 {
@@ -191,6 +192,14 @@ namespace varan {
             m_cv.notify_one();
         }
 
+        bool UModbusQueue::flush() {
+            std::unique_lock lock(m_mutex);
+            if (m_path.empty()) return m_records.empty();
+            if (m_write_failed) touch_locked();
+            return m_drained.wait_for(lock, std::chrono::seconds(15), [this] { return !m_dirty && !m_writing; })
+                && !m_write_failed;
+        }
+
         void UModbusQueue::writer_loop() {
             std::string last_err;
             std::unique_lock<std::mutex> lock(m_mutex);
@@ -200,14 +209,19 @@ namespace varan {
                     return;
                 }
                 m_dirty = false;
+                m_writing = true;
                 const std::string blob = serialize_locked();
                 lock.unlock();
                 std::string err;
-                if (!write_atomic(m_path, blob, err) && err != last_err) {
+                const bool written = write_atomic(m_path, blob, err);
+                if (!written && err != last_err) {
                     ULog::warn(TAG, err);
                 }
                 last_err = err;
                 lock.lock();
+                m_writing = false;
+                m_write_failed = !written;
+                m_drained.notify_all();
             }
         }
 

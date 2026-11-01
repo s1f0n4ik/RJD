@@ -1,4 +1,5 @@
 #pragma once
+#include <future>
 
 #include <boost/beast.hpp>
 #include <boost/asio.hpp>
@@ -101,10 +102,10 @@ namespace varan {
                 start_resolve();
             }
 
-            void stop() {
+            std::shared_future<void> stop() {
                 bool expected = false;
                 if (!m_stopping.compare_exchange_strong(expected, true)) {
-                    return;
+                    return m_stop_completion;
                 }
 
                 asio::post(
@@ -112,18 +113,18 @@ namespace varan {
                     [self = shared_from_this()]() {
                         self->m_timer.cancel();
                         self->m_resolver.cancel();
-                        self->m_send_queue.clear();
                         self->m_connected = false;
                         self->m_message_callback = nullptr;
 
-                        if (self->m_ws && self->m_ws->is_open()) {
-                            self->m_ws->async_close(
-                                websocket::close_code::normal,
-                                [self](boost::beast::error_code) {
-                                    self->log("WebSocket closed");
-                                });
+                        if (self->m_ws) {
+                            boost::beast::error_code error;
+                            self->m_ws->next_layer().cancel(error);
+                            self->m_ws->next_layer().shutdown(tcp::socket::shutdown_both, error);
+                            self->m_ws->next_layer().close(error);
                         }
+                        self->m_stop_promise.set_value();
                     });
+                return m_stop_completion;
             }
 
             void send(const std::string& message, bool is_binary = false) {
@@ -190,6 +191,7 @@ namespace varan {
                     m_host,
                     m_port,
                     [self = shared_from_this()](boost::beast::error_code ec, tcp::resolver::results_type results) {
+                        if (self->m_stopping) return;
                         if (ec) {
                             self->note_error("Resolve failed: " + ec.message());
                             self->schedule_reconnect();
@@ -257,6 +259,7 @@ namespace varan {
                 m_ws->async_read(
                     m_buffer,
                     [self = shared_from_this()](boost::beast::error_code ec, std::size_t bytes) {
+                        if (self->m_stopping) return;
                         if (ec == asio::error::operation_aborted) {
                             return;
                         }
@@ -284,6 +287,7 @@ namespace varan {
                 m_ws->async_write(
                     asio::buffer(msg.data(), msg.size()),
                     [self = shared_from_this()](boost::beast::error_code ec, std::size_t) {
+                        if (self->m_stopping) return;
                         if (ec == asio::error::operation_aborted) {
                             return;
                         }
@@ -331,6 +335,8 @@ namespace varan {
             std::deque<std::pair<std::string, bool>> m_send_queue;
 
             std::atomic_bool m_stopping{ false };
+            std::promise<void> m_stop_promise;
+            std::shared_future<void> m_stop_completion = m_stop_promise.get_future().share();
             std::atomic_bool m_reconnecting{ false };
             std::atomic_bool m_connected{ false };
             // Последняя попытка провалилась и канал переподключается. Снимается

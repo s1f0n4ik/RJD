@@ -70,6 +70,17 @@ namespace varan {
                 return;
             }
             const json::object root = m_store.load();
+            if (m_store.read_failed()) {
+                m_modules_allowed = false;
+                m_runtime["state"] = "stopping";
+                return;
+            }
+            if (const auto* value = root.if_contains("config_revision"); value && value->is_string()) m_revision = value->as_string();
+            if (const auto* value = root.if_contains("runtime"); value && value->is_object()) {
+                m_runtime = value->as_object();
+                const auto* state = m_runtime.if_contains("state");
+                m_modules_allowed = state && state->is_string() && state->as_string() == "running";
+            }
 
             // Пояс — общешлюзовая настройка, живёт отдельным узлом
             if (const auto* t = root.if_contains("time"); t && t->is_object()) {
@@ -105,18 +116,18 @@ namespace varan {
 
             // Активная конфигурация из файла, если она ещё существует.
             if (const auto* a = root.if_contains("active"); a && a->is_string()) {
-                if (auto t = find_integration(json::value_to<std::string>(*a))) {
-                    std::lock_guard<std::mutex> lock(m_active_mutex);
-                    m_active = t;
-                }
+                auto selected = find_integration(json::value_to<std::string>(*a));
+                if (!a->as_string().empty() && !selected) m_modules_allowed = false;
+                std::lock_guard<std::mutex> lock(m_active_mutex);
+                m_active = selected;
             }
 
             ULog::info(TAG, "Settings restored from " + m_config.state_file);
         }
 
-        void UGateway::persist_state() {
+        bool UGateway::persist_state() {
             if (!m_store.enabled()) {
-                return;
+                return false;
             }
             // Читаем текущий файл и правим только узлы своих интеграций, чтобы не
             // затереть настройки конфигураций, которых сейчас нет в памяти.
@@ -144,7 +155,9 @@ namespace varan {
             root["active"] = active() ? active()->id() : "";
             root["integrations"] = std::move(integrations);
             root["time"] = json::object{ {"tz_offset_min", m_time.tz_offset_min()} };
-            m_store.save(root);
+            root["runtime"] = m_runtime;
+            root["config_revision"] = m_revision;
+            return m_store.save(root);
         }
 
         void UGateway::setup_routes() {
@@ -153,20 +166,23 @@ namespace varan {
 
             m_router->add_route(http::verb::get, "/integrations",
                 [this](const auto& r) { return handle_list_integrations(r); });
-            m_router->add_route(http::verb::post, "/integrations/select",
-                [this](const auto& r) { return handle_select_integration(r); });
+            for (const auto& integration : m_integrations)
+                m_router->add_route(http::verb::get, "/integrations/" + integration->id() + "/status",
+                    [integration](const auto& request) { return make_json(request, http::status::ok, integration->status_json()); });
+            m_router->add_route(http::verb::get, "/runtime",
+                [this](const auto& r) { return handle_runtime(r, false); });
+            m_router->add_route(http::verb::put, "/runtime",
+                [this](const auto& r) { return handle_runtime(r, true); });
+            m_router->add_route(http::verb::put, "/config",
+                [this](const auto& r) { return handle_apply_config(r); });
+            m_router->add_route(http::verb::post, "/config/validate",
+                [this](const auto& r) { return handle_apply_config(r, true); });
 
             m_router->add_route(http::verb::get, "/status",
                 [this](const auto& r) { return handle_status(r); });
 
             m_router->add_route(http::verb::get, "/config",
                 [this](const auto& r) { return handle_get_config(r); });
-            m_router->add_route(http::verb::put, "/config/websocket",
-                [this](const auto& r) { return handle_put_module_config(r, "websocket"); });
-            m_router->add_route(http::verb::put, "/config/can",
-                [this](const auto& r) { return handle_put_module_config(r, "can"); });
-            m_router->add_route(http::verb::put, "/config/modbus",
-                [this](const auto& r) { return handle_put_module_config(r, "modbus"); });
 
             // Подключение отдельного модуля: тело { "module": "can" }.
             m_router->add_route(http::verb::post, "/modules/connect",
@@ -203,7 +219,11 @@ namespace varan {
                 return;
             }
 
-            if (auto a = active()) {
+            auto endpoint = boost::asio::ip::tcp::endpoint(
+                boost::asio::ip::tcp::v4(), m_config.rest_port);
+            auto listener = std::make_shared<UListener>(m_http_ioc, endpoint, m_router);
+
+            if (auto a = active(); a && m_modules_allowed) {
                 a->start();
             }
 
@@ -214,9 +234,7 @@ namespace varan {
 
             m_grpc->start();
 
-            auto endpoint = boost::asio::ip::tcp::endpoint(
-                boost::asio::ip::tcp::v4(), m_config.rest_port);
-            std::make_shared<UListener>(m_http_ioc, endpoint, m_router)->run();
+            listener->run();
 
             ULog::info(TAG, "REST server on port " + std::to_string(m_config.rest_port));
             m_http_ioc.run();
@@ -254,6 +272,14 @@ namespace varan {
         }
 
         FSubmitResult UGateway::submit_frame(const FFrameMessage& msg) {
+            std::lock_guard lock(m_runtime_mutex);
+            const auto* token = m_runtime.if_contains("transition_id");
+            if (!m_modules_allowed || (token && token->is_string() && !token->as_string().empty() && token->as_string() != msg.runtime_id)) {
+                FSubmitResult result;
+                result.error = "gateway is stopped or message belongs to another profile transition";
+                result.status = ESubmitStatus::NotConnected;
+                return result;
+            }
             auto a = active();
             if (!a) {
                 // Отправителю отказывать не за что: статистику писать некуда,
@@ -382,6 +408,7 @@ namespace varan {
         }
 
         URouter::FResponse UGateway::handle_module_connect(const URouter::FRequest& req, bool connect) {
+            if (!m_modules_allowed) return make_error(req, http::status::conflict, "gateway is stopped for profile loading");
             auto a = active();
             if (!a) {
                 return make_error(req, http::status::service_unavailable, "no active integration");
@@ -417,6 +444,7 @@ namespace varan {
         }
 
         URouter::FResponse UGateway::handle_ws_connect(const URouter::FRequest& req) {
+            if (!m_modules_allowed) return make_error(req, http::status::conflict, "gateway is stopped for profile loading");
             auto a = active();
             if (a) {
                 a->start();

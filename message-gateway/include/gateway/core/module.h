@@ -31,6 +31,8 @@ namespace varan {
 
             virtual void start() = 0;
             virtual void stop() = 0;
+            virtual bool wait_stopped() { return true; }
+            virtual void reset_runtime() {}
             virtual bool connected() const = 0;
 
             // Кодирование + доставка кадра своим транспортом.
@@ -49,6 +51,7 @@ namespace varan {
 
             // Частичное обновление настроек модуля. false + err при ошибке.
             virtual bool apply_config(const boost::json::object& patch, std::string& err) = 0;
+            virtual bool prepare_config(const boost::json::object& source, boost::json::object& normalized, std::string& error) const = 0;
         };
 
     } // namespace gateway

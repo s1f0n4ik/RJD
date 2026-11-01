@@ -63,11 +63,18 @@ int main(int argc, char** argv) {
     std::thread signal_thread([&] { signal_ioc.run(); });
 
     ULog::info("main", "message-gateway starting");
-    gateway.run();
+    int result = 0;
+    try {
+        gateway.run();
+    }
+    catch (const std::exception& error) {
+        ULog::error("main", error.what());
+        result = 1;
+    }
 
     signal_ioc.stop();
     if (signal_thread.joinable()) {
         signal_thread.join();
     }
-    return 0;
+    return result;
 }

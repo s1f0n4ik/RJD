@@ -4,13 +4,9 @@
 #include <thread>
 #include <cstdint>
 #include <cstddef>
+#include <grpcpp/grpcpp.h>
 
 #include "gateway/core/frame-sink.h"
-
-namespace grpc {
-    class Server;
-    class Service;
-}
 
 namespace varan {
     namespace gateway {

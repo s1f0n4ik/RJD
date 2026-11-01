@@ -7,6 +7,12 @@
 
 namespace varan {
 namespace gateway {
+        bool AModbusModule::prepare_config(const boost::json::object& source, boost::json::object& normalized, std::string& error) const {
+            FModbusConfig config;
+            if (!apply_json(config, source, error)) return false;
+            normalized = varan::gateway::to_json(config);
+            return true;
+        }
 
     namespace json = boost::json;
     using namespace modbus;

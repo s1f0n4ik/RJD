@@ -76,6 +76,7 @@ namespace varan {
             std::vector<std::uint16_t> window(std::size_t offset, std::size_t count, std::uint16_t* out) const;
 
             FSnapshot snapshot() const;
+            bool flush();
 
         private:
             void load();
@@ -95,6 +96,9 @@ namespace varan {
             std::deque<FRecent> m_recent;
 
             std::condition_variable m_cv;
+            std::condition_variable m_drained;
+            bool m_writing = false;
+            bool m_write_failed = false;
             bool m_dirty = false;
             bool m_stop = false;
             std::thread m_writer;

@@ -25,6 +25,7 @@ namespace varan {
                 msg.image = req.image();
                 msg.camera_id = req.camera_id();
                 msg.config_id = req.config_id();
+                msg.runtime_id = req.runtime_id();
                 msg.session = req.session();
                 msg.event = static_cast<ETrackEvent>(req.event());
                 msg.modules.assign(req.modules().begin(), req.modules().end());

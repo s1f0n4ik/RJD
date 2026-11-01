@@ -42,6 +42,7 @@ namespace varan {
             boost::json::object to_json() const override;
             boost::json::object config_snapshot() const override;
             bool apply_config(const boost::json::object& patch, std::string& err) override;
+            bool prepare_config(const boost::json::object& source, boost::json::object& normalized, std::string& error) const override;
 
         protected:
             // Обмен с ведущим: запрос и наш ответ

@@ -138,9 +138,13 @@ namespace varan {
             {
                 beast::error_code ec;
                 m_acceptor.open(endpoint.protocol(), ec);
+                if (ec) throw boost::system::system_error(ec, "Gateway REST open");
                 m_acceptor.set_option(asio::socket_base::reuse_address(true), ec);
+                if (ec) throw boost::system::system_error(ec, "Gateway REST reuse_address");
                 m_acceptor.bind(endpoint, ec);
+                if (ec) throw boost::system::system_error(ec, "Gateway REST bind");
                 m_acceptor.listen(asio::socket_base::max_listen_connections, ec);
+                if (ec) throw boost::system::system_error(ec, "Gateway REST listen");
             }
 
             void run() { do_accept(); }

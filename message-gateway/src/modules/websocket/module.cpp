@@ -4,6 +4,21 @@
 
 namespace varan {
     namespace gateway {
+        bool UWsModule::prepare_config(const boost::json::object& source, boost::json::object& normalized, std::string& error) const {
+            FWsConfig config;
+            if (!apply_json(config, source, error)) return false;
+            normalized = varan::gateway::to_json(config);
+            try {
+                const auto* seconds = source.if_contains("heartbeat_sec");
+                const auto* enabled = source.if_contains("heartbeat_enabled");
+                const int interval = seconds ? seconds->to_number<int>() : 5;
+                if (interval < 1 || interval > 3600) { error = "heartbeat_sec must be 1..3600"; return false; }
+                normalized["heartbeat_sec"] = interval;
+                normalized["heartbeat_enabled"] = enabled ? enabled->as_bool() : true;
+            }
+            catch (const std::exception& exception) { error = exception.what(); return false; }
+            return true;
+        }
 
         namespace json = boost::json;
 

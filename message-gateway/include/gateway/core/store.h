@@ -2,6 +2,7 @@
 
 #include <string>
 #include <mutex>
+#include <atomic>
 
 #include <boost/json.hpp>
 
@@ -25,13 +26,14 @@ namespace varan {
             // первый запуск не должен падать из-за отсутствия настроек.
             boost::json::object load() const;
 
-            // Перезаписывает файл целиком. Ошибку только логирует: неудача записи
-            // настроек не повод ронять живой сервис.
-            void save(const boost::json::object& root) const;
+            // Writes and fsyncs the complete file atomically; returns false on failure.
+            bool save(const boost::json::object& root) const;
+            bool read_failed() const { return m_read_failed.load(); }
 
         private:
             std::string m_path;
             mutable std::mutex m_mutex;
+            mutable std::atomic_bool m_read_failed{false};
         };
 
     } // namespace gateway

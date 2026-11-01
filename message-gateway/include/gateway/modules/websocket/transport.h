@@ -101,6 +101,15 @@ namespace varan {
                 stop_locked();
             }
 
+            bool wait_stopped() const {
+                std::shared_future<void> complete;
+                {
+                    std::lock_guard lock(m_mutex);
+                    complete = m_stop_completion;
+                }
+                return !complete.valid() || complete.wait_for(std::chrono::seconds(15)) == std::future_status::ready;
+            }
+
             // Применяет новую конфигурацию; переподключается, только если транспорт запущен
             void reconfigure(const FWsConfig& config) {
                 std::lock_guard<std::mutex> lock(m_mutex);
@@ -124,7 +133,7 @@ namespace varan {
 
             void stop_locked() {
                 if (m_client) {
-                    m_client->stop();
+                    m_stop_completion = m_client->stop();
                     m_client.reset();
                 }
             }
@@ -135,6 +144,7 @@ namespace varan {
             FWsConfig m_config;
             bool m_started = false;
             std::shared_ptr<UWebSocketClient> m_client;
+            std::shared_future<void> m_stop_completion;
         };
 
     } // namespace gateway

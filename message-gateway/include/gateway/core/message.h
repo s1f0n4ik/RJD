@@ -49,6 +49,7 @@ namespace varan {
         // Семантическое сообщение кадра от media-center. Кодек превращает его в
         // wire-формат конкретной версии протокола. Ядро НЕ знает про раскладку байт.
         struct FFrameMessage {
+            std::string runtime_id;
             int ver = 0;                      // версия протокола, запрошенная клиентом
             std::int64_t id = 0;
             std::int64_t ts = 0;

@@ -44,6 +44,7 @@ namespace varan {
 
             void start() override;
             void stop() override;
+            void reset_runtime() override;
             bool connected() const override;
 
             FSubmitResult handle_frame(const FFrameMessage& msg) override;
@@ -55,6 +56,7 @@ namespace varan {
             boost::json::object to_json() const override;
             boost::json::object config_snapshot() const override;
             bool apply_config(const boost::json::object& patch, std::string& err) override;
+            bool prepare_config(const boost::json::object& source, boost::json::object& normalized, std::string& error) const override;
 
         private:
             // Обнаружение в нагрузке шины
