@@ -30,6 +30,11 @@ namespace calibration {
 
 	void UCalibrator::stop_websocket_connection() {
 		stop_websocket_client();
+		stop_handler_thread();
+		if (m_streamer) {
+			m_streamer->stop();
+			m_streamer.reset();
+		}
 	}
 
 	void UCalibrator::on_signaling_message(const std::string& msg) {

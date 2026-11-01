@@ -151,6 +151,13 @@ namespace db {
 
         bool running() const { return m_running.load(); }
 
+        bool flush() {
+            std::unique_lock<std::mutex> lock(m_mutex);
+            return m_drained.wait_for(lock, std::chrono::seconds(15), [this] {
+                return m_queue.empty() && !m_writing;
+            }) && !m_write_failed;
+        }
+
         // Реализации очереди, переполнена - уходит самая старая запись
         void enqueue(TEntry entry) {
             bool dropped = false;
@@ -189,12 +196,20 @@ namespace db {
                     m_cv.wait(lock, [this] { return !m_queue.empty() || !m_running.load(); });
                     if (!m_running.load() && m_queue.empty()) break;
                     batch.swap(m_queue);
+                    m_writing = true;
                 }
                 for (const auto& entry : batch) {
                     if (!write_one(entry)) {
+                        std::lock_guard<std::mutex> lock(m_mutex);
+                        m_write_failed = true;
                         m_logger.warn("write failed, row dropped");
                     }
                 }
+                {
+                    std::lock_guard<std::mutex> lock(m_mutex);
+                    m_writing = false;
+                }
+                m_drained.notify_all();
             }
         }
 
@@ -205,6 +220,9 @@ namespace db {
         std::deque<TEntry> m_queue;
         std::mutex m_mutex;
         std::condition_variable m_cv;
+        std::condition_variable m_drained;
+        bool m_writing = false;
+        bool m_write_failed = false;
         std::thread m_thread;
         std::atomic<bool> m_running{ false };
 

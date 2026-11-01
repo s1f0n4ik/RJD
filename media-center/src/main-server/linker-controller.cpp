@@ -7,8 +7,12 @@
 namespace http = boost::beast::http;
 using namespace varan::rest;
 
-ULinkerController::ULinkerController(std::shared_ptr<varan::birdview::ULinker> linker, ULogger* logger)
+ULinkerController::ULinkerController(std::shared_ptr<varan::birdview::ULinker> linker,
+    std::shared_ptr<varan::UMachineConfig> config,
+    std::shared_ptr<varan::calibration::UCalibrator> calibrator, ULogger* logger)
     : m_linker(linker)
+    , m_config(std::move(config))
+    , m_calibrator(std::move(calibrator))
     , m_logger(logger)
 {}
 
@@ -469,15 +473,23 @@ http::response<http::string_body>
 ULinkerController::post_start(const http::request<http::string_body>& req)
 {
     const std::string tag = "POST /linker/start";
-    log_request(m_logger, req, tag);
-
-    if (m_linker->is_running()) {
-        return json_ok(m_logger, req, boost::json::object{}, tag);
+    try {
+        const auto body = req.body().empty() ? boost::json::object{} : boost::json::parse(req.body()).as_object();
+        if (auto error = m_config->check_command(body, true); !error.empty())
+            return json_error(m_logger, req, http::status::conflict, error, tag);
+        m_linker->allow_start(true);
+        const auto state = m_linker->get_state_raw();
+        const auto* active = state.if_contains("active");
+        const bool has_output = active && active->is_string() && !active->as_string().empty();
+        if (!m_linker->is_running() && (has_output || !body.if_contains("transition_id")) && !m_linker->async_start())
+            return json_error(m_logger, req, http::status::conflict, "cannot start surround output", tag);
+        if (m_calibrator) m_calibrator->start_websocket_connection();
+        return json_ok(m_logger, req, boost::json::object{{"data", boost::json::object{{"state", "running"},
+            {"transition_id", m_config->hold_status().at("transition_id")}, {"revision", m_config->revision()}}}}, tag);
     }
-    if (!m_linker->async_start()) {
-        return json_error(m_logger, req, http::status::bad_request, "start failed", tag);
+    catch (const std::exception& error) {
+        return json_error(m_logger, req, http::status::bad_request, error.what(), tag);
     }
-    return json_ok(m_logger, req, boost::json::object{}, tag);
 }
 
 // ─── POST /linker/restart ───────────────────────────────────
@@ -487,9 +499,11 @@ ULinkerController::post_restart(const http::request<http::string_body>& req)
     const std::string tag = "POST /linker/restart";
     log_request(m_logger, req, tag);
 
-    if (!m_linker->restart()) {
+    if (auto error = m_config->check_command({}, true); !error.empty())
+        return json_error(m_logger, req, http::status::conflict, error, tag);
+    if (!m_linker->is_running()) return post_start(req);
+    if (!m_linker->restart())
         return json_error(m_logger, req, http::status::bad_request, "restart failed", tag);
-    }
     return json_ok(m_logger, req, boost::json::object{}, tag);
 }
 
@@ -501,8 +515,14 @@ ULinkerController::post_stop(const http::request<http::string_body>& req)
     log_request(m_logger, req, tag);
 
     try {
+        const auto body = req.body().empty() ? boost::json::object{} : boost::json::parse(req.body()).as_object();
+        if (auto error = m_config->check_command(body, false); !error.empty())
+            return json_error(m_logger, req, http::status::conflict, error, tag);
+        m_linker->allow_start(false);
+        if (m_calibrator) m_calibrator->stop_websocket_connection();
         m_linker->stop();
-        return json_ok(m_logger, req, boost::json::object{}, tag);
+        return json_ok(m_logger, req, boost::json::object{{"data", boost::json::object{{"state", "stopped"},
+            {"transition_id", m_config->hold_status().at("transition_id")}, {"revision", m_config->revision()}}}}, tag);
     }
     catch (const std::exception& e) {
         return json_error(m_logger, req, http::status::internal_server_error, e.what(), tag);

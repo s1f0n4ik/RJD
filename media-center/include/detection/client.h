@@ -57,6 +57,7 @@ namespace detection {
 
         void start();
         void stop();
+        bool drain();
 
         void send_packet(FPacket packet);
         // ID снимка для пакета; сам снимок приходит позже через send_image

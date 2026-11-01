@@ -1313,10 +1313,12 @@ namespace birdview {
 	}
 
 	bool ULinker::async_start() {
+        if (!m_start_allowed) return false;
 		return start_output({});
 	}
 
 	bool ULinker::start_output(COutputReady ready) {
+        if (!m_start_allowed) return false;
 		{
 			std::lock_guard<std::mutex> lk(m_mutex);
 			if (m_export_id.empty()) {
@@ -1726,7 +1728,7 @@ namespace birdview {
 						return {};
 					}
 					if (!reload_from_state()) return "cannot load configured output";
-					if (!update.resume) return {};
+					if (!update.resume || !m_start_allowed) return {};
 					auto completion = std::make_shared<std::promise<std::string>>();
 					auto future = completion->get_future();
 					if (!start_output([completion](std::string error) { completion->set_value(std::move(error)); }))

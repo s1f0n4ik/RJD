@@ -498,6 +498,15 @@ void UCameraStreamPipeline::on_bus_error(int code, const std::string& descriptio
 	if (!probe_handler) shedule_restart();
 }
 
+std::string UCameraStreamPipeline::prepare_stop() {
+    UCameraPipeline::prepare_stop();
+    if (!m_parameters.purposes.record) return {};
+    if (auto error = finish_eos(); !error.empty()) return error;
+    std::unique_lock lock(m_fragment_mutex);
+    return m_fragment_cv.wait_for(lock, std::chrono::seconds(20), [this] { return m_fragments.empty(); })
+        ? "" : "recording fragments have not closed";
+}
+
 void UCameraStreamPipeline::on_bus_message(GstMessage* msg) {
 	switch (GST_MESSAGE_TYPE(msg)) {
 	case GST_MESSAGE_ELEMENT: {
@@ -918,7 +927,6 @@ void UCameraStreamPipeline::on_fragment_closed(const char* location, std::uint64
 		const auto found = m_fragments.find(location);
 		if (found != m_fragments.end()) {
 			fragment = found->second;
-			m_fragments.erase(found);
 		}
 	}
 
@@ -955,9 +963,13 @@ void UCameraStreamPipeline::on_fragment_closed(const char* location, std::uint64
 
 	if (!m_segment_writer) {
 		m_logger->warn(std::string("fragment closed but archive index is off: ") + location);
-		return;
 	}
-	m_segment_writer->enqueue(std::move(event));
+    else m_segment_writer->enqueue(std::move(event));
+    {
+        std::lock_guard lock(m_fragment_mutex);
+        m_fragments.erase(location);
+    }
+    m_fragment_cv.notify_all();
 }
 
 void UCameraStreamPipeline::mark_fragment_error(const std::string& error) {

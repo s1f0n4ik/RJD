@@ -49,6 +49,7 @@ namespace neural {
 		~UNeuralLoader();
 
 		bool async_run();
+		void allow_start(bool value) { m_start_allowed = value; }
 		void stop_async_run();
 		bool restart();
 		bool is_running() const;
@@ -158,6 +159,7 @@ namespace neural {
 		std::mutex m_configs_mutex;
 		std::thread m_supervisor;
 		std::atomic<bool> m_supervisor_running{ false };
+		std::atomic_bool m_start_allowed{true};
 		std::mutex m_supervisor_cv_mutex;
 		std::condition_variable m_supervisor_cv;
 

@@ -206,6 +206,33 @@ bool UCameraPipeline::teardown_prefix() {
     return true;
 }
 
+std::string UCameraPipeline::prepare_stop() {
+    request_stop();
+    stop_restart_thread();
+    if (m_restart_thread.joinable()) m_restart_thread.join();
+    return {};
+}
+
+std::string UCameraPipeline::finish_eos() {
+    UCameraPipeline::prepare_stop();
+    GstElement* pipeline = nullptr;
+    {
+        std::lock_guard lock(m_teardown_mutex);
+        if (!m_pipeline || !m_has_initialized || !m_is_playing) return {};
+        if (m_finishing && m_eos_received) return {};
+        m_finishing = true;
+        m_eos_received = false;
+        pipeline = GST_ELEMENT(gst_object_ref(m_pipeline));
+    }
+    const bool sent = gst_element_send_event(pipeline, gst_event_new_eos());
+    gst_object_unref(pipeline);
+    if (!sent) return "cannot send recording EOS";
+    std::unique_lock lock(m_eos_mutex);
+    if (!m_eos_cv.wait_for(lock, std::chrono::seconds(20), [this] { return m_eos_received.load(); }))
+        return "recording finalization timed out";
+    return {};
+}
+
 void UCameraPipeline::restart_loop() {
     if (m_logger) m_logger->info("restart_loop(): Started for " + m_parameters.name);
 
@@ -453,6 +480,12 @@ UCameraPipeline::FBusWatch UCameraPipeline::setup_bus_watch(GstElement* pipeline
                 break;
             }
             case GST_MESSAGE_EOS: {
+                if (self->m_finishing.load()) {
+                    std::lock_guard lock(self->m_eos_mutex);
+                    self->m_eos_received = true;
+                    self->m_eos_cv.notify_all();
+                    break;
+                }
                 self->m_logger->warn("GST EOS received");
                 self->on_bus_error(varan::signaling::CODE_EOS, "End of stream", probe_handler);
                 break;

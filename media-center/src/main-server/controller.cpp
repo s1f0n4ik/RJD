@@ -93,10 +93,43 @@ namespace {
 
 } // namespace
 
-UController::UController(std::shared_ptr<UMediaCenter> media_center, ULogger* logger)
+UController::UController(std::shared_ptr<UMediaCenter> media_center, std::shared_ptr<varan::UMachineConfig> config, ULogger* logger)
     : m_media_center(media_center)
+    , m_config(std::move(config))
     , m_logger(logger)
 {}
+
+http::response<http::string_body>
+UController::post_start(const http::request<http::string_body>& req) {
+    try {
+        const auto body = req.body().empty() ? json::object{} : json::parse(req.body()).as_object();
+        if (auto error = m_config->check_command(body, true); !error.empty())
+            return json_error(m_logger, req, http::status::conflict, error, "POST /camera/start");
+        if (auto error = m_media_center->start_for_profile(); !error.empty())
+            return json_error(m_logger, req, http::status::conflict, error, "POST /camera/start");
+        return json_ok(m_logger, req, json::object{{"data", json::object{{"state", "running"},
+            {"transition_id", m_config->hold_status().at("transition_id")}, {"revision", m_config->revision()}}}});
+    }
+    catch (const std::exception& error) {
+        return json_error(m_logger, req, http::status::bad_request, error.what(), "POST /camera/start");
+    }
+}
+
+http::response<http::string_body>
+UController::post_stop(const http::request<http::string_body>& req) {
+    try {
+        const auto body = req.body().empty() ? json::object{} : json::parse(req.body()).as_object();
+        if (auto error = m_config->check_command(body, false); !error.empty())
+            return json_error(m_logger, req, http::status::conflict, error, "POST /camera/stop");
+        if (auto error = m_media_center->stop_for_profile(); !error.empty())
+            return json_error(m_logger, req, http::status::conflict, error, "POST /camera/stop");
+        return json_ok(m_logger, req, json::object{{"data", json::object{{"state", "stopped"},
+            {"transition_id", m_config->hold_status().at("transition_id")}, {"revision", m_config->revision()}}}});
+    }
+    catch (const std::exception& error) {
+        return json_error(m_logger, req, http::status::bad_request, error.what(), "POST /camera/stop");
+    }
+}
 
 void UController::set_virtual_streams_provider(CVirtualStreamsProvider provider) {
     m_virtual_streams = std::move(provider);

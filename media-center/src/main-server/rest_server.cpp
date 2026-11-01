@@ -15,6 +15,9 @@ URestServer::URestServer(
     std::shared_ptr<varan::birdview::ULinker> linker,
     std::shared_ptr<varan::neural::UNeuralLoader> loader,
     std::shared_ptr<varan::UMachineConfig> config,
+    std::shared_ptr<varan::detection::UDetectionClient> detection_client,
+    std::shared_ptr<varan::neural::UInputEditor> input_editor,
+    std::shared_ptr<varan::calibration::UCalibrator> calibrator,
     const varan::FModuleSet& modules,
     const varan::FDeviceInfo& device,
     ULogger::ELoggerLevel level
@@ -33,6 +36,10 @@ URestServer::URestServer(
 
     // Конфигурация от мастера: пакет с ревизией и файлы по sha256
     auto config_ctrl = std::make_shared<UConfigController>(config, &m_logger);
+    m_router->add_route(http::verb::get, "/config/hold",
+        [config_ctrl](const auto& r) { return config_ctrl->get_hold(r); });
+    m_router->add_route(http::verb::put, "/config/hold",
+        [config_ctrl](const auto& r) { return config_ctrl->put_hold(r); });
     m_router->add_route(http::verb::get, "/config",
         [config_ctrl](const auto& r) { return config_ctrl->get_config(r); });
     m_router->add_route(http::verb::put, "/config",
@@ -40,7 +47,11 @@ URestServer::URestServer(
     m_router->add_route(http::verb::put, "/config/assets",
         [config_ctrl](const auto& r) { return config_ctrl->put_asset(r); });
 
-    auto controller = std::make_shared<UController>(media_center, &m_logger);
+    auto controller = std::make_shared<UController>(media_center, config, &m_logger);
+    m_router->add_route(http::verb::post, "/camera/start",
+        [controller](const auto& r) { return controller->post_start(r); });
+    m_router->add_route(http::verb::post, "/camera/stop",
+        [controller](const auto& r) { return controller->post_stop(r); });
 
     // Виртуальные потоки отдаются двумя путями: ручкой /streams и в GET /camera
     auto streams_ctrl = std::make_shared<UStreamsController>(linker, loader, &m_logger);
@@ -58,7 +69,7 @@ URestServer::URestServer(
 
     // Маршруты для Линкер — только при загруженном модуле birdview
     if (linker) {
-    auto linker_ctrl = std::make_shared<ULinkerController>(linker, &m_logger);
+    auto linker_ctrl = std::make_shared<ULinkerController>(linker, config, calibrator, &m_logger);
 
     m_router->add_route(http::verb::get, "/linker/exports",
         [linker_ctrl](const auto& r) { return linker_ctrl->get_exports(r); });
@@ -101,7 +112,7 @@ URestServer::URestServer(
 
     // Маршруты для Нейронки — только при загруженном модуле neural
     if (loader) {
-    auto neural_ctrl = std::make_shared<UNeuralController>(loader, &m_logger);
+    auto neural_ctrl = std::make_shared<UNeuralController>(loader, config, detection_client, input_editor, &m_logger);
 
     m_router->add_route(http::verb::get, "/neural/configurations",
         [neural_ctrl](const auto& r) { return neural_ctrl->get_configurations(r); });

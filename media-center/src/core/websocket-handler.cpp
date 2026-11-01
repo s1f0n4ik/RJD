@@ -22,6 +22,8 @@ namespace varan {
 
 	void UWebSocketHandler::start_websocket_client(const std::string& url, const std::string& client_name)
 	{
+		if (m_websocket_thread.joinable()) return;
+		m_io_context.restart();
 		if (!m_websocket_client) {
 			m_websocket_client = std::make_unique<neural::UWebSocketClient>(m_io_context, m_ip_adress, m_port, url, client_name, m_logger.get_level());
 		}

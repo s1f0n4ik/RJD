@@ -4,6 +4,9 @@
 #include <memory>
 
 #include "neural/loader.h"
+#include "neural/input-editor.h"
+#include "detection/client.h"
+#include "core/machine-config.h"
 #include "logger.h"
 
 /*
@@ -25,7 +28,10 @@
 */
 class UNeuralController {
 public:
-    UNeuralController(std::shared_ptr<varan::neural::UNeuralLoader> loader, ULogger* logger = nullptr);
+    UNeuralController(std::shared_ptr<varan::neural::UNeuralLoader> loader,
+        std::shared_ptr<varan::UMachineConfig> config,
+        std::shared_ptr<varan::detection::UDetectionClient> client,
+        std::shared_ptr<varan::neural::UInputEditor> editor, ULogger* logger = nullptr);
 
     boost::beast::http::response<boost::beast::http::string_body>
         get_configurations(const boost::beast::http::request<boost::beast::http::string_body>& req);
@@ -74,5 +80,8 @@ public:
 
 private:
     std::shared_ptr<varan::neural::UNeuralLoader> m_loader;
+    std::shared_ptr<varan::UMachineConfig> m_config;
+    std::shared_ptr<varan::detection::UDetectionClient> m_client;
+    std::shared_ptr<varan::neural::UInputEditor> m_editor;
     ULogger* m_logger;
 };

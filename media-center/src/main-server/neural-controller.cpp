@@ -14,8 +14,11 @@ namespace http = boost::beast::http;
 using namespace varan::rest;
 
 UNeuralController::UNeuralController(std::shared_ptr<varan::neural::UNeuralLoader> loader,
-    ULogger* logger)
-    : m_loader(std::move(loader)), m_logger(logger) {}
+    std::shared_ptr<varan::UMachineConfig> config,
+    std::shared_ptr<varan::detection::UDetectionClient> client,
+    std::shared_ptr<varan::neural::UInputEditor> editor, ULogger* logger)
+    : m_loader(std::move(loader)), m_config(std::move(config)), m_client(std::move(client)),
+      m_editor(std::move(editor)), m_logger(logger) {}
 
 // Хелпер: загрузить FConfigInfo по config_id
 static std::optional<varan::neural::FConfigInfo>
@@ -290,17 +293,30 @@ UNeuralController::get_summary(const http::request<http::string_body>& req) {
 http::response<http::string_body>
 UNeuralController::post_start(const http::request<http::string_body>& req) {
     const std::string tag = "POST /neural/start";
-    log_request(m_logger, req, tag);
-    if (m_loader->is_running()) return json_ok(m_logger, req, boost::json::object{}, tag);
-    if (!m_loader->async_run())
-        return json_error(m_logger, req, http::status::bad_request, "start failed", tag);
-    return json_ok(m_logger, req, boost::json::object{}, tag);
+    try {
+        const auto body = req.body().empty() ? boost::json::object{} : boost::json::parse(req.body()).as_object();
+        if (auto error = m_config->check_command(body, true); !error.empty())
+            return json_error(m_logger, req, http::status::conflict, error, tag);
+        m_loader->allow_start(true);
+        if (m_client) m_client->start();
+        if (!m_loader->is_running() && !m_loader->async_run())
+            return json_error(m_logger, req, http::status::conflict, "cannot start neural supervisor", tag);
+        if (m_editor) m_editor->start_websocket_connection();
+        return json_ok(m_logger, req, boost::json::object{{"data", boost::json::object{{"state", "running"},
+            {"transition_id", m_config->hold_status().at("transition_id")}, {"revision", m_config->revision()}}}}, tag);
+    }
+    catch (const std::exception& error) {
+        return json_error(m_logger, req, http::status::bad_request, error.what(), tag);
+    }
 }
 
 http::response<http::string_body>
 UNeuralController::post_restart(const http::request<http::string_body>& req) {
     const std::string tag = "POST /neural/restart";
     log_request(m_logger, req, tag);
+    if (auto error = m_config->check_command({}, true); !error.empty())
+        return json_error(m_logger, req, http::status::conflict, error, tag);
+    if (!m_loader->is_running()) return post_start(req);
     if (!m_loader->restart())
         return json_error(m_logger, req, http::status::bad_request, "restart failed", tag);
     return json_ok(m_logger, req, boost::json::object{}, tag);
@@ -309,9 +325,23 @@ UNeuralController::post_restart(const http::request<http::string_body>& req) {
 http::response<http::string_body>
 UNeuralController::post_stop(const http::request<http::string_body>& req) {
     const std::string tag = "POST /neural/stop";
-    log_request(m_logger, req, tag);
-    m_loader->stop_async_run();
-    return json_ok(m_logger, req, boost::json::object{}, tag);
+    try {
+        const auto body = req.body().empty() ? boost::json::object{} : boost::json::parse(req.body()).as_object();
+        if (auto error = m_config->check_command(body, false); !error.empty())
+            return json_error(m_logger, req, http::status::conflict, error, tag);
+        m_loader->allow_start(false);
+        if (m_editor) m_editor->stop_websocket_connection();
+        m_loader->stop_async_run();
+        if (m_client) {
+            if (!m_client->drain()) return json_error(m_logger, req, http::status::conflict, "journal packets have not been acknowledged", tag);
+            m_client->stop();
+        }
+        return json_ok(m_logger, req, boost::json::object{{"data", boost::json::object{{"state", "stopped"},
+            {"transition_id", m_config->hold_status().at("transition_id")}, {"revision", m_config->revision()}}}}, tag);
+    }
+    catch (const std::exception& error) {
+        return json_error(m_logger, req, http::status::bad_request, error.what(), tag);
+    }
 }
 
 http::response<http::string_body>

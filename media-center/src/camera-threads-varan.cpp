@@ -192,7 +192,6 @@ int main(int argc, char* argv[])
 		linker_360 = std::make_shared<varan::birdview::ULinker>(socket_options, main_context.get(), gl_storage.get(), 25, ULogger::ELoggerLevel::TRACE);
 
 		calibrator = std::make_shared<varan::calibration::UCalibrator>(socket_options.ip_adress, socket_options.port, main_context.get(), gl_storage.get());
-		calibrator->start_websocket_connection();
 	}
 
 	// Нейронный загрузчик - только при neural
@@ -202,7 +201,6 @@ int main(int argc, char* argv[])
 		if (!config.detection_ip.empty()) {
 			detection_client = std::make_shared<varan::detection::UDetectionClient>(
 				config.detection_ip, config.detection_port, device_info);
-			detection_client->start();
 		}
 		loader = std::make_shared<varan::neural::UNeuralLoader>(
 			socket_options.ip_adress, socket_options.port,
@@ -248,7 +246,6 @@ int main(int argc, char* argv[])
 		);
 
 		// Запуск neural
-		loader->async_run();
 	}
 
 	// Редактор видеопотоков нейронки: пара с фронтом через брокер, вывод neural_editor
@@ -256,11 +253,13 @@ int main(int argc, char* argv[])
 	if (loader) {
 		input_editor = std::make_shared<varan::neural::UInputEditor>(
 			socket_options.ip_adress, socket_options.port, main_context.get(), gl_storage.get(), loader);
-		input_editor->start_websocket_connection();
 	}
 
 	// Конфигурация от мастера: части регистрируют модули, применение — через REST
 	auto machine_config = std::make_shared<varan::UMachineConfig>();
+	center->allow_start(machine_config->allows_start("cameras"));
+	if (loader) loader->allow_start(machine_config->allows_start("neural"));
+	if (linker_360) linker_360->allow_start(machine_config->allows_start("surround"));
 	machine_config->register_part("cameras", [center](const boost::json::value& part) {
 		return center->apply_cameras(part);
 	});
@@ -275,15 +274,25 @@ int main(int argc, char* argv[])
 		});
 	}
 
-	auto rest_server = URestServer{ config.rest_port, center, linker_360, loader, machine_config, config.modules, device_info };
-	rest_server.async_start();
-
-	// Запуск Линкера
-	if (linker_360) {
-		linker_360->async_start();
+	if (machine_config->allows_start("cameras")) {
+		if (const auto error = center->start_for_profile(); !error.empty()) main_logger.error(error);
+	}
+	if (loader && machine_config->allows_start("neural")) {
+		if (detection_client) detection_client->start();
+		if (!loader->async_run()) main_logger.error("cannot start neural supervisor");
+		else if (input_editor) input_editor->start_websocket_connection();
+	}
+	if (linker_360 && machine_config->allows_start("surround")) {
+		if (calibrator) calibrator->start_websocket_connection();
+		const auto state = linker_360->get_state_raw();
+		const auto* active = state.if_contains("active");
+		if (active && active->is_string() && !active->as_string().empty() && !linker_360->async_start())
+			main_logger.error("cannot start surround output");
 	}
 
-	center->start_cameras_from_config();
+	auto rest_server = URestServer{ config.rest_port, center, linker_360, loader, machine_config,
+		detection_client, input_editor, calibrator, config.modules, device_info };
+	rest_server.async_start();
 
 	while (RUNNING && !rest_server.failed()) {
 		std::this_thread::sleep_for(std::chrono::milliseconds(200));

@@ -505,6 +505,7 @@ namespace neural {
 
     // Фкнкции управления
     bool UNeuralLoader::async_run() {
+        if (!m_start_allowed) return false;
         if (m_supervisor_running.exchange(true)) return false;
         // Клиент шлюза общий на процесс — его жизненным циклом владеет main
         m_supervisor = std::thread(&UNeuralLoader::supervisor_loop, this);
@@ -765,7 +766,7 @@ namespace neural {
             return false;
         };
         if (!slots_changed && !touched(configs, current, used_configs) && !touched(streams_new, streams_now, used_streams)) return {};
-        if (slots_changed || m_supervisor_running.load()) restart();
+        if (m_start_allowed && (slots_changed || m_supervisor_running.load())) restart();
         else reload_from_state();
         return {};
     }

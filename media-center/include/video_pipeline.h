@@ -157,6 +157,7 @@ public:
 	virtual bool teardown_prefix();
 
 	void request_stop();
+	virtual std::string prepare_stop();
 
 	void stop_restart_thread();
 
@@ -235,6 +236,11 @@ protected:
 
 protected:
 	GstElement* m_pipeline = nullptr;
+	std::string finish_eos();
+	std::atomic_bool m_finishing{false};
+	std::atomic_bool m_eos_received{false};
+	std::mutex m_eos_mutex;
+	std::condition_variable m_eos_cv;
 
 	// Наблюдатель за шиной основного конвейера. У пробника свой, локальный
 	FBusWatch m_bus_watch;
@@ -337,6 +343,7 @@ public:
 	);
 
 	~UCameraStreamPipeline() override;
+	std::string prepare_stop() override;
 
 	virtual bool initialize() override;
 
@@ -426,6 +433,7 @@ private:
 		std::int64_t start_mono_ms = 0;
 	};
 	std::mutex m_fragment_mutex;
+    std::condition_variable m_fragment_cv;
 	std::unordered_map<std::string, FFragment> m_fragments;
 	// Последний открытый фрагмент
 	std::string m_current_fragment;

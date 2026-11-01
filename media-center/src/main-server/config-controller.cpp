@@ -95,3 +95,21 @@ UConfigController::put_asset(const http::request<http::string_body>& req)
     body["data"] = std::move(data);
     return make_response(req.version(), http::status::ok, body);
 }
+
+http::response<http::string_body>
+UConfigController::get_hold(const http::request<http::string_body>& req) {
+    return make_response(req.version(), http::status::ok, json::object{{"data", m_config->hold_status()}});
+}
+
+http::response<http::string_body>
+UConfigController::put_hold(const http::request<http::string_body>& req) {
+    try {
+        const auto body = json::parse(req.body()).as_object();
+        if (auto error = m_config->set_hold(body); !error.empty())
+            return json_error(m_logger, req, http::status::conflict, error, "PUT /config/hold");
+        return get_hold(req);
+    }
+    catch (const std::exception& error) {
+        return json_error(m_logger, req, http::status::bad_request, error.what(), "PUT /config/hold");
+    }
+}

@@ -106,6 +106,11 @@ namespace detection {
         m_queue.clear();
     }
 
+    bool UDetectionClient::drain() {
+        std::unique_lock lock(m_mutex);
+        return m_cv.wait_for(lock, std::chrono::seconds(15), [this] { return m_queue.empty(); });
+    }
+
     void UDetectionClient::send_packet(FPacket packet) {
         FItem item;
         item.packet = std::move(packet);
@@ -145,6 +150,7 @@ namespace detection {
             if (m_queue[i].image == image && m_queue[i].id == id) {
                 erase_at(i);
                 ++m_confirmed;
+                m_cv.notify_all();
                 return;
             }
         }

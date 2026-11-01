@@ -87,6 +87,21 @@ namespace varan {
 	UMachineConfig::UMachineConfig(ULogger::ELoggerLevel level)
 		: m_logger("Machine Config", level)
 	{
+		m_hold = {{"transition_id", ""}, {"held", false}, {"modules", json::array{}}};
+		const auto hold_path = paths().config.applied.parent_path() / "hold.json";
+		if (std::filesystem::exists(hold_path)) {
+			try {
+				std::ifstream input(hold_path);
+				m_hold = json::parse(std::string((std::istreambuf_iterator<char>(input)), {})).as_object();
+				if (!m_hold.at("held").is_bool() || !m_hold.at("modules").is_array()
+					|| !m_hold.at("transition_id").is_string() || m_hold.at("transition_id").as_string().empty())
+					throw std::runtime_error("invalid configuration hold");
+			}
+			catch (const std::exception& error) {
+				m_logger.error("cannot read configuration hold: " + std::string(error.what()));
+				m_hold = {{"transition_id", ""}, {"held", true}, {"modules", json::array{}}};
+			}
+		}
 		std::ifstream file(paths().config.applied);
 		if (!file) return;
 		std::stringstream ss;
@@ -120,6 +135,71 @@ namespace varan {
 		return m_applied;
 	}
 
+	json::object UMachineConfig::hold_status() const {
+		std::lock_guard lock(m_mutex);
+		auto result = m_hold;
+		result["revision"] = m_applied.if_contains("revision") ? m_applied.at("revision") : json::value("");
+		json::array available;
+		for (const auto& [name, _] : m_parts) available.push_back(json::value(name));
+		result["available"] = std::move(available);
+		return result;
+	}
+
+	std::string UMachineConfig::set_hold(const json::object& command) {
+		std::lock_guard lock(m_mutex);
+		const auto* token = command.if_contains("transition_id");
+		const auto* held = command.if_contains("held");
+		if (!token || !token->is_string() || token->as_string().empty() || token->as_string().size() > 128
+			|| !std::all_of(token->as_string().begin(), token->as_string().end(), [](unsigned char c) {
+				return std::isalnum(c) || c == '_' || c == '-';
+			})) return "invalid transition id";
+		if (!held || !held->is_bool()) return "held must be a boolean";
+		if (held->as_bool()) {
+			if (*token == m_hold.at("transition_id") && !m_hold.at("held").as_bool()) return "transition has already started";
+			if (*token != m_hold.at("transition_id") && (!command.if_contains("previous_transition_id")
+				|| command.at("previous_transition_id") != m_hold.at("transition_id"))) return "obsolete configuration hold";
+			m_hold["held"] = true;
+			m_hold["transition_id"] = *token;
+			return write_durable(paths().config.applied.parent_path() / "hold.json", json::serialize(m_hold));
+		}
+		if (*token != m_hold.at("transition_id")) return "release belongs to another transition";
+		if (!command.if_contains("revision") || !m_applied.if_contains("revision")
+			|| command.at("revision") != m_applied.at("revision")) return "release revision does not match applied configuration";
+		const auto* modules = command.if_contains("modules");
+		if (!modules || !modules->is_array()) return "modules must be an array";
+		for (const auto& module : modules->as_array())
+			if (!module.is_string() || std::none_of(m_parts.begin(), m_parts.end(), [&](const auto& part) {
+				return module.as_string() == part.first;
+			})) return "unknown configuration part";
+		if (!m_hold.at("held").as_bool() && *modules != m_hold.at("modules")) return "transition has already started";
+		auto released = m_hold;
+		released["held"] = false;
+		released["modules"] = *modules;
+		if (auto error = write_durable(paths().config.applied.parent_path() / "hold.json", json::serialize(released)); !error.empty()) return error;
+		m_hold = std::move(released);
+		return {};
+	}
+
+	std::string UMachineConfig::check_command(const json::object& command, bool starting) const {
+		std::lock_guard lock(m_mutex);
+		const auto* token = command.if_contains("transition_id");
+		if (!token && !m_hold.at("held").as_bool()) return {};
+		if (!token || !token->is_string() || token->as_string().empty()
+			|| *token != m_hold.at("transition_id") || !m_hold.at("held").as_bool())
+			return "module command belongs to another transition";
+		if (starting && (!command.if_contains("revision") || !m_applied.if_contains("revision")
+			|| command.at("revision") != m_applied.at("revision"))) return "start revision does not match applied configuration";
+		return {};
+	}
+
+	bool UMachineConfig::allows_start(const std::string& part) const {
+		std::lock_guard lock(m_mutex);
+		if (m_hold.at("held").as_bool()) return false;
+		const auto& modules = m_hold.at("modules").as_array();
+		return m_hold.at("transition_id").as_string().empty()
+			|| std::any_of(modules.begin(), modules.end(), [&](const auto& module) { return module.is_string() && module.as_string() == part; });
+	}
+
 	std::filesystem::path UMachineConfig::asset_path(const std::string& sha256) const {
 		return paths().config.assets / sha256;
 	}
@@ -140,6 +220,16 @@ namespace varan {
 
 	FConfigApplyResult UMachineConfig::apply(const json::object& package) {
 		FConfigApplyResult result;
+		{
+			std::lock_guard lock(m_mutex);
+			const auto* token = package.if_contains("transition_id");
+			if ((token && (*token != m_hold.at("transition_id") || !token->is_string()
+				|| (m_hold.at("held").as_bool() && token->as_string().empty())))
+				|| (!token && (m_hold.at("held").as_bool() || !m_hold.at("transition_id").as_string().empty()))) {
+				result.error = "configuration belongs to another transition";
+				return result;
+			}
+		}
 		const auto* revision = package.if_contains("revision");
 		if (!revision || !revision->is_string() || revision->as_string().empty()) {
 			result.error = "package has no revision";

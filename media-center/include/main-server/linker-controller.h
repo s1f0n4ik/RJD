@@ -5,11 +5,15 @@
 #include <filesystem>
 
 #include "bird-view/linker.h"
+#include "calibration/calibrator.h"
+#include "core/machine-config.h"
 
 
 class ULinkerController {
 public:
-	ULinkerController(std::shared_ptr<varan::birdview::ULinker> linker, ULogger* logger = nullptr);
+	ULinkerController(std::shared_ptr<varan::birdview::ULinker> linker,
+        std::shared_ptr<varan::UMachineConfig> config,
+        std::shared_ptr<varan::calibration::UCalibrator> calibrator, ULogger* logger = nullptr);
 
 	boost::beast::http::response<boost::beast::http::string_body>
 		get_exports(const boost::beast::http::request<boost::beast::http::string_body>& req);
@@ -62,5 +66,7 @@ public:
 
 private:
 	std::shared_ptr<varan::birdview::ULinker> m_linker;
+    std::shared_ptr<varan::UMachineConfig> m_config;
+    std::shared_ptr<varan::calibration::UCalibrator> m_calibrator;
 	ULogger* m_logger;
 };

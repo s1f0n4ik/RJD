@@ -1,6 +1,7 @@
 #pragma once
 
 #include "media_center.h"
+#include "core/machine-config.h"
 #include <boost/beast/http.hpp>
 #include <memory>
 #include <set>
@@ -19,7 +20,12 @@ public:
     using CVirtualStreamsProvider = std::function<boost::json::array()>;
 
 public:
-    explicit UController(std::shared_ptr<UMediaCenter> media_center, ULogger* logger = nullptr);
+    UController(std::shared_ptr<UMediaCenter> media_center, std::shared_ptr<varan::UMachineConfig> config, ULogger* logger = nullptr);
+
+    boost::beast::http::response<boost::beast::http::string_body>
+        post_start(const boost::beast::http::request<boost::beast::http::string_body>& req);
+    boost::beast::http::response<boost::beast::http::string_body>
+        post_stop(const boost::beast::http::request<boost::beast::http::string_body>& req);
 
     void set_virtual_streams_provider(CVirtualStreamsProvider provider);
 
@@ -39,6 +45,7 @@ public:
 
 private:
     std::shared_ptr<UMediaCenter> m_media_center;
+    std::shared_ptr<varan::UMachineConfig> m_config;
     ULogger* m_logger;
     CVirtualStreamsProvider m_virtual_streams;
 

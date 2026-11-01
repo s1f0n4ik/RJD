@@ -226,6 +226,7 @@ namespace neural {
 		}
 
 		m_stop_called = false;
+		m_preparing_stop = false;
 		m_is_initializing = true;
 
 		if (m_init_thread.joinable()) {
@@ -236,19 +237,19 @@ namespace neural {
 	}
 
 	void UCamera::worker() {
-		while (!m_stop_called.load())
+		while (!m_stop_called.load() && !m_preparing_stop.load())
 		{
 			if (initialize()) break;
 
 			std::unique_lock<std::mutex> lk(m_worker_cv_mutex);
 			m_worker_cv.wait_for(lk, std::chrono::seconds(2),
-				[this] { return m_stop_called.load(); }
+				[this] { return m_stop_called.load() || m_preparing_stop.load(); }
 			);
 		}
 
 		m_is_initializing = false;
 
-		if (m_stop_called.load()) {
+		if (m_stop_called.load() || m_preparing_stop.load()) {
 			m_logger.info("worker(): stop requested during init, exiting");
 			return;
 		}
@@ -262,7 +263,24 @@ namespace neural {
 		m_running = true;
 	}
 
-	void UCamera::stop() 
+	std::string UCamera::prepare_stop() {
+		m_preparing_stop = true;
+		m_worker_cv.notify_all();
+		if (m_init_thread.joinable()) {
+			for (auto& [name, stream] : m_streams) stream->request_stop();
+			m_init_thread.join();
+		}
+        std::string errors;
+		for (auto& [name, stream] : m_streams)
+			if (auto error = stream->prepare_stop(); !error.empty()) errors += name + ": " + error + "; ";
+		return errors;
+	}
+
+	bool UCamera::wait_stopped() {
+		return !m_stop_completion.valid() || m_stop_completion.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
+	}
+
+	void UCamera::stop()
 	{
 		if (m_stop_called.exchange(true)) {
 			m_logger.warn("stop(): already called, ignoring");
@@ -294,7 +312,7 @@ namespace neural {
 			}
 			else {
 				std::promise<void> done;
-				auto future = done.get_future();
+				m_stop_completion = done.get_future().share();
 
 				// Структура для передачи в idle callback
 				struct StopCtx {
@@ -317,7 +335,7 @@ namespace neural {
 				);
 				m_logger.debug("stop(): inoked stop to the main gloop thread!");
 				// Ждём завершения teardown
-				if (future.wait_for(std::chrono::seconds(5)) == std::future_status::timeout) {
+				if (!wait_stopped()) {
 					m_logger.error("stop(): teardown timeout! Cleanup");
 				}
 			}
@@ -400,7 +418,7 @@ namespace neural {
 
 	void UCamera::on_signaling_message(const std::string& msg) {
 		try {
-			if (m_stop_called.load()) return;
+			if (m_stop_called.load() || m_preparing_stop.load()) return;
 			m_logger.debug("on_signaling_message(): proccessing message " + msg);
 			boost::json::value parsed = boost::json::parse(msg);
 			boost::json::object& json_object = parsed.as_object();

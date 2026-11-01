@@ -4,6 +4,7 @@
 #include <iostream>
 #include <thread>
 #include <functional>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -78,6 +79,8 @@ namespace neural {
 		void worker();
 
 		void stop();
+		std::string prepare_stop();
+		bool wait_stopped();
 
 		// Запуск клиента для обмена с сообщениями с сервером
 		void start_websocket_client();
@@ -166,6 +169,8 @@ namespace neural {
 		std::atomic<bool> m_is_initializing;
 		std::atomic<bool> m_error;
 		std::atomic<bool> m_stop_called{ false };
+		std::atomic<bool> m_preparing_stop{ false };
+		std::shared_future<void> m_stop_completion;
 
 		// Для прерывания worker loop
 		std::mutex m_worker_cv_mutex;

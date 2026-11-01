@@ -105,6 +105,7 @@ namespace birdview {
 		bool set_render_camera(const std::string& key, std::string camera);
 
 		bool async_start();
+		void allow_start(bool value) { m_start_allowed = value; }
 
 		void stop();
 
@@ -265,6 +266,7 @@ namespace birdview {
 		mutable std::mutex m_mutex;
 		std::thread m_worker;
 		std::atomic<bool> m_running{ false };
+		std::atomic_bool m_start_allowed{true};
 		std::shared_ptr<FConfigRequest> m_config_request;
 
 		// fps из конфига процесса. Служит значением по умолчанию, когда

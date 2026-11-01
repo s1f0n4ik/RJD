@@ -47,6 +47,9 @@ public:
 	void start_cameras();
 
 	void stop_cameras();
+	std::string stop_for_profile();
+	std::string start_for_profile();
+	void allow_start(bool value) { m_start_allowed = value; }
 
 	void run_eos();
 
@@ -97,6 +100,7 @@ private:
 	std::mutex m_mutex;
 	std::mutex m_mutex_buffers;
 	std::atomic<bool> m_running;
+	std::atomic_bool m_start_allowed{true};
 
 	std::unordered_map<std::string, std::shared_ptr<UCamera>> m_cameras;
 

@@ -66,6 +66,7 @@ message FrameRequest {
     Record record = 13;       // запись для Modbus; шлюз Искры пишет запись только из сообщений с ней
     repeated string modules = 14; // id модулей-получателей; пусто — все модули активной конфигурации
     int32 camera_no = 15;     // номер камеры CAN по таблице соответствий мастера, 0 — камеры в таблице нет
+    string runtime_id = 16;
 }
 
 message FrameReply {

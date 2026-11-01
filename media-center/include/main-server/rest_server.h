@@ -23,6 +23,9 @@ public:
         std::shared_ptr<varan::birdview::ULinker> linker,
         std::shared_ptr<varan::neural::UNeuralLoader> loader,
         std::shared_ptr<varan::UMachineConfig> config,
+        std::shared_ptr<varan::detection::UDetectionClient> detection_client,
+        std::shared_ptr<varan::neural::UInputEditor> input_editor,
+        std::shared_ptr<varan::calibration::UCalibrator> calibrator,
         const varan::FModuleSet& modules,
         const varan::FDeviceInfo& device,
         ULogger::ELoggerLevel level = ULogger::ELoggerLevel::DEBUG

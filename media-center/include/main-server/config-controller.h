@@ -11,6 +11,9 @@ class UConfigController {
 public:
     UConfigController(std::shared_ptr<varan::UMachineConfig> config, ULogger* logger = nullptr);
 
+    boost::beast::http::response<boost::beast::http::string_body> get_hold(const boost::beast::http::request<boost::beast::http::string_body>& req);
+    boost::beast::http::response<boost::beast::http::string_body> put_hold(const boost::beast::http::request<boost::beast::http::string_body>& req);
+
     boost::beast::http::response<boost::beast::http::string_body>
         get_config(const boost::beast::http::request<boost::beast::http::string_body>& req);
     boost::beast::http::response<boost::beast::http::string_body>

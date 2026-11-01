@@ -98,6 +98,7 @@ namespace neural {
     }
 
     int UMediaCenter::add_camera(const FCameraData& options, const std::map<std::string, FPipelineConfig>& pipelines, bool to_save) {
+        if (!m_start_allowed) return -1;
         std::lock_guard<std::mutex> lk(m_mutex);
         if (m_cameras.count(options.id)) {
             m_logger.error("add_camera(): cannot add camera, camera with id=" + options.id + " already exists!");
@@ -128,6 +129,7 @@ namespace neural {
     }
 
     bool UMediaCenter::add_camera_async(const FCameraData& options, const std::map<std::string, FPipelineConfig>& pipelines, bool to_save) {
+        if (!m_start_allowed) return false;
         std::lock_guard<std::mutex> lk(m_mutex);
 
         if (m_cameras.count(options.id)) {
@@ -297,6 +299,11 @@ namespace neural {
         }
 
         std::map<std::string, FCameraConfiguration> current;
+        if (!m_start_allowed) {
+            std::vector<FCameraStreamsData> stored;
+            for (const auto& [id, config] : wanted) stored.push_back(config_to_streams_data(config));
+            return m_config_manager.save(stored) ? "" : "cannot save cameras while stopped";
+        }
         for (auto& config : m_config_manager.get_all_configs()) {
             const auto id = config.camera.id;
             current.emplace(id, std::move(config));
@@ -363,6 +370,7 @@ namespace neural {
     }
 
     void UMediaCenter::start_cameras_from_config() {
+        if (!m_start_allowed) return;
         if (!m_config_manager.load()) {
             m_logger.error("start_cameras_from_config(): failed to load configurations");
             return;
@@ -479,6 +487,48 @@ namespace neural {
         for (auto& [id, cam] : m_cameras) {
             cam->stop();
         }
+    }
+
+    std::string UMediaCenter::stop_for_profile() {
+        m_start_allowed = false;
+        std::vector<std::shared_ptr<UCamera>> cameras;
+        {
+            std::lock_guard lock(m_mutex);
+            for (const auto& [id, camera] : m_cameras) cameras.push_back(camera);
+        }
+        std::vector<std::future<std::string>> finishing;
+        for (const auto& camera : cameras)
+            finishing.push_back(std::async(std::launch::async, [camera] { return camera->prepare_stop(); }));
+        std::string error;
+        for (auto& future : finishing) {
+            const auto result = future.get();
+            if (!result.empty()) error = result;
+        }
+        if (!error.empty()) return error;
+        for (const auto& camera : cameras) {
+            camera->stop();
+            if (!camera->wait_stopped()) error = "camera teardown has not completed";
+        }
+        if (!error.empty()) return error;
+        {
+            std::lock_guard lock(m_mutex);
+            m_cameras.clear();
+        }
+        cameras.clear();
+        {
+            std::lock_guard lock(m_cleanup_mutex);
+            for (auto& thread : m_cleanup_threads) if (thread.joinable()) thread.join();
+            m_cleanup_threads.clear();
+        }
+        if (m_segment_writer && !m_segment_writer->flush()) return "archive index has not flushed";
+        return {};
+    }
+
+    std::string UMediaCenter::start_for_profile() {
+        if (!m_config_manager.load()) return "cannot load camera configuration";
+        m_start_allowed = true;
+        start_cameras_from_config();
+        return {};
     }
 
     std::vector<FCameraStreamsData> UMediaCenter::get_cameras() {

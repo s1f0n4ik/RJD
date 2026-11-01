@@ -41,6 +41,12 @@ namespace varan {
 		std::string revision() const;
 		boost::json::object applied() const;
 
+		// Commands and application are serialized by REST; startup finishes before REST accepts requests.
+		boost::json::object hold_status() const;
+		std::string set_hold(const boost::json::object& command);
+		std::string check_command(const boost::json::object& command, bool starting) const;
+		bool allows_start(const std::string& part) const;
+
 		std::filesystem::path asset_path(const std::string& sha256) const;
 		bool has_asset(const std::string& sha256) const;
 		std::string put_asset(const std::string& sha256, const std::string& body);
@@ -51,6 +57,7 @@ namespace varan {
 		mutable std::mutex m_mutex;
 		std::vector<std::pair<std::string, CConfigPartApplier>> m_parts;
 		boost::json::object m_applied;
+		boost::json::object m_hold;
 		ULogger m_logger;
 	};
 
