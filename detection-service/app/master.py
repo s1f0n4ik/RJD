@@ -40,6 +40,7 @@ class Detection:
     camera_id: str
     key: str
     last_ts: int
+    settings: BaseModel
     # Открытые треки: (устройство, сессия, номер трека)
     tracks: set = field(default_factory=set)
     # Пропал последний трек: время, рамка, причина и монотонный срок закрытия
@@ -175,7 +176,14 @@ class Outbox:
     # Сообщения мастера в шлюз; отправку подставляет main
     def __init__(self):
         self.session = now_ms()
-        self.send: Callable[[Outgoing], None] = lambda message: None
+        self.sender: Callable[[Outgoing], None] = lambda message: None
+        self.enabled = True
+        self.runtime_id = ""
+
+    def send(self, message: Outgoing) -> None:
+        if self.enabled:
+            message.request.runtime_id = self.runtime_id
+            self.sender(message)
 
 
 # Зона трека выше зоны обнаружения поднимает её
@@ -297,7 +305,7 @@ class Rules:
             detection.removed_ts = ts
             detection.removed_box = state.box
             detection.close_reason = reason
-            detection.deadline = time.monotonic() + self.settings.stitch.gap_s + 0.5
+            detection.deadline = time.monotonic() + detection.settings.stitch.gap_s + 0.5
 
     def _open_track(self, key: tuple, packet, track, box: Box, late: bool) -> Track:
         cls = track.superclass or track.class_name or str(track.class_id)
@@ -310,7 +318,7 @@ class Rules:
                 superclass=track.superclass, superclass_id=track.superclass_id, confidence=track.confidence, late=late,
                 opened=time.monotonic(), opened_ts=packet.ts,
                 gps=(packet.gps.lat, packet.gps.lon) if packet.gps.valid else None,
-                zone_id=track.zone_id, zone_name=track.zone_name, zone_priority=track.zone_priority,
+                zone_id=track.zone_id, zone_name=track.zone_name, zone_priority=track.zone_priority, settings=self.settings,
             )
             self.detections[detection_id] = detection
             self.opened_total += 1
@@ -332,7 +340,6 @@ class Rules:
 
     # Ждущее закрытия обнаружение той же камеры, класса, недавнее и рядом
     def _stitch(self, packet, cls: str, box: Box) -> Optional[Detection]:
-        gap_ms = self.settings.stitch.gap_s * 1000
         cx, cy = center(box)
         best, best_distance = None, math.inf
         for detection in self.detections.values():
@@ -345,10 +352,10 @@ class Rules:
             ):
                 continue
             gap = packet.ts - detection.removed_ts
-            if gap < 0 or gap > gap_ms:
+            if gap < 0 or gap > detection.settings.stitch.gap_s * 1000:
                 continue
             rx, ry = center(detection.removed_box)
-            reach = math.hypot(detection.removed_box[2], detection.removed_box[3]) * self.settings.stitch.distance
+            reach = math.hypot(detection.removed_box[2], detection.removed_box[3]) * detection.settings.stitch.distance
             distance = math.hypot(cx - rx, cy - ry)
             if distance <= reach and distance < best_distance:
                 best, best_distance = detection, distance
@@ -356,13 +363,12 @@ class Rules:
 
     # Пакет камеры позже паузы сшивки закрывает её ждущие обнаружения
     def _flush_camera(self, device_id: str, camera_id: str, ts: int) -> None:
-        gap_ms = self.settings.stitch.gap_s * 1000
         for detection in list(self.detections.values()):
             if (
                 detection.removed_ts is not None
                 and detection.device_id == device_id
                 and detection.camera_id == camera_id
-                and ts - detection.removed_ts > gap_ms
+                and ts - detection.removed_ts > detection.settings.stitch.gap_s * 1000
             ):
                 self._close(detection, detection.removed_ts, detection.close_reason)
 
@@ -398,6 +404,10 @@ class Rules:
     def close_all(self, reason: str) -> None:
         for detection in list(self.detections.values()):
             self._close(detection, detection.removed_ts or detection.last_ts, reason)
+
+    def pause(self) -> None:
+        self.close_all("profile_switch")
+        self.cameras.clear()
 
     def _close(self, detection: Detection, ended_at: int, reason: str) -> None:
         self.journal.close_detection(detection.id, ended_at, reason)
@@ -445,21 +455,25 @@ class RsmRules(Rules):
         # Снимки для ЦПУ, ждущие свой кадр: (устройство, сессия, id снимка)
         self.shots: dict[tuple, Shot] = {}
 
+    def pause(self) -> None:
+        super().pause()
+        self.shots.clear()
+
     # Сообщение CAN: тип, опасность и номер камеры по таблице соответствий
     def _can_request(self, event: int, ts: int, detection: Detection, track=None) -> "gw.FrameRequest":
         d = gw_detection(detection, track)
         superclass_id = track.superclass_id if track is not None else detection.superclass_id
-        d.type, d.danger = self.settings.resolve(detection.config_id, d.cid, d.scls, superclass_id)
+        d.type, d.danger = detection.settings.resolve(detection.config_id, d.cid, d.scls, superclass_id)
         request = self._request(event, ts, detection.camera_id, detection.config_id, [d], "can")
-        request.camera_no = self.settings.table.cameras.get(detection.camera_id, 0)
+        request.camera_no = detection.settings.table.cameras.get(detection.camera_id, 0)
         return request
 
     def _ws_takes(self, detection: Detection) -> bool:
-        ws = self.settings.websocket
+        ws = detection.settings.websocket
         return not detection.late and ws.enabled and ws.allows(detection.class_name, detection.superclass)
 
     def on_opened(self, detection: Detection, track, packet) -> None:
-        can = self.settings.can
+        can = detection.settings.can
         if not (can.enabled and can.allows(detection.class_name, detection.superclass)):
             self.feed.filtered("can")
             return
@@ -500,7 +514,7 @@ class RsmRules(Rules):
         gps = (packet.gps.lat, packet.gps.lon) if packet.gps.valid else None
         entry = self.feed.add("websocket", "confirmed", first.id, first.class_name, first.camera_id,
                               confidence=track.confidence, more=[d.id for d, _ in fresh[1:]])
-        shot = Shot(request, gps, max(d.opened for d, _ in fresh), entry, self.settings.websocket.late_s)
+        shot = Shot(request, gps, max(d.opened for d, _ in fresh), entry, min(d.settings.websocket.late_s for d, _ in fresh))
         path = self.journal.image_path(packet.device_id, packet.session, packet.image_id)
         if path is None:
             self.shots[(packet.device_id, packet.session, packet.image_id)] = shot
@@ -549,6 +563,10 @@ class IskraRules(Rules):
         # Записи, ещё не принятые шлюзом: id обнаружения → запрос
         self.pending: dict[int, "gw.FrameRequest"] = {}
 
+    def pause(self) -> None:
+        super().pause()
+        self.pending.clear()
+
     def _record(self, detection: Detection) -> None:
         detection.recorded = True
         if not detection.late:
@@ -557,12 +575,12 @@ class IskraRules(Rules):
     # Запись 28163 с самой высокой зоной обнаружения на момент ts
     def _send_new_record(self, detection: Detection, ts: int, gps: Optional[tuple[float, float]]) -> None:
         # Код пусто — только журнал
-        code = self.settings.code(detection.config_id, detection.class_id)
-        if not self.settings.modbus.enabled or not code:
+        code = detection.settings.code(detection.config_id, detection.class_id)
+        if not detection.settings.modbus.enabled or not code:
             self.feed.filtered("modbus")
             return
-        record = gw.Record(code=code, frame_id=detection.id & 0xFFFFFFFF, camera_mask=self.settings.camera_mask(detection.camera_id),
-                           zone=self.settings.zone(detection.config_id, detection.zone_id), count=1, ts=ts)
+        record = gw.Record(code=code, frame_id=detection.id & 0xFFFFFFFF, camera_mask=detection.settings.camera_mask(detection.camera_id),
+                           zone=detection.settings.zone(detection.config_id, detection.zone_id), count=1, ts=ts)
         if gps is not None:
             record.gps.CopyFrom(gw.GpsData(lat=gps[0], lon=gps[1], valid=True))
         request = self._request(gw.TRACK_EVENT_CONFIRMED, ts, detection.camera_id, detection.config_id,
@@ -599,9 +617,8 @@ class IskraRules(Rules):
     def tick(self, connected: set) -> None:
         super().tick(connected)
         now = time.monotonic()
-        ceiling = self.settings.modbus.ceiling_s
         for detection in self.detections.values():
-            if not detection.recorded and now - detection.opened >= ceiling:
+            if not detection.recorded and now - detection.opened >= detection.settings.modbus.ceiling_s:
                 self._record(detection)
 
 
@@ -701,7 +718,12 @@ class Master:
 
     # Шлюз подключился: открытое — заново
     def resend_open(self) -> int:
-        return self.rules.resend()
+        return self.rules.resend() if self.outbox.enabled else 0
+
+    def pause(self) -> None:
+        self.outbox.enabled = False
+        self.rules.pause()
+        self.journal.commit()
 
     # Ответ шлюза на сообщение с лентой
     def on_reply(self, entry: dict) -> None:

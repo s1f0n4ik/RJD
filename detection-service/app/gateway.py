@@ -63,7 +63,7 @@ class GatewayLink:
     def _put(self, message: Outgoing) -> None:
         queue = self.queue
         request = message.request
-        if queue is None:
+        if queue is None or not master.outbox.enabled or request.runtime_id != master.outbox.runtime_id:
             master.feed.dropped(message.entry)
             return
         if queue.full():
@@ -74,6 +74,13 @@ class GatewayLink:
         request.id = self.seq
         master.feed.queued(message.entry, request.id)
         queue.put_nowait(request)
+
+    async def pause(self) -> None:
+        await asyncio.get_running_loop().run_in_executor(draw_pool, lambda: None)
+        if self.queue is not None:
+            while not self.queue.empty():
+                self.queue.get_nowait()
+        master.feed.lost()
 
     @staticmethod
     async def _requests(queue: asyncio.Queue):
@@ -128,4 +135,4 @@ class GatewayLink:
 
 
 link = GatewayLink()
-master.outbox.send = link.submit
+master.outbox.sender = link.submit

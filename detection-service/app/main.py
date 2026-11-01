@@ -3,6 +3,7 @@ import json
 import logging
 import urllib.request
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import grpc
 from fastapi import Body, FastAPI, HTTPException
@@ -14,6 +15,10 @@ from app.config import settings
 from app.gateway import link
 from app.jobs import jobs
 from app.master import journal, master, run, worker
+from app.lifecycle import Lifecycle
+
+executor = Lifecycle(master, Path(settings.JOURNAL_DIR) / "executor.json")
+runtime_lock = asyncio.Lock()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -57,7 +62,7 @@ async def poll_gateway():
             if not reachable:
                 logger.info("gateway reachable again")
             reachable = True
-            if active:
+            if active and not executor.managed:
                 await run(master.set_active, active)
         except Exception as e:
             if reachable:
@@ -79,6 +84,7 @@ async def every(seconds: float, fn):
 async def lifespan(app: FastAPI):
     await run(journal.open)
     await run(master.start)
+    await run(executor.restore)
 
     # gRPC живёт в том же цикле событий, что и HTTP
     server = grpc.aio.server(options=GRPC_OPTIONS)
@@ -122,15 +128,46 @@ async def get_rules(config_id: str):
     return state
 
 
-@app.put("/rules/{config_id}", tags=["Rules"])
-async def put_rules(config_id: str, body: dict = Body(...)):
-    """Сохранить настройки конфигурации; действуют сразу и только на новые обнаружения."""
-    if await run(master.rules_settings, config_id) is None:
-        raise HTTPException(status_code=404, detail=f"No rules for configuration {config_id}")
+@app.get("/runtime")
+async def runtime_state():
+    return await run(executor.status)
+
+
+@app.post("/rules/{config_id}/validate")
+async def validate_rules(config_id: str, body: dict = Body(...)):
+    from app.master import RULES
+    if config_id not in RULES:
+        raise HTTPException(404, "Unknown detection rules")
     try:
-        return await run(master.save_rules, config_id, body)
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=e.errors(include_url=False, include_context=False))
+        return RULES[config_id].model.model_validate(body).model_dump()
+    except ValidationError as error:
+        raise HTTPException(422, error.errors(include_url=False, include_context=False))
+
+
+@app.put("/runtime")
+async def runtime_command(body: dict = Body(...)):
+    async with runtime_lock:
+        try:
+            if body.get("action") == "stop":
+                await run(executor.stop, body)
+                await link.pause()
+                return await run(executor.stopped)
+            if body.get("action") == "start":
+                return await run(executor.start, body)
+            raise ValueError("Unknown runtime action")
+        except ValueError as error:
+            raise HTTPException(409, str(error))
+
+
+@app.put("/config")
+async def apply_config(body: dict = Body(...)):
+    async with runtime_lock:
+        try:
+            return await run(executor.apply, body)
+        except ValidationError as error:
+            raise HTTPException(422, error.errors(include_url=False, include_context=False))
+        except ValueError as error:
+            raise HTTPException(409, str(error))
 
 
 @app.get("/link", tags=["Rules"])
