@@ -7,6 +7,11 @@ const DEV_BACKEND = 'http://192.168.1.102';
 
 export default defineConfig({
   plugins: [react()],
+  build: {
+    rollupOptions: {
+      input: { app: 'index.html', 'test-client': 'tests/client.html' },
+    },
+  },
   server: {
     host: '0.0.0.0',
     port: 3000,

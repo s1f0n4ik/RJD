@@ -287,16 +287,16 @@ class Gateway:
 
 class Sender:
     # Отправитель записей в образе мастера обнаружений: там есть grpc
-    def __init__(self, image: str):
+    def __init__(self, image: str, name: str | None = None):
         self.proc = subprocess.Popen([
-            "docker", "run", "--rm", "-i", "--network", "host", "-v", f"{PROTO}:/proto:ro", "-v", f"{HERE}:/stand:ro",
+            "docker", "run", "--rm", "-i", *(["--name", name] if name else []), "--network", "host", "-v", f"{PROTO}:/proto:ro", "-v", f"{HERE}:/stand:ro",
             "--entrypoint", "python", image, "-u", "/stand/sender.py", "--grpc", f"127.0.0.1:{GRPC_PORT}",
         ], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
         if not json.loads(self.proc.stdout.readline() or "{}").get("ready"):
             raise RuntimeError("sender did not start")
 
-    def send(self, record=None) -> dict:
-        self.proc.stdin.write(json.dumps({"record": record}) + "\n")
+    def send(self, record=None, **packet) -> dict:
+        self.proc.stdin.write(json.dumps({"record": record, **packet}) + "\n")
         self.proc.stdin.flush()
         return json.loads(self.proc.stdout.readline())
 

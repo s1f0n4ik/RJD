@@ -28,7 +28,12 @@ def main() -> None:
     print(json.dumps({"ready": True}), flush=True)
     for line in sys.stdin:
         cmd = json.loads(line)
-        request = pb.FrameRequest(ver=1, id=cmd.get("id", 0), session=cmd.get("session", 1), event=pb.TRACK_EVENT_REMOVED)
+        request = pb.FrameRequest(ver=1, id=cmd.get("id", 0), session=cmd.get("session", 1),
+                                  event=getattr(pb, 'TRACK_EVENT_' + cmd.get('event', 'REMOVED')),
+                                  runtime_id=cmd.get('runtime_id', ''), camera_no=cmd.get('camera_no', 0),
+                                  ts=cmd.get('ts', int(time.time() * 1000)), modules=cmd.get('modules', []))
+        for detection in cmd.get('dets', []):
+            request.dets.add(**detection)
         record = cmd.get("record")
         if record is not None:
             request.record.code = record.get("code", 0)
