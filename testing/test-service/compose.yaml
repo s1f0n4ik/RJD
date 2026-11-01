@@ -1,0 +1,30 @@
+name: rjd-testing
+services:
+  testing:
+    image: varan/testing:${TAG:-latest}
+    build:
+      context: ../..
+      dockerfile: testing/test-service/Dockerfile
+    container_name: rjd-testing
+    network_mode: host
+    init: true
+    environment:
+      TEST_PASSWORD: ${TEST_PASSWORD:?Set TEST_PASSWORD}
+      TEST_DATA: /data
+      TEST_PORT: ${TEST_PORT:-8088}
+    volumes:
+      - testing-data:/data
+    restart: unless-stopped
+    stop_grace_period: 5m
+    healthcheck:
+      test: [CMD, python, -c, "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('TEST_PORT','8088')+'/health',timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+volumes:
+  testing-data:
