@@ -184,13 +184,15 @@ class ConfigStore:
         return dict(row)
 
     def create_version(
-        self, profile_id: str, name: str, entities: dict[tuple[str, str], Any], label: str = ""
+        self, profile_id: str, name: str, entities: dict[tuple[str, str], Any], label: str = "", select: bool = True
     ) -> dict:
+        self._assert_editable()
         for kind, _ in entities:
             if kind not in KINDS or kind in PASSPORT_ONLY:
                 raise ConfigError(f"kind {kind!r} is not allowed in a profile")
         vhash = digest(sorted([k, key, body] for (k, key), body in entities.items()))
         with self._tx() as db:
+            self._assert_editable()
             if not db.execute("SELECT 1 FROM profiles WHERE id=?", (profile_id,)).fetchone():
                 db.execute(
                     "INSERT INTO profiles(id, name, version_id, created) VALUES (?,?,NULL,?)",
@@ -200,7 +202,8 @@ class ConfigStore:
                 "SELECT * FROM versions WHERE profile_id=? AND hash=?", (profile_id, vhash)
             ).fetchone()
             if same:
-                db.execute("UPDATE profiles SET version_id=? WHERE id=?", (same["id"], profile_id))
+                if select:
+                    db.execute("UPDATE profiles SET version_id=? WHERE id=?", (same["id"], profile_id))
                 return {"id": same["id"], "number": same["number"], "hash": vhash, "created": False}
             number = db.execute(
                 "SELECT COALESCE(MAX(number), 0) + 1 FROM versions WHERE profile_id=?", (profile_id,)
@@ -214,11 +217,13 @@ class ConfigStore:
                 "INSERT INTO entities(version_id, kind, key, body) VALUES (?,?,?,?)",
                 [(version_id, kind, key, canon(body)) for (kind, key), body in entities.items()],
             )
-            db.execute("UPDATE profiles SET version_id=? WHERE id=?", (version_id, profile_id))
+            db.execute("UPDATE profiles SET version_id=? WHERE id=? AND (? OR version_id IS NULL)", (version_id, profile_id, select))
             return {"id": version_id, "number": number, "hash": vhash, "created": True}
 
     def select_version(self, profile_id: str, version_id: int) -> None:
+        self._assert_editable()
         with self._tx() as db:
+            self._assert_editable()
             row = db.execute(
                 "SELECT 1 FROM versions WHERE id=? AND profile_id=?", (version_id, profile_id)
             ).fetchone()
@@ -227,20 +232,46 @@ class ConfigStore:
             db.execute("UPDATE profiles SET version_id=? WHERE id=?", (version_id, profile_id))
 
     def delete_version(self, profile_id: str, version_id: int) -> None:
+        self._assert_editable()
         if self.profile(profile_id)["version_id"] == version_id:
             raise ConfigError("selected version cannot be deleted")
         with self._tx() as db:
+            self._assert_editable()
             db.execute("DELETE FROM versions WHERE id=? AND profile_id=?", (version_id, profile_id))
 
     def delete_profile(self, profile_id: str) -> None:
+        self._assert_editable()
         if self.active_profile() == profile_id:
             raise ConfigError("active profile cannot be deleted")
         with self._tx() as db:
+            self._assert_editable()
             db.execute("DELETE FROM profiles WHERE id=?", (profile_id,))
 
     def active_profile(self) -> Optional[str]:
         row = self._db.execute("SELECT value FROM machine WHERE key='active_profile'").fetchone()
         return row["value"] if row else None
+
+    def profile_transition(self) -> Optional[dict]:
+        row = self._db.execute("SELECT value FROM machine WHERE key='profile_transition'").fetchone()
+        return json.loads(row["value"]) if row and row["value"] else None
+
+    def is_repairing(self, profile_id: str) -> bool:
+        transition = self.profile_transition()
+        return bool(transition and transition["phase"] == "repairing" and transition["profile_id"] == profile_id)
+
+    def _assert_editable(self, passport_profile: Optional[str] = None) -> None:
+        transition = self.profile_transition()
+        if transition and transition["phase"] != "complete":
+            if passport_profile and self.is_repairing(passport_profile):
+                return
+            raise ConfigError("A profile transition is in progress")
+
+    def save_profile_transition(self, state: dict) -> None:
+        with self._tx() as db:
+            db.execute(
+                "INSERT INTO machine(key, value) VALUES ('profile_transition', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (canon(state),),
+            )
 
     def set_active(self, profile_id: str) -> None:
         self.profile(profile_id)
@@ -284,6 +315,7 @@ class ConfigStore:
         return json.loads(row["body"]) if row else None
 
     def put(self, profile_id: str, kind: str, key: str, body: Any) -> str:
+        self._assert_editable(profile_id)
         if kind not in KINDS:
             raise ConfigError(f"unknown kind {kind!r}")
         base = self._profile_body(profile_id, kind, key)
@@ -292,6 +324,7 @@ class ConfigStore:
             return "profile"
         op = "replace" if base is not None else "add"
         with self._tx() as db:
+            self._assert_editable(profile_id)
             db.execute(
                 "INSERT INTO passport(profile_id, kind, key, op, body, base_hash, updated) VALUES (?,?,?,?,?,?,?) "
                 "ON CONFLICT(profile_id, kind, key) DO UPDATE SET op=excluded.op, body=excluded.body, "
@@ -301,11 +334,13 @@ class ConfigStore:
         return op
 
     def remove(self, profile_id: str, kind: str, key: str) -> str:
+        self._assert_editable(profile_id)
         base = self._profile_body(profile_id, kind, key)
         if base is None:
             self.reset(profile_id, kind, key)
             return "gone"
         with self._tx() as db:
+            self._assert_editable(profile_id)
             db.execute(
                 "INSERT INTO passport(profile_id, kind, key, op, body, base_hash, updated) VALUES (?,?,?,?,NULL,?,?) "
                 "ON CONFLICT(profile_id, kind, key) DO UPDATE SET op=excluded.op, body=NULL, "
@@ -315,7 +350,9 @@ class ConfigStore:
         return "remove"
 
     def reset(self, profile_id: str, kind: str, key: str) -> None:
+        self._assert_editable(profile_id)
         with self._tx() as db:
+            self._assert_editable(profile_id)
             db.execute(
                 "DELETE FROM passport WHERE profile_id=? AND kind=? AND key=?", (profile_id, kind, key)
             )
@@ -524,8 +561,17 @@ def check_refs(bodies: dict[str, dict[str, Any]]) -> list[dict]:
     for key, body in items("machine"):
         if body.get("active_integration"):
             need("machine", key, "integration", body["active_integration"], "active_integration")
-    for key, _ in items("rules"):
+    for key, body in items("rules"):
         need("rules", key, "integration", key, "key")
+        table = body.get("table") or {}
+        for field in ("models", "danger_override"):
+            for config_id in table.get(field) or {}:
+                need("rules", key, "neural_config", config_id, f"table.{field}")
+        cameras = table.get("cameras") or {}
+        camera_ids = cameras if isinstance(cameras, dict) else [row.get("camera_id") for row in cameras]
+        for camera_id in camera_ids:
+            if camera_id:
+                need("rules", key, "camera", camera_id, "table.cameras")
 
     return broken
 

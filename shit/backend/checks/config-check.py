@@ -366,6 +366,18 @@ def api_check(backup: Path, expected_hash: str) -> None:
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
     from app.routers import machine_config
+    from app.services.config_store import get_store
+    from app.services import config_sync
+
+    config_sync.build_service_packages = lambda *args, **kwargs: {}
+
+    async def activate(profile_id, **kwargs):
+        if kwargs.get("edit"):
+            kwargs["edit"]()
+        get_store().set_active(profile_id)
+        return {"phase": "complete"}
+
+    machine_config.lifecycle.switch = activate
 
     app = FastAPI()
     app.include_router(machine_config.router, prefix="/api")

@@ -14,6 +14,7 @@ from app.services.config_bundle import export_profile, load_profile
 from app.services.config_import import import_backups
 from app.services.config_store import KINDS, PASSPORT_ONLY, ConfigError, get_store
 from app.services.config_sync import sync
+from app.services.lifecycle import lifecycle
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -32,6 +33,11 @@ class SelectVersion(BaseModel):
 
 class SetActive(BaseModel):
     profile_id: str
+
+
+class RecoverTransition(BaseModel):
+    transition_id: str
+    profile_id: Optional[str] = None
 
 
 def _fail(e: Exception) -> HTTPException:
@@ -64,7 +70,7 @@ def list_profiles():
 
 
 @router.post("/config/import")
-def import_backup(
+async def import_backup(
     files: list[UploadFile] = File(...),
     profile_id: str = Form(...),
     name: str = Form(...),
@@ -79,11 +85,18 @@ def import_backup(
         except (ValueError, OSError) as e:
             raise HTTPException(status_code=400, detail=f"backup import failed: {e}")
     try:
-        version = store.create_version(profile_id, name, result["entities"], label="резервная копия")
-        for place, binding in result["bindings"].items():
-            store.put(profile_id, "binding", place, binding)
-        if activate or not store.active_profile():
-            store.set_active(profile_id)
+        version = store.create_version(profile_id, name, result["entities"], label="резервная копия", select=False)
+
+        def select_imported():
+            store.select_version(profile_id, version["id"])
+            for place, binding in result["bindings"].items():
+                store.put(profile_id, "binding", place, binding)
+
+        if activate or not store.active_profile() or store.active_profile() == profile_id:
+            await lifecycle.switch(profile_id, edit=select_imported)
+        else:
+            with store.transaction():
+                select_imported()
     except ConfigError as e:
         raise _fail(e)
     logger.info(f"Imported {len(result['entities'])} entities into {profile_id} v{version['number']}")
@@ -107,34 +120,41 @@ def export(profile_id: str, version_id: Optional[int] = Query(None)):
 
 
 @router.post("/config/load")
-def load(file: UploadFile = File(...), activate: bool = Form(False)):
+async def load(file: UploadFile = File(...), activate: bool = Form(False)):
     store = get_store()
     with tempfile.TemporaryDirectory() as tmp:
         try:
-            result = load_profile(store, _spool(file, tmp))
+            result = load_profile(store, _spool(file, tmp), select=False)
         except (ConfigError, ValueError, KeyError, OSError) as e:
             raise HTTPException(status_code=400, detail=f"profile load failed: {e}")
-    if activate or not store.active_profile():
-        store.set_active(result["profile"]["id"])
+    profile_id = result["profile"]["id"]
+    if activate or not store.active_profile() or store.active_profile() == profile_id:
+        await lifecycle.switch(profile_id, edit=lambda: store.select_version(profile_id, result["version"]["id"]))
+    else:
+        store.select_version(profile_id, result["version"]["id"])
     return {**result, "broken": store.effective(result["profile"]["id"])["broken"]}
 
 
 @router.post("/config/profiles/{profile_id}/select")
-def select_version(profile_id: str, body: SelectVersion):
+async def select_version(profile_id: str, body: SelectVersion):
     try:
-        get_store().select_version(profile_id, body.version_id)
+        store = get_store()
+        if store.active_profile() == profile_id:
+            transition = await lifecycle.switch(profile_id, edit=lambda: store.select_version(profile_id, body.version_id))
+            return {"ok": transition["phase"] == "complete", "transition": transition}
+        store.select_version(profile_id, body.version_id)
     except ConfigError as e:
         raise _fail(e)
     return {"ok": True}
 
 
 @router.post("/config/active")
-def set_active(body: SetActive):
+async def set_active(body: SetActive):
     try:
-        get_store().set_active(body.profile_id)
+        transition = await lifecycle.switch(body.profile_id)
     except ConfigError as e:
         raise _fail(e)
-    return {"ok": True}
+    return {"ok": transition["phase"] == "complete", "transition": transition}
 
 
 @router.delete("/config/profiles/{profile_id}")
@@ -157,7 +177,23 @@ def delete_version(profile_id: str, version_id: int):
 
 @router.get("/config/status")
 def config_status():
-    return {"devices": sync.status()}
+    return {"devices": sync.status(), "transition": lifecycle.status()}
+
+
+@router.post("/config/transition/repair")
+async def repair_transition(body: RecoverTransition):
+    try:
+        return {"transition": await lifecycle.repair(body.transition_id)}
+    except ConfigError as error:
+        raise _fail(error)
+
+
+@router.post("/config/transition/retry")
+async def retry_transition(body: RecoverTransition):
+    try:
+        return {"transition": await lifecycle.retry(body.transition_id, body.profile_id)}
+    except ConfigError as error:
+        raise _fail(error)
 
 
 @router.get("/config/effective")
@@ -169,27 +205,50 @@ def effective(profile_id: Optional[str] = Query(None)):
 
 
 @router.put("/config/entities/{kind}/{key:path}")
-def put_entity(kind: str, key: str, body: Any = Body(...), profile_id: Optional[str] = Query(None)):
+async def put_entity(kind: str, key: str, body: Any = Body(...), profile_id: Optional[str] = Query(None)):
     _check_kind(kind)
     try:
-        return {"state": get_store().put(_profile_or_active(profile_id), kind, key, body)}
+        store = get_store()
+        profile_id = _profile_or_active(profile_id)
+        if kind == "machine" and key == "settings" and profile_id == store.active_profile() and not store.is_repairing(profile_id):
+            current = store.effective()["entities"].get("machine", {}).get("settings", {}).get("body", {})
+            if isinstance(body, dict) and current.get("active_integration") != body.get("active_integration"):
+                transition = await lifecycle.switch(profile_id, edit=lambda: store.put(profile_id, kind, key, body))
+                return {"state": "transition", "transition": transition}
+        return {"state": store.put(profile_id, kind, key, body)}
     except ConfigError as e:
         raise _fail(e)
 
 
 @router.delete("/config/entities/{kind}/{key:path}")
-def remove_entity(kind: str, key: str, profile_id: Optional[str] = Query(None)):
+async def remove_entity(kind: str, key: str, profile_id: Optional[str] = Query(None)):
     _check_kind(kind)
     try:
-        return {"state": get_store().remove(_profile_or_active(profile_id), kind, key)}
+        store = get_store()
+        profile_id = _profile_or_active(profile_id)
+        machine = store.effective(profile_id)["entities"].get("machine", {}).get("settings", {}).get("body", {})
+        if kind == "integration" and key == machine.get("active_integration"):
+            raise ConfigError("Select another integration before removing the active integration")
+        if kind == "machine" and key == "settings" and profile_id == store.active_profile() and machine.get("active_integration") and not store.is_repairing(profile_id):
+            transition = await lifecycle.switch(profile_id, edit=lambda: store.remove(profile_id, kind, key))
+            return {"state": "transition", "transition": transition}
+        return {"state": store.remove(profile_id, kind, key)}
     except ConfigError as e:
         raise _fail(e)
 
 
 @router.post("/config/passport/reset")
-def reset_entity(ref: EntityRef, profile_id: Optional[str] = Query(None)):
+async def reset_entity(ref: EntityRef, profile_id: Optional[str] = Query(None)):
     _check_kind(ref.kind)
-    get_store().reset(_profile_or_active(profile_id), ref.kind, ref.key)
+    store = get_store()
+    profile_id = _profile_or_active(profile_id)
+    if ref.kind == "machine" and ref.key == "settings" and profile_id == store.active_profile() and not store.is_repairing(profile_id):
+        current = store.effective()["entities"].get("machine", {}).get("settings", {}).get("body", {})
+        target = store.version_entities(store.profile(profile_id)["version_id"]).get(("machine", "settings"), {})
+        if current.get("active_integration") != target.get("active_integration"):
+            transition = await lifecycle.switch(profile_id, edit=lambda: store.reset(profile_id, ref.kind, ref.key))
+            return {"ok": transition["phase"] == "complete", "transition": transition}
+    store.reset(profile_id, ref.kind, ref.key)
     return {"ok": True}
 
 

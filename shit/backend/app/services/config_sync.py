@@ -11,6 +11,23 @@ from app.services.devices import registry
 
 logger = logging.getLogger(__name__)
 
+
+def executor_error(response: httpx.Response) -> str:
+    fallback = f"HTTP {response.status_code}"
+    try:
+        body = response.json()
+    except ValueError:
+        return fallback
+    if not isinstance(body, dict):
+        return fallback
+    detail = body.get("error") or body.get("detail")
+    if isinstance(detail, str):
+        return detail[:1500]
+    if isinstance(detail, list):
+        return "; ".join(".".join(str(part) for part in entry.get("loc", [])) + ": " + str(entry.get("msg", "Invalid value"))
+                         for entry in detail if isinstance(entry, dict))[:1500] or fallback
+    return fallback
+
 def _cameras_part(bodies: dict[str, dict[str, Any]], place: str) -> list[dict]:
     return [
         {k: v for k, v in body.items() if k != "place"}
@@ -84,8 +101,8 @@ def _asset_shas(part: Any) -> set[str]:
     return found
 
 
-def build_packages(store: ConfigStore) -> dict[str, dict]:
-    eff = store.effective()
+def build_packages(store: ConfigStore, profile_id: Optional[str] = None) -> dict[str, dict]:
+    eff = store.effective(profile_id)
     if not eff["profile"]:
         return {}
     bodies = {kind: {key: e["body"] for key, e in items.items()} for kind, items in eff["entities"].items()}
@@ -104,11 +121,23 @@ def build_packages(store: ConfigStore) -> dict[str, dict]:
     return packages
 
 
+def build_service_packages(store: ConfigStore, profile_id: Optional[str] = None) -> dict[str, dict]:
+    effective = store.effective(profile_id)
+    if not effective["profile"]:
+        return {}
+    bodies = {kind: {key: entry["body"] for key, entry in entries.items()} for kind, entries in effective["entities"].items()}
+    active = bodies.get("machine", {}).get("settings", {}).get("active_integration") or ""
+    source = {"gateway": {"active": active, "integrations": bodies.get("integration", {})},
+              "detection": {"active": active, "rules": bodies.get("rules", {})}}
+    return {name: {"revision": digest(body), **body} for name, body in source.items()}
+
+
 class ConfigSync:
     def __init__(self):
         self._status: dict[str, dict] = {}
         self._inflight: set[str] = set()
         self._client: Optional[httpx.AsyncClient] = None
+        self._task: Optional[asyncio.Task] = None
 
     @property
     def client(self) -> httpx.AsyncClient:
@@ -117,13 +146,57 @@ class ConfigSync:
         return self._client
 
     async def close(self) -> None:
+        if self._task:
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
         if self._client:
             await self._client.aclose()
 
     def status(self) -> list[dict]:
         return list(self._status.values())
 
+    def start(self) -> None:
+        self._task = asyncio.create_task(self._poll_services())
+
+    async def _poll_services(self) -> None:
+        while True:
+            try:
+                await self.push_services(False)
+            except Exception:
+                logger.exception("Service configuration polling failed")
+            await asyncio.sleep(5)
+
+    async def push_services(self, retry: bool = True) -> None:
+        transition = get_store().profile_transition()
+        if transition and transition["phase"] != "complete":
+            return
+        for name, package in build_service_packages(get_store()).items():
+            base = (settings.GATEWAY_URL if name == "gateway" else settings.DETECTION_URL).rstrip("/")
+            if name in self._inflight:
+                continue
+            try:
+                response = await self.client.get(base + "/runtime")
+                response.raise_for_status()
+                runtime = response.json().get("data", response.json())
+                applied = runtime.get("revision", "")
+            except Exception as error:
+                self._status[name] = {"device_id": name, "place": name, "expected": package["revision"],
+                                      "state": "error", "error": str(error)}
+                continue
+            current = get_store().profile_transition()
+            if (current or {}).get("id") != (transition or {}).get("id") or (current and current["phase"] != "complete"):
+                return
+            push = self._prepare({"id": name, "base": base}, {"place": name, "package": package}, applied, retry)
+            if push:
+                await push
+
     def on_polled(self, device: dict, info: dict) -> None:
+        transition = get_store().profile_transition()
+        if transition and transition["phase"] != "complete":
+            return
         try:
             packages = build_packages(get_store())
         except Exception as e:
@@ -134,6 +207,11 @@ class ConfigSync:
             asyncio.create_task(push)
 
     async def push_now(self) -> list[dict]:
+        transition = get_store().profile_transition()
+        if transition and transition["phase"] == "repairing":
+            return []
+        if transition and transition["phase"] != "complete":
+            raise RuntimeError("A profile transition is in progress")
         packages = build_packages(get_store())
         pushes = []
         for device_id, entry in packages.items():
@@ -145,17 +223,21 @@ class ConfigSync:
             if push:
                 pushes.append(push)
         await asyncio.gather(*pushes)
-        return [self._status[d] for d in packages if d in self._status]
+        await self.push_services()
+        return [self._status[d] for d in (*packages, "gateway", "detection") if d in self._status]
 
     # Отправка сразу после правки; ошибка — только у устройства на связи
     async def push_checked(self) -> Optional[str]:
         for status in await self.push_now():
             device = registry.snapshot_one(status["device_id"]) or {}
-            if status.get("state") == "error" and device.get("status") == "online":
+            if status.get("state") == "error" and (status["device_id"] in ("gateway", "detection") or device.get("status") == "online"):
                 return status.get("error") or "unknown error"
         return None
 
     def _prepare(self, device: dict, entry: Optional[dict], applied: str, retry: bool):
+        transition = get_store().profile_transition()
+        if transition and transition["phase"] != "complete":
+            return None
         if not entry:
             self._status.pop(device["id"], None)
             return None
@@ -174,10 +256,12 @@ class ConfigSync:
         return self._push(device, entry["package"], status)
 
     async def _push(self, device: dict, package: dict, status: dict) -> None:
-        base = f"http://{device['ip']}:{settings.DEVICE_MC_PORT}"
+        base = device["base"] if "base" in device else f"http://{device['ip']}:{settings.DEVICE_MC_PORT}"
         status.update({"state": "pending", "error": None})
         try:
-            response = await self.client.put(f"{base}/config", json=package)
+            transition = get_store().profile_transition()
+            delivered = {**package, "transition_id": transition["id"]} if transition else package
+            response = await self.client.put(f"{base}/config", json=delivered)
             if response.status_code == 409:
                 for sha in response.json().get("missing_assets", []):
                     with open(get_store().asset_path(sha), "rb") as f:
@@ -185,9 +269,9 @@ class ConfigSync:
                             f"{base}/config/assets", params={"sha256": sha}, content=f.read()
                         )
                     upload.raise_for_status()
-                response = await self.client.put(f"{base}/config", json=package)
+                response = await self.client.put(f"{base}/config", json=delivered)
             if response.status_code != 200:
-                raise RuntimeError(response.json().get("error") or f"HTTP {response.status_code}")
+                raise RuntimeError(executor_error(response))
             status.update({"state": "ok", "applied": package["revision"], "at": time.time()})
             status.pop("failed_revision", None)
             status.pop("failed_at", None)

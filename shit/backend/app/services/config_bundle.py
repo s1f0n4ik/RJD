@@ -51,7 +51,7 @@ def export_profile(store: ConfigStore, profile_id: str, version_id: int | None =
     return Path(tmp), f"{profile_id}-v{version['number']}.varan"
 
 
-def load_profile(store: ConfigStore, path: Path) -> dict:
+def load_profile(store: ConfigStore, path: Path, select: bool = True) -> dict:
     with zipfile.ZipFile(path) as z:
         doc = json.loads(z.read("profile.json"))
         if doc.get("format") != FORMAT:
@@ -76,5 +76,5 @@ def load_profile(store: ConfigStore, path: Path) -> dict:
     if missing:
         raise ConfigError(f"profile file lacks referenced files: {sorted(missing)}")
     label = f"файл v{doc['version']['number']}"
-    version = store.create_version(profile["id"], profile["name"], entities, label=label)
+    version = store.create_version(profile["id"], profile["name"], entities, label=label, select=select)
     return {"profile": profile, "version": version, "source": doc["version"]}

@@ -10,6 +10,8 @@ from app.routers import time as time_router
 from app.services.websocket_manager import manager, websocket_endpoint
 from app.services.devices import registry
 from app.services.config_sync import sync as config_sync
+from app.services.lifecycle import lifecycle
+from app.services.config_store import ConfigError
 
 # Настройка логирования
 logging.basicConfig(
@@ -24,7 +26,10 @@ async def lifespan(app: FastAPI):
     logger.info(f"🚀 Starting {settings.APP_NAME}")
     registry.add_listener(config_sync.on_polled)
     registry.start_polling()
+    config_sync.start()
+    lifecycle.start()
     yield
+    await lifecycle.close()
     await registry.close()
     await config_sync.close()
     logger.info("👋 Application shutdown complete")
@@ -102,6 +107,11 @@ async def global_exception_handler(request, exc):
             "error": str(exc) if settings.DEBUG else "An error occurred"
         }
     )
+
+
+@app.exception_handler(ConfigError)
+async def configuration_error(request, exc):
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
 
 if __name__ == "__main__":
     import uvicorn
