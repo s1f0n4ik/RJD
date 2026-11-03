@@ -6,10 +6,12 @@ import { dictName, type DictEntry, type Dictionaries } from '../../features/krsp
 import { isIskraTable, type IskraCamera, type IskraTable, type ModelTable, type RsmTable } from './api';
 import type { CameraRef } from './RulesPanels';
 
-// Конфигурация нейросети с плат: классы по id, суперклассы по месту в списке, зоны по приоритету
+// Конфигурация нейросети профиля: классы по id, суперклассы по месту в списке, зоны по приоритету
 export interface NeuralModel {
     id: string;
     name: string;
+    file?: string;
+    sources?: { name: string; cameras: string[]; slot: string }[];
     classes: { id: number; name: string; superclass: string }[];
     superclasses: { key: string; name: string; color: string }[];
     zones: { id: number; name: string; color: string }[];
@@ -151,24 +153,29 @@ function ModelSection({ kind, id, model, value, override, dicts, running, open, 
 
     let body: ReactNode = null;
     if (open && !model) {
-        body = <div className="mt-line">Конфигурации нет на платах в сети — заданные строки сохранены</div>;
+        body = <div className="mt-line">Конфигурации нет в профиле — заданные строки сохранены</div>;
     } else if (open && model) {
         const places = (key: string) => (kind.sup ? model.superclasses.findIndex(s => s.key === key) : -1);
         const zones = value.zones ?? {};
         body = (
             <>
+                {model.sources && <div className="lb-source-bindings">{model.sources.map(source => <span key={source.slot}><b>{source.name}</b><span>{source.cameras.join(', ') || 'Нет камер'}</span><code>слот {source.slot}</code></span>)}</div>}
                 <div className="mt-blk">
                     <BlockHead name="Классы" n={model.classes.length} dict={kind.cls} />
-                    <div className={`mt-tab${override ? ' has-over' : ''}`}>
+                    <div className={`mt-tab lb-map-tab${override ? ' has-over' : ''}`}>
                         <div className="mt-r is-head">
                             <span>id</span><span>Класс</span><span>{meta(kind.cls).title}</span>
                             {override && <span>Опасность класса<em>правило РСМ</em></span>}
+                            <span>В АС КРСПС</span>
                         </div>
                         {model.classes.map(c => {
                             const own = value.classes[String(c.id)];
                             const n = own ?? c.id + 1;
                             const place = places(c.superclass);
                             const sc = place >= 0 ? model.superclasses[place] : undefined;
+                            const danger = override?.[String(c.id)] ?? (sc ? autoNo(value.superclasses, place) : 0);
+                            const code = n && dictName(dicts, kind.cls, n) ? n : 0;
+                            const effectiveDanger = danger && kind.sup && dictName(dicts, kind.sup, danger) ? danger : 0;
                             return (
                                 <div key={c.id} className={`mt-r${n && !dictName(dicts, kind.cls, n) ? ' is-off' : ''}`}>
                                     <span className="mt-id">{c.id}</span>
@@ -197,6 +204,7 @@ function ModelSection({ kind, id, model, value, override, dicts, running, open, 
                                             onChange={v => onOverride(put(override, String(c.id), v))}
                                         />
                                     )}
+                                    <span className="lb-output-preview"><b>{code ? `${code} — ${dictName(dicts, kind.cls, code)}` : kind.empty}</b>{kind.sup && <small>Опасность {effectiveDanger}: {effectiveDanger ? dictName(dicts, kind.sup, effectiveDanger) : 'пусто'}</small>}</span>
                                 </div>
                             );
                         })}
@@ -293,17 +301,18 @@ function ModelSection({ kind, id, model, value, override, dicts, running, open, 
                 <Icon name="chev" size={12} className="car" />
                 <span className="ttl">{model?.name ?? id}</span>
                 <span className="id">{id}</span>
-                <Running devices={running} />
+                {model?.file && <span className="tag">{model.file}</span>}
+                {running !== undefined && <Running devices={running} />}
                 <span className="mt-sum">
-                    {!model && <span className="tag is-warn">нет на платах в сети</span>}
-                    {set ? <span className="tag is-acc">задано {set}</span> : <span className="tag">всё по +1</span>}
+                    {!model && <span className="tag is-warn">нет в профиле</span>}
+                    {set ? <span className="tag is-acc">задано {set}</span> : <span className="tag">по умолчанию</span>}
                     {off > 0 && <span className="tag is-warn">нет в протоколе {off}</span>}
                 </span>
                 <button
                     type="button"
                     className="mt-x"
-                    aria-label="Убрать из таблицы"
-                    data-tip="Убрать из таблицы — классы пойдут по +1"
+                    aria-label="Сбросить соответствия конфигурации"
+                    data-tip="Восстановить автоматические соответствия"
                     onClick={e => {
                         e.stopPropagation();
                         onRemove();
@@ -317,7 +326,7 @@ function ModelSection({ kind, id, model, value, override, dicts, running, open, 
     );
 }
 
-// Конфигурации нейросети в таблице: добавляются из списка плат, не добавленная идёт по +1
+// Каталог профиля и сохранённые соответствия отсутствующих конфигураций
 function ModelsGroup({ kind, value, override, dicts, catalog, running, onChange }: {
     kind: Kind;
     value: Record<string, ModelTable>;
@@ -327,7 +336,7 @@ function ModelsGroup({ kind, value, override, dicts, catalog, running, onChange 
     running: RunningMap;
     onChange: (models: Record<string, ModelTable>, override?: Record<string, Record<string, number>>) => void;
 }) {
-    const ids = Object.keys(value);
+    const ids = [...new Set([...catalog.map(model => model.id), ...Object.keys(value), ...Object.keys(override ?? {})])];
     const [open, setOpen] = useState<Set<string>>(() => new Set(ids.slice(0, 1)));
     const toggle = (id: string) => setOpen(s => {
         const next = new Set(s);
@@ -335,12 +344,7 @@ function ModelsGroup({ kind, value, override, dicts, catalog, running, onChange 
         else next.add(id);
         return next;
     });
-    const add = (id: string) => {
-        onChange({ ...value, [id]: { classes: {}, superclasses: {}, zones: {} } }, override);
-        setOpen(s => new Set(s).add(id));
-    };
     const remove = (id: string) => onChange(put(value, id, undefined), override && put(override, id, undefined));
-    const free = catalog.filter(m => !(m.id in value));
 
     return (
         <Group name="Конфигурации нейросети" n={ids.length}>
@@ -358,7 +362,7 @@ function ModelsGroup({ kind, value, override, dicts, catalog, running, onChange 
                         kind={kind}
                         id={id}
                         model={catalog.find(m => m.id === id)}
-                        value={value[id]}
+                        value={value[id] ?? { classes: {}, superclasses: {}, zones: {} }}
                         override={override ? o : undefined}
                         dicts={dicts}
                         running={running.get(id)}
@@ -370,23 +374,6 @@ function ModelsGroup({ kind, value, override, dicts, catalog, running, onChange 
                     />
                 );
             })}
-            <div className="addline">
-                <Icon name="plus" size={16} />
-                Конфигурация нейросети
-                {free.length > 0 ? (
-                    <Select
-                        value=""
-                        placeholder="— выберите конфигурацию нейросети —"
-                        options={free.map(m => {
-                            const on = running.get(m.id);
-                            return { value: m.id, label: m.name, hint: `${m.id} · ${on?.length ? `активна · ${on.join(', ')}` : 'не запущена'}`, dot: on?.length ? 'ok' : undefined };
-                        })}
-                        onChange={add}
-                    />
-                ) : (
-                    <span className="note">{catalog.length ? 'все конфигурации плат уже в таблице' : 'конфигураций нейросети на платах в сети нет'}</span>
-                )}
-            </div>
         </Group>
     );
 }
@@ -395,71 +382,34 @@ function ModelsGroup({ kind, value, override, dicts, catalog, running, onChange 
 
 function RsmCamerasCard({ value, cameras, onChange }: { value: Record<string, number>; cameras: CameraRef[]; onChange: (v: Record<string, number>) => void }) {
     const used = new Set(Object.values(value));
-    const assigned = Object.entries(value).sort((a, b) => a[1] - b[1]);
-    const free = cameras.filter(c => !(c.id in value));
-    const camera = (id: string) => cameras.find(c => c.id === id);
-    const add = (id: string) => {
-        const n = NUMBERS_1_8.find(b => !used.has(b));
-        if (n) onChange({ ...value, [id]: n });
-    };
+    const ids = [...new Set([...cameras.map(camera => camera.id), ...Object.keys(value)])];
 
     return (
-        <Card title="Номера камер" meta={`${assigned.length} из 8`}>
-            <div className="bitcards">
-                {[...NUMBERS_1_8].reverse().map(n => {
-                    const id = assigned.find(([, no]) => no === n)?.[0];
-                    return (
-                        <div key={n} className={`bitcard${id ? ' is-set' : ''}`}>
-                            <div className="n">{n}</div>
-                            <div className="l">номер</div>
-                            <div className="c">{id ? camera(id)?.name ?? id : 'свободен'}</div>
-                        </div>
-                    );
-                })}
-            </div>
+        <Card title="Номера камер для АС КРСПС" meta="Из камер профиля">
             <div className="gt">
                 <table className="spec">
-                    <thead><tr><th>Камера</th><th style={{ width: 220 }}>Номер</th><th style={{ width: 44 }} /></tr></thead>
+                    <thead><tr><th>Камера технического зрения</th><th>Идентификатор</th><th style={{ width: 220 }}>Номер в протоколе</th></tr></thead>
                     <tbody>
-                        {assigned.map(([id, no]) => {
-                            const cam = camera(id);
+                        {ids.map(id => {
+                            const cam = cameras.find(camera => camera.id === id);
+                            const no = value[id] ?? 0;
                             return (
                                 <tr key={id}>
-                                    <td className="cam"><b>{cam?.name ?? id}</b><small>{cam?.device ? `${id} · ${cam.device}` : id}</small></td>
+                                    <td className="cam"><b>{cam?.name ?? id}</b>{!cam && <small>Нет в профиле</small>}</td>
+                                    <td>{id}</td>
                                     <td>
                                         <Select
                                             value={String(no)}
-                                            options={NUMBERS_1_8.filter(n => n === no || !used.has(n)).map(n => ({ value: String(n), label: `номер ${n}` }))}
-                                            onChange={v => onChange({ ...value, [id]: Number(v) })}
+                                            options={[{ value: '0', label: 'Не назначена' }, ...NUMBERS_1_8.filter(n => n === no || !used.has(n)).map(n => ({ value: String(n), label: `Номер ${n}` }))]}
+                                            onChange={v => onChange(put(value, id, v === '0' ? undefined : Number(v)))}
                                         />
-                                    </td>
-                                    <td>
-                                        <button type="button" className="x" aria-label="Убрать камеру" onClick={() => onChange(put(value, id, undefined))}>
-                                            <Icon name="x" size={13} />
-                                        </button>
                                     </td>
                                 </tr>
                             );
                         })}
-                        {assigned.length === 0 && <tr><td colSpan={3} className="dim">Камер пока нет</td></tr>}
+                        {ids.length === 0 && <tr><td colSpan={3} className="dim">Камер технического зрения нет</td></tr>}
                     </tbody>
                 </table>
-            </div>
-            <div className="addline">
-                <Icon name="plus" size={16} />
-                Новая камера
-                {assigned.length < 8 && free.length > 0 ? (
-                    <Select
-                        value=""
-                        placeholder="— выберите камеру технического зрения —"
-                        options={free.map(c => ({ value: c.id, label: c.name, hint: c.device ? `${c.id} · ${c.device}` : c.id }))}
-                        onChange={add}
-                    />
-                ) : (
-                    <span className="note">
-                        {assigned.length >= 8 ? 'все восемь номеров заняты' : cameras.length === 0 ? 'камер технического зрения нет' : 'все камеры технического зрения добавлены'}
-                    </span>
-                )}
             </div>
         </Card>
     );
@@ -533,9 +483,6 @@ interface PanelProps<T> {
 export function RsmTablePanel({ value, onChange, dicts, catalog, running, cameras }: PanelProps<RsmTable>) {
     return (
         <>
-            <Group name="Камеры">
-                <RsmCamerasCard value={value.cameras} cameras={cameras} onChange={v => onChange({ ...value, cameras: v })} />
-            </Group>
             <ModelsGroup
                 kind={RSM}
                 value={value.models}
@@ -545,6 +492,7 @@ export function RsmTablePanel({ value, onChange, dicts, catalog, running, camera
                 running={running}
                 onChange={(models, override) => onChange({ ...value, models, danger_override: override ?? {} })}
             />
+            <RsmCamerasCard value={value.cameras} cameras={cameras} onChange={v => onChange({ ...value, cameras: v })} />
         </>
     );
 }
@@ -552,17 +500,15 @@ export function RsmTablePanel({ value, onChange, dicts, catalog, running, camera
 export function IskraTablePanel({ value, onChange, dicts, catalog, running, cameras }: PanelProps<IskraTable>) {
     return (
         <>
-            <Group name="Камеры">
-                <IskraCamerasCard value={value.cameras} cameras={cameras} onChange={v => onChange({ ...value, cameras: v })} />
-            </Group>
             <ModelsGroup kind={ISKRA} value={value.models} dicts={dicts} catalog={catalog} running={running} onChange={models => onChange({ ...value, models })} />
+            <IskraCamerasCard value={value.cameras} cameras={cameras} onChange={v => onChange({ ...value, cameras: v })} />
         </>
     );
 }
 
 // ── Словари ──
 
-// Сколько строк таблицы берут число словаря: только добавленные конфигурации нейросети
+// Числа словаря в явных и автоматических соответствиях конфигураций профиля
 export function tableUsage(table: RsmTable | IskraTable, catalog: NeuralModel[]): Record<string, Map<number, number>> {
     const kind = isIskraTable(table) ? ISKRA : RSM;
     const usage: Record<string, Map<number, number>> = {};
@@ -571,7 +517,8 @@ export function tableUsage(table: RsmTable | IskraTable, catalog: NeuralModel[])
         const m = (usage[key] ??= new Map());
         m.set(n, (m.get(n) ?? 0) + 1);
     };
-    Object.entries(table.models).forEach(([id, t]) => {
+    [...new Set([...catalog.map(model => model.id), ...Object.keys(table.models)])].forEach(id => {
+        const t = table.models[id] ?? { classes: {}, superclasses: {}, zones: {} };
         const model = catalog.find(m => m.id === id);
         model?.classes.forEach(c => add(kind.cls, autoNo(t.classes, c.id)));
         if (kind.sup) model?.superclasses.forEach((_, i) => add(kind.sup!, autoNo(t.superclasses, i)));
@@ -584,7 +531,12 @@ export function tableUsage(table: RsmTable | IskraTable, catalog: NeuralModel[])
 // Ошибка, из-за которой настройки нельзя сохранить; пусто — можно
 export function settingsError(dicts?: Dictionaries): string {
     const dup = Object.values(dicts ?? {}).some(rows => rows.some((r, i) => rows.slice(0, i).some(x => x.number === r.number)));
-    return dup ? 'число в словаре повторяется' : '';
+    if (dup) return 'число в словаре повторяется';
+    for (const [key, rows] of Object.entries(dicts ?? {})) {
+        if (rows.some(row => !Number.isInteger(row.number) || row.number < 1 || row.number > meta(key).max)) return `число должно быть от 1 до ${meta(key).max}`;
+        if (rows.some(row => !row.name.trim())) return 'укажите название значения словаря';
+    }
+    return '';
 }
 
 const validNumber = (text: string, max: number) => /^\d{1,5}$/.test(text) && Number(text) >= 1 && Number(text) <= max;
@@ -629,7 +581,7 @@ function DictCard({ id, rows, changed, used, onChange }: {
             <div className="card-h">
                 <h3>{m.title}</h3>
                 {m.proto && <span className="id">{m.proto}</span>}
-                <span className={`tag${changed ? ' is-warn' : ''}`}>{changed ? 'изменён' : 'как в протоколе'}</span>
+                <span className={`tag${changed ? ' is-warn' : ''}`}>{changed ? 'изменён' : 'как в профиле'}</span>
             </div>
             <div className="card-b">
                 <div className="mt-d">
@@ -674,7 +626,7 @@ export function DictionariesPanel({ value, defaults, usage, onChange }: {
 }) {
     const keys = Object.keys(value);
     return (
-        <Group name="Словари протокола" n={keys.length}>
+        <Group name="Словари профиля" n={keys.length}>
             <div className="mt-dicts">
                 {keys.map(k => (
                     <DictCard

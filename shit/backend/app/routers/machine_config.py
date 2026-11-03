@@ -1,4 +1,7 @@
+import asyncio
 import logging
+import ipaddress
+import math
 import re
 import shutil
 import tempfile
@@ -12,9 +15,11 @@ from starlette.background import BackgroundTask
 
 from app.services.config_bundle import export_profile, load_profile
 from app.services.config_import import import_backups
-from app.services.config_store import KINDS, PASSPORT_ONLY, ConfigError, get_store
+from app.services.config_neural import zones_error
+from app.services.config_store import KINDS, PASSPORT_ONLY, ConfigError, digest, get_store, nest
 from app.services.config_sync import sync
 from app.services.lifecycle import lifecycle
+from app.routers.configurations import _master
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -38,6 +43,30 @@ class SetActive(BaseModel):
 class RecoverTransition(BaseModel):
     transition_id: str
     profile_id: Optional[str] = None
+
+
+class PassportChange(EntityRef):
+    body: Optional[dict] = None
+    reset: bool = False
+
+
+class SavePassport(BaseModel):
+    context: str
+    revision: str
+    changes: list[PassportChange]
+
+
+def _library_snapshot(profile_id: str) -> dict:
+    store = get_store()
+    with store.transaction():
+        effective = store.effective(profile_id)
+        profile = store.profile(profile_id)
+        base = nest(store.version_entities(profile["version_id"]))
+        return {
+            **effective, "base": base, "version": store.version(profile["version_id"]),
+            "context": store.context(), "revision": digest({"base": base, "effective": effective}),
+            "assets": store.assets(),
+        }
 
 
 def _fail(e: Exception) -> HTTPException:
@@ -67,6 +96,146 @@ def _spool(upload: UploadFile, folder: str) -> Path:
 @router.get("/config/profiles")
 def list_profiles():
     return {"active": get_store().active_profile(), "profiles": get_store().profiles()}
+
+
+@router.get("/config/profiles/{profile_id}/workspace")
+async def profile_workspace(profile_id: str):
+    try:
+        result = _library_snapshot(profile_id)
+    except ConfigError as error:
+        raise _fail(error)
+    integrations = {
+        result["entities"].get("machine", {}).get("settings", {}).get("body", {}).get("active_integration"),
+        result["base"].get("machine", {}).get("settings", {}).get("active_integration"),
+    } - {None, ""}
+
+    async def defaults(integration):
+        try:
+            return integration, (await _master("GET", f"/rules/{integration}"))["defaults"]
+        except HTTPException:
+            return integration, None
+
+    result["rules_defaults"] = {key: value for key, value in await asyncio.gather(*(defaults(key) for key in integrations)) if value is not None}
+    return result
+
+
+def _validate_passport_change(change: PassportChange, current: dict) -> None:
+    body = change.body
+    if change.reset:
+        return
+    if body is None:
+        raise HTTPException(422, "Entity body must be an object")
+
+    def number(value, low, high, integer=False):
+        return type(value) in (int, float) and math.isfinite(value) and low <= value <= high and (not integer or type(value) is int)
+
+    def object_field(source, key):
+        value = source.get(key, {})
+        if not isinstance(value, dict):
+            raise HTTPException(422, f"{key} must be an object")
+        return value
+
+    if change.kind == "machine":
+        if change.key == "settings":
+            if body.get("active_integration") != current.get("active_integration"):
+                raise HTTPException(409, "Use the profile lifecycle to change integration")
+            if not number(body.get("tz_offset_min", 180), -720, 840, True):
+                raise HTTPException(422, "tz_offset_min must be an integer in -720..840")
+        elif change.key == "identity":
+            if any(not isinstance(value, str) or len(value) > 256 for value in body.values()):
+                raise HTTPException(422, "Machine identity fields must be strings up to 256 characters")
+        else:
+            raise HTTPException(422, "Unknown machine entity")
+    elif change.kind == "camera":
+        camera = object_field(body, "camera")
+        object_field(body, "streams")
+        try:
+            ipaddress.IPv4Address(camera.get("ip_adress", ""))
+        except ipaddress.AddressValueError:
+            raise HTTPException(422, "Camera address must be IPv4")
+        port = camera.get("port")
+        if isinstance(port, str) and port.isascii() and port.isdigit():
+            port = int(port)
+        if not number(port, 1, 65535, True):
+            raise HTTPException(422, "Camera port must be an integer in 1..65535")
+    elif change.kind in ("video_stream", "neural_slot"):
+        for key in ("width", "height") if change.kind == "video_stream" else ("fps",):
+            if not number(body.get(key), 1, 16384 if key != "fps" else 240, key != "fps"):
+                raise HTTPException(422, f"Invalid {change.kind}.{key}")
+    elif change.kind == "neural_config":
+        for key, value in object_field(body, "thresholds").items():
+            if key in ("confidence", "nms") and not number(value, 0, 1):
+                raise HTTPException(422, f"Invalid threshold {key}")
+        tracker = body.get("tracker")
+        current_tracker = current.get("tracker")
+        supported = {"iou", "kalman_iou", current_tracker.get("type") if isinstance(current_tracker, dict) else None}
+        if tracker is not None and (not isinstance(tracker, dict) or tracker.get("type") not in supported):
+            raise HTTPException(422, "Unknown tracker type")
+        if error := zones_error(body):
+            raise HTTPException(422, error)
+    elif change.kind == "surround_output":
+        for config in object_field(body, "configs").values():
+            if not isinstance(config, dict):
+                raise HTTPException(422, "Output configuration must be an object")
+            for key in ("fps", "width", "height"):
+                if key in config and not number(config[key], 1, 240 if key == "fps" else 16384, key != "fps"):
+                    raise HTTPException(422, f"Invalid surround output {key}")
+    elif change.kind == "projection":
+        for mode in ("top", "surround"):
+            resolution = object_field(object_field(body, mode), "resolution")
+            if any(not number(value, 1, 16384, True) for key, value in resolution.items() if key in ("width", "height")):
+                raise HTTPException(422, "Invalid render resolution")
+    elif change.kind == "binding":
+        if not isinstance(body.get("device_id"), str):
+            raise HTTPException(422, "Binding requires device_id")
+    elif change.kind != "rules":
+        raise HTTPException(422, "Entity is edited in its module")
+
+
+@router.put("/config/profiles/{profile_id}/passport")
+async def save_passport(profile_id: str, request: SavePassport):
+    store = get_store()
+    try:
+        snapshot = _library_snapshot(profile_id)
+        if request.context != snapshot["context"] or request.revision != snapshot["revision"]:
+            raise HTTPException(409, "Profile or passport changed; reload before saving")
+        seen = set()
+        for change in request.changes:
+            _check_kind(change.kind)
+            ref = (change.kind, change.key)
+            if ref in seen:
+                raise HTTPException(422, "Duplicate entity change")
+            seen.add(ref)
+            current = snapshot["entities"].get(change.kind, {}).get(change.key, {}).get("body", {})
+            _validate_passport_change(change, current)
+            if change.kind == "rules" and not change.reset:
+                if change.key not in snapshot["entities"].get("integration", {}):
+                    raise HTTPException(422, "Unknown integration")
+                change.body = await _master("POST", f"/rules/{change.key}/validate", change.body)
+        with store.transaction():
+            latest = _library_snapshot(profile_id)
+            if request.context != latest["context"] or request.revision != latest["revision"]:
+                raise HTTPException(409, "Profile or passport changed during validation; reload before saving")
+            before = {(item["kind"], item["key"], item.get("field"), item.get("ref")) for item in latest["broken"]}
+            for change in request.changes:
+                if change.reset:
+                    if change.kind == "machine" and change.key == "settings":
+                        target = latest["base"].get("machine", {}).get("settings", {})
+                        current = latest["entities"].get("machine", {}).get("settings", {}).get("body", {})
+                        if target.get("active_integration") != current.get("active_integration"):
+                            raise HTTPException(409, "Use the profile lifecycle to reset integration")
+                    store.reset(profile_id, change.kind, change.key)
+                else:
+                    store.put(profile_id, change.kind, change.key, change.body)
+            result = _library_snapshot(profile_id)
+            for item in result["broken"]:
+                ref = (item["kind"], item["key"], item.get("field"), item.get("ref"))
+                if ref not in before:
+                    raise HTTPException(422, f"New broken reference: {item}")
+        error = await sync.push_checked() if profile_id == store.active_profile() and request.changes else None
+        return {"snapshot": result, "application_error": error}
+    except ConfigError as error:
+        raise _fail(error)
 
 
 @router.post("/config/import")

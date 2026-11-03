@@ -40,8 +40,8 @@ export const NAV: NavItem[] = [
     { to: '/',         label: 'Главная',             icon: 'home' },
     { to: '/devices',  label: 'Устройства',          icon: 'dev',   desc: 'Одноплатники: состояние и маршрутизация', admin: true },
     {
-        to: '/configurations', label: 'Конфигурации', icon: 'kit', desc: 'Конфигурация изделия: фильтр обнаружений и таблицы соответствий', admin: true,
-        sub: CONFIG_SECTIONS.map((s, i) => ({ to: `/configurations/${s.id}`, label: s.label, n: String(i + 1).padStart(2, '0') })),
+        to: '/configurations', label: 'Конфигурации', icon: 'kit', desc: 'Профили, паспорт машины, словари и соответствия', admin: true,
+        sub: CONFIG_SECTIONS.map(s => ({ to: `/configurations/${s.id}`, label: s.label, n: '' })),
     },
     {
         to: '/settings', label: 'Настройки системы', icon: 'tune', desc: 'Диски записи и пороги очистки', admin: true,

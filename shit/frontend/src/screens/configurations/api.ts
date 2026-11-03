@@ -98,6 +98,7 @@ export function dictionariesOf(settings?: RulesSettings): Dictionaries {
 }
 
 export interface CfRules extends CfRule {
+    context: string;
     settings: RulesSettings;
     defaults: RulesSettings;
     saved_at: number | null;
@@ -169,6 +170,7 @@ export interface CfTransition {
 }
 
 export interface CfState {
+    context: string;
     transition?: CfTransition | null;
     delivery?: { device_id: string; state: string; error?: string | null }[];
     gateway: boolean;
@@ -219,9 +221,9 @@ export const configurationsApi = {
     async getRules(id: string): Promise<CfRules> {
         return unwrap<CfRules>(await fetch(`/api/configurations/${encodeURIComponent(id)}/rules`));
     },
-    async saveRules(id: string, settings: RulesSettings): Promise<CfRules> {
+    async saveRules(id: string, settings: RulesSettings, context: string): Promise<CfRules> {
         return unwrap<CfRules>(
-            await fetch(`/api/configurations/${encodeURIComponent(id)}/rules`, {
+            await fetch(`/api/configurations/${encodeURIComponent(id)}/rules?context=${encodeURIComponent(context)}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(settings),
