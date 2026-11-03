@@ -93,6 +93,7 @@ class ConfigStore:
         self._assets = Path(assets_dir)
         self._assets.mkdir(parents=True, exist_ok=True)
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+        # Одно соединение на процесс: чтения и записи из любых потоков идут под этой блокировкой
         self._lock = threading.RLock()
         self._depth = 0
         self._db = sqlite3.connect(db_path, check_same_thread=False, isolation_level=None)
@@ -145,7 +146,8 @@ class ConfigStore:
             db.execute("UPDATE assets SET info=? WHERE sha256=?", (canon(info), sha))
 
     def assets(self, shas: Optional[Iterable[str]] = None) -> dict[str, dict]:
-        rows = self._db.execute("SELECT sha256, name, size, info, created FROM assets ORDER BY created").fetchall()
+        with self._lock:
+            rows = self._db.execute("SELECT sha256, name, size, info, created FROM assets ORDER BY created").fetchall()
         wanted = set(shas) if shas is not None else None
         return {
             r["sha256"]: {
@@ -158,27 +160,29 @@ class ConfigStore:
     # ── Профили и версии ──
 
     def profiles(self) -> list[dict]:
-        active = self.active_profile()
-        out = []
-        for p in self._db.execute("SELECT * FROM profiles ORDER BY created").fetchall():
-            versions = [
-                {"id": v["id"], "number": v["number"], "hash": v["hash"], "label": v["label"], "created": v["created"]}
-                for v in self._db.execute(
-                    "SELECT * FROM versions WHERE profile_id=? ORDER BY number", (p["id"],)
-                ).fetchall()
-            ]
-            overrides = self._db.execute(
-                "SELECT COUNT(*) FROM passport WHERE profile_id=? AND kind NOT IN (%s)"
-                % ",".join("?" * len(PASSPORT_ONLY)), (p["id"], *PASSPORT_ONLY),
-            ).fetchone()[0]
-            out.append({
-                "id": p["id"], "name": p["name"], "version_id": p["version_id"],
-                "active": p["id"] == active, "versions": versions, "overrides": overrides,
-            })
+        with self._lock:
+            active = self.active_profile()
+            out = []
+            for p in self._db.execute("SELECT * FROM profiles ORDER BY created").fetchall():
+                versions = [
+                    {"id": v["id"], "number": v["number"], "hash": v["hash"], "label": v["label"], "created": v["created"]}
+                    for v in self._db.execute(
+                        "SELECT * FROM versions WHERE profile_id=? ORDER BY number", (p["id"],)
+                    ).fetchall()
+                ]
+                overrides = self._db.execute(
+                    "SELECT COUNT(*) FROM passport WHERE profile_id=? AND kind NOT IN (%s)"
+                    % ",".join("?" * len(PASSPORT_ONLY)), (p["id"], *PASSPORT_ONLY),
+                ).fetchone()[0]
+                out.append({
+                    "id": p["id"], "name": p["name"], "version_id": p["version_id"],
+                    "active": p["id"] == active, "versions": versions, "overrides": overrides,
+                })
         return out
 
     def profile(self, profile_id: str) -> dict:
-        row = self._db.execute("SELECT * FROM profiles WHERE id=?", (profile_id,)).fetchone()
+        with self._lock:
+            row = self._db.execute("SELECT * FROM profiles WHERE id=?", (profile_id,)).fetchone()
         if not row:
             raise ConfigError(f"profile {profile_id!r} not found")
         return dict(row)
@@ -248,17 +252,20 @@ class ConfigStore:
             db.execute("DELETE FROM profiles WHERE id=?", (profile_id,))
 
     def active_profile(self) -> Optional[str]:
-        row = self._db.execute("SELECT value FROM machine WHERE key='active_profile'").fetchone()
+        with self._lock:
+            row = self._db.execute("SELECT value FROM machine WHERE key='active_profile'").fetchone()
         return row["value"] if row else None
 
     def profile_transition(self) -> Optional[dict]:
-        row = self._db.execute("SELECT value FROM machine WHERE key='profile_transition'").fetchone()
+        with self._lock:
+            row = self._db.execute("SELECT value FROM machine WHERE key='profile_transition'").fetchone()
         return json.loads(row["value"]) if row and row["value"] else None
 
     def context(self) -> str:
-        profile = self.active_profile() or ""
-        version = self.profile(profile)["version_id"] if profile else ""
-        return f"{profile}:{version}:{(self.profile_transition() or {}).get('id', '')}"
+        with self._lock:
+            profile = self.active_profile() or ""
+            version = self.profile(profile)["version_id"] if profile else ""
+            return f"{profile}:{version}:{(self.profile_transition() or {}).get('id', '')}"
 
     def is_repairing(self, profile_id: str) -> bool:
         transition = self.profile_transition()
@@ -289,13 +296,15 @@ class ConfigStore:
     def version_entities(self, version_id: Optional[int]) -> dict[tuple[str, str], Any]:
         if version_id is None:
             return {}
-        rows = self._db.execute(
-            "SELECT kind, key, body FROM entities WHERE version_id=?", (version_id,)
-        ).fetchall()
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT kind, key, body FROM entities WHERE version_id=?", (version_id,)
+            ).fetchall()
         return {(r["kind"], r["key"]): json.loads(r["body"]) for r in rows}
 
     def version(self, version_id: int) -> dict:
-        row = self._db.execute("SELECT * FROM versions WHERE id=?", (version_id,)).fetchone()
+        with self._lock:
+            row = self._db.execute("SELECT * FROM versions WHERE id=?", (version_id,)).fetchone()
         if not row:
             raise ConfigError(f"version {version_id} not found")
         return dict(row)
@@ -303,7 +312,8 @@ class ConfigStore:
     # ── Паспорт ──
 
     def passport(self, profile_id: str) -> dict[tuple[str, str], dict]:
-        rows = self._db.execute("SELECT * FROM passport WHERE profile_id=?", (profile_id,)).fetchall()
+        with self._lock:
+            rows = self._db.execute("SELECT * FROM passport WHERE profile_id=?", (profile_id,)).fetchall()
         return {
             (r["kind"], r["key"]): {
                 "op": r["op"], "body": json.loads(r["body"]) if r["body"] is not None else None,
@@ -313,10 +323,11 @@ class ConfigStore:
         }
 
     def _profile_body(self, profile_id: str, kind: str, key: str) -> Optional[Any]:
-        version_id = self.profile(profile_id)["version_id"]
-        row = self._db.execute(
-            "SELECT body FROM entities WHERE version_id=? AND kind=? AND key=?", (version_id, kind, key)
-        ).fetchone()
+        with self._lock:
+            version_id = self.profile(profile_id)["version_id"]
+            row = self._db.execute(
+                "SELECT body FROM entities WHERE version_id=? AND kind=? AND key=?", (version_id, kind, key)
+            ).fetchone()
         return json.loads(row["body"]) if row else None
 
     def put(self, profile_id: str, kind: str, key: str, body: Any) -> str:
