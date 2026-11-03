@@ -9,7 +9,7 @@ export default defineConfig({
   plugins: [react()],
   build: {
     rollupOptions: {
-      input: { app: 'index.html', 'test-client': 'tests/client.html' },
+      input: { app: 'index.html', tests: 'tests/index.html', 'test-client': 'tests/client.html' },
     },
   },
   server: {

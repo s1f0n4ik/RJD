@@ -7,6 +7,7 @@ import logging
 from app.config import settings
 from app.routers import loaders, status, streams, auth, layouts, devices, device_proxy, archive, configurations, machine_config, neural_config, surround
 from app.routers import time as time_router
+from app.routers import tests as tests_router
 from app.services.websocket_manager import manager, websocket_endpoint
 from app.services.devices import registry
 from app.services.config_sync import sync as config_sync
@@ -62,6 +63,7 @@ app.include_router(configurations.router, prefix="/api", tags=["Configurations"]
 app.include_router(machine_config.router, prefix="/api", tags=["MachineConfig"])
 app.include_router(neural_config.router, prefix="/api", tags=["NeuralConfig"])
 app.include_router(surround.router, prefix="/api", tags=["Surround"])
+app.include_router(tests_router.router, prefix="/api")
 app.include_router(device_proxy.router, tags=["DeviceProxy"])
 app.include_router(auth.router, prefix="/auth", tags=["Auth"])
 app.include_router(streams.router, tags=["Streams"])
