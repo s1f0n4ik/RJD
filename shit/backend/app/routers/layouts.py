@@ -1,30 +1,15 @@
-"""
-app/routers/layouts.py
-
-Хранение видеосеток (layouts) на устройстве в JSON-файле.
-Маршруты:
-  GET    /api/layouts          — список всех сеток
-  POST   /api/layouts          — создать/обновить сетку (по name как ключу)
-  DELETE /api/layouts/{name}   — удалить сетку по имени
-"""
+# Сохранённые раскладки активного профиля и паспорта машины.
 
 from __future__ import annotations
 
-import json
-import logging
-from pathlib import Path
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 from pydantic import BaseModel
 
-from app.config import settings
+from app.services.config_store import ConfigError, get_store
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
-
-# Том настроек мастера: переживает пересборку контейнеров
-LAYOUTS_FILE = Path(settings.LAYOUTS_FILE)
 
 
 # ── Pydantic-модели ────────────────────────────────────────────
@@ -59,67 +44,58 @@ class Layout(BaseModel):
 
 # ── Helpers ────────────────────────────────────────────────────
 
-def _read_layouts() -> List[Dict]:
-    """Читает layouts.json, возвращает список dict. Если файла нет — пустой список."""
-    try:
-        if LAYOUTS_FILE.exists():
-            return json.loads(LAYOUTS_FILE.read_text(encoding="utf-8"))
-    except Exception as e:
-        logger.error(f"layouts: read error: {e}")
-    return []
+def _context() -> tuple[str, str, str]:
+    store = get_store()
+    profile = store.active_profile() or ""
+    transition = store.profile_transition() or {}
+    return profile, store.context(), transition.get("phase", "complete")
 
 
-def _write_layouts(layouts: List[Dict]) -> None:
-    """Записывает список dict в layouts.json атомарно."""
-    try:
-        LAYOUTS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        tmp = LAYOUTS_FILE.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(layouts, ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp.replace(LAYOUTS_FILE)
-    except Exception as e:
-        logger.error(f"layouts: write error: {e}")
-        raise
+def _check_context(context: str | None) -> str:
+    profile, current, _ = _context()
+    if not profile:
+        raise HTTPException(409, "No active machine profile")
+    if context is not None and context != current:
+        raise HTTPException(409, "Machine profile changed; reload layouts before saving")
+    return profile
 
 
 # ── Endpoints ──────────────────────────────────────────────────
 
 @router.get("/layouts", response_model=List[Layout])
-async def get_layouts():
-    """Вернуть все сохранённые сетки."""
-    return _read_layouts()
+async def get_layouts(response: Response):
+    profile, context, phase = _context()
+    response.headers["X-Profile-Id"] = profile
+    response.headers["X-Layout-Context"] = context
+    response.headers["X-Profile-Phase"] = phase
+    entities = get_store().effective(profile or None)["entities"].get("layout", {})
+    return [entry["body"] for _, entry in sorted(entities.items())]
 
 
 @router.post("/layouts", response_model=Layout, status_code=status.HTTP_200_OK)
-async def upsert_layout(layout: Layout):
+async def upsert_layout(layout: Layout, context: str | None = Query(None)):
     """
     Создать новую сетку или обновить существующую (ключ — name).
     Timestamp ставит клиент.
     """
-    layouts = _read_layouts()
-
-    idx = next((i for i, l in enumerate(layouts) if l.get("name") == layout.name), None)
     data = layout.dict()
-
-    if idx is not None:
-        layouts[idx] = data
-    else:
-        layouts.append(data)
-
-    _write_layouts(layouts)
+    try:
+        with get_store().transaction():
+            get_store().put(_check_context(context), "layout", layout.name, data)
+    except ConfigError as error:
+        raise HTTPException(409, str(error))
     return data
 
 
 @router.delete("/layouts/{name}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_layout(name: str):
+async def delete_layout(name: str, context: str | None = Query(None)):
     """Удалить сетку по имени."""
-    layouts = _read_layouts()
-    filtered = [l for l in layouts if l.get("name") != name]
-
-    if len(filtered) == len(layouts):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Layout '{name}' not found",
-        )
-
-    _write_layouts(filtered)
+    try:
+        with get_store().transaction():
+            profile = _check_context(context)
+            if name not in get_store().effective(profile)["entities"].get("layout", {}):
+                raise HTTPException(404, f"Layout '{name}' not found")
+            get_store().remove(profile, "layout", name)
+    except ConfigError as error:
+        raise HTTPException(409, str(error))
     return None

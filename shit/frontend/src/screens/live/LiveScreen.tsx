@@ -8,13 +8,12 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Modal, Switch } from '../../app/Modal';
 import { useToast } from '../../app/Toast';
 import { Select } from '../../app/Select';
 import { Icon } from '../../app/Icons';
 import { useDeviceClock } from '../../app/useDeviceClock';
-import { useLayouts, type SavedLayout } from '../../hooks/Layouts';
+import { lastLayoutKey, useLayouts, type SavedLayout } from '../../hooks/Layouts';
 import { api } from '../../services/api';
 import { signalingWsUrl } from '../../services/devices';
 import { wsUrl } from '../../utils/constants';
@@ -37,11 +36,10 @@ import {
 } from './model';
 import './live.css';
 import { useFlash } from '../../app/motion';
+import { useNavigationGuard } from '../../app/use-navigation-guard';
 
 // Опрос источников: пропажа устройства и смена статусов видны без перезагрузки
 const SOURCES_POLL_MS = 10_000;
-
-const LAST_LAYOUT_KEY = 'live.layout';
 
 function gridLabel(grid: Grid): string {
     const preset = presetOf(grid);
@@ -54,13 +52,13 @@ function num(value: number | null | undefined, digits: number): string {
 }
 
 export default function LiveScreen() {
-    const navigate = useNavigate();
-    const { layouts, loading, loadError, opError, save, remove } = useLayouts();
+    const { layouts, loading, profileId, context, blocked, loadError, opError, save, remove } = useLayouts();
     const correctionLinks = useCorrectionLinks();
     const { unixMs } = useDeviceClock();
 
     const [cameras, setCameras] = useState<CPPCamera[]>([]);
     const [virtual, setVirtual] = useState<VirtualStream[]>([]);
+    const [sourceContext, setSourceContext] = useState('');
     const [sourcesError, setSourcesError] = useState('');
 
     const [layout, setLayout] = useState<LayoutState>(() => emptyLayout());
@@ -68,7 +66,8 @@ export default function LiveScreen() {
     const [snapshot, setSnapshot] = useState('');
     const [switchKey, setSwitchKey] = useState('init');
     const switchSeq = useRef(0);
-    const initialized = useRef(false);
+    const initialized = useRef<string | null>(null);
+    const [draftContext, setDraftContext] = useState('');
 
     const [selectedCell, setSelectedCell] = useState<string | null>(null);
     const [selectedSource, setSelectedSource] = useState<string | null>(null);
@@ -85,6 +84,7 @@ export default function LiveScreen() {
     const overlaysRef = useRef<HTMLDivElement>(null);
     const [freeGridOpen, setFreeGridOpen] = useState(false);
     const [saveName, setSaveName] = useState<string | null>(null);
+    const [saving, setSaving] = useState(false);
     const [confirmDelete, setConfirmDelete] = useState(false);
     // Действие, отложенное до ответа на вопрос о несохранённых правках
     const [pending, setPending] = useState<(() => void) | null>(null);
@@ -108,6 +108,7 @@ export default function LiveScreen() {
                 if (!alive) return;
                 setCameras(list.filter(camera => !isProbeCamera(camera.id)));
                 setVirtual(streams);
+                setSourceContext(context);
                 setSourcesError('');
             } catch (error) {
                 if (!alive) return;
@@ -121,15 +122,15 @@ export default function LiveScreen() {
             alive = false;
             window.clearInterval(timer);
         };
-    }, []);
+    }, [context]);
 
-    const sources: WallSource[] = useMemo(() => [
+    const sources: WallSource[] = useMemo(() => sourceContext !== context || blocked ? [] : [
         ...cameras.map(cameraToWallSource),
         ...virtual.map(stream => virtualToWallSource(
             stream,
             id => cameras.find(camera => camera.id === id)?.display_name || id,
         )),
-    ], [cameras, virtual]);
+    ], [cameras, virtual, sourceContext, context, blocked]);
 
     // Владелец ищется по ownerId: второй поток 360 в списке источников не значится
     const signalingUrlOf = useCallback((sourceId: string, ownerId: string = sourceId) => {
@@ -143,22 +144,24 @@ export default function LiveScreen() {
         const next = saved ? layoutFromSaved(saved) : emptyLayout();
         switchSeq.current += 1;
         setLayout(next);
+        setDraftContext(context);
         setSnapshot(JSON.stringify(next));
         setSwitchKey(`${next.name || 'new'}#${switchSeq.current}`);
         setSelectedCell(null);
         setSelectedSource(null);
         setCellStats(null);
-        if (saved) localStorage.setItem(LAST_LAYOUT_KEY, saved.name);
-    }, []);
+        if (saved) localStorage.setItem(lastLayoutKey(profileId), saved.name);
+    }, [context, profileId]);
 
     // Вход открывает последнее правившееся отображение, иначе первое из списка
     useEffect(() => {
-        if (loading || initialized.current) return;
-        initialized.current = true;
-        const lastName = localStorage.getItem(LAST_LAYOUT_KEY);
+        if (loading || blocked || initialized.current === context) return;
+        initialized.current = context;
+        const lastName = localStorage.getItem(lastLayoutKey(profileId));
         const found = layouts.find(item => item.name === lastName) ?? layouts[0] ?? null;
-        applyLayout(found);
-    }, [loading, layouts, applyLayout]);
+        if (dirty) setPending(() => () => applyLayout(found));
+        else applyLayout(found);
+    }, [loading, blocked, context, profileId, layouts, applyLayout, dirty]);
 
     useEffect(() => {
         if (!overlaysOpen) return;
@@ -170,45 +173,13 @@ export default function LiveScreen() {
         return () => document.removeEventListener('mousedown', onDown);
     }, [overlaysOpen]);
 
-    // Правки не должны теряться молча при закрытии вкладки
-    useEffect(() => {
-        if (!dirty) return;
-        const onBeforeUnload = (event: BeforeUnloadEvent) => {
-            event.preventDefault();
-            event.returnValue = '';
-        };
-        window.addEventListener('beforeunload', onBeforeUnload);
-        return () => window.removeEventListener('beforeunload', onBeforeUnload);
-    }, [dirty]);
-
     // Действие, которое может потерять правки, спрашивает разрешения
     const guard = useCallback((action: () => void) => {
         if (dirty) setPending(() => action);
         else action();
     }, [dirty]);
 
-    // Уход по рельсе перехватываем на всплытии клика: BrowserRouter без
-    // data-роутера блокировщика переходов не даёт
-    useEffect(() => {
-        if (!dirty) return;
-
-        const onClick = (event: MouseEvent) => {
-            if (event.defaultPrevented || event.button !== 0) return;
-            const link = (event.target as HTMLElement | null)?.closest('a[href]');
-            if (!(link instanceof HTMLAnchorElement)) return;
-            if (!link.closest('.rail')) return;
-
-            const url = new URL(link.href);
-            if (url.pathname === window.location.pathname) return;
-
-            event.preventDefault();
-            const to = url.pathname.replace(/^\/new/, '') || '/';
-            guard(() => navigate(to));
-        };
-
-        document.addEventListener('click', onClick, true);
-        return () => document.removeEventListener('click', onClick, true);
-    }, [dirty, guard, navigate]);
+    const { leave, cancelNavigation } = useNavigationGuard(dirty, guard);
 
     // ─── Правки отображения ─────────────────────────────────────
 
@@ -317,33 +288,37 @@ export default function LiveScreen() {
     // ─── Сохранение ─────────────────────────────────────────────
 
     const persist = async (name: string) => {
+        if (saving) return false;
         const next = { ...layout, name };
-        const ok = await save(layoutToSaved(next, Date.now()));
-        if (!ok) return;
+        setSaving(true);
+        const ok = await save(layoutToSaved(next, Date.now()), draftContext);
+        setSaving(false);
+        if (!ok) return false;
         setLayout(next);
         setSnapshot(JSON.stringify(next));
-        localStorage.setItem(LAST_LAYOUT_KEY, name);
+        localStorage.setItem(lastLayoutKey(profileId), name);
         setSaveName(null);
         toast(`Отображение «${name}» сохранено`, '', 'ok');
 
         const queued = afterSaveRef.current;
         afterSaveRef.current = null;
         queued?.();
+        return true;
     };
 
     const handleDelete = async () => {
         const name = layout.name;
         setConfirmDelete(false);
         if (!name) return;
-        const ok = await remove(name);
+        const ok = await remove(name, draftContext);
         if (!ok) return;
-        localStorage.removeItem(LAST_LAYOUT_KEY);
+        localStorage.removeItem(lastLayoutKey(profileId));
         applyLayout(layouts.find(item => item.name !== name) ?? null);
     };
 
     const goTranslation = () => {
         const path = layout.name ? `/translation/${encodeURIComponent(layout.name)}` : '/translation';
-        window.location.href = path;
+        leave(path);
     };
 
     // ─── Данные для правой колонки ──────────────────────────────
@@ -462,7 +437,7 @@ export default function LiveScreen() {
                 <Wall
                     grid={layout.grid}
                     layout={layout}
-                    sources={sources}
+                    sources={draftContext === context && !blocked ? sources : []}
                     switchKey={switchKey}
                     signalingUrlOf={signalingUrlOf}
                     deviceTimeMs={unixMs}
@@ -600,13 +575,13 @@ export default function LiveScreen() {
             {saveName !== null && (
                 <Modal
                     title="Сохранить отображение"
-                    onClose={() => setSaveName(null)}
+                    onClose={() => { if (!saving) { setSaveName(null); afterSaveRef.current = null; cancelNavigation(); } }}
                     footer={
                         <>
-                            <button className="btn" onClick={() => setSaveName(null)}>Отмена</button>
+                            <button className="btn" disabled={saving} onClick={() => { setSaveName(null); afterSaveRef.current = null; cancelNavigation(); }}>Отмена</button>
                             <button
                                 className="btn btn--acc"
-                                disabled={!saveName.trim()}
+                                disabled={saving || !saveName.trim()}
                                 onClick={() => void persist(saveName.trim())}
                             >
                                 {layouts.some(item => item.name === saveName.trim()) ? 'Перезаписать' : 'Сохранить'}
@@ -652,30 +627,31 @@ export default function LiveScreen() {
             {pending && (
                 <Modal
                     title="Несохранённые правки"
-                    onClose={() => setPending(null)}
+                    onClose={() => { if (!saving) { setPending(null); cancelNavigation(); } }}
                     footer={
                         <>
-                            <button className="btn" onClick={() => setPending(null)}>Отмена</button>
+                            <button className="btn" disabled={saving} onClick={() => { setPending(null); cancelNavigation(); }}>Отмена</button>
                             <button
                                 className="btn"
+                                disabled={saving}
                                 onClick={() => { const action = pending; setPending(null); action(); }}
                             >
                                 Не сохранять
                             </button>
                             <button
                                 className="btn btn--acc"
+                                disabled={saving || draftContext !== context}
                                 onClick={async () => {
                                     const action = pending;
-                                    setPending(null);
                                     // Безымянное отображение сперва спросит имя,
                                     // а действие продолжится после сохранения
                                     if (!layout.name) {
+                                        setPending(null);
                                         afterSaveRef.current = action;
                                         setSaveName('');
                                         return;
                                     }
-                                    await persist(layout.name);
-                                    action();
+                                    if (await persist(layout.name)) { setPending(null); action(); }
                                 }}
                             >
                                 Сохранить
@@ -684,7 +660,7 @@ export default function LiveScreen() {
                     }
                 >
                     <div className="modal-b">
-                        <p>В отображении есть правки, которых нет в сохранённом файле. Трансляция читает файл, а не экран.</p>
+                        <p>{draftContext !== context ? 'Профиль уже изменился. Черновик относится к прежнему профилю и не будет перенесён в новый.' : 'В отображении есть несохранённые правки.'}</p>
                     </div>
                 </Modal>
             )}

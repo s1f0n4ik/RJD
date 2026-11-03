@@ -177,7 +177,7 @@ def delete_version(profile_id: str, version_id: int):
 
 @router.get("/config/status")
 def config_status():
-    return {"devices": sync.status(), "transition": lifecycle.status()}
+    return {"devices": sync.status(), "transition": lifecycle.status(), "context": get_store().context()}
 
 
 @router.post("/config/transition/repair")
@@ -215,7 +215,12 @@ async def put_entity(kind: str, key: str, body: Any = Body(...), profile_id: Opt
             if isinstance(body, dict) and current.get("active_integration") != body.get("active_integration"):
                 transition = await lifecycle.switch(profile_id, edit=lambda: store.put(profile_id, kind, key, body))
                 return {"state": "transition", "transition": transition}
-        return {"state": store.put(profile_id, kind, key, body)}
+        result = {"state": store.put(profile_id, kind, key, body)}
+        if kind == "machine" and key == "settings" and profile_id == store.active_profile():
+            error = await sync.push_checked()
+            if error:
+                raise HTTPException(502, f"Source saved; application failed: {error}")
+        return result
     except ConfigError as e:
         raise _fail(e)
 
@@ -249,6 +254,10 @@ async def reset_entity(ref: EntityRef, profile_id: Optional[str] = Query(None)):
             transition = await lifecycle.switch(profile_id, edit=lambda: store.reset(profile_id, ref.kind, ref.key))
             return {"ok": transition["phase"] == "complete", "transition": transition}
     store.reset(profile_id, ref.kind, ref.key)
+    if ref.kind == "machine" and ref.key == "settings" and profile_id == store.active_profile():
+        error = await sync.push_checked()
+        if error:
+            raise HTTPException(502, f"Source saved; application failed: {error}")
     return {"ok": True}
 
 

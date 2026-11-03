@@ -8,6 +8,7 @@ import type {
   GwTime,
   GwWsConfigPatch,
 } from '../types';
+import { refreshDeviceClock } from '../../../app/useDeviceClock';
 
 // Единая точка смены адреса шлюза. В prod — пустая строка (тот же origin,
 // nginx проксирует /api/gateway/* → message_gateway, срезая префикс). В dev
@@ -106,17 +107,20 @@ export const krspsApi = {
   },
 
   async getTime(): Promise<GwTime> {
-    return unwrap<GwTime>(await fetch(url('/time')));
+    return unwrap<GwTime>(await fetch(`${API_HOST}/api/time`));
   },
 
-  // Часовой пояс выдачи времени; шлюз сохраняет его и отвечает свежим снимком.
-  async setTimeZone(tzOffsetMin: number): Promise<GwTime> {
-    return unwrap<GwTime>(
-      await fetch(url('/config/time'), {
+  // Часовой пояс сохраняется в паспорте активного профиля.
+  async setTimeZone(tzOffsetMin: number, profileId: string): Promise<{ time: GwTime | null; applied: boolean }> {
+    const result = await unwrap<{ applied: boolean }>(
+      await fetch(`${API_HOST}/api/time/config`, {
         method: 'PUT',
         headers: jsonHeaders,
-        body: JSON.stringify({ tz_offset_min: tzOffsetMin }),
+        body: JSON.stringify({ tz_offset_min: tzOffsetMin, profile_id: profileId }),
       }),
     );
+    await refreshDeviceClock();
+    const time = await krspsApi.getTime().catch(() => null);
+    return { time, applied: result.applied };
   },
 };

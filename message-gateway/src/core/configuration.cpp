@@ -93,6 +93,13 @@ namespace varan::gateway {
             const auto body = json::parse(request.body()).as_object();
             const auto revision = text(body, "revision");
             const auto selected_id = text(body, "active");
+            int offset = 180;
+            if (const auto* time = body.if_contains("time")) {
+                const auto& value = time->as_object().at("tz_offset_min");
+                if ((!value.is_int64() && !value.is_uint64()) || value.to_number<std::int64_t>() < -720 || value.to_number<std::int64_t>() > 840)
+                    throw std::runtime_error("tz_offset_min must be an integer in -720..840");
+                offset = value.to_number<int>();
+            }
             if (revision.empty()) throw std::runtime_error("missing configuration revision");
             const auto token = text(m_runtime, "transition_id");
             if (!validate_only && text(body, "transition_id") != token) throw std::runtime_error("configuration belongs to another transition");
@@ -122,7 +129,7 @@ namespace varan::gateway {
                 }
                 normalized_sources[integration->id()] = json::object{{"modules", modules}};
             }
-            if (validate_only) return response(request, http::status::ok, {{"integrations", normalized_sources}});
+            if (validate_only) return response(request, http::status::ok, {{"integrations", normalized_sources}, {"time", json::object{{"tz_offset_min", offset}}}});
             for (const auto& [module, config] : prepared) {
                 if (module->config_snapshot() == config) continue;
                 std::string error;
@@ -134,10 +141,11 @@ namespace varan::gateway {
             }
             const auto previous_revision = m_revision;
             m_revision = revision;
-            if (!persist_state()) {
+            if (!persist_state(offset)) {
                 m_revision = previous_revision;
                 throw std::runtime_error("cannot persist applied gateway configuration");
             }
+            m_time.set_tz_offset_min(offset);
             return response(request, http::status::ok, {{"data", json::object{{"revision", m_revision}}}});
         }
         catch (const std::exception& error) {

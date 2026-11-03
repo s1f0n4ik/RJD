@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { AppRouter } from './AppRouter';
 import { AppShell } from './AppShell';
 import { DownloadsProvider } from './DownloadsContext';
 import { OnScreenKeyboard } from './OnScreenKeyboard';
@@ -64,7 +65,7 @@ export default function NewApp() {
     }
 
     return (
-        <BrowserRouter basename="/app">
+        <AppRouter>
             <RoleContext.Provider value={role}>
             <SystemProvider>
                 <DownloadsProvider>
@@ -104,6 +105,6 @@ export default function NewApp() {
             </SystemProvider>
             </RoleContext.Provider>
             <OnScreenKeyboard />
-        </BrowserRouter>
+        </AppRouter>
     );
 }

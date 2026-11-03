@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <atomic>
 #include <thread>
 #include <vector>
@@ -52,7 +53,7 @@ namespace varan {
             void restore_state();
             // Записать текущие настройки всех интеграций.
             // Зовётся после каждой удачной правки по REST.
-            bool persist_state();
+            bool persist_state(std::optional<int> tz_offset_min = std::nullopt);
             URouter::FResponse handle_runtime(const URouter::FRequest& req, bool write);
             URouter::FResponse handle_apply_config(const URouter::FRequest& req, bool validate_only = false);
             std::mutex m_runtime_mutex;
@@ -78,7 +79,6 @@ namespace varan {
             URouter::FResponse handle_ws_status(const URouter::FRequest& req);
             URouter::FResponse handle_versions(const URouter::FRequest& req);
             URouter::FResponse handle_time(const URouter::FRequest& req);
-            URouter::FResponse handle_put_time_config(const URouter::FRequest& req);
             URouter::FResponse handle_devices(const URouter::FRequest& req);
 
         private:

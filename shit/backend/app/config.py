@@ -28,9 +28,6 @@ class Settings(BaseSettings):
     # Мастер обнаружений: правила, по которым он работает
     DETECTION_URL: str = "http://127.0.0.1:8003"
 
-    # Видеосетки фронта — на том же томе настроек, что devices.json
-    LAYOUTS_FILE: str = "/data/layouts.json"
-
     # Конфигурация машины: профили, паспорта и их файлы по sha256
     CONFIG_DB: str = "/data/config.db"
     CONFIG_ASSETS_DIR: str = "/data/assets"

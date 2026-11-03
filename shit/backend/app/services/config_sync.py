@@ -126,8 +126,12 @@ def build_service_packages(store: ConfigStore, profile_id: Optional[str] = None)
     if not effective["profile"]:
         return {}
     bodies = {kind: {key: entry["body"] for key, entry in entries.items()} for kind, entries in effective["entities"].items()}
-    active = bodies.get("machine", {}).get("settings", {}).get("active_integration") or ""
-    source = {"gateway": {"active": active, "integrations": bodies.get("integration", {})},
+    machine = bodies.get("machine", {}).get("settings", {})
+    active = machine.get("active_integration") or ""
+    offset = machine.get("tz_offset_min", 180)
+    if type(offset) is not int or not -720 <= offset <= 840:
+        raise ValueError("tz_offset_min must be an integer in -720..840")
+    source = {"gateway": {"active": active, "integrations": bodies.get("integration", {}), "time": {"tz_offset_min": offset}},
               "detection": {"active": active, "rules": bodies.get("rules", {})}}
     return {name: {"revision": digest(body), **body} for name, body in source.items()}
 

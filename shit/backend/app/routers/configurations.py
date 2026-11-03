@@ -60,7 +60,7 @@ async def list_configurations() -> dict:
         for item in (integrations or {}).get("items", [])
     ]
     return {"gateway": integrations is not None, "active": active, "items": items, "master": rules,
-            "transition": lifecycle.status(), "delivery": sync.status()}
+            "context": get_store().context(), "transition": lifecycle.status(), "delivery": sync.status()}
 
 
 class SelectRequest(BaseModel):
@@ -101,6 +101,7 @@ async def configuration_link() -> dict:
 
 @router.get("/configurations/{config_id}/rules")
 async def get_configuration_rules(config_id: str) -> dict:
+    context = get_store().context()
     state = await _master("GET", f"/rules/{config_id}")
     store = get_store()
     entry = store.effective()["entities"].get("rules", {}).get(config_id)
@@ -109,23 +110,34 @@ async def get_configuration_rules(config_id: str) -> dict:
         await _master("POST", f"/rules/{config_id}/validate", source))
     override = store.passport(store.active_profile()).get(("rules", config_id)) if store.active_profile() else None
     state["saved_at"] = int(override["updated"] * 1000) if override else None
+    if context != store.context():
+        raise HTTPException(409, "Machine profile changed; reload rules")
+    state["context"] = context
     return state
 
 
 @router.put("/configurations/{config_id}/rules")
-async def put_configuration_rules(config_id: str, body: dict = Body(...)) -> dict:
+async def put_configuration_rules(config_id: str, body: dict = Body(...), context: Optional[str] = None) -> dict:
     store = get_store()
     profile = store.active_profile()
     if not profile:
         raise HTTPException(409, "No active machine profile")
+    expected = context if context is not None else store.context()
+    if expected != store.context():
+        raise HTTPException(409, "Machine profile changed; reload rules before saving")
     if config_id not in store.effective()["entities"].get("integration", {}):
         raise HTTPException(404, "Unknown integration")
     parsed = await _master("POST", f"/rules/{config_id}/validate", body)
-    store.put(profile, "rules", config_id, parsed)
+    with store.transaction():
+        if expected != store.context():
+            raise HTTPException(409, "Machine profile changed; reload rules before saving")
+        store.put(profile, "rules", config_id, parsed)
     error = await sync.push_checked()
     if error:
         raise HTTPException(502, f"Source saved; application failed: {error}")
     logger.info(f"configuration {config_id} rules saved")
+    if expected != store.context():
+        raise HTTPException(409, "Source saved in previous profile; reload current rules")
     return await get_configuration_rules(config_id)
 
 

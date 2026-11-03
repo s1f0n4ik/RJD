@@ -25,6 +25,9 @@ export interface GwTime {
   iso: string;
   /** Пояс выдачи, минуты от UTC. */
   tz_offset_min?: number;
+  profile_id?: string;
+  profile_phase?: string;
+  configured_tz_offset_min?: number;
   gps: GwGpsFix;
   source: { time: string; gps: string };
 }

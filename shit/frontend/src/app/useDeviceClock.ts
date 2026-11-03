@@ -35,7 +35,7 @@ function notify(): void {
     listeners.forEach(fn => fn());
 }
 
-async function sync(): Promise<void> {
+export async function refreshDeviceClock(): Promise<void> {
     try {
         const res = await fetch('/api/time');
         if (!res.ok) throw new Error(String(res.status));
@@ -56,8 +56,8 @@ async function sync(): Promise<void> {
 function subscribe(fn: () => void): () => void {
     listeners.add(fn);
     if (syncTimer === null) {
-        sync();
-        syncTimer = window.setInterval(sync, SYNC_INTERVAL_MS);
+        refreshDeviceClock();
+        syncTimer = window.setInterval(refreshDeviceClock, SYNC_INTERVAL_MS);
     }
     return () => {
         listeners.delete(fn);

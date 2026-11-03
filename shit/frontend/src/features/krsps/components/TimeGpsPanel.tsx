@@ -3,6 +3,7 @@ import { Select } from '../../../app/Select';
 import { krspsApi } from '../api/client';
 import type { GwTime } from '../types';
 import { formatInt } from '../utils/format';
+import { useToast } from '../../../app/Toast';
 
 interface Props {
   time: GwTime | null;
@@ -55,6 +56,7 @@ const TimeGpsPanel: React.FC<Props> = ({ time, offsetMs, synced, onTimeUpdate })
   offsetRef.current = offsetMs;
 
   const [tzBusy, setTzBusy] = useState(false);
+  const toast = useToast();
 
   useEffect(() => {
     const t = setInterval(() => setNowMs(Date.now() + offsetRef.current), 100);
@@ -62,11 +64,16 @@ const TimeGpsPanel: React.FC<Props> = ({ time, offsetMs, synced, onTimeUpdate })
   }, []);
 
   const handleTzChange = async (minutes: number) => {
+    if (!time?.profile_id) return;
     setTzBusy(true);
     try {
-      onTimeUpdate(await krspsApi.setTimeZone(minutes));
-    } catch {
-      /* пояс не применился — селект вернётся к значению из /time */
+      const result = await krspsApi.setTimeZone(minutes, time.profile_id);
+      if (result.time) onTimeUpdate(result.time);
+      toast(result.applied ? 'Часовой пояс сохранён и применён' : 'Часовой пояс сохранён, ожидает применения',
+        result.time ? '' : 'Снимок времени пока недоступен', result.applied && result.time ? 'ok' : 'info');
+    } catch (error) {
+      toast(error instanceof Error && error.message.includes('Source saved')
+        ? 'Часовой пояс сохранён, но ещё не применён' : 'Не удалось сохранить часовой пояс', '', 'err');
     } finally {
       setTzBusy(false);
     }
@@ -103,8 +110,8 @@ const TimeGpsPanel: React.FC<Props> = ({ time, offsetMs, synced, onTimeUpdate })
         <div className="title-sel spacer">
           <span className="cap">Часовой пояс</span>
           <Select
-            value={String(time?.tz_offset_min ?? 180)}
-            disabled={tzBusy || !synced}
+            value={String(time?.configured_tz_offset_min ?? time?.tz_offset_min ?? 180)}
+            disabled={tzBusy || !synced || !time?.profile_id || !['complete', 'repairing'].includes(time.profile_phase ?? '')}
             options={TZ_OPTIONS.map((o) => ({ value: String(o.minutes), label: o.label }))}
             onChange={(v) => void handleTzChange(Number(v))}
           />

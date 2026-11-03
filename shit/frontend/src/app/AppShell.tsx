@@ -145,7 +145,7 @@ export function AppShell({ username, role, onLogout }: AppShellProps) {
                             <b>{username || 'Оператор'}</b>
                             <span>{role === 'admin' ? 'Администратор' : 'Наблюдатель'}</span>
                         </div>
-                        <button className="rail-exit" onClick={onLogout} title="Выйти" aria-label="Выйти">
+                        <button className="rail-exit" data-exit-app onClick={onLogout} title="Выйти" aria-label="Выйти">
                             <Icon name="exit" size={16} />
                         </button>
                     </div>

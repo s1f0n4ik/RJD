@@ -255,6 +255,11 @@ class ConfigStore:
         row = self._db.execute("SELECT value FROM machine WHERE key='profile_transition'").fetchone()
         return json.loads(row["value"]) if row and row["value"] else None
 
+    def context(self) -> str:
+        profile = self.active_profile() or ""
+        version = self.profile(profile)["version_id"] if profile else ""
+        return f"{profile}:{version}:{(self.profile_transition() or {}).get('id', '')}"
+
     def is_repairing(self, profile_id: str) -> bool:
         transition = self.profile_transition()
         return bool(transition and transition["phase"] == "repairing" and transition["profile_id"] == profile_id)

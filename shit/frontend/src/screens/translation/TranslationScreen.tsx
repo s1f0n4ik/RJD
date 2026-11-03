@@ -15,7 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Icon, IconSprite } from '../../app/Icons';
 import { Select } from '../../app/Select';
 import { formatDeviceDate, formatDeviceTime, useDeviceClock } from '../../app/useDeviceClock';
-import { useLayouts, type SavedLayout } from '../../hooks/Layouts';
+import { lastLayoutKey, useLayouts, type SavedLayout } from '../../hooks/Layouts';
 import { api } from '../../services/api';
 import { signalingWsUrl } from '../../services/devices';
 import { wsUrl } from '../../utils/constants';
@@ -54,12 +54,13 @@ function layoutNameFromPath(): string {
 }
 
 export default function TranslationScreen() {
-    const { layouts, loading, loadError } = useLayouts();
+    const { layouts, loading, profileId, context, blocked, loadError } = useLayouts();
     const { unixMs, source } = useDeviceClock();
     const correctionLinks = useCorrectionLinks();
 
     const [cameras, setCameras] = useState<CPPCamera[]>([]);
     const [virtual, setVirtual] = useState<VirtualStream[]>([]);
+    const [sourceContext, setSourceContext] = useState('');
     const [sourcesLoaded, setSourcesLoaded] = useState(false);
 
     const [layout, setLayout] = useState<LayoutState>(() => emptyLayout());
@@ -71,7 +72,7 @@ export default function TranslationScreen() {
     const [armed, setArmed] = useState<string | null>(null);
 
     const switchSeq = useRef(0);
-    const initialized = useRef(false);
+    const initialized = useRef<string | null>(null);
 
     // ─── Источники ──────────────────────────────────────────────
 
@@ -84,6 +85,7 @@ export default function TranslationScreen() {
                 if (!alive) return;
                 setCameras(list.filter(camera => !isProbeCamera(camera.id)));
                 setVirtual(streams);
+                setSourceContext(context);
                 setSourcesLoaded(true);
             } catch {
                 // Молчим: планка и так покажет, что в эфире ноль ячеек
@@ -96,15 +98,15 @@ export default function TranslationScreen() {
             alive = false;
             window.clearInterval(timer);
         };
-    }, []);
+    }, [context]);
 
-    const sources: WallSource[] = useMemo(() => [
+    const sources: WallSource[] = useMemo(() => sourceContext !== context || blocked ? [] : [
         ...cameras.map(cameraToWallSource),
         ...virtual.map(stream => virtualToWallSource(
             stream,
             id => cameras.find(camera => camera.id === id)?.display_name || id,
         )),
-    ], [cameras, virtual]);
+    ], [cameras, virtual, sourceContext, context, blocked]);
 
     const sourceGroups: Array<[string, WallSource[]]> = [
         ['Камеры', sources.filter(item => item.kind === 'camera')],
@@ -125,8 +127,9 @@ export default function TranslationScreen() {
         setFallback(false);
         setArmed(null);
         setSwitchKey(`${saved.name}#${switchSeq.current}`);
+        localStorage.setItem(lastLayoutKey(profileId), saved.name);
         window.history.replaceState(null, '', `/translation/${encodeURIComponent(saved.name)}`);
-    }, []);
+    }, [profileId]);
 
     // Свернуть шторку и снять выбор источника заодно
     const closeDrawer = useCallback(() => {
@@ -135,11 +138,12 @@ export default function TranslationScreen() {
     }, []);
 
     useEffect(() => {
-        if (loading || initialized.current) return;
-        initialized.current = true;
+        if (loading || blocked || initialized.current === context) return;
 
-        const requested = layoutNameFromPath();
-        const found = (requested && layouts.find(item => item.name === requested)) || layouts[0];
+        const requested = initialized.current === null ? layoutNameFromPath() : '';
+        initialized.current = context;
+        const lastName = localStorage.getItem(lastLayoutKey(profileId));
+        const found = (requested && layouts.find(item => item.name === requested)) || layouts.find(item => item.name === lastName) || layouts[0];
 
         if (found) {
             applyLayout(found);
@@ -152,7 +156,8 @@ export default function TranslationScreen() {
         setFallback(true);
         setDrawerOpen(true);
         setSwitchKey(`fallback#${switchSeq.current}`);
-    }, [loading, layouts, applyLayout]);
+        window.history.replaceState(null, '', '/translation');
+    }, [loading, blocked, context, profileId, layouts, applyLayout]);
 
     // ─── Эфемерные правки ───────────────────────────────────────
 
