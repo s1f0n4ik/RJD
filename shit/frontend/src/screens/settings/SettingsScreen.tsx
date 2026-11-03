@@ -93,7 +93,7 @@ const dotTone = (pool: Pool | null | undefined) =>
 function StorageSection() {
     const { devices } = useSystem();
     const toast = useToast();
-    const { pools, put, reload } = usePools(devices, POLL_MS);
+    const { pools, errors, put, reload } = usePools(devices, POLL_MS);
 
     const [picked, setPicked] = useState<string | null>(null);
     const device = devices.find(d => d.id === picked) ?? devices[0] ?? null;
@@ -176,7 +176,7 @@ function StorageSection() {
                             className={d.id === device.id ? 'is-on' : ''}
                             onClick={() => { setPicked(d.id); setSelId(null); }}
                         >
-                            <i className={`dot${dotTone(pools[d.id])}`} />
+                            <i className={`dot${errors[d.id] ? ' warn' : dotTone(pools[d.id])}`} />
                             {d.name}
                         </button>
                     ))}
@@ -190,6 +190,13 @@ function StorageSection() {
                 )}
                 <span className="st-end">{pool && <PoolPill pool={pool} />}</span>
             </div>
+
+            {pool && errors[device.id] && (
+                <div className="banner is-err" role="status">
+                    <Icon name="warn" size={15} />
+                    Служба хранения не отвечает. Показаны последние данные.
+                </div>
+            )}
 
             {pool === null && (
                 <div className="notice">

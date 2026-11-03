@@ -32,6 +32,7 @@ import {
 } from './model';
 import './devices.css';
 import { useFlash } from '../../app/motion';
+import { sameJson } from '../../utils/same-json';
 
 const CAMERAS_POLL_MS = 15_000;
 const SIDE_WIDTH = 340;
@@ -49,6 +50,7 @@ export function DevicesScreen() {
     const [dirty, setDirty] = useState(false);
     const [saving, setSaving] = useState(false);
     const [counts, setCounts] = useState<Record<string, CameraCount>>({});
+    const [countsError, setCountsError] = useState(false);
     const [addOpen, setAddOpen] = useState(false);
     const [menu, setMenu] = useState<{ device: Device; anchor: Anchor } | null>(null);
     const [renaming, setRenaming] = useState<Device | null>(null);
@@ -68,8 +70,11 @@ export function DevicesScreen() {
 
     useEffect(() => {
         let alive = true;
+        let running = false;
 
         const load = async () => {
+            if (running) return;
+            running = true;
             try {
                 const cameras = await api.getCameras();
                 if (!alive) return;
@@ -82,9 +87,12 @@ export function DevicesScreen() {
                     entry.offline = entry.offline || !!camera.offline;
                     result[id] = entry;
                 }
-                setCounts(result);
+                setCounts(previous => sameJson(previous, result) ? previous : result);
+                setCountsError(false);
             } catch {
-                if (alive) setCounts({});
+                if (alive) setCountsError(true);
+            } finally {
+                running = false;
             }
         };
 
@@ -112,7 +120,7 @@ export function DevicesScreen() {
 
     const sorted = useMemo(() => sortDevices(devices), [devices]);
     const online = sorted.filter(isOnline).length;
-    const cameraTotal = Object.values(counts).reduce((sum, c) => sum + c.total, 0);
+    const cameraTotal = devices.reduce((sum, device) => sum + (counts[device.id]?.total ?? 0), 0);
 
     const setSlot = (slot: RoutingSlot, deviceId: string) => {
         setRouting(prev => ({ ...prev, [slot]: deviceId || null }));
@@ -237,6 +245,12 @@ export function DevicesScreen() {
 
             <div className="dev-body">
                 <div className="dev-list">
+                    {countsError && (
+                        <div className="banner is-err" role="status">
+                            <Icon name="warn" size={15} />
+                            Не удалось обновить число камер
+                        </div>
+                    )}
                     {devices.length === 0 ? (
                         <div className="dev-empty">
                             <Icon name="dev" size={34} />

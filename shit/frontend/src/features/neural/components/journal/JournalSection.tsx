@@ -73,14 +73,24 @@ export function JournalSection() {
   const listRef = useRef<HTMLDivElement>(null);
   // Число открытых по последнему опросу: его смена — закрытие обнаружения
   const openRef = useRef<number | null>(null);
+  const listRequest = useRef(0);
+  const pendingList = useRef<number | null>(null);
+  const refreshFailed = useRef(false);
+  const loadedFilters = useRef<typeof filters | null>(null);
 
   const load = useCallback(
     (showSpinner: boolean) => {
-      if (showSpinner) setLoading(true);
-      setErr(null);
+      if (!showSpinner && pendingList.current !== null) return Promise.resolve();
+      const request = ++listRequest.current;
+      pendingList.current = request;
+      if (showSpinner) { setLoading(true); setErr(null); }
       return journalApi
         .list(filters, { limit: PAGE_LIMIT, order: 'desc' })
         .then((res) => {
+          if (request !== listRequest.current) return;
+          loadedFilters.current = filters;
+          refreshFailed.current = false;
+          setErr(null);
           setDets(res.detections);
           setTotal(res.total);
           setNewCount(0);
@@ -90,8 +100,16 @@ export function JournalSection() {
               : res.detections[0]?.id ?? null,
           );
         })
-        .catch((e) => setErr(e instanceof Error ? e.message : String(e)))
-        .finally(() => setLoading(false));
+        .catch((e) => {
+          if (request !== listRequest.current) return;
+          refreshFailed.current = true;
+          setErr(e instanceof Error ? e.message : String(e));
+        })
+        .finally(() => {
+          if (request !== listRequest.current) return;
+          pendingList.current = null;
+          setLoading(false);
+        });
     },
     [filters],
   );
@@ -99,6 +117,7 @@ export function JournalSection() {
   useEffect(() => {
     openRef.current = null;
     load(true);
+    return () => { listRequest.current++; pendingList.current = null; };
   }, [load]);
 
   // Опрос head: новые обнаружения — плашкой или тихо сверху, закрытые — тихим перечитыванием
@@ -117,7 +136,7 @@ export function JournalSection() {
           const atTop = (listRef.current?.scrollTop ?? 0) < 40;
           if (atTop && viewer == null) load(false);
           else setNewCount(Math.max(1, h.total - total));
-        } else if (closed) {
+        } else if (closed || refreshFailed.current) {
           load(false);
         }
       } catch {
@@ -548,6 +567,12 @@ export function JournalSection() {
             <span>Вердикт</span>
           </div>
           <div className="j-rows" ref={listRef}>
+            {err && dets.length > 0 && loadedFilters.current === filters && (
+              <div className="banner is-err" role="status">
+                <Icon name="warn" size={15} />
+                Не удалось обновить журнал. Показаны последние данные.
+              </div>
+            )}
             {newCount > 0 && (
               <button className="j-new" onClick={() => load(false)}>
                 <Icon name="chev" size={12} className="ico" />
@@ -564,7 +589,7 @@ export function JournalSection() {
                   <span className="skel" />
                 </div>
               ))
-            ) : err ? (
+            ) : err && (dets.length === 0 || loadedFilters.current !== filters) ? (
               <div className="empty">
                 <Icon name="warn" className="ico" />
                 <b>Журнал недоступен</b>

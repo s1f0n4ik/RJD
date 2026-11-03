@@ -38,7 +38,7 @@ const METRIC_LABEL: Record<string, string> = { cpu: 'ЦП', mem: 'ОЗУ', temp:
 export function HomeScreen() {
     const role = useRole();
     const { cameras, devices } = useSystem();
-    const { pools } = usePools(devices, DISK_POLL_MS);
+    const { pools, errors: poolErrors } = usePools(devices, DISK_POLL_MS);
     const { layouts } = useLayouts();
     const { items: detections, available: journalUp } = useLastDetections();
     const { resolve } = useClassResolver();
@@ -260,7 +260,7 @@ export function HomeScreen() {
                                         s.total_bytes ? Math.max(0, bytes / s.total_bytes * 100) : 0;
                                     const other = Math.max(0, s.used_bytes - s.records_bytes - s.journal_bytes);
                                     // Состояние пула считает служба: кольцо — жёлтая, писать некуда — красная
-                                    const tone = s.state === 'stuck' ? ' is-err' : s.state === 'ring' ? ' is-warn' : '';
+                                    const tone = poolErrors[device.id] ? ' is-warn' : s.state === 'stuck' ? ' is-err' : s.state === 'ring' ? ' is-warn' : '';
                                     return (
                                         <div className={`disk${tone}`} key={device.id}>
                                             <div className="disk-h">
@@ -270,9 +270,13 @@ export function HomeScreen() {
                                             <div className="disk-sub">
                                                 <span className="seps">
                                                     <span>{disksLabel(s.disk_count)}</span>
-                                                    {s.state !== 'stuck' && s.writing && <span className="is-w">пишется на «{s.writing}»</span>}
-                                                    {s.state === 'ring' && <span className="is-st">удаляются старые</span>}
-                                                    {s.state === 'stuck' && <span className="is-st">писать некуда</span>}
+                                                    {poolErrors[device.id] ? <span className="is-st">нет связи, последние данные</span> : (
+                                                        <>
+                                                            {s.state !== 'stuck' && s.writing && <span className="is-w">пишется на «{s.writing}»</span>}
+                                                            {s.state === 'ring' && <span className="is-st">удаляются старые</span>}
+                                                            {s.state === 'stuck' && <span className="is-st">писать некуда</span>}
+                                                        </>
+                                                    )}
                                                 </span>
                                             </div>
                                             <div className="bar bar--split">

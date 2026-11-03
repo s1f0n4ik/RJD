@@ -1,3 +1,5 @@
+import { sameJson } from '../utils/same-json';
+
 /**
  * Реестр устройств и маршрутизация запросов.
  *
@@ -76,6 +78,8 @@ export interface ScanResult {
 
 let devicesCache: Device[] = [];
 let routingCache: RoutingTable = { ...EMPTY_ROUTING };
+let devicesRequest = 0;
+let appliedDevicesRequest = 0;
 
 async function json<T>(res: Response): Promise<T> {
     if (!res.ok) {
@@ -90,9 +94,15 @@ async function json<T>(res: Response): Promise<T> {
 }
 
 export async function loadDevices(signal?: AbortSignal): Promise<{ devices: Device[]; routing: RoutingTable }> {
+    const request = ++devicesRequest;
     const data = await fetch('/api/devices', { signal }).then(json<{ devices: Device[]; routing: RoutingTable }>);
-    devicesCache = data.devices ?? [];
-    routingCache = pickRouting(data.routing);
+    if (request > appliedDevicesRequest) {
+        appliedDevicesRequest = request;
+        const devices = data.devices ?? [];
+        const routing = pickRouting(data.routing);
+        if (!sameJson(devicesCache, devices)) devicesCache = devices;
+        if (!sameJson(routingCache, routing)) routingCache = routing;
+    }
     return { devices: devicesCache, routing: routingCache };
 }
 
@@ -158,6 +168,7 @@ export const devicesApi = {
         const data = await fetch(`/api/devices/${encodeURIComponent(deviceId)}/poll`, {
             method: 'POST',
         }).then(json<{ device: Device }>);
+        appliedDevicesRequest = ++devicesRequest;
         devicesCache = devicesCache.map(d => (d.id === deviceId ? data.device : d));
         return data.device;
     },

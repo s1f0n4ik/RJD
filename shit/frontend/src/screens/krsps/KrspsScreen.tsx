@@ -19,6 +19,7 @@ import ModbusModulePanel from '../../features/krsps/components/ModbusModulePanel
 import TimeGpsPanel from '../../features/krsps/components/TimeGpsPanel';
 import PanelBoundary from '../../features/krsps/components/PanelBoundary';
 import { connState } from '../../features/krsps/components/ModuleBits';
+import { sameJson } from '../../utils/same-json';
 import type { Dictionaries } from '../../features/krsps/utils/dictionaries';
 import { configurationsApi, dictionariesOf } from '../configurations/api';
 import { MODULE_LABEL, SERVICE_SECTIONS } from './sections';
@@ -46,6 +47,7 @@ export default function KrspsScreen() {
     const toast = useToast();
 
     const alive = useRef(true);
+    const statusRequest = useRef(0);
     useEffect(() => {
         alive.current = true;
         return () => {
@@ -64,21 +66,26 @@ export default function KrspsScreen() {
         }
     }, []);
 
-    // Статус раз в 2 с; молчание шлюза переводит раздел в заглушку, ответ возвращает
+    // Статус обновляется раз в 2 с, последний снимок сохраняется при ошибке.
     useEffect(() => {
         let stop = false;
+        let running = false;
         const tick = async () => {
+            if (running) return;
+            running = true;
+            const request = ++statusRequest.current;
             try {
                 const s = await krspsApi.getStatus();
-                if (!stop && alive.current) {
-                    setStatus(s);
+                if (!stop && alive.current && request === statusRequest.current) {
+                    setStatus(previous => sameJson(previous, s) ? previous : s);
                     setFailed(false);
                 }
             } catch {
-                if (!stop && alive.current) {
-                    setStatus(null);
+                if (!stop && alive.current && request === statusRequest.current) {
                     setFailed(true);
                 }
+            } finally {
+                running = false;
             }
         };
         tick();
@@ -146,8 +153,9 @@ export default function KrspsScreen() {
             setBusy(true);
             try {
                 await fn();
+                const request = ++statusRequest.current;
                 const s = await krspsApi.getStatus().catch(() => null);
-                if (alive.current && s) setStatus(s);
+                if (alive.current && s && request === statusRequest.current) { setStatus(s); setFailed(false); }
                 await refreshIntegrations();
                 if (alive.current) showToast(okMsg);
             } catch (e) {
@@ -199,6 +207,7 @@ export default function KrspsScreen() {
 
     return (
         <section className="screen mod-screen">
+            {failed && <div className="banner is-err" role="status"><Icon name="warn" size={15} />Не удалось обновить состояние шлюза. Показаны последние данные.</div>}
             {status.repairing && <div className="notice" role="status"><p>Модули остановлены. Изменения сохраняются в паспорт без применения.</p><button className="btn" onClick={() => navigate('/configurations/link')}>К восстановлению</button></div>}
             <div className="mod">
                 <div className="mod-body">
@@ -220,7 +229,7 @@ export default function KrspsScreen() {
                                 title={MODULE_LABEL[selectedModule.id] ?? selectedModule.title}
                                 devices={devices}
                                 dicts={dicts}
-                                busy={busy}
+                                busy={busy || failed}
                                 onSave={handleSaveCan}
                                 onConnect={handleConnect}
                                 onDisconnect={handleDisconnect}
@@ -232,7 +241,7 @@ export default function KrspsScreen() {
                                 devices={devices}
                                 tzMin={time?.tz_offset_min ?? 180}
                                 dicts={dicts}
-                                busy={busy}
+                                busy={busy || failed}
                                 onSave={handleSaveModbus}
                                 onConnect={handleConnect}
                                 onDisconnect={handleDisconnect}
@@ -241,7 +250,7 @@ export default function KrspsScreen() {
                             <WebSocketModulePanel
                                 module={selectedModule}
                                 title={MODULE_LABEL[selectedModule.id] ?? selectedModule.title}
-                                busy={busy}
+                                busy={busy || failed}
                                 onSave={handleSaveWs}
                                 onConnect={handleConnect}
                                 onDisconnect={handleDisconnect}

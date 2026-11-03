@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { storagePath, type Device } from '../../services/devices';
+import { sameJson } from '../../utils/same-json';
 
 // Пул дисков записи устройства, как его отдаёт storage-service
 
@@ -94,26 +95,52 @@ export const poolApi = {
 /** Пулы всех устройств: ключ — id устройства, null — служба хранения не ответила. */
 export function usePools(devices: Device[], pollMs: number) {
     const [pools, setPools] = useState<Record<string, Pool | null>>({});
+    const [errors, setErrors] = useState<Record<string, boolean>>({});
+    const request = useRef(0);
+    const applied = useRef(0);
 
-    const ids = devices.map(d => d.id).join(',');
+    const ids = devices.map(d => d.id).sort().join(',');
 
     const load = useCallback(async () => {
-        if (!ids) return;
+        const token = ++request.current;
+        if (!ids) {
+            applied.current = token;
+            setPools({});
+            setErrors({});
+            return;
+        }
         const entries = await Promise.all(ids.split(',').map(async id =>
             [id, await poolApi.get(id).catch(() => null)] as const));
-        setPools(Object.fromEntries(entries));
+        if (token < applied.current) return;
+        applied.current = token;
+        setPools(previous => {
+            const next = Object.fromEntries(entries.map(([id, pool]) => {
+                const value = pool ?? previous[id] ?? null;
+                return [id, sameJson(previous[id], value) ? previous[id] : value];
+            }));
+            return sameJson(previous, next) ? previous : next;
+        });
+        const failures = Object.fromEntries(entries.filter(([, pool]) => pool === null).map(([id]) => [id, true]));
+        setErrors(previous => sameJson(previous, failures) ? previous : failures);
     }, [ids]);
 
     useEffect(() => {
         void load();
         const timer = window.setInterval(() => void load(), pollMs);
-        return () => window.clearInterval(timer);
+        return () => { window.clearInterval(timer); applied.current = ++request.current; };
     }, [load, pollMs]);
 
     // Ответ правки — уже свежий снимок, опроса не ждём
     const put = useCallback((deviceId: string, pool: Pool) => {
+        applied.current = ++request.current;
         setPools(prev => ({ ...prev, [deviceId]: pool }));
+        setErrors(prev => {
+            if (!prev[deviceId]) return prev;
+            const next = { ...prev };
+            delete next[deviceId];
+            return next;
+        });
     }, []);
 
-    return { pools, put, reload: load };
+    return { pools, errors, put, reload: load };
 }
