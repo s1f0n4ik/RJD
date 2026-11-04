@@ -99,6 +99,43 @@ export interface Change {
     key: string;
     body?: Source;
     reset?: boolean;
+    keep?: boolean;
+}
+
+export interface BoardChange {
+    path: string;
+    was: unknown;
+    now: unknown;
+}
+export interface BoardDiffItem {
+    device_id: string;
+    place: string;
+    kind: string;
+    key: string;
+    name: string;
+    state: 'replace' | 'add';
+    changes: BoardChange[];
+    body: Source;
+}
+export interface BoardDiff {
+    context: string;
+    revision: string;
+    devices: { device_id: string; place: string; state: 'ok' | 'error'; error: string | null }[];
+    items: BoardDiffItem[];
+    skipped: { device_id: string; kind: string; key: string; name: string; reason: string }[];
+}
+export interface ImportResult {
+    profile_id: string;
+    version: ProfileVersion;
+    broken: Workspace['broken'];
+    warnings?: string[];
+}
+export interface ResetResult {
+    ok: boolean;
+    removed: { kind: string; key: string }[];
+    snapshot?: Workspace;
+    application_error?: string | null;
+    transition?: CfTransition;
 }
 
 export class LibraryRequestError extends Error {
@@ -124,22 +161,75 @@ async function json<T>(response: Response): Promise<T> {
     return response.json();
 }
 
+const savePassport = (id: string, guard: { context: string; revision: string }, changes: Change[]) =>
+    fetch(`/api/config/profiles/${encodeURIComponent(id)}/passport`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ context: guard.context, revision: guard.revision, changes }),
+    }).then(json<{ snapshot: Workspace; application_error: string | null }>);
+
 export const libraryApi = {
     profiles: () => fetch('/api/config/profiles').then(json<{ active: string | null; profiles: Profile[] }>),
     status: () => fetch('/api/config/status').then(json<ConfigStatus>),
     workspace: (id: string) => fetch(`/api/config/profiles/${encodeURIComponent(id)}/workspace`).then(json<Workspace>),
-    save: (workspace: Workspace, changes: Change[]) =>
-        fetch(`/api/config/profiles/${encodeURIComponent(workspace.profile.id)}/passport`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ context: workspace.context, revision: workspace.revision, changes }),
-        }).then(json<{ snapshot: Workspace; application_error: string | null }>),
+    savePassport,
+    save: (workspace: Workspace, changes: Change[]) => savePassport(workspace.profile.id, workspace, changes),
     activate: (id: string) =>
         fetch('/api/config/active', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ profile_id: id }),
         }).then(json<{ ok: boolean; transition: CfTransition }>),
+    boardDiff: (id: string) =>
+        fetch(`/api/config/profiles/${encodeURIComponent(id)}/board-diff`).then(json<BoardDiff>),
+    resetPassport: (workspace: Workspace) =>
+        fetch(`/api/config/profiles/${encodeURIComponent(workspace.profile.id)}/passport/reset`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ context: workspace.context, revision: workspace.revision }),
+        }).then(json<ResetResult>),
+    loadFile: (file: File, activate: boolean) => {
+        const form = new FormData();
+        form.append('file', file);
+        form.append('activate', String(activate));
+        return fetch('/api/config/load', { method: 'POST', body: form }).then(
+            json<{ profile: { id: string; name: string }; version: ProfileVersion; broken: Workspace['broken'] }>,
+        );
+    },
+    importBackup: (files: File[], profileId: string, name: string, activate: boolean) => {
+        const form = new FormData();
+        files.forEach((file) => form.append('files', file));
+        form.append('profile_id', profileId);
+        form.append('name', name);
+        form.append('activate', String(activate));
+        return fetch('/api/config/import', { method: 'POST', body: form }).then(json<ImportResult>);
+    },
+    exportProfile: async (id: string, versionId: number, fallbackName: string) => {
+        const response = await fetch(`/api/config/profiles/${encodeURIComponent(id)}/export?version_id=${versionId}`);
+        if (!response.ok) {
+            const body = await response.json().catch(() => ({}));
+            throw new LibraryRequestError(response.status, body.detail || `Ошибка ${response.status}`);
+        }
+        const header = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(response.headers.get('Content-Disposition') ?? '');
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(await response.blob());
+        link.download = header ? decodeURIComponent(header[1]) : fallbackName;
+        link.click();
+        window.setTimeout(() => URL.revokeObjectURL(link.href), 10000);
+        return link.download;
+    },
+    selectVersion: (id: string, versionId: number) =>
+        fetch(`/api/config/profiles/${encodeURIComponent(id)}/select`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ version_id: versionId }),
+        }).then(json<{ ok: boolean; transition?: CfTransition }>),
+    removeProfile: (id: string) =>
+        fetch(`/api/config/profiles/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(json<{ ok: boolean }>),
+    removeVersion: (id: string, versionId: number) =>
+        fetch(`/api/config/profiles/${encodeURIComponent(id)}/versions/${versionId}`, { method: 'DELETE' }).then(
+            json<{ ok: boolean }>,
+        ),
 };
 
 export function effectiveDefinition(workspace: Workspace): Definition {

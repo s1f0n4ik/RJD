@@ -16,6 +16,7 @@ from starlette.background import BackgroundTask
 from app.services.config_bundle import export_profile, load_profile
 from app.services.config_import import import_backups
 from app.services.config_neural import zones_error
+from app.services.config_pull import board_diff
 from app.services.config_store import KINDS, PASSPORT_ONLY, ConfigError, digest, get_store, nest
 from app.services.config_sync import sync
 from app.services.lifecycle import lifecycle
@@ -48,12 +49,18 @@ class RecoverTransition(BaseModel):
 class PassportChange(EntityRef):
     body: Optional[dict] = None
     reset: bool = False
+    keep: bool = False
 
 
 class SavePassport(BaseModel):
     context: str
     revision: str
     changes: list[PassportChange]
+
+
+class ResetPassport(BaseModel):
+    context: str
+    revision: str
 
 
 def _library_snapshot(profile_id: str) -> dict:
@@ -121,7 +128,7 @@ async def profile_workspace(profile_id: str):
 
 def _validate_passport_change(change: PassportChange, current: dict) -> None:
     body = change.body
-    if change.reset:
+    if change.reset or change.keep:
         return
     if body is None:
         raise HTTPException(422, "Entity body must be an object")
@@ -225,6 +232,14 @@ async def save_passport(profile_id: str, request: SavePassport):
                         if target.get("active_integration") != current.get("active_integration"):
                             raise HTTPException(409, "Use the profile lifecycle to reset integration")
                     store.reset(profile_id, change.kind, change.key)
+                elif change.keep:
+                    entry = latest["entities"].get(change.kind, {}).get(change.key)
+                    if any(item["kind"] == change.kind and item["key"] == change.key for item in latest["removed"]):
+                        store.remove(profile_id, change.kind, change.key)
+                    elif entry and entry["state"] != "profile":
+                        store.put(profile_id, change.kind, change.key, entry["body"])
+                    else:
+                        raise HTTPException(409, "Entity has no passport difference")
                 else:
                     store.put(profile_id, change.kind, change.key, change.body)
             result = _library_snapshot(profile_id)
@@ -234,6 +249,49 @@ async def save_passport(profile_id: str, request: SavePassport):
                     raise HTTPException(422, f"New broken reference: {item}")
         error = await sync.push_checked() if profile_id == store.active_profile() and request.changes else None
         return {"snapshot": result, "application_error": error}
+    except ConfigError as error:
+        raise _fail(error)
+
+
+@router.get("/config/profiles/{profile_id}/board-diff")
+async def profile_board_diff(profile_id: str):
+    """Differences between the configuration applied on the bound boards and the profile with its passport."""
+    store = get_store()
+    try:
+        snapshot = _library_snapshot(profile_id)
+    except ConfigError as error:
+        raise _fail(error)
+    if profile_id != store.active_profile() or (store.profile_transition() or {}).get("phase", "complete") != "complete":
+        raise HTTPException(409, "Only the loaded profile can be compared with its boards")
+    result = await board_diff(snapshot, sync.client)
+    return {**result, "context": snapshot["context"], "revision": snapshot["revision"]}
+
+
+@router.post("/config/profiles/{profile_id}/passport/reset")
+async def reset_passport(profile_id: str, request: ResetPassport):
+    """Drops every passport difference from the profile; bindings and the machine card stay."""
+    store = get_store()
+    removed: list[dict] = []
+
+    def reset() -> None:
+        latest = _library_snapshot(profile_id)
+        if request.context != latest["context"] or request.revision != latest["revision"]:
+            raise ConfigError("Profile or passport changed; reload before resetting")
+        removed.extend(store.reset_all(profile_id))
+
+    try:
+        snapshot = _library_snapshot(profile_id)
+        if request.context != snapshot["context"] or request.revision != snapshot["revision"]:
+            raise HTTPException(409, "Profile or passport changed; reload before resetting")
+        target = snapshot["base"].get("machine", {}).get("settings", {}).get("active_integration")
+        current = snapshot["entities"].get("machine", {}).get("settings", {}).get("body", {}).get("active_integration")
+        if profile_id == store.active_profile() and not store.is_repairing(profile_id) and target != current:
+            transition = await lifecycle.switch(profile_id, edit=reset)
+            return {"ok": transition["phase"] == "complete", "transition": transition, "removed": removed}
+        with store.transaction():
+            reset()
+        error = await sync.push_checked() if profile_id == store.active_profile() and removed else None
+        return {"ok": True, "removed": removed, "snapshot": _library_snapshot(profile_id), "application_error": error}
     except ConfigError as error:
         raise _fail(error)
 

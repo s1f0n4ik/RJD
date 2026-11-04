@@ -14,6 +14,12 @@ from app.services.devices import registry
 
 logger = logging.getLogger(__name__)
 BOARD_MODULES = {"cameras": "/camera", "neural": "/neural", "surround": "/linker"}
+# Сколько раз подряд повторять загрузку, которую исполнитель отверг
+MAX_LOAD_REJECTIONS = 3
+
+
+class LoadRejected(RuntimeError):
+    pass
 
 
 class ProfileLifecycle:
@@ -53,6 +59,9 @@ class ProfileLifecycle:
             entry = target.get(device_id)
             package = entry["package"] if entry else None
             modules = ["cameras"] if entry else []
+            for key, projection in ((package or {}).get("parts", {}).get("surround") or {}).get("projections", {}).items():
+                if not projection.get("preset"):
+                    raise ConfigError(f"Projection {key} has no preset: the board rejects such a 360 package, re-export or remove the projection")
             if package:
                 modules += [name for name in ("neural", "surround") if name in package["parts"]]
             result.append({"id": device_id, "base": f"http://{device['ip']}:{settings.DEVICE_MC_PORT}",
@@ -122,7 +131,7 @@ class ProfileLifecycle:
             if not current.get("error"):
                 raise ConfigError("The profile transition has not failed")
             state = copy.deepcopy(current)
-            state.update(id=uuid.uuid4().hex, phase="stopping", mode="repair", error=None)
+            state.update(id=uuid.uuid4().hex, phase="stopping", mode="repair", error=None, rejections=0)
             for item in state["participants"]:
                 item.update(stopped=False, loaded=False, started=False, error=None)
             self._save(state)
@@ -226,7 +235,7 @@ class ProfileLifecycle:
                 uploaded.raise_for_status()
             response = await self.client.put(item["base"] + "/config", json=body)
         if response.is_error:
-            raise RuntimeError(f"{item['id']} loading: {executor_error(response)}")
+            raise LoadRejected(f"{item['id']} loading: {executor_error(response)}")
         service = item["id"] in ("gateway", "detection")
         confirmed = await self.client.get(item["base"] + ("/runtime" if service else "/config/hold"))
         confirmed.raise_for_status()
@@ -238,7 +247,7 @@ class ProfileLifecycle:
     async def advance(self) -> None:
         async with self._lock:
             state = self._store().profile_transition()
-            if not state or state["phase"] in ("complete", "repairing"):
+            if not state or state["phase"] in ("complete", "repairing") or state.get("rejections", 0) >= MAX_LOAD_REJECTIONS:
                 return
             try:
                 if state["phase"] == "stopping":
@@ -282,6 +291,10 @@ class ProfileLifecycle:
                 state["error"] = None
             except Exception as error:
                 state["error"] = str(error)
+                if isinstance(error, LoadRejected):
+                    state["rejections"] = state.get("rejections", 0) + 1
+                    if state["rejections"] >= MAX_LOAD_REJECTIONS:
+                        state["error"] += f" (retries stopped after {state['rejections']} rejections)"
                 logger.error("Profile transition %s failed in %s: %s", state["id"], state["phase"], error)
             self._save(state)
 

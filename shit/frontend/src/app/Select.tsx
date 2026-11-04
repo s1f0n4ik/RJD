@@ -27,6 +27,9 @@ interface SelectProps {
     onOpen?: () => void;
     /** Содержимое кнопки вместо подписи выбранного */
     display?: ReactNode;
+    /** Дополнительный класс корня и попапа — для экранов с крупным вариантом выбора */
+    className?: string;
+    popClassName?: string;
 }
 
 interface PopupPos {
@@ -47,7 +50,7 @@ const POPUP_MAX = 320;
  * Позиционируется fixed от рамки кнопки: так его не режут прокручиваемые
  * контейнеры (шторка, тело модалки), а у нижней кромки экрана он открывается вверх.
  */
-export function Select({ value, options, onChange, disabled, placeholder, emptyText, onOpen, display }: SelectProps) {
+export function Select({ value, options, onChange, disabled, placeholder, emptyText, onOpen, display, className, popClassName }: SelectProps) {
     const [open, setOpen] = useState(false);
     const [active, setActive] = useState(-1);
     const [pos, setPos] = useState<PopupPos | null>(null);
@@ -140,7 +143,7 @@ export function Select({ value, options, onChange, disabled, placeholder, emptyT
     };
 
     return (
-        <div ref={rootRef} className={`uisel${open ? ' is-open' : ''}`} onKeyDown={onKeyDown}>
+        <div ref={rootRef} className={`uisel${open ? ' is-open' : ''}${className ? ` ${className}` : ''}`} onKeyDown={onKeyDown}>
             <button
                 ref={btnRef}
                 type="button"
@@ -160,7 +163,7 @@ export function Select({ value, options, onChange, disabled, placeholder, emptyT
 
             {open && pos && (
                 <div
-                    className={`uisel-pop${pos.bottom !== undefined ? ' is-up' : ''}`}
+                    className={`uisel-pop${pos.bottom !== undefined ? ' is-up' : ''}${popClassName ? ` ${popClassName}` : ''}`}
                     role="listbox"
                     style={{
                         left: pos.left,

@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import tempfile
+import types
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -15,6 +16,7 @@ os.environ["DEBUG"] = "false"
 
 import httpx
 
+import app.services.lifecycle as lifecycle_module
 from app.services.config_store import ConfigError, ConfigStore
 from app.services.lifecycle import ProfileLifecycle
 
@@ -195,6 +197,33 @@ async def main():
     await resumed_after_start.advance()
     assert resumed_after_start.status()["phase"] == "complete"
     assert sum(path.endswith("/start") for _, _, path, _ in calls) == start_count
+    fail_load.add("detection")
+    resumed_after_start._participants = lambda *_: copy.deepcopy(participants)
+    loads_before = sum(name == "detection" and path == "/config" for name, _, path, _ in calls)
+    await resumed_after_start.switch("new")
+    for _ in range(6):
+        await resumed_after_start.advance()
+    rejected = resumed_after_start.status()
+    assert rejected["phase"] == "loading" and "retries stopped after 3 rejections" in rejected["error"]
+    assert sum(name == "detection" and path == "/config" for name, _, path, _ in calls) - loads_before == 3
+    fail_load.clear()
+    await resumed_after_start.advance()
+    assert resumed_after_start.status()["phase"] == "loading"
+    await resumed_after_start.retry(rejected["id"])
+    await resumed_after_start.advance()
+    assert resumed_after_start.status()["phase"] == "complete"
+    lifecycle_module.registry = types.SimpleNamespace(get=lambda device_id: {"ip": "127.0.0.1"})
+    store.create_version("surround", "surround", {("place", "board"): {"modules": ["birdview"]},
+                                                 ("projection", "p1"): {"place": "board"}})
+    store.put("surround", "binding", "board", {"device_id": "surround-board"})
+    try:
+        ProfileLifecycle(lambda: store)._participants("surround", {})
+        raise AssertionError("A projection without preset was accepted")
+    except ConfigError as error:
+        assert "p1 has no preset" in str(error)
+    assert any(item["kind"] == "projection" and item["key"] == "p1" and item["field"] == "preset" for item in store.effective("surround")["broken"])
+    store.put("surround", "projection", "p1", {"place": "board", "preset": "p"})
+    ProfileLifecycle(lambda: store)._participants("surround", {})
     await client.aclose()
     store.close()
     print("lifecycle-check: OK")

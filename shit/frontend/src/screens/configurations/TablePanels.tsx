@@ -132,10 +132,12 @@ function sectionStats(kind: Kind, dicts: Dictionaries, model: NeuralModel | unde
     return { set, off };
 }
 
-function ModelSection({ kind, id, model, value, override, dicts, running, open, onToggle, onRemove, onChange, onOverride }: {
+function ModelSection({ kind, id, model, value, override, dicts, running, passport, open, onToggle, onRemove, onChange, onOverride }: {
     kind: Kind;
     id: string;
     model?: NeuralModel;
+    // Отличия паспорта у конфигурации или её соответствий; undefined — паспорта нет
+    passport?: boolean;
     value: ModelTable;
     // Правило РСМ: id класса → опасность; у Искры нет
     override?: Record<string, number>;
@@ -159,14 +161,14 @@ function ModelSection({ kind, id, model, value, override, dicts, running, open, 
         const zones = value.zones ?? {};
         body = (
             <>
-                {model.sources && <div className="lb-source-bindings">{model.sources.map(source => <span key={source.slot}><b>{source.name}</b><span>{source.cameras.join(', ') || 'Нет камер'}</span><code>слот {source.slot}</code></span>)}</div>}
+                {!!model.sources?.length && <div className="lb-source-bindings">{model.sources.map(source => <span key={source.slot}><b>{source.name}</b><span>{source.cameras.join(', ') || 'Нет камер'}</span><code>слот {source.slot}</code></span>)}</div>}
                 <div className="mt-blk">
                     <BlockHead name="Классы" n={model.classes.length} dict={kind.cls} />
-                    <div className={`mt-tab lb-map-tab${override ? ' has-over' : ''}`}>
-                        <div className="mt-r is-head">
-                            <span>id</span><span>Класс</span><span>{meta(kind.cls).title}</span>
+                    <div className={`mt-tab${override ? ' has-over' : ''}`}>
+                        <div className="mt-r has-out is-head">
+                            <span>id</span><span>Класс нейросети</span><span>{meta(kind.cls).title}</span>
                             {override && <span>Опасность класса<em>правило РСМ</em></span>}
-                            <span>В АС КРСПС</span>
+                            <span /><span>Уходит в АС КРСПС</span>
                         </div>
                         {model.classes.map(c => {
                             const own = value.classes[String(c.id)];
@@ -175,9 +177,10 @@ function ModelSection({ kind, id, model, value, override, dicts, running, open, 
                             const sc = place >= 0 ? model.superclasses[place] : undefined;
                             const danger = override?.[String(c.id)] ?? (sc ? autoNo(value.superclasses, place) : 0);
                             const code = n && dictName(dicts, kind.cls, n) ? n : 0;
+                            const outside = !!n && !code;
                             const effectiveDanger = danger && kind.sup && dictName(dicts, kind.sup, danger) ? danger : 0;
                             return (
-                                <div key={c.id} className={`mt-r${n && !dictName(dicts, kind.cls, n) ? ' is-off' : ''}`}>
+                                <div key={c.id} className={`mt-r has-out${outside ? ' is-off' : ''}`}>
                                     <span className="mt-id">{c.id}</span>
                                     <span className="mt-name">
                                         <b><FitText text={c.name} /></b>
@@ -204,7 +207,16 @@ function ModelSection({ kind, id, model, value, override, dicts, running, open, 
                                             onChange={v => onOverride(put(override, String(c.id), v))}
                                         />
                                     )}
-                                    <span className="lb-output-preview"><b>{code ? `${code} — ${dictName(dicts, kind.cls, code)}` : kind.empty}</b>{kind.sup && <small>Опасность {effectiveDanger}: {effectiveDanger ? dictName(dicts, kind.sup, effectiveDanger) : 'пусто'}</small>}</span>
+                                    <span className="mt-ar"><Icon name="arr" size={14} /></span>
+                                    <span className={`mt-outc${outside ? ' is-off' : ''}`}>
+                                        <span className="mt-code">{outside ? n : code || '—'}</span>
+                                        <span className="mt-outt">
+                                            <b>{outside ? 'Нет в протоколе' : code ? dictName(dicts, kind.cls, code) : kind.empty}</b>
+                                            {outside
+                                                ? <small>Код не принят АС КРСПС</small>
+                                                : kind.sup && <small>Опасность {effectiveDanger}{effectiveDanger ? ` · ${dictName(dicts, kind.sup, effectiveDanger)}` : ' · пусто'}</small>}
+                                        </span>
+                                    </span>
                                 </div>
                             );
                         })}
@@ -251,12 +263,13 @@ function ModelSection({ kind, id, model, value, override, dicts, running, open, 
                     <div className="mt-blk mt-zones">
                         <BlockHead name="Зоны" n={model.zones.length} dict="zone" />
                         <div className="mt-tab">
-                            <div className="mt-r is-head"><span>id</span><span>Зона</span><span>В записи 28163</span></div>
+                            <div className="mt-r has-out is-head"><span>id</span><span>Зона</span><span>Номер в записи</span><span /><span>Уходит в АС КРСПС</span></div>
                             {[...model.zones, { id: 0, name: 'Вне зон', color: '' }].map(z => {
                                 const own = zones[String(z.id)];
                                 const n = own ?? z.id;
+                                const outside = !!n && !dictName(dicts, 'zone', n);
                                 return (
-                                    <div key={z.id} className={`mt-r${z.id ? '' : ' is-out'}${n && !dictName(dicts, 'zone', n) ? ' is-off' : ''}`}>
+                                    <div key={z.id} className={`mt-r has-out${z.id ? '' : ' is-out'}${outside ? ' is-off' : ''}`}>
                                         <span className="mt-id">{z.id}</span>
                                         <span className="mt-name">
                                             <b>
@@ -273,6 +286,14 @@ function ModelSection({ kind, id, model, value, override, dicts, running, open, 
                                             empty="пусто"
                                             onChange={v => onChange({ ...value, zones: put(zones, String(z.id), v) })}
                                         />
+                                        <span className="mt-ar"><Icon name="arr" size={14} /></span>
+                                        <span className={`mt-outc${outside ? ' is-off' : ''}`}>
+                                            <span className="mt-code">{n || '—'}</span>
+                                            <span className="mt-outt">
+                                                <b>{outside ? 'Нет в протоколе' : n ? dictName(dicts, 'zone', n) : 'пусто'}</b>
+                                                {outside && <small>Код не принят АС КРСПС</small>}
+                                            </span>
+                                        </span>
                                     </div>
                                 );
                             })}
@@ -302,6 +323,7 @@ function ModelSection({ kind, id, model, value, override, dicts, running, open, 
                 <span className="ttl">{model?.name ?? id}</span>
                 <span className="id">{id}</span>
                 {model?.file && <span className="tag">{model.file}</span>}
+                {passport !== undefined && (passport ? <span className="tag is-pass">Есть отличия паспорта</span> : <span className="tag">Как в профиле</span>)}
                 {running !== undefined && <Running devices={running} />}
                 <span className="mt-sum">
                     {!model && <span className="tag is-warn">нет в профиле</span>}
@@ -327,13 +349,14 @@ function ModelSection({ kind, id, model, value, override, dicts, running, open, 
 }
 
 // Каталог профиля и сохранённые соответствия отсутствующих конфигураций
-function ModelsGroup({ kind, value, override, dicts, catalog, running, onChange }: {
+function ModelsGroup({ kind, value, override, dicts, catalog, running, passportIds, onChange }: {
     kind: Kind;
     value: Record<string, ModelTable>;
     override?: Record<string, Record<string, number>>;
     dicts: Dictionaries;
     catalog: NeuralModel[];
     running: RunningMap;
+    passportIds?: Set<string>;
     onChange: (models: Record<string, ModelTable>, override?: Record<string, Record<string, number>>) => void;
 }) {
     const ids = [...new Set([...catalog.map(model => model.id), ...Object.keys(value), ...Object.keys(override ?? {})])];
@@ -366,6 +389,7 @@ function ModelsGroup({ kind, value, override, dicts, catalog, running, onChange 
                         override={override ? o : undefined}
                         dicts={dicts}
                         running={running.get(id)}
+                        passport={passportIds ? passportIds.has(id) : undefined}
                         open={open.has(id)}
                         onToggle={() => toggle(id)}
                         onRemove={() => remove(id)}
@@ -478,9 +502,10 @@ interface PanelProps<T> {
     catalog: NeuralModel[];
     running: RunningMap;
     cameras: CameraRef[];
+    passportIds?: Set<string>;
 }
 
-export function RsmTablePanel({ value, onChange, dicts, catalog, running, cameras }: PanelProps<RsmTable>) {
+export function RsmTablePanel({ value, onChange, dicts, catalog, running, cameras, passportIds }: PanelProps<RsmTable>) {
     return (
         <>
             <ModelsGroup
@@ -490,6 +515,7 @@ export function RsmTablePanel({ value, onChange, dicts, catalog, running, camera
                 dicts={dicts}
                 catalog={catalog}
                 running={running}
+                passportIds={passportIds}
                 onChange={(models, override) => onChange({ ...value, models, danger_override: override ?? {} })}
             />
             <RsmCamerasCard value={value.cameras} cameras={cameras} onChange={v => onChange({ ...value, cameras: v })} />
@@ -497,10 +523,10 @@ export function RsmTablePanel({ value, onChange, dicts, catalog, running, camera
     );
 }
 
-export function IskraTablePanel({ value, onChange, dicts, catalog, running, cameras }: PanelProps<IskraTable>) {
+export function IskraTablePanel({ value, onChange, dicts, catalog, running, cameras, passportIds }: PanelProps<IskraTable>) {
     return (
         <>
-            <ModelsGroup kind={ISKRA} value={value.models} dicts={dicts} catalog={catalog} running={running} onChange={models => onChange({ ...value, models })} />
+            <ModelsGroup kind={ISKRA} value={value.models} dicts={dicts} catalog={catalog} running={running} passportIds={passportIds} onChange={models => onChange({ ...value, models })} />
             <IskraCamerasCard value={value.cameras} cameras={cameras} onChange={v => onChange({ ...value, cameras: v })} />
         </>
     );

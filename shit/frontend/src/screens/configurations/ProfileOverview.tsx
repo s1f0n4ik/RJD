@@ -1,5 +1,5 @@
-import { Fragment, useState, type ReactNode } from 'react';
-import { Icon, type IconName } from '../../app/Icons';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Icon } from '../../app/Icons';
 import { buildGeometry, type Rect } from '../../features/birdview/components/linker/plan-geometry';
 import type { LinkerExportDetail } from '../../features/birdview/api/linker';
 import { layoutFromSaved, presetOf } from '../live/model';
@@ -20,95 +20,146 @@ import {
     type StreamSource,
     type Workspace,
 } from './library-api';
+import {
+    PROFILE_SECTIONS,
+    passportWas,
+    printable,
+    targetId,
+    type BrokenItem,
+    type SectionId,
+} from './profile-model';
+import { scrollInside } from './scroll';
 
-export function ProfileCard({
+const num = (value: unknown) => String(value).replace('.', ',');
+const errorWord = (count: number) =>
+    count % 10 === 1 && count % 100 !== 11 ? 'ошибка' : count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 10 || count % 100 >= 20) ? 'ошибки' : 'ошибок';
+const dimensions = (width?: number, height?: number) => (width && height ? `${width} × ${height}` : 'Не задан');
+const placeName = (definition: Definition, id: string) => entity<Place>(definition, 'place', id)?.name || id || '—';
+const cameraName = (definition: Definition, id: string) =>
+    entity<CameraSource>(definition, 'camera', id)?.camera.display_name || id;
+
+interface Shared {
+    workspace: Workspace;
+    definition: Definition;
+    errors: BrokenItem[];
+    // Открыть шторку ошибок на выбранной записи
+    onError: (index: number) => void;
+}
+
+// Индекс записи об ошибке для сущности (и ссылки на неё, если указана)
+function errorIndex(errors: BrokenItem[], kind: string, key: string, ref?: string): number {
+    return errors.findIndex((item) => item.target === targetId(kind, key) && (!ref || item.miss === ref));
+}
+
+function ErrorChip({ shared, kind, id, refTo, children }: { shared: Shared; kind: string; id: string; refTo?: string; children: ReactNode }) {
+    const index = errorIndex(shared.errors, kind, id, refTo);
+    if (index < 0) return null;
+    return (
+        <button className="lb-errchip" onClick={() => shared.onError(index)}>
+            <Icon name="warn" size={13} />
+            <span>{children}</span>
+        </button>
+    );
+}
+
+// Значение, изменённое паспортом: оранжевое, с точкой и подсказкой «В профиле»
+function Val({ shared, kind, id, path, mono, children }: { shared: Shared; kind: string; id: string; path: string; mono?: boolean; children: ReactNode }) {
+    const diff = passportWas(shared.workspace, kind, id, path);
+    const cls = `lb-val${mono ? ' num' : ''}`;
+    return diff ? (
+        <span className={`${cls} lb-pass`} data-tip={`Изменено паспортом. В профиле: ${printable(diff.was, path)}`}>
+            {children}
+            <i className="lb-pdot" />
+        </span>
+    ) : (
+        <span className={cls}>{children}</span>
+    );
+}
+
+function Newer({ shared, kind, id }: { shared: Shared; kind: string; id: string }) {
+    return shared.workspace.entities[kind]?.[id]?.profile_newer ? (
+        <span className="tag is-warn" data-tip="Профиль обновлён после правки паспорта. Решение — на вкладке «Паспорт машины»">
+            Профиль обновлён
+        </span>
+    ) : null;
+}
+
+function Section({
     id,
-    title,
-    icon,
+    shared,
+    count,
     hint,
     children,
 }: {
-    id?: string;
-    title: string;
-    icon: IconName;
-    hint?: string;
+    id: SectionId;
+    shared: Shared;
+    count: number;
+    hint: string;
     children: ReactNode;
 }) {
+    const meta = PROFILE_SECTIONS.find((section) => section.id === id)!;
+    const own = shared.errors.map((item, index) => ({ item, index })).filter(({ item }) => item.section === id);
     return (
-        <section id={id} className="card lb-card">
+        <section id={`lb-${id}`} className="card lb-card">
             <div className="card-h">
-                <Icon name={icon} size={16} />
-                <h3>{title}</h3>
-                {hint && <span className="eyebrow">{hint}</span>}
+                <Icon name={meta.icon} size={18} />
+                <h3>{meta.name}</h3>
+                <span className="lb-n">{count}</span>
+                <span className="lb-hint-r">
+                    {!!own.length && (
+                        <button className="lb-errchip" onClick={() => shared.onError(own[0].index)}>
+                            <Icon name="warn" size={13} />
+                            <span>
+                                {own.length} {errorWord(own.length)} ссылок
+                            </span>
+                        </button>
+                    )}
+                    {hint}
+                </span>
             </div>
-            <div className="card-b">{children}</div>
+            {children}
         </section>
     );
 }
 
-export function ProfileTable({
-    headings,
-    children,
-    className = '',
-}: {
-    headings: (string | [IconName, string])[];
-    children: ReactNode;
-    className?: string;
-}) {
+function Sub({ title, hint }: { title: string; hint?: string }) {
     return (
-        <div className="lb-table-wrap">
-            <table className={`spec lb-spec ${className}`}>
-                <thead>
-                    <tr>
-                        {headings.map((heading, index) => (
-                            <th key={index}>
-                                {Array.isArray(heading) ? (
-                                    <span className="lb-th">
-                                        <Icon name={heading[0]} size={12} />
-                                        {heading[1]}
-                                    </span>
-                                ) : (
-                                    heading
-                                )}
-                            </th>
-                        ))}
-                    </tr>
-                </thead>
-                <tbody>{children}</tbody>
-            </table>
+        <div className="lb-sub">
+            {title}
+            {hint && <span className="lb-hint-r">{hint}</span>}
         </div>
     );
 }
 
-const nameOf = (definition: Definition, id: string) =>
-    entity<CameraSource>(definition, 'camera', id)?.camera.display_name || id;
-const placeName = (definition: Definition, id: string) => entity<Place>(definition, 'place', id)?.name || id || '—';
-const dimensions = (width?: number, height?: number) => (width && height ? `${width} × ${height}` : 'Не задан');
-const valueOf = (value: unknown): string =>
-    value === undefined || value === null || value === ''
-        ? '—'
-        : typeof value === 'boolean'
-          ? value
-              ? 'Вкл.'
-              : 'Выкл.'
-          : typeof value === 'object'
-            ? JSON.stringify(value)
-            : String(value);
-
-function Values({ values }: { values: [string, unknown][] }) {
+function Values({ values }: { values: [string, ReactNode][] }) {
     return (
         <dl className="lb-kvs">
             {values.map(([label, value]) => (
-                <div className="kv" key={label}>
-                    <dt className="k">{label}</dt>
-                    <dd className="v">{valueOf(value)}</dd>
+                <div key={label}>
+                    <dt>{label}</dt>
+                    <dd>{value === undefined || value === null || value === '' ? '—' : value}</dd>
                 </div>
             ))}
         </dl>
     );
 }
 
-function Cameras({ definition }: { definition: Definition }) {
+const flag = (value: unknown) => (value === true ? 'Вкл.' : value === false ? 'Выкл.' : value);
+
+function Purposes({ purposes }: { purposes: string[] }) {
+    return (
+        <span className="lb-purps">
+            {PURPOSE_ORDER.filter((purpose) => purposes.includes(purpose)).map((purpose) => (
+                <span key={purpose} className={`purp purp--${purpose}`}>
+                    {PURPOSE_NAMES[purpose]}
+                </span>
+            ))}
+        </span>
+    );
+}
+
+function Cameras(shared: Shared) {
+    const { definition } = shared;
     const [open, setOpen] = useState<Set<string>>(new Set());
     const toggle = (id: string) =>
         setOpen((previous) => {
@@ -118,212 +169,191 @@ function Cameras({ definition }: { definition: Definition }) {
         });
     const cameras = entries<CameraSource>(definition, 'camera');
     return (
-        <ProfileCard id="lb-cameras" title="Камеры" icon="cam" hint="Настройки профиля">
-            <ProfileTable
-                className="lb-camera-table"
-                headings={[['cam', 'Камера'], 'IP-адрес', 'Место', 'Подключённые модули', '']}
-            >
-                {cameras.map(([id, source]) => (
-                    <Fragment key={id}>
-                        <tr className="lb-camera-row" onClick={() => toggle(id)}>
-                            <td>
+        <Section id="cameras" shared={shared} count={cameras.length} hint="Нажмите на строку, чтобы увидеть потоки · оранжевым выделено изменённое паспортом">
+            <div className="lb-row lb-cam is-head">
+                <span>Камера</span>
+                <span>Адрес</span>
+                <span>Место</span>
+                <span>Назначение</span>
+                <span />
+            </div>
+            {cameras.map(([id, source]) => {
+                const streams = Object.entries(source.streams ?? {}).sort(([a], [b]) => a.localeCompare(b, 'en', { numeric: true }));
+                const isOpen = open.has(id);
+                return (
+                    <div key={id} id={targetId('camera', id)}>
+                        <div
+                            className={`lb-row lb-cam is-click${isOpen ? ' is-open' : ''}`}
+                            role="button"
+                            tabIndex={0}
+                            aria-expanded={isOpen}
+                            onClick={() => toggle(id)}
+                            onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                    event.preventDefault();
+                                    toggle(id);
+                                }
+                            }}
+                        >
+                            <span className="lb-name">
                                 <b>{source.camera.display_name || id}</b>
-                                <small>{id}</small>
-                            </td>
-                            <td className="m">
+                                <span>{id}</span>
+                                <Newer shared={shared} kind="camera" id={id} />
+                            </span>
+                            <Val shared={shared} kind="camera" id={id} path="camera.ip_adress" mono>
                                 {source.camera.ip_adress}
-                                <small>RTSP :{source.camera.port}</small>
-                            </td>
-                            <td>{placeName(definition, source.place)}</td>
-                            <td>
-                                <div className="lb-purposes">
-                                    {PURPOSE_ORDER.filter((purpose) =>
-                                        Object.values(source.streams ?? {}).some((stream) =>
-                                            stream.purposes?.includes(purpose),
-                                        ),
-                                    ).map((purpose) => (
-                                        <span key={purpose} className={`purp purp--${purpose}`}>
-                                            {PURPOSE_NAMES[purpose]}
-                                        </span>
-                                    ))}
+                            </Val>
+                            <span className="lb-val">{placeName(definition, source.place)}</span>
+                            <Purposes purposes={streams.flatMap(([, stream]) => stream.purposes ?? [])} />
+                            <span className="lb-chev">
+                                <Icon name="chev" size={14} />
+                            </span>
+                        </div>
+                        {isOpen && (
+                            <div className="lb-detail">
+                                <div className="lb-sl is-head">
+                                    <span>Поток</span>
+                                    <span>Разрешение</span>
+                                    <span>Назначение</span>
                                 </div>
-                            </td>
-                            <td>
-                                <button
-                                    className="lb-icon-btn"
-                                    aria-label={`Параметры камеры ${source.camera.display_name || id}`}
-                                    aria-expanded={open.has(id)}
-                                    onClick={(event) => {
-                                        event.stopPropagation();
-                                        toggle(id);
-                                    }}
-                                >
-                                    <Icon name="chev" size={12} />
-                                </button>
-                            </td>
-                        </tr>
-                        {open.has(id) && (
-                            <tr className="lb-camera-detail">
-                                <td colSpan={5}>
-                                    <Values
-                                        values={[
-                                            ['Описание', source.camera.description],
-                                            ['Пользователь', source.camera.user],
-                                            ['Логическое место', source.place],
-                                        ]}
-                                    />
-                                    <ProfileTable
-                                        headings={[
-                                            'Поток',
-                                            'Вход / качество',
-                                            'Транспорт',
-                                            'Задержка',
-                                            'Переподключение',
-                                            'Запись',
-                                        ]}
-                                    >
-                                        {Object.entries(source.streams ?? {}).map(([key, stream]) => (
-                                            <tr key={key}>
-                                                <td>{key}</td>
-                                                <td>
-                                                    {stream.channel} / {stream.substream}
-                                                </td>
-                                                <td>{stream.use_udp ? 'UDP' : 'TCP'}</td>
-                                                <td>{stream.latency ?? 0} мс</td>
-                                                <td>{stream.reconnect ?? '—'} с</td>
-                                                <td>
-                                                    {stream.purposes?.includes('record')
-                                                        ? `${stream.record_path} / ${stream.segment} с`
-                                                        : 'Выкл.'}
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </ProfileTable>
-                                </td>
-                            </tr>
+                                {streams.map(([key, stream], index) => (
+                                    <div className="lb-sl" key={key}>
+                                        <span className="n">{index === 0 ? 'Основной' : index === 1 ? 'Дополнительный' : `Поток ${index + 1}`}</span>
+                                        <span className="r">{dimensions(stream.width, stream.height)}</span>
+                                        <Purposes purposes={stream.purposes ?? []} />
+                                    </div>
+                                ))}
+                            </div>
                         )}
-                    </Fragment>
-                ))}
-                {!cameras.length && (
-                    <tr>
-                        <td colSpan={5}>Камеры не включены в профиль</td>
-                    </tr>
-                )}
-            </ProfileTable>
-        </ProfileCard>
+                    </div>
+                );
+            })}
+            {!cameras.length && <div className="lb-empty">Камеры не включены в профиль</div>}
+        </Section>
     );
 }
 
-function Neural({ definition, workspace }: { definition: Definition; workspace: Workspace }) {
+function Neural(shared: Shared) {
+    const { definition, workspace } = shared;
     const configs = entries<NeuralSource>(definition, 'neural_config');
     const slots = entries<SlotSource>(definition, 'neural_slot');
+    const streams = entries<StreamSource>(definition, 'video_stream');
     return (
-        <ProfileCard id="lb-neural" title="Техническое зрение" icon="eye" hint="Конфигурации, видеопотоки, зоны">
-            <h4 className="lb-block-title">Конфигурации нейросетей</h4>
-            {configs.map(([id, config]) => {
-                const info = workspace.assets[config._assets?.[config.model_file] ?? '']?.info;
-                return (
-                    <section className="lb-neural-config" key={id}>
-                        <div className="lb-block-title">
-                            <b>{config.name || id}</b>
-                            <code>{id}</code>
-                        </div>
-                        <Values
-                            values={[
-                                ['Модель', config.model_file],
-                                ['Вход модели', dimensions(info?.input_width, info?.input_height)],
-                                ['Порог уверенности', config.thresholds?.confidence ?? 'По умолчанию'],
-                                ['NMS', config.thresholds?.nms ?? 'По умолчанию'],
-                                ['Трекер', config.tracker?.type || 'Выключен'],
-                                [
-                                    'Параметры трекера',
-                                    config.tracker
-                                        ? Object.entries(config.tracker)
-                                              .filter(([key]) => key !== 'type')
-                                              .map(([key, value]) => `${key}: ${value}`)
-                                              .join(', ')
-                                        : '—',
-                                ],
-                            ]}
-                        />
-                        <div className="lb-zone-list">
-                            {(config.zones ?? []).map((zone) => (
-                                <span className="tag" key={zone.id}>
-                                    <Icon name="zone" size={12} />
-                                    {zone.id}: {zone.name}
-                                    <small>порог {zone.threshold}</small>
-                                </span>
-                            ))}
-                            {!config.zones?.length && <span className="lb-muted">Зоны не заданы</span>}
-                        </div>
-                    </section>
-                );
-            })}
-            {!configs.length && <div className="lb-empty">Конфигураций нейросетей нет</div>}
-            <h4 className="lb-block-title">Видеопотоки и слоты</h4>
-            <ProfileTable
-                headings={[
-                    ['grid', 'Видеопоток'],
-                    ['box', 'Вход / FPS'],
-                    'Конфигурация / слот',
-                    ['cam', 'Камеры и зоны'],
-                ]}
-            >
-                {entries<StreamSource>(definition, 'video_stream').map(([id, stream]) => {
-                    const own = slots.filter(([, slot]) => slot.stream_id === id);
+        <Section id="neural" shared={shared} count={configs.length} hint="Нейросети, видеопотоки и слоты">
+            <Sub title="Конфигурации нейросетей" hint={String(configs.length)} />
+            <div className="lb-grid2">
+                {configs.map(([id, config]) => {
+                    const info = workspace.assets[config._assets?.[config.model_file] ?? '']?.info;
                     return (
-                        <tr key={id}>
-                            <td>
-                                <b>{stream.name || id}</b>
-                                <small>
-                                    {id} / {placeName(definition, stream.place)}
-                                </small>
-                            </td>
-                            <td className="m">
-                                {dimensions(stream.width, stream.height)}
-                                <small>{own.map(([, slot]) => `${slot.fps} кадр/с`).join(' / ') || 'Нет слотов'}</small>
-                            </td>
-                            <td>
-                                {own.map(([key, slot]) => (
-                                    <div className="lb-slot-line" key={key}>
-                                        <span>
-                                            {entity<NeuralSource>(definition, 'neural_config', slot.config_id)?.name ||
-                                                slot.config_id}
-                                        </span>
-                                        <span className="lb-slot-badge">слот {key}</span>
-                                        <small>
-                                            Глубина {slot.depth}
-                                            {slot.streaming?.enabled ? ` / Вывод ${slot.streaming.name}` : ''}
-                                        </small>
-                                    </div>
+                        <div className="lb-mini" key={id} id={targetId('neural_config', id)}>
+                            <div className="t">
+                                <b>{config.name || id}</b>
+                                <span className="lb-id">{id}</span>
+                                <Newer shared={shared} kind="neural_config" id={id} />
+                            </div>
+                            <Values
+                                values={[
+                                    ['Модель', config.model_file],
+                                    ['Вход модели', dimensions(info?.input_width, info?.input_height)],
+                                    [
+                                        'Порог / NMS',
+                                        <>
+                                            <Val shared={shared} kind="neural_config" id={id} path="thresholds.confidence" mono>
+                                                {config.thresholds?.confidence !== undefined ? num(config.thresholds.confidence) : 'По умолчанию'}
+                                            </Val>
+                                            {' / '}
+                                            <Val shared={shared} kind="neural_config" id={id} path="thresholds.nms" mono>
+                                                {config.thresholds?.nms !== undefined ? num(config.thresholds.nms) : 'По умолчанию'}
+                                            </Val>
+                                        </>,
+                                    ],
+                                    [
+                                        'Трекер',
+                                        <Val shared={shared} kind="neural_config" id={id} path="tracker.type">
+                                            {config.tracker?.type || 'Выключен'}
+                                        </Val>,
+                                    ],
+                                ]}
+                            />
+                            <div className="lb-zones">
+                                {(config.zones ?? []).map((zone) => (
+                                    <span className="zone-tag" key={zone.id} style={{ '--z': zone.color } as never}>
+                                        <i className="zone-g" />
+                                        {zone.name}
+                                        <span className="num lb-zone-th">{num(zone.threshold)}</span>
+                                    </span>
                                 ))}
-                            </td>
-                            <td>
-                                {(stream.tiles ?? []).map((tile, index) => (
-                                    <div key={index}>
-                                        <b>{nameOf(definition, tile.camera)}</b>
-                                        <small>
-                                            {Object.entries(stream.zones ?? {})
-                                                .flatMap(([config, cameras]) =>
-                                                    (cameras[tile.camera] ?? []).map((polygon) => {
-                                                        const zone = entity<NeuralSource>(
-                                                            definition,
-                                                            'neural_config',
-                                                            config,
-                                                        )?.zones?.find((item) => item.id === polygon.zone);
-                                                        return `◇ ${zone?.name || polygon.zone}`;
-                                                    }),
-                                                )
-                                                .join(', ') || 'Без зон'}
-                                        </small>
-                                    </div>
-                                ))}
-                            </td>
-                        </tr>
+                                {!config.zones?.length && <span className="muted">Зоны не заданы</span>}
+                            </div>
+                        </div>
                     );
                 })}
-            </ProfileTable>
-        </ProfileCard>
+            </div>
+            {!configs.length && <div className="lb-empty">Конфигураций нейросетей нет</div>}
+            <Sub title="Видеопотоки и слоты" hint={`${streams.length} · слотов ${slots.length}`} />
+            <div className="lb-row lb-stream is-head">
+                <span>Видеопоток</span>
+                <span>Камеры в плитках</span>
+                <span>Слоты</span>
+            </div>
+            {streams.map(([id, stream]) => {
+                const own = slots.filter(([, slot]) => slot.stream_id === id);
+                const bad = errorIndex(shared.errors, 'video_stream', id) >= 0 || own.some(([key]) => errorIndex(shared.errors, 'neural_slot', key) >= 0);
+                return (
+                    <div className={`lb-row lb-stream${bad ? ' is-bad' : ''}`} key={id} id={targetId('video_stream', id)}>
+                        <span className="lb-name">
+                            <b>{stream.name || id}</b>
+                            <span>
+                                {id} · {placeName(definition, stream.place)}
+                            </span>
+                            <Val shared={shared} kind="video_stream" id={id} path="width" mono>
+                                {dimensions(stream.width, stream.height)}
+                            </Val>
+                        </span>
+                        <span className="lb-chips">
+                            {(stream.tiles ?? []).map((tile, index) =>
+                                entity(definition, 'camera', tile.camera) ? (
+                                    <span className="lb-tile" key={index}>
+                                        <Icon name="cam" size={13} />
+                                        {cameraName(definition, tile.camera)}
+                                    </span>
+                                ) : (
+                                    <ErrorChip key={index} shared={shared} kind="video_stream" id={id} refTo={`camera/${tile.camera}`}>
+                                        {tile.camera} · камеры нет
+                                    </ErrorChip>
+                                ),
+                            )}
+                        </span>
+                        <span className="lb-slots">
+                            {own.map(([key, slot]) => {
+                                const config = entity<NeuralSource>(definition, 'neural_config', slot.config_id);
+                                return (
+                                    <span className="lb-slotline" key={key} id={targetId('neural_slot', key)}>
+                                        <code>{key}</code>
+                                        {config ? (
+                                            config.name || slot.config_id
+                                        ) : (
+                                            <ErrorChip shared={shared} kind="neural_slot" id={key} refTo={`neural_config/${slot.config_id}`}>
+                                                {slot.config_id} · нейросети нет
+                                            </ErrorChip>
+                                        )}
+                                        <span className="sm">
+                                            <Val shared={shared} kind="neural_slot" id={key} path="fps" mono>
+                                                {slot.fps} кадр/с
+                                            </Val>
+                                            {' · глубина '}
+                                            {slot.depth}
+                                        </span>
+                                    </span>
+                                );
+                            })}
+                            {!own.length && <span className="muted">Нет слотов</span>}
+                        </span>
+                    </div>
+                );
+            })}
+            {!streams.length && <div className="lb-empty">Видеопотоки не заданы</div>}
+        </Section>
     );
 }
 
@@ -333,7 +363,8 @@ function rect(value?: number[]): Rect | null {
         : null;
 }
 
-function Projection({ id, source, definition }: { id: string; source: ProjectionSource; definition: Definition }) {
+function Projection({ id, source, shared }: { id: string; source: ProjectionSource; shared: Shared }) {
+    const { definition } = shared;
     const [selected, setSelected] = useState('');
     const output = entity<OutputSource>(definition, 'surround_output', source.place);
     const config = output?.configs?.[id];
@@ -357,21 +388,12 @@ function Projection({ id, source, definition }: { id: string; source: Projection
     const geometry = buildGeometry(detail);
     const fontSize = geometry ? Math.max(geometry.view.width, geometry.view.height) * 0.025 : 12;
     return (
-        <section className="lb-projection">
-            <div className="lb-block-title">
-                <b>{source.name || id}</b>
-                <code>{id}</code>
-                <span>{output?.active === id ? 'Выбран для вывода' : 'Сохранённая схема'}</span>
-            </div>
-            <div className="lb-surround-grid">
+        <div id={targetId('projection', id)}>
+            <Sub title={`Схема «${source.name || id}»`} hint={`${id} · ${output?.active === id ? 'выбрана для вывода' : 'сохранённая схема'}`} />
+            <div className="lb-s360">
                 <div className="lb-plan-wrap">
                     {geometry?.tiles.length ? (
-                        <svg
-                            className="lb-plan"
-                            viewBox={`0 0 ${geometry.view.width} ${geometry.view.height}`}
-                            role="group"
-                            aria-label={`Схема камер ${source.name || id}`}
-                        >
+                        <svg className="lb-plan" viewBox={`0 0 ${geometry.view.width} ${geometry.view.height}`} role="group" aria-label={`Схема камер ${source.name || id}`}>
                             {geometry.tiles.map((tile, index) => (
                                 <g
                                     key={tile.key}
@@ -395,33 +417,15 @@ function Projection({ id, source, definition }: { id: string; source: Projection
                                 </g>
                             ))}
                             {geometry.machine && (
-                                <rect
-                                    className="lb-plan-machine"
-                                    x={geometry.machine.x}
-                                    y={geometry.machine.y}
-                                    width={geometry.machine.w}
-                                    height={geometry.machine.h}
-                                    rx={fontSize * 0.25}
-                                />
+                                <rect className="lb-plan-machine" x={geometry.machine.x} y={geometry.machine.y} width={geometry.machine.w} height={geometry.machine.h} rx={fontSize * 0.25} />
                             )}
                             {geometry.overlays.map((overlay, index) => (
-                                <rect
-                                    className="lb-plan-overlay"
-                                    key={index}
-                                    x={overlay.rect.x}
-                                    y={overlay.rect.y}
-                                    width={overlay.rect.w}
-                                    height={overlay.rect.h}
-                                >
+                                <rect className="lb-plan-overlay" key={index} x={overlay.rect.x} y={overlay.rect.y} width={overlay.rect.w} height={overlay.rect.h}>
                                     <title>{overlay.name}</title>
                                 </rect>
                             ))}
                             {geometry.icons.map((icon) => (
-                                <g
-                                    key={icon.key}
-                                    transform={`translate(${icon.x} ${icon.y}) rotate(${icon.angleDeg}) scale(${fontSize / 18})`}
-                                    className="lb-plan-camera"
-                                >
+                                <g key={icon.key} transform={`translate(${icon.x} ${icon.y}) rotate(${icon.angleDeg}) scale(${fontSize / 18})`} className="lb-plan-camera">
                                     <path d="M-8-6H5V6H-8ZM5-3 12-7V7L5 3Z" />
                                 </g>
                             ))}
@@ -429,266 +433,327 @@ function Projection({ id, source, definition }: { id: string; source: Projection
                     ) : (
                         <div className="lb-empty">Геометрия схемы не сохранена</div>
                     )}
-                    {!!geometry?.missing.length && (
-                        <span className="lb-muted">Без области: {geometry.missing.join(', ')}</span>
-                    )}
+                    {!!geometry?.missing.length && <span className="muted">Без области: {geometry.missing.join(', ')}</span>}
                 </div>
-                <ProfileTable headings={['Позиция / камера', 'Калибровка']}>
+                <div>
                     {detail.places.map((place, index) => {
                         const link = place.cameraId ? definition.correction_link?.[place.cameraId] : undefined;
+                        const lost = !!link?.config && !definition.calibration?.[String(link.config)];
                         return (
-                            <tr key={place.key} className={selected === place.key ? 'is-selected' : ''}>
-                                <td>
-                                    <button
-                                        className="lb-plan-row"
-                                        onClick={() => setSelected(place.key)}
-                                        aria-pressed={selected === place.key}
-                                    >
-                                        <span className="lb-position">{index + 1}</span>
-                                        <span>
-                                            <b>{place.name}</b>
-                                            <small>
-                                                {place.cameraId ? nameOf(definition, place.cameraId) : 'Не назначена'}
-                                            </small>
-                                        </span>
-                                    </button>
-                                </td>
-                                <td>
-                                    {valueOf(link?.config)}
-                                    <small>{place.cameraId || '—'}</small>
-                                </td>
-                            </tr>
+                            <div
+                                key={place.key}
+                                className={`lb-pos${selected === place.key ? ' is-selected' : ''}${lost ? ' is-bad' : ''}`}
+                                id={place.cameraId ? targetId('correction_link', place.cameraId) : undefined}
+                            >
+                                <button className="p" onClick={() => setSelected(place.key)} aria-pressed={selected === place.key} aria-label={`Позиция ${index + 1}`}>
+                                    {index + 1}
+                                </button>
+                                <span className="lb-name">
+                                    <b>{place.name}</b>
+                                    <span>{place.cameraId ? cameraName(definition, place.cameraId) : 'Камера не назначена'}</span>
+                                </span>
+                                {lost && place.cameraId ? (
+                                    <ErrorChip shared={shared} kind="correction_link" id={place.cameraId}>
+                                        {String(link!.config)} · калибровки нет
+                                    </ErrorChip>
+                                ) : (
+                                    <span className="lb-val num">{link?.config ? String(link.config) : '—'}</span>
+                                )}
+                            </div>
                         );
                     })}
-                </ProfileTable>
+                </div>
             </div>
-            <div className="lb-render-list">
+            <div className="lb-outs">
                 {(['top', 'surround'] as const)
                     .filter((mode) => mode === 'top' || config?.dual_output || source.surround)
                     .map((mode) => (
-                        <div key={mode}>
+                        <div className="lb-out" key={mode}>
                             <Icon name={mode === 'top' ? 'grid' : '360'} size={20} />
                             <span>
                                 <b>{mode === 'top' ? 'Вид сверху' : 'Объёмный вид'}</b>
-                                <small>
-                                    {dimensions(
-                                        source[mode]?.resolution?.width || config?.width,
-                                        source[mode]?.resolution?.height || config?.height,
-                                    )}{' '}
-                                    / {config?.fps ?? '—'} кадр/с
-                                </small>
-                                <small>{config?.stream_name || config?.stream_id || 'Вывод не настроен'}</small>
+                                <span>
+                                    {dimensions(source[mode]?.resolution?.width || config?.width, source[mode]?.resolution?.height || config?.height)} · {config?.fps ?? '—'} кадр/с
+                                </span>
                             </span>
                         </div>
                     ))}
             </div>
-            <Values
-                values={[
-                    ['Исходный пресет', source.preset],
-                    ['Место', placeName(definition, source.place)],
-                    ['Модель 360', source.surround?.model?.source],
-                    ['Поворот', config?.rotation ?? source.rotation ?? 0],
-                ]}
-            />
-        </section>
+        </div>
     );
 }
 
-function Surround({ definition }: { definition: Definition }) {
+function Surround(shared: Shared) {
+    const { definition } = shared;
     const projections = entries<ProjectionSource>(definition, 'projection');
-    if (
-        !projections.length &&
-        !Object.keys(definition.calibration ?? {}).length &&
-        !Object.keys(definition.preset ?? {}).length
-    )
+    if (!projections.length && !Object.keys(definition.calibration ?? {}).length && !Object.keys(definition.preset ?? {}).length)
         return null;
     return (
-        <ProfileCard id="lb-surround" title="Система 360" icon="360" hint="Схемы, калибровки, выводы">
+        <Section id="surround" shared={shared} count={projections.length} hint="Схемы, калибровки и выходы">
             {projections.map(([id, source]) => (
-                <Projection key={id} id={id} source={source} definition={definition} />
+                <Projection key={id} id={id} source={source} shared={shared} />
             ))}
             {!projections.length && <div className="lb-empty">Схемы вывода не сохранены</div>}
-            <ProfileTable headings={[['cal', 'Калибровка'], 'Размер', 'Камеры']}>
-                {entries<SourceCalibration>(definition, 'calibration').map(([id, source]) => (
-                    <tr key={id}>
-                        <td>
-                            <b>{id}</b>
-                            <small>{placeName(definition, source.place)}</small>
-                        </td>
-                        <td>{dimensions(source.width, source.height)}</td>
-                        <td>
-                            {entries<{ config: string }>(definition, 'correction_link')
-                                .filter(([, link]) => link.config === id)
-                                .map(([camera]) => nameOf(definition, camera))
-                                .join(', ') || 'Не назначена'}
-                        </td>
-                    </tr>
-                ))}
-            </ProfileTable>
+            <Sub title="Калибровки" hint={String(Object.keys(definition.calibration ?? {}).length)} />
+            {entries<{ place: string; width?: number; height?: number }>(definition, 'calibration').map(([id, source]) => (
+                <div className="lb-row lb-calib" key={id} id={targetId('calibration', id)}>
+                    <span className="lb-name">
+                        <b>{id}</b>
+                        <span>{placeName(definition, source.place)}</span>
+                    </span>
+                    <span className="lb-val num">{dimensions(source.width, source.height)}</span>
+                    <span className="lb-val">
+                        {entries<{ config: string }>(definition, 'correction_link')
+                            .filter(([, link]) => link.config === id)
+                            .map(([camera]) => cameraName(definition, camera))
+                            .join(', ') || 'Не назначена'}
+                    </span>
+                </div>
+            ))}
             {!!Object.keys(definition.preset ?? {}).length && (
                 <Values values={[['Пресеты', Object.keys(definition.preset).join(', ')]]} />
             )}
-        </ProfileCard>
+        </Section>
     );
 }
-interface SourceCalibration {
-    place: string;
-    width?: number;
-    height?: number;
-}
 
-function Master({ definition, workspace }: { definition: Definition; workspace: Workspace }) {
+function Master(shared: Shared) {
+    const { definition, workspace } = shared;
     const { id: integration, settings: rules } = profileRules(workspace, definition);
-    const values: [string, unknown][] = [];
+    const values: [string, ReactNode][] = [];
     if (rules?.stitch)
-        values.push(['Пауза объединения, с', rules.stitch.gap_s], ['Смещение трека', rules.stitch.distance]);
-    for (const id of ['websocket', 'can'] as const) {
-        const filter = rules?.[id];
+        values.push(['Пауза объединения', `${num(rules.stitch.gap_s)} с`], ['Смещение трека', `${num(rules.stitch.distance)} px`]);
+    for (const channel of ['websocket', 'can'] as const) {
+        const filter = rules?.[channel];
         if (!filter) continue;
-        const name = id === 'can' ? 'CAN' : 'WebSocket';
-        values.push(
-            [`${name}: передача`, filter.enabled],
-            [`${name}: классы`, filter.classes_all ? 'Все классы' : filter.classes.join(', ') || 'Не выбраны'],
-        );
+        const name = channel === 'can' ? 'CAN' : 'WebSocket';
+        values.push([
+            `${name}: передача`,
+            `${flag(filter.enabled)}, ${filter.classes_all ? 'все классы' : `классов: ${filter.classes.length}`}`,
+        ]);
     }
-    if (rules?.websocket) values.push(['WebSocket: срок передачи, с', rules.websocket.late_s]);
-    if (rules?.modbus)
-        values.push(['Modbus: запись', rules.modbus.enabled], ['Modbus: срок записи, с', rules.modbus.ceiling_s]);
+    if (rules?.websocket) values.push(['WebSocket: срок', `${num(rules.websocket.late_s)} с`]);
+    if (rules?.modbus) values.push(['Modbus: запись', `${flag(rules.modbus.enabled)}, срок ${num(rules.modbus.ceiling_s)} с`]);
+    const table = rules?.table?.cameras;
+    const rows = Array.isArray(table) ? table.length : Object.keys(table ?? {}).length;
     return (
-        <ProfileCard id="lb-master" title="Мастер обнаружений" icon="eye" hint={integration || 'Интеграция не задана'}>
-            <Values values={values} />
-            {!rules && <span className="lb-muted">Настройки правил не сохранены, мастер обнаружений недоступен</span>}
-        </ProfileCard>
+        <Section id="master" shared={shared} count={rows} hint={integration ? `Интеграция ${integration}` : 'Интеграция не задана'}>
+            <div className="lb-pad">
+                <Values values={values} />
+                {rules && (
+                    <div className="lb-kvs-row" id={targetId('rules', integration)}>
+                        <dt>Таблица камер</dt>
+                        <dd>
+                            {rows} {rows === 1 ? 'строка' : 'строк'}
+                            <ErrorChip shared={shared} kind="rules" id={integration}>
+                                Ссылка на несуществующую камеру
+                            </ErrorChip>
+                        </dd>
+                    </div>
+                )}
+                {!rules && <span className="muted">Настройки правил не сохранены, мастер обнаружений недоступен</span>}
+            </div>
+        </Section>
     );
 }
 
-function Gateway({ definition }: { definition: Definition }) {
-    const integration = String(definition.machine?.settings?.active_integration ?? '');
-    const modules = entity<{ modules: Record<string, Record<string, unknown>> }>(
-        definition,
-        'integration',
-        integration,
-    )?.modules;
+const MODULE_NAMES: Record<string, string> = { websocket: 'WebSocket', can: 'CAN', modbus: 'Modbus RTU' };
+const MODULE_FIELDS: Record<string, string> = {
+    host: 'Адрес',
+    port: 'Порт',
+    target: 'Путь',
+    iface: 'Интерфейс',
+    device: 'Устройство',
+    bitrate: 'Скорость CAN',
+    baud: 'Скорость RS-485',
+    parity: 'Чётность',
+    slave: 'Адрес ведомого',
+};
+
+function Gateway(shared: Shared) {
+    const integration = String(shared.definition.machine?.settings?.active_integration ?? '');
+    const modules = entity<{ modules: Record<string, Record<string, unknown>> }>(shared.definition, 'integration', integration)?.modules;
     if (!modules) return null;
     return (
-        <ProfileCard id="lb-gateway" title="АС КРСПС" icon="gate" hint={integration}>
-            {Object.entries(modules).map(([id, source]) => (
-                <section key={id}>
-                    <h4 className="lb-block-title">
-                        <Icon name={id === 'websocket' ? 'link' : 'bus'} size={15} />
-                        {id === 'websocket' ? 'WebSocket' : id === 'can' ? 'CAN' : id === 'modbus' ? 'Modbus' : id}
-                    </h4>
-                    <Values
-                        values={Object.entries(source)
-                            .filter(([key]) => !/password|token|secret/i.test(key))
-                            .map(([key, value]) => [
-                                (
-                                    {
-                                        enabled: 'Включён',
-                                        host: 'Адрес',
-                                        port: 'Порт',
-                                        target: 'Путь',
-                                        iface: 'Интерфейс',
-                                        device: 'Устройство',
-                                        bitrate: 'Скорость CAN',
-                                        baud: 'Скорость RS-485',
-                                        parity: 'Чётность',
-                                        slave: 'Адрес ведомого',
-                                    } as Record<string, string>
-                                )[key] || key,
-                                value,
-                            ])}
-                    />
-                </section>
-            ))}
-        </ProfileCard>
+        <Section id="gateway" shared={shared} count={Object.keys(modules).length} hint="Каналы связи шлюза">
+            <div className="lb-mods">
+                {Object.entries(modules).map(([id, source]) => (
+                    <div className="lb-mini" key={id}>
+                        <div className="t">
+                            <Icon name={id === 'websocket' ? 'link' : 'bus'} size={16} />
+                            <b>{MODULE_NAMES[id] || id}</b>
+                            <span className={`tag ${source.enabled === false ? '' : 'is-ok'}`}>{source.enabled === false ? 'Выключен' : 'Включён'}</span>
+                        </div>
+                        <Values
+                            values={Object.entries(source)
+                                .filter(([key]) => key !== 'enabled' && !/password|token|secret/i.test(key))
+                                .map(([key, value]): [string, ReactNode] => [MODULE_FIELDS[key] || key, <span className="num" key={key}>{printable(value)}</span>])}
+                        />
+                    </div>
+                ))}
+            </div>
+        </Section>
     );
 }
 
-function Display({ definition, timeSource }: { definition: Definition; timeSource?: string }) {
+function Display({ shared, timeSource }: { shared: Shared; timeSource?: string }) {
+    const { definition } = shared;
     const surroundSources = new Set<string>();
-    const cameras = Object.fromEntries(
+    const names = Object.fromEntries(
         entries<CameraSource>(definition, 'camera').map(([id, source]) => [id, source.camera.display_name || id]),
     );
     for (const [, output] of entries<OutputSource>(definition, 'surround_output'))
         for (const [id, config] of Object.entries(output.configs ?? {}))
             if (config.stream_id) {
-                cameras[config.stream_id] = config.stream_name || id;
+                names[config.stream_id] = config.stream_name || id;
                 surroundSources.add(config.stream_id);
             }
+    const layouts = entries<ProfileLayout>(definition, 'layout');
     return (
-        <ProfileCard id="lb-display" title="Отображение и время" icon="grid" hint="Раскладки рабочего места">
+        <Section id="display" shared={shared} count={layouts.length} hint="Раскладки рабочего места">
             <div className="lb-layouts">
-                {entries<ProfileLayout>(definition, 'layout').map(([id, saved]) => {
+                {layouts.map(([id, saved]) => {
                     const layout = layoutFromSaved(saved);
                     return (
-                        <section className="lb-layout-item" key={id}>
+                        <div className="lb-layout-item" key={id} id={targetId('layout', id)}>
                             <div className="lb-layout-heading">
-                                <h4>{saved.name || id}</h4>
-                                <span className="tag">
-                                    {presetOf(layout.grid) || `${layout.grid.cols} × ${layout.grid.rows}`}
-                                </span>
+                                <b>{saved.name || id}</b>
+                                <span className="tag">{presetOf(layout.grid) || `${layout.grid.cols} × ${layout.grid.rows}`}</span>
                             </div>
                             <div
                                 className="lb-layout-preview"
                                 role="img"
                                 aria-label={`Раскладка ${saved.name || id}`}
-                                style={{
-                                    gridTemplateColumns: `repeat(${layout.grid.cols}, 1fr)`,
-                                    gridTemplateRows: `repeat(${layout.grid.rows}, 1fr)`,
-                                }}
+                                style={{ gridTemplateColumns: `repeat(${layout.grid.cols}, 1fr)`, gridTemplateRows: `repeat(${layout.grid.rows}, 1fr)` }}
                             >
-                                {layout.grid.cells.map((cell, index) => (
-                                    <div
-                                        key={cell.id}
-                                        className={surroundSources.has(layout.cells[cell.id]) ? 'is-surround' : ''}
-                                        style={{
-                                            gridArea: `${cell.row + 1} / ${cell.col + 1} / span ${cell.rowSpan} / span ${cell.colSpan}`,
-                                        }}
-                                    >
-                                        <span>{index + 1}</span>
-                                        <Icon
-                                            name={surroundSources.has(layout.cells[cell.id]) ? '360' : 'cam'}
-                                            size={18}
-                                        />
-                                    </div>
-                                ))}
+                                {layout.grid.cells.map((cell, index) => {
+                                    const source = layout.cells[cell.id];
+                                    const lost = !!source && errorIndex(shared.errors, 'layout', id, `camera/${source}`) >= 0;
+                                    return (
+                                        <div
+                                            key={cell.id}
+                                            className={lost ? 'is-bad' : surroundSources.has(source) ? 'is-surround' : ''}
+                                            style={{ gridArea: `${cell.row + 1} / ${cell.col + 1} / span ${cell.rowSpan} / span ${cell.colSpan}` }}
+                                        >
+                                            {index + 1}
+                                        </div>
+                                    );
+                                })}
                             </div>
-                            <ol className="lb-layout-sources">
-                                {layout.grid.cells.map((cell, index) => (
-                                    <li
-                                        key={cell.id}
-                                        className={surroundSources.has(layout.cells[cell.id]) ? 'is-surround' : ''}
-                                    >
-                                        <span>{index + 1}</span>
-                                        <b>
-                                            {cameras[layout.cells[cell.id]] || layout.cells[cell.id] || 'Не назначено'}
-                                        </b>
-                                    </li>
-                                ))}
-                            </ol>
-                        </section>
+                            <ul className="lb-layout-sources">
+                                {layout.grid.cells.map((cell, index) => {
+                                    const source = layout.cells[cell.id];
+                                    const lost = !!source && errorIndex(shared.errors, 'layout', id, `camera/${source}`) >= 0;
+                                    return (
+                                        <li key={cell.id} className={lost ? 'is-bad' : ''}>
+                                            <span>{index + 1}</span>
+                                            {lost ? (
+                                                <ErrorChip shared={shared} kind="layout" id={id} refTo={`camera/${source}`}>
+                                                    {source} · камеры нет
+                                                </ErrorChip>
+                                            ) : (
+                                                names[source] || source || 'Не назначено'
+                                            )}
+                                        </li>
+                                    );
+                                })}
+                            </ul>
+                        </div>
                     );
                 })}
-                {!Object.keys(definition.layout ?? {}).length && <div className="lb-empty">Раскладки не сохранены</div>}
+                {!layouts.length && <div className="lb-empty">Раскладки не сохранены</div>}
             </div>
-            <div className="lb-time-summary">
-                <section>
-                    <Icon name="clock" size={20} />
-                    <div>
-                        <span>Часовой пояс профиля</span>
-                        <b>{timezoneLabel(Number(definition.machine?.settings?.tz_offset_min ?? 180))}</b>
-                    </div>
-                </section>
-                <section>
-                    <Icon name="dev" size={20} />
-                    <div>
-                        <span>Источник времени</span>
-                        <b>{timeSource || 'Определяется при запуске'}</b>
-                    </div>
-                </section>
+            <div className="lb-time">
+                <div>
+                    <span>Часовой пояс профиля</span>
+                    <b className="num">{timezoneLabel(Number(definition.machine?.settings?.tz_offset_min ?? 180))}</b>
+                </div>
+                <div>
+                    <span>Источник времени</span>
+                    <b>{timeSource || 'Определяется при запуске'}</b>
+                </div>
             </div>
-        </ProfileCard>
+        </Section>
+    );
+}
+
+// Оглавление слева: пункт отмечается по прокрутке области экрана и сам не перерисовывает ленту
+function SectionIndex({ counts, errors, hidden }: { counts: Record<SectionId, number>; errors: BrokenItem[]; hidden: SectionId[] }) {
+    const [spy, setSpy] = useState<SectionId>(PROFILE_SECTIONS[0].id);
+    const root = useRef<HTMLElement>(null);
+    useEffect(() => {
+        const scroller = root.current?.closest<HTMLElement>('.lb-view');
+        if (!scroller) return;
+        const update = () => {
+            const line = scroller.getBoundingClientRect().top + 90;
+            let current = PROFILE_SECTIONS[0].id;
+            for (const section of PROFILE_SECTIONS) {
+                const element = document.getElementById(`lb-${section.id}`);
+                if (element && element.getBoundingClientRect().top <= line) current = section.id;
+            }
+            setSpy(current);
+        };
+        update();
+        scroller.addEventListener('scroll', update, { passive: true });
+        return () => scroller.removeEventListener('scroll', update);
+    }, []);
+    return (
+        <nav ref={root} className="lb-index" aria-label="Состав профиля">
+            <h4>Состав профиля</h4>
+            {PROFILE_SECTIONS.filter((section) => !hidden.includes(section.id)).map((section) => {
+                const bad = errors.filter((item) => item.section === section.id).length;
+                return (
+                    <button
+                        key={section.id}
+                        className={`mod-item${spy === section.id ? ' is-on' : ''}`}
+                        onClick={() => {
+                            setSpy(section.id);
+                            const element = document.getElementById(`lb-${section.id}`);
+                            if (element) scrollInside(element, 'start');
+                        }}
+                    >
+                        <Icon name={section.icon} />
+                        <span className="nm">{section.name}</span>
+                        {bad ? <span className="lb-bad">{bad}</span> : <span className="sub">{counts[section.id]}</span>}
+                    </button>
+                );
+            })}
+        </nav>
+    );
+}
+
+export interface Vital {
+    key: string;
+    label: string;
+    value: ReactNode;
+    sub: string;
+    tone: '' | 'ok' | 'warn' | 'err';
+    text?: boolean;
+    onClick?: () => void;
+}
+
+export function Vitals({ items }: { items: Vital[] }) {
+    return (
+        <div className="lb-vitals">
+            {items.map((item) => {
+                const body = (
+                    <>
+                        <span className="k">{item.label}</span>
+                        <span className={`v${item.text ? ' is-text' : ''}`}>{item.value}</span>
+                        <span className="s">{item.sub}</span>
+                    </>
+                );
+                return item.onClick ? (
+                    <button key={item.key} className={`lb-vital is-click${item.tone ? ` is-${item.tone}` : ''}`} onClick={item.onClick}>
+                        {body}
+                    </button>
+                ) : (
+                    <div key={item.key} className={`lb-vital${item.tone ? ` is-${item.tone}` : ''}`}>
+                        {body}
+                    </div>
+                );
+            })}
+        </div>
     );
 }
 
@@ -696,19 +761,47 @@ export function ProfileOverview({
     workspace,
     definition,
     timeSource,
+    errors,
+    vitals,
+    notices,
+    onError,
 }: {
     workspace: Workspace;
     definition: Definition;
     timeSource?: string;
+    errors: BrokenItem[];
+    vitals: Vital[];
+    notices: ReactNode;
+    onError: (index: number) => void;
 }) {
+    const shared: Shared = { workspace, definition, errors, onError };
+    const counts: Record<SectionId, number> = {
+        cameras: Object.keys(definition.camera ?? {}).length,
+        neural: Object.keys(definition.neural_config ?? {}).length,
+        surround: Object.keys(definition.projection ?? {}).length,
+        master: 0,
+        gateway: 0,
+        display: Object.keys(definition.layout ?? {}).length,
+    };
+    const integration = String(definition.machine?.settings?.active_integration ?? '');
+    counts.gateway = Object.keys(entity<{ modules: object }>(definition, 'integration', integration)?.modules ?? {}).length;
+    const table = profileRules(workspace, definition).settings?.table?.cameras;
+    counts.master = Array.isArray(table) ? table.length : Object.keys(table ?? {}).length;
+    const hasSurround = !!Object.keys(definition.projection ?? {}).length || !!Object.keys(definition.calibration ?? {}).length || !!Object.keys(definition.preset ?? {}).length;
+    const hidden: SectionId[] = [...(hasSurround ? [] : ['surround' as const]), ...(integration && entity(definition, 'integration', integration) ? [] : ['gateway' as const])];
     return (
-        <>
-            <Cameras definition={definition} />
-            <Neural definition={definition} workspace={workspace} />
-            <Surround definition={definition} />
-            <Master definition={definition} workspace={workspace} />
-            <Gateway definition={definition} />
-            <Display definition={definition} timeSource={timeSource} />
-        </>
+        <div className="lb-split">
+            <SectionIndex counts={counts} errors={errors} hidden={hidden} />
+            <div className="lb-col">
+                {notices}
+                <Vitals items={vitals} />
+                <Cameras {...shared} />
+                <Neural {...shared} />
+                {hasSurround && <Surround {...shared} />}
+                <Master {...shared} />
+                <Gateway {...shared} />
+                <Display shared={shared} timeSource={timeSource} />
+            </div>
+        </div>
     );
 }

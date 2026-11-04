@@ -373,6 +373,18 @@ class ConfigStore:
                 "DELETE FROM passport WHERE profile_id=? AND kind=? AND key=?", (profile_id, kind, key)
             )
 
+    # Сбрасывает отличия от профиля; привязки и карточка машины остаются
+    def reset_all(self, profile_id: str) -> list[dict]:
+        self._assert_editable(profile_id)
+        keep = "kind NOT IN (%s) AND NOT (kind='machine' AND key='identity')" % ",".join("?" * len(PASSPORT_ONLY))
+        with self._tx() as db:
+            self._assert_editable(profile_id)
+            rows = db.execute(
+                f"SELECT kind, key FROM passport WHERE profile_id=? AND {keep}", (profile_id, *PASSPORT_ONLY)
+            ).fetchall()
+            db.execute(f"DELETE FROM passport WHERE profile_id=? AND {keep}", (profile_id, *PASSPORT_ONLY))
+        return [{"kind": r["kind"], "key": r["key"]} for r in rows]
+
     def promote(self, profile_id: str, kind: str, key: str) -> dict:
         if kind in PASSPORT_ONLY:
             raise ConfigError(f"{kind!r} lives only in the passport")
@@ -542,6 +554,9 @@ def check_refs(bodies: dict[str, dict[str, Any]]) -> list[dict]:
     for key, body in items("projection"):
         if body.get("preset"):
             need("projection", key, "preset", body["preset"], "preset")
+        else:
+            # плата отвергает весь пакет 360, если у проекции пуст preset
+            broken.append({"kind": "projection", "key": key, "ref": "preset/—", "field": "preset"})
         for place, cam in (body.get("cameras") or {}).items():
             if cam.get("camera_id"):
                 need("projection", key, "camera", cam["camera_id"], f"cameras.{place}.camera_id")

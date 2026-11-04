@@ -1,21 +1,20 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
+import { Icon, type IconName } from '../../app/Icons';
 import { Modal } from '../../app/Modal';
 import { Select } from '../../app/Select';
 import type { Device } from '../../services/devices';
-import { ProfileCard, ProfileTable } from './ProfileOverview';
 import {
     effectiveDefinition,
     entries,
     entity,
     timezoneLabel,
     sameSource,
-    type CameraSource,
     type Definition,
-    type NeuralSource,
     type Place,
     type Source,
     type Workspace,
 } from './library-api';
+import { FIELD_LABELS, KIND_LABELS, entityName, paramLabel, printable, readPath } from './profile-model';
 
 interface Field {
     path: string;
@@ -25,63 +24,6 @@ interface Field {
     max?: number;
     step?: number;
 }
-const FIELD_LABELS: Record<string, string> = {
-    ip_adress: 'IP-адрес',
-    port: 'Порт RTSP',
-    width: 'Ширина',
-    height: 'Высота',
-    fps: 'Частота, кадр/с',
-    confidence: 'Порог уверенности',
-    nms: 'Порог NMS',
-    type: 'Тип трекера',
-    tz_offset_min: 'Часовой пояс, мин',
-    name: 'Название',
-    series: 'Серия / модель',
-    serial: 'Заводской номер',
-    inventory: 'Инвентарный номер',
-    location: 'Место эксплуатации',
-    device_id: 'Устройство',
-    depth: 'Глубина слота',
-};
-const KIND_LABELS: Record<string, string> = {
-    camera: 'Камера',
-    video_stream: 'Видеопоток',
-    neural_config: 'Нейроконфигурация',
-    neural_slot: 'Слот',
-    surround_output: 'Вывод 360',
-    projection: 'Рендер 360',
-    rules: 'Словари и соответствия мастера',
-    integration: 'АС КРСПС',
-    layout: 'Раскладка',
-    machine: 'Машина',
-    binding: 'Привязка устройства',
-    calibration: 'Калибровка',
-    correction_link: 'Связь калибровки',
-    preset: 'Пресет 360',
-    place: 'Место',
-};
-
-const readPath = (source: unknown, path: string): unknown =>
-    path
-        .split('.')
-        .reduce<unknown>(
-            (value, key) => (value && typeof value === 'object' ? (value as Source)[key] : undefined),
-            source,
-        );
-const printable = (value: unknown, path = ''): string =>
-    /password|secret|token/i.test(path)
-        ? '••••••'
-        : value === undefined
-          ? '—'
-          : value === null
-            ? 'Выключено'
-            : typeof value === 'boolean'
-              ? value
-                  ? 'Вкл.'
-                  : 'Выкл.'
-              : typeof value === 'object'
-                ? JSON.stringify(value)
-                : String(value);
 
 function leaves(value: unknown, prefix = ''): [string, unknown][] {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return [[prefix, value]];
@@ -242,18 +184,39 @@ function EntityEditor({
     );
 }
 
+function Card({ title, icon, hint, children }: { title: string; icon: IconName; hint?: ReactNode; children: ReactNode }) {
+    return (
+        <section className="card lb-card">
+            <div className="card-h">
+                <Icon name={icon} size={18} />
+                <h3>{title}</h3>
+                {hint && <span className="lb-hint-r">{hint}</span>}
+            </div>
+            {children}
+        </section>
+    );
+}
+
 export function ProfilePassport({
     workspace,
     draft,
     devices,
+    locked,
+    dirty,
     update,
     reset,
+    onKeep,
+    onResetAll,
 }: {
     workspace: Workspace;
     draft: Definition;
     devices: Device[];
+    locked: boolean;
+    dirty: boolean;
     update: (kind: string, key: string, body: Source) => void;
     reset: (kind: string, key: string) => void;
+    onKeep: (kind: string, key: string) => void;
+    onResetAll: () => void;
 }) {
     const [editing, setEditing] = useState<{ kind: string; key: string } | null>(null);
     const saved = effectiveDefinition(workspace);
@@ -266,18 +229,19 @@ export function ProfilePassport({
     const refs = new Set<string>();
     for (const [kind, items] of Object.entries(workspace.entities))
         for (const [key, entry] of Object.entries(items))
-            if (entry.state !== 'profile' && kind !== 'binding') refs.add(`${kind}/${key}`);
+            if (entry.state !== 'profile' && kind !== 'binding' && !(kind === 'machine' && key === 'identity'))
+                refs.add(`${kind}/${key}`);
     for (const removed of workspace.removed) refs.add(`${removed.kind}/${removed.key}`);
     for (const [kind, items] of Object.entries(draft))
         for (const [key, body] of Object.entries(items))
-            if (kind !== 'binding' && !sameSource(body, saved[kind]?.[key])) refs.add(`${kind}/${key}`);
-    const titleFor = (kind: string, key: string, body?: Source) =>
-        kind === 'camera'
-            ? (body as unknown as CameraSource)?.camera?.display_name || key
-            : kind === 'neural_config'
-              ? (body as unknown as NeuralSource)?.name || key
-              : String(body?.name || key);
-    const differenceGroups = [...refs].flatMap((ref) => {
+            if (kind !== 'binding' && !(kind === 'machine' && key === 'identity') && !sameSource(body, saved[kind]?.[key]))
+                refs.add(`${kind}/${key}`);
+    const conflicts = [...refs].filter((ref) => {
+        const [kind, ...parts] = ref.split('/');
+        const key = parts.join('/');
+        return workspace.entities[kind]?.[key]?.profile_newer || workspace.removed.some((item) => item.kind === kind && item.key === key && item.profile_newer);
+    }).length;
+    const groups = [...refs].flatMap((ref) => {
         const [kind, ...parts] = ref.split('/'),
             key = parts.join('/');
         const base = workspace.base[kind]?.[key],
@@ -286,50 +250,75 @@ export function ProfilePassport({
         const paths = new Set([...leaves(base).map(([path]) => path), ...leaves(body).map(([path]) => path)]);
         const changed = [...paths].filter((path) => !sameSource(readPath(base, path), readPath(body, path)));
         const entry = workspace.entities[kind]?.[key];
+        const newer = !!entry?.profile_newer || workspace.removed.some((item) => item.kind === kind && item.key === key && item.profile_newer);
         const resetChangesIntegration =
             kind === 'machine' && key === 'settings' && base?.active_integration !== body?.active_integration;
         return [
-            <section className="lb-diff-group" key={ref}>
-                <div className="lb-diff-heading">
-                    <span>{KIND_LABELS[kind] || kind}</span>
-                    <b>{titleFor(kind, key, body || base)}</b>
-                    <code>{key}</code>
-                    {entry?.profile_newer && <span className="tag is-warn">Профиль обновлён</span>}
-                    {entry?.state === 'machine_only' && <span className="tag is-warn">Только на машине</span>}
-                    {body && fieldsFor(kind, body).length > 0 && (
-                        <button className="btn btn--sm btn--ghost" onClick={() => setEditing({ kind, key })}>
-                            Изменить
+            <div className="lb-diff" key={ref}>
+                <div className="lb-diff-h">
+                    <span className="ty">{KIND_LABELS[kind] || kind}</span>
+                    <b>{entityName(body ? draft : workspace.base, kind, key)}</b>
+                    <span className="lb-id">{key}</span>
+                    {newer && <span className="tag is-warn">Профиль обновлён</span>}
+                    {(entry?.state === 'machine_only' || entry?.state === 'added') && <span className="tag is-warn">Только на машине</span>}
+                    <span className="acts">
+                        {body && fieldsFor(kind, body).length > 0 && (
+                            <button className="btn btn--sm btn--ghost" disabled={locked} onClick={() => setEditing({ kind, key })}>
+                                Изменить
+                            </button>
+                        )}
+                        {newer && (
+                            <button
+                                className="btn btn--sm"
+                                disabled={locked || dirty}
+                                data-tip={dirty ? 'Сначала сохраните или сбросьте правки паспорта' : 'Оставить значение паспорта и принять новую версию профиля'}
+                                onClick={() => onKeep(kind, key)}
+                            >
+                                Оставить своё
+                            </button>
+                        )}
+                        <button
+                            className="btn btn--sm"
+                            disabled={locked || resetChangesIntegration}
+                            data-tip={resetChangesIntegration ? 'Интеграция меняется через загрузку профиля' : undefined}
+                            onClick={() => reset(kind, key)}
+                        >
+                            {newer ? 'Взять из профиля' : 'Как в профиле'}
                         </button>
-                    )}
-                    <button
-                        className="btn btn--sm"
-                        disabled={resetChangesIntegration}
-                        data-tip={resetChangesIntegration ? 'Интеграция меняется через загрузку профиля' : undefined}
-                        onClick={() => reset(kind, key)}
-                    >
-                        Как в профиле
-                    </button>
+                    </span>
                 </div>
-                <ProfileTable className="lb-diff-table" headings={['Параметр', 'В профиле', 'На машине']}>
-                    {changed.map((path) => (
-                        <tr key={path}>
-                            <td>{FIELD_LABELS[path.split('.').pop() ?? ''] || path}</td>
-                            <td className="m lb-base-value">{printable(readPath(base, path), path)}</td>
-                            <td className="m lb-machine-value">{printable(readPath(body, path), path)}</td>
-                        </tr>
-                    ))}
-                </ProfileTable>
-            </section>,
+                <div className="lb-df is-head">
+                    <span>Параметр</span>
+                    <span>В профиле</span>
+                    <span />
+                    <span>На машине</span>
+                </div>
+                {changed.map((path) => (
+                    <div className="lb-df" key={path}>
+                        <span>{paramLabel(path)}</span>
+                        <span className="a">{printable(readPath(base, path), path)}</span>
+                        <span className="ar">
+                            <Icon name="arr" size={14} />
+                        </span>
+                        <span className="b">{printable(readPath(body, path), path)}</span>
+                    </div>
+                ))}
+            </div>,
         ];
     });
     return (
         <>
+            {conflicts > 0 && (
+                <div className="banner is-info" role="status">
+                    <Icon name="warn" size={16} />
+                    <span>
+                        <b>Конфликты с новой версией: {conflicts}.</b> Профиль изменил то, что переопределено паспортом.
+                        Ничего не поменялось: выберите по каждой записи «Оставить своё» или «Взять из профиля».
+                    </span>
+                </div>
+            )}
             <div className="lb-passport-grid">
-                <ProfileCard
-                    title="Карточка машины"
-                    icon="kit"
-                    hint={`${workspace.profile.name} / v${workspace.version.number}`}
-                >
+                <Card title="Карточка машины" icon="kit" hint={`${workspace.profile.name} / v${workspace.version.number}`}>
                     <div className="lb-machine-fields">
                         {['name', 'series', 'serial', 'inventory', 'location'].map((key) => (
                             <label className="lb-passport-field" key={key}>
@@ -338,9 +327,7 @@ export function ProfilePassport({
                                     className="inp inp--text inp--wide"
                                     maxLength={256}
                                     value={String(identity[key] ?? (key === 'name' ? workspace.profile.name : ''))}
-                                    onChange={(event) =>
-                                        update('machine', 'identity', { ...identity, [key]: event.target.value })
-                                    }
+                                    onChange={(event) => update('machine', 'identity', { ...identity, [key]: event.target.value })}
                                 />
                             </label>
                         ))}
@@ -349,22 +336,20 @@ export function ProfilePassport({
                             <Select
                                 value={String(offset)}
                                 options={timezoneOptions}
-                                onChange={(value) =>
-                                    update('machine', 'settings', { ...settings, tz_offset_min: Number(value) })
-                                }
+                                onChange={(value) => update('machine', 'settings', { ...settings, tz_offset_min: Number(value) })}
                             />
                         </label>
                     </div>
-                </ProfileCard>
-                <ProfileCard title="Привязки устройств" icon="dev" hint="Место → физическое устройство">
+                </Card>
+                <Card title="Привязки устройств" icon="dev" hint="Место → физическое устройство">
                     {entries<Place>(draft, 'place').map(([key, place]) => {
                         const binding = entity<{ device_id: string }>(draft, 'binding', key)?.device_id || '';
                         const device = devices.find((item) => item.id === binding);
                         return (
                             <div className="lb-binding" key={key}>
-                                <span className="mt-name">
+                                <span className="lb-name">
                                     <b>{place.name || key}</b>
-                                    <small>{place.modules?.join(', ') || 'Модули не заданы'}</small>
+                                    <span>{place.modules?.join(', ') || 'Модули не заданы'}</span>
                                 </span>
                                 <Select
                                     value={binding}
@@ -381,32 +366,36 @@ export function ProfilePassport({
                                             ? [{ value: binding, label: binding, hint: 'Устройства нет в реестре' }]
                                             : []),
                                     ]}
-                                    onChange={(value) =>
-                                        update('binding', key, { ...(draft.binding?.[key] ?? {}), device_id: value })
-                                    }
+                                    onChange={(value) => update('binding', key, { ...(draft.binding?.[key] ?? {}), device_id: value })}
                                 />
-                                <span className="lb-device-ip">
-                                    {device?.ip || (binding ? 'Нет в реестре' : 'Не назначено')}
-                                </span>
+                                <span className="ip">{device?.ip || (binding ? 'Нет в реестре' : 'Не назначено')}</span>
                             </div>
                         );
                     })}
-                    {!Object.keys(draft.place ?? {}).length && (
-                        <div className="lb-empty">Логические места не заданы</div>
-                    )}
-                </ProfileCard>
+                    {!Object.keys(draft.place ?? {}).length && <div className="lb-empty">Логические места не заданы</div>}
+                </Card>
             </div>
-            <ProfileCard
+            <Card
                 title="Отличия от профиля"
                 icon="swap"
-                hint={`Профиль v${workspace.version.number} → эта машина`}
+                hint={
+                    <>
+                        <span className="lb-n">{groups.length}</span>
+                        Профиль v{workspace.version.number} → эта машина
+                        <button
+                            className="btn btn--sm"
+                            disabled={locked || dirty || !groups.length}
+                            data-tip={dirty ? 'Сначала сохраните или сбросьте правки паспорта' : 'Вернуть все отличия к профилю; привязки и карточка машины останутся'}
+                            onClick={onResetAll}
+                        >
+                            <Icon name="reset" size={14} />
+                            Сбросить весь паспорт к профилю
+                        </button>
+                    </>
+                }
             >
-                {differenceGroups.length ? (
-                    differenceGroups
-                ) : (
-                    <div className="lb-empty">Настройки совпадают с профилем</div>
-                )}
-            </ProfileCard>
+                {groups.length ? groups : <div className="lb-empty">Настройки совпадают с профилем</div>}
+            </Card>
             {editing && (
                 <EntityEditor
                     key={`${editing.kind}/${editing.key}`}
