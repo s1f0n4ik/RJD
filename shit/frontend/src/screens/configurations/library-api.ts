@@ -138,6 +138,52 @@ export interface ResetResult {
     transition?: CfTransition;
 }
 
+export interface FoldResult {
+    ok: boolean;
+    version: { id: number; number: number; created: boolean };
+    folded: number;
+    snapshot: Workspace;
+}
+
+export type RuntimeState = 'running' | 'starting' | 'failed' | 'unknown';
+export interface RuntimeItem {
+    kind: 'camera' | 'slot' | 'surround';
+    id: string;
+    stream: string | null;
+    state: 'running' | 'starting' | 'failed';
+    code: string | null;
+    detail: string;
+}
+export interface RuntimeDevice {
+    id: string;
+    place: string;
+    online: boolean;
+    error: 'offline' | 'unreachable' | null;
+    held: boolean | null;
+    revision: string | null;
+    expected_revision: string | null;
+    items: RuntimeItem[];
+}
+export interface RuntimeProblem {
+    device: string;
+    kind: string;
+    id: string;
+    stream?: string | null;
+    state: RuntimeState;
+    code: string | null;
+    detail: string;
+}
+// Один согласованный снимок мастера: seq растёт только при изменении содержимого, boot меняется при перезапуске мастера
+export interface RuntimeSnapshot {
+    boot: string;
+    seq: number;
+    observed_at: number;
+    context: string;
+    transition: CfTransition | null;
+    devices: RuntimeDevice[];
+    summary: { state: 'ok' | 'starting' | 'issues' | 'unknown' | 'transition' | 'empty'; problems: RuntimeProblem[] };
+}
+
 export class LibraryRequestError extends Error {
     readonly status: number;
 
@@ -188,6 +234,16 @@ export const libraryApi = {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ context: workspace.context, revision: workspace.revision }),
         }).then(json<ResetResult>),
+    foldPassport: (workspace: Workspace) =>
+        fetch(`/api/config/profiles/${encodeURIComponent(workspace.profile.id)}/passport/fold`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ context: workspace.context, revision: workspace.revision }),
+        }).then(json<FoldResult>),
+    runtime: (boot: string | undefined, since: number | undefined, wait: number, signal: AbortSignal) =>
+        fetch(`/api/config/runtime?wait=${wait}${boot === undefined || since === undefined ? '' : `&boot=${boot}&since=${since}`}`, { signal }).then(
+            json<RuntimeSnapshot>,
+        ),
     loadFile: (file: File, activate: boolean) => {
         const form = new FormData();
         form.append('file', file);

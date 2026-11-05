@@ -4,7 +4,6 @@ import { Icon } from '../../app/Icons';
 import { Modal, Seg } from '../../app/Modal';
 import { useToast } from '../../app/Toast';
 import { useRole } from '../../app/role';
-import { useNeuralStatus } from '../../app/neuralStatus';
 import { useSystem } from '../../app/SystemContext';
 import { useDeviceClock, refreshDeviceClock } from '../../app/useDeviceClock';
 import { useNavigationGuard } from '../../app/use-navigation-guard';
@@ -15,16 +14,20 @@ import { ProfileOverview, type Vital } from './ProfileOverview';
 import { ProfilePassport } from './ProfilePassport';
 import { ProfileBar } from './ProfileBar';
 import { ErrorsDrawer } from './ErrorsDrawer';
+import { RuntimeDrawer } from './RuntimeDrawer';
+import { runtimeHealth } from './runtime-health';
+import { useRuntimeState } from './runtime-state';
 import {
     DeleteDialog,
     ExportDialog,
+    FoldPassportDialog,
     ImportDialog,
     LoadDialog,
     ResetPassportDialog,
     UpdatePassportDialog,
     VersionsDialog,
 } from './ProfileDialogs';
-import { describeBroken, passportDifferences } from './profile-model';
+import { describeBroken, entityName, passportDifferences } from './profile-model';
 import { scrollInside } from './scroll';
 import {
     effectiveDefinition,
@@ -40,7 +43,6 @@ import {
     type Definition,
     type Profile,
     type Source,
-    type SlotSource,
     type Workspace,
 } from './library-api';
 import { CONFIG_SECTIONS, isConfigSection } from './sections';
@@ -89,7 +91,7 @@ function ConfigurationFailure({
     );
 }
 
-type Dialog = 'import' | 'export' | 'load' | 'delete' | 'versions' | 'update' | 'reset' | null;
+type Dialog = 'import' | 'export' | 'load' | 'delete' | 'versions' | 'update' | 'reset' | 'fold' | null;
 
 export default function ConfigurationsScreen() {
     const section = useParams().section ?? '';
@@ -108,6 +110,7 @@ export default function ConfigurationsScreen() {
     const [pending, setPending] = useState<(() => void) | null>(null);
     const [dialog, setDialog] = useState<Dialog>(null);
     const [drawer, setDrawer] = useState(false);
+    const [runtimeDrawer, setRuntimeDrawer] = useState(false);
     const [errorIndex, setErrorIndex] = useState(-1);
     const [jump, setJump] = useState<number | null>(null);
     const [mappingMode, setMappingMode] = useState(section === 'dict' ? 'dictionaries' : 'mapping');
@@ -117,8 +120,9 @@ export default function ConfigurationsScreen() {
     const request = useRef(0);
     const selectedRef = useRef(selected);
     selectedRef.current = selected;
-    const { devices, cameras: liveCameras, connected } = useSystem();
-    const neural = useNeuralStatus();
+    const { devices } = useSystem();
+    const { snapshot: runtime, failed: runtimeFailed } = useRuntimeState();
+    const pollNow = useRef<() => void>(() => undefined);
     const { source: clockSource } = useDeviceClock();
     const admin = useRole() === 'admin';
     const toast = useToast();
@@ -141,10 +145,15 @@ export default function ConfigurationsScreen() {
 
     useEffect(() => {
         let stopped = false,
-            running = false;
+            running = false,
+            queued = false;
         const poll = async () => {
-            if (running) return;
+            if (running) {
+                queued = true;
+                return;
+            }
             running = true;
+            queued = false;
             try {
                 const [list, state] = await Promise.all([libraryApi.profiles(), libraryApi.status()]);
                 if (stopped) return;
@@ -166,15 +175,20 @@ export default function ConfigurationsScreen() {
                 }
             } finally {
                 running = false;
+                if (queued && !stopped) void poll();
             }
         };
+        pollNow.current = () => void poll();
         void poll();
-        const timer = window.setInterval(poll, 2500);
+        // Основной сигнал — смена seq снимка мастера; таймер лишь страхует от потерянного ответа
+        const timer = window.setInterval(poll, 10000);
         return () => {
             stopped = true;
+            pollNow.current = () => undefined;
             window.clearInterval(timer);
         };
     }, [reload]);
+    useEffect(() => pollNow.current(), [runtime?.boot, runtime?.seq, runtimeFailed]);
 
     useEffect(() => {
         if (!selected || dirtyRef.current || !status) return;
@@ -356,6 +370,16 @@ export default function ConfigurationsScreen() {
             toast('Паспорт сброшен к профилю', 'Профиль загружается заново', 'ok');
         }
     };
+    const foldPassport = async () => {
+        if (!workspace) return;
+        request.current++;
+        const result = await libraryApi.foldPassport(workspace);
+        if (!alive.current) return;
+        setDialog(null);
+        applySnapshot(result.snapshot);
+        setReload((value) => value + 1);
+        toast('Паспорт по умолчанию заменён', `Профиль «${workspace.profile.name}»: версия v${result.version.number}, отличий свёрнуто: ${result.folded}`, 'ok');
+    };
     const activate = async () => {
         setDialog(null);
         setBusy(true);
@@ -450,45 +474,41 @@ export default function ConfigurationsScreen() {
     const ownBindings = [
         ...new Set(Object.values(effective.binding ?? {}).map((binding) => String(binding.device_id)).filter(Boolean)),
     ];
-    const onlineBindings = ownBindings.filter((id) => devices.some((device) => device.id === id && device.status === 'online'));
+    // Состояние устройств берётся из того же снимка мастера, что и запуск; реестр — пока снимка нет или идёт переход
+    const onlineBindings = ownBindings.filter((id) =>
+        runtime?.devices.length
+            ? runtime.devices.some((device) => device.id === id && device.online)
+            : devices.some((device) => device.id === id && device.status === 'online'),
+    );
     const deliveryError = status?.devices.find((device) => device.state === 'error')?.error;
-    const cameraProblem = entries<CameraSource>(effective, 'camera').some(([id, camera]) =>
-        Object.entries(camera.streams ?? {}).some(
-            ([key, stream]) =>
-                stream.purposes?.some((purpose) => purpose !== 'view') &&
-                liveCameras.find((item) => item.id === id)?.streams?.[key]?.status !== 3,
-        ),
-    );
-    const neuralProblem = entries<SlotSource>(effective, 'neural_slot').some(
-        ([, slot]) =>
-            !neural?.some(
-                (device) =>
-                    device.device_id === effective.binding?.[slot.place]?.device_id &&
-                    device.slots?.some(
-                        (item) =>
-                            item.config_id === slot.config_id && item.stream_id === slot.stream_id && item.running,
-                    ),
-            ),
-    );
+    const nameOf = (kind: string, id: string) => {
+        if (kind === 'camera') return entityName(effective, 'camera', id);
+        if (kind === 'slot') {
+            const [stream, config] = id.split('|');
+            return `${entityName(effective, 'video_stream', stream)} · ${entityName(effective, 'neural_config', config)}`;
+        }
+        if (kind === 'surround') return `360 · ${entityName(effective, 'projection', id)}`;
+        return id;
+    };
+    const runtimeStale = isActive && !!runtime && runtime.context !== status?.context;
+    const runtimeLine = runtimeFailed
+        ? ['warn', 'Нет состояния модулей', 'Мастер не отдаёт снимок запуска']
+        : runtimeStale
+          ? ['', 'Проверка применения', 'Снимок мастера обновляется']
+          : runtimeHealth(runtime, nameOf);
     const health = offline
         ? ['err', 'Нет связи', 'Показаны последние данные']
         : transitioning
           ? [transition.error ? 'err' : 'warn', PHASES[transition.phase], transition.error || 'Рабочие модули остановлены на время загрузки']
           : !isActive
             ? ['', 'Не загружен', activeProfile ? `Работает: ${activeProfile.name}` : 'Нет загруженного профиля']
-            : broken.length
-              ? ['warn', 'Применён', 'Есть ошибки ссылок']
-              : deliveryError
-                ? ['err', 'Ошибка применения', deliveryError]
-                : ownBindings.length > onlineBindings.length
-                  ? ['warn', 'Не все устройства', 'Проверьте привязки устройств']
-                  : !connected
-                    ? ['warn', 'Нет состояния модулей', 'Нет потока состояния медиасервиса']
-                    : cameraProblem || neuralProblem
-                      ? ['warn', 'Модули запущены не все', cameraProblem ? 'Проверьте камеры' : 'Проверьте слоты технического зрения']
-                      : status?.devices.length && status.devices.every((device) => device.state === 'ok')
-                        ? ['ok', 'Применён', 'Камеры и слоты доступны']
-                        : ['', 'Проверка применения', 'Подтверждение устройств ещё не получено'];
+            : deliveryError
+              ? ['err', 'Ошибка применения', deliveryError]
+              : ownBindings.length > onlineBindings.length
+                ? ['warn', 'Не все устройства', 'Проверьте привязки устройств']
+                : runtimeLine[0] === 'ok' && broken.length
+                  ? ['warn', 'Применён', 'Есть ошибки ссылок']
+                  : runtimeLine;
     const conflicts = differences.filter((item) => item.conflict).length;
     const clockLabel =
         isActive && clockSource
@@ -507,6 +527,8 @@ export default function ConfigurationsScreen() {
             sub: health[2],
             tone: (health[0] === 'info' ? '' : health[0]) as Vital['tone'],
             text: true,
+            stamp: health[1],
+            onClick: isActive && runtime?.devices.length ? () => setRuntimeDrawer(true) : undefined,
         },
         {
             key: 'broken',
@@ -671,6 +693,8 @@ export default function ConfigurationsScreen() {
                     menuLocked={offline || (transitioning && !repairing)}
                     switching={busy || transitioning}
                     dirty={dirty}
+                    differences={workspace?.profile.id === selected ? differences.length : 0}
+                    onFold={() => setDialog('fold')}
                     onPick={(id) => guard(() => setSelected(id))}
                     onImport={() => setDialog('import')}
                     onLoad={() => guard(() => setDialog('load'))}
@@ -935,6 +959,17 @@ export default function ConfigurationsScreen() {
             )}
             {dialog === 'reset' && workspace && (
                 <ResetPassportDialog workspace={workspace} onClose={() => setDialog(null)} onConfirm={resetAll} />
+            )}
+            {dialog === 'fold' && workspace && profile && (
+                <FoldPassportDialog workspace={workspace} profile={profile} onClose={() => setDialog(null)} onConfirm={foldPassport} />
+            )}
+            {runtimeDrawer && runtime && (
+                <RuntimeDrawer
+                    snapshot={runtime}
+                    nameOf={nameOf}
+                    deviceName={(place) => String(effective.place?.[place]?.name || place)}
+                    onClose={() => setRuntimeDrawer(false)}
+                />
             )}
         </section>
     );

@@ -188,5 +188,5 @@ export const TrackLane = memo(function TrackLane({ stripes, from, to, selected, 
         drawLane(ctx, stripes, from, to, size.width, size.height, selected, trusted, dpr, inset);
     }, [stripes, from, to, size, selected, trusted, inset]);
 
-    return <canvas ref={canvas} className="tl-lane" title={title} />;
+    return <canvas ref={canvas} className="tl-lane" data-tip={title} />;
 });

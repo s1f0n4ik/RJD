@@ -74,21 +74,21 @@
 
 .cell.is-free:hover, .cell.is-free.is-drop {
     background: #1c292b;
-    border-color: color-mix(in srgb,var(--ok) 80%,transparent);
-    box-shadow: 0 0 0 1px color-mix(in srgb,var(--ok) 30%,transparent);
+    border-color: rgba(83, 207, 149, .8);
+    box-shadow: 0 0 0 1px rgba(83, 207, 149, .3);
     animation: none;
 }
 
 .cell.is-busy { border-color: var(--warn-edge); }
 
 .cell.is-busy:hover, .cell.is-busy.is-drop {
-    border-color: color-mix(in srgb,var(--warn) 75%,transparent);
-    box-shadow: 0 0 0 1px color-mix(in srgb,var(--warn) 26%,transparent);
+    border-color: rgba(237, 188, 81, .75);
+    box-shadow: 0 0 0 1px rgba(237, 188, 81, .26);
 }
 
 @keyframes cell-free-pulse {
-    0%, 100% { border-color: color-mix(in srgb,var(--ok) 28%,transparent); }
-    50% { border-color: color-mix(in srgb,var(--ok) 60%,transparent); }
+    0%, 100% { border-color: rgba(83, 207, 149, .28); }
+    50% { border-color: rgba(83, 207, 149, .6); }
 }
 
 /* Выше .cell-drop и кнопок кадра: ячейка целиком читается как цель */
@@ -110,8 +110,8 @@
 .cell-pick span {
     padding: 7px 12px;
     border-radius: var(--r);
-    background: color-mix(in srgb,var(--warn) 12%,transparent);
-    color: color-mix(in srgb,var(--warn) 92%,transparent);
+    background: rgba(237, 188, 81, .12);
+    color: rgba(237, 188, 81, .92);
     font-size: 12.5px;
     font-weight: 600;
     line-height: 1.3;
@@ -127,7 +127,7 @@
 
 /* У свободной затемнять нечего — заливку даёт сама ячейка */
 .cell.is-free .cell-pick { background: transparent; }
-.cell.is-free .cell-pick span { background: var(--ok-bg); color: color-mix(in srgb,var(--ok) 95%,transparent); }
+.cell.is-free .cell-pick span { background: var(--ok-bg); color: rgba(83, 207, 149, .95); }
 
 @media (prefers-reduced-motion: reduce) {
     .cell.is-free { animation: none; }
@@ -150,7 +150,7 @@
     gap: 8px;
     padding: 8px 9px 5px;
     font-size: 11.5px;
-    background: linear-gradient(180deg, color-mix(in srgb,var(--bg) 88%,transparent), transparent);
+    background: linear-gradient(180deg, rgba(17, 20, 26, .88), transparent);
     pointer-events: none;
 }
 
@@ -182,12 +182,13 @@
     width: 26px; height: 26px;
     border-radius: 6px;
     border: 1px solid var(--line);
-    background: color-mix(in srgb,var(--bg) 78%,transparent);
+    background: rgba(17, 20, 26, .78);
     color: var(--fg-2);
     cursor: pointer;
+    transition: var(--tr-ui);
 }
 
-.cell-btn:hover, .cellv-btn:hover { color: var(--fg); border-color: var(--line-2); }
+.cell-btn:hover, .cellv-btn:hover { color: var(--fg); border-color: var(--line-hi); background: var(--panel-2); }
 .cell-btn .ico, .cellv-btn .ico { width: 14px; height: 14px; }
 
 /* Видео и слои поверх него */
@@ -281,7 +282,7 @@
     gap: 8px;
     padding: 7px 10px;
     border-radius: var(--r);
-    background: color-mix(in srgb,var(--bg) 92%,transparent);
+    background: rgba(17, 20, 26, .92);
     border: 1px solid var(--line-hi);
     color: var(--fg);
     font-size: 12px;
@@ -298,6 +299,7 @@
     border-radius: 5px;
     color: var(--fg-3);
     cursor: pointer;
+    transition: var(--tr-ui);
 }
 
 .cellv-note-x:hover { color: var(--fg); background: rgba(255, 255, 255, .06); }
@@ -316,4 +318,29 @@
 
     .cell-code { font-size: 15px; }
     .cellv-note { font-size: 16px; padding: 10px 14px; }
+}
+
+/* Токенные варианты фонов и рамок. color-mix() с var() браузер без поддержки (Chromium 110 на плате)
+   не отбрасывает при разборе, а превращает в прозрачное: поэтому только внутри @supports, выше стоят запасные rgba */
+@supports (background: color-mix(in srgb, red 50%, transparent)) {
+    .cell.is-free:hover, .cell.is-free.is-drop {
+        border-color: color-mix(in srgb,var(--ok) 80%,transparent);
+        box-shadow: 0 0 0 1px color-mix(in srgb,var(--ok) 30%,transparent);
+    }
+    .cell.is-busy:hover, .cell.is-busy.is-drop {
+        border-color: color-mix(in srgb,var(--warn) 75%,transparent);
+        box-shadow: 0 0 0 1px color-mix(in srgb,var(--warn) 26%,transparent);
+    }
+    @keyframes cell-free-pulse {
+        0%, 100% { border-color: color-mix(in srgb,var(--ok) 28%,transparent); }
+        50% { border-color: color-mix(in srgb,var(--ok) 60%,transparent); }
+    }
+    .cell-pick span {
+        background: color-mix(in srgb,var(--warn) 12%,transparent);
+        color: color-mix(in srgb,var(--warn) 92%,transparent);
+    }
+    .cell.is-free .cell-pick span { color: color-mix(in srgb,var(--ok) 95%,transparent); }
+    .cell-bar { background: linear-gradient(180deg, color-mix(in srgb,var(--bg) 88%,transparent), transparent); }
+    .cell-btn, .cellv-btn { background: color-mix(in srgb,var(--bg) 78%,transparent); }
+    .cellv-note { background: color-mix(in srgb,var(--bg) 92%,transparent); }
 }

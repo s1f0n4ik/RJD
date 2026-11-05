@@ -359,7 +359,7 @@ export default function LiveScreen() {
                 <span
                     className="num"
                     style={place === 'вне сетки' ? { color: 'var(--warn)' } : undefined}
-                    title={unusable ? 'Ни один поток камеры не назначен на просмотр' : undefined}
+                    data-tip={unusable ? 'Ни один поток камеры не назначен на просмотр' : undefined}
                 >
                     {unusable ? 'нет потока' : place ?? '—'}
                 </span>
@@ -463,7 +463,7 @@ export default function LiveScreen() {
                     <div className="sect">
                         <span className="eyebrow">
                             Сохранённые сетки
-                            {dirty && <span className="live-dot" title="Есть несохранённые правки" />}
+                            {dirty && <span className="live-dot" data-tip="Есть несохранённые правки" />}
                         </span>
 
                         <div className="live-list">

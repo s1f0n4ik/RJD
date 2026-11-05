@@ -113,7 +113,7 @@ const WebSocketModulePanel: React.FC<Props> = ({ module, title, busy, onSave, on
                 <button
                   type="button"
                   className={`icon-btn${dirty ? ' is-acc' : ''}`}
-                  title="Подключиться по этому адресу"
+                  data-tip="Подключиться по этому адресу"
                   aria-label="Подключиться по этому адресу"
                   disabled={busy || !dirty}
                   onClick={applyUrl}

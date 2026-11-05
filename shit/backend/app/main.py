@@ -12,6 +12,7 @@ from app.services.websocket_manager import manager, websocket_endpoint
 from app.services.devices import registry
 from app.services.config_sync import sync as config_sync
 from app.services.lifecycle import lifecycle
+from app.services.runtime_state import runtime_state
 from app.services.config_store import ConfigError
 
 # Настройка логирования
@@ -30,6 +31,7 @@ async def lifespan(app: FastAPI):
     config_sync.start()
     lifecycle.start()
     yield
+    await runtime_state.close()
     await lifecycle.close()
     await registry.close()
     await config_sync.close()

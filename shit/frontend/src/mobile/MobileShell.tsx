@@ -112,7 +112,7 @@ export function MobileShell(props: MobileShellProps) {
                 </span>
                 <span
                     className={`pill num${source === 'can' ? '' : ' is-dim'}`}
-                    title={source === 'can' ? 'Время изделия' : 'Время сервера, шина молчит'}
+                    data-tip={source === 'can' ? 'Время изделия' : 'Время сервера, шина молчит'}
                 >
                     {formatDeviceTime(unixMs)}
                 </span>

@@ -14,7 +14,7 @@ import {
     type Source,
     type Workspace,
 } from './library-api';
-import { FIELD_LABELS, KIND_LABELS, entityName, paramLabel, printable, readPath } from './profile-model';
+import { FIELD_LABELS, KIND_LABELS, entityName, isServiceField, paramLabel, printable, readPath } from './profile-model';
 
 interface Field {
     path: string;
@@ -258,7 +258,7 @@ export function ProfilePassport({
                 <div className="lb-diff-h">
                     <span className="ty">{KIND_LABELS[kind] || kind}</span>
                     <b>{entityName(body ? draft : workspace.base, kind, key)}</b>
-                    <span className="lb-id">{key}</span>
+                    {entityName(body ? draft : workspace.base, kind, key) !== key && <span className="lb-id">{key}</span>}
                     {newer && <span className="tag is-warn">Профиль обновлён</span>}
                     {(entry?.state === 'machine_only' || entry?.state === 'added') && <span className="tag is-warn">Только на машине</span>}
                     <span className="acts">
@@ -293,7 +293,7 @@ export function ProfilePassport({
                     <span />
                     <span>На машине</span>
                 </div>
-                {changed.map((path) => (
+                {(changed.some((path) => !isServiceField(path)) ? changed.filter((path) => !isServiceField(path)) : changed).map((path) => (
                     <div className="lb-df" key={path}>
                         <span>{paramLabel(path)}</span>
                         <span className="a">{printable(readPath(base, path), path)}</span>

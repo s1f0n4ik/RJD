@@ -62,7 +62,7 @@ export function AddZoneModal({ onClose }: AddZoneModalProps) {
             }
         >
             <div className="modal-b conf-modal-b">
-                <div className="tf-row" title={problem ?? undefined}>
+                <div className="tf-row" data-tip={problem ?? undefined}>
                     <NumberField
                         label="Угол X"
                         unit="м"

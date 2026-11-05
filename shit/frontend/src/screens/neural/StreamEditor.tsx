@@ -542,7 +542,7 @@ export function StreamEditor({ initial, isNew, configs, zonesBy, cameras, slotCo
                     </div>
                 </section>
 
-                <div className="ve-gutter" onPointerDown={onGutterDown} onDoubleClick={() => setSrcShare(null)} title="Тянуть — поделить место; двойной клик — как было"><i /></div>
+                <div className="ve-gutter" onPointerDown={onGutterDown} onDoubleClick={() => setSrcShare(null)} data-tip="Тянуть — поделить место; двойной клик — как было"><i /></div>
 
                 <section className="ve-pane is-cnv">
                     <div className="ve-pane-h">
@@ -785,8 +785,7 @@ function CanvasOverlay({ s, sel, selIdx, u, dragging, zonesCam, frameOf, dead, o
             {!zones && selTile?.camera && (() => {
                 const c = tileCell(s, selTile), r = 13 * u, cx = c.x + c.w - 10 * u - r, cy = c.y + 10 * u + r;
                 return (
-                    <g key={`del${selIdx}`} className="del pop" data-act="del">
-                        <title>Освободить ячейку · Delete или двойной клик</title>
+                    <g key={`del${selIdx}`} className="del pop" data-act="del" data-tip="Освободить ячейку · Delete или двойной клик">
                         <circle cx={cx} cy={cy} r={r} strokeWidth={u} />
                         <use href="#i-trash" x={cx - 7 * u} y={cy - 7 * u} width={14 * u} height={14 * u} pointerEvents="none" />
                     </g>

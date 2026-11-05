@@ -82,7 +82,7 @@ export function ConfigModal({ configs, detail, selectedId, loadedKey, onSelect, 
                                 >
                                     <span className={`dot${loaded ? ' ok' : ''}`} />
                                     <div className="t">
-                                        <b title={cfg.name || undefined}>{key}</b>
+                                        <b data-tip={cfg.name || undefined}>{key}</b>
                                         <span>
                                             <span className="seps">
                                                 <span>{cfg.id}</span>

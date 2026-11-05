@@ -145,7 +145,7 @@ export function AppShell({ username, role, onLogout }: AppShellProps) {
                             <b>{username || 'Оператор'}</b>
                             <span>{role === 'admin' ? 'Администратор' : 'Наблюдатель'}</span>
                         </div>
-                        <button className="rail-exit" data-exit-app onClick={onLogout} title="Выйти" aria-label="Выйти">
+                        <button className="rail-exit" data-exit-app onClick={onLogout} data-tip="Выйти" aria-label="Выйти">
                             <Icon name="exit" size={16} />
                         </button>
                     </div>
@@ -180,7 +180,7 @@ export function AppShell({ username, role, onLogout }: AppShellProps) {
                             )}
                             <span
                                 className={`pill num${source && source !== 'server' ? '' : ' is-dim'}`}
-                                title={source === 'can' || source === 'modbus' ? 'Время изделия' : source === 'ntp' ? 'Время сервера, выверено по NTP' : 'Время сервера, шина молчит'}
+                                data-tip={source === 'can' || source === 'modbus' ? 'Время изделия' : source === 'ntp' ? 'Время сервера, выверено по NTP' : 'Время сервера, шина молчит'}
                             >
                                 {formatDeviceTime(unixMs)}
                             </span>

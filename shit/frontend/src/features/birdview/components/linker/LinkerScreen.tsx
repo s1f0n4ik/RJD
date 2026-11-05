@@ -658,7 +658,7 @@ export function LinkerScreen({ active }: LinkerScreenProps) {
                         {places ? `назначено ${assigned} из ${places}` : 'назначено —'}
                     </span>
                     {geometry && geometry.missing.length > 0 && (
-                        <span className="pill warn" title={geometry.missing.join(', ')}>
+                        <span className="pill warn" data-tip={geometry.missing.join(', ')}>
                             <span className="dot warn" />
                             без места: {geometry.missing.length}
                         </span>

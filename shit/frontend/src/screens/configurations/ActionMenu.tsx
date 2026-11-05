@@ -19,12 +19,15 @@ interface Position {
 export function ActionMenu({ items, disabled, label }: { items: (MenuItem | null)[]; disabled?: boolean; label: string }) {
     const [open, setOpen] = useState(false);
     const [position, setPosition] = useState<Position | null>(null);
+    // Пункт под курсором или стрелками; подсвечивается как в выпадающих списках приложения
+    const [active, setActive] = useState(-1);
     const rootRef = useRef<HTMLSpanElement>(null);
     const buttonRef = useRef<HTMLButtonElement>(null);
 
     useLayoutEffect(() => {
         const box = buttonRef.current?.getBoundingClientRect();
         if (open && box) setPosition({ top: box.bottom + 6, right: window.innerWidth - box.right });
+        setActive(-1);
     }, [open]);
 
     useEffect(() => {
@@ -38,6 +41,17 @@ export function ActionMenu({ items, disabled, label }: { items: (MenuItem | null
                 event.stopPropagation();
                 close();
                 buttonRef.current?.focus();
+            } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault();
+                const enabled = items.map((item, index) => (item && !item.disabled ? index : -1)).filter((index) => index >= 0);
+                if (!enabled.length) return;
+                const at = enabled.indexOf(active);
+                const step = event.key === 'ArrowDown' ? 1 : -1;
+                setActive(enabled[(at < 0 ? (step > 0 ? 0 : enabled.length - 1) : (at + step + enabled.length) % enabled.length)]);
+            } else if (event.key === 'Enter' && items[active] && !items[active]!.disabled) {
+                event.preventDefault();
+                close();
+                items[active]!.onSelect();
             }
         };
         const onScroll = (event: Event) => {
@@ -53,7 +67,7 @@ export function ActionMenu({ items, disabled, label }: { items: (MenuItem | null
             document.removeEventListener('scroll', onScroll, true);
             window.removeEventListener('resize', close);
         };
-    }, [open]);
+    }, [open, active, items]);
 
     return (
         <span ref={rootRef} className="lb-menu">
@@ -70,15 +84,16 @@ export function ActionMenu({ items, disabled, label }: { items: (MenuItem | null
                 <Icon name="dots" size={18} />
             </button>
             {open && position && (
-                <div className="uisel-pop lb-pop" role="menu" style={{ top: position.top, right: position.right }}>
+                <div className="uisel-pop lb-pop" role="menu" style={{ top: position.top, right: position.right }} onMouseLeave={() => setActive(-1)}>
                     {items.map((item, index) =>
                         item ? (
                             <button
                                 key={item.label}
                                 type="button"
                                 role="menuitem"
-                                className={`uisel-opt lb-menu-item${item.danger ? ' is-danger' : ''}${item.disabled ? ' is-disabled' : ''}`}
+                                className={`uisel-opt lb-menu-item${item.danger ? ' is-danger' : ''}${item.disabled ? ' is-disabled' : ''}${index === active ? ' is-active' : ''}`}
                                 disabled={item.disabled}
+                                onMouseEnter={() => !item.disabled && setActive(index)}
                                 onClick={() => {
                                     setOpen(false);
                                     item.onSelect();

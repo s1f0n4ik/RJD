@@ -402,17 +402,19 @@ class ConfigStore:
             self.reset(profile_id, kind, key)
             return version
 
+    # Паспорт по умолчанию профиля заменяется текущим состоянием: новая выбранная версия; привязки и карточка машины остаются в паспорте
     def fold(self, profile_id: str, label: str = "") -> dict:
         with self._tx() as db:
             prof = self.profile(profile_id)
             entities = {
                 (kind, key): body
                 for (kind, key), body in self._overlay(profile_id).items()
-                if kind not in PASSPORT_ONLY
+                if kind not in PASSPORT_ONLY and (kind, key) != ("machine", "identity")
             }
             version = self.create_version(profile_id, prof["name"], entities, label=label)
             db.execute(
-                "DELETE FROM passport WHERE profile_id=? AND kind NOT IN (%s)" % ",".join("?" * len(PASSPORT_ONLY)),
+                "DELETE FROM passport WHERE profile_id=? AND kind NOT IN (%s) AND NOT (kind='machine' AND key='identity')"
+                % ",".join("?" * len(PASSPORT_ONLY)),
                 (profile_id, *PASSPORT_ONLY),
             )
             return version

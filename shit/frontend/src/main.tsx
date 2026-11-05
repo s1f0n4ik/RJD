@@ -5,7 +5,7 @@ import './styles/tokens.css';
 import './styles/ui.css';
 import './screens/login/login.css';
 import { Bootstrap } from './app/Bootstrap';
-import { TipLayer } from './app/Modal';
+import { TipLayer } from './app/TipLayer';
 import { OnScreenKeyboard } from './app/OnScreenKeyboard';
 import { LoginScreen } from './screens/login/LoginScreen';
 import { FULL_AUTH, readStoredToken } from './utils/auth';

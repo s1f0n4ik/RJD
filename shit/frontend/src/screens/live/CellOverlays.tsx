@@ -67,7 +67,7 @@ export function Since({ since }: { since: number }) {
 // Плашка поверх серого кадра: сигнала нет или устройство молчит, с отсчётом
 export function LostPlate({ text, since, title }: { text: string; since: number; title?: string }) {
     return (
-        <div className="cell-lost" title={title}>
+        <div className="cell-lost" data-tip={title}>
             <span className="spin" />
             <span>{text}</span>
             <Since since={since} />

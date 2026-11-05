@@ -70,7 +70,7 @@ export function StreamsTable({ camera, streams, selected, onSelect }: StreamsTab
                                         {status.label}
                                     </span>
                                 </td>
-                                <td className="rtsp" title={stream.rtsp}>{stream.rtsp || '—'}</td>
+                                <td className="rtsp" data-tip={stream.rtsp}>{stream.rtsp || '—'}</td>
                             </tr>
                         );
                     })}

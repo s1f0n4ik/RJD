@@ -195,7 +195,7 @@ export function CalibrationViewer({
                                     onClick={onToggleWs}
                                     disabled={wsState === 'connecting'}
                                     aria-label={wsConnected ? 'Отключиться от калибратора' : 'Подключиться к калибратору'}
-                                    title={wsConnected ? 'Отключиться от калибратора' : 'Подключиться к калибратору'}
+                                    data-tip={wsConnected ? 'Отключиться от калибратора' : 'Подключиться к калибратору'}
                                 >
                                     <Icon name={wsConnected ? 'unlink' : 'link'} size={13} />
                                 </button>

@@ -229,8 +229,7 @@ function Handles({ pts, W, H, u }: { pts: Pt[]; W: number; H: number; u: number 
                     <g className="anc" pointerEvents="none"><rect x={x * W - a / 2} y={y * H - a / 2} width={a} height={a} rx={2 * u} strokeWidth={1.6 * u} /></g>
                 </g>
             ))}
-            <g className="del" data-act="pdel">
-                <title>Удалить контур · Delete</title>
+            <g className="del" data-act="pdel" data-tip="Удалить контур · Delete">
                 <circle cx={cx} cy={cy} r={r} strokeWidth={u} />
                 <use href="#i-trash" x={cx - 7 * u} y={cy - 7 * u} width={14 * u} height={14 * u} pointerEvents="none" />
             </g>

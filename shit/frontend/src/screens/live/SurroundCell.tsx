@@ -344,7 +344,7 @@ export function SurroundCell({
                 {visible !== 'top' && (
                     <button
                         className={`cellv-btn${manual ? ' is-on' : ''}`}
-                        title={manual ? 'Выключить ручное вращение' : 'Включить ручное вращение'}
+                        data-tip={manual ? 'Выключить ручное вращение' : 'Включить ручное вращение'} aria-label={manual ? 'Выключить ручное вращение' : 'Включить ручное вращение'}
                         disabled={pending}
                         onClick={event => { event.stopPropagation(); toggleManual(); }}
                     >
@@ -354,7 +354,7 @@ export function SurroundCell({
                 {visible && (
                     <button
                         className={`cellv-btn${visible === 'top' ? ' is-on' : ''}`}
-                        title={visible === 'top' ? 'Объёмный вид' : 'Вид сверху'}
+                        data-tip={visible === 'top' ? 'Объёмный вид' : 'Вид сверху'} aria-label={visible === 'top' ? 'Объёмный вид' : 'Вид сверху'}
                         disabled={Boolean(viewTarget)}
                         onClick={event => { event.stopPropagation(); void toggleViewMode(); }}
                     >

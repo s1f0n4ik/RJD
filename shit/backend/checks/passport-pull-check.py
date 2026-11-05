@@ -145,6 +145,27 @@ with tempfile.TemporaryDirectory(prefix="passport-pull-check-") as folder, ExitS
         assert response.status_code == 200 and len(response.json()["removed"]) == 1 and sync.pushes == 1
         assert client.post("/api/config/profiles/missing/passport/reset", json={"context": "", "revision": ""}).status_code == 404
 
+        # Паспорт по умолчанию заменяется текущим состоянием: новая версия, отличия свёрнуты, привязка и карточка машины остаются
+        store.put("profile-b", "camera", "camera_1", {**camera, "camera": {**camera["camera"], "ip_adress": "192.0.2.88"}})
+        store.put("profile-b", "machine", "identity", {"name": "Машина Б", "serial": "7"})
+        before = store.profile("profile-b")["version_id"]
+        current = snapshot("profile-b")
+        stale = client.post("/api/config/profiles/profile-b/passport/fold", json={"context": current["context"], "revision": "stale"})
+        assert stale.status_code == 409 and store.profile("profile-b")["version_id"] == before
+        response = client.post("/api/config/profiles/profile-b/passport/fold", json={"context": current["context"], "revision": current["revision"]})
+        assert response.status_code == 200, response.text
+        body = response.json()
+        after = store.profile("profile-b")["version_id"]
+        assert body["folded"] == 1 and after != before and body["version"]["created"] is True and sync.pushes == 1
+        assert ("machine", "identity") not in store.version_entities(after)
+        assert set(store.passport("profile-b")) == {("binding", "main"), ("machine", "identity")}
+        folded = body["snapshot"]["entities"]["camera"]["camera_1"]
+        assert folded["state"] == "profile" and folded["body"]["camera"]["ip_adress"] == "192.0.2.88"
+        current = snapshot("profile-b")
+        response = client.post("/api/config/profiles/profile-b/passport/fold", json={"context": current["context"], "revision": current["revision"]})
+        assert response.status_code == 409 and store.profile("profile-b")["version_id"] == after
+        store.remove("profile-b", "machine", "identity")
+
         # Смена интеграции при сбросе идёт через жизненный цикл профиля
         store.put("profile-a", "machine", "settings", {"active_integration": "iskra", "tz_offset_min": 180})
         calls = []

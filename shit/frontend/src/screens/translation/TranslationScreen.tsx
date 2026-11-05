@@ -244,7 +244,7 @@ export default function TranslationScreen() {
             <div className="tr-bar">
                 <button
                     className="icon-btn tr-plain"
-                    title="Список отображений"
+                    data-tip="Список отображений" aria-label="Список отображений"
                     onClick={() => setDrawerOpen(value => !value)}
                 >
                     <Icon name="menu" />
@@ -252,7 +252,7 @@ export default function TranslationScreen() {
 
                 <b className="tr-title">Трансляция</b>
                 {layouts.length > 0 ? (
-                    <div className="tr-select" title="Отображение в эфире">
+                    <div className="tr-select" data-tip="Отображение в эфире">
                         <Select
                             value={fallback ? '' : layout.name}
                             placeholder="временная сетка"
@@ -276,7 +276,7 @@ export default function TranslationScreen() {
 
                 <span
                     className={`pill num${source === 'can' ? '' : ' is-dim'}`}
-                    title={source === 'can' ? 'Время изделия' : 'Время сервера, шина молчит'}
+                    data-tip={source === 'can' ? 'Время изделия' : 'Время сервера, шина молчит'}
                 >
                     <span className="seps">
                         <span>{formatDeviceDate(unixMs)}</span>
@@ -284,13 +284,13 @@ export default function TranslationScreen() {
                     </span>
                 </span>
 
-                <button className="icon-btn tr-plain" title="Обновить все потоки" onClick={reloadStreams}>
+                <button className="icon-btn tr-plain" data-tip="Обновить все потоки" aria-label="Обновить все потоки" onClick={reloadStreams}>
                     <Icon name="refresh" />
                 </button>
-                <button className="icon-btn tr-plain" title={fullscreen ? 'Свернуть' : 'Во весь экран'} onClick={toggleFullscreen}>
+                <button className="icon-btn tr-plain" data-tip={fullscreen ? 'Свернуть' : 'Во весь экран'} aria-label={fullscreen ? 'Свернуть' : 'Во весь экран'} onClick={toggleFullscreen}>
                     <Icon name={fullscreen ? 'unfull' : 'full'} />
                 </button>
-                <button className="icon-btn tr-plain tr-exit" title={mobile ? 'На главную' : 'Выйти в редактор'} onClick={exit}>
+                <button className="icon-btn tr-plain tr-exit" data-tip={mobile ? 'На главную' : 'Выйти в редактор'} aria-label={mobile ? 'На главную' : 'Выйти в редактор'} onClick={exit}>
                     <Icon name="x" />
                 </button>
             </div>

@@ -109,7 +109,7 @@ export function CameraPanel({
                             className="tf-in"
                             readOnly
                             value={loadedKey ?? '—'}
-                            title={loadedKey ?? undefined}
+                            data-tip={loadedKey ?? undefined}
                             style={loadedKey ? { color: 'var(--ok)' } : undefined}
                         />
                         <button

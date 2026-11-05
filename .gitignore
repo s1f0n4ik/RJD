@@ -8,6 +8,7 @@ docker-compose.yml
 
 media-center/CMakePresets.json
 prototypes/
+design/
 
 # IntelliSense: генерируется gen-intellisense.sh, содержит абсолютные пути машины
 .vscode/c_cpp_properties.json
@@ -26,3 +27,6 @@ dist/
 
 # Эмулятор АС КРСПС: настройки страницы на машине пользователя
 testing/krsps-master/settings.json
+
+# Мост: локальные задачи запуска
+.most/

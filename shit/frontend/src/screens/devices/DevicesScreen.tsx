@@ -384,7 +384,7 @@ export function DevicesScreen() {
                     className={`dev-grip${sideOpen ? '' : ' is-closed'}`}
                     style={{ right: sideOpen ? SIDE_WIDTH : 0 }}
                     onClick={() => setSideOpen(open => !open)}
-                    title={sideOpen ? 'Скрыть маршрутизацию' : 'Показать маршрутизацию'}
+                    data-tip={sideOpen ? 'Скрыть маршрутизацию' : 'Показать маршрутизацию'}
                     aria-label={sideOpen ? 'Скрыть маршрутизацию' : 'Показать маршрутизацию'}
                 >
                     <Icon name="chev" size={12} />

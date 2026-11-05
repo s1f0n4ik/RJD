@@ -140,7 +140,7 @@ export default function JournalScreen() {
                     </div>
                 </div>
                 <div className="vd">
-                    <span className={`dot${vd.dot ? ' ' + vd.dot : ''}`} title={VERDICT_LABEL[det.verdict]} />
+                    <span className={`dot${vd.dot ? ' ' + vd.dot : ''}`} data-tip={VERDICT_LABEL[det.verdict]} />
                     <Icon name="chev" />
                 </div>
             </button>

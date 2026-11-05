@@ -51,7 +51,16 @@ export const FIELD_LABELS: Record<string, string> = {
     depth: 'Глубина слота',
 };
 
-export const paramLabel = (path: string) => FIELD_LABELS[path.split('.').pop() ?? ''] || path;
+// Служебные поля сущности: в таблице отличий не показываются, пока есть содержательные
+export const isServiceField = (path: string) => path.split('.').pop() === 'timestamp';
+
+export function paramLabel(path: string): string {
+    const known = FIELD_LABELS[path.split('.').pop() ?? ''];
+    if (known) return known;
+    const cell = /^activeCells\.(\d+)$/.exec(path);
+    if (cell) return `Источник ячейки ${Number(cell[1]) + 1}`;
+    return path.replace(/\./g, ' › ');
+}
 
 export const printable = (value: unknown, path = ''): string =>
     /password|secret|token/i.test(path)

@@ -346,18 +346,18 @@ export function ArchiveScreen() {
     // Кнопки кадра одни: внизу кадра в обычном режиме и в карточке в полном экране
     const transport = (
         <>
-            <button type="button" className="arch-vbtn" title="Назад 10 секунд" {...holdProps(-10)}>
+            <button type="button" className="arch-vbtn" data-tip="Назад 10 секунд" aria-label="Назад 10 секунд" {...holdProps(-10)}>
                 <Icon name="prev" />
             </button>
             <button
                 type="button"
                 className="arch-vbtn is-main"
                 onClick={() => setPlaying(value => !value)}
-                title={playing ? 'Пауза' : 'Воспроизвести'}
+                data-tip={playing ? 'Пауза' : 'Воспроизвести'} aria-label={playing ? 'Пауза' : 'Воспроизвести'}
             >
                 <Icon name={playing ? 'pause' : 'play'} />
             </button>
-            <button type="button" className="arch-vbtn" title="Вперёд 10 секунд" {...holdProps(10)}>
+            <button type="button" className="arch-vbtn" data-tip="Вперёд 10 секунд" aria-label="Вперёд 10 секунд" {...holdProps(10)}>
                 <Icon name="next" />
             </button>
         </>
@@ -383,7 +383,7 @@ export function ArchiveScreen() {
                 className={`arch-vbtn${currentSegment ? '' : ' is-off'}`}
                 href={currentSegment && selected ? segmentUrl(selected, currentSegment, true) : undefined}
                 download
-                title="Скачать текущий сегмент"
+                data-tip="Скачать текущий сегмент" aria-label="Скачать текущий сегмент"
             >
                 <Icon name="save" />
             </a>
@@ -391,7 +391,7 @@ export function ArchiveScreen() {
                 type="button"
                 className="arch-vbtn"
                 onClick={toggleFullscreen}
-                title={fullscreen ? 'Свернуть' : 'Во весь экран'}
+                data-tip={fullscreen ? 'Свернуть' : 'Во весь экран'} aria-label={fullscreen ? 'Свернуть' : 'Во весь экран'}
             >
                 <Icon name={fullscreen ? 'unfull' : 'full'} />
             </button>
@@ -443,7 +443,7 @@ export function ArchiveScreen() {
                         className={`arch-side-grip${sideOpen ? '' : ' is-closed'}`}
                         style={{ right: sideOpen ? 300 : 0 }}
                         onClick={() => setSideOpen(value => !value)}
-                        title={sideOpen ? 'Скрыть панель' : 'Показать панель'}
+                        data-tip={sideOpen ? 'Скрыть панель' : 'Показать панель'}
                         aria-label={sideOpen ? 'Скрыть панель' : 'Показать панель'}
                     >
                         <Icon name="chev" size={12} />

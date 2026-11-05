@@ -584,12 +584,21 @@ select.sel:disabled{opacity:.45;cursor:not-allowed}
 .uisel-opt.is-muted .lbl{color:var(--fg-3)}
 .uisel-empty{padding:10px 12px;font-size:12.5px;color:var(--fg-3)}
 
-/* Подсказка у значка: коротко, что делает и горячая клавиша */
-[data-tip]{position:relative}
-/* Слой подсказки [data-tip] поверх страницы, его ставит TipLayer */
-.tip-layer{position:fixed;top:0;left:0;z-index:600;width:max-content;max-width:min(420px,calc(100vw - 16px));padding:5px 9px;border-radius:6px;background:var(--panel-2);border:1px solid var(--line-hi);color:var(--fg);font-family:var(--ui);font-size:11.5px;font-weight:500;line-height:1.4;letter-spacing:0;text-transform:none;box-shadow:var(--shadow);pointer-events:none}
-.tip-layer:not([hidden]){animation:tip-in 100ms var(--ease-out)}
-@keyframes tip-in{from{opacity:0}}
+/* Подсказка у значка: коротко, что делает. :where даёт нулевую специфичность: position из класса элемента побеждает */
+:where([data-tip]){position:relative}
+/* Слой подсказки [data-tip] поверх страницы, его ставит TipLayer. Позицию держит слой, движение — тело */
+.tip-layer{position:fixed;top:0;left:0;z-index:600;width:max-content;max-width:min(320px,calc(100vw - 16px));pointer-events:none;--dy:-5px}
+.tip-layer[data-side=above]{--dy:5px}
+.tip-layer.is-glide{transition:transform var(--t-mid) var(--ease-out)}
+.tip-body{position:relative;padding:7px 11px;border-radius:8px;background:var(--panel-2);border:1px solid var(--line-hi);color:var(--fg);font-family:var(--ui);font-size:12.5px;font-weight:500;line-height:1.4;letter-spacing:0;text-transform:none;text-wrap:pretty;overflow-wrap:anywhere;box-shadow:0 8px 22px rgba(0,0,0,.4),0 1px 3px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.05);transform-origin:var(--ax,50%) 0}
+.tip-layer[data-side=above] .tip-body{transform-origin:var(--ax,50%) 100%}
+.tip-arrow{position:absolute;left:var(--ax,50%);width:8px;height:8px;margin-left:-4px;background:var(--panel-2);border:1px solid var(--line-hi);border-width:1px 0 0 1px;transform:rotate(45deg)}
+.tip-layer[data-side=below] .tip-arrow{top:-5px}
+.tip-layer[data-side=above] .tip-arrow{bottom:-5px;border-width:0 1px 1px 0}
+.tip-layer.is-in .tip-body{animation:tip-in var(--t-mid) var(--ease-out)}
+.tip-layer.is-out .tip-body{animation:tip-out 110ms var(--ease-in) forwards}
+@keyframes tip-in{from{opacity:0;transform:translateY(var(--dy)) scale(.96)}}
+@keyframes tip-out{to{opacity:0;transform:translateY(calc(var(--dy) * .6)) scale(.97)}}
 
 /* ── Рамка модуля: тело слева, панель разделов справа (общая для модулей, родом с КРСПС) ── */
 .mod-screen{display:flex;flex-direction:column;min-height:0}

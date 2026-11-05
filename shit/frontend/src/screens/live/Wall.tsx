@@ -487,7 +487,7 @@ export function Wall({
                                 >
                                     <button
                                         className="cell-btn"
-                                        title={fullscreenCell === cell.id ? 'Выйти из полного экрана' : 'Во весь экран'}
+                                        data-tip={fullscreenCell === cell.id ? 'Выйти из полного экрана' : 'Во весь экран'} aria-label={fullscreenCell === cell.id ? 'Выйти из полного экрана' : 'Во весь экран'}
                                         onClick={event => { event.stopPropagation(); toggleFullscreen(cell.id); }}
                                     >
                                         <Icon name={fullscreenCell === cell.id ? 'x' : 'full'} />
@@ -495,7 +495,7 @@ export function Wall({
                                     {editable && onRemove && (
                                         <button
                                             className="cell-btn"
-                                            title="Убрать из ячейки"
+                                            data-tip="Убрать из ячейки" aria-label="Убрать из ячейки"
                                             onClick={event => { event.stopPropagation(); onRemove(cell.id); }}
                                         >
                                             <Icon name="x" />

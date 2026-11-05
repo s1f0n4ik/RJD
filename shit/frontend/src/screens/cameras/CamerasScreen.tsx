@@ -416,7 +416,7 @@ export function CamerasScreen() {
                         <button
                             className="btn btn--acc"
                             disabled={!anyDeviceOnline}
-                            title={anyDeviceOnline ? undefined : 'Добавление камеры возможно только при живом устройстве'}
+                            data-tip={anyDeviceOnline ? undefined : 'Добавление камеры возможно только при живом устройстве'}
                             onClick={() => openWizard()}
                         >
                             <Icon name="plus" size={16} />Добавить камеру
@@ -661,7 +661,7 @@ export function CamerasScreen() {
                             <button
                                 className="btn btn--sm btn--acc"
                                 disabled={saving || !dirty || !formValid || selectedOffline}
-                                title={formValid ? undefined : streamsCheck.error}
+                                data-tip={formValid ? undefined : streamsCheck.error}
                                 onClick={() => void apply()}
                             >
                                 {saving ? 'Сохраняем…' : 'Применить'}

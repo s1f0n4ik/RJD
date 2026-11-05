@@ -33,6 +33,12 @@ import { scrollInside } from './scroll';
 const num = (value: unknown) => String(value).replace('.', ',');
 const errorWord = (count: number) =>
     count % 10 === 1 && count % 100 !== 11 ? 'ошибка' : count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 10 || count % 100 >= 20) ? 'ошибки' : 'ошибок';
+// Плитки видеопотока по камерам: одна камера в нескольких плитках показывается один раз с числом
+const tileCounts = (tiles?: { camera: string }[]) => {
+    const counts = new Map<string, number>();
+    for (const tile of tiles ?? []) counts.set(tile.camera, (counts.get(tile.camera) ?? 0) + 1);
+    return counts;
+};
 const dimensions = (width?: number, height?: number) => (width && height ? `${width} × ${height}` : 'Не задан');
 const placeName = (definition: Definition, id: string) => entity<Place>(definition, 'place', id)?.name || id || '—';
 const cameraName = (definition: Definition, id: string) =>
@@ -51,11 +57,11 @@ function errorIndex(errors: BrokenItem[], kind: string, key: string, ref?: strin
     return errors.findIndex((item) => item.target === targetId(kind, key) && (!ref || item.miss === ref));
 }
 
-function ErrorChip({ shared, kind, id, refTo, children }: { shared: Shared; kind: string; id: string; refTo?: string; children: ReactNode }) {
+function ErrorChip({ shared, kind, id, refTo, tip, children }: { shared: Shared; kind: string; id: string; refTo?: string; tip?: string; children: ReactNode }) {
     const index = errorIndex(shared.errors, kind, id, refTo);
     if (index < 0) return null;
     return (
-        <button className="lb-errchip" onClick={() => shared.onError(index)}>
+        <button className="lb-errchip" data-tip={tip} onClick={() => shared.onError(index)}>
             <Icon name="warn" size={13} />
             <span>{children}</span>
         </button>
@@ -303,23 +309,23 @@ function Neural(shared: Shared) {
                     <div className={`lb-row lb-stream${bad ? ' is-bad' : ''}`} key={id} id={targetId('video_stream', id)}>
                         <span className="lb-name">
                             <b>{stream.name || id}</b>
-                            <span>
-                                {id} · {placeName(definition, stream.place)}
-                            </span>
+                            <span>{id}</span>
+                            <span className="lb-place">{placeName(definition, stream.place)}</span>
                             <Val shared={shared} kind="video_stream" id={id} path="width" mono>
                                 {dimensions(stream.width, stream.height)}
                             </Val>
                         </span>
                         <span className="lb-chips">
-                            {(stream.tiles ?? []).map((tile, index) =>
-                                entity(definition, 'camera', tile.camera) ? (
-                                    <span className="lb-tile" key={index}>
+                            {[...tileCounts(stream.tiles)].map(([camera, count]) =>
+                                entity(definition, 'camera', camera) ? (
+                                    <span className="lb-tile" key={camera}>
                                         <Icon name="cam" size={13} />
-                                        {cameraName(definition, tile.camera)}
+                                        {cameraName(definition, camera)}
+                                        {count > 1 && <b className="lb-x">×{count}</b>}
                                     </span>
                                 ) : (
-                                    <ErrorChip key={index} shared={shared} kind="video_stream" id={id} refTo={`camera/${tile.camera}`}>
-                                        {tile.camera} · камеры нет
+                                    <ErrorChip key={camera} shared={shared} kind="video_stream" id={id} refTo={`camera/${camera}`} tip={`Камеры ${camera} нет в профиле · плиток: ${count}`}>
+                                        {camera} · камеры нет{count > 1 ? ` ×${count}` : ''}
                                     </ErrorChip>
                                 ),
                             )}
@@ -420,9 +426,7 @@ function Projection({ id, source, shared }: { id: string; source: ProjectionSour
                                 <rect className="lb-plan-machine" x={geometry.machine.x} y={geometry.machine.y} width={geometry.machine.w} height={geometry.machine.h} rx={fontSize * 0.25} />
                             )}
                             {geometry.overlays.map((overlay, index) => (
-                                <rect className="lb-plan-overlay" key={index} x={overlay.rect.x} y={overlay.rect.y} width={overlay.rect.w} height={overlay.rect.h}>
-                                    <title>{overlay.name}</title>
-                                </rect>
+                                <rect className="lb-plan-overlay" key={index} x={overlay.rect.x} y={overlay.rect.y} width={overlay.rect.w} height={overlay.rect.h} data-tip={overlay.name} />
                             ))}
                             {geometry.icons.map((icon) => (
                                 <g key={icon.key} transform={`translate(${icon.x} ${icon.y}) rotate(${icon.angleDeg}) scale(${fontSize / 18})`} className="lb-plan-camera">
@@ -495,6 +499,11 @@ function Surround(shared: Shared) {
             ))}
             {!projections.length && <div className="lb-empty">Схемы вывода не сохранены</div>}
             <Sub title="Калибровки" hint={String(Object.keys(definition.calibration ?? {}).length)} />
+            <div className="lb-row lb-calib is-head">
+                <span>Калибровка</span>
+                <span>Разрешение</span>
+                <span>Камеры</span>
+            </div>
             {entries<{ place: string; width?: number; height?: number }>(definition, 'calibration').map(([id, source]) => (
                 <div className="lb-row lb-calib" key={id} id={targetId('calibration', id)}>
                     <span className="lb-name">
@@ -511,7 +520,9 @@ function Surround(shared: Shared) {
                 </div>
             ))}
             {!!Object.keys(definition.preset ?? {}).length && (
-                <Values values={[['Пресеты', Object.keys(definition.preset).join(', ')]]} />
+                <div className="lb-pad">
+                    <Values values={[['Пресеты', Object.keys(definition.preset).join(', ')]]} />
+                </div>
             )}
         </Section>
     );
@@ -648,11 +659,13 @@ function Display({ shared, timeSource }: { shared: Shared; timeSource?: string }
                                         <li key={cell.id} className={lost ? 'is-bad' : ''}>
                                             <span>{index + 1}</span>
                                             {lost ? (
-                                                <ErrorChip shared={shared} kind="layout" id={id} refTo={`camera/${source}`}>
+                                                <ErrorChip shared={shared} kind="layout" id={id} refTo={`camera/${source}`} tip={`Камеры ${source} нет в профиле`}>
                                                     {source} · камеры нет
                                                 </ErrorChip>
                                             ) : (
-                                                names[source] || source || 'Не назначено'
+                                                <span className={`lb-src${source ? '' : ' is-empty'}`} data-tip={names[source] || undefined}>
+                                                    {names[source] || source || 'Не назначено'}
+                                                </span>
                                             )}
                                         </li>
                                     );
@@ -681,10 +694,16 @@ function Display({ shared, timeSource }: { shared: Shared; timeSource?: string }
 function SectionIndex({ counts, errors, hidden }: { counts: Record<SectionId, number>; errors: BrokenItem[]; hidden: SectionId[] }) {
     const [spy, setSpy] = useState<SectionId>(PROFILE_SECTIONS[0].id);
     const root = useRef<HTMLElement>(null);
+    // Раздел, выбранный щелчком: подсветка стоит на нём, пока идёт прокрутка и пока пользователь сам не прокрутит
+    const pinned = useRef(false);
     useEffect(() => {
         const scroller = root.current?.closest<HTMLElement>('.lb-view');
         if (!scroller) return;
+        const unpin = () => {
+            pinned.current = false;
+        };
         const update = () => {
+            if (pinned.current) return;
             const line = scroller.getBoundingClientRect().top + 90;
             let current = PROFILE_SECTIONS[0].id;
             for (const section of PROFILE_SECTIONS) {
@@ -695,7 +714,11 @@ function SectionIndex({ counts, errors, hidden }: { counts: Record<SectionId, nu
         };
         update();
         scroller.addEventListener('scroll', update, { passive: true });
-        return () => scroller.removeEventListener('scroll', update);
+        for (const name of ['wheel', 'touchstart', 'keydown', 'lb-jump']) scroller.addEventListener(name, unpin, { passive: true });
+        return () => {
+            scroller.removeEventListener('scroll', update);
+            for (const name of ['wheel', 'touchstart', 'keydown', 'lb-jump']) scroller.removeEventListener(name, unpin);
+        };
     }, []);
     return (
         <nav ref={root} className="lb-index" aria-label="Состав профиля">
@@ -707,9 +730,10 @@ function SectionIndex({ counts, errors, hidden }: { counts: Record<SectionId, nu
                         key={section.id}
                         className={`mod-item${spy === section.id ? ' is-on' : ''}`}
                         onClick={() => {
-                            setSpy(section.id);
                             const element = document.getElementById(`lb-${section.id}`);
                             if (element) scrollInside(element, 'start');
+                            pinned.current = true;
+                            setSpy(section.id);
                         }}
                     >
                         <Icon name={section.icon} />
@@ -729,6 +753,8 @@ export interface Vital {
     sub: string;
     tone: '' | 'ok' | 'warn' | 'err';
     text?: boolean;
+    // Меняется вместе со смыслом значения: ячейка играет короткую анимацию смены
+    stamp?: string;
     onClick?: () => void;
 }
 
@@ -739,7 +765,9 @@ export function Vitals({ items }: { items: Vital[] }) {
                 const body = (
                     <>
                         <span className="k">{item.label}</span>
-                        <span className={`v${item.text ? ' is-text' : ''}`}>{item.value}</span>
+                        <span className={`v${item.text ? ' is-text' : ''}`} key={item.stamp ?? String(item.value)}>
+                            {item.value}
+                        </span>
                         <span className="s">{item.sub}</span>
                     </>
                 );

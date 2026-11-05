@@ -34,7 +34,10 @@ interface ProfileBarProps {
     menuLocked: boolean;
     switching: boolean;
     dirty: boolean;
+    // Число отличий паспорта от профиля
+    differences: number;
     onPick: (id: string) => void;
+    onFold: () => void;
     onImport: () => void;
     onLoad: () => void;
     onUpdate: () => void;
@@ -50,6 +53,7 @@ export function ProfileBar(props: ProfileBarProps) {
     const saveFirst = 'Сначала сохраните или сбросьте правки паспорта';
     const updateTip = lock || (!profile.active ? 'Паспорт обновляется у загруженного профиля' : dirty ? saveFirst : '');
     const loadTip = lock || (dirty ? saveFirst : '');
+    const foldTip = lock || (dirty ? saveFirst : !props.differences ? 'Паспорт совпадает с профилем' : '');
     return (
         <div className="lb-pbar">
             <Select
@@ -77,14 +81,16 @@ export function ProfileBar(props: ProfileBarProps) {
                 onChange={(value) => (value === IMPORT ? props.onImport() : props.onPick(value))}
             />
             <div className="lb-meta">
-                <span className={`tag${profile.active ? ' is-ok' : ''}`}>
-                    <i className={`dot${profile.active ? ' ok' : ''}`} />
-                    {profile.active ? 'Активный профиль' : 'Не загружен'}
-                </span>
-                <span className="tag num">v{versionNumber(profile)}</span>
-                <span className="tag">
-                    <Icon name="lock" size={12} />
-                    Профиль только для чтения
+                <span className="lb-tags">
+                    <span className={`tag${profile.active ? ' is-ok' : ''}`}>
+                        <i className={`dot${profile.active ? ' ok' : ''}`} />
+                        {profile.active ? 'Активный профиль' : 'Не загружен'}
+                    </span>
+                    <span className="tag num">v{versionNumber(profile)}</span>
+                    <span className="tag" data-tip="Профиль только для чтения: машинные отличия хранятся в паспорте">
+                        <Icon name="lock" size={12} />
+                        Только чтение
+                    </span>
                 </span>
                 <span className="lb-saved">Сохранён {savedAt(profile)}</span>
             </div>
@@ -108,6 +114,13 @@ export function ProfileBar(props: ProfileBarProps) {
                     items={[
                         { label: 'Экспорт профиля', icon: 'up', onSelect: props.onExport },
                         { label: 'Версии профиля', icon: 'list', onSelect: props.onVersions },
+                        {
+                            label: 'Заменить паспорт по умолчанию',
+                            icon: 'layers',
+                            hint: foldTip,
+                            disabled: !!foldTip,
+                            onSelect: props.onFold,
+                        },
                         null,
                         {
                             label: 'Удалить профиль',

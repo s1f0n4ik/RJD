@@ -658,6 +658,72 @@ export function UpdatePassportDialog({
     );
 }
 
+export function FoldPassportDialog({
+    workspace,
+    profile,
+    onClose,
+    onConfirm,
+}: {
+    workspace: Workspace;
+    profile: Profile;
+    onClose: () => void;
+    onConfirm: () => Promise<void>;
+}) {
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState('');
+    const list = passportDifferences(workspace);
+    const next = Math.max(0, ...profile.versions.map((version) => version.number)) + 1;
+    return (
+        <Modal
+            title="Заменить паспорт по умолчанию?"
+            className="modal--confirm"
+            onClose={busy ? () => undefined : onClose}
+            footer={
+                <Buttons>
+                    <button className="btn" disabled={busy} onClick={onClose}>
+                        Отмена
+                    </button>
+                    <button
+                        className="btn btn--acc"
+                        disabled={busy || !list.length}
+                        onClick={() => {
+                            setBusy(true);
+                            onConfirm().catch((failure) => {
+                                setError(message(failure));
+                                setBusy(false);
+                            });
+                        }}
+                    >
+                        {busy ? 'Замена…' : `Заменить · ${list.length}`}
+                    </button>
+                </Buttons>
+            }
+        >
+            <div className="modal-b">
+                <p>
+                    Значения профиля «{workspace.profile.name}» v{workspace.version.number} будут заменены текущим состоянием машины:
+                    отличий <b>{list.length}</b> станут новой версией <b>v{next}</b>, паспорт после этого совпадёт с профилем.
+                </p>
+                <div className="lb-vlist lb-reset-list">
+                    {list.map((item) => (
+                        <div className="lb-vl" key={`${item.kind}/${item.key}`}>
+                            <span className="d">
+                                <b>{item.name}</b>
+                                <span>{KIND_LABELS[item.kind] ?? item.kind}</span>
+                            </span>
+                        </div>
+                    ))}
+                </div>
+                <p className="muted">
+                    Версия v{workspace.version.number} сохранится в «Версиях профиля», к ней можно вернуться. Привязки устройств и
+                    карточка машины в профиль не попадают. Работающая конфигурация на устройствах не меняется.
+                </p>
+                {error && <Failure text={error} />}
+            </div>
+        </Modal>
+    );
+}
+
 export function ResetPassportDialog({
     workspace,
     onClose,

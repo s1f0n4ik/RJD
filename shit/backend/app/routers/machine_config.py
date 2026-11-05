@@ -20,6 +20,7 @@ from app.services.config_pull import board_diff
 from app.services.config_store import KINDS, PASSPORT_ONLY, ConfigError, digest, get_store, nest
 from app.services.config_sync import sync
 from app.services.lifecycle import lifecycle
+from app.services.runtime_state import runtime_state
 from app.routers.configurations import _master
 
 router = APIRouter()
@@ -296,6 +297,24 @@ async def reset_passport(profile_id: str, request: ResetPassport):
         raise _fail(error)
 
 
+@router.post("/config/profiles/{profile_id}/passport/fold")
+async def fold_profile_passport(profile_id: str, request: ResetPassport):
+    """Replaces the profile defaults with its current state as a new selected version; bindings and the machine card stay in the passport."""
+    store = get_store()
+    try:
+        with store.transaction():
+            snapshot = _library_snapshot(profile_id)
+            if request.context != snapshot["context"] or request.revision != snapshot["revision"]:
+                raise HTTPException(409, "Profile or passport changed; reload before replacing defaults")
+            folded = [ref for ref in store.passport(profile_id) if ref[0] not in PASSPORT_ONLY and ref != ("machine", "identity")]
+            if not folded:
+                raise HTTPException(409, "Passport has no differences from the profile")
+            version = store.fold(profile_id, label="паспорт по умолчанию")
+        return {"ok": True, "version": version, "folded": len(folded), "snapshot": _library_snapshot(profile_id)}
+    except ConfigError as error:
+        raise _fail(error)
+
+
 @router.post("/config/import")
 async def import_backup(
     files: list[UploadFile] = File(...),
@@ -407,6 +426,12 @@ def config_status():
     return {"devices": sync.status(), "transition": lifecycle.status(), "context": get_store().context()}
 
 
+@router.get("/config/runtime")
+async def config_runtime(boot: Optional[str] = Query(None), since: Optional[int] = Query(None), wait: float = Query(0, ge=0, le=25)):
+    """Снимок состояния запуска: ответ ждёт изменения после since (при том же boot) до wait секунд."""
+    return await runtime_state.wait(boot, since, wait)
+
+
 @router.post("/config/transition/repair")
 async def repair_transition(body: RecoverTransition):
     try:
@@ -502,6 +527,6 @@ def promote_entity(ref: EntityRef, profile_id: Optional[str] = Query(None)):
 @router.post("/config/passport/fold")
 def fold_passport(profile_id: Optional[str] = Query(None)):
     try:
-        return {"version": get_store().fold(_profile_or_active(profile_id), label="машина")}
+        return {"version": get_store().fold(_profile_or_active(profile_id), label="паспорт по умолчанию")}
     except ConfigError as e:
         raise _fail(e)

@@ -281,7 +281,7 @@ export function Timeline({
             {view !== 'full' && (
                 <div
                     className="tl-grip"
-                    title="Потяните, чтобы изменить высоту"
+                    data-tip="Потяните, чтобы изменить высоту"
                     onPointerDown={startResize}
                     onPointerMove={doResize}
                     onPointerUp={stopResize}
@@ -317,7 +317,7 @@ export function Timeline({
                         type="button"
                         onClick={() => onZoom(zoom - 1)}
                         disabled={zoom === 0}
-                        title="Отдалить (Shift с колесом)"
+                        data-tip="Отдалить (Shift с колесом)" aria-label="Отдалить (Shift с колесом)"
                     >
                         −
                     </button>
@@ -326,7 +326,7 @@ export function Timeline({
                         type="button"
                         onClick={() => onZoom(zoom + 1)}
                         disabled={zoom === ZOOMS.length - 1}
-                        title="Приблизить (Shift с колесом)"
+                        data-tip="Приблизить (Shift с колесом)" aria-label="Приблизить (Shift с колесом)"
                     >
                         +
                     </button>

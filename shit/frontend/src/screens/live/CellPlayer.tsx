@@ -430,7 +430,7 @@ export function CellPlayer({
                     {controls === 'all' && canSwitchStream && (
                         <button
                             className="cellv-btn"
-                            title={`Поток → ${nextStream!.label}`}
+                            data-tip={`Поток → ${nextStream!.label}`} aria-label={`Поток → ${nextStream!.label}`}
                             onClick={event => { event.stopPropagation(); onStreamChange!(nextStream!.key); }}
                         >
                             <Icon name="swap" />
@@ -439,7 +439,7 @@ export function CellPlayer({
                     {controls === 'all' && canDetect && (
                         <button
                             className={`cellv-btn${showDetections ? ' is-on' : ''}`}
-                            title={showDetections ? 'Скрыть рамки обнаружений' : 'Показать рамки обнаружений'}
+                            data-tip={showDetections ? 'Скрыть рамки обнаружений' : 'Показать рамки обнаружений'} aria-label={showDetections ? 'Скрыть рамки обнаружений' : 'Показать рамки обнаружений'}
                             onClick={event => { event.stopPropagation(); onDetectionsChange(!showDetections); }}
                         >
                             <Icon name="eye" />
@@ -448,7 +448,7 @@ export function CellPlayer({
                     {canCorrect && (
                         <button
                             className={`cellv-btn${corrected ? ' is-on' : ''}`}
-                            title={corrected ? 'Выключить коррекцию' : 'Включить коррекцию дисторсии'}
+                            data-tip={corrected ? 'Выключить коррекцию' : 'Включить коррекцию дисторсии'} aria-label={corrected ? 'Выключить коррекцию' : 'Включить коррекцию дисторсии'}
                             disabled={switching}
                             onClick={event => { event.stopPropagation(); applyCorrection(!corrected); }}
                         >

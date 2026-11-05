@@ -396,7 +396,7 @@ export function AddCameraWizard({ cameras, initial, onClose, onSaved }: AddCamer
                                                 type="button"
                                                 className="eye"
                                                 onClick={() => setScanOpen(true)}
-                                                title="Найти в сети"
+                                                data-tip="Найти в сети"
                                                 aria-label="Найти камеру в сети"
                                             >
                                                 <Icon name="search" size={14} />
@@ -493,7 +493,7 @@ export function AddCameraWizard({ cameras, initial, onClose, onSaved }: AddCamer
                                 <button
                                     className="btn btn--sm btn--acc"
                                     disabled={!canProbe}
-                                    title={canProbe ? undefined : 'Сначала укажите адрес, порт и устройство'}
+                                    data-tip={canProbe ? undefined : 'Сначала укажите адрес, порт и устройство'}
                                     onClick={() => setAddStreamOpen(true)}
                                 >
                                     Добавить поток
@@ -582,7 +582,7 @@ export function AddCameraWizard({ cameras, initial, onClose, onSaved }: AddCamer
                     <button
                         className="btn btn--acc"
                         disabled={saving || !isValid}
-                        title={isValid ? undefined : streamsCheck.error}
+                        data-tip={isValid ? undefined : streamsCheck.error}
                         onClick={() => void save()}
                     >
                         {saving ? 'Добавляем…' : 'Добавить камеру'}

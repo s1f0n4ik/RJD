@@ -2,6 +2,7 @@
 export function scrollInside(element: HTMLElement, where: 'start' | 'center') {
     const scroller = element.closest<HTMLElement>('.lb-view');
     if (!scroller) return;
+    scroller.dispatchEvent(new Event('lb-jump'));
     const box = element.getBoundingClientRect();
     const frame = scroller.getBoundingClientRect();
     const top =

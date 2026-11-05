@@ -80,7 +80,7 @@ function PasswordCell({ value, placeholder, onValue }: {
                     type="button"
                     className="eye"
                     onClick={() => setShown(v => !v)}
-                    title={shown ? 'Скрыть пароль' : 'Показать пароль'}
+                    data-tip={shown ? 'Скрыть пароль' : 'Показать пароль'}
                     aria-label={shown ? 'Скрыть пароль' : 'Показать пароль'}
                 >
                     <Icon name="eye" size={14} />
@@ -221,7 +221,7 @@ export function PurposePicker({ purposes, modules, compact, onToggle }: PurposeP
                         type="button"
                         className={`purp-btn${compact ? ' purp-btn--sm' : ''} purp--${purpose}${on ? ' is-on' : ''}`}
                         disabled={!available}
-                        title={available ? undefined : `На устройстве нет модуля ${PURPOSE_MODULE[purpose]}`}
+                        data-tip={available ? undefined : `На устройстве нет модуля ${PURPOSE_MODULE[purpose]}`}
                         onClick={() => onToggle(purpose)}
                     >
                         <span className="dot" />

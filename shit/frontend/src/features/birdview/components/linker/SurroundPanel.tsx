@@ -361,7 +361,7 @@ export function RotRow({
             <button
                 type="button"
                 className={`chip ang${freeAngle ? ' is-on' : ''}`}
-                title="Свободный угол"
+                data-tip="Свободный угол" aria-label="Свободный угол"
                 onClick={onToggleFree}
             >
                 ∠
@@ -422,7 +422,7 @@ function PoseStepper({
                     type="button"
                     className={`rst${changed ? ' is-act' : ''}`}
                     disabled={!changed}
-                    title="К PnP"
+                    data-tip="К PnP" aria-label="К PnP"
                     onClick={() => onCommit(base)}
                 >
                     <Icon name="refresh" size={12} />
@@ -483,7 +483,7 @@ function PoseSlider({
                     type="button"
                     className={`rst${changed ? ' is-act' : ''}`}
                     disabled={!changed}
-                    title="К PnP"
+                    data-tip="К PnP" aria-label="К PnP"
                     onClick={() => onCommit(base)}
                 >
                     <Icon name="refresh" size={12} />
