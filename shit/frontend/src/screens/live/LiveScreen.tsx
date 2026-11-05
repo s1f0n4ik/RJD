@@ -355,7 +355,7 @@ export default function LiveScreen() {
                 onDragStart={event => event.dataTransfer.setData('text/plain', `source:${source.id}`)}
             >
                 <span className="chip-col" style={{ background: color }} />
-                <span className="nm">{source.name}</span>
+                <span className="nm" data-tip={source.fault ? `${source.fault.label}: ${source.fault.text}` : undefined}>{source.name}</span>
                 <span
                     className="num"
                     style={place === 'вне сетки' ? { color: 'var(--warn)' } : undefined}

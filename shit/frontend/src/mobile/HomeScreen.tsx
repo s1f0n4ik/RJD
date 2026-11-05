@@ -7,6 +7,7 @@ import { formatDeviceDate, formatDeviceTime, useDeviceClock } from '../app/useDe
 import {
     useDisks, useLastDetections, useLinkerStatus, useNeuralSummary, neuralSummaryParts,
 } from '../screens/home/useHomeData';
+import { cameraFaultLabel } from '../screens/cameras/model';
 import { CAMERA_STATUS } from '../utils/constants';
 import { isProbeCamera } from '../utils/probeFilter';
 import { detClass } from '../features/neural/components/journal/DetectionRow';
@@ -101,7 +102,7 @@ export default function HomeScreen() {
 
                 <div className="m-stat">
                     <Icon name="cam" className="ico lead" />
-                    <div className="k">Камеры<small>{!connected ? <Sk w={120} h={10} /> : cameras.length === 0 ? 'не добавлены' : dead.length ? `без потока: ${dead.map(c => c.display_name || c.id).join(', ')}` : 'все в работе'}</small></div>
+                    <div className="k">Камеры<small>{!connected ? <Sk w={120} h={10} /> : cameras.length === 0 ? 'не добавлены' : dead.length ? `без потока: ${dead.map(c => `${c.display_name || c.id}${cameraFaultLabel(c) ? ` (${cameraFaultLabel(c)})` : ''}`).join(', ')}` : 'все в работе'}</small></div>
                     <Value ready={connected} big={<>{cameras.length - dead.length} <span className="muted">/ {cameras.length}</span></>} small="в эфире" />
                     <span className={`dot ${!connected || cameras.length === 0 ? '' : dead.length ? 'warn' : 'ok'}`} />
                 </div>

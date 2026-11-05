@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <iostream>
 #include <vector>
 #include <map>
@@ -122,10 +123,21 @@ namespace nvr {
 		return static_cast<T>(value);
 	}
 
+	// Последняя ошибка потока: держится между перезапусками, сбрасывается подключением
+	struct FStreamFault {
+		// Код из signaling_definers.h, 0 — ошибки нет
+		int code = 0;
+		// Первая ошибка с этим кодом, мс от эпохи
+		int64_t since_ms = 0;
+		// Сколько раз подряд случилась ошибка с этим кодом
+		int attempts = 0;
+	};
+
 	// Общие данные пайплайна
 	struct FPipelineData {
 		std::string name;
 		EPipelineStatus status;
+		FStreamFault fault;
 		EPilelineType type;
 		FStreamPurposes purposes;
 

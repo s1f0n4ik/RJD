@@ -8,7 +8,7 @@ import { wsUrl } from '../utils/constants';
 import { isProbeCamera } from '../utils/probeFilter';
 import { CellPlayer } from '../screens/live/CellPlayer';
 import { SurroundCell } from '../screens/live/SurroundCell';
-import { cameraToWallSource, virtualToWallSource, type WallSource } from '../screens/live/sources';
+import { cameraToWallSource, faultOf, virtualToWallSource, type WallSource } from '../screens/live/sources';
 import type { PlayerStats, PlayerStatus } from '../components/webrtc/useWebRTCPlayer';
 import type { CPPCamera, StreamPurpose, VirtualStream } from '../types';
 import '../screens/live/wall.css';
@@ -134,6 +134,7 @@ export default function CamerasScreen() {
                 cameraName={source.name}
                 signalingUrl={signalingUrlOf(source.id)}
                 streamKey={viewKey}
+                fault={faultOf(source, viewKey)}
                 canDetect={source.hasNeural}
                 canCorrect={false}
                 corrected={false}
@@ -153,7 +154,7 @@ export default function CamerasScreen() {
     const sourceRow = (src: WallSource) => {
         const cam = src.kind === 'camera' ? cameras.find(c => c.id === src.id) : undefined;
         const main = cam ? mainStream(cam) : undefined;
-        const detail = src.offline ? 'устройство не в сети' : src.kind === 'virtual' ? (src.active ? src.detail : 'модуль не запущен') : 'нет потока';
+        const detail = src.offline ? 'устройство не в сети' : src.kind === 'virtual' ? (src.active ? src.detail : 'модуль не запущен') : src.fault?.text ?? 'нет потока';
         return (
             <button
                 key={src.id}
@@ -180,7 +181,7 @@ export default function CamerasScreen() {
                 ) : src.active ? (
                     <span className="tag is-ok">в эфире</span>
                 ) : (
-                    <span className="tag is-err">{src.kind === 'virtual' ? 'остановлен' : 'нет потока'}</span>
+                    <span className="tag is-err">{src.kind === 'virtual' ? 'остановлен' : src.fault?.label ?? 'нет потока'}</span>
                 )}
                 <span className={`dot ${src.active ? 'ok' : ''}`} />
             </button>

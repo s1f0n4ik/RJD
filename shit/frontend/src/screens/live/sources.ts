@@ -10,6 +10,7 @@
 import { useRef } from 'react';
 import type { CPPCamera, StreamProducer, VirtualStream } from '../../types';
 import { CAMERA_STATUS } from '../../utils/constants';
+import { describeFault, type StreamFault } from '../../components/webrtc/error-codes';
 import { PRODUCER_NAME } from '../../components/streams/stream-sources';
 
 export interface ViewStream {
@@ -17,6 +18,8 @@ export interface ViewStream {
     key: string;
     label: string;
     running: boolean;
+    /** Почему поток не поднялся; null — причины нет или поток идёт */
+    fault: StreamFault | null;
 }
 
 export interface WallSource {
@@ -37,6 +40,8 @@ export interface WallSource {
     secondary?: { streamId: string; viewMode: 'top' | 'surround' } | null;
     /** Смотрибельные потоки камеры */
     viewStreams: ViewStream[];
+    /** Почему камера не даёт ни одного потока; null — идёт хоть один или причина неизвестна */
+    fault: StreamFault | null;
     hasNeural: boolean;
     hasBirdview: boolean;
 }
@@ -56,14 +61,18 @@ export function cameraToWallSource(camera: CPPCamera): WallSource {
             key,
             label: streamLabel(stream),
             running: stream.status === CAMERA_STATUS.RUNNING,
+            fault: stream.status === CAMERA_STATUS.RUNNING ? null : describeFault(stream.error),
         }));
+
+    const active = !camera.offline && entries.some(([, s]) => s.status === CAMERA_STATUS.RUNNING);
 
     return {
         id: camera.id,
         name: camera.display_name || camera.id,
         kind: 'camera',
         // Кэшированный статус offline-устройства устарел — «в работе» не показываем
-        active: !camera.offline && entries.some(([, s]) => s.status === CAMERA_STATUS.RUNNING),
+        active,
+        fault: active || camera.offline ? null : viewStreams.find(s => s.fault)?.fault ?? null,
         offline: Boolean(camera.offline),
         deviceId: camera.device_id,
         deviceName: camera.device_name,
@@ -93,6 +102,7 @@ export function virtualToWallSource(stream: VirtualStream, nameOf: (id: string) 
             ? { streamId: stream.secondary.stream_id, viewMode: stream.secondary.view_mode }
             : null,
         viewStreams: [],
+        fault: null,
         hasNeural: false,
         hasBirdview: false,
     };
@@ -111,6 +121,12 @@ export function resolveStream(
     if (!saved) return { key: source.viewStreams[0]?.key, fallback: false };
     if (source.viewStreams.some(s => s.key === saved)) return { key: saved, fallback: false };
     return { key: source.viewStreams[0]?.key, fallback: true };
+}
+
+/** Причина отказа показываемого потока: ключ не задан — сервер берёт первый смотрибельный */
+export function faultOf(source: WallSource, key: string | undefined): StreamFault | null {
+    const shown = key ?? source.viewStreams[0]?.key;
+    return source.viewStreams.find(s => s.key === shown)?.fault ?? null;
 }
 
 // Момент, когда устройство впервые замечено молчащим; ключ — идентификатор устройства

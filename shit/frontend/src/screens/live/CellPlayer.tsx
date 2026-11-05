@@ -8,7 +8,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { isTransient, type ErrorInfo } from '../../components/webrtc/error-codes';
+import { isTransient, type ErrorInfo, type StreamFault } from '../../components/webrtc/error-codes';
 import {
     useWebRTCPlayer,
     type PlayerMessage,
@@ -89,6 +89,8 @@ interface CellPlayerProps {
     onCorrectionBusy?: (busy: boolean) => void;
     // Устройство молчит с этого момента; null — на связи
     offlineSince?: number | null;
+    /** Почему камера не даёт поток, по состоянию платы; null — причины нет */
+    fault?: StreamFault | null;
 }
 
 function num(value: number | null | undefined, digits: number): string {
@@ -117,6 +119,7 @@ export function CellPlayer({
     correctionRequest,
     onCorrectionBusy,
     offlineSince = null,
+    fault = null,
 }: CellPlayerProps) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const boxRef = useRef<HTMLDivElement>(null);
@@ -191,6 +194,13 @@ export function CellPlayer({
     }, [onCorrectedChange, settle, showNote]);
 
     const stream = corrected ? CORRECTION_STREAM : streamKey;
+
+    // Причина, по которой камера не даёт поток: из состояния платы, плеер её не слышит.
+    // Время часов платы с браузером не сверено, отсчёт ведём с первого замеченного отказа
+    const shownFault = corrected ? null : fault;
+    const faultSince = useRef<{ code: number; at: number } | null>(null);
+    if (!shownFault) faultSince.current = null;
+    else if (faultSince.current?.code !== shownFault.code) faultSince.current = { code: shownFault.code, at: Date.now() };
 
     const { status, errorInfo, attempt, grantedStream, videoRef, stats, send, lostAt } = useWebRTCPlayer({
         cameraId,
@@ -403,6 +413,8 @@ export function CellPlayer({
 
             {!live && (offlineSince !== null
                 ? <LostPlate text="устройство не отвечает" since={offlineSince} />
+                : shownFault && faultSince.current
+                ? <LostPlate text={shownFault.label} since={faultSince.current.at} title={shownFault.text} />
                 : lostAt !== null
                     ? <LostPlate text="нет сигнала" since={lostAt} title={errorInfo?.text} />
                     : <CellState status={status} error={errorInfo} attempt={attempt} />)}

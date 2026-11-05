@@ -39,6 +39,8 @@ namespace fields {
 	inline const std::string PURPOSES = "purposes";          // "purposes"
 	inline const std::string CHANNEL = "channel";            // "channel"
 	inline const std::string SUBSTREAM = "substream";        // "substream"
+	// Последняя ошибка потока: code, since, attempts; поля нет, пока всё в порядке
+	inline const std::string FAULT = "error";                // "error"
 	// Легаси: одно число вместо канала и субпотока, читается только при миграции
 	inline const std::string SUB = "sub";                    // "sub"
 

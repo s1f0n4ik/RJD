@@ -17,6 +17,8 @@ export interface CameraStream {
   rtsp: string;
   status: number;  // 0-нет, 1-готов, 2-остановлен, 3-запущен, 5-инициализирован
   use_udp: boolean;
+  // Почему поток не поднялся: код media-center 3xxx; поля нет, пока всё в порядке или плата старая
+  error?: { code: number; since: number; attempts: number };
 }
 
 // ✅ ПРЕОБРАЗОВАННЫЙ формат (после Object.values + добавления name)

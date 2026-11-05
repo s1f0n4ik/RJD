@@ -44,8 +44,8 @@ export function StreamsTable({ camera, streams, selected, onSelect }: StreamsTab
                         <th style={{ width: 74 }}>Кодек</th>
                         {/* Запас ширины у назначений: состояние и ссылка держатся у правого края */}
                         <th>Назначения</th>
-                        <th style={{ width: 118 }}>Состояние</th>
-                        <th style={{ width: 340 }}>Ссылка на поток</th>
+                        <th style={{ width: 150 }}>Состояние</th>
+                        <th style={{ width: 308 }}>Ссылка на поток</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -65,7 +65,7 @@ export function StreamsTable({ camera, streams, selected, onSelect }: StreamsTab
                                 <td>{stream.codec ? stream.codec.toUpperCase() : '—'}</td>
                                 <td><PurposeChips purposes={stream.purposes} /></td>
                                 <td>
-                                    <span className={`st st-${status.tone}`}>
+                                    <span className={`st st-${status.tone}`} data-tip={status.tip}>
                                         <span className={`dot ${status.tone === 'ok' ? 'ok' : status.tone === 'err' ? 'err' : ''}`} />
                                         {status.label}
                                     </span>

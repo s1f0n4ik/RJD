@@ -11,7 +11,7 @@ import type { PlayerStats, PlayerStatus } from '../../components/webrtc/useWebRT
 import { Icon } from '../../app/Icons';
 import { CellPlayer } from './CellPlayer';
 import { SurroundCell } from './SurroundCell';
-import { resolveStream, useOfflineSince, type WallSource } from './sources';
+import { faultOf, resolveStream, useOfflineSince, type WallSource } from './sources';
 import type { Grid, LayoutState } from './model';
 import './wall.css';
 
@@ -98,7 +98,6 @@ export function Wall({
     const [expanded, setExpanded] = useState<string | null>(null);
     const [statuses, setStatuses] = useState<Record<string, PlayerStatus>>({});
     const [dragOver, setDragOver] = useState<string | null>(null);
-    const [fullscreenCell, setFullscreenCell] = useState<string | null>(null);
     const [dragSource, setDragSource] = useState<string | null>(null);
 
     // Пишется из жестов 360 синхронно: dragstart приходит сразу за pointerdown
@@ -247,16 +246,6 @@ export function Wall({
         setStatuses(prev => (prev[key] === status ? prev : { ...prev, [key]: status }));
     }, []);
 
-    // Полный экран могут закрыть и мимо кнопки — клавишей или жестом
-    useEffect(() => {
-        const onChange = () => {
-            const node = document.fullscreenElement;
-            setFullscreenCell(node instanceof HTMLElement ? node.dataset.cell ?? null : null);
-        };
-        document.addEventListener('fullscreenchange', onChange);
-        return () => document.removeEventListener('fullscreenchange', onChange);
-    }, []);
-
     // ─── Раскрытие ячейки ───────────────────────────────────────
 
     useEffect(() => {
@@ -268,19 +257,8 @@ export function Wall({
         return () => window.removeEventListener('keydown', onKey);
     }, [expanded]);
 
-    // Полный экран просим у контейнера ячейки, а не у video: иначе канвас
-    // рамок и кнопки слоёв остаются за кадром
-    const toggleFullscreen = (cellId: string) => {
-        const node = wallRef.current?.querySelector(`[data-cell="${cellId}"]`);
-
-        // Полный экран уже занят этой ячейкой — кнопка работает на выход
-        if (document.fullscreenElement === node) {
-            document.exitFullscreen().catch(() => {});
-            return;
-        }
-
-        if (node instanceof HTMLElement) node.requestFullscreen?.().catch(() => {});
-    };
+    // Кнопка ячейки и двойной клик — одно действие: раскрыть или свернуть
+    const toggleExpanded = (cellId: string) => setExpanded(prev => (prev === cellId ? null : cellId));
 
     // ─── Перетаскивание ─────────────────────────────────────────
 
@@ -364,6 +342,7 @@ export function Wall({
             <CellPlayer
                 key={`${sourceId}-${switchKey}`}
                 offlineSince={offlineSinceOf(source)}
+                fault={faultOf(source, key)}
                 cameraId={sourceId}
                 cameraName={source.name}
                 signalingUrl={signalingUrlOf(sourceId)}
@@ -466,7 +445,7 @@ export function Wall({
                                 }
                                 onSelectCell?.(cell.id);
                             }}
-                            onDoubleClick={() => setExpanded(prev => (prev === cell.id ? null : cell.id))}
+                            onDoubleClick={() => toggleExpanded(cell.id)}
                         >
                             {renderBody(cell.id)}
 
@@ -487,10 +466,11 @@ export function Wall({
                                 >
                                     <button
                                         className="cell-btn"
-                                        data-tip={fullscreenCell === cell.id ? 'Выйти из полного экрана' : 'Во весь экран'} aria-label={fullscreenCell === cell.id ? 'Выйти из полного экрана' : 'Во весь экран'}
-                                        onClick={event => { event.stopPropagation(); toggleFullscreen(cell.id); }}
+                                        data-tip={expanded === cell.id ? 'Свернуть ячейку' : 'Развернуть ячейку'}
+                                        aria-label={expanded === cell.id ? 'Свернуть ячейку' : 'Развернуть ячейку'}
+                                        onClick={event => { event.stopPropagation(); toggleExpanded(cell.id); }}
                                     >
-                                        <Icon name={fullscreenCell === cell.id ? 'x' : 'full'} />
+                                        <Icon name={expanded === cell.id ? 'unfull' : 'full'} />
                                     </button>
                                     {editable && onRemove && (
                                         <button

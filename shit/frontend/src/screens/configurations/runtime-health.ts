@@ -21,6 +21,18 @@ export function reasonText(item: { kind: string; code: string | null; detail: st
             return 'Не удалось прочитать состояние';
         case 'slot_error':
             return item.detail || 'Ошибка слота';
+        case 'rtsp_auth':
+            return 'Неверный логин или пароль камеры';
+        case 'rtsp_unreachable':
+            return 'Камера не отвечает по адресу';
+        case 'rtsp_not_found':
+            return 'Поток не найден на камере';
+        case 'rtsp_timeout':
+            return 'Камера не ответила вовремя';
+        case 'rtsp_disconnected':
+            return 'Соединение с камерой прервано';
+        case 'rtsp_error':
+            return 'Ошибка медиапотока';
         case 'not_running':
             return item.kind === 'surround' ? 'Выход 360 не запущен' : item.kind === 'slot' ? 'Слот не запущен' : 'Поток не запущен';
         default:

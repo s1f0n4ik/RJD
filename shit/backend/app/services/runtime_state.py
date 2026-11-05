@@ -18,6 +18,18 @@ READ_TIMEOUT_S = 3.0
 # После перехода профиля или возвращения платы незапущенное ещё считается запускающимся
 STARTING_GRACE_S = 30.0
 STREAM_RUNNING = 3
+# Код ошибки потока из media-center (signaling_definers.h, 3xxx) → код и пояснение вердикта
+STREAM_FAULTS = {
+    3001: ("rtsp_timeout", "Camera did not answer in time"),
+    3002: ("rtsp_not_found", "Camera has no such stream"),
+    3003: ("rtsp_auth", "Camera rejected the login or password"),
+    3004: ("rtsp_disconnected", "Connection to the camera was lost"),
+    3005: ("rtsp_error", "Stream pipeline error"),
+    3006: ("rtsp_error", "Stream ended"),
+    3007: ("rtsp_unreachable", "Camera does not answer at this address"),
+}
+# Камера ответила отказом: ждать запуска нечего, льгота не нужна
+STREAM_FAULTS_FINAL = {"rtsp_auth", "rtsp_not_found"}
 
 
 # Что должно работать по действующему профилю: устройство → камеры с потоками, слоты, выход 360
@@ -171,7 +183,12 @@ class RuntimeState:
                     entry["items"].append(_item("camera", camera_id, False, grace, "missing", "Not on the board", stream))
                 else:
                     ok = board[stream].get("status") == STREAM_RUNNING
-                    entry["items"].append(_item("camera", camera_id, ok, grace, "not_running", f"Stream status {board[stream].get('status')}", stream))
+                    code, detail = "not_running", f"Stream status {board[stream].get('status')}"
+                    # Старая плата поля error не присылает: тогда остаётся общий not_running
+                    fault = STREAM_FAULTS.get((board[stream].get("error") or {}).get("code"))
+                    if fault:
+                        code, detail = fault
+                    entry["items"].append(_item("camera", camera_id, ok, grace and code not in STREAM_FAULTS_FINAL, code, detail, stream))
         if plan["slots"]:
             slots = results.get("/neural/status")
             by_id = {f"{slot.get('stream_id')}|{slot.get('config_id')}": slot for slot in slots or []}

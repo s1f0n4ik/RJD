@@ -14,6 +14,7 @@ import {
     deviceMetrics, formatBytes, formatPair, lastSeenTime, MODULE_LABEL, netParts, sinceLabel, uptimeLabel, type RoutingSlot,
 } from '../devices/model';
 import { disksLabel, usePools } from '../settings/pool';
+import { faultSummary } from '../cameras/model';
 import './home.css';
 import { useFlash } from '../../app/motion';
 
@@ -51,6 +52,7 @@ export function HomeScreen() {
     const online = devices.filter(d => d.status === 'online');
     const liveCameras = cameras.filter(isLive).length;
     const deadCameras = cameras.length - liveCameras;
+    const deadReasons = faultSummary(cameras.filter(c => !isLive(c)));
     const offlineDevices = devices.length - online.length;
 
     const layoutSummary = layouts.length === 0
@@ -91,7 +93,7 @@ export function HomeScreen() {
         : (
             <span className="seps">
                 <span>{cameras.length} {plural(cameras.length, 'камера', 'камеры', 'камер')}</span>
-                <span>{deadCameras > 0 ? `${deadCameras} без потока` : 'все в работе'}</span>
+                <span>{deadCameras > 0 ? `${deadCameras} без потока${deadReasons ? `: ${deadReasons}` : ''}` : 'все в работе'}</span>
             </span>
         );
 

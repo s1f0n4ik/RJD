@@ -404,6 +404,7 @@ FPipelineData UNV12EncodingPipeline::get_pipeline_data() {
 
 	data.name = m_parameters.name;
 	data.status = get_status();
+	data.fault = get_fault();
 	data.type = EPilelineType::NV12_ENCODER;
 
 	data.width = m_probe.ready() ? m_probe.width : 0;

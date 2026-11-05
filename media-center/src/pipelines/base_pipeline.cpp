@@ -1,5 +1,6 @@
 #include "video_pipeline.h"
 #include "signaling_definers.h"
+#include "nvr/stream-error.h"
 #include <thread>
 
 #include <gst/rtsp/gstrtsptransport.h>
@@ -28,6 +29,30 @@ EPipelineStatus UCameraPipeline::get_status() {
     return m_status;
 }
 
+FStreamFault UCameraPipeline::get_fault() const {
+    std::lock_guard<std::mutex> lock(m_fault_mutex);
+    return m_fault;
+}
+
+void UCameraPipeline::record_fault(int code) {
+    const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+
+    std::lock_guard<std::mutex> lock(m_fault_mutex);
+    if (m_fault.code == code) {
+        m_fault.attempts++;
+    }
+    else {
+        m_fault = FStreamFault{ code, now_ms, 1 };
+    }
+    m_fault_events++;
+}
+
+void UCameraPipeline::clear_fault() {
+    std::lock_guard<std::mutex> lock(m_fault_mutex);
+    m_fault = FStreamFault{};
+}
+
 bool UCameraPipeline::initialize() {
     if (m_has_initialized) {
         if (m_logger) m_logger->info("inititalize(): Pipeline already initialized!");
@@ -48,6 +73,8 @@ bool UCameraPipeline::initialize() {
         if (m_logger) m_logger->info("Probe attempt " + std::to_string(attempt) + "/" + std::to_string(max_attempts));
 
         if (probe_video_stream(probe_timeout)) {
+            // Камера ответила кадрами: прежняя причина отказа больше не верна
+            clear_fault();
             m_status.store(EPipelineStatus::INITIALIZED);
             return true;
         }
@@ -111,6 +138,7 @@ bool UCameraPipeline::stop() {
 
     m_is_playing = false;
     m_logger->info("Pipeline paused successfully.");
+    clear_fault();
     m_status.store(EPipelineStatus::STOPPED);
     return true;
 }
@@ -324,6 +352,7 @@ bool UCameraPipeline::probe_video_stream(int timeout_sec) {
     if (m_logger) m_logger->debug("Initializing probe pipeline...");
     if (m_logger) m_logger->debug("Trying to connect to camera with rtsp: " + m_parameters.rtsp_url);
     m_status.store(EPipelineStatus::PROBING);
+    const uint64_t fault_events_before = m_fault_events.load();
 
     auto pipeline = gst_pipeline_new("probe-pipeline");
     auto src = gst_element_factory_make("rtspsrc", nullptr);
@@ -401,6 +430,10 @@ bool UCameraPipeline::probe_video_stream(int timeout_sec) {
 
     if (!m_probe.ready()) {
         if (m_logger) m_logger->warn("Probe failed: stream not ready.");
+        // Шина промолчала: камера не отказала, а не ответила вовремя
+        if (m_fault_events.load() == fault_events_before) {
+            record_fault(varan::signaling::CODE_RTSP_TIMEOUT);
+        }
         return false;
     }
 
@@ -447,31 +480,8 @@ UCameraPipeline::FBusWatch UCameraPipeline::setup_bus_watch(GstElement* pipeline
                 self->m_logger->error("GST ERROR: " + err_msg + " | debug: " + dbg_msg);
 
                 // Определяем код ошибки
-                int code = varan::signaling::CODE_GST_ERROR;
-                if (err) {
-                    std::string msg_lower = err_msg;
-                    std::transform(msg_lower.begin(), msg_lower.end(),
-                        msg_lower.begin(), ::tolower);
-
-                    if (msg_lower.find("unauthorized") != std::string::npos ||
-                        msg_lower.find("401") != std::string::npos) {
-                        code = varan::signaling::CODE_RTSP_UNAUTHORIZED;
-                    }
-                    else if (msg_lower.find("not found") != std::string::npos ||
-                        msg_lower.find("404") != std::string::npos ||
-                        msg_lower.find("no route") != std::string::npos) {
-                        code = varan::signaling::CODE_RTSP_NOT_FOUND;
-                    }
-                    else if (msg_lower.find("timeout") != std::string::npos ||
-                        msg_lower.find("timed out") != std::string::npos) {
-                        code = varan::signaling::CODE_RTSP_TIMEOUT;
-                    }
-                    else if (msg_lower.find("end-of-file") != std::string::npos ||
-                        msg_lower.find("received end") != std::string::npos ||
-                        msg_lower.find("could not receive message") != std::string::npos) {
-                        code = varan::signaling::CODE_RTSP_DISCONNECTED;
-                    }
-                }
+                const int code = err ? varan::nvr::classify_stream_error(err_msg)
+                                     : varan::signaling::CODE_GST_ERROR;
 
                 if (err) g_error_free(err);
                 if (debug) g_free(debug);
@@ -577,6 +587,7 @@ void UCameraPipeline::broadcast_session_closed(const std::string& client_id, int
 }
 
 void UCameraPipeline::broadcast_error(int code, const std::string& description) {
+    record_fault(code);
     if (!m_send_callback) return;
 
     boost::json::object msg;

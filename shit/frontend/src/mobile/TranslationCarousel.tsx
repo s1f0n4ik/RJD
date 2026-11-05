@@ -4,7 +4,7 @@ import { reducedMotion } from '../app/motion';
 import { CellPlayer } from '../screens/live/CellPlayer';
 import { SurroundCell } from '../screens/live/SurroundCell';
 import type { LayoutState } from '../screens/live/model';
-import type { WallSource } from '../screens/live/sources';
+import { faultOf, type WallSource } from '../screens/live/sources';
 import type { PlayerStats, PlayerStatus } from '../components/webrtc/useWebRTCPlayer';
 import type { CPPCamera } from '../types';
 import { lightestStream } from './CamerasScreen';
@@ -162,6 +162,7 @@ export function TranslationCarousel({
                 cameraName={source.name}
                 signalingUrl={signalingUrlOf(source.id)}
                 streamKey={viewKeyOf(source)}
+                fault={faultOf(source, viewKeyOf(source))}
                 canDetect={source.hasNeural}
                 canCorrect={source.hasBirdview && Boolean(correctionLinks[source.id])}
                 corrected={Boolean(layout.corrections[source.id])}

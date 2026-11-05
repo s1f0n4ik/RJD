@@ -483,7 +483,7 @@ export function CamerasScreen() {
                                             </span>
                                             <span className="mono">{streams.length}</span>
                                             <span>
-                                                <span className={`st st-${status.tone}`}>
+                                                <span className={`st st-${status.tone}`} data-tip={status.tip}>
                                                     <span className={`dot ${status.tone === 'info' ? 'acc' : status.tone === 'dim' ? '' : status.tone}`} />
                                                     <span className="seps">
                                                         <span>{status.label}</span>
@@ -527,7 +527,7 @@ export function CamerasScreen() {
                                 </span>
                             </div>
                             <span className="spacer" />
-                            <span className={`st st-${cameraStatus(selected).tone}`}>
+                            <span className={`st st-${cameraStatus(selected).tone}`} data-tip={cameraStatus(selected).tip}>
                                 <span className={`dot ${cameraStatus(selected).tone === 'ok' ? 'ok' : 'err'}`} />
                                 <span className="seps">
                                     <span>{cameraStatus(selected).label}</span>

@@ -23,6 +23,7 @@ class Board:
     # Плата по протоколу мастера: hold, /camera, /neural/status, /linker/status
     def __init__(self):
         self.stream = 3
+        self.fault = None
         self.slot = {"stream_id": "st", "config_id": "cfg", "running": True, "code": 0, "error": ""}
         self.linker = {"running": True, "export_id": "exp1"}
         self.held = False
@@ -38,7 +39,8 @@ class Board:
         if path == "/config/hold":
             return httpx.Response(200, json={"data": {"held": self.held, "revision": "r", "transition_id": ""}})
         if path == "/camera":
-            return httpx.Response(200, json={"data": {"cameras": {"camera_a": {"streams": {"stream_1": {"status": self.stream}}}}, "virtual": []}})
+            stream = {"status": self.stream, **({"error": self.fault} if self.fault else {})}
+            return httpx.Response(200, json={"data": {"cameras": {"camera_a": {"streams": {"stream_1": stream}}}, "virtual": []}})
         if path == "/neural/status":
             return httpx.Response(200, json={"data": [self.slot]})
         if path == "/linker/status":
@@ -95,7 +97,22 @@ async def main():
             failed = await snapshot()
         assert failed["summary"]["state"] == "issues"
         assert failed["summary"]["problems"][0]["code"] == "not_running" and failed["summary"]["problems"][0]["stream"] == "stream_1"
+
+        # Причина с платы: пароль — сбой сразу, даже в льготе; недоступность ждёт льготу; счётчик попыток seq не двигает
+        board.fault = {"code": 3003, "since": 1, "attempts": 2}
+        wrong_login = await snapshot()
+        assert wrong_login["summary"]["state"] == "issues" and wrong_login["summary"]["problems"][0]["code"] == "rtsp_auth", wrong_login["summary"]
+        board.fault = {"code": 3007, "since": 1, "attempts": 2}
+        silent = await snapshot()
+        assert silent["summary"]["state"] == "starting" and silent["summary"]["problems"][0]["code"] == "rtsp_unreachable", silent["summary"]
+        board.fault["attempts"] = 9
+        assert (await snapshot())["seq"] == silent["seq"]
+        with patch.object(module, "STARTING_GRACE_S", 0):
+            assert (await snapshot())["summary"]["state"] == "issues"
+        board.fault = {"code": 9999, "since": 1, "attempts": 1}
+        assert (await snapshot())["summary"]["problems"][0]["code"] == "not_running"
         board.stream = 3
+        board.fault = None
 
         # Ошибка слота и выхода 360 видна сразу, без льготы
         board.slot.update(running=False, code=6006, error="no cameras in storage")

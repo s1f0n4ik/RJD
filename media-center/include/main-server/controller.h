@@ -154,6 +154,14 @@ private:
         }},
         { fields::SUBSTREAM, [](const FPipelineData& data, boost::json::object& obj) {
             obj[fields::SUBSTREAM] = data.substream;
+        }},
+        { fields::FAULT, [](const FPipelineData& data, boost::json::object& obj) {
+            if (data.fault.code == 0) return;
+            boost::json::object fault;
+            fault["code"] = data.fault.code;
+            fault["since"] = data.fault.since_ms;
+            fault["attempts"] = data.fault.attempts;
+            obj[fields::FAULT] = std::move(fault);
         }}
     };
 

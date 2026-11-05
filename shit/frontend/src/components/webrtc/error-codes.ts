@@ -54,6 +54,7 @@ const MESSAGES: Record<number, string> = {
     3004: 'Соединение с камерой прервано',
     3005: 'Ошибка медиапотока',
     3006: 'Поток завершён камерой',
+    3007: 'Камера не отвечает по этому адресу: проверьте адрес, порт и сеть',
 
     // 4xxx — надстройки
     4001: 'Камера не сопоставлена с конфигурацией калибровки',
@@ -110,6 +111,35 @@ export function kindOf(code: number | null): ErrorKind {
         case 6: return 'neural';
         default: return 'unknown';
     }
+}
+
+// Короткие причины отказа потока для плашек и чипов: почему камера не даёт картинку
+const FAULT_LABELS: Record<number, string> = {
+    3001: 'нет ответа',
+    3002: 'поток не найден',
+    3003: 'ошибка пароля',
+    3004: 'обрыв связи',
+    3005: 'ошибка потока',
+    3006: 'поток завершён',
+    3007: 'камера недоступна',
+};
+
+export interface StreamFault {
+    code: number;
+    /** Две-три слова для плашки и чипа */
+    label: string;
+    /** Полная причина для подсказки */
+    text: string;
+}
+
+/**
+ * Причина отказа потока из состояния платы (`streams[*].error`). Пришло что угодно,
+ * кроме числового кода, — отказа нет: старая плата поля не присылает.
+ */
+export function describeFault(raw: unknown): StreamFault | null {
+    const code = (raw as { code?: unknown } | null | undefined)?.code;
+    if (typeof code !== 'number' || !Number.isFinite(code) || code === 0) return null;
+    return { code, label: FAULT_LABELS[code] ?? `ошибка ${code}`, text: MESSAGES[code] ?? `Ошибка ${code}` };
 }
 
 /**

@@ -186,6 +186,9 @@ public:
 
 	EPipelineStatus get_status();
 
+	// Последняя ошибка потока; code == 0, если подключение в порядке
+	FStreamFault get_fault() const;
+
 	virtual EPilelineType get_type() = 0;
 
 	const varan::nvr::FStreamPurposes& get_purposes() const { return m_parameters.purposes; }
@@ -223,7 +226,11 @@ protected:
 	// для сецифичной работы pipeline
 	virtual void on_bus_message(GstMessage* msg) = 0;
 
+	// Запоминает ошибку потока и рассылает её зрителям
 	void broadcast_error(int code, const std::string& description);
+
+	void record_fault(int code);
+	void clear_fault();
 
 	// Прощание с клиентом, чью сессию уничтожает не он сам
 	void broadcast_session_closed(const std::string& client_id, int code, const std::string& description);
@@ -270,6 +277,12 @@ protected:
 	std::atomic<bool> m_has_initialized{false};
 	std::atomic<bool> m_is_playing{false};
 	std::atomic<EPipelineStatus> m_status{ EPipelineStatus::NONE };
+
+	// Ошибка потока читается из REST, пишется из шины
+	mutable std::mutex m_fault_mutex;
+	FStreamFault m_fault;
+	// Счётчик записанных ошибок: проба по нему отличает тишину от ошибки
+	std::atomic<uint64_t> m_fault_events{ 0 };
 
 	// Поток для рестарта
 	std::thread m_restart_thread;

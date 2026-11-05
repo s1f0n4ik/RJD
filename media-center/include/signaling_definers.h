@@ -76,6 +76,7 @@ namespace signaling {
 	inline constexpr int CODE_RTSP_DISCONNECTED  = 3004;
 	inline constexpr int CODE_GST_ERROR          = 3005;
 	inline constexpr int CODE_EOS                = 3006;
+	inline constexpr int CODE_RTSP_UNREACHABLE   = 3007;  // камера не отвечает по адресу: отказ в соединении, нет маршрута, имя не найдено
 
 	// 4xxx — надстройки
 	inline constexpr int CODE_CORRECTION_NO_LINKS   = 4001;  // сопоставление калибровки не настроено

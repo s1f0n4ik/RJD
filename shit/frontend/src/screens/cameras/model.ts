@@ -1,5 +1,6 @@
 import type { CPPCamera, StreamPurpose } from '../../types';
 import { MediaCenterError } from '../../services/api';
+import { describeFault, type StreamFault } from '../../components/webrtc/error-codes';
 
 export type Camera = CPPCamera;
 
@@ -164,6 +165,8 @@ export interface StreamInfo {
     status: number;
     rtsp: string;
     live: boolean;
+    /** Почему поток не поднялся, по состоянию платы */
+    fault: StreamFault | null;
 }
 
 // Статус 1 (READY) — пайплайн не запущен, для пользователя это «не в сети»
@@ -197,6 +200,8 @@ export const streamsOf = (camera: Camera): StreamInfo[] =>
             status: stream.status,
             rtsp: hideCredentials(stream.rtsp),
             live: !camera.offline && stream.status === 3,
+            // Данные молчащего устройства из кэша: причина могла устареть
+            fault: camera.offline || stream.status === 3 ? null : describeFault(stream.error),
         }))
         .sort((a, b) => a.number - b.number);
 
@@ -204,22 +209,48 @@ export const streamsOf = (camera: Camera): StreamInfo[] =>
 export const viewableStream = (camera: Camera): StreamInfo | null =>
     streamsOf(camera).find(stream => stream.purposes.includes('view')) ?? null;
 
-export const streamStatus = (stream: StreamInfo, offline: boolean): { label: string; tone: StatusTone } => {
+/** tip — полная причина отказа для подсказки. */
+export const streamStatus = (stream: StreamInfo, offline: boolean): { label: string; tone: StatusTone; tip?: string } => {
     if (offline) return { label: 'нет данных', tone: 'dim' };
     if (stream.status === 3) return { label: 'идёт', tone: 'ok' };
+    if (stream.fault) return { label: stream.fault.label, tone: 'err', tip: stream.fault.text };
     return STATUS_MAP[stream.status] ?? { label: 'неизвестно', tone: 'dim' };
 };
 
 /** Состояние камеры из состояний её потоков. */
-export const cameraStatus = (camera: Camera): { label: string; detail?: string; tone: StatusTone } => {
+export const cameraStatus = (camera: Camera): { label: string; detail?: string; tone: StatusTone; tip?: string } => {
     if (camera.offline) return { label: 'устройство молчит', tone: 'err' };
     const streams = streamsOf(camera);
     if (streams.length === 0) return { label: 'потоков нет', tone: 'dim' };
 
     const dead = streams.filter(s => !s.live);
     if (dead.length === 0) return { label: 'в работе', tone: 'ok' };
-    if (dead.length === streams.length) return { label: 'нет потоков', tone: 'err' };
-    return { label: 'частично', detail: `поток ${dead.map(s => s.number).join(', ')} молчит`, tone: 'warn' };
+    if (dead.length === streams.length) {
+        // Все потоки встали по одной причине: она и есть состояние камеры
+        const first = dead[0].fault;
+        if (first && dead.every(s => s.fault?.code === first.code)) return { label: first.label, tone: 'err', tip: first.text };
+        return { label: 'нет потоков', tone: 'err' };
+    }
+    const detail = dead.some(s => s.fault)
+        ? dead.map(s => (s.fault ? `поток ${s.number}: ${s.fault.label}` : `поток ${s.number} молчит`)).join(', ')
+        : `поток ${dead.map(s => s.number).join(', ')} молчит`;
+    return { label: 'частично', detail, tone: 'warn' };
+};
+
+/** Причина, если камера целиком стоит по одной и той же причине платы; иначе пусто. */
+export const cameraFaultLabel = (camera: Camera): string => {
+    const status = cameraStatus(camera);
+    return status.tip ? status.label : '';
+};
+
+/** Сводка причин по камерам без потока: «ошибка пароля ×2, камера недоступна». */
+export const faultSummary = (cameras: Camera[]): string => {
+    const counts = new Map<string, number>();
+    for (const camera of cameras) {
+        const label = cameraFaultLabel(camera);
+        if (label) counts.set(label, (counts.get(label) ?? 0) + 1);
+    }
+    return [...counts].map(([label, n]) => (n > 1 ? `${label} ×${n}` : label)).join(', ');
 };
 
 export interface Validation {

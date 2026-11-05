@@ -1467,6 +1467,7 @@ FPipelineData UCameraStreamPipeline::get_pipeline_data() {
 
 	data.name = m_parameters.name;
 	data.status = get_status();
+	data.fault = get_fault();
 	data.type = EPilelineType::CAMERA;
 	data.purposes = m_parameters.purposes;
 
