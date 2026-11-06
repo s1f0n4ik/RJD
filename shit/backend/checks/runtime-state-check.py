@@ -150,6 +150,15 @@ async def main():
         assert moving["summary"]["state"] == "transition" and moving["devices"] == []
         store.save_profile_transition({"id": "t2", "profile_id": "p", "phase": "complete", "participants": [], "updated": time.time()})
 
+        # Цикл простаивает, а снимок остался от прежнего состояния: первый ответ wait() обязан быть свежим
+        await snapshot()
+        board.slot.update(running=False, code=6006, error="y")
+        assert state._task is None
+        first_reply = await state.wait(None, None, 0)
+        assert first_reply["summary"]["state"] == "issues", first_reply["summary"]
+        board.slot.update(running=True, code=0, error="")
+        await state.close()
+
         # Long-poll: тот же seq ждёт до таймаута, изменение будит ответ, чужой boot отвечает сразу
         current = await snapshot()
         started = time.monotonic()

@@ -87,9 +87,11 @@ class RuntimeState:
 
     async def wait(self, boot: str | None, since: int | None, timeout: float) -> dict:
         self._asked = time.monotonic()
-        if not self._task:
+        # Цикл простаивал: сохранённый снимок мог остаться от прежнего перехода, первый ответ собирается заново
+        stale = self._task is None
+        if stale:
             self._task = asyncio.create_task(self._run())
-        if self._snapshot is None:
+        if self._snapshot is None or stale:
             await self.refresh()
         if timeout > 0 and boot == self._boot and since == self._seq:
             changed = self._changed

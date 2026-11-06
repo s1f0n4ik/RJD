@@ -244,8 +244,16 @@ protected:
 protected:
 	GstElement* m_pipeline = nullptr;
 	std::string finish_eos();
+	// Файлы записи закрыты; у потока без записи нечего ждать, кроме EOS конвейера
+	virtual bool recording_finalized() { return false; }
+	// Отчёт в лог, когда EOS записи не вернулся: какие элементы его не получили
+	void log_eos_stall();
+	static int64_t steady_now_ms();
+	std::atomic<int64_t> m_eos_sent_ms{ 0 };
 	std::atomic_bool m_finishing{false};
 	std::atomic_bool m_eos_received{false};
+	// EOS уже отправлен в конвейер: повторная отправка отклоняется, остаётся ждать
+	std::atomic_bool m_eos_sent{false};
 	std::mutex m_eos_mutex;
 	std::condition_variable m_eos_cv;
 
@@ -357,6 +365,7 @@ public:
 
 	~UCameraStreamPipeline() override;
 	std::string prepare_stop() override;
+	bool recording_finalized() override;
 
 	virtual bool initialize() override;
 

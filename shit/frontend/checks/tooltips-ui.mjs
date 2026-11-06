@@ -121,6 +121,9 @@ try {
         const bad = await ev(`[...document.querySelectorAll('button')].filter((b) => !b.textContent.trim() && !b.getAttribute('aria-label') && !b.getAttribute('title') && b.dataset.tip).length`);
         expect(bad === 0, `кнопок без имени с подсказкой: ${bad}`);
     });
+} catch (failure) {
+    results.push(false);
+    console.log(`✗ сценарий прерван до шагов: ${failure.message}`);
 } finally {
     const failed = results.filter((ok) => !ok).length;
     console.log(`\nИтого: ${results.length - failed} из ${results.length} шагов`);

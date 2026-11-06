@@ -61,6 +61,17 @@ APP="source '$GST_ENV'; \
         $DETECTION_ARGS; \
     echo \"media-center exited: \$?\"; exec bash"
 
+# MC_DETACH=1 (так зовёт restart.sh): запуск в фоне, без подключения терминала
+if [ -n "${MC_DETACH:-}" ]; then
+    ssh "$REMOTE" "if pgrep -x media-center >/dev/null; then echo 'media-center уже запущен'; exit 0; fi; \
+        tmux kill-session -t mc 2>/dev/null; \
+        tmux new-session -d -s mc $(printf '%q' "$APP")"
+    sleep 8
+    ssh "$REMOTE" "pgrep -a -x media-center || echo 'media-center не запустился'; \
+        curl -s -m 5 -o /dev/null -w 'REST $REST_PORT /system/info -> %{http_code}\n' http://127.0.0.1:$REST_PORT/system/info"
+    exit 0
+fi
+
 # mc живёт в tmux-сессии mc: закрытие терминала только отключает от неё, работающий mc не запускается второй раз
 ssh -t "$REMOTE" "if tmux has-session -t mc 2>/dev/null && pgrep -x media-center >/dev/null; then \
         exec tmux attach-session -t mc; \

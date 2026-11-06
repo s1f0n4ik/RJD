@@ -24,6 +24,14 @@ static void unreachable() {
     // Имя хоста не найдено — это адрес, а не поток
     CHECK(classify_stream_error("Could not resolve host: cam.local (Name or service not known)") == CODE_RTSP_UNREACHABLE);
     CHECK(classify_stream_error("Host not found") == CODE_RTSP_UNREACHABLE);
+    // Реальная недоступная камера .102 (No route to host): текст общий, причина только во второй строке debug
+    const std::string no_route_debug =
+        "../subprojects/gst-plugins-good/gst/rtsp/gstrtspsrc.c(9088): gst_rtspsrc_retrieve_sdp (): /GstPipeline:probe-pipeline/GstRTSPSrc:rtspsrc320:\nFailed to connect. (Generic error)";
+    CHECK(classify_stream_error("Could not open resource for reading and writing.", no_route_debug) == CODE_RTSP_UNREACHABLE);
+    // Без второй строки debug общий текст остаётся общей ошибкой
+    CHECK(classify_stream_error("Could not open resource for reading and writing.") == CODE_GST_ERROR);
+    // Номер строки исходника не должен сойти за HTTP-код
+    CHECK(classify_stream_error("Internal data stream error.", "gstrtspsrc.c(6404): gst_rtspsrc_loop (): /GstPipeline:p/GstRTSPSrc:r:\nstreaming stopped, reason error (-5)") == CODE_GST_ERROR);
     std::puts("unreachable: OK");
 }
 

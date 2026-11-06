@@ -221,6 +221,7 @@ bool UCameraPipeline::teardown(bool is_blocking)
     m_probe.got_codec = false;
     m_probe.got_video_info = false;
     m_has_initialized = false;
+    m_eos_sent = false;
     if (is_blocking) {
         m_stop_requested.store(false);
     }
@@ -244,21 +245,92 @@ std::string UCameraPipeline::prepare_stop() {
 std::string UCameraPipeline::finish_eos() {
     UCameraPipeline::prepare_stop();
     GstElement* pipeline = nullptr;
+    // Повторный вызов после таймаута: EOS уже в конвейере и второй раз конвейер его отклонит, поэтому ждём первый
+    bool resend = true;
     {
         std::lock_guard lock(m_teardown_mutex);
         if (!m_pipeline || !m_has_initialized || !m_is_playing) return {};
         if (m_finishing && m_eos_received) return {};
+        resend = !(m_finishing && m_eos_sent);
         m_finishing = true;
-        m_eos_received = false;
+        if (resend) m_eos_received = false;
         pipeline = GST_ELEMENT(gst_object_ref(m_pipeline));
     }
-    const bool sent = gst_element_send_event(pipeline, gst_event_new_eos());
+    if (resend) {
+        // false возвращается и когда EOS всё же дошёл до записи (замечено на камере с зрителем WebRTC): судим по итогу ожидания
+        if (!gst_element_send_event(pipeline, gst_event_new_eos()) && m_logger)
+            m_logger->warn("finish_eos(): send_event(EOS) returned false, waiting for the recording anyway");
+        m_eos_sent = true;
+        m_eos_sent_ms = steady_now_ms();
+    }
     gst_object_unref(pipeline);
-    if (!sent) return "cannot send recording EOS";
-    std::unique_lock lock(m_eos_mutex);
-    if (!m_eos_cv.wait_for(lock, std::chrono::seconds(20), [this] { return m_eos_received.load(); }))
-        return "recording finalization timed out";
-    return {};
+
+    // EOS всего конвейера ждёт и ветки просмотра: пока у камеры живой зритель WebRTC, он приходит десятки секунд или совсем,
+    // хотя файл записи давно закрыт. Запись закончена, когда закрыты её фрагменты
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+    for (;;) {
+        {
+            std::unique_lock lock(m_eos_mutex);
+            if (m_eos_cv.wait_for(lock, std::chrono::milliseconds(50), [this] { return m_eos_received.load(); })) {
+                if (m_logger) m_logger->info("finish_eos(): EOS came back after " + std::to_string(steady_now_ms() - m_eos_sent_ms.load()) + " ms");
+                return {};
+            }
+        }
+        if (recording_finalized()) {
+            if (m_logger) m_logger->info("finish_eos(): recording closed " + std::to_string(steady_now_ms() - m_eos_sent_ms.load()) + " ms after EOS, pipeline EOS still pending");
+            return {};
+        }
+        if (std::chrono::steady_clock::now() >= deadline) break;
+    }
+    if (m_logger) m_logger->warn("finish_eos(): recording not closed " + std::to_string(steady_now_ms() - m_eos_sent_ms.load()) + " ms after EOS");
+    log_eos_stall();
+    return "recording finalization timed out";
+}
+
+int64_t UCameraPipeline::steady_now_ms() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+// EOS записи не вернулся: перечисляем элементы, чей приёмный пад так и не получил EOS, и уровни их очередей.
+// По списку видно, на какой ветке завершение застряло
+void UCameraPipeline::log_eos_stall() {
+    std::lock_guard lock(m_teardown_mutex);
+    if (!m_pipeline || !m_logger) return;
+
+    std::string report;
+    GstIterator* elements = gst_bin_iterate_recurse(GST_BIN(m_pipeline));
+    GValue item = G_VALUE_INIT;
+    while (gst_iterator_next(elements, &item) == GST_ITERATOR_OK) {
+        GstElement* element = GST_ELEMENT(g_value_get_object(&item));
+        if (!GST_IS_BIN(element)) {
+            std::string pending;
+            GstIterator* sinks = gst_element_iterate_sink_pads(element);
+            GValue pad_item = G_VALUE_INIT;
+            while (gst_iterator_next(sinks, &pad_item) == GST_ITERATOR_OK) {
+                GstPad* pad = GST_PAD(g_value_get_object(&pad_item));
+                // EOS, дошедший до пада, остаётся на нём липким событием
+                if (GstEvent* eos = gst_pad_get_sticky_event(pad, GST_EVENT_EOS, 0)) gst_event_unref(eos);
+                else pending += std::string(" ") + GST_PAD_NAME(pad);
+                g_value_reset(&pad_item);
+            }
+            g_value_unset(&pad_item);
+            gst_iterator_free(sinks);
+
+            if (!pending.empty()) {
+                report += std::string("\n\t") + GST_ELEMENT_NAME(element) + " (" + G_OBJECT_TYPE_NAME(element) + ") without EOS on:" + pending;
+                if (g_object_class_find_property(G_OBJECT_GET_CLASS(element), "current-level-buffers")) {
+                    guint buffers = 0;
+                    g_object_get(element, "current-level-buffers", &buffers, nullptr);
+                    report += ", queued buffers=" + std::to_string(buffers);
+                }
+            }
+        }
+        g_value_reset(&item);
+    }
+    g_value_unset(&item);
+    gst_iterator_free(elements);
+
+    m_logger->warn("finish_eos(): elements that did not get EOS:" + (report.empty() ? std::string(" none") : report));
 }
 
 void UCameraPipeline::restart_loop() {
@@ -480,7 +552,7 @@ UCameraPipeline::FBusWatch UCameraPipeline::setup_bus_watch(GstElement* pipeline
                 self->m_logger->error("GST ERROR: " + err_msg + " | debug: " + dbg_msg);
 
                 // Определяем код ошибки
-                const int code = err ? varan::nvr::classify_stream_error(err_msg)
+                const int code = err ? varan::nvr::classify_stream_error(err_msg, dbg_msg)
                                      : varan::signaling::CODE_GST_ERROR;
 
                 if (err) g_error_free(err);

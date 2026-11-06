@@ -498,6 +498,11 @@ void UCameraStreamPipeline::on_bus_error(int code, const std::string& descriptio
 	if (!probe_handler) shedule_restart();
 }
 
+bool UCameraStreamPipeline::recording_finalized() {
+    std::lock_guard lock(m_fragment_mutex);
+    return m_fragments.empty();
+}
+
 std::string UCameraStreamPipeline::prepare_stop() {
     UCameraPipeline::prepare_stop();
     if (!m_parameters.purposes.record) return {};

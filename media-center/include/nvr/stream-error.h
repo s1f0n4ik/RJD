@@ -11,7 +11,13 @@ namespace nvr {
 
 	// Числовой код ошибки потока по тексту ошибки rtspsrc.
 	// Порядок важен: «host not found» — это адрес, а не поток, поэтому недоступность разбирается до «not found»
-	inline int classify_stream_error(std::string message) {
+	// debug — строка отладки GStreamer: первая строка в ней место в исходниках («file.c(9088): func (): /Pipeline/Element:»),
+	// причина лежит в следующих. rtspsrc на отказ соединения даёт общее «Could not open resource…» и «Failed to connect.»
+	// только в debug. Первую строку отбрасываем: номер строки исходника легко сойдёт за 401 или 404.
+	inline int classify_stream_error(std::string message, const std::string& debug = "") {
+		const auto newline = debug.find('\n');
+		if (newline != std::string::npos) message += "\n" + debug.substr(newline + 1);
+
 		std::transform(message.begin(), message.end(), message.begin(),
 			[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 

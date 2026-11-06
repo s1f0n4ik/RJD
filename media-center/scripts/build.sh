@@ -17,7 +17,11 @@ for arg in "$@"; do
     esac
 done
 
-log "Сборка на $REMOTE ($BUILD_TYPE), каталог $REMOTE_DIR"
+# Число потоков сборки (MC_BUILD_JOBS). 8 — все ядра платы: 2026-11-05 вместе с работающим media-center
+# плата перезагружалась на такой сборке, поэтому deploy.sh --restart собирает на выключенном media-center
+JOBS="${MC_BUILD_JOBS:-8}"
+
+log "Сборка на $REMOTE ($BUILD_TYPE, -j$JOBS), каталог $REMOTE_DIR"
 
 ssh "$REMOTE" bash -s <<EOF
 set -e
@@ -27,7 +31,7 @@ $( $CLEAN && echo "rm -rf build" )
 cmake -B build -S . \
     -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-cmake --build build -j\$(nproc)
+cmake --build build -j$JOBS
 EOF
 
 log "Сборка завершена. Бинарник: $REMOTE_DIR/build/media-center"
