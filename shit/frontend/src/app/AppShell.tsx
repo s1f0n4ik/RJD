@@ -4,6 +4,7 @@ import { Icon, IconSprite } from './Icons';
 import { crumbsFor } from './nav';
 import { canOpen, navFor } from './role';
 import { DownloadsPill } from './DownloadsPill';
+import { UpdatePill } from './UpdatePill';
 import { useSystem } from './SystemContext';
 import { ToastProvider } from './Toast';
 import { formatDeviceTime, useDeviceClock } from './useDeviceClock';
@@ -163,6 +164,7 @@ export function AppShell({ username, role, onLogout }: AppShellProps) {
                         </div>
 
                         <div className="top-right">
+                            <UpdatePill role={role} />
                             <DownloadsPill />
                             <span className={`pill ${connected ? 'ok' : 'err'}`}>
                                 <span className="dot" />

@@ -1,3 +1,4 @@
 # Скрипты правятся на Windows, а исполняются на устройстве: CRLF ломает shebang.
 *.sh text eol=lf
 updater/debian/* text eol=lf
+media-center/debian/* text eol=lf

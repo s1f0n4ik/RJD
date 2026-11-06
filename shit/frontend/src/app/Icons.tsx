@@ -1,5 +1,5 @@
 // Спрайт иконок макета: один набор на всё приложение, толщина линии единая
-export type IconName = 'home' | 'grid' | 'arch' | 'cam' | 'eye' | '360' | 'gate' | 'menu' | 'cursor' | 'zone' | 'img' | 'gab' | 'cal' | 'play' | 'pause' | 'prev' | 'next' | 'swap' | 'bus' | 'clock' | 'tune' | 'chev' | 'dev' | 'kit' | 'plus' | 'search' | 'exit' | 'warn' | 'box' | 'map' | 'full' | 'trash' | 'save' | 'x' | 'empty' | 'lock' | 'undist' | 'refresh' | 'dots' | 'link' | 'unlink' | 'down' | 'grip' | 'list' | 'unfull' | 'undo' | 'eraser' | 'reset' | 'playhead' | 'poly' | 'pen' | 'dim' | 'up' | 'check' | 'file' | 'arr' | 'jump' | 'layers';
+export type IconName = 'home' | 'grid' | 'arch' | 'cam' | 'eye' | '360' | 'gate' | 'menu' | 'cursor' | 'zone' | 'img' | 'gab' | 'cal' | 'play' | 'pause' | 'prev' | 'next' | 'swap' | 'bus' | 'clock' | 'tune' | 'chev' | 'dev' | 'kit' | 'plus' | 'search' | 'exit' | 'warn' | 'box' | 'map' | 'full' | 'trash' | 'save' | 'x' | 'empty' | 'lock' | 'undist' | 'refresh' | 'dots' | 'link' | 'unlink' | 'down' | 'grip' | 'list' | 'unfull' | 'undo' | 'eraser' | 'reset' | 'playhead' | 'poly' | 'pen' | 'dim' | 'up' | 'check' | 'file' | 'arr' | 'jump' | 'layers' | 'okc' | 'xc' | 'minus';
 
 export function IconSprite() {
   return (
@@ -63,6 +63,9 @@ export function IconSprite() {
     <symbol id="i-arr" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14m-5-5 5 5-5 5"/></symbol>
     <symbol id="i-jump" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M7 17 17 7M8 7h9v9"/></symbol>
     <symbol id="i-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3 9 5-9 5-9-5zM3 13l9 5 9-5"/></symbol>
+    <symbol id="i-okc" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8 12.5 2.8 2.8L16.5 9.5"/></symbol>
+    <symbol id="i-xc" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="m9 9 6 6M15 9l-6 6"/></symbol>
+    <symbol id="i-minus" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12h8"/></symbol>
       </defs>
     </svg>
   );

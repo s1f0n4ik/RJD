@@ -1,0 +1,2 @@
+# Флаги ядра этой платы; файл создаётся при первой установке пакета, дальше пакет его не трогает
+MC_ARGS="--rest-port=7777 --signaling-ip=127.0.0.1 --signaling-port=8765 --modules=birdview,neural --varan-root=/var/lib/varan --gateway-ip=127.0.0.1 --gateway-port=50051 --detection-ip=127.0.0.1 --detection-port=50052"

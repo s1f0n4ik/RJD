@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
@@ -8,6 +8,8 @@ from app.config import settings
 from app.routers import loaders, status, streams, auth, layouts, devices, device_proxy, archive, configurations, machine_config, neural_config, surround
 from app.routers import time as time_router
 from app.routers import tests as tests_router
+from app.routers import system_update as system_update_router
+from app.services import system_update
 from app.services.websocket_manager import manager, websocket_endpoint
 from app.services.devices import registry
 from app.services.config_sync import sync as config_sync
@@ -54,6 +56,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# Пока идёт обновление системы, мастер не принимает записи: смену профиля, паспорт, реестр и остальное
+@app.middleware("http")
+async def system_update_lock(request: Request, call_next):
+    path = request.url.path
+    if request.method in ("POST", "PUT", "PATCH", "DELETE") and path.startswith("/api/") and not path.startswith("/api/update/"):
+        if (await system_update.lock_state()).get("busy"):
+            return JSONResponse(status_code=409, content={"detail": "System update is running"})
+    return await call_next(request)
+
 # Подключение роутеров
 app.include_router(layouts.router, prefix="/api", tags=["Layouts"])
 app.include_router(time_router.router, prefix="/api", tags=["Time"])
@@ -66,6 +78,7 @@ app.include_router(machine_config.router, prefix="/api", tags=["MachineConfig"])
 app.include_router(neural_config.router, prefix="/api", tags=["NeuralConfig"])
 app.include_router(surround.router, prefix="/api", tags=["Surround"])
 app.include_router(tests_router.router, prefix="/api")
+app.include_router(system_update_router.router, prefix="/api", tags=["SystemUpdate"])
 app.include_router(device_proxy.router, tags=["DeviceProxy"])
 app.include_router(auth.router, prefix="/auth", tags=["Auth"])
 app.include_router(streams.router, tags=["Streams"])

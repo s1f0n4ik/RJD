@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
-# Установка оффлайн-пакета varan на устройстве. Запускается из распакованного
-# каталога пакета, от root:
+# Установка роли из файла обновления varan на устройстве. Запускается из каталога
+# роли (master/ или minion/) распакованного файла, от root:
 #
-#   sudo ./install.sh
+#   sudo ./install.sh              установка
+#   sudo ./install.sh --prepare    подготовка без остановки: загрузка образов, проверка ядра
+#   sudo ./install.sh --discard    удаление подготовленных образов этой версии
 #
-# Состояние развёртывания (compose, .env, rollback.sh) живёт в /opt/varan-<роль>
-# и переживает смену версий: каталог пакета одноразовый.
+# VARAN_UNATTENDED=1 — запуск службой обновления: без вопросов, служба обновления
+# не переставляется (она обновляет себя сама последней).
+#
+# Состояние развёртывания (compose, .env, rollback.sh, пакеты ядра) живёт в
+# /opt/varan-<роль> и переживает смену версий: каталог пакета одноразовый.
 
 set -euo pipefail
 
@@ -13,6 +18,16 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 
 # Сколько ждём, пока все сервисы станут healthy.
 HEALTH_TIMEOUT=180
+
+MODE="install"
+for arg in "$@"; do
+	case "$arg" in
+		--prepare) MODE="prepare" ;;
+		--discard) MODE="discard" ;;
+		*) echo "ОШИБКА: неизвестный аргумент: $arg" >&2; exit 1 ;;
+	esac
+done
+UNATTENDED="${VARAN_UNATTENDED:-0}"
 
 die() {
 	echo "ОШИБКА: $*" >&2
@@ -39,6 +54,56 @@ set_env() {
 	fi
 }
 
+missing_images() {
+	# Образы версии пакета, которых ещё нет на устройстве
+	local img
+	while read -r img; do
+		docker image inspect "$img" >/dev/null 2>&1 || echo "$img"
+	done < <(TAG="$PKG_TAG" docker compose -f docker-compose.yml config --images)
+}
+
+load_images() {
+	local missing
+	missing="$(missing_images)"
+	if [[ -z "$missing" ]]; then
+		echo "==> Образы $PKG_TAG уже загружены"
+		return 0
+	fi
+	[[ -n "$IMAGES_FILE" ]] || die "в каталоге пакета нет images.tar.gz, а образов нет на устройстве: $missing"
+	echo "==> Загрузка образов"
+	# Дельта несёт только новые слои: без нужных старых слоёв загрузка падает, ничего не меняя
+	docker load -i "$IMAGES_FILE" || die "образы не загрузились: на устройстве нет слоёв, от которых собрана дельта, нужен файл от версии ${OLD_TAG:-этого устройства} или полный файл"
+	missing="$(missing_images)"
+	[[ -z "$missing" ]] || die "после загрузки нет образов: $missing"
+}
+
+check_mc_libs() {
+	# Бинарник нового ядра проверяется во временном каталоге, до остановки чего-либо
+	local tmp missing count
+	tmp="$(mktemp -d)"
+	dpkg-deb -x "$MC_DEB" "$tmp"
+	missing="$(bash -c 'source /opt/gstreamer-1.28/env.sh >/dev/null 2>&1; ldd "$1"' _ "$tmp/opt/media-center/media-center" | grep 'not found' || true)"
+	count="$(bash -c 'source /opt/gstreamer-1.28/env.sh >/dev/null 2>&1; ldd "$1"' _ "$tmp/opt/media-center/media-center" | grep -c '=>' || true)"
+	rm -rf "$tmp"
+	[[ -z "$missing" ]] || die "новому ядру не хватает библиотек:
+$missing"
+	echo "    проверка ядра: все $count библиотек найдены"
+}
+
+mc_flags_from_unit() {
+	# Флаги ядра из ExecStart старого юнита: всё после бинарника media-center
+	awk '/^ExecStart=/{on=1} on{line=$0; sub(/[ \t\r]+$/,"",line); cont=(substr(line,length(line),1)=="\\"); if(cont) line=substr(line,1,length(line)-1); printf "%s ", line; if(!cont) exit}' "$1" \
+		| sed -E "s/.*\/media-center[[:space:]]+//; s/'[[:space:]]*$//; s/--journal-dir[= ][^[:space:]]*//; s/[[:space:]]+/ /g; s/^ //; s/ $//"
+}
+
+wait_mc() {
+	local deadline=$(( SECONDS + HEALTH_TIMEOUT ))
+	until curl -fsS -o /dev/null --max-time 3 http://127.0.0.1:7777/system/info; do
+		(( SECONDS < deadline )) || return 1
+		sleep 3
+	done
+}
+
 # ========== Проверки окружения ==========
 
 [[ "$(id -u)" == "0" ]] || die "нужны права root, запускайте через sudo"
@@ -50,8 +115,16 @@ command -v docker >/dev/null || die "не найден docker"
 docker compose version >/dev/null 2>&1 || die "не найден плагин docker compose"
 docker info >/dev/null 2>&1 || die "демон docker недоступен"
 
-for f in images.tar docker-compose.yml .env.example; do
+for f in docker-compose.yml .env.example; do
 	[[ -f "$f" ]] || die "в каталоге пакета нет $f"
+done
+
+IMAGES_FILE=""
+for f in images.tar.gz images.tar; do
+	if [[ -f "$f" ]]; then
+		IMAGES_FILE="$f"
+		break
+	fi
 done
 
 # ========== Роль и каталог развёртывания ==========
@@ -73,11 +146,45 @@ OLD_TAG="$(read_env "$INSTALL_DIR/.env" TAG)"
 OLD_PREV_TAG="$(read_env "$INSTALL_DIR/.env" PREV_TAG)"
 OLD_ROOT="$(read_env "$INSTALL_DIR/.env" VARAN_ROOT)"
 
+# Ядро и служба обновления лежат уровнем выше каталога роли; ставятся вместе с ролью исполнителя
+MC_DEB=""
+UPDATER_DEB=""
+if [[ "$ROLE" == "minion" ]]; then
+	[[ -f ../media-center.deb ]] && MC_DEB="$(cd .. && pwd)/media-center.deb"
+	[[ -f ../updater.deb ]] && UPDATER_DEB="$(cd .. && pwd)/updater.deb"
+fi
+
+# ========== Подготовка и удаление подготовленного ==========
+
+if [[ "$MODE" == "discard" ]]; then
+	if [[ "$PKG_TAG" == "$OLD_TAG" || "$PKG_TAG" == "$OLD_PREV_TAG" ]]; then
+		echo "==> Образы $PKG_TAG используются установкой, оставлены"
+		exit 0
+	fi
+	echo "==> Удаление подготовленных образов $PKG_TAG"
+	while read -r img; do
+		docker image rm "$img" >/dev/null 2>&1 && echo "    удалён $img" || true
+	done < <(TAG="$PKG_TAG" docker compose -f docker-compose.yml config --images)
+	exit 0
+fi
+
 echo "==> Роль: $ROLE, версия пакета: $PKG_TAG"
 if [[ -n "$OLD_TAG" ]]; then
 	echo "==> Установлено сейчас: $OLD_TAG"
 else
 	echo "==> Установки на этом устройстве ещё не было"
+fi
+
+load_images
+if [[ -n "$MC_DEB" ]]; then
+	check_mc_libs
+elif [[ "$ROLE" == "minion" ]]; then
+	warn "в пакете нет media-center.deb — ядро не меняется"
+fi
+
+if [[ "$MODE" == "prepare" ]]; then
+	echo "Подготовка завершена, работающие сервисы не тронуты."
+	exit 0
 fi
 
 # ========== Рабочий каталог varan (только мастер) ==========
@@ -92,15 +199,19 @@ if [[ "$ROLE" == "master" ]]; then
 		DEFAULT_ROOT="/var/lib/varan"
 	fi
 
-	[[ -t 0 ]] || die "нужен интерактивный терминал: скрипт спрашивает корень varan (ssh -t)"
+	if [[ "$UNATTENDED" == "1" ]]; then
+		VARAN_ROOT="$DEFAULT_ROOT"
+	else
+		[[ -t 0 ]] || die "нужен интерактивный терминал: скрипт спрашивает корень varan (ssh -t)"
 
-	echo
-	echo "Корень рабочего каталога varan. В нём лежит settings/devices.json —"
-	echo "реестр устройств мастера. Enter оставит значение по умолчанию."
-	read -r -p "VARAN_ROOT [$DEFAULT_ROOT]: " VARAN_ROOT
-	VARAN_ROOT="${VARAN_ROOT:-$DEFAULT_ROOT}"
+		echo
+		echo "Корень рабочего каталога varan. В нём лежит settings/devices.json —"
+		echo "реестр устройств мастера. Enter оставит значение по умолчанию."
+		read -r -p "VARAN_ROOT [$DEFAULT_ROOT]: " VARAN_ROOT
+		VARAN_ROOT="${VARAN_ROOT:-$DEFAULT_ROOT}"
+		echo
+	fi
 	[[ "$VARAN_ROOT" == /* ]] || die "путь должен быть абсолютным: $VARAN_ROOT"
-	echo
 
 	if [[ -n "$OLD_ROOT" && "$VARAN_ROOT" != "$OLD_ROOT" ]]; then
 		warn "корень меняется с $OLD_ROOT на $VARAN_ROOT — реестр устройств по новому пути будет пустым"
@@ -214,15 +325,16 @@ fi
 
 # ========== Остановка текущей версии ==========
 
+# Ядро останавливается первым: оно пишет через storage-service и шлёт в сигналинг.
+if [[ -n "$MC_DEB" ]] && systemctl is-active --quiet media-center.service; then
+	echo "==> Остановка media-center"
+	systemctl stop media-center.service
+fi
+
 if [[ -f "$INSTALL_DIR/docker-compose.yml" ]]; then
 	echo "==> Остановка текущей версии"
 	docker compose --project-directory "$INSTALL_DIR" -f "$INSTALL_DIR/docker-compose.yml" down
 fi
-
-# ========== Загрузка образов ==========
-
-echo "==> Загрузка образов"
-docker load -i images.tar
 
 # ========== Раскладка файлов ==========
 
@@ -266,6 +378,40 @@ if [[ "$ROLE" == "master" ]]; then
 	set_env "$INSTALL_DIR/.env" FULL_AUTH "$(read_env .env.example FULL_AUTH)"
 fi
 
+# ========== Ядро и служба обновления (роль исполнителя) ==========
+
+if [[ -n "$MC_DEB" ]]; then
+	# Юнит в /etc перекрыл бы юнит пакета: его флаги переезжают в /etc/default/media-center
+	OLD_UNIT=/etc/systemd/system/media-center.service
+	if [[ -f "$OLD_UNIT" ]]; then
+		if [[ ! -f /etc/default/media-center ]]; then
+			MC_ARGS="$(mc_flags_from_unit "$OLD_UNIT")"
+			[[ "$MC_ARGS" == *--rest-port* ]] || die "не удалось разобрать флаги ядра из $OLD_UNIT, перенесите их в /etc/default/media-center вручную (MC_ARGS=\"...\")"
+			printf '# Флаги ядра перенесены из %s\nMC_ARGS="%s"\n' "$OLD_UNIT" "$MC_ARGS" > /etc/default/media-center
+			echo "==> Флаги ядра перенесены в /etc/default/media-center: $MC_ARGS"
+		fi
+		systemctl disable media-center.service >/dev/null 2>&1 || true
+		mv "$OLD_UNIT" "$INSTALL_DIR/media-center.service.old"
+		systemctl daemon-reload
+		echo "    старый юнит сохранён: $INSTALL_DIR/media-center.service.old"
+	fi
+
+	# Пакеты ядра хранятся по версиям: rollback.sh ставит пакет той версии, на которую возвращается
+	mkdir -p "$INSTALL_DIR/debs"
+	cp "$MC_DEB" "$INSTALL_DIR/debs/media-center_$PKG_TAG.deb"
+	echo "==> Установка ядра $(dpkg-deb -f "$MC_DEB" Version)"
+	dpkg -i "$MC_DEB"
+fi
+
+if [[ -n "$UPDATER_DEB" && "$UNATTENDED" != "1" ]]; then
+	echo "==> Установка службы обновления $(dpkg-deb -f "$UPDATER_DEB" Version)"
+	dpkg -i "$UPDATER_DEB"
+fi
+
+if [[ "$ROLE" == "master" && -f /lib/systemd/system/update-master.service ]]; then
+	systemctl enable --now update-master.service >/dev/null 2>&1 || warn "не удалось включить update-master"
+fi
+
 # ========== Запуск ==========
 
 echo "==> Запуск сервисов"
@@ -298,6 +444,16 @@ while :; do
 	sleep 3
 done
 
+MC_OK=1
+if [[ -n "$MC_DEB" ]]; then
+	echo "==> Запуск media-center"
+	systemctl start media-center.service
+	if ! wait_mc; then
+		warn "media-center не ответил на /system/info за ${HEALTH_TIMEOUT}с, смотрите journalctl -u media-center"
+		MC_OK=0
+	fi
+fi
+
 # ========== Чистка старых образов ==========
 
 echo "==> Чистка образов старше предыдущей версии"
@@ -308,6 +464,15 @@ docker image ls --format '{{.Repository}}:{{.Tag}}' --filter 'reference=varan/*'
 	fi
 	echo "    удаляю $img"
 	docker image rm "$img" >/dev/null 2>&1 || warn "не удалось удалить $img"
+done
+
+for deb in "$INSTALL_DIR"/debs/media-center_*.deb; do
+	[[ -f "$deb" ]] || continue
+	tag="$(basename "$deb" .deb)"
+	tag="${tag#media-center_}"
+	if [[ "$tag" != "$PKG_TAG" && "$tag" != "$PREV_TAG" ]]; then
+		rm -f "$deb"
+	fi
 done
 
 # ========== Итог ==========
@@ -321,12 +486,20 @@ echo "Предыдущая: ${PREV_TAG:-нет}"
 if [[ "$ROLE" == "master" ]]; then
 	echo "VARAN_ROOT: $VARAN_ROOT"
 fi
+if [[ -n "$MC_DEB" ]]; then
+	echo "Ядро:       $(dpkg-query -W -f='${Version}' media-center 2>/dev/null), флаги в /etc/default/media-center"
+fi
 echo "Каталог:    $INSTALL_DIR"
 echo "Откат:      sudo $INSTALL_DIR/rollback.sh"
 
 if [[ "$HEALTHY" == "0" ]]; then
 	echo
 	die "часть сервисов не поднялась, смотрите docker compose logs"
+fi
+
+if [[ "$MC_OK" == "0" ]]; then
+	echo
+	die "media-center не поднялся"
 fi
 
 echo

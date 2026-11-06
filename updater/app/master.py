@@ -61,7 +61,7 @@ class Master:
     def routes(self) -> Routes:
         return {
             ("GET", "/state"): self.state,
-            ("GET", "/lock"): lambda request: {"busy": self.busy()},
+            ("GET", "/lock"): self.lock_state,
             ("PUT", "/file"): self.upload,
             ("DELETE", "/file"): self.remove_file,
             ("POST", "/start"): self.start,
@@ -69,6 +69,12 @@ class Master:
             ("POST", "/revert"): self.revert,
             ("GET", "/board-log"): self.board_log,
         }
+
+    def lock_state(self, request: Optional[Request] = None) -> dict:
+        # Для блокировок мастера и плашки в верхней панели: без опроса плат
+        with self.lock:
+            rollout = self.rollout or {}
+            return {"busy": self.busy(), "phase": rollout.get("phase"), "kind": rollout.get("kind")}
 
     def busy(self) -> bool:
         # Поток раскатки ещё рассылает завершение платам после done: новый запуск подождёт его
@@ -137,7 +143,7 @@ class Master:
             pending = [{"id": key, "name": item["name"]} for key, item in self.pending.items()]
             result = {"system": self.system(boards), "boards": [self._board_view(b) for b in boards],
                       "file": self._file_view(info), "rollout": rollout, "pending": pending,
-                      "busy": busy, "uploading": self.uploading}
+                      "busy": busy, "uploading": self.uploading, "now": time.time()}
         result["checks"] = self.checks(boards) if info and not busy else []
         return result
 

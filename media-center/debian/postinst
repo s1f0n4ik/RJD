@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+
+# Работающее ядро перезапускается на новый бинарник; остановленное запускает install.sh в своём порядке
+if [ "$1" = "configure" ]; then
+	[ -f /etc/default/media-center ] || cp /opt/media-center/media-center.default /etc/default/media-center
+	systemctl daemon-reload
+	systemctl enable media-center.service
+	systemctl try-restart media-center.service
+fi

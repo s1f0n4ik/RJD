@@ -341,7 +341,7 @@ def main() -> None:
             raise AssertionError("start with a board without updater")
         except HttpError as e:
             assert e.status == 409
-        assert call("GET", url + "/lock") == {"busy": False}
+        assert call("GET", url + "/lock") == {"busy": False, "phase": "failed", "kind": "update"}
 
         for item in (server, api, dead, *(b.server for b in boards)):
             item.shutdown()

@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     CONFIG_DB: str = "/data/config.db"
     CONFIG_ASSETS_DIR: str = "/data/assets"
 
+    # Служба обновления системы на хосте мастера (update-master)
+    UPDATE_MASTER_URL: str = "http://127.0.0.1:8005"
+
     # Flask integration
     FLASK_BASE_URL: str = "http://localhost:5000"
     FLASK_TIMEOUT: int = 30

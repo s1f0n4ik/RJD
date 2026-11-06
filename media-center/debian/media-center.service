@@ -1,0 +1,29 @@
+[Unit]
+Description=Media Center Service
+After=multi-user.target graphical.target network.target docker.service
+Wants=docker.service graphical.target
+
+[Service]
+Type=simple
+User=orangepi
+Group=orangepi
+
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/orangepi/.Xauthority
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=XDG_CACHE_HOME=/var/tmp/mc-cache
+# Флаги платы: MC_ARGS
+EnvironmentFile=/etc/default/media-center
+
+StateDirectory=varan
+# Шейдеры ядро читает из рабочего каталога
+WorkingDirectory=/opt/media-center
+ExecStart=/bin/bash -lc 'source /opt/gstreamer-1.28/env.sh && exec /opt/media-center/media-center $$MC_ARGS'
+
+LimitNOFILE=4096
+
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

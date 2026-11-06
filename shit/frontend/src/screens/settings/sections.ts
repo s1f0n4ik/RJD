@@ -1,6 +1,7 @@
 // Подразделы «Настроек системы»; id — сегмент маршрута /settings/<id>
 export const SETTINGS_SECTIONS = [
     { id: 'storage', label: 'Хранилище' },
+    { id: 'update', label: 'Обновление системы' },
 ] as const;
 
 export type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number]['id'];

@@ -11,6 +11,7 @@ import {
     type Pool, type PoolVolume, type VolumePatch,
 } from './pool';
 import { isSettingsSection } from './sections';
+import UpdateSection from './UpdateSection';
 import './settings.css';
 
 const POLL_MS = 5000;
@@ -41,7 +42,7 @@ const baseName = (path: string) => path.split('/').filter(Boolean).pop() ?? path
 export default function SettingsScreen() {
     const { section = '' } = useParams();
     if (!isSettingsSection(section)) return <Navigate to="/settings/storage" replace />;
-    return <StorageSection />;
+    return section === 'update' ? <UpdateSection /> : <StorageSection />;
 }
 
 function VolumeTag({ v }: { v: PoolVolume }) {

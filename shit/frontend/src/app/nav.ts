@@ -44,7 +44,7 @@ export const NAV: NavItem[] = [
         sub: CONFIG_SECTIONS.map(s => ({ to: `/configurations/${s.id}`, label: s.label, n: '' })),
     },
     {
-        to: '/settings', label: 'Настройки системы', icon: 'tune', desc: 'Диски записи и пороги очистки', admin: true,
+        to: '/settings', label: 'Настройки системы', icon: 'tune', desc: 'Диски записи, пороги очистки, обновление системы', admin: true,
         sub: SETTINGS_SECTIONS.map((s, i) => ({ to: `/settings/${s.id}`, label: s.label, n: String(i + 1).padStart(2, '0') })),
     },
 
