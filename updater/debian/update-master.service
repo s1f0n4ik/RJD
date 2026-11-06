@@ -1,0 +1,14 @@
+[Unit]
+Description=VARAN update service (master, rollout over all boards)
+After=network-online.target docker.service update-minion.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/varan-updater
+ExecStart=/usr/bin/python3 -m app.main master
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

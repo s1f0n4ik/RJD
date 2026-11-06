@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+
+# update-master включает install.sh роли мастера; здесь перезапускается только уже включённый
+if [ "$1" = "configure" ]; then
+	systemctl daemon-reload
+	systemctl enable update-minion.service
+	systemctl restart update-minion.service
+	if systemctl is-enabled --quiet update-master.service; then
+		systemctl restart update-master.service
+	fi
+fi

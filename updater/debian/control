@@ -1,0 +1,9 @@
+Package: varan-updater
+Version: @VERSION@
+Architecture: all
+Maintainer: VARAN
+Depends: python3 (>= 3.10)
+Section: admin
+Priority: optional
+Description: VARAN system update service
+ update-minion runs on every board, update-master on the master board.
