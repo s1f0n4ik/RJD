@@ -239,7 +239,7 @@ def main() -> None:
         assert s["system"]["version"] == BASE and not s["busy"]
         levels = {c["title"]: c["level"] for c in s["checks"]}
         assert "err" not in levels.values(), s["checks"]
-        assert levels["Базовая версия совпадает"] == "ok" and levels["«Плата 4» офлайн, будет пропущена"] == "skip", levels
+        assert levels["Базовая версия подходит"] == "ok" and levels["«Плата 4» офлайн, будет пропущена"] == "skip", levels
         assert [b["online"] for b in s["boards"]] == [True, True, True, False]
 
         call("POST", url + "/start", {})
@@ -289,6 +289,11 @@ def main() -> None:
         call("POST", url + "/start", {})
         s = finished("done", "rolled_back", "failed")
         assert s["rollout"]["phase"] == "done" and [b.tag() for b in boards] == [NEWER] * 3, events(s)
+
+        # Постоянная база: платы уже новее базы, дельта от неё всё равно подходит
+        s = upload(make_file(root / "from-base.tar", NEWEST, BASE))
+        titles = {c["title"]: c["level"] for c in s["checks"]}
+        assert titles.get("Базовая версия подходит") == "ok" and "err" not in titles.values(), s["checks"]
 
         # Плата пропала во время установки: остальные откатываются, она вернётся сама, когда появится
         upload(make_file(root / "newest.tar", NEWEST, ""))

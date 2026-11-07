@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Выгрузка уже собранных образов с платы в оффлайн-пакеты обеих ролей.
 # Запускается на машине разработчика; на плате ничего не собирается —
-# берутся текущие varan/*:latest. Сборка с нуля — scripts/build-package.sh.
+# берутся текущие varan/*:latest. Сборка с нуля — scripts/build-update.sh.
 #
 #   scripts/pull-package.sh
 #   scripts/pull-package.sh --host=orangepi@192.168.1.4 --out-dir=/tmp/pkg

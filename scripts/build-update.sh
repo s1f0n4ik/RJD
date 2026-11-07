@@ -2,22 +2,27 @@
 # Сборка файла обновления varan: образы обеих ролей, ядро и служба обновления в одном .tar.
 # Запускается на arm64-плате с интернетом, где склонирован репозиторий.
 #
-#   scripts/build-update.sh                          полный файл: первая установка и отставшие платы
-#   scripts/build-update.sh --base=<тег>             дельта от установленного выпуска
+#   scripts/build-update.sh                          дельта от постоянной базы ($VARAN_RELEASES_DIR/BASE)
+#   scripts/build-update.sh --full                   полный файл: первая установка и платы старше базы
+#   scripts/build-update.sh --set-base=<тег>         сделать собранный выпуск постоянной базой
 #   scripts/build-update.sh --full-auth --out-dir=/home/orangepi/updates
 #
 # Результат: varan-update-<тег>-full.tar или varan-update-<тег>-from-<база>.tar;
-# манифест выпуска остаётся в $VARAN_RELEASES_DIR/<тег>/ для следующих дельт.
+# манифест выпуска остаётся в $VARAN_RELEASES_DIR/<тег>/.
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 BASE=""
+FULL="false"
+SET_BASE=""
 FULL_AUTH="false"
 OUT_DIR="$PWD"
 ALLOW_DIRTY="false"
 RELEASES_DIR="${VARAN_RELEASES_DIR:-$HOME/varan-releases}"
+# Постоянная база: все дельты собираются от неё и встают на платы с ней или с более новым выпуском
+BASE_FILE="$RELEASES_DIR/BASE"
 BUILD_ROOT="${VARAN_BUILD_DIR:-$HOME/varan-build}"
 # Ядро собирается в четыре потока: на восьми плата перезагружалась вместе с работающим media-center
 MC_JOBS="${MC_BUILD_JOBS:-4}"
@@ -25,9 +30,13 @@ DELTA_WARN=$(( 200 * 1024 * 1024 ))
 
 usage() {
 	cat <<'EOF'
-Использование: build-update.sh [--base=TAG] [--full-auth] [--out-dir=DIR] [--allow-dirty]
+Использование: build-update.sh [--full | --base=TAG] [--full-auth] [--out-dir=DIR] [--allow-dirty]
+               build-update.sh --set-base=TAG
 
-  --base=TAG      дельта от выпуска TAG (его манифест в $VARAN_RELEASES_DIR/TAG/)
+  без флагов      дельта от постоянной базы из $VARAN_RELEASES_DIR/BASE
+  --full          полный файл со всеми слоями
+  --base=TAG      дельта от другого выпуска TAG (его манифест в $VARAN_RELEASES_DIR/TAG/)
+  --set-base=TAG  сделать выпуск TAG постоянной базой: его образы копируются в varan-base/*
   --full-auth     фронт собирается с авторизацией на всех маршрутах
   --out-dir=DIR   куда положить файл (по умолчанию текущий каталог)
   --allow-dirty   собрать из незакоммиченного дерева, тег помечается -dirty
@@ -46,6 +55,8 @@ warn() {
 for arg in "$@"; do
 	case "$arg" in
 		--base=*) BASE="${arg#*=}" ;;
+		--full) FULL="true" ;;
+		--set-base=*) SET_BASE="${arg#*=}" ;;
 		--full-auth) FULL_AUTH="true" ;;
 		--out-dir=*) OUT_DIR="${arg#*=}" ;;
 		--allow-dirty) ALLOW_DIRTY="true" ;;
@@ -66,9 +77,38 @@ docker compose version >/dev/null 2>&1 || die "не найден плагин do
 docker info >/dev/null 2>&1 || die "демон docker недоступен"
 [[ -f /opt/gstreamer-1.28/env.sh ]] || die "нет /opt/gstreamer-1.28/env.sh: ядро не соберётся"
 
-# ========== Тег выпуска ==========
-
 cd "$REPO_ROOT"
+
+# ========== Постоянная база ==========
+
+# Образы базы живут под varan-base/*: чистка при обновлениях трогает только varan/<сервис>
+if [[ -n "$SET_BASE" ]]; then
+	[[ -f "$RELEASES_DIR/$SET_BASE/manifest.json" ]] || die "нет манифеста $RELEASES_DIR/$SET_BASE/manifest.json: базой может быть только выпуск, собранный этим скриптом"
+	SERVICES=()
+	for compose_file in docker-compose.minion.yml docker-compose.master.yml; do
+		mapfile -t -O "${#SERVICES[@]}" SERVICES < <(docker compose -f "$compose_file" config --services)
+	done
+	for svc in "${SERVICES[@]}"; do
+		docker image inspect "varan/$svc:$SET_BASE" >/dev/null 2>&1 || die "нет образа varan/$svc:$SET_BASE на этой плате"
+	done
+	docker image ls --format '{{.Repository}}:{{.Tag}}' --filter 'reference=varan-base/*' | while read -r old; do
+		docker image rm "$old" >/dev/null
+	done
+	for svc in "${SERVICES[@]}"; do
+		docker tag "varan/$svc:$SET_BASE" "varan-base/$svc:$SET_BASE"
+	done
+	echo "$SET_BASE" > "$BASE_FILE"
+	echo "==> Постоянная база: $SET_BASE (образы varan-base/*:$SET_BASE, $BASE_FILE)"
+	exit 0
+fi
+
+[[ "$FULL" == "true" && -n "$BASE" ]] && die "--full и --base исключают друг друга"
+if [[ "$FULL" != "true" && -z "$BASE" ]]; then
+	[[ -f "$BASE_FILE" ]] || die "постоянная база не задана ($BASE_FILE): соберите полный файл с --full и выставьте базу через --set-base=<тег>"
+	BASE="$(cat "$BASE_FILE")"
+fi
+
+# ========== Тег выпуска ==========
 
 SHA="$(git rev-parse --short=7 HEAD)"
 STAMP="$(date +%Y-%m-%d-%H%M)"
@@ -120,10 +160,17 @@ for ROLE in minion master; do
 		OVERRIDE="$WORK/cache-from-$ROLE.yml"
 		echo "services:" > "$OVERRIDE"
 		for svc in $(docker compose -f "$COMPOSE_FILE" config --services); do
-			if docker image inspect "varan/$svc:$BASE" >/dev/null 2>&1; then
-				printf '  %s:\n    build:\n      cache_from:\n        - varan/%s:%s\n' "$svc" "$svc" "$BASE" >> "$OVERRIDE"
+			source_image=""
+			for candidate in "varan-base/$svc:$BASE" "varan/$svc:$BASE"; do
+				if docker image inspect "$candidate" >/dev/null 2>&1; then
+					source_image="$candidate"
+					break
+				fi
+			done
+			if [[ -n "$source_image" ]]; then
+				printf '  %s:\n    build:\n      cache_from:\n        - %s\n' "$svc" "$source_image" >> "$OVERRIDE"
 			else
-				warn "нет образа varan/$svc:$BASE — его слои в дельте будут собраны заново"
+				warn "нет образа varan-base/$svc:$BASE — его слои в дельте могут собраться заново и увеличить файл"
 			fi
 		done
 		FILES+=(-f "$OVERRIDE")

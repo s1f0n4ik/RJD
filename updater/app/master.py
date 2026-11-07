@@ -179,14 +179,15 @@ class Master:
         if system["version"] and release_key(manifest["tag"]) <= release_key(system["version"]):
             out.append(_check("warn", OLDER, "Запуск попросит подтверждения"))
         if base:
-            wrong = [b for b in ready if any(b["versions"].get(role) != base for role in b["roles"])]
+            # Дельта от постоянной базы встаёт на базу и любой более новый выпуск: их неизменные слои совпадают с базой
+            wrong = [b for b in ready if any(release_key(b["versions"].get(role)) < release_key(base) for role in b["roles"])]
             if wrong:
                 names = ", ".join(f"«{b['name']}»" for b in wrong)
                 versions = ", ".join(sorted({release_label(b["version"]) for b in wrong}))
                 out.append(_check("err", "Дельта не подходит к этой системе",
-                                  f"Файл собран от {release_label(base)}, а {names} на {versions}. Нужна дельта от этой версии или полный файл."))
+                                  f"Файл собран от {release_label(base)}, а {names} на более старой версии {versions}. Нужен полный файл."))
             else:
-                out.append(_check("ok", "Базовая версия совпадает", f"Все платы в сети на {release_label(base)}"))
+                out.append(_check("ok", "Базовая версия подходит", f"Все платы в сети на {release_label(base)} или новее"))
         else:
             out.append(_check("ok", "Полный файл", "Подходит к любой версии плат"))
         missing = [b for b in online if not b["updater"]]
