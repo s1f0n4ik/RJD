@@ -457,14 +457,17 @@ fi
 # ========== Чистка старых образов ==========
 
 echo "==> Чистка образов старше предыдущей версии"
-docker image ls --format '{{.Repository}}:{{.Tag}}' --filter 'reference=varan/*' | while read -r img; do
-	tag="${img##*:}"
-	if [[ "$tag" == "$PKG_TAG" || ( -n "$PREV_TAG" && "$tag" == "$PREV_TAG" ) ]]; then
-		continue
-	fi
-	echo "    удаляю $img"
-	docker image rm "$img" >/dev/null 2>&1 || warn "не удалось удалить $img"
-done
+# Только образы сервисов этой роли: у другой роли на той же плате и у посторонних varan/* свои версии
+while read -r service_image; do
+	docker image ls --format '{{.Repository}}:{{.Tag}}' "${service_image%:*}" | while read -r img; do
+		tag="${img##*:}"
+		if [[ "$tag" == "$PKG_TAG" || ( -n "$PREV_TAG" && "$tag" == "$PREV_TAG" ) ]]; then
+			continue
+		fi
+		echo "    удаляю $img"
+		docker image rm "$img" >/dev/null 2>&1 || warn "не удалось удалить $img"
+	done
+done < <(TAG="$PKG_TAG" docker compose -f docker-compose.yml config --images)
 
 for deb in "$INSTALL_DIR"/debs/media-center_*.deb; do
 	[[ -f "$deb" ]] || continue
