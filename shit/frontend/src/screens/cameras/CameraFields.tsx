@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Icon } from '../../app/Icons';
 import { Select } from '../../app/Select';
-import { Switch } from '../../app/Modal';
 import { getDevices } from '../../services/devices';
 import type { StreamPurpose } from '../../types';
 import {
@@ -10,10 +9,7 @@ import {
     PURPOSE_NAMES,
     PURPOSE_ORDER,
     purposeAvailable,
-    togglePurpose,
-    streamNumber,
     type CameraFormData,
-    type StreamForm,
     type Validation,
 } from './model';
 
@@ -34,7 +30,7 @@ export function useDeviceModules(deviceId: string): string[] {
 }
 
 /** Поле с подписью сверху. */
-function Cell({ cap, children }: { cap: string; children: React.ReactNode }) {
+export function Cell({ cap, children }: { cap: string; children: React.ReactNode }) {
     return (
         <label className="fcell">
             <span className="fcap">{cap}</span>
@@ -43,7 +39,7 @@ function Cell({ cap, children }: { cap: string; children: React.ReactNode }) {
     );
 }
 
-function NumCell({ cap, value, onValue }: { cap: string; value: number; onValue: (n: number) => void }) {
+export function NumCell({ cap, value, onValue }: { cap: string; value: number; onValue: (n: number) => void }) {
     return (
         <Cell cap={cap}>
             <input
@@ -191,6 +187,16 @@ export function ConnectionFields({
                     />
                 </Cell>
             </div>
+            {withName && (
+                <Cell cap="Описание">
+                    <textarea
+                        className="inp cd-area"
+                        value={form.description}
+                        onChange={e => onChange({ description: e.target.value })}
+                    />
+                </Cell>
+            )}
+
             {devices.length === 0 && (
                 <p className="hint is-err" style={{ margin: 0 }}>
                     В системе нет устройств — добавьте устройство, прежде чем заводить камеры
@@ -229,104 +235,6 @@ export function PurposePicker({ purposes, modules, compact, onToggle }: PurposeP
                     </button>
                 );
             })}
-        </div>
-    );
-}
-
-interface StreamFieldsProps {
-    streams: StreamForm[];
-    selected: string;
-    modules: string[];
-    onSelect: (key: string) => void;
-    onPatch: (key: string, patch: Partial<StreamForm>) => void;
-    onAdd: () => void;
-    onRemove: (key: string) => void;
-    /** Подписи в селекте: «Поток 1 · 1920×1080» */
-    labels: Record<string, string>;
-}
-
-export function StreamFields({
-    streams, selected, modules, onSelect, onPatch, onAdd, onRemove, labels,
-}: StreamFieldsProps) {
-    const stream = streams.find(s => s.key === selected) ?? streams[0];
-    if (!stream) {
-        return (
-            <div className="fields">
-                <p className="hint" style={{ margin: 0 }}>У камеры нет потоков.</p>
-                <button type="button" className="btn" onClick={onAdd}>Добавить поток</button>
-            </div>
-        );
-    }
-
-    return (
-        <div className="fields">
-            <div className="stream-bar">
-                <div className="fcell grow">
-                    <span className="fcap">Поток</span>
-                    <Select
-                        value={stream.key}
-                        onChange={onSelect}
-                        options={streams.map(s => ({
-                            value: s.key,
-                            label: labels[s.key] ?? `Поток ${streamNumber(s.key)}`,
-                        }))}
-                    />
-                </div>
-                <button type="button" className="btn" onClick={onAdd}>Добавить</button>
-                {/* Удалить можно и последний: не сохранится проверка формы */}
-                <button
-                    type="button"
-                    className="btn btn--danger"
-                    onClick={() => onRemove(stream.key)}
-                >
-                    Удалить
-                </button>
-            </div>
-
-            <div className="fcell">
-                <span className="fcap">Назначения</span>
-                <PurposePicker
-                    purposes={stream.purposes}
-                    modules={modules}
-                    onToggle={purpose => onPatch(stream.key, togglePurpose(stream, purpose))}
-                />
-            </div>
-
-            <div className="frow frow--3">
-                {/* Номер выбран из опроса камеры, руками не правится */}
-                <div className="fcell">
-                    <span className="fcap">Субпоток</span>
-                    <span className="fstatic">{stream.substream}</span>
-                </div>
-                <NumCell
-                    cap="Задержка, мс"
-                    value={stream.latency}
-                    onValue={n => onPatch(stream.key, { latency: n })}
-                />
-                <NumCell
-                    cap="Реконнект, с"
-                    value={stream.reconnect}
-                    onValue={n => onPatch(stream.key, { reconnect: n })}
-                />
-            </div>
-
-            <label className="fsw">
-                <Switch on={stream.use_udp} onToggle={v => onPatch(stream.key, { use_udp: v })}>
-                    Передавать по UDP
-                </Switch>
-            </label>
-
-            {stream.purposes.includes('record') && (
-                <>
-                    <div className="frow">
-                        <NumCell
-                            cap="Длина сегмента, с"
-                            value={stream.segment}
-                            onValue={n => onPatch(stream.key, { segment: n })}
-                        />
-                    </div>
-                </>
-            )}
         </div>
     );
 }

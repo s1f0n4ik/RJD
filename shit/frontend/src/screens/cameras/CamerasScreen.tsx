@@ -2,15 +2,18 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Icon } from '../../app/Icons';
 import { Modal, isModalOpen, Seg } from '../../app/Modal';
+import { Select } from '../../app/Select';
 import { useToast } from '../../app/Toast';
 import { reducedMotion, useFlash } from '../../app/motion';
 import { isAdmin, useRole } from '../../app/role';
 import { api } from '../../services/api';
 import { getDevices, loadDevices, signalingWsUrl } from '../../services/devices';
+import type { PlayerStats } from '../../components/webrtc/useWebRTCPlayer';
 import type { StreamPurpose } from '../../types';
 import { AddCameraWizard } from './AddCameraWizard';
 import { AddStreamModal } from './AddStreamModal';
-import { ConnectionFields, StreamFields, useDeviceModules } from './CameraFields';
+import { CameraInfo, CameraSummary, ModuleHead, PreviewStats, StreamCards } from './CameraDrawer';
+import { ConnectionFields, useDeviceModules } from './CameraFields';
 import { LivePreview } from './LivePreview';
 import { ScanModal } from './ScanModal';
 import { PurposeChips, StreamsTable } from './StreamsTable';
@@ -84,6 +87,9 @@ export function CamerasScreen() {
     const [streamKey, setStreamKey] = useState<string>('');
     const [form, setForm] = useState<CameraFormData | null>(null);
     const [saving, setSaving] = useState(false);
+    // Панель открывается на состоянии, поля правки включаются кнопкой
+    const [editing, setEditing] = useState(false);
+    const [stats, setStats] = useState<PlayerStats | null>(null);
 
     const [wizardOpen, setWizardOpen] = useState(false);
     const [wizardInitial, setWizardInitial] = useState<Partial<CameraFormData> | undefined>(undefined);
@@ -176,6 +182,7 @@ export function CamerasScreen() {
     const finishClose = () => {
         setSelectedId(null);
         setForm(null);
+        setEditing(false);
         setClosing(false);
     };
 
@@ -203,6 +210,7 @@ export function CamerasScreen() {
             return;
         }
         setClosing(false);
+        setEditing(false);
         setSelectedId(camera.id);
         setForm(formFromCamera(camera));
         // Открываем на смотрибельном потоке: рядом живое превью
@@ -295,6 +303,7 @@ export function CamerasScreen() {
             // Перечитываем форму из свежего списка: сервер мог поправить значения
             const fresh = (await api.getSources()).cameras.find(c => c.id === selected.id);
             if (fresh) setForm(formFromCamera(fresh));
+            setEditing(false);
         } catch (err) {
             showToast('err', formatError(err));
         } finally {
@@ -336,6 +345,7 @@ export function CamerasScreen() {
             if (selectedId === camera.id && !isCopy) {
                 setSelectedId(null);
                 setForm(null);
+                setEditing(false);
             }
             await load(true);
         } catch (err) {
@@ -349,10 +359,22 @@ export function CamerasScreen() {
         setWizardOpen(true);
     };
 
+    const startEdit = () => {
+        if (!selected) return;
+        setForm(formFromCamera(selected));
+        setEditing(true);
+    };
+
+    const cancelEdit = () => {
+        if (selected) setForm(formFromCamera(selected));
+        setEditing(false);
+    };
+
     const previewStream = selectedStreams.find(s => s.key === streamKey);
     const previewKey = previewStream?.purposes.includes('view')
         ? previewStream.key
         : viewableStream(selected ?? ({} as Camera))?.key;
+    const viewStreams = selectedStreams.filter(s => s.purposes.includes('view'));
 
     const flashTotal = useFlash<HTMLSpanElement>(byDevice.length);
     const flashLive = useFlash<HTMLSpanElement>(liveCount, liveCount !== byDevice.length ? 'warn' : '');
@@ -450,12 +472,12 @@ export function CamerasScreen() {
                     ) : (
                         <div className="cam-grid">
                             <div className="cam-head">
-                                <span>Название</span>
-                                <span>Назначения</span>
-                                <span>IP-адрес</span>
-                                <span>Устройство</span>
-                                <span>Потоков</span>
-                                <span>Состояние</span>
+                                <span className="c-nm">Название</span>
+                                <span className="c-purp">Назначения</span>
+                                <span className="c-ip">IP-адрес</span>
+                                <span className="c-dev">Устройство</span>
+                                <span className="c-cnt">Потоков</span>
+                                <span className="c-st">Состояние</span>
                             </div>
                             {visible.map(camera => {
                                 const status = cameraStatus(camera);
@@ -467,7 +489,7 @@ export function CamerasScreen() {
                                             className={`cam-row${open ? ' is-open' : ''}`}
                                             onClick={() => toggleCamera(camera)}
                                         >
-                                            <span className="nm">
+                                            <span className="nm c-nm">
                                                 <span className="cam-name">
                                                     <Icon name="chev" size={12} className="chev" />
                                                     <i>{camera.display_name || camera.id}</i>
@@ -476,13 +498,13 @@ export function CamerasScreen() {
                                                     )}
                                                 </span>
                                             </span>
-                                            <span className="cell-purp"><PurposeChips purposes={cameraPurposes(camera)} /></span>
-                                            <span className="mono">{camera.ip_adress}</span>
-                                            <span className={camera.offline ? 'st-err' : ''}>
+                                            <span className="cell-purp c-purp"><PurposeChips purposes={cameraPurposes(camera)} /></span>
+                                            <span className="mono c-ip">{camera.ip_adress}</span>
+                                            <span className={`c-dev${camera.offline ? ' st-err' : ''}`}>
                                                 {camera.device_name ?? '—'}
                                             </span>
-                                            <span className="mono">{streams.length}</span>
-                                            <span>
+                                            <span className="mono c-cnt">{streams.length}</span>
+                                            <span className="c-st">
                                                 <span className={`st st-${status.tone}`} data-tip={status.tip}>
                                                     <span className={`dot ${status.tone === 'info' ? 'acc' : status.tone === 'dim' ? '' : status.tone}`} />
                                                     <span className="seps">
@@ -509,9 +531,9 @@ export function CamerasScreen() {
                     )}
                 </div>
 
-                {canEdit && selected && form && (
+                {selected && form && (
                     <div
-                        className={`drawer${closing ? ' is-closing' : ''}`}
+                        className={`drawer cd-drawer${closing ? ' is-closing' : ''}`}
                         onTransitionEnd={e => {
                             if (closing && e.target === e.currentTarget && e.propertyName === 'flex-basis') finishClose();
                         }}
@@ -527,146 +549,183 @@ export function CamerasScreen() {
                                 </span>
                             </div>
                             <span className="spacer" />
-                            <span className={`st st-${cameraStatus(selected).tone}`} data-tip={cameraStatus(selected).tip}>
-                                <span className={`dot ${cameraStatus(selected).tone === 'ok' ? 'ok' : 'err'}`} />
-                                <span className="seps">
-                                    <span>{cameraStatus(selected).label}</span>
-                                    {cameraStatus(selected).detail && <span>{cameraStatus(selected).detail}</span>}
-                                </span>
-                            </span>
+                            {canEdit && !editing && (
+                                <button
+                                    className="btn btn--sm"
+                                    disabled={selectedOffline}
+                                    data-tip={selectedOffline ? 'Устройство не отвечает' : undefined}
+                                    onClick={startEdit}
+                                >
+                                    <Icon name="pen" size={14} />Изменить
+                                </button>
+                            )}
                             <button
                                 className="icon-btn"
                                 style={{ border: 'none' }}
                                 onClick={requestClose}
-                                aria-label="Закрыть настройки камеры"
+                                aria-label="Закрыть панель камеры"
                             >
                                 <Icon name="x" size={14} />
                             </button>
                         </div>
 
+                        <CameraSummary camera={selected} />
+
+                        {editing && (
+                            <div className="cd-editbar">
+                                <Icon name="pen" size={14} />
+                                <b>Правка камеры</b>
+                                <span>вступит в силу после «Применить»</span>
+                            </div>
+                        )}
+
                         <div className="drawer-b">
-                            {copies.length > 0 && (
-                                <div className="dup">
-                                    <div className="dup-h">
-                                        <Icon name="warn" size={14} />
-                                        <span className="eyebrow">Тот же id</span>
-                                    </div>
-                                    {copies.map(copy => (
-                                        <div key={deviceOf(copy)} className="dup-item">
-                                            <div className="dup-card">
-                                                <div className="who">
-                                                    <b>{copy.display_name || copy.id}</b>
-                                                    <span className="sub">
-                                                        <span className="seps">
-                                                            <span>{copy.device_name}</span>
-                                                            <span>{copy.ip_adress}</span>
-                                                        </span>
-                                                    </span>
-                                                </div>
-                                                <PurposeChips purposes={cameraPurposes(copy)} />
-                                            </div>
-                                            <div className="dup-acts">
-                                                <button
-                                                    className="btn btn--sm btn--acc-dim"
-                                                    disabled={copyBusy}
-                                                    onClick={() => void changeCopyId(copy)}
-                                                >
-                                                    <Icon name="swap" size={14} />
-                                                    <span className="seps">
-                                                        <span>Сменить id</span>
-                                                        <span>{findNextFreeCameraId(cameras)}</span>
-                                                    </span>
-                                                </button>
-                                                <button
-                                                    className="btn btn--sm btn--err"
-                                                    disabled={copyBusy}
-                                                    onClick={() => setConfirmDelete(copy)}
-                                                >
-                                                    Удалить копию
-                                                </button>
-                                            </div>
+                            {canEdit && copies.length > 0 && (
+                                <div className="cd-pad">
+                                    <div className="dup">
+                                        <div className="dup-h">
+                                            <Icon name="warn" size={14} />
+                                            <span className="eyebrow">Тот же id</span>
                                         </div>
-                                    ))}
+                                        {copies.map(copy => (
+                                            <div key={deviceOf(copy)} className="dup-item">
+                                                <div className="dup-card">
+                                                    <div className="who">
+                                                        <b>{copy.display_name || copy.id}</b>
+                                                        <span className="sub">
+                                                            <span className="seps">
+                                                                <span>{copy.device_name}</span>
+                                                                <span>{copy.ip_adress}</span>
+                                                            </span>
+                                                        </span>
+                                                    </div>
+                                                    <PurposeChips purposes={cameraPurposes(copy)} />
+                                                </div>
+                                                <div className="dup-acts">
+                                                    <button
+                                                        className="btn btn--sm btn--acc-dim"
+                                                        disabled={copyBusy}
+                                                        onClick={() => void changeCopyId(copy)}
+                                                    >
+                                                        <Icon name="swap" size={14} />
+                                                        <span className="seps">
+                                                            <span>Сменить id</span>
+                                                            <span>{findNextFreeCameraId(cameras)}</span>
+                                                        </span>
+                                                    </button>
+                                                    <button
+                                                        className="btn btn--sm btn--err"
+                                                        disabled={copyBusy}
+                                                        onClick={() => setConfirmDelete(copy)}
+                                                    >
+                                                        Удалить копию
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
                                 </div>
                             )}
 
-                            {selectedOffline ? (
-                                <div className="cam-preview">
-                                    <div className="state">
-                                        Устройство «{selected.device_name}» не отвечает — показаны данные из кэша.
+                            <div className="cd-prev">
+                                {selectedOffline ? (
+                                    <div className="cam-preview">
+                                        <div className="state">
+                                            Устройство «{selected.device_name}» не отвечает — показаны данные из кэша.
+                                        </div>
                                     </div>
-                                </div>
-                            ) : previewKey ? (
-                                <LivePreview
-                                    key={`${selected.id}:${previewKey}`}
-                                    cameraId={selected.id}
-                                    stream={previewKey}
-                                    signalingUrl={signalingWsUrl(deviceOf(selected), `/client/${selected.id}`)}
-                                    caption={streamLabels[previewKey] ?? previewKey}
-                                />
-                            ) : (
-                                <div className="cam-preview">
-                                    <div className="state">
-                                        Ни одному потоку не назначен просмотр — смотреть нечего.
+                                ) : previewKey ? (
+                                    <LivePreview
+                                        key={`${selected.id}:${previewKey}`}
+                                        cameraId={selected.id}
+                                        stream={previewKey}
+                                        signalingUrl={signalingWsUrl(deviceOf(selected), `/client/${selected.id}`)}
+                                        caption={streamLabels[previewKey] ?? previewKey}
+                                        onStats={setStats}
+                                    />
+                                ) : (
+                                    <div className="cam-preview">
+                                        <div className="state">
+                                            Ни одному потоку не назначен просмотр — смотреть нечего.
+                                        </div>
                                     </div>
-                                </div>
-                            )}
-
-                            <div className="drawer-col">
-                                <span className="eyebrow" style={{ display: 'block', marginBottom: 12 }}>Потоки</span>
-                                <StreamFields
-                                    streams={form.streams}
-                                    selected={streamKey}
-                                    modules={modules}
-                                    onSelect={setStreamKey}
-                                    onPatch={patchStream}
-                                    onAdd={() => setAddStreamOpen(true)}
-                                    onRemove={removeStream}
-                                    labels={streamLabels}
-                                />
-                                {!streamsCheck.valid && (
-                                    <p className="hint is-err" style={{ marginTop: 10 }}>{streamsCheck.error}</p>
                                 )}
+                                {!selectedOffline && previewKey && viewStreams.length > 1 && (
+                                    <Select
+                                        value={previewKey}
+                                        onChange={setStreamKey}
+                                        options={viewStreams.map(stream => ({ value: stream.key, label: streamLabels[stream.key] }))}
+                                    />
+                                )}
+                                {!selectedOffline && previewKey && <PreviewStats stats={stats} />}
                             </div>
 
-                            <div className="drawer-col">
-                                <span className="eyebrow" style={{ display: 'block', marginBottom: 12 }}>Подключение</span>
-                                <ConnectionFields
-                                    form={form}
-                                    onChange={patchForm}
-                                    editMode
-                                    withName
-                                    autoName={selected.id}
-                                    nameCheck={nameCheck}
-                                    ipCheck={ipCheck}
-                                    portCheck={portCheck}
-                                />
-                            </div>
+                            <section className="cd-sec cd-sec--cam">
+                                <ModuleHead icon="cam" title="Камера" camera />
+                                <div className="cd-sec-b cd-swap" key={editing ? 'edit' : 'view'}>
+                                    {editing ? (
+                                        <ConnectionFields
+                                            form={form}
+                                            onChange={patchForm}
+                                            editMode
+                                            withName
+                                            autoName={selected.id}
+                                            nameCheck={nameCheck}
+                                            ipCheck={ipCheck}
+                                            portCheck={portCheck}
+                                        />
+                                    ) : (
+                                        <CameraInfo camera={selected} />
+                                    )}
+                                </div>
+                            </section>
+
+                            <section className="cd-sec cd-sec--str">
+                                <ModuleHead icon="layers" title="Потоки" count={editing ? form.streams.length : selectedStreams.length}>
+                                    {editing && (
+                                        <button type="button" className="btn btn--sm" onClick={() => setAddStreamOpen(true)}>
+                                            <Icon name="plus" size={14} />Добавить
+                                        </button>
+                                    )}
+                                </ModuleHead>
+                                <div className="cd-sec-b cd-swap" key={editing ? 'edit' : 'view'}>
+                                    <StreamCards
+                                        camera={selected}
+                                        infos={selectedStreams}
+                                        form={editing ? form.streams : null}
+                                        modules={modules}
+                                        onSelect={setStreamKey}
+                                        onPatch={patchStream}
+                                        onRemove={removeStream}
+                                    />
+                                    {editing && !streamsCheck.valid && (
+                                        <p className="hint is-err" style={{ margin: 0 }}>{streamsCheck.error}</p>
+                                    )}
+                                </div>
+                            </section>
                         </div>
 
-                        <div className="drawer-f">
-                            <button
-                                className="btn btn--sm btn--err"
-                                disabled={selectedOffline}
-                                onClick={() => setConfirmDelete(selected)}
-                            >
-                                Удалить
-                            </button>
-                            <span className="spacer" />
-                            {dirty && (
-                                <button className="btn btn--sm btn--ghost" onClick={() => setForm(formFromCamera(selected))}>
-                                    Сбросить
+                        {editing && (
+                            <div className="drawer-f">
+                                <button
+                                    className="btn btn--sm btn--err"
+                                    disabled={selectedOffline}
+                                    onClick={() => setConfirmDelete(selected)}
+                                >
+                                    Удалить
                                 </button>
-                            )}
-                            <button
-                                className="btn btn--sm btn--acc"
-                                disabled={saving || !dirty || !formValid || selectedOffline}
-                                data-tip={formValid ? undefined : streamsCheck.error}
-                                onClick={() => void apply()}
-                            >
-                                {saving ? 'Сохраняем…' : 'Применить'}
-                            </button>
-                        </div>
+                                <span className="spacer" />
+                                <button className="btn btn--sm btn--ghost" onClick={cancelEdit}>Отмена</button>
+                                <button
+                                    className="btn btn--sm btn--acc"
+                                    disabled={saving || !dirty || !formValid || selectedOffline}
+                                    data-tip={formValid ? undefined : streamsCheck.error}
+                                    onClick={() => void apply()}
+                                >
+                                    {saving ? 'Сохраняем…' : 'Применить'}
+                                </button>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>

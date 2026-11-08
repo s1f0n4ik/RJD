@@ -2,12 +2,31 @@
 
 /* Список и шторка стоят рядом */
 .cams-body{flex:1;min-height:0;display:flex;overflow:hidden}
-.cams-scroll{flex:1;min-width:0;min-height:0;overflow:auto}
+/* Колонки уходят по ширине самого списка, а не окна: рядом может стоять шторка */
+.cams-scroll{flex:1;min-width:0;min-height:0;overflow:auto;container:cams/inline-size}
 
 /* Список камер — грид, не таблица: один шаблон колонок у шапки и строк,
    выравнивание держится геометрией и не зависит от содержимого ячеек */
-/* Состояние — по содержимому и у правого края, запас ширины уходит названию и назначениям */
-.cam-grid{--cam-cols:minmax(150px,1fr) minmax(190px,1.4fr) 130px minmax(150px,.75fr) 76px minmax(160px,max-content);min-width:840px}
+/* Состояние — фиксированной ширины: у каждой строки свой грид, и по содержимому колонки разъезжались */
+.cam-grid{--cam-cols:minmax(150px,1fr) minmax(190px,1.4fr) 130px minmax(150px,.75fr) 76px 210px}
+@container cams (max-width:929px){
+  .cam-grid{--cam-cols:minmax(150px,1fr) minmax(190px,1.4fr) 130px 76px 210px}
+  .c-dev{display:none}
+}
+@container cams (max-width:755px){
+  .cam-grid{--cam-cols:minmax(150px,1fr) minmax(190px,1.4fr) 130px 210px}
+  .c-dev,.c-cnt{display:none}
+}
+@container cams (max-width:679px){
+  .cam-grid{--cam-cols:minmax(130px,1fr) minmax(170px,1.4fr) 160px}
+  .c-dev,.c-cnt,.c-ip{display:none}
+  .cam-row .st .seps>span:nth-child(2){display:none}
+  .cam-row .st .seps>span:first-child::after{display:none}
+}
+@container cams (max-width:459px){
+  .cam-grid{--cam-cols:minmax(100px,1fr) 160px}
+  .c-dev,.c-cnt,.c-ip,.c-purp{display:none}
+}
 .cam-head,.cam-row{display:grid;grid-template-columns:var(--cam-cols);align-items:center}
 .cam-head{position:sticky;top:0;z-index:2;background:var(--surface);border-bottom:1px solid var(--line)}
 .cam-head span{padding:9px 12px;font-size:10px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--fg-3);white-space:nowrap}
@@ -18,6 +37,7 @@
 /* Единственная ячейка с переносом содержимого */
 .cam-row > span.cell-purp{white-space:normal;overflow:visible;padding-top:7px;padding-bottom:7px}
 .cam-row .nm{color:var(--fg);font-weight:600}
+.cam-row .st .seps{flex-wrap:nowrap}
 .cam-row .mono{font-family:var(--mono);font-size:11.5px;color:var(--fg-3)}
 .cam-name{display:inline-flex;align-items:center;gap:9px;max-width:100%;overflow:hidden}
 .cam-name i{overflow:hidden;text-overflow:ellipsis;font-style:normal}
@@ -46,14 +66,26 @@
 @keyframes streams-out{from{grid-template-rows:1fr;opacity:1}to{grid-template-rows:0fr;opacity:.3}}
 
 /* Подтаблица потоков: тише основной, чтобы читалась как вложенная */
-.streams{background:color-mix(in srgb,var(--acc-bg) 40%,transparent);box-shadow:inset 3px 0 0 var(--acc);border-bottom:1px solid var(--line);padding:8px 14px 10px 40px}
+.streams{position:relative;background:rgba(var(--acc-rgb),.05);border-bottom:1px solid var(--line);padding:2px 14px 14px 34px}
+.streams::before{content:'';position:absolute;left:21px;top:0;bottom:30px;width:1px;background:var(--acc-edge)}
+.sx{position:relative;border:1px solid var(--line-hi);border-radius:var(--r);background:var(--input)}
+.sx::before{content:'';position:absolute;left:-13px;top:17px;width:13px;height:1px;background:var(--acc-edge)}
 .stab{width:100%;table-layout:fixed;border-collapse:collapse}
-.stab th{text-align:left;background:transparent;border-bottom:1px solid var(--line);padding:0 10px 6px;font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;font-weight:700;color:var(--fg-3);white-space:nowrap}
+/* Ширины колонок и порядок ухода по ширине списка */
+.stab .s-n{width:66px}.stab .s-sub{width:84px}.stab .s-res{width:112px}.stab .s-fps{width:70px}.stab .s-cod{width:74px}.stab .s-st{width:150px}.stab .s-link{width:308px}
+@container cams (max-width:1099px){.s-link{display:none}}
+@container cams (max-width:819px){.s-cod{display:none}}
+@container cams (max-width:739px){.s-sub{display:none}}
+@container cams (max-width:659px){.s-fps{display:none}}
+@container cams (max-width:579px){.s-res{display:none}}
+@container cams (max-width:459px){.s-purp{display:none}.stab .s-st{width:auto}}
+.stab th{text-align:left;background:transparent;border-bottom:1px solid var(--line);padding:8px 10px 6px;font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;font-weight:700;color:var(--fg-3);white-space:nowrap}
 .stab td{height:38px;padding:0 10px;border-bottom:1px solid color-mix(in srgb,var(--line) 60%,transparent);font-size:12px;color:var(--fg-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .stab tr:last-child td{border-bottom:none}
 .stab tbody tr{cursor:pointer}
 .stab tbody tr.is-on td{background:var(--acc-bg);color:var(--fg)}
-.stab tbody tr.is-on td:first-child{box-shadow:inset 2px 0 0 var(--acc);border-radius:4px 0 0 4px}
+.stab tbody tr:last-child td:first-child{border-bottom-left-radius:7px}
+.stab tbody tr:last-child td:last-child{border-bottom-right-radius:7px}
 .stab .rtsp{font-family:var(--mono);font-size:11px;color:var(--fg-3)}
 .chnum{display:inline-flex;align-items:center;justify-content:center;min-width:24px;height:22px;padding:0 6px;border-radius:6px;border:1px solid var(--line);font-family:var(--mono);font-size:11.5px;color:var(--fg-2)}
 .stab tbody tr.is-on .chnum{border-color:rgba(var(--acc-rgb),.5);color:var(--acc);background:rgba(var(--acc-rgb),.12)}
@@ -67,14 +99,88 @@
 .drawer-h h2{font-size:14px;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .drawer-h .sub{display:block;font-size:11px;color:var(--fg-3);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .drawer-who{min-width:0;display:flex;flex-direction:column;gap:2px}
-/* Блоки идут сверху вниз: превью, потоки, подключение */
+/* Блоки идут сверху вниз встык: превью, камера, потоки; отступы у каждого свои */
 /* Единственное место с резервом желоба: поля формы не должны сдвигаться, когда шторка начинает прокручиваться */
-.drawer-b{flex:1;display:flex;flex-direction:column;gap:18px;padding:14px;min-height:0;overflow-y:auto;scrollbar-gutter:stable}
-.drawer-col{display:flex;flex-direction:column;min-width:0;width:100%}
+.drawer-b{flex:1;display:flex;flex-direction:column;padding:0;min-height:0;overflow-y:auto;scrollbar-gutter:stable}
 /* Прижатый подвал шторки */
 .drawer-f{display:flex;align-items:center;gap:8px;padding:10px 14px;border-top:1px solid var(--line);background:var(--surface)}
 /* Превью на всю ширину колонки */
 .drawer-b .cam-preview{flex:none;width:100%;align-self:stretch}
+
+/* Панель камеры: состояние, модули «Камера» и «Потоки», правка */
+.cd-sum{display:flex;align-items:center;gap:12px;min-height:46px;padding:8px 14px;background:var(--surface);border-bottom:1px solid var(--line);box-shadow:inset 3px 0 0 var(--fg-3)}
+.cd-sum.is-ok{box-shadow:inset 3px 0 0 var(--ok)}
+.cd-sum.is-warn{box-shadow:inset 3px 0 0 var(--warn)}
+.cd-sum.is-err{box-shadow:inset 3px 0 0 var(--err)}
+.cd-sum .st{flex:none;font-size:13px;font-weight:600;white-space:nowrap}
+.cd-why{min-width:0;font-size:12px;color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cd-n{margin-left:auto;flex:none;font-family:var(--mono);font-size:11.5px;color:var(--fg-3)}
+.cd-n b{color:var(--fg-2);font-weight:500}
+.cd-editbar{display:flex;align-items:center;gap:8px;padding:9px 14px;background:rgba(var(--acc-rgb),.1);border-bottom:1px solid var(--acc-edge);font-size:12px;color:var(--acc);animation:uisel-in var(--t-mid) var(--ease-out)}
+.cd-editbar b,.cd-editbar span{white-space:nowrap}
+.cd-editbar span{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--fg-2)}
+.cd-pad{padding:14px 14px 0}
+.cd-prev{display:flex;flex-direction:column;gap:10px;padding:14px}
+/* Статистика потока: четыре ячейки на всю ширину, как показатели в карточке потока */
+.cd-pst{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--line);border-radius:var(--r);background:var(--input)}
+.cd-pst>div{padding:8px 12px;border-right:1px solid var(--line);min-width:0}
+.cd-pst>div:last-child{border-right:none}
+.cd-pst .k{display:block;font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-3);margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cd-pst .v{display:block;font-family:var(--mono);font-size:12.5px;color:var(--fg);white-space:nowrap}
+.cd-pst .v.dim{color:var(--fg-3)}
+.cd-sec{display:flex;flex-direction:column;min-width:0}
+.cd-sec-h{display:flex;align-items:center;gap:10px;height:48px;padding:0 14px;background:var(--input);border-top:1px solid var(--line);border-bottom:1px solid var(--line);flex:none}
+.cd-sec-h .t{font-size:10px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--fg-3)}
+.cd-sec-h .btn{margin-left:auto}
+.cd-sec--cam .cd-sec-h{box-shadow:inset 3px 0 0 var(--acc)}
+.cd-sec-b{padding:14px}
+/* Смена просмотра и правки проявляется так же, как смена экрана */
+.cd-swap{animation:uisel-in var(--t-mid) var(--ease-out)}
+.cd-mod{display:grid;place-items:center;width:24px;height:24px;border-radius:7px;flex:none;border:1px solid var(--line-hi);background:var(--panel-2);color:var(--fg-2)}
+.cd-mod--cam{border-color:var(--acc-edge);background:var(--acc-bg);color:var(--acc)}
+.cam-count{font-family:var(--mono);font-size:11px;color:var(--fg-2);background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:1px 9px}
+.cd-kv{display:grid;grid-template-columns:1fr 1fr;gap:13px 14px}
+.cd-kv>div{min-width:0}
+.cd-kv .k{display:block;font-size:11px;color:var(--fg-3);margin-bottom:3px}
+.cd-kv .v{display:block;font-size:13px;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cd-kv .v.m{font-family:var(--mono);font-size:12.5px}
+.cd-kv .span2{grid-column:1/-1}
+/* Потоки: линия от модуля к карточкам, как в списке */
+.cd-sec--str .cd-sec-b{position:relative;display:flex;flex-direction:column;gap:12px;padding:14px 14px 16px 34px}
+.cd-sec--str .cd-sec-b::before{content:'';position:absolute;left:21px;top:-1px;bottom:34px;width:1px;background:var(--acc-edge)}
+.cd-sc{position:relative;border:1px solid var(--line);border-radius:var(--r);background:var(--input)}
+.cd-sc::before{content:'';position:absolute;left:-13px;top:28px;width:13px;height:1px;background:var(--acc-edge)}
+.cd-sc-h{display:flex;align-items:center;gap:11px;padding:10px 12px}
+.cd-sc-h.is-pick{cursor:pointer}
+.cd-plate{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;width:36px;height:36px;border-radius:7px;border:1px solid rgba(var(--acc-rgb),.45);background:rgba(var(--acc-rgb),.12);flex:none}
+.cd-plate b{font-family:var(--mono);font-size:13px;line-height:1;color:var(--acc)}
+.cd-plate i{font-style:normal;font-size:8px;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3);margin-top:1px}
+.cd-sc .who{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.cd-sc .who b{font-size:13px;font-weight:600;color:var(--fg);font-family:var(--mono);white-space:nowrap}
+.cd-sc .who .sub{font-size:11px;color:var(--fg-3);font-family:var(--mono)}
+.cd-sc-p{padding:0 12px 10px}
+.cd-sc-kv{display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--line)}
+.cd-sc-kv>div{padding:8px 12px;border-right:1px solid var(--line);min-width:0}
+.cd-sc-kv>div:last-child{border-right:none}
+.cd-sc-kv .k{display:block;font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-3);margin-bottom:2px;white-space:nowrap}
+.cd-sc-kv .v{display:block;font-family:var(--mono);font-size:12.5px;color:var(--fg);white-space:nowrap}
+.cd-sc-kv .v.dim{color:var(--fg-3)}
+.cd-sc-rec{display:flex;gap:6px 14px;flex-wrap:wrap;padding:8px 12px;border-top:1px solid var(--line);font-size:11.5px;color:var(--fg-3)}
+.cd-sc-rec b{font-family:var(--mono);font-weight:500;color:var(--fg-2)}
+.cd-sc-link{padding:8px 12px;border-top:1px solid var(--line);font-family:var(--mono);font-size:10.5px;color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cd-fault{display:flex;align-items:flex-start;gap:9px;padding:9px 12px;border-top:1px solid var(--err-edge);background:var(--err-bg);color:var(--err);font-size:12px;border-radius:0 0 7px 7px}
+.cd-fault .tm{margin-left:auto;font-family:var(--mono);font-size:11px;white-space:nowrap;color:var(--fg-2)}
+.cd-fault b{font-weight:600}
+/* Правка потока: назначения, общие поля, поля включённых назначений */
+.cd-edit{display:flex;flex-direction:column;gap:12px;padding:12px;border-top:1px solid var(--line)}
+.cd-grp{display:flex;flex-direction:column;gap:10px}
+.cd-edit .cd-grp+.cd-grp{padding-top:12px;border-top:1px solid var(--line)}
+.cd-roles{display:flex;flex-direction:column;gap:8px}
+.cd-role{--rc:var(--fg-3);display:flex;flex-direction:column;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid var(--line);border-left:3px solid var(--rc);border-radius:0 var(--r) var(--r) 0;background:var(--surface);animation:uisel-in var(--t-mid) var(--ease-out)}
+.cd-role .frow{width:100%}
+.cd-role--record{--rc:var(--save)}
+.cd-mono{font-family:var(--mono)}
+.fcell textarea.cd-area{height:auto;min-height:58px;padding:7px 10px;resize:none;font-family:var(--ui)}
 
 /* Поля: подпись над контролом; парные ряды — грид, чтобы края совпадали */
 .fields{display:flex;flex-direction:column;gap:11px}
@@ -130,6 +236,15 @@
 .vend--dim{background:none;border-color:var(--line);color:var(--fg-2)}
 .scan-chip{display:inline-flex;align-items:center;gap:5px;padding:2px 7px;border-radius:5px;border:1px solid var(--line);font-size:10.5px;color:var(--fg-2);white-space:nowrap}
 .scan-chip.ok{border-color:var(--ok-edge);color:var(--ok)}
+.scan-row{animation:uisel-in var(--t-mid) var(--ease-out)}
+/* Строка прошлого поиска, свежий её ещё не подтвердил */
+.scan-row.is-stale{opacity:.6}
+.scan-row.is-added .who{opacity:.65}
+.scan-old{display:block;margin-top:4px;font-size:11px}
+.scan-sync{position:sticky;top:0;z-index:1;display:flex;align-items:center;gap:8px;padding:7px 14px;background:var(--surface);border-bottom:1px solid var(--line);font-size:11.5px;color:var(--fg-3);animation:uisel-in var(--t-mid) var(--ease-out)}
+.scan-sync .spin{width:12px;height:12px;border-width:1.5px}
+.scan-sep{display:flex;align-items:center;gap:10px;height:34px;padding:0 14px;background:var(--input);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.scan-none{padding:14px;font-size:12px;color:var(--fg-3)}
 
 /* Мастер добавления (Д-3): слева живая проверка, справа поля.
    Строки подключения тянутся на всю ширину, числа каналов — по ёмкости значения */
@@ -187,10 +302,6 @@
 .purp-btn.is-on.purp--record{color:var(--save);background:transparent}
 .purp-btn.is-on.purp--neural{color:var(--viol);background:var(--viol-bg)}
 .purp-btn.is-on.purp--birdview{color:var(--acc);background:var(--acc-bg)}
-
-/* Строка управления потоками в шторке */
-.stream-bar{display:flex;align-items:flex-end;gap:10px}
-.stream-bar .grow{flex:1;min-width:0}
 
 /* Опрос камеры при добавлении потока: найденные субпотоки списком */
 .probe-head{display:flex;align-items:center;min-height:24px;margin-bottom:12px}

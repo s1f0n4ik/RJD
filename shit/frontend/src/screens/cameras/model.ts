@@ -150,6 +150,9 @@ export const DEFAULT_FORM: CameraFormData = {
 
 export type StatusTone = 'ok' | 'warn' | 'err' | 'info' | 'dim';
 
+/** Класс точки .dot для тона состояния. */
+export const dotClass = (tone: StatusTone): string => (tone === 'info' ? 'acc' : tone === 'dim' ? '' : tone);
+
 export interface StreamInfo {
     key: string;
     number: number;

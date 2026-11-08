@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '../app/Icons';
+import { reducedMotion } from '../app/motion';
 import { useSystem } from '../app/SystemContext';
 import { useDeviceClock } from '../app/useDeviceClock';
 import { api } from '../services/api';
 import { signalingWsUrl } from '../services/devices';
 import { wsUrl } from '../utils/constants';
 import { isProbeCamera } from '../utils/probeFilter';
+import { CameraDetail } from './CameraDetail';
 import { CellPlayer } from '../screens/live/CellPlayer';
 import { SurroundCell } from '../screens/live/SurroundCell';
 import { cameraToWallSource, faultOf, virtualToWallSource, type WallSource } from '../screens/live/sources';
@@ -79,6 +81,29 @@ export default function CamerasScreen() {
     const modules = sources.filter(s => s.kind === 'virtual');
 
     const [selectedId, setSelectedId] = useState<string | null>(null);
+    // Под строкой раскрывается состояние камеры; закрытие даёт анимации доиграть
+    const [openId, setOpenId] = useState<string | null>(null);
+    const [closing, setClosing] = useState(false);
+    const closeTimer = useRef(0);
+    useEffect(() => () => window.clearTimeout(closeTimer.current), []);
+
+    const toggleOpen = (id: string) => {
+        window.clearTimeout(closeTimer.current);
+        if (openId !== id) {
+            setClosing(false);
+            setOpenId(id);
+            return;
+        }
+        if (reducedMotion()) {
+            setOpenId(null);
+            return;
+        }
+        setClosing(true);
+        closeTimer.current = window.setTimeout(() => {
+            setOpenId(null);
+            setClosing(false);
+        }, 160);
+    };
     const [status, setStatus] = useState<PlayerStatus>('connecting');
     const [stats, setStats] = useState<PlayerStats | null>(null);
 
@@ -155,36 +180,43 @@ export default function CamerasScreen() {
         const cam = src.kind === 'camera' ? cameras.find(c => c.id === src.id) : undefined;
         const main = cam ? mainStream(cam) : undefined;
         const detail = src.offline ? 'устройство не в сети' : src.kind === 'virtual' ? (src.active ? src.detail : 'модуль не запущен') : src.fault?.text ?? 'нет потока';
+        const open = !!cam && openId === src.id;
         return (
-            <button
-                key={src.id}
-                className={`m-li${src.id === selectedId ? ' is-on' : ''}${src.active ? '' : ' is-off'}`}
-                onClick={() => setSelectedId(src.id)}
-            >
-                <div className="t">
-                    <b>{src.name}</b>
-                    {cam && src.active ? (
-                        <div className="m-tags">
-                            {purposesOf(cam).map(p => (
-                                <span key={p} className={`tag ${PURPOSE_TAG[p]!.cls}`}>{PURPOSE_TAG[p]!.label}</span>
-                            ))}
-                        </div>
-                    ) : (
-                        <span>{detail}</span>
-                    )}
-                </div>
-                {src.active && main ? (
-                    <div className="v">
-                        {main.width}×{main.height}
-                        <small className="seps"><span>{main.codec}</span><span>{main.fps} к/с</span></small>
+            <Fragment key={src.id}>
+                <button
+                    className={`m-li${src.id === selectedId ? ' is-on' : ''}${src.active ? '' : ' is-off'}${open && !closing ? ' is-open' : ''}`}
+                    onClick={() => {
+                        setSelectedId(src.id);
+                        if (cam) toggleOpen(src.id);
+                    }}
+                >
+                    <div className="t">
+                        <b>{src.name}</b>
+                        {cam && src.active ? (
+                            <div className="m-tags">
+                                {purposesOf(cam).map(p => (
+                                    <span key={p} className={`tag ${PURPOSE_TAG[p]!.cls}`}>{PURPOSE_TAG[p]!.label}</span>
+                                ))}
+                            </div>
+                        ) : (
+                            <span>{detail}</span>
+                        )}
                     </div>
-                ) : src.active ? (
-                    <span className="tag is-ok">в эфире</span>
-                ) : (
-                    <span className="tag is-err">{src.kind === 'virtual' ? 'остановлен' : src.fault?.label ?? 'нет потока'}</span>
-                )}
-                <span className={`dot ${src.active ? 'ok' : ''}`} />
-            </button>
+                    {src.active && main ? (
+                        <div className="v">
+                            {main.width}×{main.height}
+                            <small className="seps"><span>{main.codec}</span><span>{main.fps} к/с</span></small>
+                        </div>
+                    ) : src.active ? (
+                        <span className="tag is-ok">в эфире</span>
+                    ) : (
+                        <span className="tag is-err">{src.kind === 'virtual' ? 'остановлен' : src.fault?.label ?? 'нет потока'}</span>
+                    )}
+                    <span className={`dot ${src.active ? 'ok' : ''}`} />
+                    {cam && <Icon name="chev" size={14} className="m-chev" />}
+                </button>
+                {open && cam && <CameraDetail camera={cam} closing={closing} />}
+            </Fragment>
         );
     };
 

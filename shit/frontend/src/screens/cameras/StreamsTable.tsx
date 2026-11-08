@@ -34,48 +34,50 @@ export function StreamsTable({ camera, streams, selected, onSelect }: StreamsTab
 
     return (
         <div className="streams">
-            <table className="stab">
-                <thead>
-                    <tr>
-                        <th style={{ width: 66 }}>Поток</th>
-                        <th style={{ width: 84 }}>Субпоток</th>
-                        <th style={{ width: 112 }}>Разрешение</th>
-                        <th style={{ width: 70 }}>Кадров/с</th>
-                        <th style={{ width: 74 }}>Кодек</th>
-                        {/* Запас ширины у назначений: состояние и ссылка держатся у правого края */}
-                        <th>Назначения</th>
-                        <th style={{ width: 150 }}>Состояние</th>
-                        <th style={{ width: 308 }}>Ссылка на поток</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {streams.map(stream => {
-                        const status = streamStatus(stream, !!camera.offline);
-                        const hasFrame = stream.live && stream.width > 0;
-                        return (
-                            <tr
-                                key={stream.key}
-                                className={stream.key === selected ? 'is-on' : ''}
-                                onClick={e => { e.stopPropagation(); onSelect(stream.key); }}
-                            >
-                                <td><span className="chnum">{stream.number}</span></td>
-                                <td><span className="chnum">{stream.substream}</span></td>
-                                <td className="num">{hasFrame ? `${stream.width}×${stream.height}` : '—'}</td>
-                                <td className="num">{hasFrame && stream.fps ? Math.round(stream.fps) : '—'}</td>
-                                <td>{stream.codec ? stream.codec.toUpperCase() : '—'}</td>
-                                <td><PurposeChips purposes={stream.purposes} /></td>
-                                <td>
-                                    <span className={`st st-${status.tone}`} data-tip={status.tip}>
-                                        <span className={`dot ${status.tone === 'ok' ? 'ok' : status.tone === 'err' ? 'err' : ''}`} />
-                                        {status.label}
-                                    </span>
-                                </td>
-                                <td className="rtsp" data-tip={stream.rtsp}>{stream.rtsp || '—'}</td>
-                            </tr>
-                        );
-                    })}
-                </tbody>
-            </table>
+            <div className="sx">
+                <table className="stab">
+                    <thead>
+                        <tr>
+                            <th className="s-n">Поток</th>
+                            <th className="s-sub">Субпоток</th>
+                            <th className="s-res">Разрешение</th>
+                            <th className="s-fps">Кадров/с</th>
+                            <th className="s-cod">Кодек</th>
+                            {/* Запас ширины у назначений: состояние и ссылка держатся у правого края */}
+                            <th className="s-purp">Назначения</th>
+                            <th className="s-st">Состояние</th>
+                            <th className="s-link">Ссылка на поток</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {streams.map(stream => {
+                            const status = streamStatus(stream, !!camera.offline);
+                            const hasFrame = stream.live && stream.width > 0;
+                            return (
+                                <tr
+                                    key={stream.key}
+                                    className={stream.key === selected ? 'is-on' : ''}
+                                    onClick={e => { e.stopPropagation(); onSelect(stream.key); }}
+                                >
+                                    <td className="s-n"><span className="chnum">{stream.number}</span></td>
+                                    <td className="s-sub"><span className="chnum">{stream.substream}</span></td>
+                                    <td className="s-res num">{hasFrame ? `${stream.width}×${stream.height}` : '—'}</td>
+                                    <td className="s-fps num">{hasFrame && stream.fps ? Math.round(stream.fps) : '—'}</td>
+                                    <td className="s-cod">{stream.codec ? stream.codec.toUpperCase() : '—'}</td>
+                                    <td className="s-purp"><PurposeChips purposes={stream.purposes} /></td>
+                                    <td className="s-st">
+                                        <span className={`st st-${status.tone}`} data-tip={status.tip}>
+                                            <span className={`dot ${status.tone === 'ok' ? 'ok' : status.tone === 'err' ? 'err' : ''}`} />
+                                            {status.label}
+                                        </span>
+                                    </td>
+                                    <td className="s-link rtsp" data-tip={stream.rtsp}>{stream.rtsp || '—'}</td>
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
+            </div>
         </div>
     );
 }
