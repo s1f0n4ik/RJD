@@ -203,7 +203,7 @@ export function HomeScreen() {
                                                                 <span className="bar sm">
                                                                     <i className={m.tone === 'dim' ? '' : `is-${m.tone}`} style={{ width: `${m.pct}%` }} />
                                                                 </span>
-                                                                <span className={`home-met-v${m.tone === 'warn' || m.tone === 'err' ? ` is-${m.tone}` : ''}`}>{m.value}</span>
+                                                                <span className={`home-met-v${m.tone === 'warn' || m.tone === 'err' ? ` is-${m.tone}` : ''}`}>{m.key === 'mem' && m.tone !== 'dim' ? `${Math.round(m.pct)} %` : m.value}</span>
                                                             </div>
                                                         ))}
                                                     </div>
