@@ -38,7 +38,7 @@ const METRIC_LABEL: Record<string, string> = { cpu: 'ЦП', mem: 'ОЗУ', temp:
 
 export function HomeScreen() {
     const role = useRole();
-    const { cameras, devices } = useSystem();
+    const { cameras, devices, lost } = useSystem();
     const { pools, errors: poolErrors } = usePools(devices, DISK_POLL_MS);
     const { layouts } = useLayouts();
     const { items: detections, available: journalUp } = useLastDetections();
@@ -129,6 +129,13 @@ export function HomeScreen() {
                     </div>
                 </div>
 
+                {lost && (
+                    <div className="banner" style={{ marginBottom: 18 }}>
+                        <Icon name="warn" size={16} />
+                        Нет связи с сервером. Показаны последние полученные данные.
+                    </div>
+                )}
+
                 {offlineDevices > 0 && dismissed !== offlineNames && (
                     <div className="banner" style={{ marginBottom: 18 }}>
                         <Icon name="warn" size={16} />
@@ -165,7 +172,7 @@ export function HomeScreen() {
                         <div className="card">
                             <div className="card-h">
                                 <h3>Устройства</h3>
-                                <span className="eyebrow">опрос 10 с</span>
+                                <span className="eyebrow">опрос 5 с</span>
                             </div>
                             <div className="card-b" style={{ paddingTop: 10, paddingBottom: 10 }}>
                                 {devices.length === 0 && (

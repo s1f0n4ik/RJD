@@ -6,6 +6,17 @@ export class WebSocketService {
   private reconnectInterval: number = 3000;
   // @ts-ignore
     private reconnectTimer: NodeJS.Timeout | null = null;
+  // Сервер шлёт состояние или пульс раз в 2 с; тишина дольше — сокет считается мёртвым
+  private silenceLimitMs: number = 7000;
+  private lastMessageAt: number = 0;
+  private watchdog: number | null = null;
+
+  private stopWatchdog() {
+    if (this.watchdog !== null) {
+      window.clearInterval(this.watchdog);
+      this.watchdog = null;
+    }
+  }
 
   connect(onStateUpdate: (state: SystemState) => void, onConnectionChange: (connected: boolean) => void) {
     if (this.ws) {
@@ -17,6 +28,11 @@ export class WebSocketService {
 
     this.ws.onopen = () => {
       console.log('✅ WebSocket Connected');
+      this.lastMessageAt = Date.now();
+      this.stopWatchdog();
+      this.watchdog = window.setInterval(() => {
+        if (Date.now() - this.lastMessageAt > this.silenceLimitMs) this.ws?.close();
+      }, 2000);
       onConnectionChange(true);
 
       // Отправляем подписку на обновления
@@ -24,6 +40,7 @@ export class WebSocketService {
     };
 
     this.ws.onmessage = (event) => {
+      this.lastMessageAt = Date.now();
       try {
         const message: WebSocketMessage = JSON.parse(event.data);
 
@@ -71,6 +88,7 @@ export class WebSocketService {
 
     this.ws.onclose = () => {
       console.log('🔌 WebSocket Disconnected');
+      this.stopWatchdog();
       onConnectionChange(false);
       this.ws = null;
 
@@ -103,6 +121,7 @@ export class WebSocketService {
   }
 
   disconnect() {
+    this.stopWatchdog();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;

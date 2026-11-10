@@ -26,6 +26,9 @@ ROUTING_SLOTS = MODULE_SLOTS + ("cameras",)
 
 EMPTY_ROUTING: dict[str, Any] = {slot: None for slot in ROUTING_SLOTS}
 
+# Столько опросов подряд без ответа — и устройство считается не в сети
+OFFLINE_AFTER_FAILURES = 2
+
 
 class DeviceRegistry:
     """Список известных устройств + runtime-состояние (телеметрия, кэш камер)."""
@@ -203,6 +206,7 @@ class DeviceRegistry:
             info = response.json().get("data", {})
 
             state["status"] = "online"
+            state["failures"] = 0
             state["last_seen"] = time.time()
             state["telemetry"] = info
             # Пинг — RTT опроса ручки: отражает доступность именно сервиса
@@ -223,7 +227,13 @@ class DeviceRegistry:
 
             await self._refresh_cameras(device, base)
         except Exception:
-            state["status"] = "offline"
+            state["failures"] = state.get("failures", 0) + 1
+            if state["failures"] >= OFFLINE_AFTER_FAILURES:
+                state["status"] = "offline"
+                # Скорость по счётчикам до простоя ничего не говорит о возвращении платы
+                state.pop("_net_prev", None)
+                state["net_rx_bps"] = None
+                state["net_tx_bps"] = None
 
     @staticmethod
     def _update_net_rates(state: dict, info: dict) -> None:
@@ -239,6 +249,9 @@ class DeviceRegistry:
             if dt > 0 and rx >= prev["rx"] and tx >= prev["tx"]:
                 state["net_rx_bps"] = round((rx - prev["rx"]) / dt)
                 state["net_tx_bps"] = round((tx - prev["tx"]) / dt)
+            else:
+                state["net_rx_bps"] = None
+                state["net_tx_bps"] = None
         state["_net_prev"] = {"t": now, "rx": rx, "tx": tx}
 
     async def _refresh_cameras(self, device: dict, base: str) -> None:

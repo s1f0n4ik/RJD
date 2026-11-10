@@ -1,3 +1,6 @@
+import type { Device, RoutingTable } from '../services/devices';
+import type { GatewaySummary, NeuralSummary } from '../screens/home/useHomeData';
+
 // Назначение потока: имена совпадают с именами модулей устройства
 export type StreamPurpose = 'view' | 'record' | 'neural' | 'birdview';
 
@@ -117,10 +120,25 @@ export interface SystemState {
     cameras_total: number;
     cameras_running: number;
   };
+  devices?: Device[];
+  routing?: Partial<RoutingTable>;
+  // Сводки: null — источник не ответил; поля нет, пока сводки не приходили
+  neural?: NeuralSummary | null;
+  gateway?: GatewaySummary | null;
+  linker?: LinkerSnapshot | null;
+}
+
+// Сводка вывода 360 как её шлёт бэкенд
+export interface LinkerSnapshot {
+  running: boolean;
+  view_mode: string;
+  dual_output: boolean;
 }
 
 export interface WebSocketMessage {
   type: string;
+  // Время сервера, unix-секунды
+  ts?: number;
   data?: SystemState;
   timestamp?: string;
   message?: string;

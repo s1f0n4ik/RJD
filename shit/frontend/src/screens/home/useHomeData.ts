@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
-import { modulePath, storagePath, type Device } from '../../services/devices';
+import { useEffect, useMemo, useState } from 'react';
+import { useSystem } from '../../app/SystemContext';
+import { storagePath, type Device } from '../../services/devices';
 import { journalApi } from '../../features/neural/api/journal';
 import type { JournalDetection } from '../../features/neural/api/journal-types';
 
@@ -22,7 +23,6 @@ export interface DiskState {
 
 const DISK_POLL_MS = 20_000;
 const JOURNAL_POLL_MS = 15_000;
-const NEURAL_POLL_MS = 10_000;
 
 /** Диски всех устройств: ключ — id устройства. */
 export function useDisks(devices: Device[]) {
@@ -89,26 +89,9 @@ export interface GatewaySummary {
     connected: number;
 }
 
-export function useGatewayStatus() {
-    const [summary, setSummary] = useState<GatewaySummary | null>(null);
-
-    useEffect(() => {
-        let alive = true;
-        (async () => {
-            try {
-                const res = await fetch('/api/gateway/status');
-                if (!res.ok) throw new Error(String(res.status));
-                const data = await res.json() as { modules?: Array<{ connection?: { connected?: boolean } }> };
-                const modules = data.modules ?? [];
-                if (alive) setSummary({ modules: modules.length, connected: modules.filter(m => m.connection?.connected).length });
-            } catch {
-                if (alive) setSummary(null);
-            }
-        })();
-        return () => { alive = false; };
-    }, []);
-
-    return summary;
+// Сводка приходит в общем состоянии системы по WebSocket
+export function useGatewayStatus(): GatewaySummary | null {
+    return useSystem().gateway ?? null;
 }
 
 /** Сводка слотов техзрения по всем платам с neural */
@@ -125,28 +108,7 @@ export interface NeuralSummary {
 
 // undefined — ответа ещё не было, null — мастер не ответил
 export function useNeuralSummary(): NeuralSummary | null | undefined {
-    const [summary, setSummary] = useState<NeuralSummary | null | undefined>(undefined);
-
-    useEffect(() => {
-        let alive = true;
-
-        const load = async () => {
-            try {
-                const res = await fetch('/api/neural/summary');
-                if (!res.ok) throw new Error(String(res.status));
-                const json = await res.json() as { data: NeuralSummary };
-                if (alive) setSummary(json.data);
-            } catch {
-                if (alive) setSummary(null);
-            }
-        };
-
-        load();
-        const timer = window.setInterval(load, NEURAL_POLL_MS);
-        return () => { alive = false; window.clearInterval(timer); };
-    }, []);
-
-    return summary;
+    return useSystem().neural;
 }
 
 const plural = (n: number, one: string, few: string, many: string) => {
@@ -180,32 +142,10 @@ export interface LinkerSummary {
     dualOutput: boolean;
 }
 
-export function useLinkerStatus() {
-    // undefined — ответа ещё не было, null — устройство модуля не ответило
-    const [summary, setSummary] = useState<LinkerSummary | null | undefined>(undefined);
-
-    useEffect(() => {
-        let alive = true;
-        (async () => {
-            try {
-                const res = await fetch(modulePath('birdview', '/linker/status'));
-                if (!res.ok) throw new Error(String(res.status));
-                type Raw = { running?: boolean; view_mode?: string; dual_output?: boolean };
-                const json = await res.json() as { data?: Raw } & Raw;
-                const data = json.data ?? json;
-                if (alive) {
-                    setSummary({
-                        running: Boolean(data.running),
-                        viewMode: data.view_mode ?? 'top',
-                        dualOutput: Boolean(data.dual_output),
-                    });
-                }
-            } catch {
-                if (alive) setSummary(null);
-            }
-        })();
-        return () => { alive = false; };
-    }, []);
-
-    return summary;
+export function useLinkerStatus(): LinkerSummary | null | undefined {
+    const raw = useSystem().linker;
+    // undefined — сводки ещё не было, null — устройство модуля не ответило
+    return useMemo(() => (raw
+        ? { running: raw.running, viewMode: raw.view_mode, dualOutput: raw.dual_output }
+        : raw), [raw]);
 }

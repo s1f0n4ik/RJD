@@ -78,7 +78,7 @@ storage-service (8001), scanner (8002), message-gateway (9090) и signaling (876
 | GET | `/api/layouts` | список сохранённых сеток | [Layouts.ts:37](shit/frontend/src/hooks/Layouts.ts#L37) |
 | POST | `/api/layouts` | создать/обновить сетку | [Layouts.ts:48](shit/frontend/src/hooks/Layouts.ts#L48) |
 | DELETE | `/api/layouts/{name}` | удалить сетку | [Layouts.ts:62](shit/frontend/src/hooks/Layouts.ts#L62) |
-| WS | `/ws` | состояние системы: `initial_state` / `status_update` | [websocket.ts:16](shit/frontend/src/services/websocket.ts#L16) |
+| WS | `/ws` | состояние системы: `initial_state` / `status_update` (камеры, устройства, маршрутизация, сводки нейронки, шлюза и 360) при изменении, `pulse` с `ts` раз в 2 с | [websocket.ts:16](shit/frontend/src/services/websocket.ts#L16) |
 
 Зарегистрированы, но фронтом не используются: `GET /api/status/system`,
 `GET /api/status/endpoints`, весь блок `/api/loaders` и `/api/loader/…`

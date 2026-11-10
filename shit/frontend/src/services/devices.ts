@@ -106,6 +106,13 @@ export async function loadDevices(signal?: AbortSignal): Promise<{ devices: Devi
     return { devices: devicesCache, routing: routingCache };
 }
 
+// Реестр из WebSocket-состояния: счётчики запросов не трогаем, ответ правки по REST остаётся новее
+export function applyDevices(devices: Device[], routing?: Partial<RoutingTable> | null): void {
+    const nextRouting = pickRouting(routing);
+    if (!sameJson(devicesCache, devices)) devicesCache = devices;
+    if (!sameJson(routingCache, nextRouting)) routingCache = nextRouting;
+}
+
 export const getDevices = (): Device[] => devicesCache;
 export const getRouting = (): RoutingTable => routingCache;
 
