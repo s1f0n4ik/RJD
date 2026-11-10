@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <optional>
 
+#include "nvr/rtp-target.h"
 #include "utility/json-definers.h"
 #include "logger.h"
 
@@ -148,6 +149,9 @@ private:
         }},
         { fields::RECONNECT, [](const FPipelineData& data, boost::json::object& obj) {
             obj[fields::RECONNECT] = data.reconnect_time;
+        }},
+        { fields::RTP, [](const FPipelineData& data, boost::json::object& obj) {
+            if (data.purposes.rtp) obj[fields::RTP] = varan::nvr::rtp_to_json(data.rtp);
         }},
         { fields::CHANNEL, [](const FPipelineData& data, boost::json::object& obj) {
             obj[fields::CHANNEL] = data.channel;

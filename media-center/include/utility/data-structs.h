@@ -38,7 +38,8 @@ namespace nvr {
 		RECORD = 1,
 		NEURAL = 2,
 		BIRDVIEW = 3,
-		COUNT = 4
+		RTP = 4,
+		COUNT = 5
 	};
 
 	inline std::string purpose_to_string(EStreamPurpose purpose) {
@@ -47,6 +48,7 @@ namespace nvr {
 		case EStreamPurpose::RECORD:   return "record";
 		case EStreamPurpose::NEURAL:   return "neural";
 		case EStreamPurpose::BIRDVIEW: return "birdview";
+		case EStreamPurpose::RTP:      return "rtp";
 		default:                       return "";
 		}
 	}
@@ -56,6 +58,7 @@ namespace nvr {
 		if (name == "record")   return EStreamPurpose::RECORD;
 		if (name == "neural")   return EStreamPurpose::NEURAL;
 		if (name == "birdview") return EStreamPurpose::BIRDVIEW;
+		if (name == "rtp")      return EStreamPurpose::RTP;
 		return std::nullopt;
 	}
 
@@ -65,6 +68,7 @@ namespace nvr {
 		bool record = false;
 		bool neural = false;
 		bool birdview = false;
+		bool rtp = false;
 
 		bool has(EStreamPurpose purpose) const {
 			switch (purpose) {
@@ -72,6 +76,7 @@ namespace nvr {
 			case EStreamPurpose::RECORD:   return record;
 			case EStreamPurpose::NEURAL:   return neural;
 			case EStreamPurpose::BIRDVIEW: return birdview;
+			case EStreamPurpose::RTP:      return rtp;
 			default:                       return false;
 			}
 		}
@@ -82,13 +87,14 @@ namespace nvr {
 			case EStreamPurpose::RECORD:   record = true;   break;
 			case EStreamPurpose::NEURAL:   neural = true;   break;
 			case EStreamPurpose::BIRDVIEW: birdview = true; break;
+			case EStreamPurpose::RTP:      rtp = true;      break;
 			default: break;
 			}
 		}
 
-		bool empty() const { return !view && !record && !neural && !birdview; }
+		bool empty() const { return !view && !record && !neural && !birdview && !rtp; }
 
-		// Кадры нужны только потребителям, просмотр и запись идут без декода
+		// Кадры нужны только потребителям, просмотр, запись и RTP идут без декода в общем стволе
 		bool needs_decode() const { return neural || birdview; }
 
 		std::vector<std::string> names() const {
@@ -97,6 +103,7 @@ namespace nvr {
 			if (record)   result.push_back("record");
 			if (neural)   result.push_back("neural");
 			if (birdview) result.push_back("birdview");
+			if (rtp)      result.push_back("rtp");
 			return result;
 		}
 
@@ -122,6 +129,21 @@ namespace nvr {
 
 		return static_cast<T>(value);
 	}
+
+	// Куда и как уходит RTP-трансляция потока
+	struct FRtpTarget {
+		std::string host;
+		int port = 0;
+		// false — сжатый поток уходит как есть, true — перекодируется в H.264
+		bool transcode = false;
+		// Рамка перекодирования, 0 — исходный размер; больше исходного не бывает
+		int width = 0;
+		int height = 0;
+		// кбит/с, 0 — выбирает кодек
+		int bitrate = 0;
+		// Потолок квантизатора 0..51, чем больше — тем сильнее сжатие; 0 — по умолчанию кодека
+		int qp_max = 0;
+	};
 
 	// Последняя ошибка потока: держится между перезапусками, сбрасывается подключением
 	struct FStreamFault {
@@ -155,6 +177,8 @@ namespace nvr {
 		std::string record_path;
 		int segment_length;
 
+		FRtpTarget rtp;
+
 		// Физический вход камеры и качество той же картинки
 		int channel;
 		int substream;
@@ -178,6 +202,8 @@ namespace nvr {
 
 		std::filesystem::path record_path;
 		int segment_length = 600;
+
+		FRtpTarget rtp;
 	};
 
 	// Стурктуры ждля камер

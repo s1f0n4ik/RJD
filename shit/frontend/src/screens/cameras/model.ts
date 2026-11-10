@@ -1,4 +1,4 @@
-import type { CPPCamera, StreamPurpose } from '../../types';
+import type { CPPCamera, RtpSettings, StreamPurpose } from '../../types';
 import { MediaCenterError } from '../../services/api';
 import { describeFault, type StreamFault } from '../../components/webrtc/error-codes';
 
@@ -18,6 +18,7 @@ export interface StreamForm {
     reconnect: number;
     record_path: string;
     segment: number;
+    rtp: RtpSettings;
 }
 
 /** Плоская форма камеры: то, что редактируют панель и мастер добавления. */
@@ -56,6 +57,14 @@ const STREAM_KEY_REGEX = /^stream_([1-9][0-9]*)$/;
 
 export const RECORD_PATH = '/storage/internal';
 
+// Кадр и битрейт 0 — как у исходного потока, сжатие 0 — по умолчанию кодека
+export const DEFAULT_RTP: RtpSettings = { host: '', port: 5004, mode: 'copy', width: 0, height: 0, bitrate: 0, qp_max: 0 };
+
+// Наименьший кадр кодека
+export const RTP_MIN_WIDTH = 96;
+export const RTP_MIN_HEIGHT = 64;
+const RTP_HOST_REGEX = /^[A-Za-z0-9._:-]{1,253}$/;
+
 export const MIN_CHANNEL = 1;
 export const MAX_CHANNEL = 6;
 export const MIN_SUBSTREAM = 1;
@@ -64,13 +73,14 @@ export const MAX_SUBSTREAM = 6;
 export const PRODUCTION_NAMES: Record<number, string> = { 1: 'Dahua', 2: 'Hikvision', 3: 'ACE' };
 export const VENDOR_TO_PRODUCTION: Record<string, number> = { Dahua: 1, Hikvision: 2, ACE: 3 };
 
-export const PURPOSE_ORDER: StreamPurpose[] = ['view', 'record', 'neural', 'birdview'];
+export const PURPOSE_ORDER: StreamPurpose[] = ['view', 'record', 'neural', 'birdview', 'rtp'];
 
 export const PURPOSE_NAMES: Record<StreamPurpose, string> = {
     view: 'Просмотр',
     record: 'Запись',
     neural: 'Тех. зрение',
     birdview: '360',
+    rtp: 'RTP',
 };
 
 /** Назначения, которым нужен модуль на устройстве. */
@@ -97,6 +107,7 @@ export const makeStream = (key: string, substream: number, purposes: StreamPurpo
     reconnect: 10,
     record_path: purposes.includes('record') ? RECORD_PATH : '',
     segment: purposes.includes('record') ? DEFAULT_SEGMENT_SEC : 0,
+    rtp: { ...DEFAULT_RTP },
 });
 
 /** Включение и выключение назначения потока. */
@@ -343,6 +354,25 @@ export const validateStreams = (streams: StreamForm[], modules: string[]): Valid
                 return { valid: false, error: `${label}: длина сегмента должна быть больше нуля` };
             }
         }
+
+        if (stream.purposes.includes('rtp')) {
+            const { host, port, mode, width, height, bitrate, qp_max } = stream.rtp;
+            if (!RTP_HOST_REGEX.test(host)) {
+                return { valid: false, error: `${label}: укажите адрес приёмника RTP — IP или имя хоста` };
+            }
+            if (!Number.isInteger(port) || port < 1 || port > 65535) {
+                return { valid: false, error: `${label}: порт RTP в диапазоне 1–65535` };
+            }
+            if (width < 0 || height < 0 || bitrate < 0) {
+                return { valid: false, error: `${label}: размер кадра и битрейт RTP не могут быть отрицательными` };
+            }
+            if (qp_max < 0 || qp_max > 51) {
+                return { valid: false, error: `${label}: степень сжатия RTP в диапазоне 0–51` };
+            }
+            if (mode === 'transcode' && ((width > 0 && width < RTP_MIN_WIDTH) || (height > 0 && height < RTP_MIN_HEIGHT))) {
+                return { valid: false, error: `${label}: кадр RTP не меньше ${RTP_MIN_WIDTH}×${RTP_MIN_HEIGHT}` };
+            }
+        }
     }
 
     return { valid: true };
@@ -389,9 +419,22 @@ export const formFromCamera = (camera: Camera): CameraFormData => ({
             reconnect: raw.reconnect,
             record_path: raw.record_path,
             segment: raw.segment,
+            rtp: { ...DEFAULT_RTP, ...raw.rtp },
         };
     }),
 });
+
+/** Как уходит трансляция: без перекодирования или с каким кадром, битрейтом и сжатием. */
+export const rtpSummary = (rtp: RtpSettings): string => {
+    if (rtp.mode === 'copy') return 'без перекодирования';
+    const frame = rtp.width > 0 || rtp.height > 0 ? `${rtp.width || '…'}×${rtp.height || '…'}` : 'исходный кадр';
+    return [
+        'перекодирование',
+        frame,
+        rtp.bitrate > 0 ? `${rtp.bitrate} кбит/с` : '',
+        rtp.qp_max > 0 ? `QP до ${rtp.qp_max}` : '',
+    ].filter(Boolean).join(' · ');
+};
 
 /** Один поток в виде, который принимает media-center. */
 export const streamToPayload = (stream: StreamForm) => ({
@@ -404,6 +447,8 @@ export const streamToPayload = (stream: StreamForm) => ({
     // Путь и сегмент имеют смысл только при записи
     record_path: stream.purposes.includes('record') ? stream.record_path : '',
     segment: stream.purposes.includes('record') ? stream.segment : 0,
+    // Цель трансляции имеет смысл только при назначении rtp
+    ...(stream.purposes.includes('rtp') ? { rtp: stream.rtp } : {}),
 });
 
 /** Полный payload создания камеры — общий для мастера и миграции. */

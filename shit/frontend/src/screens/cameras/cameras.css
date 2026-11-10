@@ -178,7 +178,10 @@
 .cd-roles{display:flex;flex-direction:column;gap:8px}
 .cd-role{--rc:var(--fg-3);display:flex;flex-direction:column;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid var(--line);border-left:3px solid var(--rc);border-radius:0 var(--r) var(--r) 0;background:var(--surface);animation:uisel-in var(--t-mid) var(--ease-out)}
 .cd-role .frow{width:100%}
+.cd-role .seg{width:100%}
+.cd-role .seg button{flex:1}
 .cd-role--record{--rc:var(--save)}
+.cd-role--rtp{--rc:var(--ok)}
 .cd-mono{font-family:var(--mono)}
 .fcell textarea.cd-area{height:auto;min-height:58px;padding:7px 10px;resize:none;font-family:var(--ui)}
 
@@ -290,6 +293,7 @@
 .purp--record{color:var(--save);border-color:var(--save-edge);background:transparent}
 .purp--neural{color:var(--viol);border-color:var(--viol-edge);background:var(--viol-bg)}
 .purp--birdview{color:var(--acc);border-color:var(--acc-edge);background:var(--acc-bg)}
+.purp--rtp{color:var(--ok);border-color:var(--ok-edge);background:var(--ok-bg)}
 
 /* Выбор назначений в шторке: тот же цвет, но кликабельно */
 .purp-pick{display:flex;flex-wrap:wrap;gap:7px}
@@ -302,6 +306,7 @@
 .purp-btn.is-on.purp--record{color:var(--save);background:transparent}
 .purp-btn.is-on.purp--neural{color:var(--viol);background:var(--viol-bg)}
 .purp-btn.is-on.purp--birdview{color:var(--acc);background:var(--acc-bg)}
+.purp-btn.is-on.purp--rtp{color:var(--ok);background:var(--ok-bg)}
 
 /* Опрос камеры при добавлении потока: найденные субпотоки списком */
 .probe-head{display:flex;align-items:center;min-height:24px;margin-bottom:12px}

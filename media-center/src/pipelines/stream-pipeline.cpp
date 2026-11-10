@@ -1,5 +1,6 @@
 #include "video_pipeline.h"
 #include "signaling_definers.h"
+#include <algorithm>
 #include <filesystem>
 #include <array>
 #include <fstream>
@@ -203,6 +204,41 @@ bool is_record_source(GstObject* source) {
 	return false;
 }
 
+// Элементы ветки RTP называются rtp_*: по имени узнаются её ошибки
+bool is_rtp_source(GstObject* source) {
+	for (GstObject* object = source; object; object = GST_OBJECT_PARENT(object)) {
+		if (g_str_has_prefix(GST_OBJECT_NAME(object), "rtp_")) return true;
+	}
+	return false;
+}
+
+// Ошибка ветки не доходит до tee: иначе она останавливает источник и весь конвейер камеры
+void guard_tee_pad(GstPad* tee_pad, GstElement* branch_queue) {
+	gst_pad_add_probe(tee_pad,
+		static_cast<GstPadProbeType>(GST_PAD_PROBE_TYPE_BUFFER | GST_PAD_PROBE_TYPE_BUFFER_LIST),
+		+[](GstPad*, GstPadProbeInfo*, gpointer data) -> GstPadProbeReturn {
+			const GstFlowReturn last = gst_pad_get_last_flow_return(static_cast<GstPad*>(data));
+			return last < GST_FLOW_EOS ? GST_PAD_PROBE_DROP : GST_PAD_PROBE_OK;
+		},
+		gst_element_get_static_pad(branch_queue, "src"),
+		gst_object_unref);
+}
+
+// Рамка перекодирования: кадр вписывается без увеличения, стороны кратны 16; {0, 0} — исходный размер
+std::pair<int, int> rtp_frame_size(const varan::nvr::FRtpTarget& rtp, int source_width, int source_height) {
+	const double scale = std::min({
+		1.0,
+		rtp.width > 0 ? static_cast<double>(rtp.width) / source_width : 1.0,
+		rtp.height > 0 ? static_cast<double>(rtp.height) / source_height : 1.0
+	});
+	if (scale >= 1.0) return { 0, 0 };
+
+	const auto side = [scale](int source, int least) {
+		return std::max(least, static_cast<int>(source * scale) / 16 * 16);
+	};
+	return { side(source_width, 96), side(source_height, 64) };
+}
+
 // Цель записи от storage-service; пустой volume_id — файла цели нет
 struct FWriteTarget {
 	std::string volume_id;
@@ -272,6 +308,7 @@ UCameraStreamPipeline::UCameraStreamPipeline(
 	, m_dma_sender(std::move(dma_callback))
 	, m_record_branch(FPipelineBranch(EBranchType::RECORD, "record"))
 	, m_decoder_branch(FPipelineBranch(EBranchType::DECODER, "decoder"))
+	, m_rtp_branch(FPipelineBranch(EBranchType::RTP, "rtp"))
 {
 	create_gst_gl_context(gl_context_manager);
 }
@@ -295,6 +332,10 @@ bool UCameraStreamPipeline::teardown_prefix() {
 
 	if (!destroy_branch(m_decoder_branch)) {
 		m_logger->warn("teardown(): decoder branch didn't teardown properly!");
+	}
+
+	if (!destroy_branch(m_rtp_branch)) {
+		m_logger->warn("teardown(): rtp branch didn't teardown properly!");
 	}
 
 	return true;
@@ -471,6 +512,11 @@ bool UCameraStreamPipeline::initialize() {
 		if (m_logger) m_logger->debug("inititalize(): recording didn't specify, skip");
 	}
 
+	// Ветка трансляции — по назначению rtp
+	if (m_parameters.purposes.rtp) {
+		create_rtp_branch(tee);
+	}
+
 	// Ветка декода — только если кадры кто-то забирает
 	if (m_parameters.purposes.needs_decode()) {
 		if (m_dma_sender) {
@@ -576,14 +622,23 @@ std::optional<UCameraStreamPipeline::FRecordRoot> UCameraStreamPipeline::resolve
 }
 
 bool UCameraStreamPipeline::on_branch_error(GstMessage* msg) {
-	if (!is_record_source(GST_MESSAGE_SRC(msg))) return false;
+	const bool rtp = is_rtp_source(GST_MESSAGE_SRC(msg));
+	if (!rtp && !is_record_source(GST_MESSAGE_SRC(msg))) return false;
 
 	GError* err = nullptr;
 	gst_message_parse_error(msg, &err, nullptr);
 	const gchar* source = GST_OBJECT_NAME(GST_MESSAGE_SRC(msg));
 	const std::string detail = std::string(source ? source : "unknown") + ": " + (err ? err->message : "unknown");
-	m_logger->error("record branch error, live stays: " + detail);
 	if (err) g_error_free(err);
+
+	// Трансляция падает отдельно: камера, запись и просмотр идут дальше
+	if (rtp) {
+		m_logger->error("rtp branch error, live stays: " + detail);
+		if (m_rtp_branch.is_deployed.load()) destroy_branch(m_rtp_branch);
+		return true;
+	}
+
+	m_logger->error("record branch error, live stays: " + detail);
 
 	// Ветку вернёт таймер, когда цель записи снова будет доступна
 	if (m_record_branch.is_deployed.load()) {
@@ -849,15 +904,7 @@ bool UCameraStreamPipeline::create_record_branch(GstElement* tee)
 
 	GstPad* tee_record_pad = attached.pad;
 
-	// Ошибка записи не доходит до tee: иначе она останавливает источник и весь конвейер камеры
-	gst_pad_add_probe(tee_record_pad,
-		static_cast<GstPadProbeType>(GST_PAD_PROBE_TYPE_BUFFER | GST_PAD_PROBE_TYPE_BUFFER_LIST),
-		+[](GstPad*, GstPadProbeInfo*, gpointer data) -> GstPadProbeReturn {
-			const GstFlowReturn last = gst_pad_get_last_flow_return(static_cast<GstPad*>(data));
-			return last < GST_FLOW_EOS ? GST_PAD_PROBE_DROP : GST_PAD_PROBE_OK;
-		},
-		gst_element_get_static_pad(record_queue, "src"),
-		gst_object_unref);
+	guard_tee_pad(tee_record_pad, record_queue);
 
 	if (m_record_branch.elements.size() != 0) m_record_branch.elements.clear();
 
@@ -871,6 +918,115 @@ bool UCameraStreamPipeline::create_record_branch(GstElement* tee)
 
 	if (m_logger) m_logger->info("create_record_branch(): record branch successfully created!");
 
+	return true;
+}
+
+bool UCameraStreamPipeline::create_rtp_branch(GstElement* tee)
+{
+	if (!m_probe.ready()) {
+		m_logger->error("create_rtp_branch(): cannot create rtp branch probe doesn't ready!");
+		return false;
+	}
+
+	if (m_rtp_branch.is_deployed.load()) {
+		m_logger->warn("create_rtp_branch(): trying to create rtp branch that already exists!");
+		return true;
+	}
+
+	const auto& rtp = m_parameters.rtp;
+	// Без перекодирования уходит кодек камеры, с перекодированием всегда H.264
+	const bool h265 = !rtp.transcode && m_probe.codec_name != std::string("H264");
+
+	// Ключ в ветке, фабрика элемента, имя элемента
+	std::vector<std::array<std::string, 3>> plan = { { varan::nvr::QUEUE, "queue", "rtp_queue" } };
+	if (rtp.transcode) {
+		plan.push_back({ "decoder", "mppvideodec", "rtp_decoder" });
+		plan.push_back({ "encoder", "mpph264enc", "rtp_encoder" });
+		plan.push_back({ "parse", "h264parse", "rtp_parse" });
+	}
+	plan.push_back({ "pay", h265 ? "rtph265pay" : "rtph264pay", "rtp_pay" });
+	plan.push_back({ "sink", "udpsink", "rtp_sink" });
+
+	m_rtp_branch.elements.clear();
+	std::vector<GstElement*> chain;
+	for (const auto& [key, factory, name] : plan) {
+		auto* element = gst_element_factory_make(factory.c_str(), name.c_str());
+		if (!element) {
+			m_logger->error("create_rtp_branch(): cannot create element " + factory);
+			for (auto* made : chain) gst_object_unref(made);
+			m_rtp_branch.elements.clear();
+			return false;
+		}
+		chain.push_back(element);
+		m_rtp_branch.add_element(key, element);
+	}
+
+	auto* queue = chain.front();
+	auto* sink = chain.back();
+
+	// Живой поток: очередь отбрасывает старое, сеть кадры не копит
+	g_object_set(queue, "max-size-buffers", 50, "leaky", 2, nullptr);
+	g_object_set(m_rtp_branch.get_element("pay"), "pt", 96, "config-interval", -1, nullptr);
+	g_object_set(sink, "host", rtp.host.c_str(), "port", rtp.port, "sync", FALSE, "async", FALSE, nullptr);
+
+	if (rtp.transcode) {
+		const auto [width, height] = rtp_frame_size(rtp, m_probe.width, m_probe.height);
+
+		g_object_set(m_rtp_branch.get_element("decoder"),
+			"dma-feature", TRUE,
+			"discard-corrupted-frames", TRUE,
+			"format", 23, // NV12
+			nullptr
+		);
+
+		// Кодек сам масштабирует кадр до width x height, 0 — исходный размер; IDR с заголовками каждую секунду
+		g_object_set(m_rtp_branch.get_element("encoder"),
+			"width", static_cast<guint>(width),
+			"height", static_cast<guint>(height),
+			"bps", static_cast<guint>(rtp.bitrate) * 1000u,
+			"qp-max", static_cast<guint>(rtp.qp_max),
+			"header-mode", 1,
+			nullptr
+		);
+
+		g_object_set(m_rtp_branch.get_element("parse"), "config-interval", -1, nullptr);
+	}
+
+	for (auto* element : chain) gst_bin_add(GST_BIN(m_pipeline), element);
+	m_rtp_branch.is_deployed.store(true);
+
+	// С этого места любой отказ сносит ветку целиком
+	auto fail = [this](const std::string& reason) {
+		m_logger->error("create_rtp_branch(): " + reason);
+		destroy_branch(m_rtp_branch);
+		return false;
+	};
+
+	for (std::size_t i = 1; i < chain.size(); ++i) {
+		if (!gst_element_link(chain[i - 1], chain[i])) return fail("cannot link rtp branch elements");
+	}
+
+	// Ветка запускается до подключения к tee: пуш в незапущенную даёт FLUSHING
+	for (auto* element : chain) gst_element_sync_state_with_parent(element);
+
+	if (gst_element_get_state(sink, nullptr, nullptr, 2 * GST_SECOND) == GST_STATE_CHANGE_FAILURE) {
+		return fail("rtp sink didn't start, check host " + rtp.host);
+	}
+
+	const auto attached = varan::core::attach_tee_pad(tee, queue);
+	if (!attached.linked) {
+		if (attached.pad) {
+			gst_element_release_request_pad(tee, attached.pad);
+			gst_object_unref(attached.pad);
+		}
+		return fail("cannot link tee to rtp queue");
+	}
+
+	guard_tee_pad(attached.pad, queue);
+	m_rtp_branch.tee_pad = attached.pad;
+
+	m_logger->info("create_rtp_branch(): sending " + std::string(rtp.transcode ? "transcoded" : "original")
+		+ " stream to " + rtp.host + ":" + std::to_string(rtp.port));
 	return true;
 }
 
@@ -1488,6 +1644,8 @@ FPipelineData UCameraStreamPipeline::get_pipeline_data() {
 
 	data.record_path = m_parameters.record_path;
 	data.segment_length = m_parameters.segment_length;
+
+	data.rtp = m_parameters.rtp;
 
 	data.channel = m_parameters.channel;
 	data.substream = m_parameters.substream;

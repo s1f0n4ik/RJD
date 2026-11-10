@@ -53,6 +53,7 @@ const FILTERS: Array<[PurposeFilter, string]> = [
     ['record', 'С записью'],
     ['neural', 'Тех. зрение'],
     ['birdview', '360'],
+    ['rtp', 'RTP'],
 ];
 
 /** Все назначения камеры без повторов — для колонки списка. */

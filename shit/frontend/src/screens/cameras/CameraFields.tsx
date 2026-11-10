@@ -211,14 +211,16 @@ interface PurposePickerProps {
     modules: string[];
     /** Уменьшенный набор — для карточки потока в мастере */
     compact?: boolean;
+    /** Назначения, которых в этой форме нет: полей для них здесь не хватает */
+    hidden?: StreamPurpose[];
     onToggle: (purpose: StreamPurpose) => void;
 }
 
 /** Назначения потока; недоступные выключены. */
-export function PurposePicker({ purposes, modules, compact, onToggle }: PurposePickerProps) {
+export function PurposePicker({ purposes, modules, compact, hidden = [], onToggle }: PurposePickerProps) {
     return (
         <div className="purp-pick">
-            {PURPOSE_ORDER.map(purpose => {
+            {PURPOSE_ORDER.filter(purpose => !hidden.includes(purpose)).map(purpose => {
                 const available = purposeAvailable(purpose, modules);
                 const on = purposes.includes(purpose);
                 return (

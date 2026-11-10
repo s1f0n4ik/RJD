@@ -2,7 +2,20 @@ import type { Device, RoutingTable } from '../services/devices';
 import type { GatewaySummary, NeuralSummary } from '../screens/home/useHomeData';
 
 // Назначение потока: имена совпадают с именами модулей устройства
-export type StreamPurpose = 'view' | 'record' | 'neural' | 'birdview';
+export type StreamPurpose = 'view' | 'record' | 'neural' | 'birdview' | 'rtp';
+
+// Куда и как уходит RTP-трансляция потока; рамка и битрейт: 0 — как у исходного потока
+export interface RtpSettings {
+  host: string;
+  port: number;
+  mode: 'copy' | 'transcode';
+  width: number;
+  height: number;
+  // кбит/с
+  bitrate: number;
+  // 0..51, чем больше, тем сильнее сжатие
+  qp_max: number;
+}
 
 export interface CameraStream {
   codec: string;
@@ -17,6 +30,8 @@ export interface CameraStream {
   reconnect: number;
   record_path: string;
   segment: number;
+  // Есть только у потока с назначением rtp
+  rtp?: RtpSettings;
   rtsp: string;
   status: number;  // 0-нет, 1-готов, 2-остановлен, 3-запущен, 5-инициализирован
   use_udp: boolean;

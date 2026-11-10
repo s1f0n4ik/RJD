@@ -6,6 +6,7 @@
 
 #include "correction-extension.h"
 #include "core/paths.h"
+#include "nvr/rtp-target.h"
 #include "console_utility.h"
 
 namespace varan {
@@ -34,6 +35,8 @@ namespace neural {
 
             stream.record_path = pipeline.record_path.string();
             stream.segment_length = pipeline.segment_length;
+
+            stream.rtp = pipeline.rtp;
 
             stream.channel = pipeline.channel;
             stream.substream = pipeline.substream;
@@ -598,6 +601,12 @@ namespace neural {
 
             if (purposes.record && (pipeline.record_path.empty() || pipeline.segment_length <= 0)) {
                 return "Pipeline " + name + ": recording enabled, but didn't set record path or segment length";
+            }
+
+            if (purposes.rtp) {
+                if (const auto error = check_rtp_target(pipeline.rtp); !error.empty()) {
+                    return "Pipeline " + name + ": " + error;
+                }
             }
         }
 

@@ -327,7 +327,7 @@ struct FGstGLContext {
 
 class UCameraStreamPipeline : public UCameraPipeline {
 
-	enum class EBranchType { DECODER, RECORD };
+	enum class EBranchType { DECODER, RECORD, RTP };
 
 	struct FPipelineBranch {
 		using elements_map = std::vector<std::pair<std::string, GstElement*>>;
@@ -410,6 +410,8 @@ private:
 
 	bool create_record_branch(GstElement* tee);
 
+	bool create_rtp_branch(GstElement* tee);
+
 	// Открытие фрагмента из format-location-full: строка индекса мимо шины; lag_ms — насколько первый кадр старше текущего момента
 	void on_fragment_opened(const std::string& path, const FRecordRoot& root, std::int64_t lag_ms);
 
@@ -461,6 +463,8 @@ private:
 	std::string m_current_fragment;
 
 	FPipelineBranch m_decoder_branch;
+
+	FPipelineBranch m_rtp_branch;
 
 	CFrameMover m_dma_sender;
 

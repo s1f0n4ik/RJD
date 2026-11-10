@@ -1,13 +1,15 @@
 import type { ReactNode } from 'react';
 import { Icon } from '../../app/Icons';
-import { Switch } from '../../app/Modal';
+import { Seg, Switch } from '../../app/Modal';
 import type { PlayerStats } from '../../components/webrtc/useWebRTCPlayer';
+import type { RtpSettings } from '../../types';
 import { Cell, NumCell, PurposePicker } from './CameraFields';
 import { PurposeChips } from './StreamsTable';
 import {
     PRODUCTION_NAMES,
     cameraStatus,
     dotClass,
+    rtpSummary,
     streamNumber,
     streamStatus,
     streamsOf,
@@ -125,6 +127,49 @@ function roleBlocks(stream: StreamForm, onPatch: (patch: Partial<StreamForm>) =>
         );
     }
 
+    if (stream.purposes.includes('rtp')) {
+        const rtp = stream.rtp;
+        const transcode = rtp.mode === 'transcode';
+        const setRtp = (patch: Partial<RtpSettings>) => onPatch({ rtp: { ...rtp, ...patch } });
+
+        blocks.push(
+            <div key="rtp" className="cd-role cd-role--rtp">
+                <span className="purp purp--rtp">RTP</span>
+                <div className="frow">
+                    <Cell cap="Адрес приёмника">
+                        <input
+                            className="inp cd-mono"
+                            value={rtp.host}
+                            placeholder="203.0.113.7"
+                            onChange={e => setRtp({ host: e.target.value.trim() })}
+                        />
+                    </Cell>
+                    <NumCell cap="Порт" value={rtp.port} onValue={n => setRtp({ port: n })} />
+                </div>
+                <Seg className="seg--xs" title="Режим передачи">
+                    <button type="button" className={transcode ? '' : 'is-on'} onClick={() => setRtp({ mode: 'copy' })}>
+                        Как есть
+                    </button>
+                    <button type="button" className={transcode ? 'is-on' : ''} onClick={() => setRtp({ mode: 'transcode' })}>
+                        Перекодировать
+                    </button>
+                </Seg>
+                {transcode && (
+                    <>
+                        <div className="frow">
+                            <NumCell cap="Ширина, 0 — исходная" value={rtp.width} onValue={n => setRtp({ width: n })} />
+                            <NumCell cap="Высота, 0 — исходная" value={rtp.height} onValue={n => setRtp({ height: n })} />
+                        </div>
+                        <div className="frow">
+                            <NumCell cap="Битрейт, кбит/с, 0 — авто" value={rtp.bitrate} onValue={n => setRtp({ bitrate: n })} />
+                            <NumCell cap="Сжатие QP 0–51, 0 — авто" value={rtp.qp_max} onValue={n => setRtp({ qp_max: n })} />
+                        </div>
+                    </>
+                )}
+            </div>,
+        );
+    }
+
     return blocks;
 }
 
@@ -188,6 +233,12 @@ function StreamCard({ camera, streamKey, info, form, modules, onSelect, onPatch,
                         <div className="cd-sc-rec">
                             <span>Путь <b>{raw.record_path || '—'}</b></span>
                             <span>Сегмент <b>{Math.round(raw.segment / 60)} мин</b></span>
+                        </div>
+                    )}
+                    {info.purposes.includes('rtp') && raw.rtp && (
+                        <div className="cd-sc-rec">
+                            <span>Приёмник <b>{raw.rtp.host}:{raw.rtp.port}</b></span>
+                            <span><b>{rtpSummary(raw.rtp)}</b></span>
                         </div>
                     )}
                     <div className="cd-sc-link" data-tip={info.rtsp}>{info.rtsp || '—'}</div>

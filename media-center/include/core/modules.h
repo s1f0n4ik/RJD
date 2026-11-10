@@ -58,6 +58,7 @@ namespace varan {
 				return neural;
 			case nvr::EStreamPurpose::VIEW:
 			case nvr::EStreamPurpose::RECORD:
+			case nvr::EStreamPurpose::RTP:
 				return true;
 			default:
 				return false;

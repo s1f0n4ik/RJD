@@ -18,6 +18,7 @@
 #include <unistd.h>
 
 #include "logger.h"
+#include "nvr/rtp-target.h"
 #include "utility/data-structs.h"
 #include "utility/json-utils.h"
 #include "constants.h"
@@ -425,7 +426,7 @@ namespace nvr {
                 purposes.push_back(json::string(name));
             }
 
-            return {
+            json::object result = {
                 {"name", pipeline.name},
                 {"channel", pipeline.channel},
                 {"substream", pipeline.substream},
@@ -436,6 +437,10 @@ namespace nvr {
                 {"record_path", pipeline.record_path},
                 {"segment_length", pipeline.segment_length}
             };
+
+            if (pipeline.purposes.rtp) result["rtp"] = rtp_to_json(pipeline.rtp);
+
+            return result;
         }
 
         // Назначения потока из старого конфига
@@ -508,6 +513,12 @@ namespace nvr {
             if (!pipeline.purposes.record) {
                 pipeline.record_path.clear();
                 pipeline.segment_length = 0;
+            }
+
+            // Пустая цель отсеется проверкой потоков при сборке камеры
+            if (pipeline.purposes.rtp) {
+                const auto* rtp = obj.if_contains("rtp");
+                if (rtp && rtp->is_object()) pipeline.rtp = rtp_from_json(rtp->as_object());
             }
 
             return pipeline;

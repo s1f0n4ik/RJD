@@ -41,6 +41,7 @@ const CAMERAS = {
     cam_away: camera('away', '10.0.0.3', { stream_1: stream(1, 1, ['view'], 3007) }),
     cam_mix: camera('mix', '10.0.0.4', { stream_1: stream(1, 3, ['view']), stream_2: stream(2, 1, ['record'], 3003) }),
     cam_off: camera('off', '10.0.0.5', { stream_1: stream(1, 3, ['view']) }, { offline: true }),
+    cam_rtp: camera('rtp', '10.0.0.6', { stream_1: stream(1, 3, ['view', 'rtp'], 0, { rtp: { host: '203.0.113.7', port: 5004, mode: 'copy', width: 0, height: 0, bitrate: 0, qp_max: 0 } }) }),
 };
 const LAYOUT = { name: 'cam-test', gridSize: 4, activeCells: { 0: 'cam_ok' }, timestamp: 1 };
 const json = (body, headers = {}) => ({ responseCode: 200, responseHeaders: [{ name: 'Content-Type', value: 'application/json' }, ...Object.entries(headers).map(([name, value]) => ({ name, value }))], body: Buffer.from(JSON.stringify(body)).toString('base64') });
@@ -162,6 +163,22 @@ try {
         await ev(`document.querySelector('.drawer-b').scrollTop = 99999; true`);
         await sleep(300);
         await shot('4-roles');
+        await clickButton('.drawer-f button', 'Отмена');
+    });
+
+    await step('Роль RTP: сводка в просмотре, в правке адрес и порт, «Перекодировать» открывает кадр, битрейт и сжатие', async () => {
+        await clickRow('Камера rtp');
+        await waitFor(`!!document.querySelector('.cd-drawer .cd-sc')`, 'панель');
+        const summary = await text('.cd-sc-rec');
+        expect(summary.includes('203.0.113.7:5004') && summary.includes('без перекодирования'), 'сводка RTP: ' + summary);
+        await clickButton('.cd-drawer .drawer-h button', 'Изменить');
+        await waitFor(`document.querySelectorAll('.cd-role--rtp').length === 1`, 'блок RTP');
+        expect(await count('.cd-role--rtp input') === 2, 'в режиме «Как есть» должно быть два поля');
+        await clickButton('.cd-role--rtp .seg--xs button', 'Перекодировать');
+        await waitFor(`document.querySelectorAll('.cd-role--rtp input').length === 6`, 'поля перекодирования');
+        await ev(`document.querySelector('.drawer-b').scrollTop = 99999; true`);
+        await sleep(300);
+        await shot('4b-rtp');
         await clickButton('.drawer-f button', 'Отмена');
     });
 

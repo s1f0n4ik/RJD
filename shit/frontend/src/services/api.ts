@@ -8,6 +8,7 @@ import type {
   NeuralStateItem,
   ProbeRequest,
   ProbeResult,
+  RtpSettings,
   StreamProducer,
   StreamPurpose,
   VirtualStream,
@@ -38,6 +39,7 @@ export interface CameraStreamPatch {
     reconnect: number;
     record_path: string;
     segment: number;
+    rtp?: RtpSettings;
 }
 
 export interface CameraCriticalPatch {

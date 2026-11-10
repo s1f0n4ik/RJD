@@ -1,5 +1,7 @@
 import { api, type CameraPatchBody } from '../../services/api';
+import type { RtpSettings } from '../../types';
 import {
+    DEFAULT_RTP,
     type Camera,
     type CameraFormData,
     type StreamForm,
@@ -7,6 +9,8 @@ import {
     formToPayload,
     streamToPayload,
 } from './model';
+
+const rtpKeys = Object.keys(DEFAULT_RTP) as Array<keyof RtpSettings>;
 
 /** Потоки совпадают, если совпадают их ключи и содержимое каждого. */
 function streamsChanged(streams: StreamForm[], original: Camera): boolean {
@@ -32,6 +36,7 @@ function streamsChanged(streams: StreamForm[], original: Camera): boolean {
             stream.reconnect !== raw.reconnect ||
             stream.record_path !== raw.record_path ||
             stream.segment !== raw.segment ||
+            (stream.purposes.includes('rtp') && rtpKeys.some(key => stream.rtp[key] !== (raw.rtp?.[key] ?? DEFAULT_RTP[key]))) ||
             purposes.length !== rawPurposes.length ||
             purposes.some((p, i) => p !== rawPurposes[i])
         );

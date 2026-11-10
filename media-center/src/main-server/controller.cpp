@@ -6,6 +6,7 @@
 #include <unordered_set>
 
 #include "nvr/constants.h"
+#include "nvr/rtp-target.h"
 #include "nvr/stream-probe.h"
 #include "utility/rtsp-url.h"
 #include "utility/json-utils.h"
@@ -86,6 +87,11 @@ namespace {
         else {
             config.record_path.clear();
             config.segment_length = 0;
+        }
+
+        // Цель трансляции без назначения rtp не значит ничего
+        if (config.purposes.rtp) {
+            config.rtp = rtp_from_json(obj.at(fields::RTP).as_object());
         }
 
         return config;

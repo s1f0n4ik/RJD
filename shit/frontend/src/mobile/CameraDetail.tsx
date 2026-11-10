@@ -1,6 +1,6 @@
 import { Icon } from '../app/Icons';
 import { PurposeChips } from '../screens/cameras/StreamsTable';
-import { cameraStatus, dotClass, streamStatus, streamsOf, type Camera, type StreamInfo } from '../screens/cameras/model';
+import { cameraStatus, dotClass, rtpSummary, streamStatus, streamsOf, type Camera, type StreamInfo } from '../screens/cameras/model';
 import '../screens/cameras/cameras.css';
 
 // Время, с которого поток не поднимается: since приходит в миллисекундах
@@ -34,6 +34,12 @@ function StreamRow({ camera, stream }: { camera: Camera; stream: StreamInfo }) {
                 <div className="cd-sc-rec">
                     <span>Путь <b>{raw.record_path || '—'}</b></span>
                     <span>Сегмент <b>{Math.round(raw.segment / 60)} мин</b></span>
+                </div>
+            )}
+            {stream.purposes.includes('rtp') && raw?.rtp && (
+                <div className="cd-sc-rec">
+                    <span>Приёмник <b>{raw.rtp.host}:{raw.rtp.port}</b></span>
+                    <span><b>{rtpSummary(raw.rtp)}</b></span>
                 </div>
             )}
             {stream.fault && !camera.offline && (

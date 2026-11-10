@@ -519,6 +519,7 @@ export function AddCameraWizard({ cameras, initial, onClose, onSaved }: AddCamer
                                                         purposes={stream.purposes}
                                                         modules={modules}
                                                         compact
+                                                        hidden={['rtp']}
                                                         onToggle={(purpose: StreamPurpose) =>
                                                             patchStream(stream.key, togglePurpose(stream, purpose))}
                                                     />

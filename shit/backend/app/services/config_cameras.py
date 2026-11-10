@@ -4,7 +4,9 @@ from typing import Any
 
 # Проверки повторяют разбор POST/PATCH /camera в media-center
 STREAM_KEY_RE = re.compile(r"^stream_[1-9][0-9]*$")
-PURPOSES = ("view", "record", "neural", "birdview")
+PURPOSES = ("view", "record", "neural", "birdview", "rtp")
+RTP_MODES = ("copy", "transcode")
+RTP_HOST_RE = re.compile(r"^[A-Za-z0-9._:-]{1,253}$")
 CHANNELS = range(1, 7)
 SUBSTREAMS = range(1, 7)
 PRODUCTIONS = range(0, 4)
@@ -16,6 +18,29 @@ def _int(value: Any, field: str) -> int:
     if isinstance(value, bool) or not isinstance(value, (int, float)) or int(value) != value:
         raise ValueError(f"{field} must be an integer")
     return int(value)
+
+
+def rtp_entry(name: str, raw: Any) -> dict:
+    if not isinstance(raw, dict):
+        raise ValueError(f"Stream {name}: rtp needs the rtp object")
+    host = str(raw.get("host", "")).strip()
+    if not RTP_HOST_RE.match(host):
+        raise ValueError(f"Stream {name}: rtp host must be an address or a host name")
+    port = _int(raw.get("port", 0), "rtp port")
+    if not 1 <= port <= 65535:
+        raise ValueError(f"Stream {name}: rtp port is out of range 1...65535")
+    mode = raw.get("mode", "copy")
+    if mode not in RTP_MODES:
+        raise ValueError(f"Stream {name}: rtp mode must be copy or transcode")
+    width, height, bitrate, qp_max = (_int(raw.get(key, 0), f"rtp {key}") for key in ("width", "height", "bitrate", "qp_max"))
+    if min(width, height, bitrate) < 0:
+        raise ValueError(f"Stream {name}: rtp width, height and bitrate can't be negative")
+    if not 0 <= qp_max <= 51:
+        raise ValueError(f"Stream {name}: rtp qp_max is out of range 0...51")
+    # Минимальный кадр кодека
+    if mode == "transcode" and (0 < width < 96 or 0 < height < 64):
+        raise ValueError(f"Stream {name}: rtp frame is smaller than the encoder minimum 96x64")
+    return {"host": host, "port": port, "mode": mode, "width": width, "height": height, "bitrate": bitrate, "qp_max": qp_max}
 
 
 def stream_entry(name: str, raw: Any) -> dict:
@@ -45,7 +70,7 @@ def stream_entry(name: str, raw: Any) -> dict:
     record = "record" in purposes
     if record and ("record_path" not in raw or "segment" not in raw):
         raise ValueError(f"Stream {name}: record needs record_path and segment")
-    return {
+    entry = {
         "name": name,
         "channel": channel,
         "substream": substream,
@@ -56,6 +81,9 @@ def stream_entry(name: str, raw: Any) -> dict:
         "record_path": str(raw["record_path"]) if record else "",
         "segment_length": _int(raw["segment"], "segment") if record else 0,
     }
+    if "rtp" in purposes:
+        entry["rtp"] = rtp_entry(name, raw.get("rtp"))
+    return entry
 
 
 def camera_entry(payload: Any, place: str) -> dict:
