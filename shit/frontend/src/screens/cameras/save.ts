@@ -2,6 +2,7 @@ import { api, type CameraPatchBody } from '../../services/api';
 import type { RtpSettings } from '../../types';
 import {
     DEFAULT_RTP,
+    DEFAULT_V4L2,
     type Camera,
     type CameraFormData,
     type StreamForm,
@@ -78,6 +79,8 @@ export async function saveCamera(
         form.port !== original.port ||
         form.user !== original.user ||
         form.production !== original.production ||
+        form.source !== (original.source === 'v4l2' ? 'v4l2' : 'rtsp') ||
+        (form.source === 'v4l2' && JSON.stringify(form.v4l2) !== JSON.stringify({ ...DEFAULT_V4L2, ...original.v4l2 })) ||
         streamsChanged(form.streams, original);
 
     if (passwordChanged || criticalChanged) {
@@ -87,6 +90,8 @@ export async function saveCamera(
             user: form.user,
             password: form.password,
             production: form.production,
+            source: form.source,
+            ...(form.source === 'v4l2' ? { v4l2: form.v4l2 } : {}),
             streams: Object.fromEntries(form.streams.map(s => [s.key, streamToPayload(s)])),
         } as CameraPatchBody['critical'];
     }

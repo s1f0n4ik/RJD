@@ -3,7 +3,7 @@ import { Icon } from '../../app/Icons';
 import { buildGeometry, type Rect } from '../../features/birdview/components/linker/plan-geometry';
 import type { LinkerExportDetail } from '../../features/birdview/api/linker';
 import { layoutFromSaved, presetOf } from '../live/model';
-import { PURPOSE_NAMES, PURPOSE_ORDER } from '../cameras/model';
+import { PURPOSE_NAMES, PURPOSE_ORDER, cameraAddress } from '../cameras/model';
 import {
     entries,
     entity,
@@ -207,7 +207,7 @@ function Cameras(shared: Shared) {
                                 <Newer shared={shared} kind="camera" id={id} />
                             </span>
                             <Val shared={shared} kind="camera" id={id} path="camera.ip_adress" mono>
-                                {source.camera.ip_adress}
+                                {cameraAddress(source.camera)}
                             </Val>
                             <span className="lb-val">{placeName(definition, source.place)}</span>
                             <Purposes purposes={streams.flatMap(([, stream]) => stream.purposes ?? [])} />

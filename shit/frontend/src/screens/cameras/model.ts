@@ -1,4 +1,4 @@
-import type { CPPCamera, RtpSettings, StreamPurpose } from '../../types';
+import type { CPPCamera, LocalCamera, RtpSettings, StreamPurpose, V4l2Format, V4l2Source } from '../../types';
 import { MediaCenterError } from '../../services/api';
 import { describeFault, type StreamFault } from '../../components/webrtc/error-codes';
 
@@ -31,10 +31,21 @@ export interface CameraFormData {
     user: string;
     password: string;
     production: number;
+    // Камера в сети или на плате; у камеры на плате адреса и логина нет
+    source: 'rtsp' | 'v4l2';
+    v4l2: V4l2Source;
     // Устройство-владелец: оно же решает, какие назначения доступны
     device_id: string;
     streams: StreamForm[];
 }
+
+// Камера на плате до выбора: формат и режим подставляются из возможностей камеры
+export const DEFAULT_V4L2: V4l2Source = {
+    device: '', format: 'MJPG', width: 0, height: 0, fps: 0, rotation: 0, swap_uv: false, bitrate: 0, gop: 1,
+};
+
+/** Единственный поток камеры на плате. */
+export const LOCAL_STREAM = 'stream_1';
 
 export const RESERVED_PREFIXES = ['__probe_'];
 
@@ -154,6 +165,8 @@ export const DEFAULT_FORM: CameraFormData = {
     user: 'admin',
     password: '',
     production: 2,
+    source: 'rtsp',
+    v4l2: DEFAULT_V4L2,
     device_id: '',
     // Заполняется опросом камеры
     streams: [],
@@ -378,6 +391,94 @@ export const validateStreams = (streams: StreamForm[], modules: string[]): Valid
     return { valid: true };
 };
 
+export const V4L2_ROTATIONS = [0, 90, 180, 270];
+
+export const isLocalCamera = (camera?: { source?: string } | null): boolean => camera?.source === 'v4l2';
+
+// CSI задаётся именем узла ISP, USB — путём /dev/v4l/by-path/...
+export const isCsiDevice = (device: string): boolean => !!device && !device.startsWith('/dev/');
+
+/** YUYV и UYVY кодер не поворачивает: остаётся только 180 сенсором CSI. */
+export const rotationAllowed = (v4l2: V4l2Source, angle: number): boolean =>
+    angle === 0 || (v4l2.format !== 'YUYV' && v4l2.format !== 'UYVY') || (isCsiDevice(v4l2.device) && angle === 180);
+
+/** Проверки камеры на плате, те же что на сервере. */
+export const validateV4l2 = (v4l2: V4l2Source): Validation => {
+    if (!v4l2.device) return { valid: false, error: 'Выберите камеру платы' };
+    if (!['YUYV', 'UYVY', 'NV12', 'MJPG'].includes(v4l2.format)) return { valid: false, error: 'Формат: YUYV, UYVY, NV12 или MJPG' };
+    if (v4l2.width <= 0 || v4l2.height <= 0 || v4l2.width % 2 || v4l2.height % 2) {
+        return { valid: false, error: 'Стороны кадра больше нуля и чётные' };
+    }
+    if (v4l2.fps < 1 || v4l2.fps > 120) return { valid: false, error: 'Кадров/с в диапазоне 1–120' };
+    if (!V4L2_ROTATIONS.includes(v4l2.rotation)) return { valid: false, error: 'Поворот 0°, 90°, 180° или 270°' };
+    if (!rotationAllowed(v4l2, v4l2.rotation)) return { valid: false, error: `${v4l2.format} не поворачивается: выберите MJPG или NV12` };
+    if (v4l2.bitrate < 0) return { valid: false, error: 'Битрейт не может быть отрицательным' };
+    if (v4l2.gop < 1 || v4l2.gop > 60) return { valid: false, error: 'Опорный кадр раз в 1–60 с' };
+    return { valid: true };
+};
+
+// Значение внутри диапазона драйвера с его шагом
+const fitsRange = (value: number, low: number, high: number, step: number) =>
+    value >= low && value <= high && (step <= 1 || (value - low) % step === 0);
+
+/** Почему камера не снимет такой режим; пусто — снимет. */
+export const modeError = (camera: LocalCamera, v4l2: V4l2Source): string => {
+    const frame = `${v4l2.width}×${v4l2.height}`;
+    const format = camera.formats.find(f => f.format === v4l2.format);
+    if (!format) return `Камера не отдаёт ${v4l2.format}`;
+    if (format.range) {
+        const r = format.range;
+        const ok = fitsRange(v4l2.width, r.min_width, r.max_width, r.step_width)
+            && fitsRange(v4l2.height, r.min_height, r.max_height, r.step_height);
+        return ok ? '' : `Камера не снимает ${frame} в ${v4l2.format}`;
+    }
+    const size = format.sizes?.find(s => s.width === v4l2.width && s.height === v4l2.height);
+    if (!size) return `Камера не снимает ${frame} в ${v4l2.format}`;
+    if (size.fps.length > 0 && !size.fps.includes(v4l2.fps)) return `Камера не снимает ${frame} ${v4l2.format} с частотой ${v4l2.fps} к/с`;
+    return '';
+};
+
+// Ближайшее к желаемому значение диапазона: не больше верхней границы, на сетке шага
+const clampRange = (want: number, low: number, high: number, step: number) => {
+    const value = Math.min(Math.max(want, low), high);
+    return step > 1 ? low + Math.floor((value - low) / step) * step : value;
+};
+
+/** Режим камеры в формате: прежний размер и частота, если камера их умеет, иначе первые из её списка. */
+export const modeFor = (camera: LocalCamera, format: string, current: V4l2Source): V4l2Source => {
+    const found = camera.formats.find(f => f.format === format) ?? camera.formats[0];
+    const next: V4l2Source = { ...current, device: camera.device, format: found.format as V4l2Format };
+    if (found.range) {
+        const r = found.range;
+        next.width = clampRange(current.width || 1920, r.min_width, r.max_width, r.step_width);
+        next.height = clampRange(current.height || 1080, r.min_height, r.max_height, r.step_height);
+        next.fps = current.fps || 20;
+    }
+    else {
+        const sizes = found.sizes ?? [];
+        const size = sizes.find(s => s.width === current.width && s.height === current.height) ?? sizes[0];
+        next.width = size?.width ?? 0;
+        next.height = size?.height ?? 0;
+        const rates = size?.fps ?? [];
+        next.fps = rates.length > 0 ? (rates.includes(current.fps) ? current.fps : rates[0]) : current.fps || 25;
+    }
+    if (next.format === 'MJPG') next.swap_uv = false;
+    if (!rotationAllowed(next, next.rotation)) next.rotation = 0;
+    return next;
+};
+
+// Порт USB из адреса by-path: ...-usb-0:1.2:1.0-video-index0 даёт 1.2
+const usbPort = (device: string): string => device.match(/usb-\d+:([\d.]+):/)?.[1] ?? '';
+
+/** Адрес для списка: IP у камеры в сети, «USB 1.2» или «CSI» у камеры на плате. */
+export const cameraAddress = (camera: { ip_adress?: string; source?: string; v4l2?: { device?: string } }): string => {
+    if (!isLocalCamera(camera)) return camera.ip_adress ?? '';
+    const device = camera.v4l2?.device ?? '';
+    if (isCsiDevice(device)) return 'CSI';
+    const port = usbPort(device);
+    return port ? `USB ${port}` : 'USB';
+};
+
 export const findNextFreeCameraId = (cameras: Camera[]): string => {
     const used = new Set<number>();
     for (const c of cameras) {
@@ -406,6 +507,8 @@ export const formFromCamera = (camera: Camera): CameraFormData => ({
     user: camera.user,
     password: camera.password || '',
     production: camera.production,
+    source: camera.source === 'v4l2' ? 'v4l2' : 'rtsp',
+    v4l2: { ...DEFAULT_V4L2, ...camera.v4l2 },
     device_id: camera.device_id ?? '',
     streams: streamsOf(camera).map(stream => {
         const raw = camera.streams[stream.key];
@@ -461,6 +564,7 @@ export const formToPayload = (form: CameraFormData, id: string): any => ({
     user: form.user,
     password: form.password,
     production: form.production,
+    ...(form.source === 'v4l2' ? { source: 'v4l2', v4l2: form.v4l2 } : {}),
     streams: Object.fromEntries(form.streams.map(stream => [stream.key, streamToPayload(stream)])),
 });
 

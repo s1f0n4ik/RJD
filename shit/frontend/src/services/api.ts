@@ -2,6 +2,7 @@
 
 import type {
   CPPCamera,
+  LocalCamera,
   NeuralConfigurationBody,
   NeuralConfigurationListItem,
   NeuralRuntimeStatusItem,
@@ -11,6 +12,7 @@ import type {
   RtpSettings,
   StreamProducer,
   StreamPurpose,
+  V4l2Source,
   VirtualStream,
 } from '../types';
 
@@ -48,6 +50,8 @@ export interface CameraCriticalPatch {
     user?: string;
     password?: string; // ⚠️ включать в объект только при реальной смене
     production?: number;
+    source?: 'rtsp' | 'v4l2';
+    v4l2?: V4l2Source;
     // Ключи — stream_1…stream_N; PATCH задаёт набор потоков целиком
     streams?: Record<string, CameraStreamPatch>;
 }
@@ -152,6 +156,12 @@ class ApiClient {
             method: 'POST',
             body: JSON.stringify(body),
         });
+    }
+
+    // Камеры USB и CSI, которые media-center нашёл на плате
+    async getLocalCameras(deviceId: string): Promise<LocalCamera[]> {
+        const res = await this.fetch<{ cameras: LocalCamera[] }>(mcPath(deviceId, '/camera/local'));
+        return res?.cameras ?? [];
     }
 
     // ── helpers ──

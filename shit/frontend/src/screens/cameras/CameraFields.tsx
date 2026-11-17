@@ -94,12 +94,15 @@ interface ConnectionFieldsProps extends FieldsProps {
     portCheck: Validation;
     /** Имя камеры и отображаемое имя; в панели правки id заблокирован, отображаемое имя правится */
     withName?: boolean;
+    /** Поля камеры на плате вместо адреса, логина и производителя */
+    children?: React.ReactNode;
 }
 
 export function ConnectionFields({
-    form, onChange, editMode, autoName, nameCheck, ipCheck, portCheck, withName = false,
+    form, onChange, editMode, autoName, nameCheck, ipCheck, portCheck, withName = false, children,
 }: ConnectionFieldsProps) {
     const devices = getDevices();
+    const local = form.source === 'v4l2';
 
     return (
         <div className="fields">
@@ -129,51 +132,57 @@ export function ConnectionFields({
                 </>
             )}
 
-            <div className="frow">
-                <Cell cap="IP-адрес камеры">
-                    <input
-                        className={`inp${ipCheck.valid ? '' : ' is-err'}`}
-                        value={form.ip_adress}
-                        placeholder="192.168.1.36"
-                        onChange={e => onChange({ ip_adress: e.target.value.trim() })}
-                    />
-                </Cell>
-                <Cell cap="Порт RTSP">
-                    <input
-                        className={`inp inp--num${portCheck.valid ? '' : ' is-err'}`}
-                        value={form.port}
-                        onChange={e => onChange({ port: e.target.value.trim() })}
-                    />
-                </Cell>
-            </div>
-            {!ipCheck.valid && form.ip_adress !== '' && (
-                <p className="hint is-err" style={{ margin: 0 }}>{ipCheck.error}</p>
+            {local ? children : (
+                <>
+                    <div className="frow">
+                        <Cell cap="IP-адрес камеры">
+                            <input
+                                className={`inp${ipCheck.valid ? '' : ' is-err'}`}
+                                value={form.ip_adress}
+                                placeholder="192.168.1.36"
+                                onChange={e => onChange({ ip_adress: e.target.value.trim() })}
+                            />
+                        </Cell>
+                        <Cell cap="Порт RTSP">
+                            <input
+                                className={`inp inp--num${portCheck.valid ? '' : ' is-err'}`}
+                                value={form.port}
+                                onChange={e => onChange({ port: e.target.value.trim() })}
+                            />
+                        </Cell>
+                    </div>
+                    {!ipCheck.valid && form.ip_adress !== '' && (
+                        <p className="hint is-err" style={{ margin: 0 }}>{ipCheck.error}</p>
+                    )}
+                    {!portCheck.valid && <p className="hint is-err" style={{ margin: 0 }}>{portCheck.error}</p>}
+
+                    <div className="frow">
+                        <Cell cap="Логин камеры">
+                            <input
+                                className="inp"
+                                value={form.user}
+                                onChange={e => onChange({ user: e.target.value })}
+                            />
+                        </Cell>
+                        <PasswordCell
+                            value={form.password}
+                            placeholder={editMode ? 'без изменений' : undefined}
+                            onValue={v => onChange({ password: v })}
+                        />
+                    </div>
+                </>
             )}
-            {!portCheck.valid && <p className="hint is-err" style={{ margin: 0 }}>{portCheck.error}</p>}
 
             <div className="frow">
-                <Cell cap="Логин камеры">
-                    <input
-                        className="inp"
-                        value={form.user}
-                        onChange={e => onChange({ user: e.target.value })}
-                    />
-                </Cell>
-                <PasswordCell
-                    value={form.password}
-                    placeholder={editMode ? 'без изменений' : undefined}
-                    onValue={v => onChange({ password: v })}
-                />
-            </div>
-
-            <div className="frow">
-                <Cell cap="Производитель">
-                    <Select
-                        value={String(form.production)}
-                        onChange={v => onChange({ production: Number(v) })}
-                        options={Object.entries(PRODUCTION_NAMES).map(([value, name]) => ({ value, label: name }))}
-                    />
-                </Cell>
+                {!local && (
+                    <Cell cap="Производитель">
+                        <Select
+                            value={String(form.production)}
+                            onChange={v => onChange({ production: Number(v) })}
+                            options={Object.entries(PRODUCTION_NAMES).map(([value, name]) => ({ value, label: name }))}
+                        />
+                    </Cell>
+                )}
                 <Cell cap="Устройство">
                     <Select
                         value={form.device_id}

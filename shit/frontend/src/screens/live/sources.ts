@@ -12,6 +12,7 @@ import type { CPPCamera, StreamProducer, VirtualStream } from '../../types';
 import { CAMERA_STATUS } from '../../utils/constants';
 import { describeFault, type StreamFault } from '../../components/webrtc/error-codes';
 import { PRODUCER_NAME } from '../../components/streams/stream-sources';
+import { cameraAddress } from '../cameras/model';
 
 export interface ViewStream {
     /** Ключ потока: stream_1, stream_2, … */
@@ -76,7 +77,7 @@ export function cameraToWallSource(camera: CPPCamera): WallSource {
         offline: Boolean(camera.offline),
         deviceId: camera.device_id,
         deviceName: camera.device_name,
-        detail: camera.ip_adress,
+        detail: cameraAddress(camera),
         viewStreams,
         hasNeural: entries.some(([, s]) => s.purposes?.includes('neural')),
         hasBirdview: entries.some(([, s]) => s.purposes?.includes('birdview')),

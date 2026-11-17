@@ -7,7 +7,9 @@ import { Cell, NumCell, PurposePicker } from './CameraFields';
 import { PurposeChips } from './StreamsTable';
 import {
     PRODUCTION_NAMES,
+    cameraAddress,
     cameraStatus,
+    isLocalCamera,
     dotClass,
     rtpSummary,
     streamNumber,
@@ -89,6 +91,25 @@ export function ModuleHead({ icon, title, count, camera, children }: ModuleHeadP
 
 // Сведения о камере для просмотра
 export function CameraInfo({ camera }: { camera: Camera }) {
+    const v4l2 = camera.v4l2;
+    if (isLocalCamera(camera) && v4l2) {
+        return (
+            <div className="cd-kv">
+                <div>
+                    <span className="k">Устройство</span>
+                    <span className={`v${camera.offline ? ' st-err' : ''}`}>{camera.device_name ?? '—'}</span>
+                </div>
+                <div><span className="k">Источник</span><span className="v m">{cameraAddress(camera)}</span></div>
+                <div className="span2"><span className="k">Адрес</span><span className="v m" data-tip={v4l2.device}>{v4l2.device}</span></div>
+                <div><span className="k">Режим</span><span className="v m">{v4l2.format} {v4l2.width}×{v4l2.height}, {v4l2.fps} к/с</span></div>
+                <div><span className="k">Поворот и цвет</span><span className="v">{v4l2.rotation}°, {v4l2.swap_uv ? 'U ↔ V' : 'как есть'}</span></div>
+                <div><span className="k">Битрейт</span><span className="v m">{v4l2.bitrate ? `${v4l2.bitrate} кбит/с` : 'авто'}</span></div>
+                <div><span className="k">Опорный кадр</span><span className="v m">{v4l2.gop} с</span></div>
+                <div className="span2"><span className="k">Описание</span><span className="v">{camera.description || '—'}</span></div>
+            </div>
+        );
+    }
+
     return (
         <div className="cd-kv">
             <div>
@@ -180,12 +201,14 @@ interface StreamCardProps {
     // Поток в форме правки; пусто — карточка только для просмотра
     form?: StreamForm;
     modules: string[];
+    // Камера на плате: один поток без субпотока, задержки и транспорта
+    local?: boolean;
     onSelect: (key: string) => void;
     onPatch: (key: string, patch: Partial<StreamForm>) => void;
     onRemove: (key: string) => void;
 }
 
-function StreamCard({ camera, streamKey, info, form, modules, onSelect, onPatch, onRemove }: StreamCardProps) {
+function StreamCard({ camera, streamKey, info, form, modules, local, onSelect, onPatch, onRemove }: StreamCardProps) {
     const raw = camera.streams[streamKey];
     const number = info?.number ?? streamNumber(streamKey);
     const substream = form?.substream ?? info?.substream ?? raw?.substream ?? 0;
@@ -202,10 +225,10 @@ function StreamCard({ camera, streamKey, info, form, modules, onSelect, onPatch,
                 className={`cd-sc-h${viewable ? ' is-pick' : ''}`}
                 onClick={() => viewable && onSelect(streamKey)}
             >
-                <span className="cd-plate"><b>{number}</b><i>суб {substream}</i></span>
+                <span className="cd-plate"><b>{number}</b><i>{local ? 'поток' : `суб ${substream}`}</i></span>
                 <span className="who">
                     <b>{hasFrame && info ? `${info.width}×${info.height}` : `Поток ${number}`}</b>
-                    <span className="sub">{info?.codec ? info.codec.toUpperCase() : '—'} · субпоток {substream}</span>
+                    <span className="sub">{info?.codec ? info.codec.toUpperCase() : '—'}{local ? '' : ` · субпоток ${substream}`}</span>
                 </span>
                 <span className={`st st-${status.tone}`} data-tip={status.tip}>
                     <span className={`dot ${dotClass(status.tone)}`} />
@@ -217,6 +240,7 @@ function StreamCard({ camera, streamKey, info, form, modules, onSelect, onPatch,
                 <StreamEdit
                     stream={form}
                     modules={modules}
+                    local={local}
                     onPatch={patch => onPatch(streamKey, patch)}
                     onRemove={() => onRemove(streamKey)}
                 />
@@ -225,9 +249,13 @@ function StreamCard({ camera, streamKey, info, form, modules, onSelect, onPatch,
                     <div className="cd-sc-p"><PurposeChips purposes={info.purposes} /></div>
                     <div className="cd-sc-kv">
                         <div><span className="k">Кадров/с</span><span className={`v${hasFrame ? '' : ' dim'}`}>{hasFrame && info.fps ? Math.round(info.fps) : '—'}</span></div>
-                        <div><span className="k">Задержка</span><span className="v">{raw.latency} мс</span></div>
-                        <div><span className="k">Транспорт</span><span className="v">{raw.use_udp ? 'UDP' : 'TCP'}</span></div>
-                        <div><span className="k">Реконнект</span><span className="v">{raw.reconnect} с</span></div>
+                        {!local && (
+                            <>
+                                <div><span className="k">Задержка</span><span className="v">{raw.latency} мс</span></div>
+                                <div><span className="k">Транспорт</span><span className="v">{raw.use_udp ? 'UDP' : 'TCP'}</span></div>
+                                <div><span className="k">Реконнект</span><span className="v">{raw.reconnect} с</span></div>
+                            </>
+                        )}
                     </div>
                     {info.purposes.includes('record') && (
                         <div className="cd-sc-rec">
@@ -241,7 +269,7 @@ function StreamCard({ camera, streamKey, info, form, modules, onSelect, onPatch,
                             <span><b>{rtpSummary(raw.rtp)}</b></span>
                         </div>
                     )}
-                    <div className="cd-sc-link" data-tip={info.rtsp}>{info.rtsp || '—'}</div>
+                    {!local && <div className="cd-sc-link" data-tip={info.rtsp}>{info.rtsp || '—'}</div>}
                     {info.fault && !camera.offline && (
                         <div className="cd-fault">
                             <Icon name="warn" size={14} />
@@ -260,12 +288,13 @@ function StreamCard({ camera, streamKey, info, form, modules, onSelect, onPatch,
 interface StreamEditProps {
     stream: StreamForm;
     modules: string[];
+    local?: boolean;
     onPatch: (patch: Partial<StreamForm>) => void;
     onRemove: () => void;
 }
 
 // Правка потока: назначения, общие поля, поля включённых назначений
-function StreamEdit({ stream, modules, onPatch, onRemove }: StreamEditProps) {
+function StreamEdit({ stream, modules, local, onPatch, onRemove }: StreamEditProps) {
     const blocks = roleBlocks(stream, onPatch);
 
     return (
@@ -280,7 +309,7 @@ function StreamEdit({ stream, modules, onPatch, onRemove }: StreamEditProps) {
                 />
             </div>
 
-            <div className="cd-grp">
+            {!local && <div className="cd-grp">
                 <span className="eyebrow">Общие</span>
                 <div className="frow frow--3">
                     {/* Номер выбран из опроса камеры, руками не правится */}
@@ -296,7 +325,7 @@ function StreamEdit({ stream, modules, onPatch, onRemove }: StreamEditProps) {
                         Передавать по UDP
                     </Switch>
                 </label>
-            </div>
+            </div>}
 
             {blocks.length > 0 && (
                 <div className="cd-grp">
@@ -305,9 +334,11 @@ function StreamEdit({ stream, modules, onPatch, onRemove }: StreamEditProps) {
                 </div>
             )}
 
-            <div>
-                <button type="button" className="btn btn--sm btn--err" onClick={onRemove}>Удалить поток</button>
-            </div>
+            {!local && (
+                <div>
+                    <button type="button" className="btn btn--sm btn--err" onClick={onRemove}>Удалить поток</button>
+                </div>
+            )}
         </div>
     );
 }
@@ -318,12 +349,13 @@ interface StreamCardsProps {
     // Потоки формы в режиме правки; null — просмотр
     form: StreamForm[] | null;
     modules: string[];
+    local?: boolean;
     onSelect: (key: string) => void;
     onPatch: (key: string, patch: Partial<StreamForm>) => void;
     onRemove: (key: string) => void;
 }
 
-export function StreamCards({ camera, infos, form, modules, onSelect, onPatch, onRemove }: StreamCardsProps) {
+export function StreamCards({ camera, infos, form, modules, local, onSelect, onPatch, onRemove }: StreamCardsProps) {
     const keys = form ? form.map(s => s.key) : infos.map(s => s.key);
 
     if (keys.length === 0) {
@@ -340,6 +372,7 @@ export function StreamCards({ camera, infos, form, modules, onSelect, onPatch, o
                     info={infos.find(s => s.key === key)}
                     form={form?.find(s => s.key === key)}
                     modules={modules}
+                    local={local}
                     onSelect={onSelect}
                     onPatch={onPatch}
                     onRemove={onRemove}

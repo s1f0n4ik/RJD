@@ -17,6 +17,44 @@ export interface RtpSettings {
   qp_max: number;
 }
 
+// Формат кадра камеры на плате: четвёрка V4L2
+export type V4l2Format = 'YUYV' | 'UYVY' | 'NV12' | 'MJPG';
+
+// Камера на плате: узел V4L2, режим захвата и кодирование в H.264
+export interface V4l2Source {
+  // USB — путь /dev/v4l/by-path/..., CSI — имя узла, например rkisp_mainpath
+  device: string;
+  format: V4l2Format;
+  width: number;
+  height: number;
+  fps: number;
+  // По часовой стрелке: 0, 90, 180 или 270
+  rotation: number;
+  swap_uv: boolean;
+  // кбит/с, 0 — выбирает кодек
+  bitrate: number;
+  // Секунд между опорными кадрами
+  gop: number;
+}
+
+// Камера, которую media-center нашёл на плате: GET /camera/local
+export interface LocalCamera {
+  device: string;
+  node: string;
+  name: string;
+  kind: 'usb' | 'csi';
+  // Модель сенсора CSI; пусто у USB
+  sensor: string;
+  // Камера, которая уже держит это устройство
+  used_by: string | null;
+  formats: Array<{
+    format: string;
+    sizes?: Array<{ width: number; height: number; fps: number[] }>;
+    // Кадр масштабирует ISP: диапазон с шагом вместо списка
+    range?: { min_width: number; max_width: number; step_width: number; min_height: number; max_height: number; step_height: number };
+  }>;
+}
+
 export interface CameraStream {
   codec: string;
   // Физический вход камеры и качество той же картинки
@@ -49,6 +87,9 @@ export interface CPPCamera {
   user: string;
   password: string;
   production: number;
+  // Нет поля — камера в сети; v4l2 — камера на плате с настройками ниже
+  source?: 'rtsp' | 'v4l2';
+  v4l2?: V4l2Source;
   // Ключи — stream_1…stream_N, порядковые и неизменяемые
   streams: Record<string, CameraStream>;
   // Устройство-владелец из агрегированного списка

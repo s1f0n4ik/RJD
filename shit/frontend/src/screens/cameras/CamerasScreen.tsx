@@ -14,6 +14,7 @@ import { AddCameraWizard } from './AddCameraWizard';
 import { AddStreamModal } from './AddStreamModal';
 import { CameraInfo, CameraSummary, ModuleHead, PreviewStats, StreamCards } from './CameraDrawer';
 import { ConnectionFields, useDeviceModules } from './CameraFields';
+import { LocalCameraEdit } from './LocalCameraFields';
 import { LivePreview } from './LivePreview';
 import { ScanModal } from './ScanModal';
 import { PurposeChips, StreamsTable } from './StreamsTable';
@@ -24,6 +25,7 @@ import {
     cameraStatus,
     deviceOf,
     findNextFreeCameraId,
+    cameraAddress,
     formFromCamera,
     formToPayload,
     formatError,
@@ -36,6 +38,7 @@ import {
     validateCameraName,
     validateIp,
     validatePort,
+    validateV4l2,
     validateStreams,
     viewableStream,
     type Camera,
@@ -223,8 +226,11 @@ export function CamerasScreen() {
         () => validateCameraName(form?.id ?? '', existingNames, true),
         [form?.id, existingNames],
     );
-    const ipCheck = useMemo(() => validateIp(form?.ip_adress ?? ''), [form?.ip_adress]);
-    const portCheck = useMemo(() => validatePort(form?.port ?? ''), [form?.port]);
+    // У камеры на плате адреса нет: вместо него проверяется режим
+    const local = form?.source === 'v4l2';
+    const ipCheck = useMemo(() => (local ? { valid: true } : validateIp(form?.ip_adress ?? '')), [local, form?.ip_adress]);
+    const portCheck = useMemo(() => (local ? { valid: true } : validatePort(form?.port ?? '')), [local, form?.port]);
+    const v4l2Check = useMemo(() => (local && form ? validateV4l2(form.v4l2) : { valid: true }), [local, form]);
 
     const modules = useDeviceModules(form?.device_id ?? '');
     const streamsCheck = useMemo(
@@ -232,7 +238,7 @@ export function CamerasScreen() {
         [form?.streams, modules],
     );
 
-    const formValid = nameCheck.valid && ipCheck.valid && portCheck.valid && streamsCheck.valid;
+    const formValid = nameCheck.valid && ipCheck.valid && portCheck.valid && v4l2Check.valid && streamsCheck.valid;
 
     const dirty = useMemo(() => {
         if (!form || !selected) return false;
@@ -475,7 +481,7 @@ export function CamerasScreen() {
                             <div className="cam-head">
                                 <span className="c-nm">Название</span>
                                 <span className="c-purp">Назначения</span>
-                                <span className="c-ip">IP-адрес</span>
+                                <span className="c-ip">Адрес</span>
                                 <span className="c-dev">Устройство</span>
                                 <span className="c-cnt">Потоков</span>
                                 <span className="c-st">Состояние</span>
@@ -500,7 +506,7 @@ export function CamerasScreen() {
                                                 </span>
                                             </span>
                                             <span className="cell-purp c-purp"><PurposeChips purposes={cameraPurposes(camera)} /></span>
-                                            <span className="mono c-ip">{camera.ip_adress}</span>
+                                            <span className="mono c-ip">{cameraAddress(camera)}</span>
                                             <span className={`c-dev${camera.offline ? ' st-err' : ''}`}>
                                                 {camera.device_name ?? '—'}
                                             </span>
@@ -596,7 +602,7 @@ export function CamerasScreen() {
                                                         <span className="sub">
                                                             <span className="seps">
                                                                 <span>{copy.device_name}</span>
-                                                                <span>{copy.ip_adress}</span>
+                                                                <span>{cameraAddress(copy)}</span>
                                                             </span>
                                                         </span>
                                                     </div>
@@ -674,7 +680,15 @@ export function CamerasScreen() {
                                             nameCheck={nameCheck}
                                             ipCheck={ipCheck}
                                             portCheck={portCheck}
-                                        />
+                                        >
+                                            <LocalCameraEdit
+                                                value={form.v4l2}
+                                                deviceId={form.device_id || deviceOf(selected)}
+                                                ownerId={selected.id}
+                                                onChange={v4l2 => patchForm({ v4l2 })}
+                                            />
+                                            {!v4l2Check.valid && <p className="hint is-err" style={{ margin: 0 }}>{v4l2Check.error}</p>}
+                                        </ConnectionFields>
                                     ) : (
                                         <CameraInfo camera={selected} />
                                     )}
@@ -683,7 +697,7 @@ export function CamerasScreen() {
 
                             <section className="cd-sec cd-sec--str">
                                 <ModuleHead icon="layers" title="Потоки" count={editing ? form.streams.length : selectedStreams.length}>
-                                    {editing && (
+                                    {editing && !local && (
                                         <button type="button" className="btn btn--sm" onClick={() => setAddStreamOpen(true)}>
                                             <Icon name="plus" size={14} />Добавить
                                         </button>
@@ -692,6 +706,7 @@ export function CamerasScreen() {
                                 <div className="cd-sec-b cd-swap" key={editing ? 'edit' : 'view'}>
                                     <StreamCards
                                         camera={selected}
+                                        local={local}
                                         infos={selectedStreams}
                                         form={editing ? form.streams : null}
                                         modules={modules}

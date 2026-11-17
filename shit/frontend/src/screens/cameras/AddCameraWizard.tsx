@@ -5,25 +5,30 @@ import { Select } from '../../app/Select';
 import { api } from '../../services/api';
 import { defaultCameraDeviceId, getDevices, mcPath, signalingWsUrl } from '../../services/devices';
 import { MODULE_LABEL } from '../devices/model';
-import type { StreamPurpose } from '../../types';
+import type { LocalCamera, StreamPurpose } from '../../types';
 import { AddStreamModal, type FoundStream } from './AddStreamModal';
 import { PurposePicker, useDeviceModules } from './CameraFields';
+import { EncodeFields, LocalCameraList, ModeFields, useLocalCameras } from './LocalCameraFields';
 import { LivePreview } from './LivePreview';
 import { ScanModal } from './ScanModal';
 import {
     DEFAULT_FORM,
+    LOCAL_STREAM,
     PRODUCTION_NAMES,
     VENDOR_TO_PRODUCTION,
     findNextFreeCameraId,
     formToPayload,
     formatError,
     makeStream,
+    modeError,
+    modeFor,
     nextStreamKey,
     togglePurpose,
     validateCameraName,
     validateIp,
     validatePort,
     validateStreams,
+    validateV4l2,
     type Camera,
     type CameraFormData,
     type StreamForm,
@@ -121,9 +126,18 @@ export function AddCameraWizard({ cameras, initial, onClose, onSaved }: AddCamer
     const modules = useDeviceModules(form.device_id);
     const streamsCheck = useMemo(() => validateStreams(form.streams, modules), [form.streams, modules]);
 
+    // Камера на плате: список камер устройства и режим, который выбранная камера умеет
+    const local = form.source === 'v4l2';
+    const boardCameras = useLocalCameras(form.device_id, local);
+    const picked = boardCameras.cameras.find(c => c.device === form.v4l2.device);
+    const v4l2Check = useMemo(() => validateV4l2(form.v4l2), [form.v4l2]);
+    const modeProblem = picked ? modeError(picked, form.v4l2) : '';
+    const localReady = !!picked && v4l2Check.valid && !modeProblem;
+
     // Опрашивать нечего, пока не известно куда идти и с какого устройства
     const canProbe = ipCheck.valid && portCheck.valid && !!form.device_id;
-    const isValid = nameCheck.valid && ipCheck.valid && portCheck.valid && streamsCheck.valid && !!form.device_id;
+    const sourceValid = local ? localReady : ipCheck.valid && portCheck.valid;
+    const isValid = nameCheck.valid && sourceValid && streamsCheck.valid && !!form.device_id;
 
     const viewStream = form.streams.find(s => s.purposes.includes('view')) ?? null;
 
@@ -181,7 +195,7 @@ export function AddCameraWizard({ cameras, initial, onClose, onSaved }: AddCamer
         const name = `__probe_${Date.now()}`;
         const single: StreamForm = { ...viewStream, key: PREVIEW_STREAM, purposes: ['view'] };
         const payload = formToPayload({ ...form, streams: [single] }, name);
-        payload.display_name = `Проверка ${form.ip_adress}`;
+        payload.display_name = `Проверка ${local ? picked?.name ?? form.v4l2.device : form.ip_adress}`;
         payload.description = 'Временная камера предпросмотра';
 
         try {
@@ -215,8 +229,8 @@ export function AddCameraWizard({ cameras, initial, onClose, onSaved }: AddCamer
 
     // Смена подключения или пропажа смотрибельного потока обесценивают сессию
     const previewKey = [
-        form.ip_adress, form.port, form.user, form.password, form.production,
-        form.device_id, viewStream?.substream ?? 0,
+        form.source, form.ip_adress, form.port, form.user, form.password, form.production,
+        form.device_id, viewStream?.substream ?? 0, local ? JSON.stringify(form.v4l2) : '',
     ].join('|');
 
     useEffect(() => {
@@ -266,6 +280,26 @@ export function AddCameraWizard({ cameras, initial, onClose, onSaved }: AddCamer
 
     const removeStream = (key: string) =>
         setForm(prev => ({ ...prev, streams: prev.streams.filter(s => s.key !== key) }));
+
+    // У камеры на плате ровно один поток, у сетевой потоки набираются опросом
+    const setSource = (source: 'rtsp' | 'v4l2') => {
+        if (source === form.source) return;
+        void stopPreview('сменился источник камеры');
+        setProbed({});
+        setForm(prev => ({
+            ...prev,
+            source,
+            streams: source === 'v4l2' ? [makeStream(LOCAL_STREAM, 1, ['view'])] : [],
+        }));
+    };
+
+    // Новая камера платы: формат прежний, если камера его отдаёт, размер и частота — из её списка
+    const pickBoardCamera = (camera: LocalCamera) =>
+        setForm(prev => ({ ...prev, v4l2: modeFor(camera, prev.v4l2.format, prev.v4l2) }));
+
+    // Камеры другой платы — другие: прежний выбор снимается
+    const pickDevice = (deviceId: string) =>
+        onChange({ device_id: deviceId, v4l2: { ...form.v4l2, device: '' } });
 
     const save = async () => {
         if (!isValid) return;
@@ -328,7 +362,9 @@ export function AddCameraWizard({ cameras, initial, onClose, onSaved }: AddCamer
                                 cameraId={previewName}
                                 stream={PREVIEW_STREAM}
                                 signalingUrl={signalingWsUrl(form.device_id, `/client/${previewName}`)}
-                                caption={viewStream ? `субпоток ${viewStream.substream}` : undefined}
+                                caption={local
+                                    ? `${form.v4l2.format} ${form.v4l2.width}×${form.v4l2.height}`
+                                    : viewStream ? `субпоток ${viewStream.substream}` : undefined}
                                 style={{ flex: 'none', width: '100%' }}
                             />
                         ) : (
@@ -338,6 +374,18 @@ export function AddCameraWizard({ cameras, initial, onClose, onSaved }: AddCamer
                                         ? <><span className="spin" />поднимаем поток на устройстве…</>
                                         : previewError
                                             ? previewError
+                                            : local
+                                                ? picked
+                                                    ? (
+                                                        <>
+                                                            <span className="seps">
+                                                                <span>{picked.kind.toUpperCase()}</span>
+                                                                <span>{form.v4l2.format} {form.v4l2.width}×{form.v4l2.height}</span>
+                                                            </span>
+                                                            <span>нажмите «Показать превью»</span>
+                                                        </>
+                                                    )
+                                                    : 'Появится, когда будет выбрана камера'
                                             : viewStream
                                                 ? (
                                                     <span className="seps">
@@ -353,7 +401,7 @@ export function AddCameraWizard({ cameras, initial, onClose, onSaved }: AddCamer
                         <button
                             className="btn"
                             style={{ width: '100%', justifyContent: 'center' }}
-                            disabled={!viewStream || previewBusy || !form.device_id}
+                            disabled={!viewStream || previewBusy || !form.device_id || (local && !localReady)}
                             onClick={() => (previewName ? void stopPreview('остановлено оператором') : void startPreview())}
                         >
                             {previewBusy
@@ -361,83 +409,112 @@ export function AddCameraWizard({ cameras, initial, onClose, onSaved }: AddCamer
                                 : previewName ? 'Остановить превью' : 'Показать превью'}
                         </button>
 
-                        <div className="add-check">
-                            <span className={`dot ${ipCheck.valid && portCheck.valid ? 'ok' : ''}`} />
-                            {ipCheck.valid && portCheck.valid ? 'адрес и порт валидны' : 'введите адрес и порт'}
-                        </div>
+                        {local ? (
+                            <>
+                                <div className="add-check">
+                                    <span className={`dot ${picked ? 'ok' : ''}`} />
+                                    {picked ? 'камера выбрана' : 'выберите камеру платы'}
+                                </div>
+                                <div className="add-check">
+                                    <span className={`dot ${localReady ? 'ok' : ''}`} />
+                                    {!picked ? 'режим не выбран' : localReady ? 'режим есть у камеры' : modeProblem || v4l2Check.error}
+                                </div>
+                            </>
+                        ) : (
+                            <div className="add-check">
+                                <span className={`dot ${ipCheck.valid && portCheck.valid ? 'ok' : ''}`} />
+                                {ipCheck.valid && portCheck.valid ? 'адрес и порт валидны' : 'введите адрес и порт'}
+                            </div>
+                        )}
                         <div className="add-check">
                             <span className={`dot ${form.device_id ? 'ok' : ''}`} />
                             {form.device_id ? 'устройство выбрано' : 'выберите устройство'}
                         </div>
-                        <div className="add-check">
-                            <span className={`dot ${form.streams.length > 0 ? 'ok' : ''}`} />
-                            {form.streams.length > 0
-                                ? `потоков добавлено: ${form.streams.length}`
-                                : 'потоки не добавлены'}
-                        </div>
+                        {!local && (
+                            <div className="add-check">
+                                <span className={`dot ${form.streams.length > 0 ? 'ok' : ''}`} />
+                                {form.streams.length > 0
+                                    ? `потоков добавлено: ${form.streams.length}`
+                                    : 'потоки не добавлены'}
+                            </div>
+                        )}
                     </aside>
 
                     <div className="add-pane">
                     <div className="add-main" ref={mainRef} onScroll={syncMore}>
                         <div className="add-block">
-                            <div className="add-block-h"><span className="t">Подключение</span></div>
+                            <div className="add-block-h">
+                                <span className="t">Подключение</span>
+                                <span className="spacer" />
+                                {local && (
+                                    <button type="button" className="btn btn--sm btn--ghost" onClick={boardCameras.reload} data-tip="Опросить плату заново">
+                                        <Icon name="refresh" size={13} />Обновить
+                                    </button>
+                                )}
+                                <Seg className="seg--xs" title="Где камера">
+                                    <button type="button" className={local ? '' : 'is-on'} onClick={() => setSource('rtsp')}>В сети</button>
+                                    <button type="button" className={local ? 'is-on' : ''} onClick={() => setSource('v4l2')}>На плате</button>
+                                </Seg>
+                            </div>
                             <div className="add-block-b">
-                                <div className="add-row add-row--conn">
-                                    <div className="fcell">
-                                        <span className="fcap">IP-адрес</span>
-                                        <span className="pwd">
+                                {!local && (
+                                    <div className="add-row add-row--conn">
+                                        <div className="fcell">
+                                            <span className="fcap">IP-адрес</span>
+                                            <span className="pwd">
+                                                <input
+                                                    className={`inp${ipCheck.valid || form.ip_adress === '' ? '' : ' is-err'}`}
+                                                    value={form.ip_adress}
+                                                    placeholder="192.168.1.52"
+                                                    onChange={e => onChange({ ip_adress: e.target.value.trim() })}
+                                                />
+                                                <button
+                                                    type="button"
+                                                    className="eye"
+                                                    onClick={() => setScanOpen(true)}
+                                                    data-tip="Найти в сети"
+                                                    aria-label="Найти камеру в сети"
+                                                >
+                                                    <Icon name="search" size={14} />
+                                                </button>
+                                            </span>
+                                        </div>
+                                        <F cap="Порт">
                                             <input
-                                                className={`inp${ipCheck.valid || form.ip_adress === '' ? '' : ' is-err'}`}
-                                                value={form.ip_adress}
-                                                placeholder="192.168.1.52"
-                                                onChange={e => onChange({ ip_adress: e.target.value.trim() })}
+                                                className={`inp inp--num${portCheck.valid ? '' : ' is-err'}`}
+                                                value={form.port}
+                                                onChange={e => onChange({ port: e.target.value.trim() })}
                                             />
-                                            <button
-                                                type="button"
-                                                className="eye"
-                                                onClick={() => setScanOpen(true)}
-                                                data-tip="Найти в сети"
-                                                aria-label="Найти камеру в сети"
-                                            >
-                                                <Icon name="search" size={14} />
-                                            </button>
-                                        </span>
-                                    </div>
-                                    <F cap="Порт">
-                                        <input
-                                            className={`inp inp--num${portCheck.valid ? '' : ' is-err'}`}
-                                            value={form.port}
-                                            onChange={e => onChange({ port: e.target.value.trim() })}
-                                        />
-                                    </F>
-                                    <F cap="Логин">
-                                        <input
-                                            className="inp"
-                                            value={form.user}
-                                            onChange={e => onChange({ user: e.target.value })}
-                                        />
-                                    </F>
-                                    <div className="fcell">
-                                        <span className="fcap">Пароль</span>
-                                        <span className="pwd">
+                                        </F>
+                                        <F cap="Логин">
                                             <input
                                                 className="inp"
-                                                type={showPassword ? 'text' : 'password'}
-                                                value={form.password}
-                                                onChange={e => onChange({ password: e.target.value })}
+                                                value={form.user}
+                                                onChange={e => onChange({ user: e.target.value })}
                                             />
-                                            <button
-                                                type="button"
-                                                className="eye"
-                                                onClick={() => setShowPassword(v => !v)}
-                                                aria-label={showPassword ? 'Скрыть пароль' : 'Показать пароль'}
-                                            >
-                                                <Icon name="eye" size={14} />
-                                            </button>
-                                        </span>
+                                        </F>
+                                        <div className="fcell">
+                                            <span className="fcap">Пароль</span>
+                                            <span className="pwd">
+                                                <input
+                                                    className="inp"
+                                                    type={showPassword ? 'text' : 'password'}
+                                                    value={form.password}
+                                                    onChange={e => onChange({ password: e.target.value })}
+                                                />
+                                                <button
+                                                    type="button"
+                                                    className="eye"
+                                                    onClick={() => setShowPassword(v => !v)}
+                                                    aria-label={showPassword ? 'Скрыть пароль' : 'Показать пароль'}
+                                                >
+                                                    <Icon name="eye" size={14} />
+                                                </button>
+                                            </span>
+                                        </div>
                                     </div>
-                                </div>
-                                <div className="add-row add-row--meta" style={{ marginBottom: 0 }}>
+                                )}
+                                <div className="add-row add-row--meta" style={local ? { marginBottom: 0, gridTemplateColumns: '1fr 1.4fr 1.2fr' } : { marginBottom: 0 }}>
                                     <F cap="Имя (id)">
                                         <input
                                             className={`inp${nameCheck.valid ? '' : ' is-err'}`}
@@ -455,17 +532,19 @@ export function AddCameraWizard({ cameras, initial, onClose, onSaved }: AddCamer
                                             onChange={e => onChange({ display_name: e.target.value })}
                                         />
                                     </F>
-                                    <F cap="Производитель">
-                                        <Select
-                                            value={String(form.production)}
-                                            onChange={v => onChange({ production: Number(v) })}
-                                            options={Object.entries(PRODUCTION_NAMES).map(([value, label]) => ({ value, label }))}
-                                        />
-                                    </F>
+                                    {!local && (
+                                        <F cap="Производитель">
+                                            <Select
+                                                value={String(form.production)}
+                                                onChange={v => onChange({ production: Number(v) })}
+                                                options={Object.entries(PRODUCTION_NAMES).map(([value, label]) => ({ value, label }))}
+                                            />
+                                        </F>
+                                    )}
                                     <F cap="Устройство">
                                         <Select
                                             value={form.device_id}
-                                            onChange={v => onChange({ device_id: v })}
+                                            onChange={pickDevice}
                                             options={devices.map(d => ({
                                                 value: d.id,
                                                 label: d.name || d.id,
@@ -478,86 +557,138 @@ export function AddCameraWizard({ cameras, initial, onClose, onSaved }: AddCamer
                                     </F>
                                 </div>
                                 {!nameCheck.valid && <p className="hint is-err" style={{ marginTop: 10 }}>{nameCheck.error}</p>}
-                                {!ipCheck.valid && form.ip_adress !== '' && (
+                                {!local && !ipCheck.valid && form.ip_adress !== '' && (
                                     <p className="hint is-err" style={{ marginTop: 10 }}>{ipCheck.error}</p>
                                 )}
-                                {!portCheck.valid && <p className="hint is-err" style={{ marginTop: 10 }}>{portCheck.error}</p>}
+                                {!local && !portCheck.valid && <p className="hint is-err" style={{ marginTop: 10 }}>{portCheck.error}</p>}
+                                {local && (
+                                    <div style={{ marginTop: 12 }}>
+                                        <LocalCameraList list={boardCameras} deviceName={deviceName ?? form.device_id} value={form.v4l2.device} onPick={pickBoardCamera} />
+                                    </div>
+                                )}
                             </div>
                         </div>
 
-                        <div className="add-block">
-                            <div className="add-block-h">
-                                <span className="t">Потоки</span>
-                                <span className="count">{form.streams.length}</span>
-                                <span className="spacer" />
-                                <button
-                                    className="btn btn--sm btn--acc"
-                                    disabled={!canProbe}
-                                    data-tip={canProbe ? undefined : 'Сначала укажите адрес, порт и устройство'}
-                                    onClick={() => setAddStreamOpen(true)}
-                                >
-                                    Добавить поток
-                                </button>
-                            </div>
-                            <div className="add-block-b">
-                                {form.streams.length === 0 ? (
-                                    <div className="add-empty">
-                                        <b>Потоков нет</b>
+                        {local && picked && (
+                            <>
+                                <div className="add-block">
+                                    <div className="add-block-h"><span className="t">Режим</span></div>
+                                    <div className="add-block-b">
+                                        <ModeFields value={form.v4l2} camera={picked} onChange={v4l2 => onChange({ v4l2 })} />
+                                        {!localReady && <p className="hint is-err" style={{ marginTop: 10 }}>{modeProblem || v4l2Check.error}</p>}
                                     </div>
-                                ) : (
-                                    <div className="scards">
-                                        {form.streams.map(stream => (
-                                            <div className="scard" key={stream.key}>
-                                                <span className="plate"><b>{stream.substream}</b><i>суб</i></span>
-                                                <span className="who">
-                                                    <span className="n">
-                                                        <span className="seps">
-                                                            {describe(stream).map(part => <span key={part}>{part}</span>)}
+                                </div>
+                                <div className="add-block">
+                                    <div className="add-block-h"><span className="t">Кодирование</span></div>
+                                    <div className="add-block-b"><EncodeFields value={form.v4l2} onChange={v4l2 => onChange({ v4l2 })} /></div>
+                                </div>
+                                <div className="add-block">
+                                    <div className="add-block-h"><span className="t">Поток</span><span className="count">1</span></div>
+                                    <div className="add-block-b">
+                                        <div className="scards">
+                                            {form.streams.map(stream => (
+                                                <div className="scard" key={stream.key}>
+                                                    <span className="plate"><b>1</b><i>поток</i></span>
+                                                    <span className="who">
+                                                        <span className="n">
+                                                            <span className="seps">
+                                                                <span>{form.v4l2.rotation % 180 ? `${form.v4l2.height}×${form.v4l2.width}` : `${form.v4l2.width}×${form.v4l2.height}`}</span>
+                                                                <span>H.264</span>
+                                                                <span>{form.v4l2.fps} к/с</span>
+                                                            </span>
                                                         </span>
+                                                        <PurposePicker
+                                                            purposes={stream.purposes}
+                                                            modules={modules}
+                                                            compact
+                                                            hidden={['rtp']}
+                                                            onToggle={(purpose: StreamPurpose) => patchStream(stream.key, togglePurpose(stream, purpose))}
+                                                        />
                                                     </span>
-                                                    <PurposePicker
-                                                        purposes={stream.purposes}
-                                                        modules={modules}
-                                                        compact
-                                                        hidden={['rtp']}
-                                                        onToggle={(purpose: StreamPurpose) =>
-                                                            patchStream(stream.key, togglePurpose(stream, purpose))}
-                                                    />
-                                                </span>
-                                                <Seg className="seg--xs" title="Транспорт RTSP">
-                                                    <button
-                                                        type="button"
-                                                        className={stream.use_udp ? '' : 'is-on'}
-                                                        onClick={() => patchStream(stream.key, { use_udp: false })}
-                                                    >
-                                                        TCP
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        className={stream.use_udp ? 'is-on' : ''}
-                                                        onClick={() => patchStream(stream.key, { use_udp: true })}
-                                                    >
-                                                        UDP
-                                                    </button>
-                                                </Seg>
-                                                <button
-                                                    type="button"
-                                                    className="del"
-                                                    onClick={() => removeStream(stream.key)}
-                                                    aria-label={`Удалить поток, субпоток ${stream.substream}`}
-                                                >
-                                                    <Icon name="x" size={13} />
-                                                </button>
-                                            </div>
-                                        ))}
+                                                </div>
+                                            ))}
+                                        </div>
+                                        {!streamsCheck.valid && <p className="hint is-err" style={{ marginTop: 10 }}>{streamsCheck.error}</p>}
                                     </div>
-                                )}
+                                </div>
+                            </>
+                        )}
 
-                                {form.streams.length > 0 && !streamsCheck.valid && (
-                                    <p className="hint is-err" style={{ marginTop: 10 }}>{streamsCheck.error}</p>
-                                )}
+                        {!local && (
+                            <div className="add-block">
+                                <div className="add-block-h">
+                                    <span className="t">Потоки</span>
+                                    <span className="count">{form.streams.length}</span>
+                                    <span className="spacer" />
+                                    <button
+                                        className="btn btn--sm btn--acc"
+                                        disabled={!canProbe}
+                                        data-tip={canProbe ? undefined : 'Сначала укажите адрес, порт и устройство'}
+                                        onClick={() => setAddStreamOpen(true)}
+                                    >
+                                        Добавить поток
+                                    </button>
+                                </div>
+                                <div className="add-block-b">
+                                    {form.streams.length === 0 ? (
+                                        <div className="add-empty">
+                                            <b>Потоков нет</b>
+                                        </div>
+                                    ) : (
+                                        <div className="scards">
+                                            {form.streams.map(stream => (
+                                                <div className="scard" key={stream.key}>
+                                                    <span className="plate"><b>{stream.substream}</b><i>суб</i></span>
+                                                    <span className="who">
+                                                        <span className="n">
+                                                            <span className="seps">
+                                                                {describe(stream).map(part => <span key={part}>{part}</span>)}
+                                                            </span>
+                                                        </span>
+                                                        <PurposePicker
+                                                            purposes={stream.purposes}
+                                                            modules={modules}
+                                                            compact
+                                                            hidden={['rtp']}
+                                                            onToggle={(purpose: StreamPurpose) =>
+                                                                patchStream(stream.key, togglePurpose(stream, purpose))}
+                                                        />
+                                                    </span>
+                                                    <Seg className="seg--xs" title="Транспорт RTSP">
+                                                        <button
+                                                            type="button"
+                                                            className={stream.use_udp ? '' : 'is-on'}
+                                                            onClick={() => patchStream(stream.key, { use_udp: false })}
+                                                        >
+                                                            TCP
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            className={stream.use_udp ? 'is-on' : ''}
+                                                            onClick={() => patchStream(stream.key, { use_udp: true })}
+                                                        >
+                                                            UDP
+                                                        </button>
+                                                    </Seg>
+                                                    <button
+                                                        type="button"
+                                                        className="del"
+                                                        onClick={() => removeStream(stream.key)}
+                                                        aria-label={`Удалить поток, субпоток ${stream.substream}`}
+                                                    >
+                                                        <Icon name="x" size={13} />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+    
+                                    {form.streams.length > 0 && !streamsCheck.valid && (
+                                        <p className="hint is-err" style={{ marginTop: 10 }}>{streamsCheck.error}</p>
+                                    )}
+                                </div>
                             </div>
-                        </div>
+                        )}
 
                         {error && (
                             <div className="add-block-b">

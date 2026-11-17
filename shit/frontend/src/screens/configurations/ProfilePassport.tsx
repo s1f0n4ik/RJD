@@ -33,6 +33,8 @@ function leaves(value: unknown, prefix = ''): [string, unknown][] {
 }
 
 function fieldsFor(kind: string, source: Source): Field[] {
+    // У камеры на плате адреса и порта нет
+    if (kind === 'camera' && (source.camera as Source | undefined)?.source === 'v4l2') return [];
     if (kind === 'camera')
         return [
             { path: 'camera.ip_adress', label: 'IP-адрес', type: 'ip' },

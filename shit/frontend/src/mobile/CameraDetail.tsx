@@ -1,6 +1,6 @@
 import { Icon } from '../app/Icons';
 import { PurposeChips } from '../screens/cameras/StreamsTable';
-import { cameraStatus, dotClass, rtpSummary, streamStatus, streamsOf, type Camera, type StreamInfo } from '../screens/cameras/model';
+import { cameraAddress, cameraStatus, dotClass, rtpSummary, streamStatus, streamsOf, type Camera, type StreamInfo } from '../screens/cameras/model';
 import '../screens/cameras/cameras.css';
 
 // Время, с которого поток не поднимается: since приходит в миллисекундах
@@ -66,7 +66,7 @@ export function CameraDetail({ camera, closing }: { camera: Camera; closing: boo
                             <span className={`dot ${dotClass(status.tone)}`} />
                             {status.label}
                         </span>
-                        <span className="mono">{camera.ip_adress}</span>
+                        <span className="mono">{cameraAddress(camera)}</span>
                         <span>{camera.device_name ?? '—'}</span>
                     </div>
                     {status.detail && <div className="m-cd-top"><span>{status.detail}</span></div>}

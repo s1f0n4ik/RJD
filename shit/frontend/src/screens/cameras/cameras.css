@@ -259,8 +259,9 @@
 /* Обёртка для указателя прокрутки */
 .add-pane{position:relative;flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}
 /* Полоса прокрутки скрыта, вместо неё стрелка */
-.add-main{flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;overflow-y:auto;scrollbar-width:none}
-.add-main::-webkit-scrollbar{width:0;height:0}
+.add-main{flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;overflow-y:auto}
+body.ui-new .add-main{scrollbar-width:none}
+body.ui-new .add-main::-webkit-scrollbar{display:none}
 .add-more{
   position:absolute;left:50%;bottom:8px;translate:-50% 0;
   width:28px;height:28px;display:grid;place-items:center;border-radius:999px;
@@ -367,3 +368,38 @@
 .dup-card .who b{font-size:13px;font-weight:600;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dup-card .sub{font-family:var(--mono);font-size:11px;color:var(--fg-3)}
 .dup-acts{display:flex;gap:8px;flex-wrap:wrap}
+
+/* Камера на плате: список камер платы, состояния опроса, поля режима */
+.lc-list{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.lc-item{display:grid;grid-template-columns:38px minmax(0,1fr) auto;align-items:center;gap:11px;min-height:52px;padding:7px 11px;background:var(--input);border-bottom:1px solid var(--line);text-align:left;color:var(--fg-2);transition:var(--tr-ui)}
+.lc-item:last-child{border-bottom:none}
+.lc-item:hover:not(:disabled){background:var(--surface)}
+.lc-item.is-on{background:var(--acc-bg);box-shadow:inset 3px 0 0 var(--acc)}
+.lc-item:disabled{cursor:not-allowed}
+.lc-item:disabled .lc-who,.lc-item:disabled .lc-kind{opacity:.5}
+.lc-kind{display:grid;place-items:center;width:38px;height:30px;border-radius:7px;border:1px solid var(--line-hi);font-family:var(--mono);font-size:10.5px;font-weight:700;letter-spacing:.04em;color:var(--fg-2)}
+.lc-item.is-on .lc-kind{border-color:rgba(var(--acc-rgb),.5);color:var(--acc);background:rgba(var(--acc-rgb),.12)}
+.lc-who{min-width:0;display:flex;flex-direction:column;gap:3px}
+.lc-who .n{font-size:13px;font-weight:600;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Адрес by-path обрезается слева, конец с портом виден */
+.lc-who .a{font-family:var(--mono);font-size:10.5px;color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left}
+.lc-sensor{font-size:11.5px;font-weight:400;color:var(--fg-3)}
+.lc-st{font-size:11.5px;white-space:nowrap}
+.lc-state{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:156px;padding:16px;border:1px dashed var(--line-hi);border-radius:var(--r);color:var(--fg-3);font-size:12.5px;text-align:center;line-height:1.5}
+.lc-state b{color:var(--fg-2);font-weight:600}
+.lc-state.is-err{border-style:solid;border-color:var(--err-edge);background:var(--err-bg)}
+.lc-state.is-err b{color:var(--err)}
+.lc-grid{display:grid;gap:10px;margin-bottom:12px}
+.lc-grid:last-child{margin-bottom:0}
+.lc-grid--3{grid-template-columns:1fr 1fr .7fr}
+.lc-grid--2{grid-template-columns:1fr 1fr}
+.lc-grid--rot{grid-template-columns:auto auto 1fr}
+.lc-pair{display:flex;align-items:center;gap:6px}
+.fcell .lc-pair .inp{flex:1 1 0;width:0;min-width:0;text-align:right}
+.lc-pair i{font-style:normal;color:var(--fg-3);font-size:12px}
+.lc-range{font-family:var(--mono);font-size:10.5px;color:var(--fg-3);margin-top:-4px}
+.lc-seg{align-self:flex-start}
+.lc-seg.seg button{min-height:28px;padding:0 11px}
+.lc-seg.seg button:disabled{opacity:.35;cursor:not-allowed}
+.lc-cap{display:flex;align-items:center;gap:7px}
+.lc-cap .tag{padding:0 6px;font-size:10.5px;height:17px}
