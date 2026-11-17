@@ -1,6 +1,7 @@
 #include "video_pipeline.h"
 #include "signaling_definers.h"
 #include "nvr/stream-error.h"
+#include "utility/v4l2-devices.h"
 #include <thread>
 
 #include <gst/rtsp/gstrtsptransport.h>
@@ -420,6 +421,7 @@ void UCameraPipeline::stop_restart_thread() {
 
 bool UCameraPipeline::probe_video_stream(int timeout_sec) {
     if (m_stop_requested.load()) return false;
+    if (m_parameters.v4l2) return probe_local_camera();
 
     if (m_logger) m_logger->debug("Initializing probe pipeline...");
     if (m_logger) m_logger->debug("Trying to connect to camera with rtsp: " + m_parameters.rtsp_url);
@@ -515,6 +517,53 @@ bool UCameraPipeline::probe_video_stream(int timeout_sec) {
     return true;
 }
 
+bool UCameraPipeline::probe_local_camera() {
+    const auto& source = *m_parameters.v4l2;
+    m_status.store(EPipelineStatus::PROBING);
+
+    const auto camera = varan::nvr::find_v4l2_camera(source.device);
+    if (!camera) {
+        if (m_logger) m_logger->warn("probe_local_camera(): camera " + source.device + " is not found on this board");
+        record_fault(varan::signaling::CODE_V4L2_NOT_FOUND);
+        return false;
+    }
+
+    if (const auto error = varan::nvr::check_v4l2_mode(*camera, source); !error.empty()) {
+        if (m_logger) m_logger->warn("probe_local_camera(): " + source.device + ": " + error);
+        record_fault(varan::signaling::CODE_V4L2_FORMAT);
+        return false;
+    }
+
+    m_v4l2_node = camera->node;
+    m_sensor_rotated = false;
+    if (camera->csi) {
+        std::string message;
+        const bool applied = varan::nvr::apply_sensor_rotation(source.rotation == 180, message);
+        m_sensor_rotated = source.rotation == 180 && applied;
+        if (m_logger) m_logger->info("probe_local_camera(): sensor rotation: " + message);
+    }
+
+    // YUYV и UYVY поворачивает только сенсор: кодер их не поворачивает
+    if (source.rotation != 0 && !m_sensor_rotated && (source.format == "YUYV" || source.format == "UYVY")) {
+        if (m_logger) m_logger->warn("probe_local_camera(): " + source.device + ": sensor did not rotate, "
+            + source.format + " can't be rotated by the encoder");
+        record_fault(varan::signaling::CODE_V4L2_FORMAT);
+        return false;
+    }
+
+    // 90 и 270 меняют стороны кадра местами
+    const bool sideways = source.rotation % 180 != 0;
+    m_probe.codec_name = "H264";
+    m_probe.width = sideways ? source.height : source.width;
+    m_probe.height = sideways ? source.width : source.height;
+    m_probe.got_codec = true;
+    m_probe.got_video_info = true;
+
+    if (m_logger) m_logger->info("probe_local_camera(): " + source.device + " is " + m_v4l2_node + ", " + source.format + " "
+        + std::to_string(source.width) + "x" + std::to_string(source.height) + " at " + std::to_string(source.fps) + " fps");
+    return true;
+}
+
 UCameraPipeline::FBusWatch UCameraPipeline::setup_bus_watch(GstElement* pipeline, bool use_probe_handler) {
     if (!pipeline) return {};
 
@@ -552,8 +601,9 @@ UCameraPipeline::FBusWatch UCameraPipeline::setup_bus_watch(GstElement* pipeline
                 self->m_logger->error("GST ERROR: " + err_msg + " | debug: " + dbg_msg);
 
                 // Определяем код ошибки
-                const int code = err ? varan::nvr::classify_stream_error(err_msg, dbg_msg)
-                                     : varan::signaling::CODE_GST_ERROR;
+                const int code = !err ? varan::signaling::CODE_GST_ERROR
+                                     : self->m_parameters.v4l2 ? varan::nvr::classify_v4l2_error(err_msg, dbg_msg)
+                                     : varan::nvr::classify_stream_error(err_msg, dbg_msg);
 
                 if (err) g_error_free(err);
                 if (debug) g_free(debug);

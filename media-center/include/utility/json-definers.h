@@ -36,6 +36,8 @@ namespace fields {
 	inline const std::string RECORD_PATH = "record_path";    // "record_path"
 	inline const std::string SEGMENT_LENGTH = "segment";     // "segment"
 	inline const std::string RTP = "rtp";                    // "rtp"
+	inline const std::string SOURCE = "source";              // "source"
+	inline const std::string V4L2 = "v4l2";                  // "v4l2"
 	inline const std::string RECONNECT = "reconnect";        // "reconnect"
 	inline const std::string PURPOSES = "purposes";          // "purposes"
 	inline const std::string CHANNEL = "channel";            // "channel"

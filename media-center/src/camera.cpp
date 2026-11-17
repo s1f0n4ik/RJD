@@ -72,18 +72,23 @@ namespace neural {
 			}
 
 			// Создание ссылки
-			const auto it_maker = rtsp_maker.find(options.production);
-			const auto& maker = (it_maker != rtsp_maker.end()) ? it_maker->second : rtsp_maker.at(ERtspType::ACE);
-			std::string rtsp_url = maker(
-				options.ip_adress, options.port, options.user, options.password,
-				stream_data.channel, stream_data.substream
-			);
+			std::string rtsp_url;
+			// Камера на плате снимается по настройкам V4L2, ссылки у неё нет
+			if (!options.v4l2) {
+				const auto it_maker = rtsp_maker.find(options.production);
+				const auto& maker = (it_maker != rtsp_maker.end()) ? it_maker->second : rtsp_maker.at(ERtspType::ACE);
+				rtsp_url = maker(
+					options.ip_adress, options.port, options.user, options.password,
+					stream_data.channel, stream_data.substream
+				);
+			}
 
 			// Копирование конфига
 			FPipelineConfig pipeline_setting = stream_data;
 			pipeline_setting.camera_name = options.id;
 			pipeline_setting.name = name;
 			pipeline_setting.rtsp_url = rtsp_url;
+			pipeline_setting.v4l2 = options.v4l2;
 
 			auto pipe_logger = std::make_unique<ULogger>(m_options.id + ": " + name, m_logger.get_level());
 			auto send_callback = [this](std::string msg) {this->send_message(std::move(msg)); };

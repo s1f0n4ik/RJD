@@ -19,6 +19,7 @@
 
 #include "logger.h"
 #include "nvr/rtp-target.h"
+#include "nvr/v4l2-source.h"
 #include "utility/data-structs.h"
 #include "utility/json-utils.h"
 #include "constants.h"
@@ -380,7 +381,7 @@ namespace nvr {
         static json::object serialize_camera(
             const FCameraData& camera
         ) {
-            return {
+            json::object result = {
                 {"id", camera.id},
                 {"display_name", camera.display_name},
                 {"description", camera.description},
@@ -390,6 +391,9 @@ namespace nvr {
                 {"password", camera.password},
                 {"production", static_cast<int>(camera.production)}
             };
+            camera_v4l2_to_json(camera.v4l2, result);
+
+            return result;
         }
 
         static FCameraData parse_camera(const json::object& obj) {
@@ -403,6 +407,7 @@ namespace nvr {
             camera.user = json::value_to<std::string>(obj.at("user"));
             camera.password = json::value_to<std::string>(obj.at("password"));
             camera.production = static_cast<ERtspType>(json::value_to<int>(obj.at("production")));
+            camera.v4l2 = camera_v4l2_from_json(obj);
 
             return camera;
         }
@@ -555,6 +560,10 @@ namespace nvr {
                 if (name != key) legacy_seen = true;
 
                 config.streams.emplace(name, parse_pipeline(value.as_object(), name, camera_type, legacy_seen));
+            }
+
+            if (config.camera.v4l2) {
+                if (const auto error = check_v4l2_streams(config.streams); !error.empty()) throw std::runtime_error(error);
             }
 
             return config;

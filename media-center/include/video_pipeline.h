@@ -213,6 +213,9 @@ protected:
 	// timeout по секундам
 	bool probe_video_stream(int timeout = 5);
 
+	// Проба камеры на плате: устройство на месте, режим поддержан, поворот 180 у CSI отдан сенсору
+	bool probe_local_camera();
+
 	virtual void restart_loop();
 
 	// Возвращает владельца: у кого он лежит, тот и снимает
@@ -279,6 +282,11 @@ protected:
 	FPipelineConfig m_parameters;
 	// параметры каметры
 	FProbeResult m_probe;
+
+	// Узел /dev/videoN камеры на плате, найденный пробой
+	std::string m_v4l2_node;
+	// Поворот 180 сделал сенсор: кодер и GPU кадр не крутят
+	bool m_sensor_rotated = false;
 
 	std::function<void(std::string)> m_send_callback;
 
@@ -407,6 +415,9 @@ private:
 	void create_gst_gl_context(varan::birdview::UEGLContextManager* gl_context_manager);
 
 	bool create_decoder_branch(GstElement* tee);
+
+	// Вход камеры на плате до input_queue; возвращает tee сырых кадров, nullptr — вход не собрался
+	GstElement* create_local_input(GstElement* input_queue);
 
 	bool create_record_branch(GstElement* tee);
 

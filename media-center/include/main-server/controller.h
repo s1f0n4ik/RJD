@@ -9,6 +9,7 @@
 #include <optional>
 
 #include "nvr/rtp-target.h"
+#include "nvr/v4l2-source.h"
 #include "utility/json-definers.h"
 #include "logger.h"
 
@@ -43,6 +44,10 @@ public:
     // Разовая проверка потока по адресу и кредам, без создания камеры
     boost::beast::http::response<boost::beast::http::string_body>
         post_probe(const boost::beast::http::request<boost::beast::http::string_body>& req);
+
+    // Камеры V4L2 этой платы, которые MC умеет снимать, и какая камера какую уже заняла
+    boost::beast::http::response<boost::beast::http::string_body>
+        get_local_cameras(const boost::beast::http::request<boost::beast::http::string_body>& req);
 
 private:
     std::shared_ptr<UMediaCenter> m_media_center;
@@ -95,6 +100,9 @@ private:
         }},
         { fields::PRODUCTION, [](const FCameraStreamsData& data,  boost::json::object& obj) {
             obj[fields::PRODUCTION] = static_cast<int>(data.camera.production);
+        }},
+        { fields::SOURCE, [](const FCameraStreamsData& data,  boost::json::object& obj) {
+            varan::nvr::camera_v4l2_to_json(data.camera.v4l2, obj);
         }},
         { fields::STREAMS, [this](const FCameraStreamsData& data,  boost::json::object& obj) {
                 boost::json::object arr;

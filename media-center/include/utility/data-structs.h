@@ -145,6 +145,25 @@ namespace nvr {
 		int qp_max = 0;
 	};
 
+	// Камера на плате: узел V4L2, режим захвата и кодирование в H.264
+	struct FV4l2Source {
+		// USB — путь /dev/v4l/by-path/..., CSI — имя узла, например rkisp_mainpath
+		std::string device;
+		// Четвёрка V4L2: YUYV, UYVY, NV12 или MJPG
+		std::string format;
+		int width = 0;
+		int height = 0;
+		int fps = 0;
+		// По часовой стрелке: 0, 90, 180 или 270
+		int rotation = 0;
+		// Драйвер кладёт U и V не в том порядке, что обещает формат
+		bool swap_uv = false;
+		// кбит/с, 0 — выбирает кодек
+		int bitrate = 0;
+		// Секунд между опорными кадрами
+		int gop = 1;
+	};
+
 	// Последняя ошибка потока: держится между перезапусками, сбрасывается подключением
 	struct FStreamFault {
 		// Код из signaling_definers.h, 0 — ошибки нет
@@ -204,6 +223,9 @@ namespace nvr {
 		int segment_length = 600;
 
 		FRtpTarget rtp;
+
+		// Камера на плате; пусто — поток идёт по RTSP
+		std::optional<FV4l2Source> v4l2;
 	};
 
 	// Стурктуры ждля камер
@@ -219,6 +241,9 @@ namespace nvr {
 		std::string password;
 
 		ERtspType production;
+
+		// Камера на плате; пусто — камера в сети, адрес выше
+		std::optional<FV4l2Source> v4l2;
 	};
 
 	struct FCameraStreamsData {

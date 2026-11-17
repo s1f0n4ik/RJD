@@ -10,6 +10,7 @@
 #include "nvr/stream-probe.h"
 #include "utility/rtsp-url.h"
 #include "utility/json-utils.h"
+#include "utility/v4l2-devices.h"
 
 #include "main-server/helpers.h"
 
@@ -277,7 +278,7 @@ UController::post_camera(const http::request<http::string_body>& req)
             m_logger->send(tag + ": field <type> is obsolete and ignored, purposes are taken from streams");
         }
 
-        FCameraData camera_data = {id, display_name, description, ip_adress, port, user, password, prod.value()};
+        FCameraData camera_data = {id, display_name, description, ip_adress, port, user, password, prod.value(), camera_v4l2_from_json(obj)};
 
         std::map<std::string, FPipelineConfig> pipelines;
         // Парсинг объекта pipeline
@@ -297,6 +298,10 @@ UController::post_camera(const http::request<http::string_body>& req)
             const std::string name(name_stream);
             // Ключи внутри json уникальны сами по себе, отдельная проверка не нужна
             pipelines[name] = parse_stream_config(name, stream_obj);
+        }
+
+        if (camera_data.v4l2) {
+            if (const auto error = check_v4l2_streams(pipelines); !error.empty()) throw std::runtime_error(error);
         }
 
         if (const auto error = m_media_center->validate_streams(pipelines)) {
@@ -430,6 +435,30 @@ UController::post_probe(const http::request<http::string_body>& req) {
 
     res.prepare_payload();
     return res;
+}
+
+// GET /camera/local
+http::response<http::string_body>
+UController::get_local_cameras(const http::request<http::string_body>& req) {
+    const std::string tag = "GET /camera/local";
+    log_request(m_logger, req, tag, ULogger::ELoggerLevel::DEBUG);
+
+    // Адрес устройства -> камера, которая его держит; пробные камеры временные и не считаются
+    std::map<std::string, std::string> used;
+    for (const auto& data : m_media_center->get_cameras()) {
+        if (data.camera.v4l2 && !data.camera.id.starts_with("__probe_")) used[data.camera.v4l2->device] = data.camera.id;
+    }
+
+    json::array cameras;
+    for (const auto& camera : list_v4l2_cameras()) {
+        auto item = v4l2_camera_to_json(camera);
+        const auto owner = used.find(camera.device);
+        item["used_by"] = owner != used.end() ? json::value(owner->second) : json::value(nullptr);
+        cameras.push_back(std::move(item));
+    }
+
+    return json_ok(m_logger, req, json::object{{"data", json::object{{"cameras", std::move(cameras)}}}}, tag,
+        ULogger::ELoggerLevel::TRACE);
 }
 
 // DELETE /camera?id=XXX

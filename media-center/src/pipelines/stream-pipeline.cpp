@@ -295,6 +295,67 @@ bool ensure_record_dir(const std::filesystem::path& root, const std::filesystem:
 	return std::filesystem::is_directory(dir, ec);
 }
 
+// Формат GStreamer по четвёрке V4L2 сырого кадра
+std::string gst_raw_format(const std::string& fourcc) {
+	return fourcc == "YUYV" ? "YUY2" : fourcc;
+}
+
+// Тот же формат с переставленными U и V
+std::string swapped_uv_format(const std::string& format) {
+	if (format == "YUY2") return "YVYU";
+	if (format == "UYVY") return "VYUY";
+	return "NV21";
+}
+
+// Шейдер glshader, поворачивающий кадр по часовой стрелке выборкой из повёрнутых координат
+std::string rotate_shader(int rotation) {
+	const char* coord = rotation == 90 ? "vec2(v_texcoord.y, 1.0 - v_texcoord.x)"
+		: rotation == 180 ? "vec2(1.0 - v_texcoord.x, 1.0 - v_texcoord.y)"
+		: "vec2(1.0 - v_texcoord.y, v_texcoord.x)";
+	return std::string("#ifdef GL_ES\nprecision mediump float;\n#endif\nvarying vec2 v_texcoord;\nuniform sampler2D tex;\n"
+		"void main () {\n  gl_FragColor = texture2D(tex, ") + coord + ");\n}\n";
+}
+
+// Звенья GPU после glupload: кадр в RGBA, поворот, затем NV12 двумя текстурами; пусто — элемент не создался
+std::vector<std::pair<std::string, GstElement*>> gl_nv12_chain(int rotation, int width, int height) {
+	std::vector<std::pair<std::string, GstElement*>> chain = {
+		{ "to_rgba", gst_element_factory_make("glcolorconvert", "to_rgba") },
+		{ "rgba_caps", gst_element_factory_make("capsfilter", "rgba_caps") },
+	};
+	if (rotation != 0) {
+		chain.push_back({ "rotate", gst_element_factory_make("glshader", "rotate") });
+		chain.push_back({ "rotate_caps", gst_element_factory_make("capsfilter", "rotate_caps") });
+	}
+	chain.push_back({ "to_nv12", gst_element_factory_make("glcolorconvert", "to_nv12") });
+	chain.push_back({ "nv12_caps", gst_element_factory_make("capsfilter", "nv12_caps") });
+
+	if (std::any_of(chain.begin(), chain.end(), [](const auto& item) { return item.second == nullptr; })) {
+		for (const auto& item : chain) if (item.second) gst_object_unref(item.second);
+		return {};
+	}
+
+	GstCaps* rgba = gst_caps_from_string("video/x-raw(memory:GLMemory),format=RGBA");
+	GstCaps* nv12 = gst_caps_from_string("video/x-raw(memory:GLMemory),format=NV12");
+	g_object_set(chain[1].second, "caps", rgba, nullptr);
+	g_object_set(chain.back().second, "caps", nv12, nullptr);
+	gst_caps_unref(rgba);
+	gst_caps_unref(nv12);
+
+	if (rotation != 0) {
+		const bool sideways = rotation % 180 != 0;
+		GstCaps* turned = gst_caps_new_simple("video/x-raw",
+			"format", G_TYPE_STRING, "RGBA",
+			"width", G_TYPE_INT, sideways ? height : width,
+			"height", G_TYPE_INT, sideways ? width : height,
+			nullptr);
+		gst_caps_set_features(turned, 0, gst_caps_features_new(GST_CAPS_FEATURE_MEMORY_GL_MEMORY, nullptr));
+		g_object_set(chain[2].second, "fragment", rotate_shader(rotation).c_str(), nullptr);
+		g_object_set(chain[3].second, "caps", turned, nullptr);
+		gst_caps_unref(turned);
+	}
+	return chain;
+}
+
 } // namespace
 
 UCameraStreamPipeline::UCameraStreamPipeline(
@@ -359,9 +420,11 @@ bool UCameraStreamPipeline::initialize() {
 	std::string depay_str = m_probe.codec_name == std::string("H264") ? "rtph264depay" : "rtph265depay";
 	std::string parse_str = m_probe.codec_name == std::string("H264") ? "h264parse" : "h265parse";
 
-	auto src = gst_element_factory_make("rtspsrc", "src");
-	auto depay = gst_element_factory_make(depay_str.c_str(), "depay");
-	auto parse = gst_element_factory_make(parse_str.c_str(), "parse");
+	// У камеры на плате свой вход до input_queue вместо rtspsrc
+	const bool local = m_parameters.v4l2.has_value();
+	auto src = local ? nullptr : gst_element_factory_make("rtspsrc", "src");
+	auto depay = local ? nullptr : gst_element_factory_make(depay_str.c_str(), "depay");
+	auto parse = local ? nullptr : gst_element_factory_make(parse_str.c_str(), "parse");
 
 	std::string tee_str = MAIN_TEE;
 	if (m_tees.find(tee_str) != m_tees.end()) {
@@ -386,7 +449,7 @@ bool UCameraStreamPipeline::initialize() {
 		if (fakesink) gst_object_unref(fakesink);
 		};
 
-	if (!m_pipeline || !src || !depay || !parse || !input_queue || !tee || !fake_queue || !fakesink) {
+	if (!m_pipeline || (!local && (!src || !depay || !parse)) || !input_queue || !tee || !fake_queue || !fakesink) {
 		std::ostringstream oss;
 		oss << "Failed to create elements at reading pipeline: "
 			<< "\n\tpipeline=" << (m_pipeline ? "OK" : "NULL") << ","
@@ -402,7 +465,7 @@ bool UCameraStreamPipeline::initialize() {
 		return false;
 	}
 
-	g_object_set(
+	if (!local) g_object_set(
 		src,
 		"location", m_parameters.rtsp_url.c_str(),
 		"latency", m_parameters.latency,
@@ -439,15 +502,16 @@ bool UCameraStreamPipeline::initialize() {
 		nullptr
 	);
 
-	g_object_set(
+	if (!local) g_object_set(
 		parse,
 		"config-interval", -1,
 		nullptr
 	);
 
 	gst_bin_add_many(GST_BIN(m_pipeline),
-		src, depay, parse, input_queue, tee, fake_queue, fakesink, nullptr
+		input_queue, tee, fake_queue, fakesink, nullptr
 	);
+	if (!local) gst_bin_add_many(GST_BIN(m_pipeline), src, depay, parse, nullptr);
 
 	auto fail = [&](const std::string& m) {
 		m_logger->error(m);
@@ -459,8 +523,17 @@ bool UCameraStreamPipeline::initialize() {
 	};
 
 	// Связывание основного потока
-	if (!gst_element_link_many(depay, parse, input_queue, tee, nullptr)) {
-		return fail("error link depay/parse/input_queue/tee");
+	if (!local && !gst_element_link_many(depay, parse, input_queue, nullptr)) {
+		return fail("error link depay/parse/input_queue");
+	}
+	if (!gst_element_link(input_queue, tee)) {
+		return fail("error link input_queue/tee");
+	}
+
+	// Сырые кадры камеры на плате идут потребителям со своего tee, мимо кодера
+	GstElement* frames_tee = local ? create_local_input(input_queue) : tee;
+	if (!frames_tee) {
+		return fail("error with local camera input " + m_parameters.v4l2->device);
 	}
 
 	// Связывание ветки с декодером
@@ -478,7 +551,7 @@ bool UCameraStreamPipeline::initialize() {
 	}
 
 	// Динамическое связывание падов src с depay
-	g_signal_connect(src, "pad-added", G_CALLBACK(+[](
+	if (!local) g_signal_connect(src, "pad-added", G_CALLBACK(+[](
 		GstElement* src,
 		GstPad* pad,
 		gpointer data
@@ -520,7 +593,7 @@ bool UCameraStreamPipeline::initialize() {
 	// Ветка декода — только если кадры кто-то забирает
 	if (m_parameters.purposes.needs_decode()) {
 		if (m_dma_sender) {
-			create_decoder_branch(tee);
+			create_decoder_branch(frames_tee);
 		}
 		else {
 			m_logger->error("inititalize(): purposes need frames, but dmabuf mover callback not found. Decoder branch didn't create");
@@ -661,13 +734,15 @@ bool UCameraStreamPipeline::create_decoder_branch(GstElement* tee) {
 
 	m_logger->debug("Creating branch to decode frames");
 
+	// Камера на плате отдаёт сырой кадр: декодер не нужен
+	const bool local = m_parameters.v4l2.has_value();
 	auto queue = gst_element_factory_make("queue", varan::nvr::QUEUE.c_str());
-	auto decoder = gst_element_factory_make("mppvideodec", varan::nvr::DECODER_MPPVIDEODEC.c_str());
+	auto decoder = local ? nullptr : gst_element_factory_make("mppvideodec", varan::nvr::DECODER_MPPVIDEODEC.c_str());
 	auto upload = gst_element_factory_make("glupload", varan::nvr::DECODER_GLUPLOAD.c_str());
 	//auto colorconvert = gst_element_factory_make("glcolorconvert", varan::nvr::DECODER_GLCOLORCONVERT.c_str());
 	auto appsink = gst_element_factory_make("appsink", varan::nvr::DECODER_APPSINK.c_str());
 
-	if (!queue || !decoder || !upload || !appsink) {
+	if (!queue || (!local && !decoder) || !upload || !appsink) {
 		std::ostringstream oss;
 		oss << "Failed to create elements at decode tee: "
 			<< "\n\rdecode_queue=" << (queue ? "OK" : "NULL") << ","
@@ -679,13 +754,14 @@ bool UCameraStreamPipeline::create_decoder_branch(GstElement* tee) {
 		return false;
 	}
 
+	// Сырой кадр держит буфер драйвера V4L2: очередь короткая и отбрасывает старое
 	g_object_set(queue,
-		"max-size-buffers", 0,
-		"leaky", 0,
+		"max-size-buffers", local ? 2 : 0,
+		"leaky", local ? 2 : 0,
 		nullptr
 	);
 
-	g_object_set(decoder,
+	if (!local) g_object_set(decoder,
 		"dma-feature", true,
 		"discard-corrupted-frames", true,
 		"fast-mode", false,
@@ -703,9 +779,25 @@ bool UCameraStreamPipeline::create_decoder_branch(GstElement* tee) {
 		nullptr
 	);
 
-	gst_bin_add_many(GST_BIN(m_pipeline),
-		queue, decoder, upload, appsink, nullptr
-	);
+	std::vector<std::pair<std::string, GstElement*>> chain = { { varan::nvr::QUEUE, queue } };
+	if (local) {
+		const auto& source = *m_parameters.v4l2;
+		auto gl = gl_nv12_chain(m_sensor_rotated ? 0 : source.rotation, source.width, source.height);
+		if (gl.empty()) {
+			m_logger->error("create_decoder_branch(): cannot create glcolorconvert, capsfilter or glshader");
+			for (auto* element : { queue, upload, appsink }) gst_object_unref(element);
+			return false;
+		}
+		chain.push_back({ varan::nvr::DECODER_GLUPLOAD, upload });
+		chain.insert(chain.end(), gl.begin(), gl.end());
+	}
+	else {
+		chain.push_back({ varan::nvr::DECODER_MPPVIDEODEC, decoder });
+		chain.push_back({ varan::nvr::DECODER_GLUPLOAD, upload });
+	}
+	chain.push_back({ varan::nvr::DECODER_APPSINK, appsink });
+
+	for (const auto& item : chain) gst_bin_add(GST_BIN(m_pipeline), item.second);
 
 	m_decoder_branch.tee_pad = gst_element_request_pad_simple(tee, "src_%u");
 	GstPad* queue_pad = gst_element_get_static_pad(queue, "sink");
@@ -723,18 +815,17 @@ bool UCameraStreamPipeline::create_decoder_branch(GstElement* tee) {
 		this
 	);
 
-	if (!gst_element_link_many(queue, decoder, upload, appsink, nullptr)) {
+	bool linked = true;
+	for (std::size_t i = 1; i < chain.size() && linked; ++i) linked = gst_element_link(chain[i - 1].second, chain[i].second);
+	if (!linked) {
 		m_logger->error("Failed to link decoding elements in decode branch!");
 		return false;
 	}
 
 	if (m_decoder_branch.elements.size() != 0) m_decoder_branch.elements.clear();
 
-	m_decoder_branch.add_element(varan::nvr::QUEUE, queue);
-	m_decoder_branch.add_element(varan::nvr::DECODER_MPPVIDEODEC, decoder);
-	m_decoder_branch.add_element(varan::nvr::DECODER_GLUPLOAD, upload);
 	//m_decoder_branch.add_element(varan::nvr::DECODER_GLCOLORCONVERT, colorconvert);
-	m_decoder_branch.add_element(varan::nvr::DECODER_APPSINK, appsink);
+	for (const auto& [name, element] : chain) m_decoder_branch.add_element(name, element);
 
 	m_decoder_branch.is_deployed = true;
 	m_decoder_branch.type = EBranchType::DECODER;
@@ -747,6 +838,109 @@ bool UCameraStreamPipeline::create_decoder_branch(GstElement* tee) {
 	}
 
 	return false;
+}
+
+GstElement* UCameraStreamPipeline::create_local_input(GstElement* input_queue) {
+	const auto& source = *m_parameters.v4l2;
+	const bool mjpg = source.format == "MJPG";
+	const bool swap = source.swap_uv && !mjpg;
+	const std::string raw = gst_raw_format(source.format);
+
+	// Фабрика и имя звена по порядку: источник, подмена U и V, декодер MJPEG, tee сырых кадров, кодер
+	std::vector<std::pair<const char*, const char*>> plan = { { "v4l2src", "src" }, { "capsfilter", "src_caps" } };
+	if (swap) {
+		plan.push_back({ "capssetter", "swap_uv" });
+		plan.push_back({ "videoconvert", "swap_convert" });
+		plan.push_back({ "capsfilter", "swap_caps" });
+	}
+	if (mjpg) {
+		plan.push_back({ "jpegparse", "jpeg_parse" });
+		plan.push_back({ "mppjpegdec", "jpeg_decoder" });
+	}
+	plan.push_back({ "tee", "tee_raw" });
+	plan.push_back({ "queue", "encode_queue" });
+	plan.push_back({ "mpph264enc", "encoder" });
+	plan.push_back({ "h264parse", "parse" });
+
+	std::vector<GstElement*> chain;
+	std::map<std::string, GstElement*> by_name;
+	for (const auto& [factory, name] : plan) {
+		auto* element = gst_element_factory_make(factory, name);
+		if (!element) {
+			m_logger->error(std::string("create_local_input(): cannot create element ") + factory);
+			for (auto* made : chain) gst_object_unref(made);
+			return nullptr;
+		}
+		chain.push_back(element);
+		by_name[name] = element;
+	}
+
+	g_object_set(by_name.at("src"), "device", m_v4l2_node.c_str(), nullptr);
+
+	GstCaps* caps = gst_caps_new_simple(mjpg ? "image/jpeg" : "video/x-raw",
+		"width", G_TYPE_INT, source.width,
+		"height", G_TYPE_INT, source.height,
+		"framerate", GST_TYPE_FRACTION, source.fps, 1,
+		nullptr);
+	if (!mjpg) gst_caps_set_simple(caps, "format", G_TYPE_STRING, raw.c_str(), nullptr);
+	g_object_set(by_name.at("src_caps"), "caps", caps, nullptr);
+	gst_caps_unref(caps);
+
+	// Подпись кадра меняется на формат с переставленными U и V, videoconvert возвращает исходную раскладку
+	if (swap) {
+		GstCaps* swapped = gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, swapped_uv_format(raw).c_str(), nullptr);
+		GstCaps* back = gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, raw.c_str(), nullptr);
+		g_object_set(by_name.at("swap_uv"), "caps", swapped, nullptr);
+		g_object_set(by_name.at("swap_caps"), "caps", back, nullptr);
+		gst_caps_unref(swapped);
+		gst_caps_unref(back);
+	}
+
+	if (mjpg) gst_util_set_object_arg(G_OBJECT(by_name.at("jpeg_decoder")), "format", "NV12");
+
+	// Развязка кодера: запас три кадра, лишнее отбрасывается
+	g_object_set(by_name.at("encode_queue"),
+		"max-size-buffers", 3,
+		"max-size-bytes", 0,
+		"max-size-time", (guint64)0,
+		"leaky", 2,
+		"silent", TRUE,
+		nullptr
+	);
+
+	// Опорный кадр раз в gop секунд, заголовки перед каждым; поворот кодером, если его не сделал сенсор
+	g_object_set(by_name.at("encoder"),
+		"bps", static_cast<guint>(source.bitrate) * 1000u,
+		"gop", source.gop * source.fps,
+		"header-mode", 1,
+		nullptr
+	);
+	// High у MPP несёт флаг 0x10 (641028): браузер такой профиль не распознаёт и отклоняет видео, Main (4d40xx) принимает
+	gst_util_set_object_arg(G_OBJECT(by_name.at("encoder")), "profile", "main");
+	gst_util_set_object_arg(G_OBJECT(by_name.at("encoder")), "rotation",
+		std::to_string(m_sensor_rotated ? 0 : source.rotation).c_str());
+
+	g_object_set(by_name.at("parse"), "config-interval", -1, nullptr);
+
+	for (auto* element : chain) gst_bin_add(GST_BIN(m_pipeline), element);
+
+	// Звенья уже в конвейере: при отказе их разбирает он сам
+	for (std::size_t i = 1; i < chain.size(); ++i) {
+		if (!gst_element_link(chain[i - 1], chain[i])) {
+			m_logger->error(std::string("create_local_input(): cannot link ") + plan[i - 1].second + " to " + plan[i].second);
+			return nullptr;
+		}
+	}
+	if (!gst_element_link(chain.back(), input_queue)) {
+		m_logger->error("create_local_input(): cannot link parse to input_queue");
+		return nullptr;
+	}
+
+	m_logger->info("create_local_input(): " + m_v4l2_node + " " + source.format + " "
+		+ std::to_string(source.width) + "x" + std::to_string(source.height) + " at " + std::to_string(source.fps)
+		+ " fps, rotation " + std::to_string(source.rotation) + (m_sensor_rotated ? " by sensor" : "")
+		+ (swap ? ", U and V swapped" : ""));
+	return by_name.at("tee_raw");
 }
 
 bool UCameraStreamPipeline::create_record_branch(GstElement* tee)
@@ -1219,7 +1413,7 @@ bool UCameraStreamPipeline::destroy_branch(FPipelineBranch& branch)
 	}
 
 	if (branch.tee_pad) {
-		if (!varan::core::detach_tee_pad(m_tees[MAIN_TEE], branch.tee_pad,
+		if (!varan::core::detach_tee_pad(GST_ELEMENT(GST_PAD_PARENT(branch.tee_pad)), branch.tee_pad,
 				branch.get_element(varan::nvr::QUEUE))) {
 			m_logger->warn("destroy_branch(): " + branch.name
 				+ " branch was detached without idle probe");
@@ -1634,7 +1828,7 @@ FPipelineData UCameraStreamPipeline::get_pipeline_data() {
 
 	data.width = m_probe.ready() ? m_probe.width : 0;
 	data.height = m_probe.ready() ? m_probe.height : 0;
-	data.fps = m_probe.ready() ? 25 : 0;
+	data.fps = !m_probe.ready() ? 0 : m_parameters.v4l2 ? m_parameters.v4l2->fps : 25;
 	data.codec = m_probe.ready() ? m_probe.codec_name : "";
 
 	data.rtsp_url = m_parameters.rtsp_url;

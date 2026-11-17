@@ -43,5 +43,21 @@ namespace nvr {
 		return signaling::CODE_GST_ERROR;
 	}
 
+	// Числовой код ошибки камеры на плате по тексту ошибки v4l2src; выдернутый USB даёт ENODEV
+	inline int classify_v4l2_error(std::string message, const std::string& debug = "") {
+		message += "\n" + debug;
+		std::transform(message.begin(), message.end(), message.begin(),
+			[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+		const auto has = [&](const char* part) { return message.find(part) != std::string::npos; };
+
+		if (has("busy")) return signaling::CODE_V4L2_BUSY;
+		if (has("cannot identify device") || has("no such file") || has("no such device")) {
+			return signaling::CODE_V4L2_NOT_FOUND;
+		}
+		if (has("not-negotiated") || has("not negotiated") || has("cannot capture")) return signaling::CODE_V4L2_FORMAT;
+		return signaling::CODE_GST_ERROR;
+	}
+
 } // namespace nvr
 } // namespace varan
