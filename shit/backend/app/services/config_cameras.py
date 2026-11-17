@@ -12,6 +12,11 @@ SUBSTREAMS = range(1, 7)
 PRODUCTIONS = range(0, 4)
 CAMERA_FIELDS = ("id", "ip_adress", "port", "user", "password", "production", "streams")
 STREAM_FIELDS = ("substream", "purposes", "latency", "use_udp", "reconnect")
+SOURCES = ("rtsp", "v4l2")
+# Камера на плате: адреса и логина нет, поток ровно один
+V4L2_CAMERA_FIELDS = ("id", "v4l2", "streams")
+V4L2_FORMATS = ("YUYV", "UYVY", "NV12", "MJPG")
+V4L2_ROTATIONS = (0, 90, 180, 270)
 
 
 def _int(value: Any, field: str) -> int:
@@ -41,6 +46,39 @@ def rtp_entry(name: str, raw: Any) -> dict:
     if mode == "transcode" and (0 < width < 96 or 0 < height < 64):
         raise ValueError(f"Stream {name}: rtp frame is smaller than the encoder minimum 96x64")
     return {"host": host, "port": port, "mode": mode, "width": width, "height": height, "bitrate": bitrate, "qp_max": qp_max}
+
+
+def v4l2_entry(raw: Any) -> dict:
+    if not isinstance(raw, dict):
+        raise ValueError("Camera source v4l2 needs the v4l2 object")
+    device = str(raw.get("device", "")).strip()
+    if not device:
+        raise ValueError("v4l2 device is empty")
+    fmt = raw.get("format")
+    if fmt not in V4L2_FORMATS:
+        raise ValueError("v4l2 format must be YUYV, UYVY, NV12 or MJPG")
+    width, height, fps, rotation, bitrate, gop = (
+        _int(raw.get(key, default), f"v4l2 {key}")
+        for key, default in (("width", 0), ("height", 0), ("fps", 0), ("rotation", 0), ("bitrate", 0), ("gop", 1))
+    )
+    if width <= 0 or height <= 0 or width % 2 or height % 2:
+        raise ValueError("v4l2 frame size must be positive and even")
+    if not 1 <= fps <= 120:
+        raise ValueError("v4l2 fps is out of range 1...120")
+    if rotation not in V4L2_ROTATIONS:
+        raise ValueError("v4l2 rotation must be 0, 90, 180 or 270")
+    # YUYV и UYVY кодер не поворачивает: остаётся 180 сенсором CSI, CSI задаётся именем узла, а не путём
+    if fmt in ("YUYV", "UYVY") and rotation and not (rotation == 180 and not device.startswith("/dev/")):
+        raise ValueError("v4l2 rotation of YUYV and UYVY is only 180 by a CSI sensor")
+    swap_uv = raw.get("swap_uv", False)
+    if not isinstance(swap_uv, bool):
+        raise ValueError("v4l2 swap_uv must be a boolean")
+    if bitrate < 0:
+        raise ValueError("v4l2 bitrate can't be negative")
+    if not 1 <= gop <= 60:
+        raise ValueError("v4l2 gop is out of range 1...60 seconds")
+    return {"device": device, "format": fmt, "width": width, "height": height, "fps": fps,
+            "rotation": rotation, "swap_uv": swap_uv, "bitrate": bitrate, "gop": gop}
 
 
 def stream_entry(name: str, raw: Any) -> dict:
@@ -89,26 +127,37 @@ def stream_entry(name: str, raw: Any) -> dict:
 def camera_entry(payload: Any, place: str) -> dict:
     if not isinstance(payload, dict):
         raise ValueError("Invalid JSON body")
-    for field in CAMERA_FIELDS:
+    source = payload.get("source", "rtsp")
+    if source not in SOURCES:
+        raise ValueError("Camera source must be rtsp or v4l2")
+    local = source == "v4l2"
+    for field in V4L2_CAMERA_FIELDS if local else CAMERA_FIELDS:
         if field not in payload:
             raise ValueError(f"Missing field: {field}")
-    production = _int(payload["production"], "production")
+    production = 0 if local else _int(payload["production"], "production")
     if production not in PRODUCTIONS:
         raise ValueError("Not supported camera production!")
     if not isinstance(payload["streams"], dict):
         raise ValueError("Stream field is not json object!")
+    if local and set(payload["streams"]) != {"stream_1"}:
+        raise ValueError("Camera on board must have exactly one stream stream_1")
+    camera = {
+        "id": str(payload["id"]),
+        "display_name": str(payload["display_name"]) if "display_name" in payload else "имя не установлено",
+        "description": str(payload["description"]) if "description" in payload else "без описания",
+        "ip_adress": "" if local else str(payload["ip_adress"]),
+        "port": "" if local else str(payload["port"]),
+        "user": "" if local else str(payload["user"]),
+        "password": "" if local else str(payload["password"]),
+        "production": production,
+    }
+    # Сетевая камера хранится как раньше, без поля source
+    if local:
+        camera["source"] = source
+        camera["v4l2"] = v4l2_entry(payload["v4l2"])
     return {
         "place": place,
-        "camera": {
-            "id": str(payload["id"]),
-            "display_name": str(payload["display_name"]) if "display_name" in payload else "имя не установлено",
-            "description": str(payload["description"]) if "description" in payload else "без описания",
-            "ip_adress": str(payload["ip_adress"]),
-            "port": str(payload["port"]),
-            "user": str(payload["user"]),
-            "password": str(payload["password"]),
-            "production": production,
-        },
+        "camera": camera,
         "streams": {name: stream_entry(name, raw) for name, raw in payload["streams"].items()},
     }
 
@@ -136,6 +185,8 @@ def patched_entry(entry: dict, body: Any) -> dict:
             "display_name": camera["display_name"],
             "description": camera["description"],
             "password": camera["password"],
+            # Правка без source оставляет камеру тем, чем она была
+            **{k: camera[k] for k in ("source", "v4l2") if k in camera},
             **{k: v for k, v in critical.items() if k not in ("id", "display_name", "description")},
         }
         out = camera_entry(flat, out["place"])

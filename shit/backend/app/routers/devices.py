@@ -173,8 +173,10 @@ def _cached_cameras() -> list[tuple[str, str, dict]]:
     return result
 
 
-# Адрес камеры: IP и порт
-def _address(camera: dict) -> tuple[str, str]:
+# Адрес камеры: IP и порт; у камеры на плате — плата (место или устройство) и узел V4L2
+def _address(camera: dict, owner: str) -> tuple[str, ...]:
+    if camera.get("source") == "v4l2":
+        return "v4l2", owner, str((camera.get("v4l2") or {}).get("device") or "")
     return str(camera.get("ip_adress") or "").strip(), str(camera.get("port") or "").strip()
 
 
@@ -192,9 +194,9 @@ async def _probe_conflicts(passport: dict) -> tuple[list[str], list[str]]:
     }
     others = [c for c in _cached_cameras() if c[0] != passport["id"]]
     taken_ids = {camera_id for _, camera_id, _ in others}
-    taken_addresses = {_address(camera) for _, _, camera in others}
+    taken_addresses = {_address(camera, device_id) for device_id, _, camera in others}
     conflicts = sorted(camera_id for camera_id in cameras if camera_id in taken_ids)
-    duplicates = sorted(camera_id for camera_id, camera in cameras.items() if _address(camera) in taken_addresses)
+    duplicates = sorted(camera_id for camera_id, camera in cameras.items() if _address(camera, passport["id"]) in taken_addresses)
     return conflicts, duplicates
 
 
@@ -274,9 +276,10 @@ async def _save_camera(camera: dict, camera_id: str, device: str, replaces: Opti
     if camera_id in cameras and camera_id != replaced_id:
         logger.warning(f"Camera id={camera_id} rejected for {place}: already in the profile")
         return _error(409, "Camera id is taken", _place_name(cameras[camera_id].get("place")))
-    same = [key for key, body in others.items() if _address(body["camera"]) == _address(entry["camera"])]
+    address = _address(entry["camera"], entry["place"])
+    same = [key for key, body in others.items() if _address(body["camera"], body.get("place", "")) == address]
     if same:
-        logger.warning(f"Camera {':'.join(_address(entry['camera']))} rejected for {place}: added as {same[0]}")
+        logger.warning(f"Camera {':'.join(address)} rejected for {place}: added as {same[0]}")
         return _error(409, "Camera is already added", f"{same[0]} · {_place_name(cameras[same[0]].get('place'))}")
 
     store = get_store()
@@ -297,7 +300,8 @@ async def patch_camera(camera_id: str, request: Request):
     except ValueError as e:
         return _error(400, "Bad Request", str(e))
     others = {key: body for key, body in cameras.items() if key != camera_id}
-    same = [key for key, body in others.items() if _address(body["camera"]) == _address(entry["camera"])]
+    address = _address(entry["camera"], entry["place"])
+    same = [key for key, body in others.items() if _address(body["camera"], body.get("place", "")) == address]
     if same:
         return _error(409, "Camera is already added", f"{same[0]} · {_place_name(cameras[same[0]].get('place'))}")
     get_store().put(profile_id, "camera", camera_id, entry)

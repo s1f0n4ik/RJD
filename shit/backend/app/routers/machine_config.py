@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
 from app.services.config_bundle import export_profile, load_profile
+from app.services.config_cameras import v4l2_entry
 from app.services.config_import import import_backups
 from app.services.config_neural import zones_error
 from app.services.config_pull import board_diff
@@ -157,15 +158,21 @@ def _validate_passport_change(change: PassportChange, current: dict) -> None:
     elif change.kind == "camera":
         camera = object_field(body, "camera")
         object_field(body, "streams")
-        try:
-            ipaddress.IPv4Address(camera.get("ip_adress", ""))
-        except ipaddress.AddressValueError:
-            raise HTTPException(422, "Camera address must be IPv4")
-        port = camera.get("port")
-        if isinstance(port, str) and port.isascii() and port.isdigit():
-            port = int(port)
-        if not number(port, 1, 65535, True):
-            raise HTTPException(422, "Camera port must be an integer in 1..65535")
+        if camera.get("source") == "v4l2":
+            try:
+                v4l2_entry(camera.get("v4l2"))
+            except ValueError as error:
+                raise HTTPException(422, str(error))
+        else:
+            try:
+                ipaddress.IPv4Address(camera.get("ip_adress", ""))
+            except ipaddress.AddressValueError:
+                raise HTTPException(422, "Camera address must be IPv4")
+            port = camera.get("port")
+            if isinstance(port, str) and port.isascii() and port.isdigit():
+                port = int(port)
+            if not number(port, 1, 65535, True):
+                raise HTTPException(422, "Camera port must be an integer in 1..65535")
     elif change.kind in ("video_stream", "neural_slot"):
         for key in ("width", "height") if change.kind == "video_stream" else ("fps",):
             if not number(body.get(key), 1, 16384 if key != "fps" else 240, key != "fps"):
