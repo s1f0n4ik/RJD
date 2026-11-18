@@ -63,6 +63,15 @@ namespace varan {
                     rec.lon = r.gps().lon();
                     msg.record = rec;
                 }
+
+                if (req.has_kzt()) {
+                    const auto& k = req.kzt();
+                    FKztState kzt;
+                    kzt.attachments.assign(k.attachments().begin(), k.attachments().end());
+                    kzt.cargo.assign(k.cargo().begin(), k.cargo().end());
+                    kzt.period_s = k.period_s();
+                    msg.kzt = std::move(kzt);
+                }
                 return msg;
             }
 

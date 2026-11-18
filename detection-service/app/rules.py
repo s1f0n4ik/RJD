@@ -198,6 +198,60 @@ class IskraSettings(BaseModel):
         return sum(1 << (c.bit - 1) for c in self.table.cameras if c.camera_id and c.camera_id == camera_id)
 
 
+class KztModbus(BaseModel):
+    enabled: bool = True
+    # Шлюз повторяет последний состав раз в период
+    period_s: int = Field(60, ge=1, le=3600)
+
+
+class KztDictionaries(BaseModel):
+    # Коды навесного из старой таблицы классов КЖТ
+    attachment: list[Entry] = entries([
+        (1, "Грейферный ковш"), (2, "Крюк"), (3, "Щётка"), (4, "Ковш"), (5, "Планировочный ковш"), (6, "Узкий грейфер"),
+        (7, "Шпалозаменочное оборудование"), (8, "Рельсовый или роликовый захват"), (9, "Вакуум"), (10, "Узкий ковш"),
+        (11, "Гидромолот"), (12, "Измельчитель"), (17, "Шпалозаменщик"), (18, "Ротор"), (20, "Бур"), (21, "Рыхлитель"),
+        (22, "Борона"),
+    ])
+
+    @model_validator(mode="after")
+    def _valid(self) -> "KztDictionaries":
+        check_dictionary("attachment", self.attachment, 65535)
+        return self
+
+
+class KztTable(BaseModel):
+    # Коды навесного: суперкласс по месту, класс без суперкласса по id
+    models: dict[str, ModelTable] = {}
+    # Камера КЖТ; пусто — все камеры
+    camera_id: str = ""
+    # Рабочая зона каталога; нет — весь кадр
+    zone_id: Optional[int] = None
+    # Ключ суперкласса грузов; остальные суперклассы и классы без суперкласса — навесное
+    cargo_superclass: str = ""
+    # Классы грузов слов 18–20
+    cargo: list[str] = Field(["sleeper", "wood-sleeper", "barrel"], max_length=3)
+    # Код навесного → допустимые классы грузов; навесного нет в таблице — допустимо всё
+    allowed: dict[int, list[str]] = {}
+
+
+class KztSettings(BaseModel):
+    stitch: Stitch = Stitch()
+    modbus: KztModbus = KztModbus()
+    table: KztTable = KztTable()
+    dictionaries: KztDictionaries = KztDictionaries()
+
+    def attachment_code(self, config_id: str, class_id: int, superclass: str, superclass_id: int) -> int:
+        model = self.table.models.get(config_id, ModelTable())
+        number = model.superclass_no(superclass_id) if superclass else model.class_no(class_id)
+        return known(self.dictionaries.attachment, number)
+
+    # Груз допустим, если навесное не известно или его разрешает хоть одно из текущих
+    def cargo_allowed(self, attachments: list[int], cargo: str) -> bool:
+        if not attachments:
+            return True
+        return any(a not in self.table.allowed or cargo in self.table.allowed[a] for a in attachments)
+
+
 class RulesStore:
     # Настройки правил по конфигурациям: rules/<id>.json, нет файла — умолчания
     def __init__(self, root: Path):

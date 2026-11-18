@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import math
 import threading
@@ -16,7 +17,7 @@ import frame_ingress_pb2 as gw
 
 from app.config import settings
 from app.journal import WALL_MAX_MS, WALL_MIN_MS, Journal, now_ms
-from app.rules import IskraSettings, RsmSettings, RulesStore
+from app.rules import IskraSettings, KztSettings, RsmSettings, RulesStore
 
 logger = logging.getLogger(__name__)
 
@@ -622,8 +623,113 @@ class IskraRules(Rules):
                 self._record(detection)
 
 
+class KztRules(Rules):
+    id = "kzt"
+    title = "КЖТ"
+    description = ("Состав навесного оборудования и грузов камеры КЖТ в рабочей зоне. Modbus получает пакет 1 "
+                   "при смене состава, шлюз повторяет последний раз в период.")
+    model = KztSettings
+    modules = ("modbus",)
+
+    def __init__(self, *args):
+        super().__init__(*args)
+        self.path = Path(settings.JOURNAL_DIR) / "rules" / "kzt-state.json"
+        # Класс трека из последнего такта: ключ трека → (конфигурация, id класса, имя, суперкласс, место суперкласса)
+        self.classes: dict[tuple, tuple[str, int, str, str, int]] = {}
+        # Навесное залипает: пропало из кадра — остаётся последнее, переживает перезапуск
+        self.attachments: list[int] = self._load()
+        self.sent: Optional[tuple] = None
+
+    def _load(self) -> list[int]:
+        try:
+            return sorted(int(a) for a in json.loads(self.path.read_text(encoding="utf-8"))["attachments"])
+        except FileNotFoundError:
+            return []
+        except (OSError, ValueError, KeyError, TypeError) as e:
+            logger.warning("kzt state %s unreadable, attachments reset: %s", self.path, e)
+            return []
+
+    def _save(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.path.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"attachments": self.attachments}), encoding="utf-8")
+        tmp.replace(self.path)
+
+    def on_packet(self, packet, received_at: int, late: bool) -> None:
+        super().on_packet(packet, received_at, late)
+        for track in packet.tracks:
+            key = (packet.device_id, packet.session, track.track_id)
+            if key in self.tracks:
+                self.classes[key] = (packet.config_id, track.class_id, track.class_name, track.superclass, track.superclass_id)
+        self._update()
+
+    def tick(self, connected: set) -> None:
+        super().tick(connected)
+        self._update()
+
+    def apply(self, rules: BaseModel) -> None:
+        super().apply(rules)
+        self._update()
+
+    # Пауза перехода сохраняет навесное, смена конфигурации шлюза — с нуля
+    def close_all(self, reason: str) -> None:
+        super().close_all(reason)
+        self.classes.clear()
+        self.sent = None
+        if reason == "config_changed":
+            self.attachments = []
+            self.path.unlink(missing_ok=True)
+
+    def _update(self) -> None:
+        s = self.settings
+        for key in [k for k in self.classes if k not in self.tracks]:
+            del self.classes[key]
+        attachments, cargo = set(), []
+        for key, state in self.tracks.items():
+            info = self.classes.get(key)
+            if info is None or (s.table.camera_id and state.camera_id != s.table.camera_id):
+                continue
+            if s.table.zone_id is not None and state.zone_id != s.table.zone_id:
+                continue
+            config_id, class_id, class_name, superclass, superclass_id = info
+            if superclass and superclass == s.table.cargo_superclass:
+                cargo.append(class_name)
+            else:
+                code = s.attachment_code(config_id, class_id, superclass, superclass_id)
+                if code:
+                    attachments.add(code)
+        if attachments and sorted(attachments) != self.attachments:
+            self.attachments = sorted(attachments)
+            self._save()
+        counts = [cargo.count(name) if s.cargo_allowed(self.attachments, name) else 0 for name in s.table.cargo]
+        state = (tuple(self.attachments[:3]), tuple(counts), s.modbus.period_s)
+        if state != self.sent:
+            self._send(state)
+
+    def _send(self, state: tuple) -> None:
+        # Пока отправка выключена (переход), состав уйдёт после включения
+        if not self.outbox.enabled:
+            return
+        self.sent = state
+        if not self.settings.modbus.enabled:
+            self.feed.filtered("modbus")
+            return
+        attachments, cargo, period_s = state
+        camera_id = self.settings.table.camera_id
+        request = self._request(NO_EVENT, now_ms(), camera_id, "", [], "modbus")
+        request.kzt.CopyFrom(gw.KztState(attachments=attachments, cargo=cargo, period_s=period_s))
+        entry = self.feed.add("modbus", "state", 0, "", camera_id, attachments=list(attachments), cargo=list(cargo))
+        self.outbox.send(Outgoing(request, entry=entry))
+
+    # Шлюз подключился: текущий состав заново
+    def resend(self) -> int:
+        self.sent = None
+        self._update()
+        return 1 if self.sent is not None and self.settings.modbus.enabled else 0
+
+
 # Правила по id конфигурации шлюза
-RULES: dict[str, type[Rules]] = {"rsm-2000": RsmRules, "iskra": IskraRules}
+RULES: dict[str, type[Rules]] = {"rsm-2000": RsmRules, "iskra": IskraRules, "kzt": KztRules}
 
 
 @dataclass

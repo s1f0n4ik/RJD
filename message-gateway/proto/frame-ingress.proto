@@ -50,6 +50,13 @@ message Record {
     GpsData gps = 7;          // координаты; без valid шлюз ставит свои
 }
 
+// Состав КЖТ для Modbus; шлюз пишет пакет при смене и повторяет последний раз в period_s
+message KztState {
+    repeated int32 attachments = 1; // коды навесного по возрастанию, не больше 3
+    repeated int32 cargo = 2;       // число грузов трёх слотов
+    int32 period_s = 3;             // повтор последнего состава, 0 — 60 с
+}
+
 message FrameRequest {
     int32 ver = 1;            // версия протокола, запрошенная клиентом
     int64 id = 2;             // номер сообщения в сессии мастера
@@ -67,6 +74,7 @@ message FrameRequest {
     repeated string modules = 14; // id модулей-получателей; пусто — все модули активной конфигурации
     int32 camera_no = 15;     // номер камеры CAN по таблице соответствий мастера, 0 — камеры в таблице нет
     string runtime_id = 16;
+    KztState kzt = 17;        // состав КЖТ; камера флага работы — camera_id
 }
 
 message FrameReply {

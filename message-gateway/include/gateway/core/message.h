@@ -46,6 +46,17 @@ namespace varan {
             double lon = 0.0;
         };
 
+        // Состав КЖТ для Modbus; считает мастер
+        struct FKztState {
+            std::vector<int> attachments;     // коды навесного по возрастанию, не больше 3
+            std::vector<int> cargo;           // число грузов трёх слотов
+            int period_s = 0;                 // повтор последнего состава, 0 — по умолчанию
+
+            bool operator==(const FKztState& o) const {
+                return attachments == o.attachments && cargo == o.cargo && period_s == o.period_s;
+            }
+        };
+
         // Семантическое сообщение кадра от media-center. Кодек превращает его в
         // wire-формат конкретной версии протокола. Ядро НЕ знает про раскладку байт.
         struct FFrameMessage {
@@ -63,6 +74,7 @@ namespace varan {
             std::int64_t session = 0;         // время запуска мастера, unix мс
             ETrackEvent event = ETrackEvent::Unspecified;
             std::optional<FRecord> record;    // запись для Modbus
+            std::optional<FKztState> kzt;     // состав КЖТ
             std::vector<std::string> modules; // id модулей-получателей; пусто — все
             int camera_no = 0;                // номер камеры CAN по таблице мастера, 0 — камеры в таблице нет
 

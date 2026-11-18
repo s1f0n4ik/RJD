@@ -1,6 +1,7 @@
 #include "gateway/core/gateway.h"
 #include "gateway/core/rsm2000-integration.h"
 #include "gateway/core/iskra-integration.h"
+#include "gateway/core/kzt-integration.h"
 #include "gateway/grpc/ingress.h"
 #include "gateway/utility/devices.h"
 #include "gateway/utility/log.h"
@@ -59,10 +60,15 @@ namespace varan {
             m_active = rsm;
 
             // Очередь записей Modbus — рядом с файлом настроек
-            const std::string queue_file = m_config.state_file.empty() ? std::string()
-                : (std::filesystem::path(m_config.state_file).parent_path() / "modbus-queue.bin").string();
+            const auto queue_path = [this](const char* name) {
+                return m_config.state_file.empty() ? std::string()
+                    : (std::filesystem::path(m_config.state_file).parent_path() / name).string();
+            };
             m_integrations.push_back(std::make_shared<UIskraIntegration>(
-                m_ws_ioc, m_config.modbus, m_time, queue_file, m_config.backend_url));
+                m_ws_ioc, m_config.modbus, m_time, queue_path("modbus-queue.bin"), m_config.backend_url));
+            // У КЖТ своя очередь: записи другого пакета в окне Искры не нужны
+            m_integrations.push_back(std::make_shared<UKztIntegration>(
+                m_ws_ioc, m_config.modbus, m_time, queue_path("modbus-kzt-queue.bin"), m_config.backend_url));
         }
 
         void UGateway::restore_state() {

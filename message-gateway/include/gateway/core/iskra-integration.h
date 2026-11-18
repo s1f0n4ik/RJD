@@ -89,9 +89,6 @@ namespace varan {
             boost::json::object config_json() const override;
             boost::json::object status_json() const override;
 
-            // 1 — все слоты техзрения плат запущены и все плитки камер ok; reason — код причины для страницы
-            static std::uint16_t evaluate(const boost::json::value& body, boost::json::object& reason);
-
         private:
             void poll_loop();
             void stop_poller();

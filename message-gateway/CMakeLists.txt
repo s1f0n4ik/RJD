@@ -51,6 +51,8 @@ add_executable(${PROJECT_NAME}
     src/core/store.cpp
     src/core/rsm2000-integration.cpp
     src/core/iskra-integration.cpp
+    src/core/kzt-integration.cpp
+    src/core/neural-health.cpp
     src/utility/devices.cpp
     src/modules/websocket/module.cpp
     src/modules/can/module.cpp
