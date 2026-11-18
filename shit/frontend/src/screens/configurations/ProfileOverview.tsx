@@ -29,6 +29,7 @@ import {
     type SectionId,
 } from './profile-model';
 import { scrollInside } from './scroll';
+import { tableCameraCount } from './api';
 
 const num = (value: unknown) => String(value).replace('.', ',');
 const errorWord = (count: number) =>
@@ -544,9 +545,11 @@ function Master(shared: Shared) {
         ]);
     }
     if (rules?.websocket) values.push(['WebSocket: срок', `${num(rules.websocket.late_s)} с`]);
-    if (rules?.modbus) values.push(['Modbus: запись', `${flag(rules.modbus.enabled)}, срок ${num(rules.modbus.ceiling_s)} с`]);
-    const table = rules?.table?.cameras;
-    const rows = Array.isArray(table) ? table.length : Object.keys(table ?? {}).length;
+    if (rules?.modbus) {
+        const m = rules.modbus;
+        values.push(['Modbus: запись', `${flag(m.enabled)}, ${m.period_s !== undefined ? `повтор ${num(m.period_s)} с` : `срок ${num(m.ceiling_s ?? 0)} с`}`]);
+    }
+    const rows = tableCameraCount(rules?.table);
     return (
         <Section id="master" shared={shared} count={rows} hint={integration ? `Интеграция ${integration}` : 'Интеграция не задана'}>
             <div className="lb-pad">
@@ -813,8 +816,7 @@ export function ProfileOverview({
     };
     const integration = String(definition.machine?.settings?.active_integration ?? '');
     counts.gateway = Object.keys(entity<{ modules: object }>(definition, 'integration', integration)?.modules ?? {}).length;
-    const table = profileRules(workspace, definition).settings?.table?.cameras;
-    counts.master = Array.isArray(table) ? table.length : Object.keys(table ?? {}).length;
+    counts.master = tableCameraCount(profileRules(workspace, definition).settings?.table);
     const hasSurround = !!Object.keys(definition.projection ?? {}).length || !!Object.keys(definition.calibration ?? {}).length || !!Object.keys(definition.preset ?? {}).length;
     const hidden: SectionId[] = [...(hasSurround ? [] : ['surround' as const]), ...(integration && entity(definition, 'integration', integration) ? [] : ['gateway' as const])];
     return (

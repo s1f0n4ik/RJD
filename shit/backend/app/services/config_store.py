@@ -605,6 +605,9 @@ def check_refs(bodies: dict[str, dict[str, Any]]) -> list[dict]:
         for camera_id in camera_ids:
             if camera_id:
                 need("rules", key, "camera", camera_id, "table.cameras")
+        # Камера КЖТ
+        if isinstance(table.get("camera_id"), str) and table["camera_id"]:
+            need("rules", key, "camera", table["camera_id"], "table.camera_id")
 
     return broken
 

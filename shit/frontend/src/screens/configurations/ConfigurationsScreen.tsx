@@ -8,8 +8,8 @@ import { useSystem } from '../../app/SystemContext';
 import { useDeviceClock, refreshDeviceClock } from '../../app/useDeviceClock';
 import { useNavigationGuard } from '../../app/use-navigation-guard';
 import { sameJson } from '../../utils/same-json';
-import { configurationsApi, dictionariesOf, isIskraTable } from './api';
-import { DictionariesPanel, IskraTablePanel, RsmTablePanel, settingsError, tableUsage } from './TablePanels';
+import { configurationsApi, dictionariesOf, isIskraTable, isKztTable } from './api';
+import { DictionariesPanel, IskraTablePanel, KztTablePanel, RsmTablePanel, settingsError, tableUsage } from './TablePanels';
 import { ProfileOverview, type Vital } from './ProfileOverview';
 import { ProfilePassport } from './ProfilePassport';
 import { ProfileBar } from './ProfileBar';
@@ -805,6 +805,18 @@ export default function ConfigurationsScreen() {
                                             onChange={(dictionaries) =>
                                                 update('rules', rules.id, { ...rules.settings, dictionaries } as unknown as Source)
                                             }
+                                        />
+                                    ) : isKztTable(rules.settings.table) ? (
+                                        <KztTablePanel
+                                            passportIds={passportModels}
+                                            value={rules.settings.table}
+                                            onChange={(table) => update('rules', rules.id, { ...rules.settings, table } as unknown as Source)}
+                                            modbus={rules.settings.modbus ?? { enabled: true, period_s: 60 }}
+                                            onModbus={(modbus) => update('rules', rules.id, { ...rules.settings, modbus } as unknown as Source)}
+                                            dicts={dictionariesOf(rules.settings)}
+                                            catalog={catalog}
+                                            running={new Map()}
+                                            cameras={cameras}
                                         />
                                     ) : isIskraTable(rules.settings.table) ? (
                                         <IskraTablePanel

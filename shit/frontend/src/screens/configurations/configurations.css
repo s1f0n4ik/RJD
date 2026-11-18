@@ -224,3 +224,69 @@
 .modal .cr-cls-g .tag.is-gone{border-style:dashed;color:var(--warn)}
 .modal .cr-cls .cr-none{font-size:12.5px;color:var(--fg-3)}
 .modal .cr-pick-sum{font-family:var(--mono);font-size:11px;color:var(--fg-3)}
+
+/* КЖТ: состав и пакет рядом, на узком — друг под другом */
+.cf-screen .kz-top{display:grid;grid-template-columns:440px minmax(0,1fr);gap:16px;align-items:start}
+.cf-screen .kz-card .cr-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+.cf-screen .kz-card .cr-row .tf-ro{justify-content:flex-start}
+.cf-screen .kz-card .uisel-btn{height:32px}
+.cf-screen .kz-warn{font-size:12px;color:var(--warn);margin-top:-6px}
+.cf-screen .kz-none{padding:8px 0;font-size:13px;color:var(--fg-3)}
+.cf-screen .kz-words{display:grid;grid-template-columns:repeat(auto-fit,minmax(86px,1fr));gap:6px}
+.cf-screen .kz-w{display:flex;flex-direction:column;gap:4px;min-width:0;padding:9px 9px 10px;border:1px solid var(--line);border-radius:var(--r);background:var(--input)}
+.cf-screen .kz-w .r{font-family:var(--mono);font-size:10.5px;color:var(--fg-3)}
+.cf-screen .kz-w .v{font:700 20px var(--mono);color:var(--fg-3);font-variant-numeric:tabular-nums;line-height:1.1}
+.cf-screen .kz-w .l{font-size:11.5px;line-height:1.3;color:var(--fg-3);hyphens:auto}
+.cf-screen .kz-w .l b{color:var(--fg-2);font-weight:600}
+.cf-screen .kz-w.is-att{border-color:var(--acc-edge)}
+.cf-screen .kz-w.is-att .v{color:var(--acc)}
+.cf-screen .kz-w.is-cargo .v{color:var(--fg)}
+.cf-screen .kz-w.is-cargo.has .v{color:var(--ok)}
+.cf-screen .kz-meta{display:flex;gap:6px 16px;flex-wrap:wrap;font-size:12px;color:var(--fg-3)}
+.cf-screen .kz-meta b{font-family:var(--mono);color:var(--fg-2);font-weight:500}
+/* Роль класса вместо выбора кода */
+.cf-screen .kz-cargo{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 12px;border:1px dashed var(--line-hi);border-radius:var(--r);color:var(--fg-2);font-size:13px;width:100%;min-width:0}
+.cf-screen .kz-cargo .tag{padding:1px 7px}
+.cf-screen .kz-cargo.is-sc{color:var(--ok)}
+/* Слоты грузов */
+.cf-screen .kz-slots{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.cf-screen .kz-slot{display:flex;flex-direction:column;gap:8px;padding:12px;border:1px solid var(--line);border-radius:var(--r);background:var(--input);min-width:0}
+.cf-screen .kz-slot-h{display:flex;align-items:baseline;gap:8px;font-size:12.5px;color:var(--fg-2)}
+.cf-screen .kz-slot-h b{font-family:var(--mono);color:var(--acc);font-weight:700}
+/* Допустимые грузы матрицей; навесное закреплено слева */
+.cf-screen .kz-mx{border:1px solid var(--line);border-radius:var(--r);background:var(--input);overflow-x:auto}
+.cf-screen .kz-mx table{width:100%;border-collapse:collapse;font-size:13px}
+.cf-screen .kz-mx th,.cf-screen .kz-mx td{padding:0 10px;height:44px;border-bottom:1px solid var(--line);text-align:center;white-space:nowrap}
+.cf-screen .kz-mx tr:last-child td{border-bottom:none}
+.cf-screen .kz-mx thead th{height:auto;padding:9px 10px;background:var(--panel);font-family:var(--mono);font-size:12px;font-weight:600;color:var(--fg-2)}
+.cf-screen .kz-mx th.att,.cf-screen .kz-mx td.att{text-align:left;position:sticky;left:0;z-index:1;background:var(--input);min-width:250px;font-family:var(--ui)}
+.cf-screen .kz-mx thead th.att{background:var(--panel)}
+.cf-screen .kz-mx td.att .k{font-family:var(--mono);font-weight:700;color:var(--acc);display:inline-block;min-width:28px}
+.cf-screen .kz-mx td.mode{width:150px}
+.cf-screen .kz-mx tr.is-free td:not(.att):not(.mode){opacity:.35}
+.cf-screen .kz-cb{width:22px;height:22px;display:inline-grid;place-items:center;border-radius:5px;border:1px solid var(--line-hi);color:transparent;transition:var(--tr-ui)}
+.cf-screen .kz-cb.is-on{background:rgba(var(--acc-rgb),.2);border-color:var(--acc-dim);color:var(--acc)}
+.cf-screen .kz-mode{font-size:11.5px;padding:2px 9px;border-radius:6px;border:1px solid var(--line);color:var(--fg-3)}
+.cf-screen .kz-mode.is-set{border-color:var(--acc-edge);color:var(--acc);background:var(--acc-bg)}
+
+/* Раздел правки меряет свою ширину для правил ниже */
+.cf-screen .lb-editable{container-type:inline-size;min-width:0}
+
+/* Узкое тело: состав над пакетом, итог класса под выбором кода, без прокрутки вбок */
+@container (max-width:1000px){
+  .cf-screen .kz-top{grid-template-columns:minmax(0,1fr)}
+}
+@container (max-width:860px){
+  .cf-screen .mt-r.has-out,.cf-screen .mt-tab.has-over .mt-r.has-out{grid-template-columns:44px minmax(0,1fr) minmax(0,1.15fr);min-width:0;row-gap:8px}
+  .cf-screen .mt-r.has-out .mt-ar,.cf-screen .mt-r.has-out.is-head>span:nth-child(n+4){display:none}
+  .cf-screen .mt-r.has-out .mt-outc,.cf-screen .mt-tab.has-over .mt-r.has-out>:nth-child(4){grid-column:2/-1}
+  .cf-screen .kz-mx th.att,.cf-screen .kz-mx td.att{min-width:160px;white-space:normal}
+  .cf-screen .kz-mx td.mode{width:auto}
+}
+@container (max-width:560px){
+  .cf-screen .kz-card .cr-row{grid-template-columns:minmax(0,1fr)}
+  .cf-screen .mt-tab:not(.is-cams) .mt-r{grid-template-columns:36px minmax(0,1fr)}
+  .cf-screen .mt-tab:not(.is-cams) .mt-r>:nth-child(n+3){grid-column:2/-1}
+  .cf-screen .mt-tab:not(.is-cams) .mt-r.is-head>span:nth-child(n+3){display:none}
+  .cf-screen .kz-slots{grid-template-columns:minmax(0,1fr)}
+}

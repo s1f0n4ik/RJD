@@ -41,7 +41,10 @@ export interface RuleClassFilter {
 
 export interface RuleModbus {
     enabled: boolean;
-    ceiling_s: number;
+    // Искра: запись не позже
+    ceiling_s?: number;
+    // КЖТ: повтор последнего состава
+    period_s?: number;
 }
 
 // Числа одной конфигурации нейросети; строки нет — id + 1 (суперкласс — место + 1, зона — id), 0 — пусто
@@ -76,18 +79,43 @@ export interface IskraTable {
     cameras: IskraCamera[];
 }
 
+export interface KztTable {
+    // Коды навесного: суперкласс по месту, класс без суперкласса по id
+    models: Record<string, ModelTable>;
+    // Камера КЖТ; пусто — все камеры
+    camera_id: string;
+    // Рабочая зона каталога; null — весь кадр
+    zone_id: number | null;
+    // Ключ суперкласса грузов; пусто — всё навесное
+    cargo_superclass: string;
+    // Классы грузов слов 18–20
+    cargo: string[];
+    // Код навесного → допустимые классы грузов; строки нет — любые
+    allowed: Record<string, string[]>;
+}
+
+export type RulesTable = RsmTable | IskraTable | KztTable;
+
 export interface RulesSettings {
     stitch: RuleStitch;
     websocket?: RuleClassFilter & { late_s: number };
     can?: RuleClassFilter;
     modbus?: RuleModbus;
     // Нет у мастера старше решений 63–70
-    table?: RsmTable | IskraTable;
-    // РСМ: type, danger; Искра: code, zone
+    table?: RulesTable;
+    // РСМ: type, danger; Искра: code, zone; КЖТ: attachment
     dictionaries?: Dictionaries;
 }
 
-export const isIskraTable = (t?: RsmTable | IskraTable): t is IskraTable => !!t && Array.isArray((t as IskraTable).cameras);
+export const isIskraTable = (t?: RulesTable): t is IskraTable => !!t && Array.isArray((t as IskraTable).cameras);
+export const isKztTable = (t?: RulesTable): t is KztTable => !!t && 'cargo_superclass' in t;
+
+// Камер в таблице правил: РСМ — номера, Искра — биты, КЖТ — выбранная камера
+export function tableCameraCount(t?: RulesTable): number {
+    if (!t) return 0;
+    if (isKztTable(t)) return t.camera_id ? 1 : 0;
+    return Array.isArray(t.cameras) ? t.cameras.length : Object.keys(t.cameras ?? {}).length;
+}
 
 // Словари для расшифровки чисел; у Искры камеры — словарь cameras по битам
 export function dictionariesOf(settings?: RulesSettings): Dictionaries {
@@ -111,7 +139,7 @@ export interface FeedEntry {
     seq: number;
     t: number;
     module: string;
-    event: 'confirmed' | 'removed' | 'record';
+    event: 'confirmed' | 'removed' | 'record' | 'state';
     detection_id: number;
     class_name: string;
     camera_id: string;
@@ -121,6 +149,9 @@ export interface FeedEntry {
     code?: number;
     camera_mask?: number;
     zone?: number;
+    // КЖТ: коды навесного и число грузов слотов
+    attachments?: number[];
+    cargo?: number[];
 }
 
 export interface FeedCounters {

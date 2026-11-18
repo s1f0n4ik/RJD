@@ -38,7 +38,7 @@ function parseNum(text: string): number | null {
 }
 
 // Число с единицей: текст правится свободно, в настройки уходит только разобранное
-function NumField({ value, unit, onChange }: { value: number; unit: string; onChange: (v: number) => void }) {
+export function NumField({ value, unit, onChange }: { value: number; unit: string; onChange: (v: number) => void }) {
     const [text, setText] = useState(fmtNum(value));
     useEffect(() => {
         if (parseNum(text) !== value) setText(fmtNum(value));
@@ -199,7 +199,7 @@ export function ModbusCard({ head, value, onChange }: {
         <section className={`card cr-card${value.enabled ? '' : ' is-off'}`}>
             <CardHead head={head} on={value.enabled} onToggle={enabled => onChange({ ...value, enabled })} />
             <div className="card-b">
-                <div className="cr-row"><label>Запись не позже</label><NumField value={value.ceiling_s} unit="с" onChange={ceiling_s => onChange({ ...value, ceiling_s })} /></div>
+                <div className="cr-row"><label>Запись не позже</label><NumField value={value.ceiling_s ?? 30} unit="с" onChange={ceiling_s => onChange({ ...value, ceiling_s })} /></div>
                 <div className="cr-row" data-tip="Слот инференса пока не ставит зоны"><label>Зона</label><div className="tf-ro">пусто</div></div>
                 <div className="cr-row"><label>Число объектов</label><div className="tf-ro">1</div></div>
             </div>
