@@ -380,6 +380,10 @@ UCameraStreamPipeline::~UCameraStreamPipeline() {
 		g_source_remove(m_timer_check_record_id);
 		m_timer_check_record_id = 0;
 	}
+	if (m_timer_v4l2_watch_id != 0) {
+		g_source_remove(m_timer_v4l2_watch_id);
+		m_timer_v4l2_watch_id = 0;
+	}
 
 	m_send_callback = nullptr;
 	m_dma_sender = nullptr;
@@ -909,8 +913,10 @@ GstElement* UCameraStreamPipeline::create_local_input(GstElement* input_queue) {
 	);
 
 	// Опорный кадр раз в gop секунд, заголовки перед каждым; поворот кодером, если его не сделал сенсор
+	// Битрейт 0 — по умолчанию 4 Мбит/с: свой выбор MPP дает около 16 Мбит/с на 1080p60
+	const int bitrate = source.bitrate > 0 ? source.bitrate : 4000;
 	g_object_set(by_name.at("encoder"),
-		"bps", static_cast<guint>(source.bitrate) * 1000u,
+		"bps", static_cast<guint>(bitrate) * 1000u,
 		"gop", source.gop * source.fps,
 		"header-mode", 1,
 		nullptr
@@ -935,6 +941,16 @@ GstElement* UCameraStreamPipeline::create_local_input(GstElement* input_queue) {
 		m_logger->error("create_local_input(): cannot link parse to input_queue");
 		return nullptr;
 	}
+
+	// Камера может замолчать без ошибки: v4l2src тогда ждет кадр вечно, сторож считает время от последнего
+	GstPad* src_pad = gst_element_get_static_pad(by_name.at("src"), "src");
+	gst_pad_add_probe(src_pad, GST_PAD_PROBE_TYPE_BUFFER, [](GstPad*, GstPadProbeInfo*, gpointer data) -> GstPadProbeReturn {
+		static_cast<UCameraStreamPipeline*>(data)->m_v4l2_last_frame_us.store(g_get_monotonic_time());
+		return GST_PAD_PROBE_OK;
+	}, this, nullptr);
+	gst_object_unref(src_pad);
+	m_v4l2_last_frame_us.store(g_get_monotonic_time());
+	set_timer_v4l2_watch();
 
 	m_logger->info("create_local_input(): " + m_v4l2_node + " " + source.format + " "
 		+ std::to_string(source.width) + "x" + std::to_string(source.height) + " at " + std::to_string(source.fps)
@@ -1386,6 +1402,26 @@ void UCameraStreamPipeline::set_timer_check_record_branch() {
 			std::to_string(static_cast<int>(usage)) + "%, restoring record branch"
 		);
 		self->create_record_branch(self->m_tees[MAIN_TEE]);
+		return G_SOURCE_CONTINUE;
+	}, this);
+}
+
+void UCameraStreamPipeline::set_timer_v4l2_watch() {
+	// Перезапуск собирает вход заново и зовет сюда снова: старый таймер снимается
+	if (m_timer_v4l2_watch_id != 0) g_source_remove(m_timer_v4l2_watch_id);
+
+	m_timer_v4l2_watch_id = g_timeout_add_seconds(1, [](gpointer data) -> gboolean {
+		auto self = static_cast<UCameraStreamPipeline*>(data);
+		if (self->m_is_restarting.load() || self->m_stop_requested.load() || !self->m_is_playing.load()) return G_SOURCE_CONTINUE;
+
+		// 5 с без кадров: при 1 кадре/с запас пятикратный, зависшая камера ждет недолго
+		const gint64 idle_us = g_get_monotonic_time() - self->m_v4l2_last_frame_us.load();
+		if (idle_us < 5 * G_USEC_PER_SEC) return G_SOURCE_CONTINUE;
+
+		self->m_logger->warn("timer_v4l2_watch: no frames from " + self->m_v4l2_node + " for "
+			+ std::to_string(idle_us / G_USEC_PER_SEC) + " s, restarting pipeline");
+		self->m_v4l2_last_frame_us.store(g_get_monotonic_time());
+		self->on_bus_error(varan::signaling::CODE_V4L2_NO_FRAMES, "camera on board stopped delivering frames", false);
 		return G_SOURCE_CONTINUE;
 	}, this);
 }

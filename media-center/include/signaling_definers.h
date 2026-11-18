@@ -80,6 +80,7 @@ namespace signaling {
 	inline constexpr int CODE_V4L2_NOT_FOUND     = 3008;  // камеры на плате нет: не подключена или адрес другой
 	inline constexpr int CODE_V4L2_BUSY          = 3009;  // камеру держит другой процесс
 	inline constexpr int CODE_V4L2_FORMAT        = 3010;  // камера не умеет заданный формат, размер или частоту
+	inline constexpr int CODE_V4L2_NO_FRAMES     = 3011;  // камера на плате перестала отдавать кадры
 
 	// 4xxx — надстройки
 	inline constexpr int CODE_CORRECTION_NO_LINKS   = 4001;  // сопоставление калибровки не настроено

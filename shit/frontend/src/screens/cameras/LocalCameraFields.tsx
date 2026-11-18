@@ -271,7 +271,7 @@ export function EncodeFields({ value, onChange }: { value: V4l2Source; onChange:
                 <input
                     className="inp inp--num"
                     value={value.bitrate || ''}
-                    placeholder="авто"
+                    placeholder="4000"
                     onChange={e => onChange({ ...value, bitrate: toInt(e.target.value) })}
                 />
             </Cell>

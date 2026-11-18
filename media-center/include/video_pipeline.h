@@ -434,6 +434,9 @@ private:
 
 	void set_timer_check_record_branch();
 
+	// Сторож камеры на плате: без кадров от v4l2src дольше порога конвейер перезапускается
+	void set_timer_v4l2_watch();
+
 	bool destroy_branch(FPipelineBranch& branch);
 
 	void destroy_gst_gl_context();
@@ -453,6 +456,10 @@ private:
 	// Писатель индекса сегментов; пусто — записи в базу нет, файлы пишутся как раньше
 	std::shared_ptr<varan::archive::USegmentWriter> m_segment_writer;
 	guint m_timer_check_record_id = 0;
+
+	guint m_timer_v4l2_watch_id = 0;
+	// Последний кадр от v4l2src, мкс монотонных часов
+	std::atomic<gint64> m_v4l2_last_frame_us{0};
 
 	// С какого момента цель пула недоступна, мкс монотонных часов; 0 — доступна
 	std::atomic<gint64> m_target_lost_us{0};

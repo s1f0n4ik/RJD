@@ -103,7 +103,7 @@ export function CameraInfo({ camera }: { camera: Camera }) {
                 <div className="span2"><span className="k">Адрес</span><span className="v m" data-tip={v4l2.device}>{v4l2.device}</span></div>
                 <div><span className="k">Режим</span><span className="v m">{v4l2.format} {v4l2.width}×{v4l2.height}, {v4l2.fps} к/с</span></div>
                 <div><span className="k">Поворот и цвет</span><span className="v">{v4l2.rotation}°, {v4l2.swap_uv ? 'U ↔ V' : 'как есть'}</span></div>
-                <div><span className="k">Битрейт</span><span className="v m">{v4l2.bitrate ? `${v4l2.bitrate} кбит/с` : 'авто'}</span></div>
+                <div><span className="k">Битрейт</span><span className="v m">{`${v4l2.bitrate || 4000} кбит/с`}</span></div>
                 <div><span className="k">Опорный кадр</span><span className="v m">{v4l2.gop} с</span></div>
                 <div className="span2"><span className="k">Описание</span><span className="v">{camera.description || '—'}</span></div>
             </div>
