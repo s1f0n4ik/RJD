@@ -191,12 +191,12 @@ export function ConfigsScreen() {
         }
     };
 
-    const uploadModel = async (file: File): Promise<string | null> => {
+    const uploadModel = async (file: File): Promise<ModelFile | null> => {
         try {
             const saved = await neuralApi.uploadModel(file);
             reloadModels();
             toast('Модель загружена', saved.filename, 'ok');
-            return saved.path;
+            return saved;
         } catch (e) {
             toast('Модель не загрузилась', e instanceof Error ? e.message : String(e), 'err');
             return null;

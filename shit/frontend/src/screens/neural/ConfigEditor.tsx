@@ -3,10 +3,10 @@ import { Icon } from '../../app/Icons';
 import { Switch, Seg } from '../../app/Modal';
 import { EASE_OUT, reducedMotion } from '../../app/motion';
 import { Select } from '../../app/Select';
-import type { ClassDef, ModelFile, NeuralConfig, SuperclassDef, TrackerConfig, TrackerType, ZoneDef } from '../../features/neural/api/types';
+import type { ClassDef, ModelFile, ModelPackage, NeuralConfig, SuperclassDef, TrackerConfig, TrackerType, ZoneDef } from '../../features/neural/api/types';
 import { ClassModal } from './ClassModal';
 import { ColorSwatch } from './ColorPicker';
-import { modelClasses, modelMb, modelOf, modelQuant, modelSize, modelTask } from './model-desc';
+import { modelClasses, modelMb, modelOf, modelOfPackage, modelQuant, modelSize, modelTask } from './model-desc';
 
 // Поле трекера: ключ конфигурации, подпись, знаков после запятой, пределы
 interface TrackerField { key: string; label: string; digits: number; min?: number; max?: number }
@@ -46,7 +46,7 @@ interface ConfigEditorProps {
     onIdChange: (id: string) => void;
     idError: string | null;
     models: ModelFile[];
-    onUploadModel: (file: File) => Promise<string | null>;
+    onUploadModel: (file: File) => Promise<ModelFile | null>;
     trackerTypes: TrackerType[];
     /** Сохранённая версия: с ней сверяются файл модели и id зон; null — конфигурация новая */
     saved: NeuralConfig | null;
@@ -67,14 +67,28 @@ export function ConfigEditor({ value, onChange, creating, id, onIdChange, idErro
         modelOptions.unshift({ value: value.model_path, label: value.model_path.split('/').pop() || value.model_path, hint: 'файла нет' });
     }
 
+    // Описание из манифеста .rjdm выбранной модели
+    const pkg = models.find(m => m.path === value.model_path)?.package;
+
+    // Классы и суперклассы из манифеста; название конфигурации — только если его ещё нет
+    const fromPackage = (cfg: NeuralConfig, p: ModelPackage): NeuralConfig =>
+        ({ ...cfg, name: cfg.name || p.name, classes: p.classes, superclasses: p.superclasses });
+
+    // Конфигурация без описанных классов заполняется из модели сразу, с описанными — по кнопке
+    const pickModel = (path: string, uploaded?: ModelPackage) => {
+        const p = uploaded ?? models.find(m => m.path === path)?.package;
+        const next = { ...value, model_path: path };
+        onChange(p && Object.keys(value.classes).length === 0 ? fromPackage(next, p) : next);
+    };
+
     const handleFile = async (file: File | undefined) => {
         if (!file) return;
         setUploadErr(null);
-        if (!file.name.endsWith('.rknn')) { setUploadErr('Только файлы .rknn'); return; }
+        if (!/\.(rknn|rjdm)$/i.test(file.name)) { setUploadErr('Только файлы .rknn и .rjdm'); return; }
         setUploading(true);
         try {
-            const path = await onUploadModel(file);
-            if (path) patch({ model_path: path });
+            const saved = await onUploadModel(file);
+            if (saved) pickModel(saved.path, saved.package);
         } finally {
             setUploading(false);
             if (fileRef.current) fileRef.current.value = '';
@@ -144,17 +158,18 @@ export function ConfigEditor({ value, onChange, creating, id, onIdChange, idErro
                                 <Select
                                     value={value.model_path}
                                     options={modelOptions}
-                                    onChange={v => patch({ model_path: v })}
+                                    onChange={pickModel}
                                     placeholder="Не выбрана"
-                                    emptyText="Файлов .rknn на устройстве нет"
+                                    emptyText="Файлов .rknn и .rjdm нет"
                                 />
                             </div>
-                            <button className="icon-btn" data-tip="Загрузить файл .rknn" disabled={uploading} onClick={() => fileRef.current?.click()}>
+                            <button className="icon-btn" data-tip="Загрузить файл .rknn или .rjdm" disabled={uploading} onClick={() => fileRef.current?.click()}>
                                 <Icon name="down" size={14} />
                             </button>
-                            <input ref={fileRef} type="file" accept=".rknn" style={{ display: 'none' }} onChange={e => handleFile(e.target.files?.[0])} />
+                            <input ref={fileRef} type="file" accept=".rknn,.rjdm" style={{ display: 'none' }} onChange={e => handleFile(e.target.files?.[0])} />
                         </div>
-                        <ModelLine value={value} saved={saved} />
+                        <ModelLine value={value} saved={saved} pkg={pkg} />
+                        {pkg && <PackageLine pkg={pkg} value={value} onFill={() => onChange(fromPackage(value, pkg))} />}
                         {idError && <span className="hint is-err">{idError}</span>}
                         {uploadErr && <span className="hint is-err">{uploadErr}</span>}
                     </div>
@@ -236,8 +251,9 @@ export function ConfigEditor({ value, onChange, creating, id, onIdChange, idErro
 }
 
 // ── Описание модели, записанное устройством при сохранении ──
-function ModelLine({ value, saved }: { value: NeuralConfig; saved: NeuralConfig | null }) {
-    const m = modelOf(value.model, value.model_path);
+function ModelLine({ value, saved, pkg }: { value: NeuralConfig; saved: NeuralConfig | null; pkg?: ModelPackage }) {
+    // Устройство модель ещё не читало, а манифест о ней уже всё сказал
+    const m = modelOf(value.model, value.model_path) ?? (pkg ? modelOfPackage(pkg, value.model_path) : null);
     if (!m) {
         if (!value.model_path) return null;
         // Файл сохранён, а описания нет — устройство модель не открыло
@@ -258,6 +274,26 @@ function ModelLine({ value, saved }: { value: NeuralConfig; saved: NeuralConfig 
                 <span>{modelMb(m)}</span>
             </span>
             {mismatch && <span className="tag is-warn">описано {described}</span>}
+        </div>
+    );
+}
+
+// ── Манифест контейнера .rjdm: кто собрал и как заполнить конфигурацию ──
+const canon = (o: object) => JSON.stringify(Object.entries(o).sort(([a], [b]) => a.localeCompare(b)));
+
+function PackageLine({ pkg, value, onFill }: { pkg: ModelPackage; value: NeuralConfig; onFill: () => void }) {
+    const filled = canon(value.classes) === canon(pkg.classes) && canon(value.superclasses) === canon(pkg.superclasses);
+    const about = [pkg.description, pkg.notes].filter(Boolean).join('\n\n');
+    return (
+        <div className="nv-model">
+            <span className="seps" data-tip={about || undefined}>
+                <span>{pkg.name}</span>
+                {pkg.version && <span>{pkg.version}</span>}
+                {pkg.author && <span>{pkg.author}</span>}
+            </span>
+            {filled
+                ? <span className="tag is-ok">классы из модели</span>
+                : <button className="tag is-acc" data-tip="Заменить классы и суперклассы описанием из модели" onClick={onFill}>Заполнить из модели</button>}
         </div>
     );
 }

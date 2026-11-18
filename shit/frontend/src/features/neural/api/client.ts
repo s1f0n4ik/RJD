@@ -101,7 +101,7 @@ export const neuralApi = {
     // ── Модели ──
     listModels: () => get<ModelFile[]>(master('/neural/models')),
 
-    /** POST /api/neural/models?filename=*.rknn — тело это бинарь файла */
+    /** POST /api/neural/models?filename=*.rknn|*.rjdm — тело это бинарь файла */
     uploadModel: (file: File) =>
         fetch(master('/neural/models', { filename: file.name }), {
             method: 'POST',
