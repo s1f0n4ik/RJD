@@ -12,6 +12,7 @@ from app.services.config_neural import config_entry, model_name, slot_entries, s
 from app.services.config_store import get_store
 from app.services.config_sync import sync as config_sync
 from app.services.devices import registry
+from app.services.model_package import asset_info, package_of, read_package
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -31,9 +32,12 @@ def _context(device: str) -> tuple[str, str, dict[str, dict[str, Any]]]:
     return eff["profile"]["id"], place, bodies
 
 
+MODEL_SUFFIXES = (".rknn", ".rjdm")
+
+
 # Модели библиотеки по имени файла; при совпадении имён — самая свежая
 def _models() -> dict[str, str]:
-    return {a["name"]: sha for sha, a in get_store().assets().items() if a["name"].endswith(".rknn")}
+    return {a["name"]: sha for sha, a in get_store().assets().items() if a["name"].endswith(MODEL_SUFFIXES)}
 
 
 def _size_of(bodies: dict[str, dict[str, Any]]):
@@ -78,24 +82,37 @@ def list_models(device: str):
     base = _models_dir(device)
     assets = get_store().assets()
     return {"data": sorted(
-        ({"filename": name, "size": assets[sha]["size"], "path": f"{base}/{name}"} for name, sha in _models().items()),
+        ({"filename": name, "size": assets[sha]["size"], "path": f"{base}/{name}", **_package_field(assets[sha])} for name, sha in _models().items()),
         key=lambda m: m["filename"],
     )}
+
+
+# Описание из манифеста .rjdm; у голого .rknn поля нет
+def _package_field(asset: dict) -> dict:
+    package = package_of(asset.get("info"))
+    return {"package": package} if package else {}
 
 
 @router.post("/neural/models")
 async def upload_model(request: Request, filename: str, device: str):
     name = model_name(filename)
-    if not name.endswith(".rknn"):
-        raise HTTPException(status_code=400, detail="model file must be *.rknn")
+    if not name.endswith(MODEL_SUFFIXES):
+        raise HTTPException(status_code=400, detail="model file must be *.rknn or *.rjdm")
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / name
         with open(path, "wb") as f:
             async for chunk in request.stream():
                 f.write(chunk)
-        sha = get_store().put_asset_file(path, name)
+        info = None
+        if name.endswith(".rjdm"):
+            try:
+                info = asset_info(read_package(path))
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=f"invalid .rjdm: {e}")
+        sha = get_store().put_asset_file(path, name, info)
     logger.info(f"Model {name} stored as {sha}")
-    return {"data": {"filename": name, "size": get_store().assets([sha])[sha]["size"], "path": f"{_models_dir(device)}/{name}"}}
+    asset = get_store().assets([sha])[sha]
+    return {"data": {"filename": name, "size": asset["size"], "path": f"{_models_dir(device)}/{name}", **_package_field(asset)}}
 
 
 @router.post("/neural/configurations")
