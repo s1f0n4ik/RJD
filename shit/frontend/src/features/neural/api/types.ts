@@ -203,11 +203,39 @@ export interface SlotStatus {
     dropped: number;
 }
 
+/** Описание модели из манифеста контейнера .rjdm; классы и суперклассы уже в виде конфигурации */
+export interface ModelPackage {
+    id: string;
+    name: string;
+    version: string;
+    description: string;
+    author: string;
+    created_at: string;
+    notes: string;
+    task: 'detect' | 'segment';
+    family: string;
+    target_platform: string;
+    toolkit_version: string;
+    quantized: boolean;
+    input_width: number;
+    input_height: number;
+    input_channels: number;
+    /** single, split_levels, single_seg, split_levels_seg */
+    output_layout: string;
+    class_count: number;
+    weight_bytes: number;
+    weights_sha256: string;
+    superclasses: Record<string, SuperclassDef>;
+    classes: Record<string, ClassDef>;
+}
+
 /** Файл модели из GET /neural/models */
 export interface ModelFile {
     filename: string;
     size: number;
     path: string;
+    /** Есть у .rjdm, у голого .rknn нет */
+    package?: ModelPackage;
 }
 
 export type ImportMode = 'merge' | 'replace';
