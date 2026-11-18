@@ -30,3 +30,6 @@ testing/krsps-master/settings.json
 
 # Мост: локальные задачи запуска
 .most/
+
+# Полевые записи для виртуальной камеры, в репозиторий не идут
+testing/video/
