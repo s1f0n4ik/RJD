@@ -26,6 +26,14 @@ interface FCellKey {
     sourceId: string;
 }
 
+/** Ход смены отображения: сперва разбор прежнего, затем подъём нового по одному плееру */
+export interface WallLoad {
+    phase: 'closing' | 'opening';
+    /** Поднято плееров из нужных; у фазы closing не растёт */
+    done: number;
+    total: number;
+}
+
 export interface WallProps {
     grid: Grid;
     layout: LayoutState;
@@ -54,6 +62,8 @@ export interface WallProps {
     onSurroundViewModeChange?: (value: 'top' | 'surround') => void;
     /** Сколько ячеек реально в эфире из занятых */
     onLiveCount?: (live: number, total: number) => void;
+    /** Идёт смена отображения (null — стена собрана): экран на это время не даёт сменить его снова */
+    onLoadChange?: (load: WallLoad | null) => void;
     /** Показатели выбранной ячейки; остальные ячейки родителя не дёргают */
     onCellStats?: (stats: PlayerStats | null) => void;
     /** Какие кнопки слоёв показывать на ячейке: в редакторе рамки живут в
@@ -87,6 +97,7 @@ export function Wall({
     onSurroundManualChange,
     onSurroundViewModeChange,
     onLiveCount,
+    onLoadChange,
     onCellStats,
     cellControls = 'all',
     correctionLinks = {},
@@ -95,6 +106,8 @@ export function Wall({
 }: WallProps) {
     const [mounted, setMounted] = useState<string[]>([]);
     const [closing, setClosing] = useState(false);
+    // От смены отображения до подъёма всех его плееров
+    const [loading, setLoading] = useState(false);
     const [expanded, setExpanded] = useState<string | null>(null);
     const [statuses, setStatuses] = useState<Record<string, PlayerStatus>>({});
     const [dragOver, setDragOver] = useState<string | null>(null);
@@ -194,9 +207,14 @@ export function Wall({
         // каждой, и без сброса любое следующее отображение оставалось бы одной
         // ячейкой на весь экран — на панели из этого не выйти без клавиатуры
         setExpanded(null);
+        setLoading(true);
 
         const total = mountedRef.current.length;
-        if (total === 0) return;
+        // Прежний разбор могли оборвать второй сменой: его closing сам не сбросится
+        if (total === 0) {
+            setClosing(false);
+            return;
+        }
 
         setClosing(true);
         let done = 0;
@@ -234,6 +252,21 @@ export function Wall({
         );
         return () => window.clearTimeout(timer);
     }, [target, mounted, closing]);
+
+    // ─── Ход смены отображения ──────────────────────────────────
+
+    // Загрузка кончается, когда поднялись все плееры нового отображения; подключение
+    // камер сюда не входит: мёртвая камера не должна держать экран заблокированным
+    useEffect(() => {
+        if (!loading || closing) return;
+        if (target.every(key => mounted.includes(key))) setLoading(false);
+    }, [loading, closing, target, mounted]);
+
+    const loaded = target.filter(key => mounted.includes(key)).length;
+
+    useEffect(() => {
+        onLoadChange?.(loading ? { phase: closing ? 'closing' : 'opening', done: loaded, total: target.length } : null);
+    }, [loading, closing, loaded, target.length, onLoadChange]);
 
     // ─── Счётчик живых сессий ───────────────────────────────────
 
@@ -301,14 +334,8 @@ export function Wall({
             return <div className="cell-msg"><b>{source.name}</b>нет потока для просмотра</div>;
         }
 
-        if (!mounted.includes(cellKeys[cellId])) {
-            return (
-                <div className="cell-state">
-                    <span className="spin" />
-                    <span>в очереди на подключение</span>
-                </div>
-            );
-        }
+        // Плеер ещё не поднят: ход виден в планке экрана, в самой ячейке — пусто
+        if (!mounted.includes(cellKeys[cellId])) return null;
 
         if (source.producer === 'birdview') {
             return (

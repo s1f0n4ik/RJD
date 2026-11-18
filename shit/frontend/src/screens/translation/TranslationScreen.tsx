@@ -21,7 +21,7 @@ import { signalingWsUrl } from '../../services/devices';
 import { wsUrl } from '../../utils/constants';
 import { isProbeCamera } from '../../utils/probeFilter';
 import type { CPPCamera, VirtualStream } from '../../types';
-import { Wall } from '../live/Wall';
+import { Wall, type WallLoad } from '../live/Wall';
 import { cameraToWallSource, useOfflineSince, virtualToWallSource, type WallSource } from '../live/sources';
 import { Since } from '../live/CellOverlays';
 import { emptyLayout, layoutFromSaved, PRESETS, type LayoutState } from '../live/model';
@@ -68,6 +68,9 @@ export default function TranslationScreen() {
     const [fallback, setFallback] = useState(false);
     const [drawerOpen, setDrawerOpen] = useState(false);
     const [counts, setCounts] = useState({ live: 0, total: 0 });
+    // Пока стена разбирает прежнее отображение и поднимает новое, сменить его снова нельзя
+    const [load, setLoad] = useState<WallLoad | null>(null);
+    const switching = load !== null;
     // Тач: выбранный в списке источник ждёт нажатия по ячейке
     const [armed, setArmed] = useState<string | null>(null);
 
@@ -256,6 +259,7 @@ export default function TranslationScreen() {
                         <Select
                             value={fallback ? '' : layout.name}
                             placeholder="временная сетка"
+                            disabled={switching}
                             options={layouts.map(item => ({ value: item.name, label: item.name }))}
                             onChange={value => {
                                 const next = layouts.find(item => item.name === value);
@@ -284,7 +288,7 @@ export default function TranslationScreen() {
                     </span>
                 </span>
 
-                <button className="icon-btn tr-plain" data-tip="Обновить все потоки" aria-label="Обновить все потоки" onClick={reloadStreams}>
+                <button className="icon-btn tr-plain" data-tip="Обновить все потоки" aria-label="Обновить все потоки" disabled={switching} onClick={reloadStreams}>
                     <Icon name="refresh" />
                 </button>
                 <button className="icon-btn tr-plain" data-tip={fullscreen ? 'Свернуть' : 'Во весь экран'} aria-label={fullscreen ? 'Свернуть' : 'Во весь экран'} onClick={toggleFullscreen}>
@@ -351,6 +355,7 @@ export default function TranslationScreen() {
                             <button
                                 key={item.name}
                                 className={`row-item${!fallback && item.name === layout.name ? ' is-sel' : ''}`}
+                                disabled={switching}
                                 onClick={() => applyLayout(item)}
                             >
                                 <span className="chip-col" style={{ background: 'var(--acc)' }} />
@@ -410,8 +415,16 @@ export default function TranslationScreen() {
                         onDetectionsChange={setDetections}
                         onStreamChange={setStream}
                         onLiveCount={handleLiveCount}
+                        onLoadChange={setLoad}
                         correctionLinks={correctionLinks}
                     />
+
+                    {switching && (
+                        <div className="tr-switching" role="status" aria-label="Переключение">
+                            {/* Та же полоска, что у сплэша приложения (index.html) */}
+                            <div className="boot-bar" />
+                        </div>
+                    )}
                     </>
                 )}
             </div>
