@@ -171,8 +171,8 @@ storage-service (8001), scanner (8002), message-gateway (9090) и signaling (876
 | GET | `/neural/tracker-types` | доступные типы трекеров |
 | GET | `/neural/event-types` | возможные события трека |
 | GET | `/neural/system` | платформа и лимиты потоков |
-| GET | `/neural/models` | список моделей |
-| POST | `/neural/models?filename=*.rknn` | загрузка модели, тело — бинарь (`application/octet-stream`) |
+| GET | `/neural/models` | список моделей; у контейнера `.rjdm` есть поле `package` — манифест с классами и суперклассами |
+| POST | `/neural/models?filename=*.rknn` или `*.rjdm` | загрузка модели, тело — бинарь (`application/octet-stream`); `.rjdm` проверяется целиком (формат — `Формат модели RJDM.md`), при ошибке 400 с причиной |
 | GET | `/neural/camera?camera_id=` | какая конфигурация обслуживает камеру — фронтом больше не вызывается (плеер нейронки удалён вместе со старой оболочкой) |
 
 `/neural/classes` и `/neural/superclasses` дополнительно нужны странице КРСПС:
