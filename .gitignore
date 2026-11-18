@@ -30,3 +30,6 @@ testing/krsps-master/settings.json
 
 # Мост: локальные задачи запуска
 .most/
+
+# Локальные утилиты, в репозиторий не идут
+tools/
