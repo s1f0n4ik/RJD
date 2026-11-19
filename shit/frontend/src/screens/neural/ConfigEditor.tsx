@@ -50,11 +50,16 @@ interface ConfigEditorProps {
     trackerTypes: TrackerType[];
     /** Сохранённая версия: с ней сверяются файл модели и id зон; null — конфигурация новая */
     saved: NeuralConfig | null;
+    /** Свои классы и суперклассы, пока на их месте стоят классы из .rjdm */
+    own: OwnClasses | null;
+    onOwn: (own: OwnClasses | null) => void;
 }
+
+export type OwnClasses = Pick<NeuralConfig, 'classes' | 'superclasses'>;
 
 const fmtSize = (bytes: number) => bytes >= 1 << 20 ? `${(bytes / (1 << 20)).toFixed(1)} МБ` : `${Math.round(bytes / 1024)} КБ`;
 
-export function ConfigEditor({ value, onChange, creating, id, onIdChange, idError, models, onUploadModel, trackerTypes, saved }: ConfigEditorProps) {
+export function ConfigEditor({ value, onChange, creating, id, onIdChange, idError, models, onUploadModel, trackerTypes, saved, own, onOwn }: ConfigEditorProps) {
     const fileRef = useRef<HTMLInputElement>(null);
     const [uploading, setUploading] = useState(false);
     const [uploadErr, setUploadErr] = useState<string | null>(null);
@@ -70,15 +75,24 @@ export function ConfigEditor({ value, onChange, creating, id, onIdChange, idErro
     // Описание из манифеста .rjdm выбранной модели
     const pkg = models.find(m => m.path === value.model_path)?.package;
 
-    // Классы и суперклассы из манифеста; название конфигурации — только если его ещё нет
-    const fromPackage = (cfg: NeuralConfig, p: ModelPackage): NeuralConfig =>
-        ({ ...cfg, name: cfg.name || p.name, classes: p.classes, superclasses: p.superclasses });
+    // Классы и суперклассы из манифеста, свои откладываются; название конфигурации — только если его ещё нет
+    const fromPackage = (cfg: NeuralConfig, p: ModelPackage): NeuralConfig => {
+        if (!own) onOwn({ classes: value.classes, superclasses: value.superclasses });
+        return { ...cfg, name: cfg.name || p.name, classes: p.classes, superclasses: p.superclasses };
+    };
 
-    // Конфигурация без описанных классов заполняется из модели сразу, с описанными — по кнопке
+    // Модель .rjdm приносит свои классы, модель без манифеста возвращает отложенные
     const pickModel = (path: string, uploaded?: ModelPackage) => {
         const p = uploaded ?? models.find(m => m.path === path)?.package;
         const next = { ...value, model_path: path };
-        onChange(p && Object.keys(value.classes).length === 0 ? fromPackage(next, p) : next);
+        if (p) {
+            onChange(fromPackage(next, p));
+        } else if (own) {
+            onOwn(null);
+            onChange({ ...next, ...own });
+        } else {
+            onChange(next);
+        }
     };
 
     const handleFile = async (file: File | undefined) => {

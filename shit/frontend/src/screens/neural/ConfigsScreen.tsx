@@ -5,7 +5,7 @@ import { ConfirmModal } from '../../features/birdview/components/common/ConfirmM
 import { useToast } from '../../app/Toast';
 import { neuralApi } from '../../features/neural/api/client';
 import type { ConfigSummary, ModelFile, NeuralConfig, TrackerType } from '../../features/neural/api/types';
-import { ConfigEditor } from './ConfigEditor';
+import { ConfigEditor, type OwnClasses } from './ConfigEditor';
 import { ImportModal } from './ImportModal';
 import { modelSize, modelQuant, modelStem, plural } from './model-desc';
 
@@ -45,6 +45,8 @@ export function ConfigsScreen() {
     const [creating, setCreating] = useState(false);
     const [original, setOriginal] = useState<NeuralConfig | null>(null);
     const [draft, setDraft] = useState<NeuralConfig | null>(null);
+    // Свои классы черновика, вытесненные моделью .rjdm; живут до сохранения или отмены
+    const [own, setOwn] = useState<OwnClasses | null>(null);
     const [idDraft, setIdDraft] = useState('');
     const [loadingCfg, setLoadingCfg] = useState(false);
     const [saving, setSaving] = useState(false);
@@ -108,6 +110,7 @@ export function ConfigsScreen() {
                 const full = withDefaults(cfg);
                 setOriginal(full);
                 setDraft(clone(full));
+                setOwn(null);
             })
             .catch(e => !cancelled && setErr(e instanceof Error ? e.message : String(e)))
             .finally(() => !cancelled && setLoadingCfg(false));
@@ -132,6 +135,7 @@ export function ConfigsScreen() {
         setIdDraft('');
         setOriginal(null);
         setDraft(blankConfig());
+        setOwn(null);
         setErr(null);
     };
 
@@ -142,6 +146,7 @@ export function ConfigsScreen() {
 
     const cancel = () => {
         setErr(null);
+        setOwn(null);
         if (creating) {
             // Выбранная конфигурация перезагрузится эффектом по смене creating
             setCreating(false);
@@ -164,6 +169,7 @@ export function ConfigsScreen() {
             const fresh = withDefaults(await neuralApi.getConfiguration(id).catch(() => draft));
             setOriginal(fresh);
             setDraft(clone(fresh));
+            setOwn(null);
             setSelectedId(id);
             setCreating(false);
             await reloadList();
@@ -242,6 +248,8 @@ export function ConfigsScreen() {
                                     onUploadModel={uploadModel}
                                     trackerTypes={trackerTypes}
                                     saved={creating ? null : original}
+                                    own={own}
+                                    onOwn={setOwn}
                                 />
                             )}
                         </>
