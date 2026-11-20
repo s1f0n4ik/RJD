@@ -43,6 +43,8 @@ namespace neural {
         f("low_iou_threshold", c.low_iou_threshold);
         f("min_hits", c.min_hits);
         f("max_lost_s", c.max_lost_s);
+        f("class_window_s", c.class_window_s);
+        f("class_switch_ratio", c.class_switch_ratio);
         f("move_threshold", c.move_threshold);
         f("std_position", c.std_position);
         f("std_velocity", c.std_velocity);

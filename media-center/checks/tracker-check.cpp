@@ -124,6 +124,33 @@ static void class_flip() {
     }
 }
 
+// Кадров нового класса до смены класса трека в суперклассе; -1 — не сменился
+static int flip_frames(float window, float ratio, int age, float conf = 0.9f) {
+    auto c = base();
+    c.group_of_class = { -2, -2 };
+    c.class_window_s = window;
+    c.class_switch_ratio = ratio;
+    FRun r(c);
+    int k = 0;
+    for (; k < age; ++k) r.step(k * 0.1f, { box(500, 500, 100, 100, 0) });
+    for (int n = 1; n <= 1000; ++n, ++k) {
+        r.step(k * 0.1f, { box(500, 500, 100, 100, 1, conf) });
+        if (r.only().class_id == 1) return n;
+    }
+    return -1;
+}
+
+// Смена класса в суперклассе: окно ограничивает задержку при любом возрасте трека, порог её растягивает, окно 0 копит голоса всю жизнь
+static void class_window() {
+    const int young = flip_frames(3.f, 1.f, 100);
+    const int old = flip_frames(3.f, 1.f, 400);
+    CHECK(young >= 14 && young <= 18 && old == young);
+    CHECK(flip_frames(3.f, 1.f, 100, 0.6f) > young);
+    const int strict = flip_frames(3.f, 2.f, 100);
+    CHECK(strict > young && strict <= 31);
+    CHECK(flip_frames(0.f, 1.f, 100) == 101);
+}
+
 // Потерянный трек удаляется по сроку max_lost_s
 static void lost_timeout() {
     FRun r(base());
@@ -193,6 +220,7 @@ int main() {
     low_confidence_bridge();
     exit_window();
     class_flip();
+    class_window();
     lost_timeout();
     accumulated_move();
     size_jump();

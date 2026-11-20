@@ -217,7 +217,7 @@ async def tracker_types():
          "defaults": {"iou_threshold": 0.3, "min_hits": 4, "max_lost": 8, "move_threshold": 0.05}},
         {"type": "kalman_iou", "name": "Калман + IoU",
          "defaults": {"iou_threshold": 0.3, "min_size_similarity": 0.5, "low_confidence": 0.1, "low_iou_threshold": 0.5, "min_hits": 3, "max_lost_s": 1.0,
-                      "move_threshold": 0.05, "std_position": 0.05, "std_velocity": 0.00625, "match_by": "superclass"}},
+                      "class_window_s": 3.0, "class_switch_ratio": 1.0, "move_threshold": 0.05, "std_position": 0.05, "std_velocity": 0.00625, "match_by": "superclass"}},
     ]})
 
 

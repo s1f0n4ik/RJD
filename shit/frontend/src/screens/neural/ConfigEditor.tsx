@@ -20,7 +20,7 @@ const TRACKER_FIELDS: Record<string, { matchBy?: boolean; main: TrackerField[]; 
     },
     kalman_iou: {
         matchBy: true,
-        main: [F('iou_threshold', 'Порог IoU', 2, 0, 1), F('min_size_similarity', 'Похожесть размеров', 2, 0, 1), F('min_hits', 'Мин. совпадений', 0, 1), F('max_lost_s', 'Срок потери, с', 1, 0.1), F('move_threshold', 'Порог сдвига', 2, 0, 1)],
+        main: [F('iou_threshold', 'Порог IoU', 2, 0, 1), F('min_size_similarity', 'Похожесть размеров', 2, 0, 1), F('min_hits', 'Мин. совпадений', 0, 1), F('max_lost_s', 'Срок потери, с', 1, 0.1), F('class_window_s', 'Окно класса, с', 1, 0), F('class_switch_ratio', 'Порог смены класса', 2, 1), F('move_threshold', 'Порог сдвига', 2, 0, 1)],
         more: {
             label: 'Слабые детекции и фильтр',
             fields: [F('low_confidence', 'Уверенность слабых', 2, 0, 1), F('low_iou_threshold', 'Порог IoU слабых', 2, 0, 1), F('std_position', 'Шум положения', 3, 0), F('std_velocity', 'Шум скорости', 5, 0)],

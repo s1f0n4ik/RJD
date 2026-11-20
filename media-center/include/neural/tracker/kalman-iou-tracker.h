@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <deque>
 #include <map>
 #include <vector>
 
@@ -26,6 +27,8 @@ namespace neural {
         float low_iou_threshold = 0.5f;   // минимальный IoU для слабых детекций
         int   min_hits = 3;               // совпадений до подтверждения
         float max_lost_s = 1.0f;          // секунд в потере до удаления
+        float class_window_s = 3.0f;      // окно голосов за класс трека в группе, с; 0 — голоса копятся весь срок жизни трека
+        float class_switch_ratio = 1.0f;  // во сколько раз вес нового класса в окне должен превысить вес текущего для смены
         float move_threshold = 0.05f;     // накопленный сдвиг центра в долях диагонали кадра для UPDATED
         float std_position = 0.05f;       // шум положения в долях размера рамки
         float std_velocity = 0.00625f;    // шум скорости в долях размера рамки
@@ -180,7 +183,7 @@ namespace neural {
                 o.confidence = det.confidence;
                 o.age = 1;
                 o.hits = 1;
-                t.votes[det.class_id] = det.confidence;
+                t.votes.push_back({ frame.at, det.class_id, det.confidence });
                 if (m_config.min_hits <= 1) {
                     o.state = ETrackState::CONFIRMED;
                     o.id = m_track_ids->fetch_add(1);
@@ -211,11 +214,17 @@ namespace neural {
     private:
         using clock = std::chrono::steady_clock;
 
+        struct FVote {
+            clock::time_point at;
+            int class_id;
+            float confidence;
+        };
+
         struct FKalmanTrack {
             FTrack out;
             UKalmanBoxFilter filter;
-            // Класс → накопленная уверенность
-            std::map<int, float> votes;
+            // Голоса за класс в пределах окна class_window_s
+            std::deque<FVote> votes;
             clock::time_point seen;
             // Рамка последнего подтверждения или «Движения»
             FDetection anchor;
@@ -267,6 +276,16 @@ namespace neural {
             return class_id;
         }
 
+        // Текущий класс держится, пока вес другого класса в окне не превысит его вес в class_switch_ratio раз
+        int voted_class(const std::deque<FVote>& votes, int current) const {
+            std::map<int, float> sums;
+            for (const auto& v : votes) sums[v.class_id] += v.confidence;
+            const auto best = std::max_element(sums.begin(), sums.end(), [](const auto& a, const auto& b) { return a.second < b.second; });
+            const auto held = sums.find(current);
+            const float held_weight = held == sums.end() ? 0.f : held->second;
+            return best->second > held_weight * std::max(1.f, m_config.class_switch_ratio) ? best->first : current;
+        }
+
         // Жадное сопоставление по убыванию IoU с предсказанной рамкой; strong — проход уверенных детекций; возвращает несопоставленные детекции
         std::vector<int> match(const std::vector<FDetection>& dets, const std::vector<int>& pool, std::vector<bool>& matched,
             float threshold, bool strong, const FTrackerFrame& frame, std::vector<FTrackEventRecord>& events)
@@ -307,11 +326,12 @@ namespace neural {
             }
             else t.filter.update_center(det);
             t.seen = frame.at;
-            t.votes[det.class_id] += det.confidence;
+            t.votes.push_back({ frame.at, det.class_id, det.confidence });
+            if (m_config.class_window_s > 0.f)
+                while (seconds(frame.at - t.votes.front().at) > m_config.class_window_s) t.votes.pop_front();
 
             auto& o = t.out;
-            o.class_id = std::max_element(t.votes.begin(), t.votes.end(),
-                [](const auto& a, const auto& b) { return a.second < b.second; })->first;
+            o.class_id = voted_class(t.votes, o.class_id);
             o.detection = det;
             o.detection.class_id = o.class_id;
             o.confidence = det.confidence;
