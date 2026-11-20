@@ -714,6 +714,9 @@ namespace neural {
                 if (op && op->is_string() && op->as_string() == model_path)
                     if (const auto* m = oo.if_contains("model")) entry["model"] = *m;
             }
+            // Новая или заменённая модель читается сразу, без ожидания слота
+            if (!entry.contains("model"))
+                if (const auto info = probe_model(model_path)) entry["model"] = model_json(*info);
             configs[id] = std::move(entry);
         }
 
