@@ -20,6 +20,14 @@ interface Props {
   cameraName: (id: string) => string;
   onSelect: (id: number) => void;
   onOpenViewer: (id: number) => void;
+  // Текущее место машины; fresh=false — последняя известная точка
+  here?: MapHere | null;
+}
+
+export interface MapHere {
+  lng: number;
+  lat: number;
+  fresh: boolean;
 }
 
 // Стартовый вид, пока нет ни одной точки с координатами.
@@ -112,6 +120,7 @@ export function JournalMap({
   cameraName,
   onSelect,
   onOpenViewer,
+  here = null,
 }: Props) {
   const boxRef = useRef<HTMLDivElement>(null);
   const platesRef = useRef<HTMLDivElement>(null);
@@ -134,6 +143,9 @@ export function JournalMap({
   // Попапы и плашки только на полном экране: на мини-карте панели им негде поместиться
   const modeRef = useRef(mode);
   modeRef.current = mode;
+  const hereRef = useRef(here);
+  hereRef.current = here;
+  const hereMarkerRef = useRef<maplibregl.Marker | null>(null);
   const followRef = useRef<() => void>(() => {});
   const hoverRef = useRef<(key: string | null) => void>(() => {});
   const openRef = useRef<(item: DrawItem) => void>(() => {});
@@ -211,6 +223,8 @@ export function JournalMap({
     return () => {
       popupObjRef.current?.remove();
       popupObjRef.current = null;
+      hereMarkerRef.current?.remove();
+      hereMarkerRef.current = null;
       map.remove();
       mapRef.current = null;
       sceneRef.current = null;
@@ -308,12 +322,15 @@ export function JournalMap({
       // из опроса не должна сбивать зум, который выставил человек
       if (mode === 'full' && !first) return;
 
+      const place = hereRef.current;
       if (mode === 'single') {
-        const sel = points.find((p) => p.id === selectedId) ?? points[0];
-        map.easeTo({ center: [sel.lng, sel.lat], zoom: Math.max(map.getZoom(), 13) });
+        const sel = points.find((p) => p.id === selectedId) ?? (place ? null : points[0]);
+        const center: [number, number] = sel ? [sel.lng, sel.lat] : [place!.lng, place!.lat];
+        map.easeTo({ center, zoom: Math.max(map.getZoom(), 13) });
       } else {
         const bounds = new maplibregl.LngLatBounds();
         for (const p of points) bounds.extend([p.lng, p.lat]);
+        if (place) bounds.extend([place.lng, place.lat]);
         map.fitBounds(bounds, { padding: 60, maxZoom: 15, duration: 400 });
       }
     };
@@ -322,6 +339,41 @@ export function JournalMap({
     else map.once('load', apply);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detections, mode, resolve]);
+
+  // Метка текущего места: свежая — точка с ореолом, устаревшая — пунктир
+  const hereLng = here?.lng;
+  const hereLat = here?.lat;
+  const hereFresh = here?.fresh;
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (hereLng == null || hereLat == null) {
+      hereMarkerRef.current?.remove();
+      hereMarkerRef.current = null;
+      return;
+    }
+    if (!hereMarkerRef.current) {
+      const el = document.createElement('div');
+      el.className = 'jm-here';
+      hereMarkerRef.current = new maplibregl.Marker({ element: el }).setLngLat([hereLng, hereLat]).addTo(map);
+    } else {
+      hereMarkerRef.current.setLngLat([hereLng, hereLat]);
+    }
+    hereMarkerRef.current.getElement().classList.toggle('is-stale', !hereFresh);
+  }, [hereLng, hereLat, hereFresh]);
+
+  // Мини-карта держит в центре выбранную точку, без выбора — текущее место
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || mode !== 'single') return;
+    const sel = selectedId != null ? detections.find((d) => d.id === selectedId)?.gps : null;
+    const center: [number, number] | null = sel ? [sel.lon, sel.lat] : hereLng != null && hereLat != null ? [hereLng, hereLat] : null;
+    if (!center) return;
+    const go = () => map.easeTo({ center, zoom: Math.max(map.getZoom(), 14) });
+    if (readyRef.current) go();
+    else map.once('load', go);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, selectedId, hereLng, hereLat]);
 
   // Контейнер мог изменить размер (разворот на весь экран) — пересчитать.
   useEffect(() => {

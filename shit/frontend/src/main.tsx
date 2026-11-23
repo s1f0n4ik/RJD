@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 // Общие слои CSS — до компонентов экранов, иначе экранные правила проигрывают базовым
 import './styles/tokens.css';
@@ -13,6 +13,37 @@ import { FULL_AUTH, readStoredToken } from './utils/auth';
 // Оболочка и эфир — разные чанки: на изделии автозапуск открывает только эфир
 const NewApp = lazy(() => import('./app/NewApp'));
 const TranslationScreen = lazy(() => import('./screens/translation/TranslationScreen'));
+const KztScreen = lazy(() => import('./screens/kzt/KztScreen'));
+
+// Сколько «/» ждёт ответа шлюза при загрузке изделия, прежде чем уйти в эфир
+const ROOT_WAIT_MS = 20_000;
+const ROOT_RETRY_MS = 2_000;
+
+// «/» на изделии: при активной конфигурации КЖТ — экран КЖТ, иначе эфир
+function RootRedirect() {
+    useEffect(() => {
+        let alive = true;
+        const started = Date.now();
+        const attempt = async () => {
+            try {
+                const res = await fetch('/api/configurations/gateway/status');
+                if (res.ok) {
+                    const body = await res.json();
+                    if (alive) window.location.replace(body?.id === 'kzt' ? '/kzt' : '/translation');
+                    return;
+                }
+            } catch {
+                // Шлюз ещё поднимается
+            }
+            if (!alive) return;
+            if (Date.now() - started > ROOT_WAIT_MS) window.location.replace('/translation');
+            else window.setTimeout(attempt, ROOT_RETRY_MS);
+        };
+        attempt();
+        return () => { alive = false; };
+    }, []);
+    return bootVeil;
+}
 
 // Тот же экран, что и сплэш в index.html: ленивый чанк грузится уже после того,
 // как Bootstrap снял #boot, и пустой fallback давал бы белый кадр
@@ -66,6 +97,14 @@ function Entry() {
         );
     }
 
+    if (pathname.startsWith('/kzt')) {
+        return (
+            <Suspense fallback={bootVeil}>
+                <KztScreen />
+            </Suspense>
+        );
+    }
+
     if (pathname.startsWith('/app')) {
         return (
             <Suspense fallback={bootVeil}>
@@ -74,8 +113,9 @@ function Entry() {
         );
     }
 
-    // Без FULL_AUTH «/» — это эфир; с FULL_AUTH сюда доходят уже с токеном
-    window.location.replace(FULL_AUTH ? '/app' : '/translation');
+    // Без FULL_AUTH «/» — эфир или экран КЖТ; с FULL_AUTH сюда доходят уже с токеном
+    if (!FULL_AUTH) return <RootRedirect />;
+    window.location.replace('/app');
     return null;
 }
 

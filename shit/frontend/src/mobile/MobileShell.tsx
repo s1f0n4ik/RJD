@@ -49,7 +49,7 @@ interface MobileShellProps {
 export function MobileShell(props: MobileShellProps) {
     const { role } = props;
     const { pathname } = useLocation();
-    const { connected, devices } = useSystem();
+    const { connected, devices, gateway } = useSystem();
     const { unixMs, source } = useDeviceClock();
     const [slot, setSlot] = useState<HTMLElement | null>(null);
 
@@ -119,6 +119,11 @@ export function MobileShell(props: MobileShellProps) {
                 <a className="m-hd-btn" href="/translation" aria-label="Прямая трансляция">
                     <Icon name="play" />
                 </a>
+                {gateway?.id === 'kzt' && (
+                    <a className="m-hd-btn" href="/kzt" aria-label="Экран КЖТ">
+                        <Icon name="box" />
+                    </a>
+                )}
             </header>
 
             <div className="m-stage" ref={stageRef}>

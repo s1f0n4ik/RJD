@@ -189,6 +189,11 @@
 .jm-wrap>.jm-map{position:absolute;inset:0}
 .jm-map{width:100%;height:100%;background:#0a0e16}
 .jm-map .maplibregl-popup{z-index:3}
+/* Текущее место машины: точка с ореолом, без свечения; устаревшая — пунктиром */
+.jm-here{width:34px;height:34px;border-radius:50%;background:rgba(var(--acc-rgb),.16);border:1.6px solid var(--acc);display:grid;place-items:center;pointer-events:none}
+.jm-here::after{content:'';width:11px;height:11px;border-radius:50%;background:var(--acc)}
+.jm-here.is-stale{background:none;border:2px dashed var(--warn)}
+.jm-here.is-stale::after{width:8px;height:8px;background:var(--warn)}
 /* Плашки точек на крупном масштабе: слой над картой, кнопки и попапы выше */
 .jm-plates{position:absolute;inset:0;z-index:1;overflow:hidden;pointer-events:none}
 .jm-plate{position:absolute;left:0;top:0;width:0;height:0;padding:0;pointer-events:none;transition:opacity var(--t-fast) var(--ease-out)}

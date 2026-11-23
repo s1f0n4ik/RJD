@@ -76,8 +76,10 @@ async def _gateway_summary() -> Optional[dict]:
             f"{settings.GATEWAY_URL.rstrip('/')}/status", timeout=SUMMARY_TIMEOUT_S
         )
         response.raise_for_status()
-        modules = response.json().get("modules") or []
+        body = response.json()
+        modules = body.get("modules") or []
         return {
+            "id": body.get("id") or "",
             "modules": len(modules),
             "connected": sum(1 for m in modules if (m.get("connection") or {}).get("connected")),
         }

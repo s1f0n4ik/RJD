@@ -1,0 +1,140 @@
+/* Экран КЖТ: планка трансляции, под ней поле. Раскладку задаёт размер поля, а не окна */
+
+.kzs .warn{color:var(--warn)}
+.kzs .err{color:var(--err)}
+.kzs .card-h{padding:10px 14px;gap:9px}
+.kzs .card-h .meta{font-size:11.5px;color:var(--fg-3);white-space:nowrap}
+.kzs .card-h .btn{min-height:26px}
+.kzs-dim{font-size:12px;color:var(--fg-3)}
+
+.kzs-body{flex:1;min-height:0;position:relative;container:kzs / size}
+
+/* Видео на всю высоту поля, справа колонка; ширина видео — из высоты и пропорций кадра (--ar) */
+.kzs-grid{
+  --g:12px;
+  position:absolute;inset:0;display:grid;gap:var(--g);padding:var(--g);
+  grid-template-areas:"v m" "v l" "v g";
+  grid-template-columns:min(calc((100cqh - 2 * var(--g)) * var(--ar)),calc(100cqw - 3 * var(--g) - 340px)) minmax(0,1fr);
+  grid-template-rows:auto minmax(0,1fr) minmax(0,36%);
+}
+.kzs-video{grid-area:v;display:flex;min-width:0;min-height:0}
+.kzs-mb{grid-area:m}
+.kzs-list{grid-area:l}
+.kzs-geo{grid-area:g}
+.kzs-list,.kzs-geo,.kzs-mb{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden}
+.kzs .wall{padding:0;background:transparent}
+.kzs-empty{flex:1;display:grid;place-items:center;padding:16px;text-align:center;border:1px dashed var(--line);border-radius:var(--r);background:#000;color:var(--fg-3);font-size:13px}
+
+/* Поле 3:2 и уже (1280×1024): видео ниже, обнаружения уходят под него во всю ширину */
+@container kzs (max-aspect-ratio:3/2){
+  .kzs-grid{
+    grid-template-areas:"v m" "v g" "l l";
+    grid-template-columns:min(calc(((100cqh - 4 * var(--g)) * .64 + var(--g)) * var(--ar)),calc(100cqw - 3 * var(--g) - 340px)) minmax(0,1fr);
+    grid-template-rows:auto minmax(0,1fr) calc((100cqh - 4 * var(--g)) * .36);
+  }
+}
+
+/* Невысокое поле (720p): плотнее отступы, пакет одной строкой */
+@container kzs (max-height:760px){
+  .kzs-grid{--g:8px;grid-template-rows:auto minmax(0,1fr) minmax(0,30%)}
+  .kzs .card-h{padding:7px 12px}
+  .kzs .card-h h3{font-size:13px}
+}
+
+/* Узкое поле телефона: всё в столбик, видео сверху по ширине */
+@container kzs (max-aspect-ratio:1/1){
+  .kzs-grid{
+    --g:8px;
+    grid-template-areas:"v" "m" "l" "g";
+    grid-template-columns:minmax(0,1fr);
+    grid-template-rows:auto auto minmax(0,1fr) minmax(150px,26%);
+  }
+  .kzs-video{aspect-ratio:var(--ar)}
+}
+
+/* ── Modbus ── */
+.kzs-mb{flex:0 0 auto;container:kzsm / inline-size}
+.kzs-mb-b{padding:10px 14px 12px;display:flex;flex-direction:column;gap:9px}
+.kzs-mb-line{font-size:11.5px;color:var(--fg-2);white-space:nowrap;overflow:hidden}
+.kzs-words{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px}
+@container kzsm (min-width:460px){.kzs-words{grid-template-columns:repeat(7,minmax(0,1fr))}}
+.kzs-words.is-stale,.kzs-pkt.is-stale{opacity:.5}
+.kzs-w{display:flex;flex-direction:column;gap:1px;min-width:0;padding:5px 7px 6px;border:1px solid var(--line);border-radius:var(--r);background:var(--input)}
+.kzs-w .r{font-family:var(--mono);font-size:10px;color:var(--fg-3)}
+.kzs-w .v{font:700 16px var(--mono);color:var(--fg-3);font-variant-numeric:tabular-nums;line-height:1.1}
+.kzs-w .l{font-size:10.5px;line-height:1.25;color:var(--fg-3);hyphens:auto;overflow-wrap:anywhere}
+.kzs-w .l b{color:var(--fg-2);font-weight:600}
+.kzs-w.is-att{border-color:var(--acc-edge)}
+.kzs-w.is-att .v{color:var(--acc)}
+.kzs-w.is-cargo .v{color:var(--fg)}
+.kzs-w.is-cargo.has .v{color:var(--ok)}
+.kzs-w.is-flag.has{border-color:var(--ok-edge)}
+.kzs-w.is-flag.has .v{color:var(--ok)}
+.kzs-w.is-flag:not(.has){border-color:var(--warn-edge)}
+.kzs-pkt{display:none;align-items:center;gap:10px;min-width:0;flex-wrap:wrap}
+.kzs-att{display:flex;align-items:center;gap:8px;min-width:0}
+.kzs-att b{font-size:14px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kzs-code{display:grid;place-items:center;min-width:24px;height:24px;padding:0 5px;border-radius:7px;background:var(--acc-bg);border:1px solid var(--acc-edge);color:var(--acc);font-weight:700}
+.kzs-cargo{display:flex;gap:6px;margin-left:auto}
+.kzs-cargo .otag .num{color:var(--ok);font-weight:700}
+@container kzs (max-height:760px){
+  .kzs-mb-b{padding:8px 12px 10px;gap:7px}
+  .kzs-words{display:none}
+  .kzs-pkt{display:flex}
+}
+@container kzs (max-aspect-ratio:1/1){
+  .kzs-words{display:none}
+  .kzs-pkt{display:flex}
+}
+
+/* ── Обнаружения: две линии в узкой карточке, одна с шапкой колонок в широкой ── */
+.kzs-list .card-h{padding:9px 14px}
+.kzs-lw{container:kzsl / inline-size;flex:1;min-height:0;display:flex;flex-direction:column}
+.kzs-jh{display:none}
+.kzs-rows{flex:1;min-height:0;overflow-y:auto}
+.kzs-dr{display:grid;grid-template-columns:62px minmax(0,1fr) auto;column-gap:10px;row-gap:3px;align-items:center;width:100%;padding:7px 14px;border-bottom:1px solid var(--line);text-align:left;color:var(--fg);transition:var(--tr-ui)}
+.kzs-dr:hover{background:var(--surface)}
+.kzs-dr:focus-visible{outline-offset:-2px}
+.kzs-dr.is-sel{background:rgba(var(--acc-rgb),.14);box-shadow:inset 3px 0 0 var(--acc)}
+.kzs-dr .j-ts{grid-area:1/1}
+.kzs-dr .j-obj{grid-area:1/2;flex-wrap:nowrap;overflow:hidden}
+.kzs-dr .vd{grid-area:1/3}
+.kzs-dr .j-tr{grid-area:2/2/3/4;font-size:11px}
+.kzs-dr .otag{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.kzs-none{padding:24px 14px;text-align:center;font-size:12.5px;color:var(--fg-3)}
+@container kzsl (min-width:560px){
+  .kzs-jh{display:grid;grid-template-columns:76px minmax(0,1fr) 168px 116px;padding:7px 16px}
+  .kzs-dr{grid-template-columns:76px minmax(0,1fr) 168px 116px;padding:8px 16px;min-height:40px}
+  .kzs-dr .j-ts,.kzs-dr .j-obj,.kzs-dr .j-tr,.kzs-dr .vd{grid-area:auto}
+  .kzs-dr .j-tr{font-size:12px;color:var(--fg-2)}
+}
+
+/* ── Положение и мини-карта ── */
+.kzs-geo{flex:1 1 auto}
+.kzs-coords{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:10px 14px 8px}
+.kzs-coords .k{display:block;font-size:11px;color:var(--fg-3);margin-bottom:2px}
+.kzs-coords .v{font:600 16px var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.kzs-geo-map{position:relative;flex:1;min-height:90px;border-top:1px solid var(--line)}
+.kzs-geo-map .maplibregl-ctrl-top-right{display:none}
+.kzs-expand{position:absolute;right:8px;top:8px;z-index:3;background:var(--panel)}
+@container kzs (max-height:760px){
+  .kzs-coords{padding:7px 12px 6px}
+  .kzs-coords .v{font-size:14px}
+}
+
+/* ── Карта на всё поле: каркас .j-full журнала, панель фиксаций слева ── */
+.kzs-over{position:absolute;inset:0;z-index:8;background:var(--bg)}
+.kzs-over .j-full{position:absolute;inset:0}
+.kzs-over .pane{max-height:calc(100% - 92px);width:300px}
+.kzs-over .pane .blk-b{min-height:0;overflow:hidden}
+.kzs-cls-list{display:flex;flex-direction:column;gap:2px;overflow-y:auto;min-height:0}
+.kzs-cls{display:flex;align-items:center;gap:9px;min-height:30px;padding:0 8px;border-radius:7px;font-size:12.5px;color:var(--fg-2);text-align:left;transition:var(--tr-ui)}
+.kzs-cls:hover{background:var(--panel-2);color:var(--fg)}
+.kzs-cls.is-off{opacity:.4}
+.kzs-cls .sw-col{width:9px;height:9px;border-radius:2px;flex:0 0 9px}
+.kzs-cls b{margin-left:auto;font-weight:500;font-size:11.5px;color:var(--fg-3)}
+@container kzs (max-height:760px){
+  .kzs-over .pane{left:10px;top:10px;width:270px}
+  .kzs-over .close{right:10px;top:10px}
+  .kzs-over .cnt{left:10px;bottom:10px}
+}

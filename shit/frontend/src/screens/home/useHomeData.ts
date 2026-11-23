@@ -85,6 +85,8 @@ export function useLastDetections(limit = 4) {
 
 /** Сводка шлюза КРСПС для плитки: null — шлюз не ответил. */
 export interface GatewaySummary {
+    // Активная интеграция шлюза; нет у бэкенда старше этого поля
+    id?: string;
     modules: number;
     connected: number;
 }

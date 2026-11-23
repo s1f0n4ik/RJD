@@ -27,7 +27,7 @@ interface AppShellProps {
 export function AppShell({ username, role, onLogout }: AppShellProps) {
     const [narrow, setNarrow] = useState(false);
     const { unixMs, source } = useDeviceClock();
-    const { connected, cameras, devices } = useSystem();
+    const { connected, cameras, devices, gateway } = useSystem();
     const { pathname } = useLocation();
     const surround = useSurroundStatus();
 
@@ -134,6 +134,13 @@ export function AppShell({ username, role, onLogout }: AppShellProps) {
                                     <a className="rail-item" href="/translation">
                                         <Icon name="play" />
                                         <span className="lbl">Прямая трансляция</span>
+                                    </a>
+                                )}
+                                {/* Экран КЖТ виден только при активной конфигурации КЖТ */}
+                                {item.group === 'Видео' && nav[i + 1]?.group !== 'Видео' && gateway?.id === 'kzt' && (
+                                    <a className="rail-item" href="/kzt">
+                                        <Icon name="box" />
+                                        <span className="lbl">Экран КЖТ</span>
                                     </a>
                                 )}
                             </Fragment>
