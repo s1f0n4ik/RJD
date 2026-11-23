@@ -33,3 +33,7 @@ testing/krsps-master/settings.json
 
 # Полевые записи для виртуальной камеры, в репозиторий не идут
 testing/video/
+
+# Рабочие копии и сборки проверок, не для репозитория
+tools/review/
+tools/frontend-patch/
