@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Icon } from '../../app/Icons';
-import { navFor, useRole } from '../../app/role';
+import { useNav, useRole } from '../../app/role';
 import { useSystem } from '../../app/SystemContext';
 import { neuralSummaryOff, neuralSummaryParts, useGatewayStatus, useLastDetections, useLinkerStatus, useNeuralSummary } from './useHomeData';
 import { useLayouts } from '../../hooks/Layouts';
@@ -38,6 +38,7 @@ const METRIC_LABEL: Record<string, string> = { cpu: 'ЦП', mem: 'ОЗУ', temp:
 
 export function HomeScreen() {
     const role = useRole();
+    const nav = useNav(role);
     const { cameras, devices, lost } = useSystem();
     const { pools, errors: poolErrors } = usePools(devices, DISK_POLL_MS);
     const { layouts } = useLayouts();
@@ -153,7 +154,7 @@ export function HomeScreen() {
 
                 <div className="cols">
                     <div className="tiles">
-                        {navFor(role).filter(item => item.to !== '/').map(item => (
+                        {nav.filter(item => item.to !== '/').map(item => (
                             <Link key={item.to} to={item.to} className={`tile${(item.to === '/krsps' && !gateway) || (item.to === '/surround' && !linker) || (item.to === '/neural' && neuralSummaryOff(neural)) ? ' is-off' : ''}`}>
                                 <Icon name={item.icon} size={22} />
                                 <b>{item.label}</b>

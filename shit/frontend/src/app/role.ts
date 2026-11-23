@@ -1,5 +1,6 @@
-import { createContext, useContext } from 'react';
+import { createContext, useContext, useMemo } from 'react';
 import { NAV, type NavItem } from './nav';
+import { useSystem } from './SystemContext';
 
 // Роль текущего пользователя: «admin» либо «viewer» (наблюдатель)
 export const RoleContext = createContext<string>('viewer');
@@ -12,6 +13,17 @@ export function navFor(role: string): NavItem[] {
     return NAV
         .filter(item => !item.admin)
         .map(item => (item.sub ? { ...item, sub: item.sub.filter(s => !s.admin) } : item));
+}
+
+// Разделы роли без модулей, которых нет в системе. Модуль есть, если его несёт устройство
+// (офлайн тоже: список модулей запоминается); шлюз КРСПС — служба сервера, хватает его ответа
+export function useNav(role: string): NavItem[] {
+    const { devices, gateway } = useSystem();
+    return useMemo(() => navFor(role).filter(item => (
+        !item.module
+        || devices.some(d => d.modules.includes(item.module!))
+        || (item.module === 'krsps' && gateway !== null)
+    )), [role, devices, gateway]);
 }
 
 // Можно ли роли открыть адрес. Корень раздела с подразделами открыт всегда:

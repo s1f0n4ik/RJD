@@ -25,6 +25,8 @@ export interface NavItem {
     label: string;
     icon: IconName;
     admin?: boolean;
+    /** Модуль устройства: раздел виден, только пока такой модуль есть в системе */
+    module?: 'birdview' | 'neural' | 'krsps';
     /** Группа в рельсе: подпись встаёт перед первым пунктом группы */
     group?: string;
     /** Подпись на плитке главной, как в макете */
@@ -53,16 +55,16 @@ export const NAV: NavItem[] = [
     { to: '/archive',  label: 'Архив',               icon: 'arch',  group: 'Видео', desc: 'Записи, таймлайны и склейка' },
 
     {
-        to: '/neural', label: 'Техническое зрение', icon: 'eye', group: 'Модули', desc: 'Нейросети, видеопотоки, инференс, журнал',
+        to: '/neural', label: 'Техническое зрение', icon: 'eye', group: 'Модули', module: 'neural', desc: 'Нейросети, видеопотоки, инференс, журнал',
         sub: NEURAL_SECTIONS.map((s, i) => ({
             to: `/neural/${s.id}`, label: s.label, n: String(i + 1).padStart(2, '0'), admin: !NEURAL_VIEWER_SECTIONS.has(s.id),
         })),
     },
     {
-        to: '/surround', label: 'Система 360', icon: '360', group: 'Модули', desc: 'Калибровка, сборка, конфигуратор', admin: true,
+        to: '/surround', label: 'Система 360', icon: '360', group: 'Модули', module: 'birdview', desc: 'Калибровка, сборка, конфигуратор', admin: true,
         sub: SURROUND_SECTIONS.map((s, i) => ({ to: `/surround/${s.id}`, label: s.label, n: String(i + 1).padStart(2, '0') })),
     },
-    { to: '/krsps',    label: 'АС КРСПС',            icon: 'gate',  group: 'Модули', desc: 'Шлюз сообщений: модули доставки, время и GPS', admin: true },
+    { to: '/krsps',    label: 'АС КРСПС',            icon: 'gate',  group: 'Модули', module: 'krsps', desc: 'Шлюз сообщений: модули доставки, время и GPS', admin: true },
 ];
 
 // Крошки верхней планки: раздел и, при необходимости, шаг внутри него

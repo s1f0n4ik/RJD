@@ -2,7 +2,7 @@ import { Fragment, useLayoutEffect, useRef, useState } from 'react';
 import { Navigate, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { Icon, IconSprite } from './Icons';
 import { crumbsFor } from './nav';
-import { canOpen, navFor } from './role';
+import { canOpen, useNav } from './role';
 import { DownloadsPill } from './DownloadsPill';
 import { UpdatePill } from './UpdatePill';
 import { useSystem } from './SystemContext';
@@ -34,7 +34,7 @@ export function AppShell({ username, role, onLogout }: AppShellProps) {
     const offlineDevices = devices.filter(d => d.status !== 'online').length;
     const crumbs = crumbsFor(pathname);
     const initials = username.slice(0, 2).toUpperCase() || 'ОП';
-    const nav = navFor(role);
+    const nav = useNav(role);
 
     const navRef = useRef<HTMLDivElement>(null);
     const indRef = useRef<HTMLElement>(null);
