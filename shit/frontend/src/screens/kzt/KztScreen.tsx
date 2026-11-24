@@ -300,7 +300,8 @@ export default function KztScreen() {
                                 grid={layout.grid}
                                 layout={layout}
                                 sources={sources}
-                                switchKey={`${cameraId}#${seq}`}
+                                switchKey={cameraId}
+                                reloadKey={seq}
                                 signalingUrlOf={signalingUrlOf}
                                 deviceTimeMs={unixMs}
                                 onDetectionsChange={(_, value) => setBoxes(value)}

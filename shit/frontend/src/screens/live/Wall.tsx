@@ -2,8 +2,11 @@
  * Стена ячеек — общая для редактора и трансляции.
  *
  * Chromium не тянет полтора десятка сессий разом, поэтому плееры монтируются
- * и разбираются по одному: и подъём, и разбор ячейка показывает сама. Уход со
- * страницы разбирает всё разом: смотреть уже некому.
+ * по одному: подъём ячейка показывает сама. При смене отображения плеер камеры,
+ * которая есть и в новом отображении, не выключается: его ячейка остаётся в DOM
+ * на прежнем месте списка и лишь получает новое место в сетке (gridArea), поток
+ * и <video> не пересоздаются. Поднимаются только новые, снимаются только лишние.
+ * Уход со страницы разбирает всё разом: смотреть уже некому.
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -18,18 +21,13 @@ import './wall.css';
 // Пауза между подъёмом соседних плееров
 const OPEN_STEP_MS = 200;
 
-// Пауза между закрытием соседних сессий
-const CLOSE_STEP_MS = 120;
-
 interface FCellKey {
     key: string;
     sourceId: string;
 }
 
-/** Ход смены отображения: сперва разбор прежнего, затем подъём нового по одному плееру */
+/** Ход смены отображения: подъём новых плееров по одному; уцелевшие с прежнего отображения уже в счёте */
 export interface WallLoad {
-    phase: 'closing' | 'opening';
-    /** Поднято плееров из нужных; у фазы closing не растёт */
     done: number;
     total: number;
 }
@@ -39,8 +37,11 @@ export interface WallProps {
     grid: Grid;
     layout: LayoutState;
     sources: WallSource[];
-    /** Меняется, когда сменилось отображение целиком: повод разобрать стену */
+    /** Меняется при смене отображения: сброс раскрытия, ход подъёма новых плееров.
+     *  Плееры камер, что есть и в новом отображении, остаются поднятыми и переезжают */
     switchKey: string;
+    /** Растёт, когда нужно пересоздать все плееры заново (кнопка «Обновить поток») */
+    reloadKey?: number;
     /** ownerId — источник, чьё устройство держит поток; для второго потока 360 это основной */
     signalingUrlOf: (sourceId: string, ownerId?: string) => string;
     deviceTimeMs: number | null;
@@ -82,6 +83,7 @@ export function Wall({
     layout,
     sources,
     switchKey,
+    reloadKey = 0,
     signalingUrlOf,
     deviceTimeMs,
     editable = false,
@@ -106,9 +108,11 @@ export function Wall({
     onCorrectionBusy,
 }: WallProps) {
     const [mounted, setMounted] = useState<string[]>([]);
-    const [closing, setClosing] = useState(false);
-    // От смены отображения до подъёма всех его плееров
+    // От смены отображения до подъёма всех его новых плееров
     const [loading, setLoading] = useState(false);
+    // Стена закрыта полоской: только когда в новом отображении нет ни одного живого плеера,
+    // иначе уцелевшие видны и просто переезжают
+    const [covered, setCovered] = useState(false);
     const [expanded, setExpanded] = useState<string | null>(null);
     const [statuses, setStatuses] = useState<Record<string, PlayerStatus>>({});
     const [dragOver, setDragOver] = useState<string | null>(null);
@@ -119,7 +123,7 @@ export function Wall({
 
     const mountedRef = useRef<string[]>([]);
     mountedRef.current = mounted;
-    const switchRef = useRef(switchKey);
+    const switchRef = useRef(`${switchKey}|${reloadKey}`);
     const wallRef = useRef<HTMLDivElement>(null);
 
     const sourceOf = useCallback(
@@ -135,9 +139,14 @@ export function Wall({
     // очередь подъёма видят один и тот же плеер на новом месте. Раздавать
     // ключи по порядку нельзя — при двух ячейках с одной камерой порядок
     // меняется от любой перестановки, и плееры пересоздаются
-    const keysRef = useRef({ byCell: new Map<string, FCellKey>(), seq: 0 });
+    const keysRef = useRef({ byCell: new Map<string, FCellKey>(), seq: 0, reload: reloadKey });
 
     const cellKeys = useMemo(() => {
+        // Перезапуск потоков: прежние ключи забываются, все плееры получают новые
+        if (keysRef.current.reload !== reloadKey) {
+            keysRef.current.reload = reloadKey;
+            keysRef.current.byCell = new Map();
+        }
         const before = keysRef.current.byCell;
         const after = new Map<string, FCellKey>();
         const taken = new Set<string>();
@@ -188,7 +197,7 @@ export function Wall({
 
         keysRef.current.byCell = after;
         return keys;
-    }, [grid, layout.cells]);
+    }, [grid, layout.cells, reloadKey]);
 
     // Занятые ячейки текущей сетки, в порядке слева направо сверху вниз
     const target = useMemo(
@@ -198,46 +207,65 @@ export function Wall({
         [grid, layout.cells, cellKeys],
     );
 
-    // ─── Разбор при смене отображения ───────────────────────────
+    // Порядок ячеек в DOM: уцелевшие остаются на своих местах списка, новые добавляются в конец.
+    // Место ячейки на экране задаёт gridArea, поэтому порядок DOM для глаза не важен, а
+    // перестановка узлов вынимает <video> из документа — этого плеерам не нужно
+    const orderRef = useRef<string[]>([]);
 
-    useEffect(() => {
-        if (switchRef.current === switchKey) return;
-        switchRef.current = switchKey;
+    const orderedCells = useMemo(() => {
+        const byKey = new Map(grid.cells.map(cell => [cellKeys[cell.id], cell]));
+        const kept = orderRef.current.filter(key => byKey.has(key));
+        const keptSet = new Set(kept);
+        const added = grid.cells.map(cell => cellKeys[cell.id]).filter(key => !keptSet.has(key));
+
+        orderRef.current = [...kept, ...added];
+        return orderRef.current.map(key => byKey.get(key)!);
+    }, [grid, cellKeys]);
+
+    // Ячейка 360 применяет настройки раскладки (режим вида, орбита) только при подъёме.
+    // Поэтому живую ячейку оставляем, лишь если новое отображение просит то же, что уже
+    // стоит на камере (включая правки пользователя в самой ячейке); иначе эпоха растёт,
+    // и ячейка поднимается заново с настройками нового отображения
+    const surroundKnownRef = useRef({ viewMode: layout.surround?.viewMode, manual: layout.surround?.manual });
+    const surroundEpochRef = useRef(0);
+    const surroundEpoch = useMemo(() => {
+        const want = { viewMode: layout.surround?.viewMode, manual: layout.surround?.manual };
+        const known = surroundKnownRef.current;
+        if (want.viewMode !== known.viewMode || want.manual !== known.manual) surroundEpochRef.current += 1;
+        surroundKnownRef.current = want;
+        return surroundEpochRef.current;
+        // Только при смене отображения: правки внутри него эпоху не двигают
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [switchKey]);
+
+    // ─── Смена отображения ──────────────────────────────────────
+
+    const targetRef = useRef(target);
+    targetRef.current = target;
+
+    // Layout-эффект: полоска должна встать до отрисовки новой стены
+    useLayoutEffect(() => {
+        const signature = `${switchKey}|${reloadKey}`;
+        if (switchRef.current === signature) return;
+        switchRef.current = signature;
 
         // Раскрытие принадлежит прежней сетке: ячейка с тем же id есть почти в
         // каждой, и без сброса любое следующее отображение оставалось бы одной
         // ячейкой на весь экран — на панели из этого не выйти без клавиатуры
         setExpanded(null);
-        setLoading(true);
 
-        const total = mountedRef.current.length;
-        // Прежний разбор могли оборвать второй сменой: его closing сам не сбросится
-        if (total === 0) {
-            setClosing(false);
-            return;
-        }
-
-        setClosing(true);
-        let done = 0;
-        const timer = window.setInterval(() => {
-            done += 1;
-            setMounted(prev => prev.slice(0, Math.max(0, prev.length - 1)));
-            if (done >= total) {
-                window.clearInterval(timer);
-                setClosing(false);
-            }
-        }, CLOSE_STEP_MS);
-
-        return () => window.clearInterval(timer);
-    }, [switchKey]);
+        // Плееры камер, которые есть и в новом отображении, остаются поднятыми и переезжают
+        // на новое место; ждать нужно только новых. Лишние уходят из DOM вместе со своими
+        // ячейками, а из списка поднятых их снимает эффект ниже
+        const pending = targetRef.current.filter(key => !mountedRef.current.includes(key));
+        setLoading(pending.length > 0);
+        setCovered(pending.length > 0 && pending.length === targetRef.current.length);
+    }, [switchKey, reloadKey]);
 
     // ─── Подъём по одному ───────────────────────────────────────
 
     useEffect(() => {
-        if (closing) return;
-
-        // Ячейки, которых в цели больше нет, снимаем сразу: это одиночная
-        // правка, а не смена отображения
+        // Ячейки, которых в цели больше нет, снимаем сразу
         const stale = mounted.filter(id => !target.includes(id));
         if (stale.length) {
             setMounted(prev => prev.filter(id => target.includes(id)));
@@ -252,22 +280,25 @@ export function Wall({
             mounted.length === 0 ? 0 : OPEN_STEP_MS,
         );
         return () => window.clearTimeout(timer);
-    }, [target, mounted, closing]);
+    }, [target, mounted]);
 
     // ─── Ход смены отображения ──────────────────────────────────
 
     // Загрузка кончается, когда поднялись все плееры нового отображения; подключение
     // камер сюда не входит: мёртвая камера не должна держать экран заблокированным
     useEffect(() => {
-        if (!loading || closing) return;
-        if (target.every(key => mounted.includes(key))) setLoading(false);
-    }, [loading, closing, target, mounted]);
+        if (!loading) return;
+        if (target.every(key => mounted.includes(key))) {
+            setLoading(false);
+            setCovered(false);
+        }
+    }, [loading, target, mounted]);
 
     const loaded = target.filter(key => mounted.includes(key)).length;
 
     useEffect(() => {
-        onLoadChange?.(loading ? { phase: closing ? 'closing' : 'opening', done: loaded, total: target.length } : null);
-    }, [loading, closing, loaded, target.length, onLoadChange]);
+        onLoadChange?.(loading ? { done: loaded, total: target.length } : null);
+    }, [loading, loaded, target.length, onLoadChange]);
 
     // ─── Счётчик живых сессий ───────────────────────────────────
 
@@ -388,7 +419,7 @@ export function Wall({
         if (source.producer === 'birdview') {
             return (
                 <SurroundCell
-                    key={`${sourceId}-${switchKey}`}
+                    key={`${sourceId}-${surroundEpoch}`}
                     offlineSince={offlineSinceOf(source)}
                     streamId={sourceId}
                     name={source.name}
@@ -401,9 +432,15 @@ export function Wall({
                         ? { ...source.secondary, signalingUrl: signalingUrlOf(source.secondary.streamId, sourceId) }
                         : null}
                     initialViewMode={layout.surround?.viewMode}
-                    onViewModeChange={onSurroundViewModeChange}
+                    onViewModeChange={mode => {
+                        surroundKnownRef.current = { ...surroundKnownRef.current, viewMode: mode };
+                        onSurroundViewModeChange?.(mode);
+                    }}
                     initialManual={layout.surround?.manual}
-                    onManualChange={onSurroundManualChange}
+                    onManualChange={manual => {
+                        surroundKnownRef.current = { ...surroundKnownRef.current, manual };
+                        onSurroundManualChange?.(manual);
+                    }}
                     onGestureLock={locked => { gestureLockRef.current = locked; }}
                     onStatus={status => setStatus(cellKeys[cellId], status)}
                     onStats={cellId === selectedCell ? onCellStats : undefined}
@@ -415,7 +452,7 @@ export function Wall({
 
         return (
             <CellPlayer
-                key={`${sourceId}-${switchKey}`}
+                key={sourceId}
                 offlineSince={offlineSinceOf(source)}
                 fault={faultOf(source, key)}
                 cameraId={sourceId}
@@ -455,7 +492,7 @@ export function Wall({
                     gridTemplateRows: `repeat(${grid.rows}, minmax(0, 1fr))`,
                 }}
             >
-                {grid.cells.map(cell => {
+                {orderedCells.map(cell => {
                     const sourceId = layout.cells[cell.id];
                     const key = cellKeys[cell.id];
                     const source = sourceOf(sourceId);
@@ -563,7 +600,7 @@ export function Wall({
                 })}
             </div>
 
-            {loading && (
+            {covered && (
                 <div className="wall-switching" role="status" aria-label="Переключение">
                     {/* Та же полоска, что у сплэша приложения (index.html) */}
                     <div className="boot-bar" />

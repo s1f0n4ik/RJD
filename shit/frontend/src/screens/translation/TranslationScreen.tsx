@@ -65,6 +65,8 @@ export default function TranslationScreen() {
 
     const [layout, setLayout] = useState<LayoutState>(() => emptyLayout());
     const [switchKey, setSwitchKey] = useState('init');
+    // Растёт по кнопке «Обновить все потоки»: стена пересоздаёт все плееры, а не переносит их
+    const [reloadKey, setReloadKey] = useState(0);
     const [fallback, setFallback] = useState(false);
     const [drawerOpen, setDrawerOpen] = useState(false);
     const [counts, setCounts] = useState({ live: 0, total: 0 });
@@ -203,8 +205,9 @@ export default function TranslationScreen() {
         return index >= 0 ? `яч. ${index + 1}` : null;
     };
 
-    // Перезапуск всех сессий: стена разберёт их по очереди и поднимет заново
+    // Перезапуск всех сессий: стена пересоздаст плееры и поднимет их по одному
     const reloadStreams = () => {
+        setReloadKey(value => value + 1);
         switchSeq.current += 1;
         setSwitchKey(`${fallback ? 'fallback' : layout.name}#${switchSeq.current}`);
     };
@@ -404,6 +407,7 @@ export default function TranslationScreen() {
                         layout={layout}
                         sources={sources}
                         switchKey={switchKey}
+                        reloadKey={reloadKey}
                         signalingUrlOf={signalingUrlOf}
                         deviceTimeMs={unixMs}
                         editable

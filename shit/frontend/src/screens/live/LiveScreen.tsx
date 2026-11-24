@@ -249,7 +249,7 @@ export default function LiveScreen() {
     };
 
     const applyGrid = (grid: Grid) => {
-        // Смена раскладки — повод разобрать стену: сессии закрываются под плашкой
+        // Смена сетки: плееры камер, оставшихся в ячейках, переезжают живыми, поднимаются только новые
         switchSeq.current += 1;
         setLayout(prev => ({ ...prev, grid }));
         setSwitchKey(`${layout.name || 'new'}#${switchSeq.current}`);
