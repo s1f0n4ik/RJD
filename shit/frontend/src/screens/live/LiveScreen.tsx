@@ -44,7 +44,7 @@ const SOURCES_POLL_MS = 10_000;
 function gridLabel(grid: Grid): string {
     const preset = presetOf(grid);
     if (preset) return preset;
-    return `${grid.rows}×${grid.cols} произв.`;
+    return `${grid.rows}×${grid.cols}`;
 }
 
 function num(value: number | null | undefined, digits: number): string {
@@ -83,13 +83,21 @@ export default function LiveScreen() {
     const [overlaysOpen, setOverlaysOpen] = useState(false);
     const overlaysRef = useRef<HTMLDivElement>(null);
     const [freeGridOpen, setFreeGridOpen] = useState(false);
-    const [saveName, setSaveName] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
-    const [confirmDelete, setConfirmDelete] = useState(false);
+    // Имя, под которым открытое отображение лежит на сервере; пусто — ещё не сохранялось.
+    // Название в layout правится свободно, а переименование делается при сохранении
+    const [savedName, setSavedName] = useState('');
+    const [editingName, setEditingName] = useState(false);
+    const nameBackup = useRef('');
+    const nameInput = useRef<HTMLInputElement>(null);
+    const [creating, setCreating] = useState(false);
+    // Только что добавленная строка проявляется, удаляемая — уходит; после этого строки нет
+    const [freshName, setFreshName] = useState<string | null>(null);
+    const [leavingName, setLeavingName] = useState<string | null>(null);
+    // Имя отображения, ожидающего подтверждения удаления
+    const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
     // Действие, отложенное до ответа на вопрос о несохранённых правках
     const [pending, setPending] = useState<(() => void) | null>(null);
-    // Действие, которое ждёт конца сохранения через модалку имени
-    const afterSaveRef = useRef<(() => void) | null>(null);
     const toast = useToast();
     // Закрытие помнит причину: появится другая — предупреждение вернётся
     const [dismissed, setDismissed] = useState('');
@@ -146,6 +154,8 @@ export default function LiveScreen() {
         setLayout(next);
         setDraftContext(context);
         setSnapshot(JSON.stringify(next));
+        setSavedName(next.name);
+        setEditingName(false);
         setSwitchKey(`${next.name || 'new'}#${switchSeq.current}`);
         setSelectedCell(null);
         setSelectedSource(null);
@@ -179,7 +189,7 @@ export default function LiveScreen() {
         else action();
     }, [dirty]);
 
-    const { leave, cancelNavigation } = useNavigationGuard(dirty, guard);
+    const { cancelNavigation } = useNavigationGuard(dirty, guard);
 
     // ─── Правки отображения ─────────────────────────────────────
 
@@ -287,39 +297,98 @@ export default function LiveScreen() {
 
     // ─── Сохранение ─────────────────────────────────────────────
 
-    const persist = async (name: string) => {
+    // Свободное имя с номером: «Новое отображение», «Новое отображение 2», …
+    const freeName = (base: string) => {
+        const taken = new Set(layouts.map(item => item.name));
+        if (!taken.has(base)) return base;
+        let n = 2;
+        while (taken.has(`${base} ${n}`)) n += 1;
+        return `${base} ${n}`;
+    };
+
+    // Название открытого отображения: пустое у ещё не сохранённого — не ошибка, имя подберётся само
+    const nameTrim = layout.name.trim();
+    const nameError = !nameTrim
+        ? (savedName ? 'Введите название' : '')
+        : layouts.some(item => item.name === nameTrim && item.name !== savedName) ? 'Такое название уже есть' : '';
+
+    const persist = async (rawName: string) => {
         if (saving) return false;
+        const name = rawName.trim() || freeName('Новое отображение');
         const next = { ...layout, name };
         setSaving(true);
         const ok = await save(layoutToSaved(next, Date.now()), draftContext);
+        // Переименование — это запись под новым именем и удаление старой записи
+        if (ok && savedName && savedName !== name) {
+            if (!await remove(savedName, draftContext)) toast(`Прежнее отображение «${savedName}» осталось в списке`, 'Удалите его вручную', 'err');
+        }
         setSaving(false);
         if (!ok) return false;
         setLayout(next);
         setSnapshot(JSON.stringify(next));
+        setSavedName(name);
+        setEditingName(false);
         localStorage.setItem(lastLayoutKey(profileId), name);
-        setSaveName(null);
         toast(`Отображение «${name}» сохранено`, '', 'ok');
-
-        const queued = afterSaveRef.current;
-        afterSaveRef.current = null;
-        queued?.();
         return true;
     };
 
-    const handleDelete = async () => {
-        const name = layout.name;
-        setConfirmDelete(false);
-        if (!name) return;
-        const ok = await remove(name, draftContext);
-        if (!ok) return;
-        localStorage.removeItem(lastLayoutKey(profileId));
-        applyLayout(layouts.find(item => item.name !== name) ?? null);
+    const handleSave = () => {
+        if (nameError) {
+            toast(nameError, 'Исправьте название отображения', 'err');
+            startEditName();
+            return;
+        }
+        void persist(layout.name);
     };
 
-    const goTranslation = () => {
-        const path = layout.name ? `/translation/${encodeURIComponent(layout.name)}` : '/translation';
-        leave(path);
+    // Новое отображение сразу попадает в список: пустая сетка под свободным именем, имя тут же правится
+    const createLayout = async () => {
+        if (creating || saving || blocked) return;
+        const fresh = emptyLayout(freeName('Новое отображение'));
+        const stored = layoutToSaved(fresh, Date.now());
+        setCreating(true);
+        const ok = await save(stored, context);
+        setCreating(false);
+        if (!ok) return;
+        setFreshName(stored.name);
+        applyLayout(stored);
+        nameBackup.current = stored.name;
+        setEditingName(true);
     };
+
+    const handleDelete = async (name: string) => {
+        setConfirmDelete(null);
+        setLeavingName(name);
+        // Строка уходит видимо: запрос и анимация идут вместе, список меняется после обоих
+        const [ok] = await Promise.all([remove(name, draftContext), new Promise(resolve => window.setTimeout(resolve, 180))]);
+        setLeavingName(null);
+        if (!ok) return;
+        if (localStorage.getItem(lastLayoutKey(profileId)) === name) localStorage.removeItem(lastLayoutKey(profileId));
+        // Открытое отображение удалено — открывается соседнее; чужое открытое не трогаем
+        if (name === savedName) applyLayout(layouts.find(item => item.name !== name) ?? null);
+    };
+
+    // ─── Название отображения ───────────────────────────────────
+
+    const startEditName = () => {
+        nameBackup.current = layout.name;
+        setEditingName(true);
+    };
+
+    // Esc и пустое имя возвращают прежнее; Enter и уход из поля оставляют набранное
+    const finishEditName = (revert: boolean) => {
+        setEditingName(false);
+        if (revert || (!layout.name.trim() && nameBackup.current.trim())) {
+            setLayout(prev => ({ ...prev, name: nameBackup.current }));
+        }
+    };
+
+    useEffect(() => {
+        if (!editingName) return;
+        nameInput.current?.focus();
+        nameInput.current?.select();
+    }, [editingName]);
 
     // ─── Данные для правой колонки ──────────────────────────────
 
@@ -414,7 +483,6 @@ export default function LiveScreen() {
                         <span className="dot" />
                         {counts.live} из {counts.total} в эфире
                     </span>
-                    <button onClick={() => guard(goTranslation)}>Режим трансляции</button>
                 </div>
             </div>
 
@@ -461,36 +529,89 @@ export default function LiveScreen() {
 
                 <aside className="settings">
                     <div className="sect">
-                        <span className="eyebrow">
+                        <span className="eyebrow live-head">
                             Сохранённые сетки
-                            {dirty && <span className="live-dot" data-tip="Есть несохранённые правки" />}
+                            <span className="live-acts">
+                                {dirty && (
+                                    <button className="btn btn--acc btn--sm live-save" disabled={saving} onClick={handleSave}>
+                                        Сохранить
+                                    </button>
+                                )}
+                                <button
+                                    className="icon-btn live-add"
+                                    data-tip="Новое отображение"
+                                    aria-label="Новое отображение"
+                                    disabled={creating || saving || blocked}
+                                    onClick={() => guard(() => void createLayout())}
+                                >
+                                    <Icon name="plus" size={14} />
+                                </button>
+                            </span>
                         </span>
 
                         <div className="live-list">
-                            {layouts.map(item => (
-                                <button
-                                    key={item.name}
-                                    className={`row-item${item.name === layout.name ? ' is-sel' : ''}`}
-                                    onClick={() => guard(() => applyLayout(item))}
-                                >
-                                    <span className="chip-col" style={{ background: 'var(--acc)' }} />
-                                    <span className="nm">{item.name}</span>
-                                    <span className="num">{gridLabel(layoutFromSaved(item).grid)}</span>
-                                </button>
-                            ))}
-
-                            <div className="live-row">
-                                <button className="btn btn--sm" style={{ flex: 1 }} onClick={() => setSaveName(layout.name)}>
-                                    Сохранить как…
-                                </button>
-                                <button
-                                    className="btn btn--sm btn--err"
-                                    disabled={!layout.name}
-                                    onClick={() => setConfirmDelete(true)}
-                                >
-                                    <Icon name="trash" />
-                                </button>
-                            </div>
+                            {layouts.map(item => {
+                                const selected = item.name === savedName;
+                                const editing = selected && editingName;
+                                return (
+                                    <div
+                                        key={item.name}
+                                        className={`live-item${selected ? ' is-sel' : ''}${freshName === item.name ? ' is-new' : ''}${leavingName === item.name ? ' is-leaving' : ''}`}
+                                        onAnimationEnd={() => { if (freshName === item.name) setFreshName(null); }}
+                                    >
+                                        <div
+                                            role="button"
+                                            tabIndex={0}
+                                            className="row-item"
+                                            onClick={() => { if (!selected) guard(() => applyLayout(item)); }}
+                                            onKeyDown={event => {
+                                                if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
+                                                    event.preventDefault();
+                                                    if (!selected) guard(() => applyLayout(item));
+                                                }
+                                            }}
+                                        >
+                                            <span className="chip-col" style={{ background: 'var(--acc)' }} />
+                                            {editing ? (
+                                                <input
+                                                    ref={nameInput}
+                                                    className={`live-name-inp${nameError ? ' is-err' : ''}`}
+                                                    value={layout.name}
+                                                    maxLength={60}
+                                                    aria-label="Название отображения"
+                                                    aria-invalid={Boolean(nameError)}
+                                                    onChange={event => setLayout(prev => ({ ...prev, name: event.target.value }))}
+                                                    onBlur={() => finishEditName(false)}
+                                                    onKeyDown={event => {
+                                                        if (event.key === 'Enter') { event.preventDefault(); finishEditName(false); }
+                                                        if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); finishEditName(true); }
+                                                    }}
+                                                />
+                                            ) : (
+                                                <span
+                                                    className={`nm${selected ? ' is-edit' : ''}`}
+                                                    data-tip={selected ? 'Нажмите, чтобы переименовать' : undefined}
+                                                    onClick={selected ? event => { event.stopPropagation(); startEditName(); } : undefined}
+                                                >
+                                                    {selected ? layout.name || item.name : item.name}
+                                                </span>
+                                            )}
+                                            <span className="num">{gridLabel(selected ? layout.grid : layoutFromSaved(item).grid)}</span>
+                                        </div>
+                                        <button
+                                            className="live-del"
+                                            data-tip="Удалить отображение"
+                                            aria-label={`Удалить отображение «${item.name}»`}
+                                            disabled={Boolean(leavingName)}
+                                            onClick={() => setConfirmDelete(item.name)}
+                                        >
+                                            <Icon name="trash" size={18} />
+                                        </button>
+                                    </div>
+                                );
+                            })}
+                            {layouts.length === 0 && <p className="hint">Сохранённых отображений нет. Добавьте первое кнопкой «+».</p>}
+                            {editingName && nameError && <p className="hint is-err live-name-err">{nameError}</p>}
                         </div>
                     </div>
 
@@ -572,54 +693,19 @@ export default function LiveScreen() {
                 />
             )}
 
-            {saveName !== null && (
-                <Modal
-                    title="Сохранить отображение"
-                    onClose={() => { if (!saving) { setSaveName(null); afterSaveRef.current = null; cancelNavigation(); } }}
-                    footer={
-                        <>
-                            <button className="btn" disabled={saving} onClick={() => { setSaveName(null); afterSaveRef.current = null; cancelNavigation(); }}>Отмена</button>
-                            <button
-                                className="btn btn--acc"
-                                disabled={saving || !saveName.trim()}
-                                onClick={() => void persist(saveName.trim())}
-                            >
-                                {layouts.some(item => item.name === saveName.trim()) ? 'Перезаписать' : 'Сохранить'}
-                            </button>
-                        </>
-                    }
-                >
-                    <div className="modal-b">
-                        <div className="live-field">
-                            <label>Название</label>
-                            <input
-                                className="inp inp--wide"
-                                value={saveName}
-                                autoFocus
-                                onChange={event => setSaveName(event.target.value)}
-                                placeholder="Обход состава"
-                            />
-                        </div>
-                        {layouts.some(item => item.name === saveName.trim()) && saveName.trim() && (
-                            <p className="hint is-err">Отображение с таким названием уже есть — оно будет перезаписано.</p>
-                        )}
-                    </div>
-                </Modal>
-            )}
-
-            {confirmDelete && (
+            {confirmDelete !== null && (
                 <Modal
                     title="Удалить отображение"
-                    onClose={() => setConfirmDelete(false)}
+                    onClose={() => setConfirmDelete(null)}
                     footer={
                         <>
-                            <button className="btn" onClick={() => setConfirmDelete(false)}>Отмена</button>
-                            <button className="btn btn--err" onClick={() => void handleDelete()}>Удалить</button>
+                            <button className="btn" onClick={() => setConfirmDelete(null)}>Отмена</button>
+                            <button className="btn btn--err" onClick={() => void handleDelete(confirmDelete)}>Удалить</button>
                         </>
                     }
                 >
                     <div className="modal-b">
-                        <p>Отображение «{layout.name}» будет удалено без возможности вернуть.</p>
+                        <p>Отображение «{confirmDelete}» будет удалено без возможности вернуть.</p>
                     </div>
                 </Modal>
             )}
@@ -640,17 +726,11 @@ export default function LiveScreen() {
                             </button>
                             <button
                                 className="btn btn--acc"
-                                disabled={saving || draftContext !== context}
+                                disabled={saving || draftContext !== context || Boolean(nameError)}
+                                data-tip={nameError || undefined}
                                 onClick={async () => {
                                     const action = pending;
-                                    // Безымянное отображение сперва спросит имя,
-                                    // а действие продолжится после сохранения
-                                    if (!layout.name) {
-                                        setPending(null);
-                                        afterSaveRef.current = action;
-                                        setSaveName('');
-                                        return;
-                                    }
+                                    // Безымянному отображению имя подбирается само
                                     if (await persist(layout.name)) { setPending(null); action(); }
                                 }}
                             >

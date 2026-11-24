@@ -26,22 +26,107 @@
     box-shadow: var(--shadow-lg);
 }
 
-/* Точка несохранённых правок у заголовка списка сеток */
-.live-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--warn);
-    box-shadow: 0 0 7px var(--warn);
-    margin-left: 6px;
-}
-
 /* Заголовок секции задаёт отступ сам себе не здесь, а через блок ниже */
 .live .sect > .eyebrow { margin-bottom: 0; }
 
 .live-list { margin-top: 12px; }
 
-.live-row { display: flex; gap: 8px; margin-top: 11px; }
+/* Шапка списка: справа «Сохранить» (только при правках) и «+» — новое отображение */
+.live-head { min-height: 30px; }
+.live-acts { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.live-acts .btn { text-transform: none; letter-spacing: 0; }
+.live-add { width: 28px; height: 28px; }
+.live-save { animation: live-pop-in var(--t-mid) var(--ease-out); }
+
+@keyframes live-pop-in {
+    from { opacity: 0; transform: translateX(8px) scale(.94); }
+    to { opacity: 1; transform: none; }
+}
+
+/* Строка списка: плашка (фон, рамка, выбор) на .live-item, внутри — строка и корзина.
+   Корзина выезжает справа от размера сетки: ширина её места растёт от нуля, размер и
+   название сдвигаются сами, название сужается (многоточие) */
+.live-item {
+    position: relative;
+    max-height: 44px;
+    display: flex;
+    align-items: center;
+    border: 1px solid transparent;
+    border-radius: var(--r);
+    transition: var(--tr-ui);
+}
+.live-item:hover { background: var(--panel); }
+.live-item.is-sel { background: var(--acc-bg); border-color: var(--acc-edge); }
+.live-item.is-sel .num { color: var(--acc); }
+.live-item .row-item, .live-item .row-item:hover { flex: 1; min-width: 0; background: none; border-color: transparent; }
+
+.live-del {
+    flex: 0 0 auto;
+    width: 0;
+    height: 32px;
+    margin-right: 0;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    border-radius: 7px;
+    color: var(--fg-3);
+    opacity: 0;
+    transform: translateX(10px);
+    transition: width var(--t-mid) var(--ease-out), margin-right var(--t-mid) var(--ease-out),
+        opacity var(--t-mid) var(--ease-out), transform var(--t-mid) var(--ease-out),
+        color var(--t-fast) var(--ease-out), background-color var(--t-fast) var(--ease-out);
+}
+.live-item:hover .live-del, .live-del:focus-visible {
+    width: 32px;
+    margin-right: 4px;
+    opacity: 1;
+    transform: none;
+}
+.live-del:hover:not([disabled]) { color: var(--err); background: var(--err-bg); }
+
+/* Без наведения (тач) корзина стоит только у открытого отображения */
+@media (hover: none) {
+    .live-item.is-sel .live-del { width: 32px; margin-right: 4px; opacity: 1; transform: none; }
+}
+
+/* Название открытого отображения правится нажатием на него */
+.row-item .nm.is-edit { cursor: text; transition: color var(--t-fast) var(--ease-out); }
+.row-item .nm.is-edit:hover { color: var(--acc); }
+
+.live-name-inp {
+    flex: 1;
+    min-width: 0;
+    height: 26px;
+    padding: 0 8px;
+    border: 1px solid var(--acc);
+    border-radius: 6px;
+    background: var(--input);
+    color: var(--fg);
+    font: inherit;
+    font-size: 13px;
+    transition: border-color var(--t-fast) var(--ease-out), box-shadow var(--t-fast) var(--ease-out);
+}
+.live-name-inp:focus { outline: none; box-shadow: 0 0 0 3px rgba(var(--acc-rgb), .18); }
+.live-name-inp.is-err { border-color: var(--err); box-shadow: 0 0 0 3px rgba(246, 103, 115, .16); }
+
+.live-name-err { margin: 2px 0 0 10px; animation: live-pop-in var(--t-mid) var(--ease-out); }
+
+/* Новая строка проявляется, удаляемая уходит */
+.live-item.is-new { animation: live-item-in var(--t-mid) var(--ease-out); }
+.live-item.is-leaving { overflow: hidden; pointer-events: none; animation: live-item-out 180ms var(--ease-in) forwards; }
+
+@keyframes live-item-in {
+    from { opacity: 0; transform: translateY(-6px); max-height: 0; }
+    to { opacity: 1; transform: none; max-height: 44px; }
+}
+
+@keyframes live-item-out {
+    to { opacity: 0; transform: translateX(-10px); max-height: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .live-save, .live-name-err, .live-item.is-new { animation: none; }
+}
 
 /* Селект в строке показателей: ширина как у полей, а не во всю колонку */
 .live .field .uisel { width: 136px; flex: 0 0 136px; }
