@@ -10,6 +10,8 @@
   border-right:1px solid var(--line);
   display:flex;flex-direction:column;overflow:hidden;
   transition:width .2s cubic-bezier(.4,0,.2,1),flex-basis .2s cubic-bezier(.4,0,.2,1);
+  /* Свой слой композитора: перерисовка сцены (видео, подсказки) рельсу не трогает */
+  isolation:isolate;transform:translateZ(0);
 }
 
 .shell.is-narrow .rail{width:64px;flex-basis:64px}
@@ -104,10 +106,14 @@
 .topbar{
   height:var(--top);flex:0 0 var(--top);
   display:flex;align-items:center;gap:18px;padding:0 18px;
-  background:color-mix(in srgb,var(--surface) 88%,transparent);
-  backdrop-filter:blur(8px);
+  /* Сплошной фон: под планкой ничего не проходит, а backdrop-filter на Mali (Chromium 110 на плате)
+     перерисовывает размытие при каждом кадре видео и планка мигает; color-mix там ещё не понимается */
+  background:var(--surface);
   border-bottom:1px solid var(--line);
   position:relative;z-index:20;
+  /* Свой слой композитора: перерисовка сцены под ней планку не трогает.
+     Не transform: он делает планку опорой для position:fixed у плашек загрузок */
+  isolation:isolate;backface-visibility:hidden;
 }
 
 .crumbs{display:flex;align-items:center;gap:8px;font-size:13.5px;white-space:nowrap;flex:0 0 auto}

@@ -20,7 +20,8 @@
 
   --acc:#68a5ff;
   --acc-dim:#4687eb;
-  --acc-glow:color-mix(in srgb,var(--acc) 22%,transparent);
+  /* rgba, а не color-mix: Chromium 110 на плате его не понимает и роняет весь background */
+  --acc-glow:rgba(104,165,255,.22);
   --acc-rgb:104,165,255;
 
   --ok:#53cf95;
