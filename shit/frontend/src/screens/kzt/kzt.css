@@ -111,22 +111,24 @@
 
 /* ── Положение и мини-карта ── */
 .kzs-geo{flex:1 1 auto}
-.kzs-coords{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:10px 14px 8px}
-.kzs-coords .k{display:block;font-size:11px;color:var(--fg-3);margin-bottom:2px}
-.kzs-coords .v{font:600 16px var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+/* Координаты справа в шапке: зелёные; устаревшие — красные */
+.kzs-here,.kzs-here-none{margin-left:auto}
+.kzs-here{font:600 13px var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--ok)}
+.kzs-here.is-stale{color:var(--err)}
 .kzs-geo-map{position:relative;flex:1;min-height:90px;border-top:1px solid var(--line)}
 .kzs-geo-map .maplibregl-ctrl-top-right{display:none}
 .kzs-expand{position:absolute;right:8px;top:8px;z-index:3;background:var(--panel)}
-@container kzs (max-height:760px){
-  .kzs-coords{padding:7px 12px 6px}
-  .kzs-coords .v{font-size:14px}
-}
 
 /* ── Карта на всё поле: каркас .j-full журнала, панель фиксаций слева ── */
 .kzs-over{position:absolute;inset:0;z-index:8;background:var(--bg)}
 .kzs-over .j-full{position:absolute;inset:0}
 .kzs-over .pane{max-height:calc(100% - 92px);width:300px}
 .kzs-over .pane .blk-b{min-height:0;overflow:hidden}
+/* Крестика на карте нет (он в шапке): кнопки масштаба встают на его место */
+.kzs-over .maplibregl-ctrl-top-right{top:18px;right:8px}
+.kzs-here-tag{font-family:var(--mono);color:var(--ok)}
+.kzs-here-tag.is-stale{color:var(--err)}
+.kzs .tr-exit.is-map{color:var(--acc)}
 .kzs-cls-list{display:flex;flex-direction:column;gap:2px;overflow-y:auto;min-height:0}
 .kzs-cls{display:flex;align-items:center;gap:9px;min-height:30px;padding:0 8px;border-radius:7px;font-size:12.5px;color:var(--fg-2);text-align:left;transition:var(--tr-ui)}
 .kzs-cls:hover{background:var(--panel-2);color:var(--fg)}
@@ -135,6 +137,6 @@
 .kzs-cls b{margin-left:auto;font-weight:500;font-size:11.5px;color:var(--fg-3)}
 @container kzs (max-height:760px){
   .kzs-over .pane{left:10px;top:10px;width:270px}
-  .kzs-over .close{right:10px;top:10px}
+  .kzs-over .maplibregl-ctrl-top-right{top:10px;right:0}
   .kzs-over .cnt{left:10px;bottom:10px}
 }

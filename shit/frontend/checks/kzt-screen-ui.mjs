@@ -118,7 +118,7 @@ try {
         expect(await shown('.kzs-words') && !(await shown('.kzs-pkt')), 'пакет не плитками');
         expect((await ev('document.querySelector(".kzs-words").textContent')).includes('Узкий грейфер'), 'нет имени навесного из словаря');
         expect((await ev('document.querySelector(".kzs-mb .pill").textContent')).includes('на связи'), 'Modbus не на связи');
-        expect((await ev('document.querySelector(".kzs-coords").textContent')).includes('54.06609'), 'нет координат');
+        expect((await ev('document.querySelector(".kzs-here").textContent')).includes('54.06609'), 'нет координат');
         await waitFor('!!document.querySelector(".kzs-geo-map .jm-here")', 'метка текущего места на мини-карте');
         await shot('1-fhd');
     });
@@ -154,7 +154,15 @@ try {
         const body = await rect('.kzs-body');
         expect(Math.abs(over.w - body.w) < 2 && Math.abs(over.h - body.h) < 2, 'карта не на всё поле');
         await waitFor('!!document.querySelector(".kzs-over .jm-here")', 'метка текущего места на карте');
+        expect(!(await ev('!!document.querySelector(".kzs-over .close")')), 'на карте остался свой крестик');
+        expect(await ev('document.querySelector(".tr-bar").textContent.includes("карта открыта")'), 'шапка не показывает, что карта открыта');
+        expect((await ev('document.querySelector(".tr-exit").getAttribute("aria-label")')) === 'Закрыть карту', 'крестик шапки не закрывает карту');
+        expect((await ev('document.querySelector(".kzs-over .j-full").textContent')).includes('54.06609'), 'на карте нет текущего места');
         await shot('4-map');
+        await ev('document.querySelector(".tr-exit").click()');
+        await waitFor('!document.querySelector(".kzs-over")', 'карта закрыта крестиком шапки');
+        await ev('document.querySelector(".kzs-expand").click()');
+        await waitFor('!!document.querySelector(".kzs-over")', 'карта открыта снова');
         await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
         await waitFor('!document.querySelector(".kzs-over")', 'карта закрыта');
     });

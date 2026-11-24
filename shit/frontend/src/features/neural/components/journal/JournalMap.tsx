@@ -309,13 +309,21 @@ export function JournalMap({
         setPlates(modeRef.current === 'full' && map.getZoom() >= PLATE_ZOOM ? layoutPlates(map, scene.items, scene.selected) : []),
       );
 
-      if (!points.length) return;
+      if (!points.length) {
+        // Без точек полная карта показывает текущее место
+        const place = hereRef.current;
+        if (mode === 'full' && place && fitKeyRef.current === '') {
+          fitKeyRef.current = 'here';
+          map.easeTo({ center: [place.lng, place.lat], zoom: 13 });
+        }
+        return;
+      }
 
       // Смена одного лишь выбора (клик по точке, запись из попапа кластера)
       // камеру не трогает — перецентровка только при изменении набора точек.
       const key = points.map((p) => p.id).join(',');
       if (key === fitKeyRef.current) return;
-      const first = fitKeyRef.current === '';
+      const first = fitKeyRef.current === '' || fitKeyRef.current === 'here';
       fitKeyRef.current = key;
 
       // На полном экране границы подгоняются только при входе: новая запись

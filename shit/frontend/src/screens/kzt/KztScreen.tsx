@@ -193,6 +193,8 @@ export default function KztScreen() {
         if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
         window.location.href = mobile ? '/app' : '/app/live';
     };
+    // Пока карта открыта, крестик шапки закрывает её, а не уходит с экрана
+    const exitLabel = mapOpen ? 'Закрыть карту' : mobile ? 'На главную' : 'Выйти в редактор';
     const toggleFullscreen = () => {
         if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
         else document.documentElement.requestFullscreen?.().catch(() => {});
@@ -269,6 +271,7 @@ export default function KztScreen() {
                 <b className="tr-title">КЖТ</b>
                 <span className="tr-name">{camera?.display_name || cameraId || 'камера не выбрана'}</span>
                 <span className={`pill ${live > 0 ? 'ok' : 'warn'}`}><span className="dot" />{live > 0 ? 'в эфире' : 'нет кадров'}</span>
+                {mapOpen && <span className="pill"><span className="dot" style={{ background: 'var(--acc)' }} />карта открыта</span>}
                 <span className="spacer" />
                 <span className={`pill num${clockSource && clockSource !== 'server' ? '' : ' is-dim'}`}>
                     <span className="seps"><span>{formatDeviceDate(unixMs)}</span><span>{formatDeviceTime(unixMs)}</span></span>
@@ -279,7 +282,12 @@ export default function KztScreen() {
                 <button className="icon-btn tr-plain" data-tip={fullscreen ? 'Свернуть' : 'Во весь экран'} aria-label={fullscreen ? 'Свернуть' : 'Во весь экран'} onClick={toggleFullscreen}>
                     <Icon name={fullscreen ? 'unfull' : 'full'} />
                 </button>
-                <button className="icon-btn tr-plain tr-exit" data-tip={mobile ? 'На главную' : 'Выйти в редактор'} aria-label={mobile ? 'На главную' : 'Выйти в редактор'} onClick={exit}>
+                <button
+                    className={`icon-btn tr-plain tr-exit${mapOpen ? ' is-map' : ''}`}
+                    data-tip={exitLabel}
+                    aria-label={exitLabel}
+                    onClick={mapOpen ? () => setMapOpen(false) : exit}
+                >
                     <Icon name="x" />
                 </button>
             </div>
@@ -359,13 +367,9 @@ export default function KztScreen() {
                     <section className="card kzs-geo">
                         <div className="card-h">
                             <h3>Положение</h3>
-                            {gpsNone ? <span className="pill warn"><span className="dot" />нет данных</span>
-                                : gps!.valid ? <span className="pill ok"><span className="dot" />актуальны</span>
-                                    : <span className="pill err"><span className="dot" />устарели</span>}
-                        </div>
-                        <div className="kzs-coords">
-                            <div><span className="k">Широта</span><span className="v">{here ? `${here.lat.toFixed(5)}° ${here.lat < 0 ? 'S' : 'N'}` : '—'}</span></div>
-                            <div><span className="k">Долгота</span><span className="v">{here ? `${here.lng.toFixed(5)}° ${here.lng < 0 ? 'W' : 'E'}` : '—'}</span></div>
+                            {here
+                                ? <span className={`kzs-here${here.fresh ? '' : ' is-stale'}`}>{fmtCoord(here.lat)}, {fmtCoord(here.lng)}</span>
+                                : <span className="pill warn kzs-here-none"><span className="dot" />нет данных</span>}
                         </div>
                         <div className="kzs-geo-map">
                             {!mapOpen && (
@@ -429,13 +433,12 @@ export default function KztScreen() {
                                         </div>
                                     </div>
                                 </div>
-                                <button className="icon-btn close" onClick={() => setMapOpen(false)} aria-label="Закрыть карту" data-tip="Закрыть карту">
-                                    <Icon name="x" size={14} />
-                                </button>
                                 <div className="cnt">
                                     <span className="tag">{fixes.length} обнаружений</span>
                                     <span className="tag">{fixes.filter(d => d.gps).length} с координатами</span>
-                                    <span className={`tag${here ? ' is-acc' : ' is-warn'}`}>{here ? 'текущее место на карте' : 'текущее место неизвестно'}</span>
+                                    {here
+                                        ? <span className={`tag kzs-here-tag${here.fresh ? '' : ' is-stale'}`}>Текущее место: {fmtCoord(here.lat)}, {fmtCoord(here.lng)}</span>
+                                        : <span className="tag is-warn">текущее место неизвестно</span>}
                                 </div>
                             </div>
                         </div>
