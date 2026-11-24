@@ -182,6 +182,8 @@ export interface SystemState {
   neural?: NeuralSummary | null;
   gateway?: GatewaySummary | null;
   linker?: LinkerSnapshot | null;
+  // Модули устройств по действующему профилю: id устройства → модули; null — профиля нет, поля нет у старого бэкенда
+  active_modules?: Record<string, string[]> | null;
 }
 
 // Сводка вывода 360 как её шлёт бэкенд

@@ -16,14 +16,16 @@ export function navFor(role: string): NavItem[] {
 }
 
 // Разделы роли без модулей, которых нет в системе. Модуль есть, если его несёт устройство
-// (офлайн тоже: список модулей запоминается); шлюз КРСПС — служба сервера, хватает его ответа
+// (офлайн тоже: список модулей запоминается) и он входит в место устройства по действующему
+// профилю: плата умеет больше, чем включено конфигурацией. Без профиля (или со старым
+// бэкендом) решает одно устройство. Шлюз КРСПС — служба сервера, хватает его ответа
 export function useNav(role: string): NavItem[] {
-    const { devices, gateway } = useSystem();
+    const { devices, gateway, activeModules } = useSystem();
     return useMemo(() => navFor(role).filter(item => (
         !item.module
-        || devices.some(d => d.modules.includes(item.module!))
+        || devices.some(d => d.modules.includes(item.module!) && (!activeModules || activeModules[d.id]?.includes(item.module!)))
         || (item.module === 'krsps' && gateway !== null)
-    )), [role, devices, gateway]);
+    )), [role, devices, gateway, activeModules]);
 }
 
 // Можно ли роли открыть адрес. Корень раздела с подразделами открыт всегда:

@@ -88,6 +88,26 @@ async def _gateway_summary() -> Optional[dict]:
         return None
 
 
+def _active_modules() -> Optional[Dict[str, List[str]]]:
+    """Модули устройств по действующему профилю: устройство → модули его места. None — профиля нет."""
+    from app.services.config_store import get_store
+
+    try:
+        effective = get_store().effective()
+        if not effective["profile"]:
+            return None
+        bodies = {kind: {key: e["body"] for key, e in items.items()} for kind, items in effective["entities"].items()}
+        places = bodies.get("place", {})
+        return {
+            binding["device_id"]: list((places[place] or {}).get("modules") or [])
+            for place, binding in bodies.get("binding", {}).items()
+            if binding.get("device_id") and place in places
+        }
+    except Exception as e:
+        logger.debug(f"Active modules failed: {e}")
+        return None
+
+
 async def _linker_summary() -> Optional[dict]:
     from app.services.devices import registry
 
@@ -141,7 +161,7 @@ class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
         self._update_task: asyncio.Task | None = None
-        self._slow: Dict[str, Any] = {"neural": None, "gateway": None, "linker": None}
+        self._slow: Dict[str, Any] = {"neural": None, "gateway": None, "linker": None, "active_modules": None}
         self._slow_at = 0.0
         # Отпечаток последнего разосланного состояния: без изменений шлётся только пульс
         self._last_digest = ""
@@ -168,7 +188,7 @@ class ConnectionManager:
             cameras, neural, gateway, linker = await asyncio.gather(
                 fetch_cameras(), _neural_summary(), _gateway_summary(), _linker_summary()
             )
-            self._slow = {"neural": neural, "gateway": gateway, "linker": linker}
+            self._slow = {"neural": neural, "gateway": gateway, "linker": linker, "active_modules": _active_modules()}
             self._slow_at = time.monotonic()
         else:
             cameras = await fetch_cameras()

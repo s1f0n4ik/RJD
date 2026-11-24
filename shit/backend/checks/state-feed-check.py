@@ -5,7 +5,10 @@ import tempfile
 from pathlib import Path
 
 os.environ["DEBUG"] = "false"
-os.environ["DEVICES_FILE"] = str(Path(tempfile.mkdtemp()) / "devices.json")
+TMP = Path(tempfile.mkdtemp())
+os.environ["DEVICES_FILE"] = str(TMP / "devices.json")
+os.environ["CONFIG_DB"] = str(TMP / "config.db")
+os.environ["CONFIG_ASSETS_DIR"] = str(TMP / "assets")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import httpx
@@ -67,7 +70,26 @@ async def main():
     assert [d["status"] for d in state["devices"]] == ["online", "online"]
     assert state["devices"][0]["net_rx_bps"] is not None
     assert state["neural"]["running"] == 4 and state["neural"]["ok"] == 2, state["neural"]
-    assert state["gateway"] == {"modules": 2, "connected": 1}, state["gateway"]
+    assert state["gateway"] == {"id": "", "modules": 2, "connected": 1}, state["gateway"]
+    # Профиля нет — модули по профилю неизвестны
+    assert state["active_modules"] is None, state["active_modules"]
+
+    # Профиль есть: модули устройства — модули его места; устройство без места не несёт ничего
+    from app.services import config_store
+
+    class Store:
+        def effective(self):
+            return {"profile": {"id": "kzt"}, "entities": {
+                "place": {"board-1": {"body": {"modules": ["neural"]}}, "empty": {"body": {}}},
+                "binding": {"board-1": {"body": {"device_id": "a"}}, "empty": {"body": {"device_id": "b"}}},
+            }}
+
+    real_store = config_store.get_store
+    config_store.get_store = lambda: Store()
+    try:
+        assert module._active_modules() == {"a": ["neural"], "b": []}, module._active_modules()
+    finally:
+        config_store.get_store = real_store
     assert state["linker"] == {"running": True, "view_mode": "surround", "dual_output": False}, state["linker"]
     assert state["routing"]["birdview"] == "a"
 

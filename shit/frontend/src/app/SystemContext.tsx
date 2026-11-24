@@ -19,6 +19,8 @@ interface SystemContextValue {
     neural: NeuralSummary | null | undefined;
     gateway: GatewaySummary | null | undefined;
     linker: LinkerSnapshot | null | undefined;
+    // Модули устройств по действующему профилю; null/undefined — профиля нет либо бэкенд старый
+    activeModules: Record<string, string[]> | null | undefined;
     // Внеочередное чтение реестра: после правки устройства ждать следующего сообщения незачем
     refreshDevices: () => Promise<void>;
 }
@@ -31,6 +33,7 @@ const SystemContext = createContext<SystemContextValue>({
     neural: undefined,
     gateway: undefined,
     linker: undefined,
+    activeModules: undefined,
     refreshDevices: async () => {},
 });
 
@@ -85,9 +88,10 @@ export function SystemProvider({ children }: { children: React.ReactNode }) {
             neural: state.neural,
             gateway: state.gateway,
             linker: state.linker,
+            activeModules: state.active_modules,
             refreshDevices,
         }),
-        [connected, lost, state.cameras, state.neural, state.gateway, state.linker, devices, refreshDevices],
+        [connected, lost, state.cameras, state.neural, state.gateway, state.linker, state.active_modules, devices, refreshDevices],
     );
 
     return <SystemContext.Provider value={value}>{children}</SystemContext.Provider>;
