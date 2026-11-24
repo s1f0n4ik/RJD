@@ -36,18 +36,7 @@
 .tr-bnr { flex: none; border-radius: 0; border-left: none; border-right: none; border-top: none; }
 .tr-bnr .seps { margin-left: auto; font-family: var(--mono); font-size: 11.5px; }
 
-/* Смена отображения: стена затемнена, по центру полоска .boot-bar сплэша (стили в index.html),
-   нажатий стена не принимает, пока плееры не подняты;
-   z-index ниже шторки (30) и выше жестового слоя 360 (10) */
-.tr-switching {
-    position: absolute;
-    inset: 0;
-    z-index: 20;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(0, 0, 0, .72);
-}
+/* Пока стена меняет отображение, переключатели в планке и шторке не нажимаются */
 .tr-bar .icon-btn:disabled, .tr .row-item:disabled { opacity: .45; cursor: default; pointer-events: none; }
 
 .tr-body { flex: 1; min-height: 0; position: relative; display: flex; }

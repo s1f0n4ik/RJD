@@ -418,13 +418,6 @@ export default function TranslationScreen() {
                         onLoadChange={setLoad}
                         correctionLinks={correctionLinks}
                     />
-
-                    {switching && (
-                        <div className="tr-switching" role="status" aria-label="Переключение">
-                            {/* Та же полоска, что у сплэша приложения (index.html) */}
-                            <div className="boot-bar" />
-                        </div>
-                    )}
                     </>
                 )}
             </div>

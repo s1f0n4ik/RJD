@@ -6,7 +6,7 @@
  * страницы разбирает всё разом: смотреть уже некому.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { PlayerStats, PlayerStatus } from '../../components/webrtc/useWebRTCPlayer';
 import { Icon } from '../../app/Icons';
 import { CellPlayer } from './CellPlayer';
@@ -33,6 +33,7 @@ export interface WallLoad {
     done: number;
     total: number;
 }
+
 
 export interface WallProps {
     grid: Grid;
@@ -281,17 +282,64 @@ export function Wall({
 
     // ─── Раскрытие ячейки ───────────────────────────────────────
 
+    // Положение ячеек до раскрытия или сворачивания и сама ячейка, которая переезжает
+    const rectsBeforeRef = useRef<Map<string, DOMRect> | null>(null);
+    const movingRef = useRef<string | null>(null);
+
+    const rememberRects = (movingCell: string) => {
+        const rects = new Map<string, DOMRect>();
+        wallRef.current?.querySelectorAll<HTMLElement>('[data-cell]').forEach(el => {
+            rects.set(el.dataset.cell!, el.getBoundingClientRect());
+        });
+        rectsBeforeRef.current = rects;
+        movingRef.current = movingCell;
+    };
+
+    // Ячейка уже стоит на новом месте; transform возвращает её на прежнее и плавно снимается:
+    // кадр не перекладывается заново, переезд идёт на композиторе
+    useLayoutEffect(() => {
+        const before = rectsBeforeRef.current;
+        const id = movingRef.current;
+        rectsBeforeRef.current = null;
+        movingRef.current = null;
+        if (!before || !id || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+        const el = wallRef.current?.querySelector<HTMLElement>(`[data-cell="${id}"]`);
+        const first = before.get(id);
+        if (!el || !first) return;
+        const last = el.getBoundingClientRect();
+        if (!last.width || !last.height) return;
+
+        // Пока ячейка в пути, она поверх соседей, которые растворяются или проявляются
+        el.style.zIndex = '3';
+        const move = el.animate([
+            {
+                transformOrigin: '0 0',
+                transform: `translate(${first.left - last.left}px, ${first.top - last.top}px) scale(${first.width / last.width}, ${first.height / last.height})`,
+            },
+            { transformOrigin: '0 0', transform: 'none' },
+        ], { duration: 280, easing: 'cubic-bezier(.2,.8,.2,1)' });
+        const settle = () => { el.style.zIndex = ''; };
+        move.onfinish = settle;
+        move.oncancel = settle;
+    }, [expanded]);
+
     useEffect(() => {
         if (!expanded) return;
         const onKey = (event: KeyboardEvent) => {
-            if (event.key === 'Escape') setExpanded(null);
+            if (event.key !== 'Escape') return;
+            rememberRects(expanded);
+            setExpanded(null);
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
     }, [expanded]);
 
     // Кнопка ячейки и двойной клик — одно действие: раскрыть или свернуть
-    const toggleExpanded = (cellId: string) => setExpanded(prev => (prev === cellId ? null : cellId));
+    const toggleExpanded = (cellId: string) => {
+        rememberRects(cellId);
+        setExpanded(prev => (prev === cellId ? null : cellId));
+    };
 
     // ─── Перетаскивание ─────────────────────────────────────────
 
@@ -514,6 +562,13 @@ export function Wall({
                     );
                 })}
             </div>
+
+            {loading && (
+                <div className="wall-switching" role="status" aria-label="Переключение">
+                    {/* Та же полоска, что у сплэша приложения (index.html) */}
+                    <div className="boot-bar" />
+                </div>
+            )}
         </div>
     );
 }

@@ -22,7 +22,7 @@
     min-width: 0;
     min-height: 0;
     /* Выбор и снятие выбора идут одним переходом — рамка не мигает */
-    transition: border-color var(--t-fast) var(--ease-out),box-shadow var(--t-fast) var(--ease-out),background-color var(--t-fast) var(--ease-out);
+    transition: border-color var(--t-fast) var(--ease-out),box-shadow var(--t-fast) var(--ease-out),background-color var(--t-fast) var(--ease-out),opacity var(--t-mid) var(--ease-out);
 }
 
 .cell:hover { border-color: var(--line-hi); box-shadow: 0 0 0 1px rgba(var(--acc-rgb), .12); }
@@ -133,9 +133,31 @@
     .cell.is-free { animation: none; }
 }
 
-/* Раскрытие ячейки внутри страницы: соседи не разбираются, только скрыты */
-.wall.is-expanded .cell.is-hidden { display: none; }
-.wall.is-expanded .cell.is-solo { grid-area: 1 / 1 / -1 / -1 !important; }
+/* Смена отображения: поверх стены, по центру полоска .boot-bar сплэша (стили в index.html),
+   нажатий стена не принимает, пока плееры не подняты; z-index выше жестового слоя 360 (10),
+   ниже шторки трансляции (30). Фон сплошной: слабая плата (Mali) не рисует видео под
+   непрозрачным слоем, и смена не тормозит от десятков кадров, которых всё равно не видно */
+.wall-switching {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    animation: overlay-in var(--t-fast) var(--ease-out);
+}
+
+/* Раскрытие ячейки внутри страницы: соседи не разбираются, только скрыты. Они растворяются,
+   пока раскрытая ячейка растёт поверх них (Wall.tsx), и проявляются, когда она сворачивается;
+   скрытые не рисуются совсем, видео под ними не отнимает отрисовку */
+.wall.is-expanded .cell.is-hidden {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity var(--t-mid) var(--ease-out), visibility 0s linear var(--t-mid);
+}
+.wall.is-expanded .cell.is-solo { grid-area: 1 / 1 / -1 / -1 !important; z-index: 2; }
 
 .cell-msg { padding: 12px; font-size: 12px; color: var(--fg-3); line-height: 1.5; }
 .cell-msg b { display: block; color: var(--fg); font-size: 13px; margin-bottom: 3px; }
