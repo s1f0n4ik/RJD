@@ -66,7 +66,8 @@ def main() -> None:
         python, pip, nginx = os.urandom(300_000), os.urandom(200_000), os.urandom(100_000)
         app, signal = b"app code v1", b"signal code"
         first = {"minion": {"storage-service": [python, pip, app], "signaling-server": [python, signal]},
-                 "master": {"fastapi": [python, app], "frontend": [nginx, b"bundle v1"]}}
+                 "master": {"fastapi": [python, app], "frontend": [nginx, b"bundle v1"],
+                            "peripherals": [python, b"peripherals v1"]}}
         base_tag = "2026-11-06-0900-4f2c9e1"
         out_full = root / "full.tar"
         full = pack(*stage(root, base_tag, first, "v1"), base_tag, "", out_full)
@@ -84,13 +85,15 @@ def main() -> None:
         base_manifest = root / "base-manifest.json"
         base_manifest.write_text(json.dumps(full), encoding="utf-8")
         second = {"minion": {"storage-service": [python, pip, b"app code v2"], "signaling-server": [python, signal]},
-                  "master": {"fastapi": [python, b"app code v2"], "frontend": [nginx, b"bundle v1"]}}
+                  "master": {"fastapi": [python, b"app code v2"], "frontend": [nginx, b"bundle v1"],
+                             "peripherals": [python, b"peripherals v1"]}}
         tag = "2026-11-20-1430-a81b3f0"
         out_delta = root / "delta.tar"
         delta = pack(*stage(root, tag, second, "v2"), tag, str(base_manifest), out_delta)
         assert delta["base"] == base_tag
         changed = {c["name"]: c["changed"] for c in delta["components"]}
         assert changed == {"storage-service": True, "signaling-server": False, "fastapi": True, "frontend": False,
+                           "peripherals": False,
                            "media-center": False, "varan-updater": True}, changed
         shipped = {image["name"]: image["shipped"] for role in delta["images"].values() for image in role}
         new_app = f"sha256:{hashlib.sha256(b'app code v2').hexdigest()}"

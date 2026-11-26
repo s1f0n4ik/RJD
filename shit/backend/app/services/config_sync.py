@@ -10,6 +10,11 @@ from app.services.config_store import ConfigStore, digest, get_store
 from app.services.devices import registry
 
 logger = logging.getLogger(__name__)
+SERVICE_URLS = {
+    "gateway": lambda: settings.GATEWAY_URL,
+    "detection": lambda: settings.DETECTION_URL,
+    "peripherals": lambda: settings.PERIPHERALS_URL,
+}
 
 
 def executor_error(response: httpx.Response) -> str:
@@ -131,8 +136,11 @@ def build_service_packages(store: ConfigStore, profile_id: Optional[str] = None)
     offset = machine.get("tz_offset_min", 180)
     if type(offset) is not int or not -720 <= offset <= 840:
         raise ValueError("tz_offset_min must be an integer in -720..840")
-    source = {"gateway": {"active": active, "integrations": bodies.get("integration", {}), "time": {"tz_offset_min": offset}},
-              "detection": {"active": active, "rules": bodies.get("rules", {})}}
+    source = {
+        "gateway": {"active": active, "integrations": bodies.get("integration", {}), "time": {"tz_offset_min": offset}},
+        "detection": {"active": active, "rules": bodies.get("rules", {})},
+        "peripherals": {"active": active, "devices": bodies.get("peripheral", {})},
+    }
     return {name: {"revision": digest(body), **body} for name, body in source.items()}
 
 
@@ -178,7 +186,7 @@ class ConfigSync:
         if transition and transition["phase"] != "complete":
             return
         for name, package in build_service_packages(get_store()).items():
-            base = (settings.GATEWAY_URL if name == "gateway" else settings.DETECTION_URL).rstrip("/")
+            base = SERVICE_URLS[name]().rstrip("/")
             if name in self._inflight:
                 continue
             try:
@@ -228,13 +236,13 @@ class ConfigSync:
                 pushes.append(push)
         await asyncio.gather(*pushes)
         await self.push_services()
-        return [self._status[d] for d in (*packages, "gateway", "detection") if d in self._status]
+        return [self._status[d] for d in (*packages, *SERVICE_URLS) if d in self._status]
 
     # Отправка сразу после правки; ошибка — только у устройства на связи
     async def push_checked(self) -> Optional[str]:
         for status in await self.push_now():
             device = registry.snapshot_one(status["device_id"]) or {}
-            if status.get("state") == "error" and (status["device_id"] in ("gateway", "detection") or device.get("status") == "online"):
+            if status.get("state") == "error" and (status["device_id"] in SERVICE_URLS or device.get("status") == "online"):
                 return status.get("error") or "unknown error"
         return None
 

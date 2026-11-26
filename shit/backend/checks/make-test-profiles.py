@@ -20,7 +20,7 @@ sys.modules[spec.name] = protocol
 spec.loader.exec_module(protocol)
 
 # Файлы профилей из экспорта stand-102: node/python make-test-profiles.py <stand-102.varan> <папка вывода>
-RSM_ID, ISKRA_ID = "test-rsm-2000", "test-iskra"
+RSM_ID, ISKRA_ID, KGF_ID = "test-rsm-2000", "test-iskra", "test-kgf"
 
 
 def read_source(path: Path) -> tuple[dict, dict]:
@@ -94,6 +94,37 @@ def build_iskra(source: dict) -> dict:
     }
 
 
+def build_kgf(source: dict) -> dict:
+    entities = build_rsm(source, 1)
+    entities.pop(("integration", "rsm-2000"))
+    entities.pop(("rules", "rsm-2000"))
+    entities[("machine", "settings")] = {"active_integration": "kgf", "tz_offset_min": 180}
+    entities[("integration", "kgf")] = {"modules": {}}
+    serial = {
+        "port": "/dev/ttyUSB0", "baudrate": 9600, "bytesize": 8,
+        "parity": "N", "stopbits": 1, "timeout_ms": 1000,
+        "request_gap_ms": 50, "poll_interval_ms": 1000,
+    }
+    entities.update({
+        ("peripheral", "pyrometer-board"): {
+            **serial, "kind": "pyrometer_board", "name": "Плата пирометров",
+            "slave_id": 12, "start_register": 999,
+            "pair_targets": ["air", "left_rail", "ballast", "right_rail"],
+            "max_delta": 20,
+        },
+        ("peripheral", "trip-input"): {
+            **serial, "kind": "discrete", "name": "Дискретный модуль",
+            "slave_id": 11, "start_register": 999, "debounce_samples": 10,
+        },
+        ("peripheral", "kelvin-left"): {
+            **serial, "kind": "kelvin", "name": "Kelvin левый рельс",
+            "slave_id": 1, "object_target": "left_rail",
+            "ambient_target": "none", "emissivity": 0.95,
+        },
+    })
+    return entities
+
+
 def write(path: Path, profile_id: str, name: str, number: int, entities: dict, assets: dict) -> None:
     shas = _asset_shas(entities)
     doc = {
@@ -140,11 +171,18 @@ SOURCE_ASSETS.mkdir(exist_ok=True)
 with zipfile.ZipFile(source_file) as z:
     for sha in assets:
         (SOURCE_ASSETS / sha).write_bytes(z.read(f"assets/{sha}"))
-files = [output / "test-rsm-2000-v1.varan", output / "test-iskra-v1.varan", output / "test-rsm-2000-v2.varan", output / "test-rsm-2000-v3.varan"]
+files = [
+    output / "test-rsm-2000-v1.varan",
+    output / "test-iskra-v1.varan",
+    output / "test-rsm-2000-v2.varan",
+    output / "test-rsm-2000-v3.varan",
+    output / "test-kgf-v1.varan",
+]
 write(files[0], RSM_ID, "Тест РСМ-2000", 1, build_rsm(source, 1), assets)
 write(files[1], ISKRA_ID, "Тест Искра", 1, build_iskra(source), assets)
 write(files[2], RSM_ID, "Тест РСМ-2000", 2, build_rsm(source, 2), assets)
 write(files[3], RSM_ID, "Тест РСМ-2000", 3, build_rsm(source, 3), assets)
+write(files[4], KGF_ID, "Тест КГФ", 1, build_kgf(source), assets)
 verify(output, files)
 for path in SOURCE_ASSETS.iterdir():
     path.unlink()

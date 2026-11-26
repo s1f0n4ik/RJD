@@ -181,6 +181,9 @@ for ROLE in minion master; do
 
 	mapfile -t IMAGES < <(docker compose -f "$COMPOSE_FILE" config --images)
 	[[ ${#IMAGES[@]} -gt 0 ]] || die "в $COMPOSE_FILE не найдено ни одного сервиса"
+	if [[ "$ROLE" == "master" ]]; then
+		printf '%s\n' "${IMAGES[@]}" | grep -qx "varan/peripherals:$TAG" || die "master-стек не содержит образ peripherals"
+	fi
 	for img in "${IMAGES[@]}"; do
 		[[ "$img" == varan/* ]] || die "образ '$img': в $COMPOSE_FILE у каждого сервиса должен быть image: varan/<сервис>:\${TAG:-latest}"
 		[[ "$img" == *":$TAG" ]] || die "образ '$img' собран не с тегом $TAG"

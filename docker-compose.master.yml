@@ -132,6 +132,35 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # ========== Дополнительные модули КГФ ==========
+  # Один процесс владеет линиями RS-485 и сетевыми приборами. Наличие
+  # конкретных устройств определяется пакетом активного профиля.
+  peripherals:
+    image: varan/peripherals:${TAG:-latest}
+    build:
+      context: .
+      dockerfile: peripherals/Dockerfile
+    container_name: peripherals
+    network_mode: host
+    environment:
+      - APP_VERSION=${PERIPHERALS_VERSION:-0.1.0}
+      - GATEWAY_GRPC=127.0.0.1:50051
+    privileged: true
+    volumes:
+      - /dev:/dev
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8006/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   # ========== React Frontend ==========
   frontend:
     # FULL_AUTH запекается в образ на сборке, на устройстве не переключается.

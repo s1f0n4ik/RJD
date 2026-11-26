@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     GATEWAY_TIMEOUT: float = 3.0
     # Мастер обнаружений: правила, по которым он работает
     DETECTION_URL: str = "http://127.0.0.1:8003"
+    # Дополнительные модули: RS-485, пирометры и лидар на мастере
+    PERIPHERALS_URL: str = "http://127.0.0.1:8006"
 
     # Конфигурация машины: профили, паспорта и их файлы по sha256
     CONFIG_DB: str = "/data/config.db"

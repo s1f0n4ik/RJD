@@ -196,6 +196,24 @@ def _validate_passport_change(change: PassportChange, current: dict) -> None:
     elif change.kind == "binding":
         if not isinstance(body.get("device_id"), str):
             raise HTTPException(422, "Binding requires device_id")
+    elif change.kind == "peripheral":
+        kind = body.get("kind")
+        if not isinstance(kind, str) or not kind:
+            raise HTTPException(422, "Peripheral requires kind")
+        if kind in {"pyrometer_board", "kelvin", "discrete"}:
+            port = body.get("port")
+            if not isinstance(port, str) or not port.strip():
+                raise HTTPException(422, "Serial peripheral requires port")
+            if not number(body.get("baudrate", 9600), 300, 4000000, True):
+                raise HTTPException(422, "Peripheral baudrate must be an integer")
+            if not number(body.get("slave_id"), 1, 247, True):
+                raise HTTPException(422, "Peripheral slave_id must be in 1..247")
+        if kind == "kelvin":
+            if not number(body.get("emissivity", 0.95), 0.01, 1):
+                raise HTTPException(422, "Kelvin emissivity must be in 0.01..1.00")
+        if kind == "lakibeam":
+            if not number(body.get("port"), 1, 65535, True):
+                raise HTTPException(422, "LakiBeam port must be in 1..65535")
     elif change.kind != "rules":
         raise HTTPException(422, "Entity is edited in its module")
 

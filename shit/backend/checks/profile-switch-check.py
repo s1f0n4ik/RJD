@@ -39,10 +39,13 @@ ISKRA_CAMERAS = {"camera_3", "camera_1", "camera_4", "camera_5", "camera_6"}
 
 
 class Fake:
-    # Плата, шлюз и детекции по протоколу мастера: hold, /config, /runtime
+    # Плата и системные сервисы по протоколу мастера: hold, /config, /runtime
     def __init__(self):
         self.board = {"transition_id": "", "held": False, "modules": [], "available": ["cameras", "neural", "surround"], "applied": None, "assets": set(), "state": "running"}
-        self.services = {name: {"state": "running", "transition_id": "", "revision": "", "applied": None} for name in ("gateway", "detection")}
+        self.services = {
+            name: {"state": "running", "transition_id": "", "revision": "", "applied": None}
+            for name in ("gateway", "detection", "peripherals")
+        }
         self.down = False
         self.log = []
 
@@ -59,7 +62,7 @@ class Fake:
         self.log.append((port, method, path))
         if port == 7777:
             return self.handle_board(request, path, method, body)
-        name = "gateway" if port == 9090 else "detection"
+        name = {9090: "gateway", 8003: "detection", 8006: "peripherals"}[port]
         service = self.services[name]
         if path == "/runtime" and method == "GET":
             return httpx.Response(200, json={"data": {k: v for k, v in service.items() if k != "applied"}})
@@ -215,7 +218,9 @@ async def main():
             assert ("surround" in parts) == (target == ISKRA)
             assert fake.services["gateway"]["applied"]["active"] == integration and fake.services["gateway"]["applied"]["time"]["tz_offset_min"] == offset
             assert fake.services["detection"]["applied"]["active"] == integration
-            assert all(item["state"] == "running" for item in fake.services.values()) and fake.board["held"] is False
+            assert fake.services["gateway"]["state"] == fake.services["detection"]["state"] == "running"
+            assert fake.services["peripherals"]["state"] == "stopped"
+            assert fake.board["held"] is False
             status = (await call("GET", "/config/status")).json()
             assert status["transition"]["profile_id"] == target and status["transition"]["phase"] == "complete"
             assert fake.board["applied"]["revision"] == config_sync.build_packages(store)[BOARD]["package"]["revision"]

@@ -16,7 +16,7 @@ KINDS = (
     "place", "binding", "camera",
     "neural_config", "video_stream", "neural_slot", "tracker_defaults",
     "calibration", "correction_link", "preset", "projection", "surround_output",
-    "integration", "rules", "layout", "machine",
+    "integration", "rules", "layout", "machine", "peripheral",
 )
 # Виды, которые живут только в паспорте машины и не попадают в профиль
 PASSPORT_ONLY = ("binding",)

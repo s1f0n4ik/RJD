@@ -81,6 +81,9 @@ def main() -> None:
     before = {c["name"]: c.get("content") for c in (base or {}).get("components") or []}
     components = [{"name": image["name"].split("/", 1)[-1].rsplit(":", 1)[0], "role": role, "changed": not base or bool(image["shipped"])}
                   for role in ROLES for image in images[role]]
+    master_names = {component["name"] for component in components if component["role"] == "master"}
+    if "peripherals" not in master_names:
+        raise SystemExit("master update is missing the peripherals image")
     components += [{"name": name, "role": "minion" if name == "media-center" else "all", "changed": before.get(name) != content, "content": content}
                    for name, content in contents.items()]
 

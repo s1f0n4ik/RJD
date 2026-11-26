@@ -9,13 +9,14 @@ import httpx
 
 from app.config import settings
 from app.services.config_store import ConfigError, ConfigStore, get_store
-from app.services.config_sync import build_packages, build_service_packages, executor_error, sync
+from app.services.config_sync import SERVICE_URLS, build_packages, build_service_packages, executor_error, sync
 from app.services.devices import registry
 
 logger = logging.getLogger(__name__)
 BOARD_MODULES = {"cameras": "/camera", "neural": "/neural", "surround": "/linker"}
 # Сколько раз подряд повторять загрузку, которую исполнитель отверг
 MAX_LOAD_REJECTIONS = 3
+SYSTEM_SERVICES = frozenset(SERVICE_URLS)
 
 
 class LoadRejected(RuntimeError):
@@ -69,9 +70,10 @@ class ProfileLifecycle:
         for name, package in build_service_packages(store, profile_id).items():
             if package["active"] and package["active"] not in store.effective(profile_id)["entities"].get("integration", {}):
                 raise ConfigError(f"Active integration {package['active']} is missing")
-            base = settings.GATEWAY_URL if name == "gateway" else settings.DETECTION_URL
+            base = SERVICE_URLS[name]()
+            enabled = package["active"] == "kgf" if name == "peripherals" else bool(package["active"])
             result.append({"id": name, "base": base.rstrip("/"), "package": package,
-                           "modules": [name] if package["active"] else []})
+                           "modules": [name] if enabled else []})
         return result
 
     async def switch(self, profile_id: str, integration_id: str | None = None, edit: Callable[[], None] | None = None,
@@ -145,7 +147,7 @@ class ProfileLifecycle:
         return await self.switch(profile_id or current["profile_id"], expected_transition_id=transition_id)
 
     async def _command(self, state: dict, item: dict, action: str) -> None:
-        if item["id"] not in ("gateway", "detection"):
+        if item["id"] not in SYSTEM_SERVICES:
             await self._board_command(state, item, action)
             return
         body = {"transition_id": state["id"], "action": action, "modules": item["modules"],
@@ -236,7 +238,7 @@ class ProfileLifecycle:
             response = await self.client.put(item["base"] + "/config", json=body)
         if response.is_error:
             raise LoadRejected(f"{item['id']} loading: {executor_error(response)}")
-        service = item["id"] in ("gateway", "detection")
+        service = item["id"] in SYSTEM_SERVICES
         confirmed = await self.client.get(item["base"] + ("/runtime" if service else "/config/hold"))
         confirmed.raise_for_status()
         result = confirmed.json().get("data", confirmed.json())
@@ -280,7 +282,7 @@ class ProfileLifecycle:
                     state["phase"] = "starting"
                     self._save(state)
                 if state["phase"] == "starting":
-                    order = {"gateway": 0, "detection": 1}
+                    order = {"gateway": 0, "detection": 1, "peripherals": 2}
                     for item in sorted(state["participants"], key=lambda item: order.get(item["id"], 2)):
                         if not item["started"]:
                             if item["modules"]:

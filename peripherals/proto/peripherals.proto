@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+package varan.peripherals.rpc;
+
+service Peripherals {
+  rpc Describe(DescribeRequest) returns (DescribeReply);
+  rpc Subscribe(SubscribeRequest) returns (stream ChannelValue);
+  rpc Events(EventsRequest) returns (stream Event);
+  rpc Status(StatusRequest) returns (StatusReply);
+}
+
+enum ChannelType {
+  CHANNEL_TYPE_UNSPECIFIED = 0;
+  CHANNEL_NUMBER = 1;
+  CHANNEL_ARRAY = 2;
+  CHANNEL_SCAN = 3;
+  CHANNEL_BOOLEAN = 4;
+}
+
+message Channel {
+  string id = 1;
+  string name = 2;
+  string unit = 3;
+  ChannelType type = 4;
+  double frequency_hz = 5;
+}
+
+message Device {
+  string id = 1;
+  string kind = 2;
+  string name = 3;
+  string state = 4;
+  string message = 5;
+  repeated Channel channels = 6;
+}
+
+message DescribeRequest {}
+message DescribeReply { repeated Device devices = 1; }
+message SubscribeRequest { repeated string channel_ids = 1; }
+message ChannelValue {
+  string device_id = 1;
+  string channel_id = 2;
+  string json_value = 3;
+  int64 unix_ms = 4;
+  uint64 sequence = 5;
+}
+message EventsRequest {}
+message Event {
+  string device_id = 1;
+  string kind = 2;
+  string json_payload = 3;
+  int64 unix_ms = 4;
+}
+message StatusRequest {}
+message StatusReply {
+  string state = 1;
+  string revision = 2;
+  uint32 devices = 3;
+}

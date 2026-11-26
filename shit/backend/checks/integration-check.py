@@ -33,13 +33,17 @@ async def main():
     atexit.register(store.close)
     entities = {("machine", "settings"): {"active_integration": "rsm-2000"},
                 ("integration", "rsm-2000"): {"modules": {"can": {"enabled": False, "tx_detections": {"pgn": 10, "addr": 20}}}},
-                ("integration", "iskra"): {"modules": {"modbus": {"enabled": False}}}}
+                ("integration", "iskra"): {"modules": {"modbus": {"enabled": False}}},
+                ("integration", "kgf"): {"modules": {"modbus": {"enabled": False}}},
+                ("peripheral", "pyrometers"): {
+                    "kind": "pyrometer_board", "port": "/dev/ttyUSB0", "slave_id": 12,
+                }}
     store.create_version("stand", "stand", entities)
     store.set_active("stand")
     broken = check_refs({"integration": {"rsm-2000": {}}, "rules": {"rsm-2000": {
         "table": {"models": {"missing-model": {}}, "cameras": {"missing-camera": 1}}}}})
     assert {entry["ref"] for entry in broken} == {"camera/missing-camera", "neural_config/missing-model"}
-    live = {name: {"transition_id": "", "state": "running", "revision": ""} for name in ("gateway", "detection")}
+    live = {name: {"transition_id": "", "state": "running", "revision": ""} for name in ("gateway", "detection", "peripherals")}
     received, calls = {}, []
     failures = set()
     defaults = {"rsm-2000": {"modules": {"websocket": {"enabled": False, "host": "localhost", "port": "80", "target": "/", "heartbeat_sec": 5, "heartbeat_enabled": True},
@@ -50,7 +54,7 @@ async def main():
                                                     "messages": [{"key": "tx_detections"}]}]}
 
     def handler(request):
-        name = "gateway" if request.url.port == 9090 else "detection"
+        name = {9090: "gateway", 8003: "detection", 8006: "peripherals"}[request.url.port]
         body = json.loads(request.content) if request.content else {}
         path = request.url.path
         calls.append((name, request.method, path))
@@ -97,9 +101,9 @@ async def main():
          patch.object(machine_config, "get_store", lambda: store), patch.object(machine_config, "lifecycle", lifecycle), \
          patch.object(configurations.httpx, "AsyncClient", lambda **kwargs: client_type(transport=transport)):
         await sync.push_services()
-        assert len([x for x in calls if x[2] == "/config"]) == 2
+        assert len([x for x in calls if x[2] == "/config"]) == 3
         await sync.push_services()
-        assert len([x for x in calls if x[2] == "/config"]) == 2
+        assert len([x for x in calls if x[2] == "/config"]) == 3
         before = store.passport("stand")
         for fn, args in ((configurations.put_gateway_module, ("can", {"bad": True})),
                          (configurations.put_configuration_rules, ("rsm-2000", {"bad": True}))):
@@ -130,7 +134,9 @@ async def main():
         assert result["transition"]["phase"] == "complete" and result["active"] == "iskra"
         assert all(item["active"] == "iskra" for item in received.values())
         assert received["gateway"]["transition_id"] == received["detection"]["transition_id"]
-        assert all(state["state"] == "running" for state in live.values())
+        assert live["gateway"]["state"] == live["detection"]["state"] == "running"
+        assert live["peripherals"]["state"] == "stopped"
+        assert received["peripherals"]["devices"]["pyrometers"]["kind"] == "pyrometer_board"
         package = build_service_packages(store)["gateway"]
         assert received["gateway"]["revision"] == package["revision"]
         polling, release = asyncio.Event(), asyncio.Event()
@@ -152,6 +158,11 @@ async def main():
         assert len([call for call in calls if call[2] == "/config"]) == before
         await lifecycle.advance()
         assert lifecycle.status()["phase"] == "complete"
+        await configurations.select_configuration(configurations.SelectRequest(id="kgf"))
+        await lifecycle.advance()
+        assert lifecycle.status()["phase"] == "complete"
+        assert live["peripherals"]["state"] == "running"
+        assert received["peripherals"]["active"] == "kgf"
         failures.add("detection")
         await configurations.select_configuration(configurations.SelectRequest(id="rsm-2000"))
         await lifecycle.advance()
