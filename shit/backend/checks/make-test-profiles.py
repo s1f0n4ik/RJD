@@ -116,6 +116,7 @@ def build_kgf(source: dict) -> dict:
             **serial, "kind": "pyrometer_board", "name": "Плата пирометров", "baudrate": 19200,
             "slave_id": 12, "start_register": 999,
             "alternate_start_register": 1000, "segmented_reads": True,
+            "poll_interval_ms": 5000, "request_gap_ms": 200,
             "pair_targets": ["air", "left_rail", "ballast", "right_rail"],
             "max_delta": 20,
         },

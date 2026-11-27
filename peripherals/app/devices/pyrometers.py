@@ -97,7 +97,11 @@ class PyrometerBoardDriver(PollingModbusDriver):
                     self._working_read = None
                 mode = "по одному" if segmented else "пакетом"
                 errors.append(f"{start} {mode}: {error}")
-        raise OSError("Плата пирометров не ответила; " + "; ".join(errors))
+        raise OSError(
+            "Плата пирометров не отвечает "
+            f"(19200 8N1, ID {self.slave_id}, регистры {'/'.join(map(str, self.register_candidates))}); "
+            f"последняя ошибка: {errors[-1]}"
+        )
 
     async def _read_board(self, start: int, segmented: bool) -> list[int]:
         if not segmented:
