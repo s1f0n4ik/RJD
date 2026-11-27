@@ -28,9 +28,24 @@ PUBLISH='/var/lib/varan/settings/test-reports'
 SSH=['ssh','-o','BatchMode=yes','-o','ConnectTimeout=8','-o','ServerAliveInterval=10','-o','ServerAliveCountMax=2','orangepi-mc']
 
 
+TOKEN={}
+
+
+def backend_token():
+    # Токен администратора FastAPI выпускает сам контейнер fastapi на секрете машины; живёт 30 минут, обновляется через 25
+    if TOKEN.get('until',0)<time.monotonic():
+        script='from datetime import timedelta;from app.services.auth import create_access_token;print(create_access_token({"sub": "admin", "role": "admin"}, timedelta(minutes=30)))'
+        result=subprocess.run(SSH+['docker exec fastapi python -c '+shlex.quote(script)],capture_output=True,timeout=60)
+        if result.returncode or not result.stdout.split():
+            raise RuntimeError('Cannot issue backend token: '+result.stderr.decode(errors='replace')[-300:])
+        TOKEN.update(value=result.stdout.decode().split()[-1],until=time.monotonic()+25*60)
+    return TOKEN['value']
+
+
 def request(method,path,body=None,base=BASE,timeout=180,content_type='application/json'):
     data=body if isinstance(body,bytes) else None if body is None else json.dumps(body).encode()
-    req=urllib.request.Request(base+path,data=data,method=method,headers={'Content-Type':content_type})
+    headers={'Content-Type':content_type,**({'Authorization':'Bearer '+backend_token()} if base==BASE else {})}
+    req=urllib.request.Request(base+path,data=data,method=method,headers=headers)
     try:
         with urllib.request.urlopen(req,timeout=timeout) as response:
             result=json.load(response)

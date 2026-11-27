@@ -247,6 +247,15 @@ def can(payload):
             subprocess.run(['ip', 'link', 'del', interface], capture_output=True, timeout=10)
 
 
+def backend_token():
+    # Токен администратора FastAPI выпускает сам контейнер fastapi на секрете машины
+    script = 'from datetime import timedelta;from app.services.auth import create_access_token;print(create_access_token({"sub": "admin", "role": "admin"}, timedelta(minutes=30)))'
+    result = subprocess.run(['docker', 'exec', 'fastapi', 'python', '-c', script], capture_output=True, timeout=30)
+    if result.returncode or not result.stdout.split():
+        raise RuntimeError('Cannot issue backend token')
+    return {'token': result.stdout.decode().split()[-1]}
+
+
 def main():
     payload = json.loads(sys.stdin.buffer.readline())
     operation, config = payload['operation'], payload['config']
@@ -266,6 +275,8 @@ def main():
         result = stop(config, payload['expected'])
     elif operation == 'derived':
         result = derived(config)
+    elif operation == 'token':
+        result = backend_token()
     elif operation == 'recording':
         result = recording(config, payload)
     elif operation == 'restart':

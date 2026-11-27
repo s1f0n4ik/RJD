@@ -12,6 +12,8 @@ BACKUP="${FAKE_BACKUP:-$HOME/devices.json.bak-fake}"
 
 ip_of() { docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$NAME"; }
 registry() { docker exec fastapi cat /data/devices.json; }
+# Токен администратора FastAPI выпускает сам контейнер fastapi на секрете машины
+token() { docker exec fastapi python -c 'from datetime import timedelta;from app.services.auth import create_access_token;print(create_access_token({"sub": "admin", "role": "admin"}, timedelta(minutes=10)))'; }
 
 case "${1:-}" in
     start)
@@ -28,7 +30,7 @@ case "${1:-}" in
             if [ -n "$IP" ] && curl -sf -m 1 "http://$IP:7777/system/info" >/dev/null; then break; fi
             sleep 0.5
         done
-        curl -sf -m 5 -X POST "$API/devices" -H 'Content-Type: application/json' \
+        curl -sf -m 5 -X POST "$API/devices" -H 'Content-Type: application/json' -H "Authorization: Bearer $(token)" \
             -d "{\"id\":\"$ID\",\"ip\":\"$IP\",\"name\":\"$TITLE\",\"modules\":[\"neural\"]}" >/dev/null
         echo "$ID registered at $IP, registry backup: $BACKUP"
         ;;
@@ -50,7 +52,7 @@ case "${1:-}" in
         echo "$ID resumed"
         ;;
     stop)
-        curl -s -m 5 -X DELETE "$API/devices/$ID" >/dev/null || true
+        curl -s -m 5 -X DELETE "$API/devices/$ID" -H "Authorization: Bearer $(token)" >/dev/null || true
         docker rm -f "$NAME" >/dev/null 2>&1 || true
         if [ -f "$BACKUP" ] && registry | diff -q - "$BACKUP" >/dev/null; then
             echo "registry matches $BACKUP"

@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Optional
 
 from app import package
-from app.common import Config, StepError, fmt_size, read_json, release_key, release_label, write_json
+from app.common import Config, StepError, backend_token, fmt_size, read_json, release_key, release_label, write_json
 from app.web import Cancelled, HttpError, Request, Routes, Unreachable, call, put_file
 
 logger = logging.getLogger(__name__)
@@ -159,9 +159,14 @@ class Master:
                 "base": base, "base_label": release_label(base) if base else None, "kind": "delta" if base else "full",
                 "changed": sum(1 for c in components if c.get("changed")), "total": len(components)}
 
+    def _backend_headers(self) -> dict:
+        # Служебный вызов FastAPI мимо nginx: токен администратора, без секрета — без заголовка
+        token = backend_token(self.cfg.auth_secret_file())
+        return {"Authorization": f"Bearer {token}"} if token else {}
+
     def _transition(self) -> Optional[dict]:
         try:
-            status = call("GET", self.cfg.fastapi_url + "/api/config/status", timeout=3)
+            status = call("GET", self.cfg.fastapi_url + "/api/config/status", timeout=3, headers=self._backend_headers())
         except (Unreachable, HttpError):
             return _check("err", "Мастер не отвечает", "Не удалось проверить, идёт ли смена профиля.")
         transition = status.get("transition") or {}
@@ -603,7 +608,7 @@ class Master:
     def _config_problem(self) -> Optional[str]:
         # Применение конфигурации мастера: снимок запуска без смены профиля и без сбоев уровня платы
         try:
-            snapshot = call("GET", self.cfg.fastapi_url + "/api/config/runtime", timeout=15)
+            snapshot = call("GET", self.cfg.fastapi_url + "/api/config/runtime", timeout=15, headers=self._backend_headers())
         except (Unreachable, HttpError):
             return f"мастер не ответил за {_minutes(self.cfg.health_timeout)}"
         transition = snapshot.get("transition") or {}

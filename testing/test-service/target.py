@@ -56,10 +56,26 @@ class Target:
     def __init__(self, config, root):
         self.config = config
         self.root = root
+        self.token = None
+        self.token_until = 0
+
+    async def backend_headers(self):
+        # Токен администратора FastAPI цели живёт 30 минут и обновляется через 25; без токена запрос уходит как раньше
+        if time.monotonic() > self.token_until:
+            try:
+                self.token = (await self.rpc('token', timeout=40))['token']
+                self.token_until = time.monotonic()+25*60
+            except Exception:
+                self.token, self.token_until = None, time.monotonic()+60
+        return {'Authorization': 'Bearer '+self.token} if self.token else {}
 
     async def request(self, service, method, path, body=None, **kwargs):
+        if service == 'api':
+            kwargs['headers'] = {**kwargs.get('headers', {}), **(await self.backend_headers())}
         async with httpx.AsyncClient(timeout=kwargs.pop('timeout', 30), trust_env=False) as client:
             response = await client.request(method, getattr(self.config, service)+path, json=body, **kwargs)
+        if response.status_code == 401 and service == 'api':
+            self.token, self.token_until = None, 0
         if response.is_error:
             try:
                 value = response.json()

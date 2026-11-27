@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -47,8 +50,30 @@ class Config:
         return f"http://{'127.0.0.1' if local else ip}:{self.minion_port}"
 
     def devices_file(self) -> Path:
+        return self.settings_dir() / "devices.json"
+
+    def auth_secret_file(self) -> Path:
+        return self.settings_dir() / "auth-secret"
+
+    def settings_dir(self) -> Path:
         root = read_env(self.role_dir("master") / ".env", "VARAN_ROOT") or "/var/lib/varan"
-        return Path(root) / "settings" / "devices.json"
+        return Path(root) / "settings"
+
+
+def backend_token(secret_file: Path, ttl: float = 600) -> Optional[str]:
+    # Токен администратора FastAPI мастера: JWT HS256 на секрете машины; нет секрета — None
+    try:
+        secret = secret_file.read_bytes()
+    except OSError:
+        return None
+
+    def part(raw: bytes) -> str:
+        return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+    header = part(json.dumps({"alg": "HS256", "typ": "JWT"}).encode())
+    claims = part(json.dumps({"sub": "admin", "role": "admin", "exp": int(time.time() + ttl)}).encode())
+    signed = f"{header}.{claims}"
+    return f"{signed}.{part(hmac.new(secret, signed.encode('ascii'), hashlib.sha256).digest())}"
 
 
 def read_text(path: Path) -> str:

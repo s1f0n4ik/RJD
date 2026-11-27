@@ -123,9 +123,9 @@ def _error_text(body: bytes) -> str:
         return body.decode("utf-8", "replace")[:300]
 
 
-def call(method: str, url: str, body: dict | None = None, timeout: float = 5) -> dict:
+def call(method: str, url: str, body: dict | None = None, timeout: float = 5, headers: dict | None = None) -> dict:
     data = None if body is None else json.dumps(body).encode("utf-8")
-    request = urllib.request.Request(url, data=data, method=method)
+    request = urllib.request.Request(url, data=data, method=method, headers=headers or {})
     if data is not None:
         request.add_header("Content-Type", "application/json")
     try:
