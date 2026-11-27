@@ -154,7 +154,7 @@ function LidarScanCard({ channel, value, now }: { channel: PeripheralChannel; va
                     </g>
                     {path && <path className="kgf-scan-line" d={path} />}
                     {pointCloud && <path className="kgf-scan-points" d={pointCloud} />}
-                    <path className="kgf-scan-origin" d="M-.035 .035L0-.055L.035 .035Z" />
+                    <path className="kgf-scan-origin" d="M-.035 -.035L0 .055L.035 -.035Z" />
                 </svg>
                 <span className="kgf-scan-scale">радиус до {(scale / 1000).toLocaleString('ru-RU')} м</span>
             </div>
