@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     # Мастер обнаружений: правила, по которым он работает
     DETECTION_URL: str = "http://127.0.0.1:8003"
 
+    # Секрет подписи токенов входа: свой на каждой машине, создаётся при первом старте
+    AUTH_SECRET_FILE: str = "/data/auth-secret"
+
     # Конфигурация машины: профили, паспорта и их файлы по sha256
     CONFIG_DB: str = "/data/config.db"
     CONFIG_ASSETS_DIR: str = "/data/assets"

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
@@ -9,7 +9,8 @@ from app.routers import loaders, status, streams, auth, layouts, devices, device
 from app.routers import time as time_router
 from app.routers import tests as tests_router
 from app.routers import system_update as system_update_router
-from app.services import system_update
+from app.services import access, system_update
+from app.services.auth import load_secret
 from app.services.websocket_manager import manager, websocket_endpoint
 from app.services.devices import registry
 from app.services.config_sync import sync as config_sync
@@ -28,6 +29,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Lifecycle events"""
     logger.info(f"🚀 Starting {settings.APP_NAME}")
+    load_secret()
     registry.add_listener(config_sync.on_polled)
     registry.start_polling()
     config_sync.start()
@@ -51,7 +53,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -84,8 +86,15 @@ app.include_router(auth.router, prefix="/auth", tags=["Auth"])
 app.include_router(streams.router, tags=["Streams"])
 #app.include_router(recordings.router, prefix="/api", tags=["Recordings"])
 
-# WebSocket endpoint
-app.add_websocket_route("/ws", websocket_endpoint)
+# WebSocket endpoint: класс «публичный», отказ до рукопожатия
+async def public_websocket(websocket: WebSocket):
+    code = access.check(websocket, access.Access.PUBLIC)
+    if code:
+        await websocket.close(code=4000 + code)
+        return
+    await websocket_endpoint(websocket)
+
+app.add_websocket_route("/ws", public_websocket)
 
 @app.get("/", tags=["Health"])
 async def root():

@@ -4,12 +4,13 @@ import logging
 
 from app.services import flask_client
 from app.services.flask_client import FlaskClientError
+from app.services.access import ADMIN, PUBLIC
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-@router.get("/status/system")
+@router.get("/status/system", dependencies=PUBLIC)
 async def get_system_status() -> Dict[str, Any]:
     """Получить общий статус системы"""
     try:
@@ -37,7 +38,7 @@ async def get_system_status() -> Dict[str, Any]:
         )
 
 
-@router.get("/status/endpoints")
+@router.get("/status/endpoints", dependencies=ADMIN)
 async def get_available_endpoints():
     """Получить доступные MJPEG endpoints"""
     from app.config import settings

@@ -90,9 +90,13 @@ async function refresh() {
     selected = picked ? await get<Run>('runs/' + encodeURIComponent(picked)) : undefined;
     render();
     if (result.unreadable) document.querySelector('#tr-main')!.insertAdjacentHTML('afterbegin', `<p class="tr-warning">Не удалось прочитать отчётов: ${result.unreadable}</p>`);
-  } catch {
+  } catch (error) {
     if (!document.querySelector('#tr-main')) render();
-    document.querySelector('#tr-main')!.innerHTML = '<section class="tr-panel tr-empty"><h2>Отчёты недоступны</h2><p>Проверьте связь с сервером. Обновление повторится автоматически.</p></section>';
+    // 401 и 403: отчёты открываются после входа администратора в приложение
+    const denied = /HTTP 40[13]/.test(String(error));
+    document.querySelector('#tr-main')!.innerHTML = denied
+      ? '<section class="tr-panel tr-empty"><h2>Нужен вход администратора</h2><p>Войдите администратором в <a href="/app">приложение</a> в этом браузере, затем обновите страницу.</p></section>'
+      : '<section class="tr-panel tr-empty"><h2>Отчёты недоступны</h2><p>Проверьте связь с сервером. Обновление повторится автоматически.</p></section>';
   } finally { busy = false; }
 }
 

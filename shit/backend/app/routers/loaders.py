@@ -12,8 +12,9 @@ from app.models.loader import (
 )
 from app.services import flask_client
 from app.services.flask_client import FlaskClientError
+from app.services.access import ADMIN
 
-router = APIRouter()
+router = APIRouter(dependencies=ADMIN)
 logger = logging.getLogger(__name__)
 
 

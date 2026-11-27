@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, status
 from app.config import settings
 from app.services.config_store import ConfigError, get_store
 from app.services.config_sync import build_service_packages, sync
+from app.services.access import ADMIN, PUBLIC
 from pydantic import BaseModel, Field, StrictInt
 
 router = APIRouter()
@@ -21,7 +22,7 @@ class TimeZone(BaseModel):
     profile_id: str
 
 
-@router.put("/time/config")
+@router.put("/time/config", dependencies=ADMIN)
 async def set_time_zone(body: TimeZone) -> dict:
     store = get_store()
     try:
@@ -45,7 +46,7 @@ async def set_time_zone(body: TimeZone) -> dict:
     return {"saved": True, "applied": applied, "tz_offset_min": body.tz_offset_min}
 
 
-@router.get("/time")
+@router.get("/time", dependencies=PUBLIC)
 async def get_time() -> dict:
     """Снимок шлюза: unix_ms (в поясе), tz_offset_min, gps, source."""
     url = f"{settings.GATEWAY_URL.rstrip('/')}/time"

@@ -11,6 +11,15 @@ from unittest.mock import patch
 os.environ["DEBUG"] = "false"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+os.environ.setdefault("AUTH_SECRET_FILE", str(Path(tempfile.gettempdir()) / "rjd-check-auth-secret"))
+
+
+# Заголовок входа администратора: защищённые маршруты пропускают только его
+def admin_headers() -> dict:
+    from app.services.auth import create_access_token
+    return {"Authorization": "Bearer " + create_access_token({"sub": "admin", "role": "admin"})}
+
+
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
@@ -83,7 +92,7 @@ with tempfile.TemporaryDirectory(prefix="library-workspace-check-") as folder, E
 
     app = FastAPI()
     app.include_router(machine_config.router, prefix="/api")
-    with patch.object(machine_config, "get_store", lambda: store), patch.object(machine_config, "sync", sync), patch.object(machine_config, "_master", master), patch.object(machine_config.lifecycle, "status", store.profile_transition), TestClient(app) as client:
+    with patch.object(machine_config, "get_store", lambda: store), patch.object(machine_config, "sync", sync), patch.object(machine_config, "_master", master), patch.object(machine_config.lifecycle, "status", store.profile_transition), TestClient(app, headers=admin_headers()) as client:
         def workspace(profile="profile-a"):
             response = client.get(f"/api/config/profiles/{profile}/workspace")
             assert response.status_code == 200, response.text

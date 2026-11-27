@@ -8,6 +8,15 @@ from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+os.environ.setdefault("AUTH_SECRET_FILE", str(Path(tempfile.gettempdir()) / "rjd-check-auth-secret"))
+
+
+# Заголовок входа администратора: защищённые маршруты пропускают только его
+def admin_headers() -> dict:
+    from app.services.auth import create_access_token
+    return {"Authorization": "Bearer " + create_access_token({"sub": "admin", "role": "admin"})}
+
 TMP = tempfile.mkdtemp(prefix="config-check-")
 os.environ["CONFIG_DB"] = f"{TMP}/api/config.db"
 os.environ["CONFIG_ASSETS_DIR"] = f"{TMP}/api/assets"
@@ -208,7 +217,7 @@ def neural_check(backup: Path) -> None:
     registry._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     app = FastAPI()
     app.include_router(neural_config.router, prefix="/api")
-    client = TestClient(app)
+    client = TestClient(app, headers=admin_headers())
     q = f"device={device_id}"
 
     assert client.post(f"/api/neural/models?filename=x.bin&{q}", content=b"x").status_code == 400
@@ -284,7 +293,7 @@ def cameras_check(backup: Path) -> None:
     config_sync.sync._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     app = FastAPI()
     app.include_router(devices_router.router, prefix="/api")
-    client = TestClient(app)
+    client = TestClient(app, headers=admin_headers())
     stream = {"channel": 1, "substream": 1, "purposes": ["view", "record"], "latency": 200,
               "use_udp": False, "reconnect": 5, "record_path": "/storage/x", "segment": 60}
     camera = {"id": "camera_new", "display_name": "Новая", "description": "", "ip_adress": "10.1.1.1",
@@ -381,7 +390,7 @@ def api_check(backup: Path, expected_hash: str) -> None:
 
     app = FastAPI()
     app.include_router(machine_config.router, prefix="/api")
-    client = TestClient(app)
+    client = TestClient(app, headers=admin_headers())
     with open(backup, "rb") as f:
         r = client.post("/api/config/import", files={"files": (backup.name, f)},
                         data={"profile_id": "stand-102", "name": "Стенд .102"})

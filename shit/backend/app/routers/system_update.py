@@ -4,15 +4,14 @@ import logging
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from app.services import system_update
-from app.services.auth import require_admin
+from app.services.access import ADMIN, PUBLIC
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-admin = [Depends(require_admin)]
 
 
 class StartUpdate(BaseModel):
@@ -37,19 +36,19 @@ async def _call(method: str, path: str, **kwargs) -> dict:
     return _reply(response)
 
 
-@router.get("/update/lock")
+@router.get("/update/lock", dependencies=PUBLIC)
 async def update_lock():
     """Идёт ли обновление и в какой фазе: для плашки в верхней панели."""
     return await system_update.lock_state()
 
 
-@router.get("/update/state", dependencies=admin)
+@router.get("/update/state", dependencies=ADMIN)
 async def update_state():
     """Платы, версии, загруженный файл, проверки перед запуском и ход обновления."""
     return await _call("GET", "/state", timeout=httpx.Timeout(30, connect=2))
 
 
-@router.put("/update/file", dependencies=admin)
+@router.put("/update/file", dependencies=ADMIN)
 async def upload_file(request: Request):
     """Файл обновления: тело идёт потоком в службу обновления и в памяти не держится."""
     length = request.headers.get("content-length")
@@ -60,27 +59,27 @@ async def upload_file(request: Request):
     return await _call("PUT", "/file", content=request.stream(), headers=headers, timeout=httpx.Timeout(900, connect=2))
 
 
-@router.delete("/update/file", dependencies=admin)
+@router.delete("/update/file", dependencies=ADMIN)
 async def remove_file():
     return await _call("DELETE", "/file")
 
 
-@router.post("/update/start", dependencies=admin)
+@router.post("/update/start", dependencies=ADMIN)
 async def start_update(body: StartUpdate):
     return await _call("POST", "/start", json=body.model_dump(), timeout=httpx.Timeout(30, connect=2))
 
 
-@router.post("/update/cancel", dependencies=admin)
+@router.post("/update/cancel", dependencies=ADMIN)
 async def cancel_update():
     return await _call("POST", "/cancel", json={})
 
 
-@router.post("/update/revert", dependencies=admin)
+@router.post("/update/revert", dependencies=ADMIN)
 async def revert_update():
     """Вернуть предыдущую версию: файл не нужен, прежняя версия хранится на платах."""
     return await _call("POST", "/revert", json={}, timeout=httpx.Timeout(30, connect=2))
 
 
-@router.get("/update/board-log", dependencies=admin)
+@router.get("/update/board-log", dependencies=ADMIN)
 async def board_log(id: Optional[str] = Query(None)):
     return await _call("GET", "/board-log", params={"id": id or ""})

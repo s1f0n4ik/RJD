@@ -7,8 +7,9 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
 from app.config import settings
+from app.services.access import ADMIN
 
-router = APIRouter(prefix="/tests", tags=["Tests"])
+router = APIRouter(prefix="/tests", tags=["Tests"], dependencies=ADMIN)
 
 
 def reports_root() -> Path:

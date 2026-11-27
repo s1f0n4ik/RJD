@@ -8,7 +8,13 @@ import { Bootstrap } from './app/Bootstrap';
 import { TipLayer } from './app/TipLayer';
 import { OnScreenKeyboard } from './app/OnScreenKeyboard';
 import { LoginScreen } from './screens/login/LoginScreen';
-import { FULL_AUTH, readStoredToken } from './utils/auth';
+import { notify, ToastProvider } from './app/Toast';
+import {
+    FULL_AUTH, SESSION_LOST, clearStoredSession, loadAuthPolicy, readStoredToken, watchAuthResponses, type AuthPolicy,
+} from './utils/auth';
+
+// Правка без прав администратора: один тост на любом экране
+watchAuthResponses(() => notify('Нужен вход администратора', '', 'err'));
 
 // Оболочка и эфир — разные чанки: на изделии автозапуск открывает только эфир
 const NewApp = lazy(() => import('./app/NewApp'));
@@ -61,6 +67,32 @@ const bootVeil = (
 function Entry() {
     const { pathname, search, hash } = window.location;
     const [token, setToken] = useState<string | null>(readStoredToken());
+    const [policy, setPolicy] = useState<AuthPolicy | null>(null);
+    // Номер сессии: при её потере оболочка монтируется заново и показывает вход
+    const [session, setSession] = useState(0);
+
+    useEffect(() => {
+        let alive = true;
+        loadAuthPolicy().then(value => { if (alive) setPolicy(value); });
+        const lost = () => {
+            clearStoredSession();
+            setToken(null);
+            setSession(n => n + 1);
+        };
+        window.addEventListener(SESSION_LOST, lost);
+        return () => {
+            alive = false;
+            window.removeEventListener(SESSION_LOST, lost);
+        };
+    }, []);
+
+    // Защищённая сборка или удалённый вход: логин требуется до любого маршрута, включая / и /translation
+    const loginFirst = !!policy && (FULL_AUTH || policy.login_required) && !token;
+
+    // Снимает сплэш index.html под экраном входа
+    useEffect(() => {
+        if (loginFirst) document.getElementById('boot')?.remove();
+    }, [loginFirst]);
 
     // Прежние адреса: /new — оболочка до переезда, /kiosk — эфир до переименования
     if (pathname.startsWith('/new')) {
@@ -72,8 +104,9 @@ function Entry() {
         return null;
     }
 
-    // Защищённая сборка: логин требуется до любого маршрута, включая / и /translation
-    if (FULL_AUTH && !token) {
+    if (!policy) return bootVeil;
+
+    if (loginFirst) {
         return (
             <>
                 <LoginScreen
@@ -88,6 +121,19 @@ function Entry() {
             </>
         );
     }
+
+    // Реестр устройств загружается после входа
+    return (
+        <Bootstrap>
+            <Screens session={session} />
+            <TipLayer />
+        </Bootstrap>
+    );
+}
+
+// Экран по адресу; session пересоздаёт оболочку после потери сессии
+function Screens({ session }: { session: number }) {
+    const { pathname } = window.location;
 
     if (pathname.startsWith('/translation')) {
         return (
@@ -108,7 +154,7 @@ function Entry() {
     if (pathname.startsWith('/app')) {
         return (
             <Suspense fallback={bootVeil}>
-                <NewApp />
+                <NewApp key={session} />
             </Suspense>
         );
     }
@@ -119,12 +165,10 @@ function Entry() {
     return null;
 }
 
-// Реестр устройств грузит Bootstrap: монтирование его больше не ждёт
 ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
-        <Bootstrap>
+        <ToastProvider>
             <Entry />
-            <TipLayer />
-        </Bootstrap>
+        </ToastProvider>
     </React.StrictMode>
 );

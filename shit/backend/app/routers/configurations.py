@@ -13,6 +13,7 @@ from app.config import settings
 from app.services.config_store import get_store
 from app.services.config_sync import build_service_packages, sync
 from app.services.lifecycle import lifecycle
+from app.services.access import ADMIN, PUBLIC
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -36,7 +37,7 @@ def _module(summary: dict, live: Optional[dict]) -> dict:
     return out
 
 
-@router.get("/configurations")
+@router.get("/configurations", dependencies=PUBLIC)
 async def list_configurations() -> dict:
     gateway = settings.GATEWAY_URL.rstrip("/")
     async with httpx.AsyncClient(timeout=settings.GATEWAY_TIMEOUT) as client:
@@ -67,7 +68,7 @@ class SelectRequest(BaseModel):
     id: str
 
 
-@router.post("/configurations/select")
+@router.post("/configurations/select", dependencies=ADMIN)
 async def select_configuration(req: SelectRequest) -> dict:
     store = get_store()
     profile = store.active_profile()
@@ -94,12 +95,12 @@ async def _master(method: str, path: str, body: Optional[dict] = None) -> dict:
     return response.json()
 
 
-@router.get("/configurations/link")
+@router.get("/configurations/link", dependencies=PUBLIC)
 async def configuration_link() -> dict:
     return await _master("GET", "/link")
 
 
-@router.get("/configurations/{config_id}/rules")
+@router.get("/configurations/{config_id}/rules", dependencies=PUBLIC)
 async def get_configuration_rules(config_id: str) -> dict:
     context = get_store().context()
     state = await _master("GET", f"/rules/{config_id}")
@@ -116,7 +117,7 @@ async def get_configuration_rules(config_id: str) -> dict:
     return state
 
 
-@router.put("/configurations/{config_id}/rules")
+@router.put("/configurations/{config_id}/rules", dependencies=ADMIN)
 async def put_configuration_rules(config_id: str, body: dict = Body(...), context: Optional[str] = None) -> dict:
     store = get_store()
     profile = store.active_profile()
@@ -141,7 +142,7 @@ async def put_configuration_rules(config_id: str, body: dict = Body(...), contex
     return await get_configuration_rules(config_id)
 
 
-@router.put("/configurations/gateway/{module}")
+@router.put("/configurations/gateway/{module}", dependencies=ADMIN)
 async def put_gateway_module(module: str, body: dict = Body(...)) -> dict:
     store = get_store()
     profile = store.active_profile()
@@ -173,7 +174,7 @@ async def put_gateway_module(module: str, body: dict = Body(...)) -> dict:
     return await gateway_status()
 
 
-@router.get("/configurations/gateway/status")
+@router.get("/configurations/gateway/status", dependencies=PUBLIC)
 async def gateway_status() -> dict:
     store = get_store()
     repairing = store.is_repairing(store.active_profile())

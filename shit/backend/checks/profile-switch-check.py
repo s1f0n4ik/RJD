@@ -12,6 +12,15 @@ from unittest.mock import patch
 os.environ["DEBUG"] = "false"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+os.environ.setdefault("AUTH_SECRET_FILE", str(Path(tempfile.gettempdir()) / "rjd-check-auth-secret"))
+
+
+# Заголовок входа администратора: защищённые маршруты пропускают только его
+def admin_headers() -> dict:
+    from app.services.auth import create_access_token
+    return {"Authorization": "Bearer " + create_access_token({"sub": "admin", "role": "admin"})}
+
+
 import httpx
 from fastapi import FastAPI, HTTPException
 
@@ -129,7 +138,7 @@ async def main():
         ]
         for item in patches:
             item.start()
-        api = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://master")
+        api = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://master", headers=admin_headers())
 
         async def call(method, path, expect=200, **kwargs):
             response = await api.request(method, "/api" + path, **kwargs)

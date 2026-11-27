@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Query, Response, status
 from pydantic import BaseModel
 
 from app.services.config_store import ConfigError, get_store
+from app.services.access import LAN_FREE, PUBLIC
 
 router = APIRouter()
 
@@ -62,7 +63,7 @@ def _check_context(context: str | None) -> str:
 
 # ── Endpoints ──────────────────────────────────────────────────
 
-@router.get("/layouts", response_model=List[Layout])
+@router.get("/layouts", response_model=List[Layout], dependencies=PUBLIC)
 async def get_layouts(response: Response):
     profile, context, phase = _context()
     response.headers["X-Profile-Id"] = profile
@@ -72,7 +73,7 @@ async def get_layouts(response: Response):
     return [entry["body"] for _, entry in sorted(entities.items())]
 
 
-@router.post("/layouts", response_model=Layout, status_code=status.HTTP_200_OK)
+@router.post("/layouts", response_model=Layout, status_code=status.HTTP_200_OK, dependencies=LAN_FREE)
 async def upsert_layout(layout: Layout, context: str | None = Query(None)):
     """
     Создать новую сетку или обновить существующую (ключ — name).
@@ -87,7 +88,7 @@ async def upsert_layout(layout: Layout, context: str | None = Query(None)):
     return data
 
 
-@router.delete("/layouts/{name}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/layouts/{name}", status_code=status.HTTP_204_NO_CONTENT, dependencies=LAN_FREE)
 async def delete_layout(name: str, context: str | None = Query(None)):
     """Удалить сетку по имени."""
     try:

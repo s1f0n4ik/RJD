@@ -9,6 +9,15 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+os.environ.setdefault("AUTH_SECRET_FILE", str(Path(tempfile.gettempdir()) / "rjd-check-auth-secret"))
+
+
+# Заголовок входа администратора: защищённые маршруты пропускают только его
+def admin_headers() -> dict:
+    from app.services.auth import create_access_token
+    return {"Authorization": "Bearer " + create_access_token({"sub": "admin", "role": "admin"})}
+
 temporary = tempfile.TemporaryDirectory(prefix="integration-check-")
 os.environ["CONFIG_DB"] = str(Path(temporary.name) / "unused.db")
 os.environ["CONFIG_ASSETS_DIR"] = str(Path(temporary.name) / "assets")
@@ -161,7 +170,7 @@ async def main():
         app.include_router(machine_config.router, prefix="/api")
         app.include_router(configurations.router, prefix="/api")
         app.add_exception_handler(ConfigError, lambda request, error: JSONResponse({"detail": str(error)}, status_code=409))
-        api = TestClient(app)
+        api = TestClient(app, headers=admin_headers())
         response = api.post("/api/config/transition/repair", json={"transition_id": failed_id})
         assert response.status_code == 200, response.text
         repair_id = response.json()["transition"]["id"]

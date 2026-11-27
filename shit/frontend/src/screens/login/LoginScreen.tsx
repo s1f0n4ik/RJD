@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Icon, IconSprite } from '../../app/Icons';
+import { authPolicy } from '../../utils/auth';
 import './login.css';
 
 interface LoginScreenProps {
@@ -50,6 +51,13 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
                         <span>ВНИИЖТ</span>
                     </div>
                 </div>
+
+                {authPolicy().entrance === 'remote' && (
+                    <div className="login-remote">
+                        <Icon name="link" size={14} />
+                        Удалённый вход через сервер: войдите в машину
+                    </div>
+                )}
 
                 <label htmlFor="login-user">Пользователь</label>
                 <div className="login-field">

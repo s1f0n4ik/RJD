@@ -15,6 +15,7 @@ from fastapi.responses import StreamingResponse
 from starlette.background import BackgroundTask
 
 from app.config import settings
+from app.services import access
 from app.services.devices import registry
 
 router = APIRouter()
@@ -29,6 +30,7 @@ _proxy_client = httpx.AsyncClient(
 _HOP_HEADERS = {
     "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
     "te", "trailers", "transfer-encoding", "upgrade", "host", "content-length",
+    "cookie", "authorization", "x-rjd-entrance",
 }
 
 
@@ -52,6 +54,9 @@ def _device_ip(device_id: str) -> str:
     methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
 )
 async def proxy_http(device_id: str, service: str, path: str, request: Request):
+    code = access.check_path(request, request.method, f"/d/{device_id}/{service}/{path}")
+    if code:
+        raise HTTPException(status_code=code, detail=access.DETAILS[code])
     ip = _device_ip(device_id)
     port = _service_port(service)
 
@@ -82,7 +87,12 @@ async def proxy_http(device_id: str, service: str, path: str, request: Request):
     )
 
 
-async def _bridge_websocket(websocket: WebSocket, device_id: str, port: int, path: str):
+async def _bridge_websocket(websocket: WebSocket, device_id: str, service: str, port: int, path: str):
+    # Отказ по таблице путей до рукопожатия: код закрытия 4401 или 4403
+    code = access.check_path(websocket, "GET", f"/d/{device_id}/{service}/{path}")
+    if code:
+        await websocket.close(code=4000 + code)
+        return
     device = registry.get(device_id)
     if not device:
         await websocket.close(code=4404)
@@ -135,9 +145,9 @@ async def _bridge_websocket(websocket: WebSocket, device_id: str, port: int, pat
 
 @router.websocket("/d/{device_id}/signaling/{path:path}")
 async def proxy_signaling(websocket: WebSocket, device_id: str, path: str):
-    await _bridge_websocket(websocket, device_id, settings.DEVICE_SIGNALING_PORT, path)
+    await _bridge_websocket(websocket, device_id, "signaling", settings.DEVICE_SIGNALING_PORT, path)
 
 
 @router.websocket("/d/{device_id}/storage/{path:path}")
 async def proxy_storage_ws(websocket: WebSocket, device_id: str, path: str):
-    await _bridge_websocket(websocket, device_id, settings.DEVICE_STORAGE_PORT, path)
+    await _bridge_websocket(websocket, device_id, "storage", settings.DEVICE_STORAGE_PORT, path)

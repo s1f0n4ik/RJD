@@ -7,6 +7,15 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+os.environ.setdefault("AUTH_SECRET_FILE", str(Path(tempfile.gettempdir()) / "rjd-check-auth-secret"))
+
+
+# Заголовок входа администратора: защищённые маршруты пропускают только его
+def admin_headers() -> dict:
+    from app.services.auth import create_access_token
+    return {"Authorization": "Bearer " + create_access_token({"sub": "admin", "role": "admin"})}
+
 temporary = tempfile.TemporaryDirectory(prefix="surround-save-check-")
 os.environ["CONFIG_DB"] = f"{temporary.name}/config.db"
 os.environ["CONFIG_ASSETS_DIR"] = f"{temporary.name}/assets"
@@ -58,7 +67,7 @@ def main() -> None:
     surround.sync.push_checked = push
     app = FastAPI()
     app.include_router(surround.router, prefix="/api")
-    client = TestClient(app)
+    client = TestClient(app, headers=admin_headers())
 
     def post(path: str, body: dict, status: int = 200):
         response = client.post(f"/api{path}?device=board", json=body)

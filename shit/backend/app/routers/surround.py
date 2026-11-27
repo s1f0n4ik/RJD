@@ -12,8 +12,9 @@ from app.services.config_store import get_store
 from app.services.config_sync import sync
 from app.services.devices import registry
 from app.services.surround import attach_assets, calibration_entry, entity_id, filename, merge_patch, model_filename, number, object_body, points, preset_entry, same_points, settings_patch
+from app.services.access import ADMIN
 
-router = APIRouter()
+router = APIRouter(dependencies=ADMIN)
 
 
 def _context(device: str) -> tuple[str, str, dict]:

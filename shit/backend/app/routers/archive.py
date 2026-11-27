@@ -16,9 +16,10 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app.config import settings
 from app.services.devices import registry
+from app.services.access import PUBLIC
 
 logger = logging.getLogger(__name__)
-router = APIRouter()
+router = APIRouter(dependencies=PUBLIC)
 
 DATE_KEY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 

@@ -16,6 +16,10 @@ type ShowToast = (title: string, desc?: string, type?: ToastType) => void;
 
 const ToastContext = createContext<ShowToast>(() => {});
 
+// Подключённые провайдеры по порядку монтирования: notify показывает тост через последний
+const mounted: ShowToast[] = [];
+export const notify: ShowToast = (title, desc, type) => mounted[mounted.length - 1]?.(title, desc, type);
+
 const TOAST_MS: Record<ToastType, number> = { ok: 4500, info: 6000, err: 9000 };
 // Длительность ухода, как у анимации .toast.is-out
 const OUT_MS = 150;
@@ -44,6 +48,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     }, [dismiss]);
 
     useEffect(() => clear, []);
+
+    useEffect(() => {
+        mounted.push(show);
+        return () => { mounted.splice(mounted.lastIndexOf(show), 1); };
+    }, [show]);
 
     return (
         <ToastContext.Provider value={show}>

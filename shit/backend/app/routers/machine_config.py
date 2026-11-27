@@ -23,6 +23,7 @@ from app.services.config_sync import sync
 from app.services.lifecycle import lifecycle
 from app.services.runtime_state import runtime_state
 from app.routers.configurations import _master
+from app.services.access import ADMIN, ADMIN_OR_SERVICE
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -102,12 +103,12 @@ def _spool(upload: UploadFile, folder: str) -> Path:
     return path
 
 
-@router.get("/config/profiles")
+@router.get("/config/profiles", dependencies=ADMIN)
 def list_profiles():
     return {"active": get_store().active_profile(), "profiles": get_store().profiles()}
 
 
-@router.get("/config/profiles/{profile_id}/workspace")
+@router.get("/config/profiles/{profile_id}/workspace", dependencies=ADMIN)
 async def profile_workspace(profile_id: str):
     try:
         result = _library_snapshot(profile_id)
@@ -207,7 +208,7 @@ def _validate_passport_change(change: PassportChange, current: dict) -> None:
         raise HTTPException(422, "Entity is edited in its module")
 
 
-@router.put("/config/profiles/{profile_id}/passport")
+@router.put("/config/profiles/{profile_id}/passport", dependencies=ADMIN)
 async def save_passport(profile_id: str, request: SavePassport):
     store = get_store()
     try:
@@ -261,7 +262,7 @@ async def save_passport(profile_id: str, request: SavePassport):
         raise _fail(error)
 
 
-@router.get("/config/profiles/{profile_id}/board-diff")
+@router.get("/config/profiles/{profile_id}/board-diff", dependencies=ADMIN)
 async def profile_board_diff(profile_id: str):
     """Differences between the configuration applied on the bound boards and the profile with its passport."""
     store = get_store()
@@ -275,7 +276,7 @@ async def profile_board_diff(profile_id: str):
     return {**result, "context": snapshot["context"], "revision": snapshot["revision"]}
 
 
-@router.post("/config/profiles/{profile_id}/passport/reset")
+@router.post("/config/profiles/{profile_id}/passport/reset", dependencies=ADMIN)
 async def reset_passport(profile_id: str, request: ResetPassport):
     """Drops every passport difference from the profile; bindings and the machine card stay."""
     store = get_store()
@@ -304,7 +305,7 @@ async def reset_passport(profile_id: str, request: ResetPassport):
         raise _fail(error)
 
 
-@router.post("/config/profiles/{profile_id}/passport/fold")
+@router.post("/config/profiles/{profile_id}/passport/fold", dependencies=ADMIN)
 async def fold_profile_passport(profile_id: str, request: ResetPassport):
     """Replaces the profile defaults with its current state as a new selected version; bindings and the machine card stay in the passport."""
     store = get_store()
@@ -322,7 +323,7 @@ async def fold_profile_passport(profile_id: str, request: ResetPassport):
         raise _fail(error)
 
 
-@router.post("/config/import")
+@router.post("/config/import", dependencies=ADMIN)
 async def import_backup(
     files: list[UploadFile] = File(...),
     profile_id: str = Form(...),
@@ -360,7 +361,7 @@ async def import_backup(
     }
 
 
-@router.get("/config/profiles/{profile_id}/export")
+@router.get("/config/profiles/{profile_id}/export", dependencies=ADMIN)
 def export(profile_id: str, version_id: Optional[int] = Query(None)):
     try:
         path, filename = export_profile(get_store(), profile_id, version_id)
@@ -372,7 +373,7 @@ def export(profile_id: str, version_id: Optional[int] = Query(None)):
     )
 
 
-@router.post("/config/load")
+@router.post("/config/load", dependencies=ADMIN)
 async def load(file: UploadFile = File(...), activate: bool = Form(False)):
     store = get_store()
     with tempfile.TemporaryDirectory() as tmp:
@@ -388,7 +389,7 @@ async def load(file: UploadFile = File(...), activate: bool = Form(False)):
     return {**result, "broken": store.effective(result["profile"]["id"])["broken"]}
 
 
-@router.post("/config/profiles/{profile_id}/select")
+@router.post("/config/profiles/{profile_id}/select", dependencies=ADMIN)
 async def select_version(profile_id: str, body: SelectVersion):
     try:
         store = get_store()
@@ -401,7 +402,7 @@ async def select_version(profile_id: str, body: SelectVersion):
     return {"ok": True}
 
 
-@router.post("/config/active")
+@router.post("/config/active", dependencies=ADMIN)
 async def set_active(body: SetActive):
     try:
         transition = await lifecycle.switch(body.profile_id)
@@ -410,7 +411,7 @@ async def set_active(body: SetActive):
     return {"ok": transition["phase"] == "complete", "transition": transition}
 
 
-@router.delete("/config/profiles/{profile_id}")
+@router.delete("/config/profiles/{profile_id}", dependencies=ADMIN)
 def delete_profile(profile_id: str):
     try:
         get_store().delete_profile(profile_id)
@@ -419,7 +420,7 @@ def delete_profile(profile_id: str):
     return {"ok": True}
 
 
-@router.delete("/config/profiles/{profile_id}/versions/{version_id}")
+@router.delete("/config/profiles/{profile_id}/versions/{version_id}", dependencies=ADMIN)
 def delete_version(profile_id: str, version_id: int):
     try:
         get_store().delete_version(profile_id, version_id)
@@ -428,18 +429,18 @@ def delete_version(profile_id: str, version_id: int):
     return {"ok": True}
 
 
-@router.get("/config/status")
+@router.get("/config/status", dependencies=ADMIN_OR_SERVICE)
 def config_status():
     return {"devices": sync.status(), "transition": lifecycle.status(), "context": get_store().context()}
 
 
-@router.get("/config/runtime")
+@router.get("/config/runtime", dependencies=ADMIN_OR_SERVICE)
 async def config_runtime(boot: Optional[str] = Query(None), since: Optional[int] = Query(None), wait: float = Query(0, ge=0, le=25)):
     """Снимок состояния запуска: ответ ждёт изменения после since (при том же boot) до wait секунд."""
     return await runtime_state.wait(boot, since, wait)
 
 
-@router.post("/config/transition/repair")
+@router.post("/config/transition/repair", dependencies=ADMIN)
 async def repair_transition(body: RecoverTransition):
     try:
         return {"transition": await lifecycle.repair(body.transition_id)}
@@ -447,7 +448,7 @@ async def repair_transition(body: RecoverTransition):
         raise _fail(error)
 
 
-@router.post("/config/transition/retry")
+@router.post("/config/transition/retry", dependencies=ADMIN)
 async def retry_transition(body: RecoverTransition):
     try:
         return {"transition": await lifecycle.retry(body.transition_id, body.profile_id)}
@@ -455,7 +456,7 @@ async def retry_transition(body: RecoverTransition):
         raise _fail(error)
 
 
-@router.get("/config/effective")
+@router.get("/config/effective", dependencies=ADMIN)
 def effective(profile_id: Optional[str] = Query(None)):
     try:
         return get_store().effective(profile_id)
@@ -463,7 +464,7 @@ def effective(profile_id: Optional[str] = Query(None)):
         raise _fail(e)
 
 
-@router.put("/config/entities/{kind}/{key:path}")
+@router.put("/config/entities/{kind}/{key:path}", dependencies=ADMIN)
 async def put_entity(kind: str, key: str, body: Any = Body(...), profile_id: Optional[str] = Query(None)):
     _check_kind(kind)
     try:
@@ -484,7 +485,7 @@ async def put_entity(kind: str, key: str, body: Any = Body(...), profile_id: Opt
         raise _fail(e)
 
 
-@router.delete("/config/entities/{kind}/{key:path}")
+@router.delete("/config/entities/{kind}/{key:path}", dependencies=ADMIN)
 async def remove_entity(kind: str, key: str, profile_id: Optional[str] = Query(None)):
     _check_kind(kind)
     try:
@@ -501,7 +502,7 @@ async def remove_entity(kind: str, key: str, profile_id: Optional[str] = Query(N
         raise _fail(e)
 
 
-@router.post("/config/passport/reset")
+@router.post("/config/passport/reset", dependencies=ADMIN)
 async def reset_entity(ref: EntityRef, profile_id: Optional[str] = Query(None)):
     _check_kind(ref.kind)
     store = get_store()
@@ -520,7 +521,7 @@ async def reset_entity(ref: EntityRef, profile_id: Optional[str] = Query(None)):
     return {"ok": True}
 
 
-@router.post("/config/passport/promote")
+@router.post("/config/passport/promote", dependencies=ADMIN)
 def promote_entity(ref: EntityRef, profile_id: Optional[str] = Query(None)):
     _check_kind(ref.kind)
     if ref.kind in PASSPORT_ONLY:
@@ -531,7 +532,7 @@ def promote_entity(ref: EntityRef, profile_id: Optional[str] = Query(None)):
         raise _fail(e)
 
 
-@router.post("/config/passport/fold")
+@router.post("/config/passport/fold", dependencies=ADMIN)
 def fold_passport(profile_id: Optional[str] = Query(None)):
     try:
         return {"version": get_store().fold(_profile_or_active(profile_id), label="паспорт по умолчанию")}

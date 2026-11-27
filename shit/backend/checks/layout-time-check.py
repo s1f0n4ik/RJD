@@ -5,6 +5,15 @@ import tempfile
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+os.environ.setdefault("AUTH_SECRET_FILE", str(Path(tempfile.gettempdir()) / "rjd-check-auth-secret"))
+
+
+# Заголовок входа администратора: защищённые маршруты пропускают только его
+def admin_headers() -> dict:
+    from app.services.auth import create_access_token
+    return {"Authorization": "Bearer " + create_access_token({"sub": "admin", "role": "admin"})}
+
 os.environ["DEBUG"] = "false"
 
 from fastapi import FastAPI
@@ -57,7 +66,7 @@ with tempfile.TemporaryDirectory(prefix="layout-time-check-") as folder:
     try:
         with patch.object(layouts, "get_store", lambda: store), patch.object(time_router, "get_store", lambda: store), \
              patch.object(machine_config, "get_store", lambda: store), patch.object(time_router, "sync", sync), \
-             patch.object(machine_config, "sync", sync), TestClient(app) as client:
+             patch.object(machine_config, "sync", sync), TestClient(app, headers=admin_headers()) as client:
             response = client.get("/api/layouts")
             context = response.headers["X-Layout-Context"]
             assert response.headers["X-Profile-Id"] == "a" and response.json()[0]["streams"] == body["streams"]

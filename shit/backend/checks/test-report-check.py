@@ -5,6 +5,15 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+os.environ.setdefault("AUTH_SECRET_FILE", str(Path(tempfile.gettempdir()) / "rjd-check-auth-secret"))
+
+
+# Заголовок входа администратора: защищённые маршруты пропускают только его
+def admin_headers() -> dict:
+    from app.services.auth import create_access_token
+    return {"Authorization": "Bearer " + create_access_token({"sub": "admin", "role": "admin"})}
+
 with tempfile.TemporaryDirectory(prefix="test-report-check-") as directory:
     root = Path(directory)
     os.environ["TEST_RESULTS_DIR"] = directory
@@ -15,7 +24,7 @@ with tempfile.TemporaryDirectory(prefix="test-report-check-") as directory:
 
     app = FastAPI()
     app.include_router(router, prefix="/api")
-    client = TestClient(app)
+    client = TestClient(app, headers=admin_headers())
     assert client.get("/api/tests/runs").json() == {"runs": [], "unreadable": 0}
     run = root / "run-one"
     run.mkdir()

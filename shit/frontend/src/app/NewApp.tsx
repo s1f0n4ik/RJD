@@ -17,7 +17,7 @@ import SettingsScreen from '../screens/settings/SettingsScreen';
 import SurroundScreen from '../screens/surround/SurroundScreen';
 import NeuralScreen from '../screens/neural/NeuralScreen';
 import { LoginScreen } from '../screens/login/LoginScreen';
-import { readStoredToken } from '../utils/auth';
+import { logout, readStoredToken } from '../utils/auth';
 import { MobileShell } from '../mobile/MobileShell';
 import { useIsMobile } from '../mobile/useIsMobile';
 import MobileHomeScreen from '../mobile/HomeScreen';
@@ -48,11 +48,9 @@ export default function NewApp() {
         setUsername(newUsername);
     };
 
+    // Сервер стирает cookie сессии, затем токен убирается из localStorage
     const handleLogout = () => {
-        localStorage.removeItem('token');
-        localStorage.removeItem('role');
-        localStorage.removeItem('username');
-        setToken(null);
+        void logout().then(() => setToken(null));
     };
 
     if (!token) {

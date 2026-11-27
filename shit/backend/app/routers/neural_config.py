@@ -13,8 +13,9 @@ from app.services.config_store import get_store
 from app.services.config_sync import sync as config_sync
 from app.services.devices import registry
 from app.services.model_package import asset_info, package_of, read_package
+from app.services.access import ADMIN
 
-router = APIRouter()
+router = APIRouter(dependencies=ADMIN)
 logger = logging.getLogger(__name__)
 
 

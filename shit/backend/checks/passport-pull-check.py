@@ -11,6 +11,15 @@ import httpx
 os.environ["DEBUG"] = "false"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+os.environ.setdefault("AUTH_SECRET_FILE", str(Path(tempfile.gettempdir()) / "rjd-check-auth-secret"))
+
+
+# Заголовок входа администратора: защищённые маршруты пропускают только его
+def admin_headers() -> dict:
+    from app.services.auth import create_access_token
+    return {"Authorization": "Bearer " + create_access_token({"sub": "admin", "role": "admin"})}
+
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from app.routers import machine_config
@@ -66,7 +75,7 @@ with tempfile.TemporaryDirectory(prefix="passport-pull-check-") as folder, ExitS
     app.include_router(machine_config.router, prefix="/api")
     sync.client = httpx.AsyncClient(transport=httpx.MockTransport(board_handler))
     registry_get = lambda device_id: {"id": device_id, "ip": "192.0.2.10"} if device_id == "fixture-device" else None
-    with patch.object(machine_config, "get_store", lambda: store), patch.object(machine_config, "sync", sync), patch.object(config_pull.registry, "get", registry_get), TestClient(app) as client:
+    with patch.object(machine_config, "get_store", lambda: store), patch.object(machine_config, "sync", sync), patch.object(config_pull.registry, "get", registry_get), TestClient(app, headers=admin_headers()) as client:
         def snapshot(profile="profile-a"):
             return machine_config._library_snapshot(profile)
 

@@ -9,6 +9,15 @@ import zipfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+os.environ.setdefault("AUTH_SECRET_FILE", str(Path(tempfile.gettempdir()) / "rjd-check-auth-secret"))
+
+
+# Заголовок входа администратора: защищённые маршруты пропускают только его
+def admin_headers() -> dict:
+    from app.services.auth import create_access_token
+    return {"Authorization": "Bearer " + create_access_token({"sub": "admin", "role": "admin"})}
+
 TMP = tempfile.mkdtemp(prefix="model-package-check-")
 os.environ["CONFIG_DB"] = f"{TMP}/api/config.db"
 os.environ["CONFIG_ASSETS_DIR"] = f"{TMP}/api/assets"
@@ -135,7 +144,7 @@ def main() -> None:
     # Загрузка и список моделей
     app = FastAPI()
     app.include_router(neural_config.router, prefix="/api")
-    client = TestClient(app)
+    client = TestClient(app, headers=admin_headers())
     q = "device=none"
     r = client.post(f"/api/neural/models?filename=rail.rjdm&{q}", content=good.read_bytes())
     assert r.status_code == 200, r.text

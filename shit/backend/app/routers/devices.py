@@ -15,6 +15,7 @@ from app.services.config_cameras import camera_entry, patched_entry
 from app.services.config_store import get_store
 from app.services.config_sync import sync as config_sync
 from app.services.devices import registry
+from app.services.access import ADMIN, PUBLIC
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -42,20 +43,20 @@ class DeviceProbeRequest(BaseModel):
     ip: str
 
 
-@router.get("/devices")
+@router.get("/devices", dependencies=PUBLIC)
 async def list_devices():
     """Реестр с телеметрией и статусами из кэша поллера."""
     return {"devices": registry.snapshot(), "routing": registry.get_routing()}
 
 
-@router.post("/devices/scan")
+@router.post("/devices/scan", dependencies=ADMIN)
 async def scan_devices():
     """Обход подсетей мастера по порту media-center."""
     found = await registry.scan()
     return {"found": found}
 
 
-@router.post("/devices/probe")
+@router.post("/devices/probe", dependencies=ADMIN)
 async def probe_device(body: DeviceProbeRequest):
     """Паспорт устройства по адресу: id, имя, версия, модули."""
     passport = await registry.probe_address(body.ip.strip())
@@ -65,13 +66,13 @@ async def probe_device(body: DeviceProbeRequest):
     return {"device": passport, "conflicts": conflicts, "duplicates": duplicates}
 
 
-@router.post("/devices")
+@router.post("/devices", dependencies=ADMIN)
 async def add_device(body: DeviceAddRequest):
     device = await registry.add(body.id, body.ip, body.name, body.modules)
     return {"device": device, "routing": registry.get_routing()}
 
 
-@router.patch("/devices/{device_id}")
+@router.patch("/devices/{device_id}", dependencies=ADMIN)
 async def rename_device(device_id: str, body: DeviceRenameRequest):
     device = await registry.rename(device_id, body.name)
     if not device:
@@ -79,14 +80,14 @@ async def rename_device(device_id: str, body: DeviceRenameRequest):
     return {"device": device}
 
 
-@router.delete("/devices/{device_id}")
+@router.delete("/devices/{device_id}", dependencies=ADMIN)
 async def remove_device(device_id: str):
     if not await registry.remove(device_id):
         raise HTTPException(status_code=404, detail="Device not found")
     return {"result": "success", "routing": registry.get_routing()}
 
 
-@router.post("/devices/{device_id}/poll")
+@router.post("/devices/{device_id}/poll", dependencies=ADMIN)
 async def poll_device(device_id: str):
     """Внеочередной опрос устройства вне цикла поллера."""
     device = await registry.poll_now(device_id)
@@ -95,12 +96,12 @@ async def poll_device(device_id: str):
     return {"device": device}
 
 
-@router.get("/devices/routing")
+@router.get("/devices/routing", dependencies=ADMIN)
 async def get_routing():
     return {"routing": registry.get_routing()}
 
 
-@router.put("/devices/routing")
+@router.put("/devices/routing", dependencies=ADMIN)
 async def put_routing(body: RoutingTable):
     routing = await registry.set_routing(body.model_dump())
     return {"routing": routing}
@@ -126,7 +127,7 @@ def _tag(item: dict, device: dict, offline: bool = False) -> dict:
     return tagged
 
 
-@router.get("/cameras")
+@router.get("/cameras", dependencies=PUBLIC)
 async def aggregate_cameras():
     """Камеры со всех устройств в форме GET /camera media-center'а.
 
@@ -229,7 +230,7 @@ async def _apply(saved: str) -> JSONResponse:
     return JSONResponse(content={"data": {"result": "success", "details": saved}, "meta": None, "error": None})
 
 
-@router.post("/cameras")
+@router.post("/cameras", dependencies=ADMIN)
 async def create_camera(request: Request, device: str, replaces: Optional[str] = None):
     """Новая камера на месте устройства; её id и адрес не должны быть заняты."""
     target = registry.get(device)
@@ -290,7 +291,7 @@ async def _save_camera(camera: dict, camera_id: str, device: str, replaces: Opti
     return await _apply(f"Camera {camera_id} saved")
 
 
-@router.patch("/cameras/{camera_id}")
+@router.patch("/cameras/{camera_id}", dependencies=ADMIN)
 async def patch_camera(camera_id: str, request: Request):
     profile_id, cameras, _ = _config_cameras()
     if camera_id not in cameras:
@@ -308,7 +309,7 @@ async def patch_camera(camera_id: str, request: Request):
     return await _apply(f"Camera {camera_id} updated")
 
 
-@router.delete("/cameras/{camera_id}")
+@router.delete("/cameras/{camera_id}", dependencies=ADMIN)
 async def delete_camera(camera_id: str, device: Optional[str] = None):
     profile_id, cameras, places = _config_cameras()
     if camera_id not in cameras:
@@ -320,7 +321,7 @@ async def delete_camera(camera_id: str, device: Optional[str] = None):
     return await _apply(f"Camera {camera_id} deleted")
 
 
-@router.get("/recordings")
+@router.get("/recordings", dependencies=PUBLIC)
 async def aggregate_recordings():
     """Записи со всех устройств; device_map говорит, чей storage у камеры."""
 
@@ -350,7 +351,7 @@ async def aggregate_recordings():
     return {"recordings": recordings, "device_map": device_map}
 
 
-@router.get("/streams")
+@router.get("/streams", dependencies=PUBLIC)
 async def aggregate_streams():
     """Виртуальные потоки (birdview, neural) со всех устройств."""
     devices = registry.snapshot()
@@ -382,7 +383,7 @@ async def _neural_status(device: dict) -> dict:
         return entry
 
 
-@router.get("/neural/status")
+@router.get("/neural/status", dependencies=PUBLIC)
 async def aggregate_neural_status():
     """Статус слотов со всех устройств с модулем neural по последнему известному списку модулей."""
     devices = [d for d in registry.snapshot() if "neural" in (d.get("modules") or [])]
@@ -413,7 +414,7 @@ async def _neural_summary(device: dict) -> dict:
         return {"state": "offline"}
 
 
-@router.get("/neural/summary")
+@router.get("/neural/summary", dependencies=PUBLIC)
 async def aggregate_neural_summary():
     """Сводка слотов техзрения по всем устройствам с модулем neural для плитки главной."""
     devices = [d for d in registry.snapshot() if "neural" in (d.get("modules") or [])]

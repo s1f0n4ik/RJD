@@ -4,8 +4,9 @@ import httpx
 import logging
 
 from app.config import settings
+from app.services.access import PUBLIC
 
-router = APIRouter()
+router = APIRouter(dependencies=PUBLIC)
 logger = logging.getLogger(__name__)
 
 
