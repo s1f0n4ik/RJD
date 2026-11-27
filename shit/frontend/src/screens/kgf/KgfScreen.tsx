@@ -16,6 +16,7 @@ const KIND_LABEL: Record<string, string> = {
     pyrometer_board: 'Плата пирометров',
     kelvin: 'Пирометр Kelvin',
     discrete: 'Дискретный модуль',
+    lidar: 'Универсальный LiDAR',
     lakibeam: 'LiDAR LakiBeam',
     descriptor: 'Внешний прибор',
 };

@@ -80,6 +80,7 @@ class Registry:
     def __init__(self):
         self.lines = LineManager()
         from app.devices.lakibeam import LakiBeamDriver
+        from app.devices.lidar import UniversalLidarDriver
         from app.devices.pyrometers import (
             DiscreteDriver,
             KelvinDriver,
@@ -89,6 +90,7 @@ class Registry:
         self._factories: dict[str, DriverFactory] = {
             "descriptor": DescriptorDriver,
             "lakibeam": LakiBeamDriver,
+            "lidar": UniversalLidarDriver,
             "pyrometer_board": PyrometerBoardDriver,
             "kelvin": KelvinDriver,
             "discrete": DiscreteDriver,

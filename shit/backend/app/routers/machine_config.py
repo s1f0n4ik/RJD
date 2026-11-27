@@ -214,6 +214,17 @@ def _validate_passport_change(change: PassportChange, current: dict) -> None:
         if kind == "lakibeam":
             if not number(body.get("port"), 1, 65535, True):
                 raise HTTPException(422, "LakiBeam port must be in 1..65535")
+        if kind == "lidar":
+            protocol = body.get("protocol", "auto")
+            if protocol not in {"auto", "sick", "sick_cola_a", "lakibeam", "lakibeam_udp"}:
+                raise HTTPException(422, "Unknown LiDAR protocol")
+            ip = body.get("ip")
+            if not isinstance(ip, str) or not ip.strip():
+                raise HTTPException(422, "LiDAR requires IP address")
+            if "tcp_port" in body and not number(body["tcp_port"], 1, 65535, True):
+                raise HTTPException(422, "LiDAR TCP port must be in 1..65535")
+            if "udp_port" in body and not number(body["udp_port"], 1, 65535, True):
+                raise HTTPException(422, "LiDAR UDP port must be in 1..65535")
     elif change.kind != "rules":
         raise HTTPException(422, "Entity is edited in its module")
 

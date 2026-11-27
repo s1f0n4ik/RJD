@@ -106,6 +106,12 @@ def build_kgf(source: dict) -> dict:
         "request_gap_ms": 50, "poll_interval_ms": 1000,
     }
     entities.update({
+        ("peripheral", "lidar-main"): {
+            "kind": "lidar", "name": "LiDAR", "protocol": "auto",
+            "ip": "192.168.1.115", "tcp_port": 2111,
+            "connect_timeout_sec": 2, "packet_timeout_sec": 3,
+            "reconnect_sec": 1, "frequency_hz": 15,
+        },
         ("peripheral", "pyrometer-board"): {
             **serial, "kind": "pyrometer_board", "name": "Плата пирометров",
             "slave_id": 12, "start_register": 999,

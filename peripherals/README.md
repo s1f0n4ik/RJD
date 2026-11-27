@@ -23,12 +23,22 @@
   коэффициент излучения `0x1FFF`;
 - `discrete` - пять регистров дискретного модуля, устойчивое значение 3
   публикуется как СТАРТ поездки;
-- `lakibeam` - существующий подключаемый UDP-драйвер лидара.
+- `lidar` - универсальный LiDAR с выбором протокола `auto`, `sick_cola_a`
+  (SICK TiM/LMS по SOPAS TCP) или `lakibeam_udp`; старый kind `lakibeam`
+  сохранён для совместимости.
 
 Пример сущностей `peripheral` одного профиля:
 
 ```json
 {
+  "lidar-main": {
+    "kind": "lidar",
+    "name": "LiDAR",
+    "protocol": "auto",
+    "ip": "192.168.1.115",
+    "tcp_port": 2111,
+    "frequency_hz": 15
+  },
   "pyrometer-board": {
     "kind": "pyrometer_board",
     "port": "/dev/ttyUSB0",

@@ -100,6 +100,7 @@ export const KIND_LABELS: Record<string, string> = {
     correction_link: 'Связь калибровки',
     preset: 'Пресет 360',
     place: 'Место',
+    peripheral: 'Периферия КГФ',
 };
 
 export function entityName(definition: Definition, kind: string, key: string): string {
