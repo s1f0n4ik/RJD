@@ -63,10 +63,10 @@ def create_router(registry: Registry, lifecycle: Lifecycle) -> APIRouter:
         await websocket.accept()
         try:
             for value in registry.values():
-                if value.device_id == device_id:
+                if value.device_id == device_id and value.channel_id == "scan":
                     await websocket.send_json(value.model_dump(mode="json"))
             async for value in registry.subscribe_values():
-                if value.device_id == device_id:
+                if value.device_id == device_id and value.channel_id == "scan":
                     await websocket.send_text(json.dumps(value.model_dump(mode="json"), ensure_ascii=False))
         except (WebSocketDisconnect, asyncio.CancelledError):
             return

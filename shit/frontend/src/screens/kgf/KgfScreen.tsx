@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from '../../app/Icons';
-import { getPeripheralSnapshot } from '../../features/kgf/api';
+import { createPeripheralScanSocket, getPeripheralSnapshot } from '../../features/kgf/api';
 import type {
     PeripheralChannel,
     PeripheralDevice,
@@ -96,6 +96,31 @@ interface LidarScan {
     points: LidarPoint[];
 }
 
+const median = (values: number[]) => {
+    if (!values.length) return null;
+    const sorted = [...values].sort((a, b) => a - b);
+    const middle = Math.floor(sorted.length / 2);
+    return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+};
+
+const sectorDistance = (points: LidarPoint[], from: number, to: number) => median(
+    points.filter(point => point.angle_deg >= from && point.angle_deg <= to).map(point => point.distance_mm),
+);
+
+const nearestStableDistance = (points: LidarPoint[]) => {
+    const distances = points
+        .filter(point => point.angle_deg >= -60 && point.angle_deg <= 60)
+        .map(point => point.distance_mm)
+        .sort((a, b) => a - b);
+    // Медиана пяти ближайших лучей подавляет одиночный шум, но остаётся
+    // достаточно чувствительной для ручной проверки расстояния до предмета.
+    return median(distances.slice(0, 5));
+};
+
+const formatDistance = (millimeters: number | null) => millimeters === null
+    ? '—'
+    : (millimeters / 1000).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 const lidarScan = (value: PeripheralValue | undefined): LidarScan | null => {
     const body = value?.value;
     if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
@@ -116,9 +141,62 @@ const lidarScan = (value: PeripheralValue | undefined): LidarScan | null => {
     };
 };
 
-function LidarScanCard({ channel, value, now }: { channel: PeripheralChannel; value?: PeripheralValue; now: number }) {
-    const scan = lidarScan(value);
-    const age = value ? now - new Date(value.captured_at).getTime() : Number.POSITIVE_INFINITY;
+function LidarScanCard({ deviceId, channel, value, now }: {
+    deviceId: string;
+    channel: PeripheralChannel;
+    value?: PeripheralValue;
+    now: number;
+}) {
+    const [liveValue, setLiveValue] = useState<PeripheralValue | undefined>(value);
+    const [frameRate, setFrameRate] = useState(0);
+    const arrivals = useRef<number[]>([]);
+    const pending = useRef<PeripheralValue | null>(null);
+    const animation = useRef<number | null>(null);
+
+    useEffect(() => {
+        if (value) setLiveValue(current => !current || value.sequence > current.sequence ? value : current);
+    }, [value]);
+
+    useEffect(() => {
+        let stopped = false;
+        let socket: WebSocket | null = null;
+        let reconnect: number | null = null;
+        const connect = () => {
+            socket = createPeripheralScanSocket(deviceId);
+            socket.onmessage = event => {
+                try {
+                    const next = JSON.parse(String(event.data)) as PeripheralValue;
+                    if (next.device_id !== deviceId || next.channel_id !== channel.id) return;
+                    const arrivedAt = performance.now();
+                    arrivals.current = [...arrivals.current.filter(item => arrivedAt - item <= 2000), arrivedAt];
+                    const times = arrivals.current;
+                    if (times.length > 1) setFrameRate((times.length - 1) * 1000 / (times[times.length - 1] - times[0]));
+                    pending.current = next;
+                    if (animation.current === null) {
+                        animation.current = window.requestAnimationFrame(() => {
+                            animation.current = null;
+                            if (pending.current) setLiveValue(pending.current);
+                        });
+                    }
+                } catch { /* следующий кадр восстановит отображение */ }
+            };
+            socket.onclose = () => {
+                arrivals.current = [];
+                setFrameRate(0);
+                if (!stopped) reconnect = window.setTimeout(connect, 1000);
+            };
+        };
+        connect();
+        return () => {
+            stopped = true;
+            socket?.close();
+            if (reconnect !== null) window.clearTimeout(reconnect);
+            if (animation.current !== null) window.cancelAnimationFrame(animation.current);
+        };
+    }, [channel.id, deviceId]);
+
+    const scan = lidarScan(liveValue);
+    const age = liveValue ? now - new Date(liveValue.captured_at).getTime() : Number.POSITIVE_INFINITY;
     const stale = age > VALUE_STALE_MS;
     const maxDistance = Math.max(1000, ...(scan?.points.map(point => point.distance_mm) ?? []));
     const scale = Math.ceil(maxDistance / 1000) * 1000;
@@ -133,6 +211,10 @@ function LidarScanCard({ channel, value, now }: { channel: PeripheralChannel; va
     // Короткие нулевые сегменты с round linecap дают яркие точки одним SVG-path,
     // без сотен DOM-элементов и заметной нагрузки при ежесекундном обновлении.
     const pointCloud = coordinates.map(point => `M${point}h.0001`).join(' ');
+    const centerDistance = sectorDistance(scan?.points ?? [], -1.5, 1.5);
+    const leftDistance = sectorDistance(scan?.points ?? [], -45, -10);
+    const rightDistance = sectorDistance(scan?.points ?? [], 10, 45);
+    const nearestDistance = nearestStableDistance(scan?.points ?? []);
 
     return (
         <div className={`kgf-scan${stale ? ' is-stale' : ''}`}>
@@ -143,8 +225,15 @@ function LidarScanCard({ channel, value, now }: { channel: PeripheralChannel; va
                 </div>
                 <div className="kgf-scan-meta">
                     <span>{scan?.device_ident ?? scan?.source ?? 'нет данных'}</span>
-                    <span>{value ? `${formatTime(value.captured_at)} · #${value.sequence}` : 'ожидание скана'}</span>
+                    <span>{liveValue ? `${formatTime(liveValue.captured_at)} · #${liveValue.sequence}` : 'ожидание скана'}</span>
                 </div>
+            </div>
+            <div className="kgf-scan-metrics">
+                <div><span>По оси</span><b>{formatDistance(centerDistance)} <small>м</small></b></div>
+                <div><span>Ближайшая цель ±60°</span><b>{formatDistance(nearestDistance)} <small>м</small></b></div>
+                <div><span>Слева 10–45°</span><b>{formatDistance(leftDistance)} <small>м</small></b></div>
+                <div><span>Справа 10–45°</span><b>{formatDistance(rightDistance)} <small>м</small></b></div>
+                <div><span>Частота / возраст</span><b>{frameRate ? frameRate.toFixed(1) : '—'} <small>Гц · {Number.isFinite(age) ? `${Math.max(0, Math.round(age))} мс` : '—'}</small></b></div>
             </div>
             <div className="kgf-scan-plot">
                 <svg viewBox="-1.08 -1.08 2.16 2.16" role="img" aria-label="Скан LiDAR, вид сверху">
@@ -183,7 +272,7 @@ function DeviceCard({ device, values, now }: { device: PeripheralDevice; values:
             <div className="kgf-values">
                 {device.channels.map(channel => (
                     channel.type === 'scan'
-                        ? <LidarScanCard key={channel.id} channel={channel} value={values.get(channel.id)} now={now} />
+                        ? <LidarScanCard key={channel.id} deviceId={device.id} channel={channel} value={values.get(channel.id)} now={now} />
                         : <ValueCard key={channel.id} channel={channel} value={values.get(channel.id)} now={now} />
                 ))}
             </div>

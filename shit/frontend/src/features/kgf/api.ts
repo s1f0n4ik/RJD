@@ -15,3 +15,9 @@ export async function getPeripheralSnapshot(): Promise<PeripheralSnapshot> {
     ]);
     return { status, values };
 }
+
+export function createPeripheralScanSocket(deviceId: string): WebSocket {
+    const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const path = `${BASE}/ws/scans/${encodeURIComponent(deviceId)}`;
+    return new WebSocket(`${scheme}//${window.location.host}${path}`);
+}
