@@ -342,7 +342,7 @@ function LidarScanCard({ deviceId, channel, value, now }: {
                 <div className="kgf-scan-metrics">
                     <div><span>Левое плечо</span><b>{formatDistance(profile?.left_m == null ? null : profile.left_m * 1000)} <small>м</small></b></div>
                     <div><span>Правое плечо</span><b>{formatDistance(profile?.right_m == null ? null : profile.right_m * 1000)} <small>м</small></b></div>
-                    <div><span>Норма слева / справа</span><b>{profile ? `${profile.expected_left_m.toFixed(2)} / ${profile.expected_right_m.toFixed(2)}` : '—'} <small>м</small></b></div>
+                    <div><span>Норма Л / П</span><b className="is-compact">{profile ? `${profile.expected_left_m.toLocaleString('ru-RU', { minimumFractionDigits: 2 })}/${profile.expected_right_m.toLocaleString('ru-RU', { minimumFractionDigits: 2 })}` : '—'} <small>м</small></b></div>
                     <div><span>Калибровка</span><b className={profile?.calibrated ? 'is-ok' : 'is-warn'}>{profile?.calibrated ? 'готова' : 'требуется'}</b></div>
                     <div><span>Частота / возраст</span><b>{frameRate ? frameRate.toFixed(1) : '—'} <small>Гц · {Number.isFinite(age) ? `${Math.max(0, Math.round(age))} мс` : '—'}</small></b></div>
                 </div>

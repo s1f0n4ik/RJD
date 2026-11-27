@@ -70,6 +70,7 @@
 .kgf-scan-metrics>div{min-width:0;padding:9px 10px;background:var(--surface);display:flex;flex-direction:column;gap:4px}
 .kgf-scan-metrics span{font-size:9.5px;color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .kgf-scan-metrics b{font-family:var(--mono);font-size:16px;font-weight:650;font-variant-numeric:tabular-nums;white-space:nowrap}
+.kgf-scan-metrics b.is-compact{font-size:13px}
 .kgf-scan-metrics b.is-ok{color:var(--ok)}
 .kgf-scan-metrics b.is-warn{color:var(--warn)}
 .kgf-scan-metrics small{font-size:9.5px;font-weight:400;color:var(--fg-3)}
