@@ -122,13 +122,17 @@ function LidarScanCard({ channel, value, now }: { channel: PeripheralChannel; va
     const stale = age > VALUE_STALE_MS;
     const maxDistance = Math.max(1000, ...(scan?.points.map(point => point.distance_mm) ?? []));
     const scale = Math.ceil(maxDistance / 1000) * 1000;
-    const path = scan?.points.map((point, index) => {
+    const coordinates = scan?.points.map(point => {
         const angle = point.angle_deg * Math.PI / 180;
         const radius = point.distance_mm / scale;
         const x = radius * Math.cos(angle);
         const y = radius * Math.sin(angle);
-        return `${index ? 'L' : 'M'}${x.toFixed(4)} ${y.toFixed(4)}`;
-    }).join(' ') ?? '';
+        return `${x.toFixed(4)} ${y.toFixed(4)}`;
+    }) ?? [];
+    const path = coordinates.map((point, index) => `${index ? 'L' : 'M'}${point}`).join(' ');
+    // Короткие нулевые сегменты с round linecap дают яркие точки одним SVG-path,
+    // без сотен DOM-элементов и заметной нагрузки при ежесекундном обновлении.
+    const pointCloud = coordinates.map(point => `M${point}h.0001`).join(' ');
 
     return (
         <div className={`kgf-scan${stale ? ' is-stale' : ''}`}>
@@ -149,6 +153,7 @@ function LidarScanCard({ channel, value, now }: { channel: PeripheralChannel; va
                         <path d="M-1 0H1M0-1V1" />
                     </g>
                     {path && <path className="kgf-scan-line" d={path} />}
+                    {pointCloud && <path className="kgf-scan-points" d={pointCloud} />}
                     <path className="kgf-scan-origin" d="M-.035 .035L0-.055L.035 .035Z" />
                 </svg>
                 <span className="kgf-scan-scale">радиус до {(scale / 1000).toLocaleString('ru-RU')} м</span>
