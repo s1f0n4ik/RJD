@@ -145,9 +145,11 @@ services:
     environment:
       - APP_VERSION=${PERIPHERALS_VERSION:-0.1.0}
       - GATEWAY_GRPC=127.0.0.1:50051
+      - STATE_FILE=/data/peripherals-state.json
     privileged: true
     volumes:
       - /dev:/dev
+      - ${VARAN_ROOT:-/var/lib/varan}/settings:/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8006/health', timeout=3)"]

@@ -55,6 +55,10 @@ class SerialLine:
         self._lock = asyncio.Lock()
         self._last_exchange = 0.0
 
+    @property
+    def is_open(self) -> bool:
+        return bool(self._serial is not None and self._serial.is_open)
+
     async def exchange(
         self,
         operation: Callable[[serial.Serial], Any],

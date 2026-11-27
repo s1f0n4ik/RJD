@@ -37,6 +37,7 @@ class DeviceDescriptor(BaseModel):
     state: DeviceState
     message: str | None = None
     channels: list[ChannelDescriptor] = Field(default_factory=list)
+    diagnostics: dict[str, Any] = Field(default_factory=dict)
 
 
 class ChannelValue(BaseModel):

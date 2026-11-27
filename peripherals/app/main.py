@@ -22,7 +22,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 registry = Registry()
-lifecycle = Lifecycle(registry)
+lifecycle = Lifecycle(registry, settings.STATE_FILE)
 
 
 def _channel_type(value: str) -> int:
@@ -106,6 +106,7 @@ async def poll_gateway() -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    await lifecycle.restore()
     server = grpc.aio.server()
     rpc.add_PeripheralsServicer_to_server(PeripheralsService(), server)
     server.add_insecure_port(f"0.0.0.0:{settings.GRPC_PORT}")

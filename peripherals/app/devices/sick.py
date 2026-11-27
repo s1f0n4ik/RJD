@@ -152,6 +152,7 @@ class SickColaADriver(DeviceDriver):
     async def start(self) -> None:
         self.state = DeviceState.STARTING
         self.message = None
+        self.record_started()
         self._stop = asyncio.Event()
         self._writer: asyncio.StreamWriter | None = None
         self._task = asyncio.create_task(self._run(), name=f"sick-cola-a-{self.device_id}")
@@ -195,11 +196,13 @@ class SickColaADriver(DeviceDriver):
                     for scan in parser.feed(chunk):
                         scan["device_ident"] = parser.device_ident
                         self.publish(ChannelValue(device_id=self.device_id, channel_id="scan", value=scan))
+                        self.record_success()
                         self.state = DeviceState.RUNNING
                         self.message = None
             except asyncio.CancelledError:
                 raise
             except Exception as error:  # noqa: BLE001 - драйвер переподключается после любого сбоя транспорта
+                self.record_error(reconnect=True)
                 self.state = DeviceState.UNAVAILABLE
                 self.message = f"SICK CoLa-A: {error}"
             finally:

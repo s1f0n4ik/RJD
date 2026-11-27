@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     GRPC_PORT: int = 50053
     GATEWAY_GRPC: str = "127.0.0.1:50051"
     GATEWAY_POLL_SEC: float = 5.0
+    STATE_FILE: str = "/data/peripherals-state.json"
 
 
 settings = Settings()

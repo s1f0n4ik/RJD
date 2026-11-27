@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from abc import ABC, abstractmethod
+from collections import deque
 from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime
+from time import monotonic
 from typing import Any
 
 from app.line import LineManager
@@ -33,6 +36,67 @@ class DeviceDriver(ABC):
         self.lines = lines
         self.state = DeviceState.STOPPED
         self.message: str | None = None
+        self.started_at: datetime | None = None
+        self.last_success_at: datetime | None = None
+        self.last_error_at: datetime | None = None
+        self.success_count = 0
+        self.error_count = 0
+        self.consecutive_errors = 0
+        self.reconnect_count = 0
+        self._success_times: deque[float] = deque(maxlen=120)
+
+    def record_started(self) -> None:
+        self.started_at = datetime.now(UTC)
+
+    def record_success(self) -> None:
+        self.last_success_at = datetime.now(UTC)
+        self.success_count += 1
+        self.consecutive_errors = 0
+        self._success_times.append(monotonic())
+
+    def record_error(self, *, reconnect: bool = False) -> None:
+        self.last_error_at = datetime.now(UTC)
+        self.error_count += 1
+        self.consecutive_errors += 1
+        if reconnect:
+            self.reconnect_count += 1
+
+    def diagnostics(self) -> dict[str, Any]:
+        observed_hz = 0.0
+        if len(self._success_times) > 1:
+            elapsed = self._success_times[-1] - self._success_times[0]
+            if elapsed > 0:
+                observed_hz = (len(self._success_times) - 1) / elapsed
+        result: dict[str, Any] = {
+            "started_at": self.started_at,
+            "last_success_at": self.last_success_at,
+            "last_error_at": self.last_error_at,
+            "success_count": self.success_count,
+            "error_count": self.error_count,
+            "consecutive_errors": self.consecutive_errors,
+            "reconnect_count": self.reconnect_count,
+            "observed_hz": round(observed_hz, 2),
+        }
+        port = self.config.get("port")
+        if port:
+            line = getattr(self, "line", None)
+            result["transport"] = {
+                "type": "serial",
+                "port": str(port),
+                "adapter_present": os.path.exists(str(port)),
+                "port_open": bool(line and line.is_open),
+                "baudrate": int(self.config.get("baudrate", 9600)),
+                "format": f"{int(self.config.get('bytesize', 8))}{str(self.config.get('parity', 'N')).upper()}{self.config.get('stopbits', 1)}",
+                "slave_id": self.config.get("slave_id"),
+            }
+        elif self.config.get("ip"):
+            result["transport"] = {
+                "type": "network",
+                "host": str(self.config["ip"]),
+                "port": self.config.get("tcp_port") or self.config.get("udp_port"),
+                "protocol": self.config.get("selected_protocol") or self.config.get("protocol"),
+            }
+        return result
 
     @property
     @abstractmethod
@@ -55,6 +119,7 @@ class DeviceDriver(ABC):
             state=self.state,
             message=self.message,
             channels=self.channels,
+            diagnostics=self.diagnostics(),
         )
 
 
@@ -66,6 +131,8 @@ class DescriptorDriver(DeviceDriver):
         return [ChannelDescriptor.model_validate(item) for item in self.config.get("channels", [])]
 
     async def start(self) -> None:
+        self.record_started()
+        self.record_success()
         self.state = DeviceState.RUNNING
         self.message = None
 
@@ -134,7 +201,30 @@ class Registry:
         await self.lines.close()
 
     def describe(self) -> list[DeviceDescriptor]:
-        return [device.describe() for device in self._devices.values()]
+        now = datetime.now(UTC)
+        result: list[DeviceDescriptor] = []
+        for device in self._devices.values():
+            descriptor = device.describe()
+            channel_status: dict[str, Any] = {}
+            for channel in descriptor.channels:
+                value = self._values.get((descriptor.id, channel.id))
+                age_ms = (now - value.captured_at).total_seconds() * 1000 if value else None
+                poll_ms = float(device.config.get("poll_interval_ms", 0))
+                stale_after_ms = (
+                    max(3000.0, poll_ms * 3, 3000.0 / channel.frequency_hz)
+                    if channel.frequency_hz > 0 else None
+                )
+                channel_status[channel.id] = {
+                    "last_value_at": value.captured_at if value else None,
+                    "age_ms": round(age_ms) if age_ms is not None else None,
+                    "sequence": value.sequence if value else None,
+                    "state": "no_data" if value is None else (
+                        "stale" if stale_after_ms is not None and age_ms > stale_after_ms else "fresh"
+                    ),
+                }
+            descriptor.diagnostics["channels"] = channel_status
+            result.append(descriptor)
+        return result
 
     def values(self) -> list[ChannelValue]:
         return list(self._values.values())

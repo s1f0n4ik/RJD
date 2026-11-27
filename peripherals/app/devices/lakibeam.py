@@ -90,6 +90,7 @@ class LakiBeamDriver(DeviceDriver):
     async def start(self) -> None:
         self.state = DeviceState.STARTING
         self.message = None
+        self.record_started()
         self._stop = asyncio.Event()
         self._task = asyncio.create_task(self._run(), name=f"lakibeam-{self.device_id}")
 
@@ -111,6 +112,7 @@ class LakiBeamDriver(DeviceDriver):
         except asyncio.CancelledError:
             raise
         except Exception as error:  # noqa: BLE001 - состояние драйвера должно пережить аппаратную ошибку
+            self.record_error()
             self.state = DeviceState.ERROR
             self.message = str(error)
 
@@ -148,12 +150,15 @@ class LakiBeamDriver(DeviceDriver):
             while not self._stop.is_set():
                 await asyncio.sleep(0.5)
                 if protocol.last_packet_at is None or loop.time() - protocol.last_packet_at > timeout:
+                    if self.state != DeviceState.UNAVAILABLE:
+                        self.record_error()
                     self.state = DeviceState.UNAVAILABLE
                     self.message = "no UDP packets from LakiBeam"
         finally:
             transport.close()
 
     def _publish_scan(self, scan: dict[str, Any]) -> None:
+        self.record_success()
         self.state = DeviceState.RUNNING
         self.message = None
         self.publish(ChannelValue(device_id=self.device_id, channel_id="scan", value=scan))

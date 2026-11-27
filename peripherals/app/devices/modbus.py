@@ -94,6 +94,7 @@ class PollingModbusDriver(DeviceDriver):
     async def start(self) -> None:
         self.state = DeviceState.STARTING
         self.message = None
+        self.record_started()
         self._task = asyncio.create_task(self._run(), name=f"modbus-{self.device_id}")
 
     async def stop(self) -> None:
@@ -110,11 +111,13 @@ class PollingModbusDriver(DeviceDriver):
         while True:
             try:
                 await self.poll()
+                self.record_success()
                 self.state = DeviceState.RUNNING
                 self.message = None
             except asyncio.CancelledError:
                 raise
             except Exception as error:  # noqa: BLE001 - один слейв не останавливает остальных
+                self.record_error()
                 self.state = DeviceState.UNAVAILABLE
                 self.message = str(error)
                 self.emit(PeripheralEvent(

@@ -66,20 +66,69 @@ const formatValue = (value: PeripheralValue | undefined, channel: PeripheralChan
     return { main: String(value.value), unit: channel.unit, bool: '' };
 };
 
-function ValueCard({ channel, value, now }: { channel: PeripheralChannel; value?: PeripheralValue; now: number }) {
+interface ChannelDiagnostic {
+    last_value_at?: string | null;
+    age_ms?: number | null;
+    sequence?: number | null;
+    state?: string;
+}
+
+const CHANNEL_STATE_LABEL: Record<string, string> = {
+    fresh: 'данные актуальны',
+    stale: 'данные устарели',
+    no_data: 'нет данных',
+};
+
+function ValueCard({ channel, value, now, diagnostic }: {
+    channel: PeripheralChannel;
+    value?: PeripheralValue;
+    now: number;
+    diagnostic?: ChannelDiagnostic;
+}) {
     const shown = formatValue(value, channel);
     const age = value ? now - new Date(value.captured_at).getTime() : Number.POSITIVE_INFINITY;
-    const stale = age > VALUE_STALE_MS;
+    const stale = diagnostic?.state ? diagnostic.state !== 'fresh' : age > VALUE_STALE_MS;
+    const channelState = diagnostic?.state ?? (value ? stale ? 'stale' : 'fresh' : 'no_data');
     return (
         <div className={`kgf-value${stale ? ' is-stale' : ''}${shown.bool ? ` is-${shown.bool}` : ''}`}>
-            <span className="kgf-value-name">{channel.name}</span>
+            <span className="kgf-value-title">
+                <span className={`dot ${channelState === 'fresh' ? 'ok' : channelState === 'stale' ? 'warn' : 'err'}`} />
+                <span className="kgf-value-name">{channel.name}</span>
+            </span>
             <div className="kgf-value-reading">
                 <b>{shown.main}</b>
                 {shown.unit && <span>{shown.unit}</span>}
             </div>
             <span className="kgf-value-meta">
-                {value ? `${formatTime(value.captured_at)} · #${value.sequence}` : 'нет данных'}
+                {CHANNEL_STATE_LABEL[channelState] ?? channelState} · {value ? `${formatTime(value.captured_at)} · #${value.sequence}` : 'ожидание'}
             </span>
+        </div>
+    );
+}
+
+function DeviceDiagnostics({ device }: { device: PeripheralDevice }) {
+    const diagnostics = device.diagnostics;
+    if (!diagnostics) return null;
+    const transport = diagnostics.transport;
+    const serial = transport?.type === 'serial';
+    const transportOk = serial ? transport.adapter_present : device.state === 'running';
+    const address = serial
+        ? `${transport?.port ?? 'порт не задан'} · ${transport?.baudrate ?? '—'} ${transport?.format ?? ''}${transport?.slave_id ? ` · Modbus ${transport.slave_id}` : ''} · ${transport?.adapter_present ? transport.port_open ? 'порт открыт' : 'адаптер найден' : 'адаптера нет'}`
+        : `${transport?.host ?? 'сеть'}${transport?.port ? `:${transport.port}` : ''} · ${transport?.protocol ?? 'авто'}`;
+    return (
+        <div className="kgf-diagnostics">
+            <div>
+                <span className={`dot ${transportOk ? 'ok' : 'err'}`} />
+                <span><small>{serial ? 'Шина и адаптер' : 'Сетевое подключение'}</small><b>{address}</b></span>
+            </div>
+            <div>
+                <span className={`dot ${diagnostics.last_success_at ? 'ok' : 'warn'}`} />
+                <span><small>Последний ответ</small><b>{formatTime(diagnostics.last_success_at)} · {diagnostics.observed_hz?.toFixed(1) ?? '0.0'} Гц</b></span>
+            </div>
+            <div>
+                <span className={`dot ${diagnostics.consecutive_errors ? 'err' : 'ok'}`} />
+                <span><small>Обмен / ошибки</small><b>{diagnostics.success_count ?? 0} / {diagnostics.error_count ?? 0}{diagnostics.consecutive_errors ? ` · подряд ${diagnostics.consecutive_errors}` : ''}</b></span>
+            </div>
         </div>
     );
 }
@@ -269,11 +318,18 @@ function DeviceCard({ device, values, now }: { device: PeripheralDevice; values:
                     <span>{device.message}</span>
                 </div>
             )}
+            <DeviceDiagnostics device={device} />
             <div className="kgf-values">
                 {device.channels.map(channel => (
                     channel.type === 'scan'
                         ? <LidarScanCard key={channel.id} deviceId={device.id} channel={channel} value={values.get(channel.id)} now={now} />
-                        : <ValueCard key={channel.id} channel={channel} value={values.get(channel.id)} now={now} />
+                        : <ValueCard
+                            key={channel.id}
+                            channel={channel}
+                            value={values.get(channel.id)}
+                            now={now}
+                            diagnostic={device.diagnostics?.channels?.[channel.id]}
+                        />
                 ))}
             </div>
         </article>
