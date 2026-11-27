@@ -44,6 +44,21 @@
 .kgf-value.is-true .kgf-value-reading>b{color:var(--ok)}
 .kgf-value.is-false .kgf-value-reading>b{color:var(--fg-2)}
 
+.kgf-scan{grid-column:1/-1;min-width:0;padding:13px 14px 14px;background:var(--panel);transition:var(--tr-ui)}
+.kgf-scan.is-stale{opacity:.52}
+.kgf-scan-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:10px}
+.kgf-scan-head>div:first-child{display:flex;flex-direction:column;gap:5px}
+.kgf-scan-head b{font-family:var(--mono);font-size:20px;font-weight:650;font-variant-numeric:tabular-nums}
+.kgf-scan-head b small{font-family:inherit;font-size:11px;font-weight:400;color:var(--fg-3)}
+.kgf-scan-meta{min-width:0;display:flex;flex-direction:column;align-items:flex-end;gap:3px;font-family:var(--mono);font-size:9.5px;color:var(--fg-3)}
+.kgf-scan-meta span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kgf-scan-plot{position:relative;height:280px;overflow:hidden;border:1px solid var(--line);border-radius:var(--r-md);background:color-mix(in srgb,var(--surface) 82%,#071215)}
+.kgf-scan-plot svg{display:block;width:100%;height:100%;transform:rotate(-90deg)}
+.kgf-scan-grid{fill:none;stroke:var(--line-hi);stroke-width:.006;vector-effect:non-scaling-stroke}
+.kgf-scan-line{fill:none;stroke:var(--acc);stroke-width:.012;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke;filter:drop-shadow(0 0 .018px var(--acc))}
+.kgf-scan-origin{fill:var(--fg-2)}
+.kgf-scan-scale{position:absolute;right:9px;bottom:7px;padding:3px 6px;border:1px solid var(--line);border-radius:4px;background:color-mix(in srgb,var(--surface) 88%,transparent);font-family:var(--mono);font-size:9px;color:var(--fg-3)}
+
 .kgf-empty{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
 .kgf-empty .skel{height:220px;border-radius:var(--r-lg)}
 .kgf-empty-state{min-height:280px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;border:1px dashed var(--line-hi);border-radius:var(--r-lg);color:var(--fg-3);text-align:center;padding:30px}
@@ -61,4 +76,5 @@
   .kgf-summary{grid-template-columns:1fr}
   .kgf-devices{grid-template-columns:1fr}
   .kgf-values{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .kgf-scan-plot{height:230px}
 }

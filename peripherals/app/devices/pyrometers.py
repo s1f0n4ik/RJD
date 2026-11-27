@@ -52,6 +52,14 @@ class PyrometerBoardDriver(PollingModbusDriver):
             raise ValueError("Unknown pyrometer_board pair target")
         self.targets = targets
         self.start_register = int(self.config.get("start_register", 999))
+        alternate = self.config.get("alternate_start_register")
+        if alternate is None and self.start_register == 999:
+            alternate = 1000
+        self.register_candidates = list(dict.fromkeys(
+            [self.start_register, int(alternate)] if alternate is not None else [self.start_register]
+        ))
+        self.allow_segmented_reads = bool(self.config.get("segmented_reads", True))
+        self._working_read: tuple[int, bool] | None = None
         self.holding = bool(self.config.get("holding_registers", False))
         self.minimum = float(self.config.get("temperature_min", 0))
         self.maximum = float(self.config.get("temperature_max", 100))
@@ -70,10 +78,38 @@ class PyrometerBoardDriver(PollingModbusDriver):
         ]
 
     async def poll(self) -> None:
-        registers = await self.exchange(
-            lambda client: client.read_registers(self.start_register, 8, self.holding)
+        options = [self._working_read] if self._working_read is not None else []
+        options.extend(
+            (start, segmented)
+            for start in self.register_candidates
+            for segmented in ((False, True) if self.allow_segmented_reads else (False,))
+            if (start, segmented) not in options
         )
-        self.accept_registers(registers)
+        errors: list[str] = []
+        for start, segmented in options:
+            try:
+                registers = await self._read_board(start, segmented)
+                self._working_read = (start, segmented)
+                self.accept_registers(registers)
+                return
+            except Exception as error:  # noqa: BLE001 - перебираются варианты адресации старой платы
+                if self._working_read == (start, segmented):
+                    self._working_read = None
+                mode = "по одному" if segmented else "пакетом"
+                errors.append(f"{start} {mode}: {error}")
+        raise OSError("Плата пирометров не ответила; " + "; ".join(errors))
+
+    async def _read_board(self, start: int, segmented: bool) -> list[int]:
+        if not segmented:
+            return await self.exchange(
+                lambda client: client.read_registers(start, 8, self.holding)
+            )
+        registers: list[int] = []
+        for offset in range(8):
+            registers.extend(await self.exchange(
+                lambda client, address=start + offset: client.read_registers(address, 1, self.holding)
+            ))
+        return registers
 
     def accept_registers(self, registers: list[int]) -> None:
         if len(registers) != 8:

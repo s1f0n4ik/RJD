@@ -84,6 +84,79 @@ function ValueCard({ channel, value, now }: { channel: PeripheralChannel; value?
     );
 }
 
+interface LidarPoint {
+    angle_deg: number;
+    distance_mm: number;
+    intensity?: number;
+}
+
+interface LidarScan {
+    source?: string;
+    device_ident?: string;
+    points: LidarPoint[];
+}
+
+const lidarScan = (value: PeripheralValue | undefined): LidarScan | null => {
+    const body = value?.value;
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
+    const raw = (body as Record<string, unknown>).points;
+    if (!Array.isArray(raw)) return null;
+    const points = raw.flatMap(item => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) return [];
+        const point = item as Record<string, unknown>;
+        const angle = Number(point.angle_deg);
+        const distance = Number(point.distance_mm);
+        if (!Number.isFinite(angle) || !Number.isFinite(distance) || distance <= 0) return [];
+        return [{ angle_deg: angle, distance_mm: distance, intensity: Number(point.intensity) || 0 }];
+    });
+    return {
+        source: typeof body.source === 'string' ? body.source : undefined,
+        device_ident: typeof body.device_ident === 'string' ? body.device_ident : undefined,
+        points,
+    };
+};
+
+function LidarScanCard({ channel, value, now }: { channel: PeripheralChannel; value?: PeripheralValue; now: number }) {
+    const scan = lidarScan(value);
+    const age = value ? now - new Date(value.captured_at).getTime() : Number.POSITIVE_INFINITY;
+    const stale = age > VALUE_STALE_MS;
+    const maxDistance = Math.max(1000, ...(scan?.points.map(point => point.distance_mm) ?? []));
+    const scale = Math.ceil(maxDistance / 1000) * 1000;
+    const path = scan?.points.map((point, index) => {
+        const angle = point.angle_deg * Math.PI / 180;
+        const radius = point.distance_mm / scale;
+        const x = radius * Math.cos(angle);
+        const y = radius * Math.sin(angle);
+        return `${index ? 'L' : 'M'}${x.toFixed(4)} ${y.toFixed(4)}`;
+    }).join(' ') ?? '';
+
+    return (
+        <div className={`kgf-scan${stale ? ' is-stale' : ''}`}>
+            <div className="kgf-scan-head">
+                <div>
+                    <span className="kgf-value-name">{channel.name}</span>
+                    <b>{scan ? scan.points.length.toLocaleString('ru-RU') : '—'} <small>точек</small></b>
+                </div>
+                <div className="kgf-scan-meta">
+                    <span>{scan?.device_ident ?? scan?.source ?? 'нет данных'}</span>
+                    <span>{value ? `${formatTime(value.captured_at)} · #${value.sequence}` : 'ожидание скана'}</span>
+                </div>
+            </div>
+            <div className="kgf-scan-plot">
+                <svg viewBox="-1.08 -1.08 2.16 2.16" role="img" aria-label="Скан LiDAR, вид сверху">
+                    <g className="kgf-scan-grid">
+                        <circle r="1" /><circle r=".75" /><circle r=".5" /><circle r=".25" />
+                        <path d="M-1 0H1M0-1V1" />
+                    </g>
+                    {path && <path className="kgf-scan-line" d={path} />}
+                    <path className="kgf-scan-origin" d="M-.035 .035L0-.055L.035 .035Z" />
+                </svg>
+                <span className="kgf-scan-scale">радиус до {(scale / 1000).toLocaleString('ru-RU')} м</span>
+            </div>
+        </div>
+    );
+}
+
 function DeviceCard({ device, values, now }: { device: PeripheralDevice; values: Map<string, PeripheralValue>; now: number }) {
     const tone = stateTone(device);
     return (
@@ -104,7 +177,9 @@ function DeviceCard({ device, values, now }: { device: PeripheralDevice; values:
             )}
             <div className="kgf-values">
                 {device.channels.map(channel => (
-                    <ValueCard key={channel.id} channel={channel} value={values.get(channel.id)} now={now} />
+                    channel.type === 'scan'
+                        ? <LidarScanCard key={channel.id} channel={channel} value={values.get(channel.id)} now={now} />
+                        : <ValueCard key={channel.id} channel={channel} value={values.get(channel.id)} now={now} />
                 ))}
             </div>
         </article>

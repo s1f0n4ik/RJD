@@ -24,7 +24,7 @@ export interface PeripheralChannel {
     id: string;
     name: string;
     unit: string;
-    type: 'number' | 'boolean' | 'array' | string;
+    type: 'number' | 'boolean' | 'array' | 'scan' | string;
     frequency_hz: number;
 }
 
