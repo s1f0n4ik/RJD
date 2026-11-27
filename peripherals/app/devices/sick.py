@@ -8,6 +8,7 @@ from typing import Any
 
 from app.models import ChannelDescriptor, ChannelType, ChannelValue, DeviceState
 from app.registry import DeviceDriver
+from app.devices.scan_profile import enrich_scan
 
 
 def _signed_hex(value: str, bits: int = 32) -> int:
@@ -195,6 +196,7 @@ class SickColaADriver(DeviceDriver):
                         raise ConnectionError("соединение закрыто прибором")
                     for scan in parser.feed(chunk):
                         scan["device_ident"] = parser.device_ident
+                        enrich_scan(scan, self.config)
                         self.publish(ChannelValue(device_id=self.device_id, channel_id="scan", value=scan))
                         self.record_success()
                         self.state = DeviceState.RUNNING

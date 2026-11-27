@@ -20,7 +20,9 @@
 .kgf-kpi.is-acc{border-color:var(--acc-edge)}
 .kgf-kpi.is-acc>b{color:var(--acc)}
 
-.kgf-devices{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(520px,100%),1fr));gap:16px;align-items:start}
+.kgf-devices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start}
+.kgf-devices.is-single{grid-template-columns:minmax(0,1fr)}
+.kgf-device-column{min-width:0;display:flex;flex-direction:column;gap:16px}
 .kgf-device{min-width:0;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel);box-shadow:var(--shadow);overflow:hidden}
 .kgf-device.is-ok{border-color:color-mix(in srgb,var(--ok-edge) 75%,var(--line))}
 .kgf-device.is-err{border-color:var(--err-edge)}
@@ -61,19 +63,34 @@
 .kgf-scan-head b small{font-family:inherit;font-size:11px;font-weight:400;color:var(--fg-3)}
 .kgf-scan-meta{min-width:0;display:flex;flex-direction:column;align-items:flex-end;gap:3px;font-family:var(--mono);font-size:9.5px;color:var(--fg-3)}
 .kgf-scan-meta span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kgf-scan-controls{display:inline-flex;margin:0 0 10px;padding:2px;border:1px solid var(--line);border-radius:6px;background:var(--surface)}
+.kgf-scan-controls button{min-height:25px;padding:3px 10px;border:0;border-radius:4px;background:transparent;color:var(--fg-3);font-size:10.5px;cursor:pointer}
+.kgf-scan-controls button.is-active{background:var(--panel-2);color:var(--fg);box-shadow:inset 0 0 0 1px var(--line-hi)}
 .kgf-scan-metrics{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:1px;margin:0 0 10px;background:var(--line);border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden}
 .kgf-scan-metrics>div{min-width:0;padding:9px 10px;background:var(--surface);display:flex;flex-direction:column;gap:4px}
 .kgf-scan-metrics span{font-size:9.5px;color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .kgf-scan-metrics b{font-family:var(--mono);font-size:16px;font-weight:650;font-variant-numeric:tabular-nums;white-space:nowrap}
+.kgf-scan-metrics b.is-ok{color:var(--ok)}
+.kgf-scan-metrics b.is-warn{color:var(--warn)}
 .kgf-scan-metrics small{font-size:9.5px;font-weight:400;color:var(--fg-3)}
 .kgf-scan-plot{position:relative;height:280px;overflow:hidden;border:1px solid var(--line);border-radius:var(--r-md);background:radial-gradient(circle at center,color-mix(in srgb,var(--acc) 5%,#091116),#080d12 72%)}
 .kgf-scan-plot svg{display:block;width:100%;height:100%;transform:rotate(-90deg)}
+.kgf-scan-plot.is-profile svg{transform:none}
 .kgf-scan-grid{fill:none;stroke:color-mix(in srgb,var(--fg-3) 46%,transparent);stroke-width:1}
 .kgf-scan-grid>*{vector-effect:non-scaling-stroke}
 .kgf-scan-line{fill:none;stroke:#4edfff;stroke-width:1.25;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke;opacity:.38}
 .kgf-scan-points{fill:none;stroke:#6ff4ff;stroke-width:3.2;stroke-linecap:round;vector-effect:non-scaling-stroke;filter:drop-shadow(0 0 3px rgba(62,226,255,.9))}
 .kgf-scan-origin{fill:var(--fg-2)}
 .kgf-scan-scale{position:absolute;right:9px;bottom:7px;padding:3px 6px;border:1px solid var(--line);border-radius:4px;background:color-mix(in srgb,var(--surface) 88%,transparent);font-family:var(--mono);font-size:9px;color:var(--fg-3)}
+.kgf-profile-grid{fill:none;stroke:color-mix(in srgb,var(--fg-3) 28%,transparent);stroke-width:1;stroke-dasharray:3 4}
+.kgf-profile-grid>*{vector-effect:non-scaling-stroke}
+.kgf-profile-sleeper{fill:none;stroke:var(--fg-2);stroke-width:7;stroke-linecap:round;vector-effect:non-scaling-stroke}
+.kgf-profile-expected{fill:none;stroke:var(--warn);stroke-width:1.2;stroke-dasharray:5 4;vector-effect:non-scaling-stroke;opacity:.8}
+.kgf-profile-measured{fill:none;stroke:var(--ok);stroke-width:3;vector-effect:non-scaling-stroke}
+.kgf-profile-measured.is-err{stroke:var(--err)}
+.kgf-profile-axis{position:absolute;bottom:7px;font-family:var(--mono);font-size:9px;color:var(--fg-3)}
+.kgf-profile-axis.is-left{left:9px}.kgf-profile-axis.is-center{left:50%;transform:translateX(-50%)}.kgf-profile-axis.is-right{right:9px}
+.kgf-profile-warning{position:absolute;left:50%;top:9px;transform:translateX(-50%);max-width:calc(100% - 18px);padding:4px 8px;border:1px solid var(--warn-edge);border-radius:4px;background:color-mix(in srgb,var(--surface) 90%,transparent);color:var(--warn);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 .kgf-empty{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
 .kgf-empty .skel{height:220px;border-radius:var(--r-lg)}

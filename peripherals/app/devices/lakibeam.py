@@ -10,6 +10,7 @@ from typing import Any
 
 from app.models import ChannelDescriptor, ChannelType, ChannelValue, DeviceState
 from app.registry import DeviceDriver
+from app.devices.scan_profile import enrich_scan
 
 DATAGRAM_SIZE = 1206
 BLOCKS_PER_DATAGRAM = 12
@@ -158,6 +159,7 @@ class LakiBeamDriver(DeviceDriver):
             transport.close()
 
     def _publish_scan(self, scan: dict[str, Any]) -> None:
+        enrich_scan(scan, self.config)
         self.record_success()
         self.state = DeviceState.RUNNING
         self.message = None

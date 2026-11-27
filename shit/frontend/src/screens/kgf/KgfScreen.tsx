@@ -143,6 +143,22 @@ interface LidarScan {
     source?: string;
     device_ident?: string;
     points: LidarPoint[];
+    profile?: LidarProfile;
+}
+
+interface LidarProfile {
+    calibrated: boolean;
+    points: [number, number][];
+    half_width_m: number;
+    floor_m: number;
+    ceiling_m: number;
+    sleeper_length_m: number;
+    expected_left_m: number;
+    expected_right_m: number;
+    left_m: number | null;
+    right_m: number | null;
+    left_violation: boolean;
+    right_violation: boolean;
 }
 
 const median = (values: number[]) => {
@@ -183,10 +199,38 @@ const lidarScan = (value: PeripheralValue | undefined): LidarScan | null => {
         if (!Number.isFinite(angle) || !Number.isFinite(distance) || distance <= 0) return [];
         return [{ angle_deg: angle, distance_mm: distance, intensity: Number(point.intensity) || 0 }];
     });
+    const profileBody = (body as Record<string, unknown>).profile;
+    let profile: LidarProfile | undefined;
+    if (profileBody && typeof profileBody === 'object' && !Array.isArray(profileBody)) {
+        const source = profileBody as Record<string, unknown>;
+        const left = Number(source.left_m);
+        const right = Number(source.right_m);
+        const profilePoints = Array.isArray(source.points) ? source.points.flatMap(item => {
+            if (!Array.isArray(item) || item.length < 2) return [];
+            const x = Number(item[0]);
+            const y = Number(item[1]);
+            return Number.isFinite(x) && Number.isFinite(y) ? [[x, y] as [number, number]] : [];
+        }) : [];
+        profile = {
+            calibrated: source.calibrated === true,
+            points: profilePoints,
+            half_width_m: Number(source.half_width_m) || 3,
+            floor_m: Number(source.floor_m) || -1,
+            ceiling_m: Number(source.ceiling_m) || .5,
+            sleeper_length_m: Number(source.sleeper_length_m) || 2.7,
+            expected_left_m: Number(source.expected_left_m) || 1.9,
+            expected_right_m: Number(source.expected_right_m) || 1.9,
+            left_m: source.left_m == null || !Number.isFinite(left) ? null : left,
+            right_m: source.right_m == null || !Number.isFinite(right) ? null : right,
+            left_violation: source.left_violation === true,
+            right_violation: source.right_violation === true,
+        };
+    }
     return {
         source: typeof body.source === 'string' ? body.source : undefined,
         device_ident: typeof body.device_ident === 'string' ? body.device_ident : undefined,
         points,
+        profile,
     };
 };
 
@@ -198,6 +242,7 @@ function LidarScanCard({ deviceId, channel, value, now }: {
 }) {
     const [liveValue, setLiveValue] = useState<PeripheralValue | undefined>(value);
     const [frameRate, setFrameRate] = useState(0);
+    const [view, setView] = useState<'profile' | 'raw'>('profile');
     const arrivals = useRef<number[]>([]);
     const pending = useRef<PeripheralValue | null>(null);
     const animation = useRef<number | null>(null);
@@ -264,6 +309,18 @@ function LidarScanCard({ deviceId, channel, value, now }: {
     const leftDistance = sectorDistance(scan?.points ?? [], -45, -10);
     const rightDistance = sectorDistance(scan?.points ?? [], 10, 45);
     const nearestDistance = nearestStableDistance(scan?.points ?? []);
+    const profile = scan?.profile;
+    const profileHeight = Math.max(.1, (profile?.ceiling_m ?? .5) - (profile?.floor_m ?? -1));
+    const profileCoordinates = profile?.points.map(([x, y]) => {
+        const px = x / profile.half_width_m;
+        const py = -1 + 2 * (profile.ceiling_m - y) / profileHeight;
+        return `${px.toFixed(4)} ${py.toFixed(4)}`;
+    }) ?? [];
+    const profilePath = profileCoordinates.map((point, index) => `${index ? 'L' : 'M'}${point}`).join(' ');
+    const profileCloud = profileCoordinates.map(point => `M${point}h.0001`).join(' ');
+    const sleeperHalf = (profile?.sleeper_length_m ?? 2.7) / 2 / (profile?.half_width_m ?? 3);
+    const expectedLeft = -(profile?.expected_left_m ?? 1.9) / (profile?.half_width_m ?? 3);
+    const expectedRight = (profile?.expected_right_m ?? 1.9) / (profile?.half_width_m ?? 3);
 
     return (
         <div className={`kgf-scan${stale ? ' is-stale' : ''}`}>
@@ -277,25 +334,57 @@ function LidarScanCard({ deviceId, channel, value, now }: {
                     <span>{liveValue ? `${formatTime(liveValue.captured_at)} · #${liveValue.sequence}` : 'ожидание скана'}</span>
                 </div>
             </div>
-            <div className="kgf-scan-metrics">
-                <div><span>По оси</span><b>{formatDistance(centerDistance)} <small>м</small></b></div>
-                <div><span>Ближайшая цель ±60°</span><b>{formatDistance(nearestDistance)} <small>м</small></b></div>
-                <div><span>Слева 10–45°</span><b>{formatDistance(leftDistance)} <small>м</small></b></div>
-                <div><span>Справа 10–45°</span><b>{formatDistance(rightDistance)} <small>м</small></b></div>
-                <div><span>Частота / возраст</span><b>{frameRate ? frameRate.toFixed(1) : '—'} <small>Гц · {Number.isFinite(age) ? `${Math.max(0, Math.round(age))} мс` : '—'}</small></b></div>
+            <div className="kgf-scan-controls">
+                <button className={view === 'profile' ? 'is-active' : ''} onClick={() => setView('profile')}>Профиль пути</button>
+                <button className={view === 'raw' ? 'is-active' : ''} onClick={() => setView('raw')}>Сырые данные</button>
             </div>
-            <div className="kgf-scan-plot">
-                <svg viewBox="-1.08 -1.08 2.16 2.16" role="img" aria-label="Скан LiDAR, вид сверху">
-                    <g className="kgf-scan-grid">
-                        <circle r="1" /><circle r=".75" /><circle r=".5" /><circle r=".25" />
-                        <path d="M-1 0H1M0-1V1" />
-                    </g>
-                    {path && <path className="kgf-scan-line" d={path} />}
-                    {pointCloud && <path className="kgf-scan-points" d={pointCloud} />}
-                    <path className="kgf-scan-origin" d="M-.035 -.035L0 .055L.035 -.035Z" />
-                </svg>
-                <span className="kgf-scan-scale">радиус до {(scale / 1000).toLocaleString('ru-RU')} м</span>
-            </div>
+            {view === 'profile' ? <>
+                <div className="kgf-scan-metrics">
+                    <div><span>Левое плечо</span><b>{formatDistance(profile?.left_m == null ? null : profile.left_m * 1000)} <small>м</small></b></div>
+                    <div><span>Правое плечо</span><b>{formatDistance(profile?.right_m == null ? null : profile.right_m * 1000)} <small>м</small></b></div>
+                    <div><span>Норма слева / справа</span><b>{profile ? `${profile.expected_left_m.toFixed(2)} / ${profile.expected_right_m.toFixed(2)}` : '—'} <small>м</small></b></div>
+                    <div><span>Калибровка</span><b className={profile?.calibrated ? 'is-ok' : 'is-warn'}>{profile?.calibrated ? 'готова' : 'требуется'}</b></div>
+                    <div><span>Частота / возраст</span><b>{frameRate ? frameRate.toFixed(1) : '—'} <small>Гц · {Number.isFinite(age) ? `${Math.max(0, Math.round(age))} мс` : '—'}</small></b></div>
+                </div>
+                <div className="kgf-scan-plot is-profile">
+                    <svg viewBox="-1.08 -1.08 2.16 2.16" role="img" aria-label="Поперечный профиль пути по данным LiDAR">
+                        <g className="kgf-profile-grid">
+                            <path d="M-1 0H1M0-1V1" />
+                            <path d="M-.5-1V1M.5-1V1M-1-.5H1M-1 .5H1" />
+                        </g>
+                        <path className="kgf-profile-sleeper" d={`M${-sleeperHalf} 0H${sleeperHalf}`} />
+                        <path className="kgf-profile-expected" d={`M${expectedLeft}-1V1M${expectedRight}-1V1`} />
+                        {profile?.left_m != null && <path className={profile.left_violation ? 'kgf-profile-measured is-err' : 'kgf-profile-measured'} d={`M${-profile.left_m / profile.half_width_m}-.12V.12`} />}
+                        {profile?.right_m != null && <path className={profile.right_violation ? 'kgf-profile-measured is-err' : 'kgf-profile-measured'} d={`M${profile.right_m / profile.half_width_m}-.12V.12`} />}
+                        {profilePath && <path className="kgf-scan-line" d={profilePath} />}
+                        {profileCloud && <path className="kgf-scan-points" d={profileCloud} />}
+                    </svg>
+                    <span className="kgf-profile-axis is-left">−{profile?.half_width_m ?? 3} м</span>
+                    <span className="kgf-profile-axis is-center">ось пути</span>
+                    <span className="kgf-profile-axis is-right">+{profile?.half_width_m ?? 3} м</span>
+                    {!profile?.calibrated && <span className="kgf-profile-warning">Черновой профиль — задайте высоту и угол установки LiDAR</span>}
+                </div>
+            </> : <>
+                <div className="kgf-scan-metrics">
+                    <div><span>По оси</span><b>{formatDistance(centerDistance)} <small>м</small></b></div>
+                    <div><span>Ближайшая цель ±60°</span><b>{formatDistance(nearestDistance)} <small>м</small></b></div>
+                    <div><span>Слева 10–45°</span><b>{formatDistance(leftDistance)} <small>м</small></b></div>
+                    <div><span>Справа 10–45°</span><b>{formatDistance(rightDistance)} <small>м</small></b></div>
+                    <div><span>Частота / возраст</span><b>{frameRate ? frameRate.toFixed(1) : '—'} <small>Гц · {Number.isFinite(age) ? `${Math.max(0, Math.round(age))} мс` : '—'}</small></b></div>
+                </div>
+                <div className="kgf-scan-plot">
+                    <svg viewBox="-1.08 -1.08 2.16 2.16" role="img" aria-label="Скан LiDAR, вид сверху">
+                        <g className="kgf-scan-grid">
+                            <circle r="1" /><circle r=".75" /><circle r=".5" /><circle r=".25" />
+                            <path d="M-1 0H1M0-1V1" />
+                        </g>
+                        {path && <path className="kgf-scan-line" d={path} />}
+                        {pointCloud && <path className="kgf-scan-points" d={pointCloud} />}
+                        <path className="kgf-scan-origin" d="M-.035 -.035L0 .055L.035 -.035Z" />
+                    </svg>
+                    <span className="kgf-scan-scale">радиус до {(scale / 1000).toLocaleString('ru-RU')} м</span>
+                </div>
+            </>}
         </div>
     );
 }
@@ -388,6 +477,9 @@ export default function KgfScreen() {
     }, [snapshot]);
 
     const devices = snapshot?.status.devices ?? [];
+    const lidarDevices = devices.filter(device => device.channels.some(channel => channel.type === 'scan'));
+    const otherDevices = devices.filter(device => !device.channels.some(channel => channel.type === 'scan'));
+    const deviceGroups = lidarDevices.length && otherDevices.length ? [otherDevices, lidarDevices] : [devices];
     const errors = devices.filter(device => stateTone(device) === 'err').length;
     const liveValues = (snapshot?.values ?? []).filter(value => now - new Date(value.captured_at).getTime() <= VALUE_STALE_MS).length;
     const runtime = snapshot?.status.runtime;
@@ -451,9 +543,13 @@ export default function KgfScreen() {
                         <span>Активируйте профиль КГФ или добавьте периферийные устройства в паспорт машины.</span>
                     </div>
                 ) : (
-                    <div className="kgf-devices">
-                        {devices.map(device => (
-                            <DeviceCard key={device.id} device={device} values={deviceValues.get(device.id) ?? new Map()} now={now} />
+                    <div className={`kgf-devices${deviceGroups.length === 1 ? ' is-single' : ''}`}>
+                        {deviceGroups.map((group, index) => (
+                            <div className="kgf-device-column" key={index}>
+                                {group.map(device => (
+                                    <DeviceCard key={device.id} device={device} values={deviceValues.get(device.id) ?? new Map()} now={now} />
+                                ))}
+                            </div>
                         ))}
                     </div>
                 )}
