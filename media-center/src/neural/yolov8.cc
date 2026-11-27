@@ -22,6 +22,7 @@
 #include "neural/yolov8.h"
 #include "neural/common.h"
 #include "neural/file-utils.h"
+#include "neural/model-package.h"
 #include "neural/image-utils.h"
 
 namespace varan {
@@ -41,7 +42,7 @@ namespace neural {
         rknn_context ctx = 0;
 
         // load_model возвращает std::vector<uint8_t>. Память освобождается автоматически.
-        std::vector<uint8_t> model = load_model(model_path);
+        std::vector<uint8_t> model = load_model_weights(model_path);
         if (model.empty()) {
             std::cerr << "init_yolov8_model(): load_model failed for " << model_path << std::endl;
             return -1;

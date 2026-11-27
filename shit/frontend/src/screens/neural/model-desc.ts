@@ -1,4 +1,4 @@
-import type { ModelDesc, ZoneDef } from '../../features/neural/api/types';
+import type { ModelDesc, ModelPackage, ZoneDef } from '../../features/neural/api/types';
 
 // Подписи описания модели и каталога зон для экранов техзрения
 
@@ -12,13 +12,24 @@ export const plural = (n: number, one: string, few: string, many: string) => {
 export const modelSize = (m: ModelDesc) => `${m.input_width}×${m.input_height}`;
 export const modelQuant = (m: ModelDesc) => (m.quantized ? 'int8' : 'fp16');
 export const modelTask = (m: ModelDesc) => (m.layout.endsWith('_SEG') ? 'сегментация' : 'детекция');
-export const modelStem = (m: ModelDesc) => m.file.replace(/\.rknn$/i, '');
+export const modelStem = (m: ModelDesc) => m.file.replace(/\.(rknn|rjdm)$/i, '');
 export const modelClasses = (n: number) => `${n} ${plural(n, 'класс', 'класса', 'классов')}`;
 export const modelMb = (m: ModelDesc) => `${(m.weight_bytes / (1 << 20)).toFixed(1).replace('.', ',')} МБ`;
 
 /** Описание относится к выбранному файлу модели */
 export const modelOf = (m: ModelDesc | null | undefined, modelPath: string): ModelDesc | null =>
     m && m.file === (modelPath.split('/').pop() ?? '') ? m : null;
+
+/** Описание из манифеста в виде описания устройства: до сохранения конфигурации устройство модель не читало */
+export const modelOfPackage = (p: ModelPackage, modelPath: string): ModelDesc => ({
+    file: modelPath.split('/').pop() ?? '',
+    input_width: p.input_width,
+    input_height: p.input_height,
+    class_count: p.class_count,
+    layout: p.output_layout.toUpperCase(),
+    quantized: p.quantized,
+    weight_bytes: p.weight_bytes,
+});
 
 export const zoneCount = (n: number) => (n ? `${n} ${plural(n, 'зона', 'зоны', 'зон')}` : 'зон нет');
 

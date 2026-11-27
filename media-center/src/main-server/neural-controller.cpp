@@ -525,7 +525,7 @@ UNeuralController::get_models(const http::request<http::string_body>& req) {
             std::vector<fs::directory_entry> entries;
             for (const auto& entry : fs::directory_iterator(model_dir)) {
                 if (entry.is_regular_file() &&
-                    entry.path().extension() == ".rknn")
+                    (entry.path().extension() == ".rknn" || entry.path().extension() == ".rjdm"))
                 {
                     entries.push_back(entry);
                 }
