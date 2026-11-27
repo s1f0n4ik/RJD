@@ -63,6 +63,7 @@ export const NAV: NavItem[] = [
         sub: SURROUND_SECTIONS.map((s, i) => ({ to: `/surround/${s.id}`, label: s.label, n: String(i + 1).padStart(2, '0') })),
     },
     { to: '/krsps',    label: 'АС КРСПС',            icon: 'gate',  group: 'Модули', desc: 'Шлюз сообщений: модули доставки, время и GPS', admin: true },
+    { to: '/kgf',      label: 'Периферия КГФ',       icon: 'tune',  group: 'Модули', desc: 'Пирометры, дискретные входы и LiDAR' },
 ];
 
 // Крошки верхней планки: раздел и, при необходимости, шаг внутри него
@@ -72,6 +73,7 @@ export const CRUMBS: Record<string, string[]> = {
     '/live': ['Отображение', 'Редактор сеток'],
     '/archive': ['Архив'],
     '/devices': ['Устройства'],
+    '/kgf': ['Периферия КГФ'],
     '/configurations': ['Конфигурации'],
 };
 

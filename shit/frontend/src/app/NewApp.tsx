@@ -16,6 +16,7 @@ import ConfigurationsScreen from '../screens/configurations/ConfigurationsScreen
 import SettingsScreen from '../screens/settings/SettingsScreen';
 import SurroundScreen from '../screens/surround/SurroundScreen';
 import NeuralScreen from '../screens/neural/NeuralScreen';
+import KgfScreen from '../screens/kgf/KgfScreen';
 import { LoginScreen } from '../screens/login/LoginScreen';
 import { readStoredToken } from '../utils/auth';
 import { MobileShell } from '../mobile/MobileShell';
@@ -92,6 +93,7 @@ export default function NewApp() {
                         <Route path="settings/:section" element={<SettingsScreen />} />
                         <Route path="krsps" element={<KrspsScreen />} />
                         <Route path="krsps/:section" element={<KrspsScreen />} />
+                        <Route path="kgf" element={<KgfScreen />} />
                         <Route path="surround" element={<SurroundScreen />} />
                         <Route path="surround/:section" element={<SurroundScreen />} />
                         <Route path="birdview/*" element={<BirdviewRedirect />} />

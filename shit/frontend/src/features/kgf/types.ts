@@ -1,0 +1,58 @@
+export type PeripheralState = 'stopped' | 'starting' | 'running' | 'error' | string;
+
+export interface PeripheralRuntime {
+    transition_id: string;
+    state: string;
+    revision: string;
+    modules: string[];
+}
+
+export interface GatewayTime {
+    unix_ms: number;
+    lat: number;
+    lon: number;
+    alt: number;
+    gps_valid: boolean;
+    tz_offset_min: number;
+    can_time: boolean;
+    ntp_time: boolean;
+    trip: boolean | null;
+    updated_at: string | null;
+}
+
+export interface PeripheralChannel {
+    id: string;
+    name: string;
+    unit: string;
+    type: 'number' | 'boolean' | 'array' | string;
+    frequency_hz: number;
+}
+
+export interface PeripheralDevice {
+    id: string;
+    kind: string;
+    name: string;
+    state: PeripheralState;
+    message: string | null;
+    channels: PeripheralChannel[];
+}
+
+export interface PeripheralValue {
+    device_id: string;
+    channel_id: string;
+    value: number | boolean | string | number[] | Record<string, unknown> | null;
+    captured_at: string;
+    sequence: number;
+}
+
+export interface PeripheralStatus {
+    service: string;
+    runtime: PeripheralRuntime;
+    gateway_time: GatewayTime;
+    devices: PeripheralDevice[];
+}
+
+export interface PeripheralSnapshot {
+    status: PeripheralStatus;
+    values: PeripheralValue[];
+}
